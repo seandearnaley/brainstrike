@@ -1,3 +1,4 @@
+import type { LanguageModelV2FunctionTool, LanguageModelV2ToolResultPart } from '@ai-sdk/provider';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalLanguageModel, LocalLanguageModel } from '../local-language-model';
 import type { LocalLlmGenerationResult } from '../types';
@@ -147,12 +148,13 @@ describe('LocalLanguageModel', () => {
           { content: [{ text: 'What time is it?', type: 'text' as const }], role: 'user' as const },
           {
             content: [
+              // Legacy prompt dialect: bare `result` instead of V2 `output`.
               {
                 result: { time: '12:00' },
                 toolCallId: 'call-123',
                 toolName: 'get_time',
                 type: 'tool-result' as const,
-              },
+              } as unknown as LanguageModelV2ToolResultPart,
             ],
             role: 'tool' as const,
           },
@@ -208,7 +210,7 @@ describe('LocalLanguageModel', () => {
             description: 'Get current time',
             inputSchema: {
               properties: {
-                timezone: { type: 'string' },
+                timezone: { type: 'string' as const },
               },
               type: 'object' as const,
             },
@@ -227,7 +229,7 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
         tools: [
-          { type: 'other' as const } as unknown as { type: 'function'; name: string },
+          { type: 'other' as const } as unknown as LanguageModelV2FunctionTool,
           {
             description: 'Test',
             inputSchema: { properties: {}, type: 'object' as const },
@@ -495,12 +497,13 @@ describe('LocalLanguageModel', () => {
         prompt: [
           {
             content: [
+              // Legacy prompt dialect: bare `result` instead of V2 `output`.
               {
                 result: 'string result',
                 toolCallId: 'call-1',
                 toolName: 'test',
                 type: 'tool-result' as const,
-              },
+              } as unknown as LanguageModelV2ToolResultPart,
             ],
             role: 'tool' as const,
           },
@@ -517,12 +520,13 @@ describe('LocalLanguageModel', () => {
         prompt: [
           {
             content: [
+              // Legacy prompt dialect: bare `result` instead of V2 `output`.
               {
                 result: { data: 'value' },
                 toolCallId: 'call-1',
                 toolName: 'test',
                 type: 'tool-result' as const,
-              },
+              } as unknown as LanguageModelV2ToolResultPart,
             ],
             role: 'tool' as const,
           },
@@ -538,7 +542,7 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            content: [{ data: 'value', type: 'other' } as unknown as { type: 'tool-result' }],
+            content: [{ data: 'value', type: 'other' } as unknown as LanguageModelV2ToolResultPart],
             role: 'tool' as const,
           },
         ],
@@ -558,7 +562,7 @@ describe('LocalLanguageModel', () => {
                 result: 'result',
                 toolName: 'test',
                 type: 'tool-result' as const,
-              } as unknown as { type: 'tool-result'; toolCallId: string },
+              } as unknown as LanguageModelV2ToolResultPart,
             ],
             role: 'tool' as const,
           },

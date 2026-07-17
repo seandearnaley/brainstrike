@@ -97,10 +97,8 @@ describe('createPersonaPinnedModelResolver', () => {
 
   it('throws when called for an un-pinned persona (contract misuse, not a fallback)', () => {
     const { resolver } = makeResolver({});
-    const unpinned: AssistantPersonaDefinition = {
-      ...personaWithPin('anthropic'),
-      model: undefined,
-    };
+    // exactOptionalPropertyTypes: omit `model` rather than assigning undefined.
+    const { model: _model, ...unpinned } = personaWithPin('anthropic');
     expect(() => resolver(unpinned)).toThrow(/pin/i);
   });
 });

@@ -10,6 +10,7 @@ import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shel
 import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
+import { createSkillsSettingsCategory } from '@brainstrike/preferences/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/preferences/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
@@ -352,6 +353,7 @@ export default function SettingsPageContent() {
       }),
       createPermissionSettingsCategory(),
       createSubagentPersonasSettingsCategory(),
+      createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
       createNotificationSettingsCategory(),

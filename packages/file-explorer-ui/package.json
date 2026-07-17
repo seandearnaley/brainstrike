@@ -85,7 +85,8 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run",
+    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --config vitest.integration.config.mts",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

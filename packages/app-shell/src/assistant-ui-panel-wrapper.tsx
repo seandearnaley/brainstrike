@@ -30,6 +30,10 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import {
+  buildSkillsContextRequest,
+  useSkillsPreferencesStore,
+} from '@brainstrike/preferences/stores/skills-preferences-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
 import type {
@@ -93,10 +97,11 @@ import {
   type LocalRuntimeProviderId,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
+  resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
+  resolveProviderFromComposite,
   resolveProviderModelSelection,
-  type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -104,6 +109,7 @@ import {
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
+import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
@@ -133,18 +139,6 @@ declare global {
         }
       | undefined;
   }
-}
-
-// App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
-function resolveProviderFromComposite(
-  composite: string | null | undefined
-): SupportedProvider | null {
-  if (!composite) {
-    return null;
-  }
-  const parts = composite.split('::');
-  const candidate = parts.length === 2 ? parts[0] : null;
-  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function hasDesktopRuntimeBridge(): boolean {
@@ -367,31 +361,25 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
-  // Resolve the selected model's budget definition from the runtime model list.
+  // Resolve the selected model's definition from the runtime model list.
   // Using the runtime list (not getLlmModelDefinition) covers both static registry
   // models AND dynamically-discovered ollama/lmstudio models, which have a conservative
-  // contextWindow floor set by toRuntimeProviderModels.
-  const selectedModelBudgetDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
+  // contextWindow floor set by toRuntimeProviderModels. Feeds the token budget
+  // and the composer attachment (vision) gate.
+  const selectedLlmModelDef = useMemo<LlmProviderModelDefinition | undefined>(() => {
     if (!(selectedProvider && resolvedModelName)) {
       return;
     }
-    const modelDef = getProviderLlmModels(selectedProvider).find(
+    return getProviderLlmModels(selectedProvider).find(
       (m: LlmProviderModelDefinition) => m.id === resolvedModelName
     );
-    if (!modelDef) {
-      return;
-    }
-    return {
-      contextWindow: modelDef.contextWindow,
-      ...(modelDef.maxOutputTokens === undefined
-        ? {}
-        : { maxOutputTokens: modelDef.maxOutputTokens }),
-    };
   }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
-
   const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
-    [selectedModelBudgetDef, selectedProviderSettings]
+    // LlmProviderModelDefinition structurally satisfies SelectedModelBudgetDef
+    // (contextWindow required, maxOutputTokens optional on both) — no
+    // projection needed.
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef),
+    [selectedLlmModelDef, selectedProviderSettings]
   );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
@@ -841,6 +829,22 @@ export function AssistantUiPanelWrapper({
   // than silently no-opping.
   const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
   const planMode = planModeEnabledPref && planModeAvailable;
+  // Image attachments: every HOSTED provider routes through the data-stream
+  // server path (desktop assistant server AND the web /api/assistant route
+  // share the same image-aware conversion), so only the text-only built-in
+  // local provider is excluded — localChatTransport describes the LOCAL
+  // provider's transport and must not gate hosted providers on web (review
+  // fix). The SELECTED MODEL's vision capability then layers on top: a
+  // vision-less model renders a visibly disabled attach button with the
+  // reason (never a silent hide).
+  const attachmentsAvailability = useMemo(
+    () =>
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: selectedProvider !== 'local',
+        selectedModel: selectedLlmModelDef,
+      }),
+    [selectedProvider, selectedLlmModelDef]
+  );
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
   // Workspace instructions context-file injection (AGENTS.md/AGENT.md/CLAUDE.md).
@@ -870,6 +874,21 @@ export function AssistantUiPanelWrapper({
     workspaceInstructionsMasterEnabled,
     workspaceInstructionsOversizedOptIns,
   ]);
+
+  // Agent Skills preference (desktop data-stream only — the server builds the
+  // skills engine; web has no scan path). A plain-JSON snapshot the server
+  // parses strictly; it can only REDUCE the skill set.
+  const skillsMasterEnabled = useSkillsPreferencesStore((state) => state.masterEnabled);
+  const skillsDisabledKeys = useSkillsPreferencesStore((state) => state.disabledSkillKeys);
+  const skillsPreference = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildSkillsContextRequest({
+      disabledSkillKeys: skillsDisabledKeys,
+      masterEnabled: skillsMasterEnabled,
+    });
+  }, [localChatTransport, skillsDisabledKeys, skillsMasterEnabled]);
 
   useEffect(() => {
     if (!assistantThreadRepository) {
@@ -917,6 +936,7 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectionData,
     semanticRecallSettings,
+    skillsPreference,
     subagentPersonasRequest,
     workspaceIndex,
     workspaceInstructionsPreference,
@@ -1104,31 +1124,14 @@ export function AssistantUiPanelWrapper({
     shouldSkipSelectionReconcile,
   ]);
 
-  const handleModelChange = useCallback(
-    (compositeKey: string) => {
-      const provider = resolveProviderFromComposite(compositeKey);
-      const model = resolveModelNameFromComposite(compositeKey);
-      if (memoryThreadId && provider && model) {
-        // The thread keeps its own runtime, while global preferences remember
-        // the most recently chosen assistant model for the next new thread.
-        setModel(compositeKey);
-        const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
-        const providerSettingsMap =
-          copyProviderSettingsMap(draftProviderSettings) ??
-          (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
-        setThreadDraftRuntime(memoryThreadId, {
-          ...buildDraftRuntimeForProvider({
-            model,
-            provider,
-            providerSettingsMap,
-          }),
-        });
-        return;
-      }
-      setModel(compositeKey);
-    },
-    [draftRuntimeByThreadId, memoryThreadId, providerSettings, setModel, setThreadDraftRuntime]
-  );
+  const handleModelChange = useAssistantModelChange({
+    draftRuntimeByThreadId,
+    memoryThreadId,
+    providerSettings,
+    setModel,
+    setProviderSettings,
+    setThreadDraftRuntime,
+  });
 
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {
@@ -1463,7 +1466,7 @@ export function AssistantUiPanelWrapper({
         <AssistantUiPanel
           {...(composerDraftCommand ? { composerDraftCommand } : {})}
           completePreparedRequest={completePreparedRequest}
-          contextWindow={selectedModelBudgetDef?.contextWindow}
+          contextWindow={selectedLlmModelDef?.contextWindow}
           {...(cumulativeUsage ? { cumulativeUsage } : {})}
           effectiveInputBudget={effectiveInputBudget}
           omSegment={omSegment}
@@ -1507,6 +1510,7 @@ export function AssistantUiPanelWrapper({
                 planModeEnabled: planModeEnabledPref,
               }
             : {})}
+          {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
         />
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>

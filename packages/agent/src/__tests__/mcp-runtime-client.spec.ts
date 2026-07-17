@@ -7,9 +7,16 @@ import {
   MCP_PROGRESS_STREAM_PART_TYPE,
   mapMcpProgressStreamPart,
 } from '../mastra/mcp-runtime-client';
+import type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpRequestOptions,
+} from '../mcp/explicit-http-client';
 
 type ExecutableTool = ToolsInput[string] & {
   execute: (input: unknown, context?: unknown) => Promise<unknown>;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
 };
 
 function requireExecutableTool(tool: ToolsInput[string] | undefined): ExecutableTool {
@@ -190,9 +197,9 @@ describe('MCP runtime client', () => {
     const progressWrites: unknown[] = [];
     const callTool = vi.fn(
       async (
-        _params: unknown,
-        options?: { onprogress?: (progress: unknown) => void }
-      ): Promise<unknown> => {
+        _params: ExplicitHttpMcpCallToolParams,
+        options?: ExplicitHttpMcpRequestOptions
+      ): Promise<ExplicitHttpMcpCallToolResult> => {
         options?.onprogress?.({ message: 'Halfway', progress: 1, total: 2 });
         return {
           content: [{ text: 'fallback text', type: 'text' }],
@@ -248,7 +255,7 @@ describe('MCP runtime client', () => {
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();
     expect(discovered?.errors).toEqual({});
-    const tool = requireExecutableTool(discovered?.toolsets.remote?.echo);
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['echo']);
     expect(tool).toMatchObject({
       description: 'Echo a value',
       id: 'remote_echo',
@@ -411,7 +418,7 @@ describe('MCP runtime client', () => {
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();
     expect(discovered?.errors).toEqual({ broken: 'connection refused' });
-    const tool = requireExecutableTool(discovered?.toolsets.healthy?.fail);
+    const tool = requireExecutableTool(discovered?.toolsets['healthy']?.['fail']);
     await expect(
       tool.execute(
         {},

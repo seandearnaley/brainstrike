@@ -81,6 +81,9 @@ describe('BUILT_IN_PERSONAS', () => {
       'brainstrike.readWorkspaceDirectory',
       'brainstrike.grepSearch',
       'brainstrike.webSearch',
+      // R5: the extract half of the web-retrieval pair — analysis that finds a
+      // result must be able to read the page behind it (still read-risk).
+      'brainstrike.webExtract',
     ]);
   });
 

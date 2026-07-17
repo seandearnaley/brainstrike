@@ -31,6 +31,14 @@
   A forced catalog refresh MUST also force every native `/api/show` lookup so
   `Probe now` cannot reuse stale per-model capabilities after a pull or model
   replacement.
+- Per-model vision: `LocalRuntimeNormalizedModel.capabilities.vision` is
+  tri-state ('supported' | 'unsupported' | 'unknown'). Ollama `/api/show`
+  capabilities and LM Studio's native `type` discriminant ('vlm' vs 'llm')
+  resolve it authoritatively; the name-inferred OpenAI-compat path stays
+  'unknown' — never coerce unknown to unsupported. It rides through
+  `toRuntimeProviderModels` into the picker metadata and the composer
+  attachment gate (see docs/agents/assistant-persistence.md, image
+  attachments).
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
@@ -65,6 +73,12 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenRouter reasoning controls are model-capability-aware when the Models API
+  publishes `reasoning.supported_efforts`. Declare those efforts on the static
+  model definition, filter the picker control to the declared set, and reject
+  incompatible settings at request construction. On an explicit model switch,
+  clear an incompatible provider-wide effort override so the newly selected
+  model uses its documented default; do not map it to a guessed nearest level.
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
@@ -155,9 +169,25 @@ The assistant's search verbs, in the order the default instructions present them
    corpus-dependent; ts_rank-era fixed thresholds do not transfer). `, id` tiebreaks
    keep ordering deterministic (BM25 ties are common). `rankNormalization` is inert.
    RRF fuses rank POSITIONS, so the fusion layer is unchanged.
+4. Web retrieval pair (external service — Tavily via the shared `'tavily'`
+   secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):
+   `brainstrike.webSearch` (snippets; provider-native search swapped in on
+   Anthropic/OpenAI) and `brainstrike.webExtract` (report R5 — reads up to 5
+   PUBLIC pages behind results/user URLs as markdown, Tavily `/extract`; it has
+   NO provider-native swap and must stay Tavily-backed). Both are keyless-
+   HONEST (`available:false` + actionable message, never a throw) and
+   non-fatal on network errors. webExtract additionally validates every
+   model-supplied URL BEFORE anything is sent (http/https only, no embedded
+   credentials, no private/loopback/link-local hosts — IPv4 literal ranges +
+   IPv6 `::1`/`fe80::/10`/`fc00::/7`; public hostnames are NOT DNS-resolved
+   locally since the fetch runs on Tavily's servers, the guard keeps clearly
+   internal URLs from leaving the machine) and reports every refusal per-URL
+   in `failed` — never a silent drop. Content is bounded per page (6000 chars)
+   and overall via `fitItemsToCharBudget`. Hermetic tests:
+   apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
 
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
-Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.
 
 ---

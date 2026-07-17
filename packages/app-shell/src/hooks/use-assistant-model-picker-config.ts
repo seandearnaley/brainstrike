@@ -117,6 +117,7 @@ export function useAssistantModelPickerConfig({
           capabilities: {
             streaming: model.supportsStreaming ?? false,
             type: 'llm',
+            vision: model.vision,
           },
           contextWindow: model.contextWindow,
           description: null,
