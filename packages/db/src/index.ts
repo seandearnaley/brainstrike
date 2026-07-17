@@ -50,8 +50,10 @@ export {
   createDimensionIndex,
   dropDimensionIndex,
   hnswParams,
+  resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
+  withIndexBuildMaintenanceWorkMem,
 } from './migrations/dimension-index-helpers.js';
 export type { Migration } from './migrations/index.js';
 // New migration system
