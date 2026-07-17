@@ -6,6 +6,56 @@ import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 const logger = createLogger('EditCheckpoints');
 
+/** Only these capture states are revertible (contract: workspace-context.md). */
+const REVERTIBLE_CAPTURE_STATUSES = new Set<AssistantEditCheckpointRecord['captureStatus']>([
+  'created',
+  'ok',
+  'rename',
+]);
+
+/**
+ * Derive and record the run's outcome label from the POST-revert journal
+ * (Task Ledger `edit_revert` source): every revertible edit reverted = the
+ * user rejected the run's work outright (`failed`); a partial revert =
+ * `mixed`. Labeling is SECONDARY to the revert itself — a failure here is
+ * logged and never rejects the completed revert (mirrors the non-fatal
+ * checkpoint-capture contract). A later explicit user verdict upserts over
+ * this derived label by design.
+ */
+async function labelRunOutcomeFromJournal(
+  repository: AssistantThreadRepository,
+  runId: string,
+  entries: readonly AssistantEditCheckpointRecord[]
+): Promise<void> {
+  if (!repository.recordRunOutcome) {
+    return;
+  }
+  const runEntries = entries.filter(
+    (entry) => entry.runId === runId && REVERTIBLE_CAPTURE_STATUSES.has(entry.captureStatus)
+  );
+  const anchor = runEntries[0];
+  if (!anchor) {
+    return;
+  }
+  const revertedCount = runEntries.filter((entry) => entry.revertedAt !== null).length;
+  if (revertedCount === 0) {
+    return;
+  }
+  try {
+    await repository.recordRunOutcome({
+      detail: `${revertedCount}/${runEntries.length} edits reverted`,
+      labeledAt: new Date(),
+      resourceId: anchor.resourceId,
+      runId,
+      source: 'edit_revert',
+      threadId: anchor.threadId,
+      verdict: revertedCount === runEntries.length ? 'failed' : 'mixed',
+    });
+  } catch (error) {
+    logger.error('Failed to record revert-derived run outcome', { error, runId });
+  }
+}
+
 export interface EditCheckpointsBinding {
   /**
    * The checkpoint context for the active thread, or `null` when the bridge is
@@ -39,27 +89,33 @@ export function useEditCheckpoints(
   // mid-revert thread switch) can never clobber the fresher entries.
   const generationRef = useRef(0);
 
-  const refetch = useCallback(async (): Promise<void> => {
+  const loadEntries = useCallback(async (): Promise<readonly AssistantEditCheckpointRecord[]> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(repository && threadId)) {
       if (generation === generationRef.current) {
         setEntries([]);
       }
-      return;
+      return [];
     }
     try {
       const next = await repository.listThreadCheckpoints(threadId);
       if (generation === generationRef.current) {
         setEntries(next);
       }
+      return next;
     } catch (error) {
       logger.error('Failed to load edit checkpoints for the active thread', { error });
       if (generation === generationRef.current) {
         setEntries([]);
       }
+      return [];
     }
   }, [repository, threadId]);
+
+  const refetch = useCallback(async (): Promise<void> => {
+    await loadEntries();
+  }, [loadEntries]);
 
   useEffect(() => {
     void refetch();
@@ -81,7 +137,8 @@ export function useEditCheckpoints(
       revertEntry: async (id, options) => {
         const result = await revertEntryBridge(id, options);
         if (result.ok) {
-          await refetch();
+          const fresh = await loadEntries();
+          await labelRunOutcomeFromJournal(repository, result.entry.runId, fresh);
         }
         return result;
       },
@@ -92,7 +149,8 @@ export function useEditCheckpoints(
           // nothing on disk, so the stale list would be identical (and a
           // conflicting entry must stay revertible so "Revert anyway" can force it).
           if (result.outcomes.some((outcome) => outcome.ok)) {
-            await refetch();
+            const fresh = await loadEntries();
+            await labelRunOutcomeFromJournal(repository, runId, fresh);
           }
           return result;
         } catch (error) {
@@ -104,7 +162,7 @@ export function useEditCheckpoints(
         }
       },
     };
-  }, [entries, refetch, repository, revertEntryBridge, revertRunBridge, threadId]);
+  }, [entries, loadEntries, refetch, repository, revertEntryBridge, revertRunBridge, threadId]);
 
   return { checkpoints, refetch };
 }
