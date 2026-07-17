@@ -933,6 +933,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // Same passthrough rationale as EditCheckpointProvider below: the mocked
+  // panel never renders the budget chip, so the guardrail context is never read.
+  BudgetGuardrailProvider: ({ children }: { children: ReactNode }) => children,
   // Passthrough double for the real context provider — these tests render the
   // mocked AssistantUiPanel, so the checkpoint context is never read; the
   // provider just needs to mount its children without error.

@@ -1,3 +1,4 @@
+import { useAssistantBudgetPreferencesStore } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
 import {
   Badge,
   Button,
@@ -46,6 +47,8 @@ interface TaskLedgerPanelViewProps {
   readonly analytics: TaskLedgerAnalyticsViewState;
   readonly ledger: TaskLedgerRunsViewState;
   readonly onRefresh: () => void;
+  /** Per-run cost cap in USD (budget guardrails); null/absent = off. */
+  readonly perRunCapUsd?: number | null | undefined;
 }
 
 const STATUS_BADGE_VARIANTS: Record<
@@ -125,6 +128,27 @@ function runCostLabel(row: RunLedgerRow): string {
   return estimate.available ? `est. ${formatUsdCost(estimate.usdAmount)}` : 'cost unavailable';
 }
 
+/**
+ * Whether a run's exact-or-priced cost EXCEEDS the per-run cap. Display-only
+ * (budget guardrails v1): exact provider-reported cost is authoritative; a
+ * registry-priced estimate is used otherwise. Runs with no usage or an
+ * unpriced model are NEVER flagged — a fabricated number must not accuse a
+ * run of blowing the budget (honest-cost contract).
+ */
+export function isRunOverCap(row: RunLedgerRow, perRunCapUsd: number): boolean {
+  if (row.billedCostUsd !== undefined) {
+    return row.billedCostUsd > perRunCapUsd;
+  }
+  if (row.inputTokens + row.outputTokens === 0) {
+    return false;
+  }
+  const estimate = computeCost(
+    { inputTokens: row.inputTokens, outputTokens: row.outputTokens },
+    resolveModelPricing(row.provider, row.model)
+  );
+  return estimate.available && estimate.usdAmount > perRunCapUsd;
+}
+
 function outcomeChipTitle(row: RunLedgerRow): string {
   const source = row.outcomeSource === null ? 'unknown source' : row.outcomeSource;
   return row.outcomeDetail === null
@@ -137,7 +161,12 @@ function outcomeChipTitle(row: RunLedgerRow): string {
  * stub every honest-cost/error/empty permutation without a live DB (same
  * composition as CostAggregationPanelView).
  */
-export function TaskLedgerPanelView({ analytics, ledger, onRefresh }: TaskLedgerPanelViewProps) {
+export function TaskLedgerPanelView({
+  analytics,
+  ledger,
+  onRefresh,
+  perRunCapUsd,
+}: TaskLedgerPanelViewProps) {
   return (
     <Card>
       <CardHeader>
@@ -169,7 +198,12 @@ export function TaskLedgerPanelView({ analytics, ledger, onRefresh }: TaskLedger
       </CardHeader>
       <CardContent className="space-y-6" data-testid="task-ledger-panel">
         {ledger.available ? (
-          <TaskLedgerSections analytics={analytics} ledger={ledger} onRefresh={onRefresh} />
+          <TaskLedgerSections
+            analytics={analytics}
+            ledger={ledger}
+            onRefresh={onRefresh}
+            perRunCapUsd={perRunCapUsd}
+          />
         ) : (
           <p className="text-muted-foreground text-sm" data-testid="task-ledger-session-only">
             The Task Ledger is persisted on desktop only. On the web app, assistant runs are
@@ -181,7 +215,12 @@ export function TaskLedgerPanelView({ analytics, ledger, onRefresh }: TaskLedger
   );
 }
 
-function TaskLedgerSections({ analytics, ledger, onRefresh }: TaskLedgerPanelViewProps) {
+function TaskLedgerSections({
+  analytics,
+  ledger,
+  onRefresh,
+  perRunCapUsd,
+}: TaskLedgerPanelViewProps) {
   const hasAnalyticsData = analytics.models.length > 0 || analytics.trend.length > 0;
   const hasAnyError = ledger.error !== null || analytics.error !== null;
   const hasAnyData = ledger.rows.length > 0 || hasAnalyticsData;
@@ -217,7 +256,7 @@ function TaskLedgerSections({ analytics, ledger, onRefresh }: TaskLedgerPanelVie
       {ledger.error ? (
         <LedgerErrorBlock error={ledger.error} onRetry={onRefresh} scope="run ledger" />
       ) : (
-        <RunTableSection rows={ledger.rows} />
+        <RunTableSection perRunCapUsd={perRunCapUsd} rows={ledger.rows} />
       )}
     </>
   );
@@ -406,7 +445,13 @@ function ModelComparisonSection({
   );
 }
 
-function RunTableSection({ rows }: { readonly rows: readonly RunLedgerRow[] }) {
+function RunTableSection({
+  perRunCapUsd,
+  rows,
+}: {
+  readonly perRunCapUsd?: number | null | undefined;
+  readonly rows: readonly RunLedgerRow[];
+}) {
   if (rows.length === 0) {
     return null;
   }
@@ -474,6 +519,16 @@ function RunTableSection({ rows }: { readonly rows: readonly RunLedgerRow[] }) {
                 </TableCell>
                 <TableCell className="whitespace-nowrap" data-testid="task-ledger-run-cost">
                   {runCostLabel(row)}
+                  {typeof perRunCapUsd === 'number' && isRunOverCap(row, perRunCapUsd) ? (
+                    <Badge
+                      className="ml-1"
+                      data-testid="task-ledger-over-cap"
+                      title={`This run's cost exceeds the per-run cap of ${formatUsdCost(perRunCapUsd)}.`}
+                      variant="destructive"
+                    >
+                      over cap
+                    </Badge>
+                  ) : null}
                 </TableCell>
                 <TableCell>
                   {row.outcomeVerdict === null ? null : (
@@ -499,11 +554,20 @@ function RunTableSection({ rows }: { readonly rows: readonly RunLedgerRow[] }) {
 export function TaskLedgerPanel() {
   const ledger = useRunLedger();
   const analytics = useLedgerAnalytics();
+  // Per-run cap (budget guardrails, display-only): flags over-cap runs.
+  const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);
   const ledgerRefresh = ledger.refresh;
   const analyticsRefresh = analytics.refresh;
   const onRefresh = useCallback(() => {
     void ledgerRefresh();
     void analyticsRefresh();
   }, [ledgerRefresh, analyticsRefresh]);
-  return <TaskLedgerPanelView analytics={analytics} ledger={ledger} onRefresh={onRefresh} />;
+  return (
+    <TaskLedgerPanelView
+      analytics={analytics}
+      ledger={ledger}
+      onRefresh={onRefresh}
+      perRunCapUsd={perRunCapUsd}
+    />
+  );
 }

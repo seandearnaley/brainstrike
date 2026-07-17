@@ -62,6 +62,7 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
@@ -1189,6 +1190,9 @@ const ChatThreadUI = ({
           omSegment={omSegment}
           threadKey={threadKey}
         />
+        {/* Last-24h budget burn-down + over-cap send notice (owned module,
+            budget-guardrail-control.tsx); renders nothing without a binding. */}
+        <BudgetGuardrailControl />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
@@ -1475,22 +1479,31 @@ const UserActionBar = () => (
   </ActionBarPrimitive.Root>
 );
 
-const EditComposer = () => (
-  <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
-    <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
+const EditComposer = () => {
+  // Editing a past user message RE-SENDS it, so the last-24h budget gate must
+  // cover this path too — otherwise edit-resend silently bypasses the cap. The
+  // gate is never silent: the BudgetGuardrailControl notice in the composer
+  // shell explains the block and offers the explicit session override.
+  const budgetSendBlocked = useBudgetSendGate();
+  return (
+    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
+      <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
 
-    <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
-      <ComposerPrimitive.Cancel asChild>
-        <Button size="sm" variant="ghost">
-          Cancel
-        </Button>
-      </ComposerPrimitive.Cancel>
-      <ComposerPrimitive.Send asChild>
-        <Button size="sm">Send</Button>
-      </ComposerPrimitive.Send>
-    </div>
-  </ComposerPrimitive.Root>
-);
+      <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
+        <ComposerPrimitive.Cancel asChild>
+          <Button size="sm" variant="ghost">
+            Cancel
+          </Button>
+        </ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send asChild>
+          <Button disabled={budgetSendBlocked} size="sm">
+            Send
+          </Button>
+        </ComposerPrimitive.Send>
+      </div>
+    </ComposerPrimitive.Root>
+  );
+};
 
 const AssistantMessage = () => {
   return (

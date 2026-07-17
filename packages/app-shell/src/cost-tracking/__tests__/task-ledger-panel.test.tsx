@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RunLedgerRow } from '../../assistant-memory-repository';
 import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../../run-ledger-analytics';
 import {
+  isRunOverCap,
   type TaskLedgerAnalyticsViewState,
   TaskLedgerPanelView,
   type TaskLedgerRunsViewState,
@@ -78,6 +79,7 @@ function renderPanel(options: {
   analytics?: Partial<TaskLedgerAnalyticsViewState>;
   ledger?: Partial<TaskLedgerRunsViewState>;
   onRefresh?: () => void;
+  perRunCapUsd?: number | null;
 }) {
   const onRefresh = options.onRefresh ?? vi.fn();
   render(
@@ -85,6 +87,7 @@ function renderPanel(options: {
       analytics={makeAnalytics(options.analytics)}
       ledger={makeLedger(options.ledger)}
       onRefresh={onRefresh}
+      perRunCapUsd={options.perRunCapUsd}
     />
   );
   return { onRefresh };
@@ -292,5 +295,61 @@ describe('TaskLedgerPanelView', () => {
 
     await user.click(screen.getByTestId('task-ledger-refresh'));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('badges only runs whose exact-or-priced cost exceeds the per-run cap', () => {
+    renderPanel({
+      ledger: {
+        rows: [
+          // Exact cost above the cap → badged.
+          makeRun({ billedCostUsd: 2.5, runId: 'run-over' }),
+          // Exact cost below the cap → not badged.
+          makeRun({ billedCostUsd: 0.1, runId: 'run-under' }),
+          // Unpriced model (no exact cost, no registry price) → NEVER badged
+          // on a fabricated number.
+          makeRun({ model: 'gemma', provider: 'local', runId: 'run-unpriced' }),
+        ],
+      },
+      perRunCapUsd: 1,
+    });
+
+    const badges = screen.getAllByTestId('task-ledger-over-cap');
+    expect(badges).toHaveLength(1);
+    const overRow = screen
+      .getAllByTestId('task-ledger-run-row')
+      .find((row) => row.textContent?.includes('$2.50'));
+    expect(overRow?.querySelector('[data-testid="task-ledger-over-cap"]')).not.toBeNull();
+  });
+
+  it('renders no over-cap badge when the per-run cap is off', () => {
+    renderPanel({
+      ledger: { rows: [makeRun({ billedCostUsd: 99, runId: 'run-1' })] },
+      perRunCapUsd: null,
+    });
+
+    expect(screen.queryByTestId('task-ledger-over-cap')).not.toBeInTheDocument();
+  });
+});
+
+describe('isRunOverCap', () => {
+  it('uses exact provider-reported cost when present', () => {
+    expect(isRunOverCap(makeRun({ billedCostUsd: 1.01, runId: 'r' }), 1)).toBe(true);
+    expect(isRunOverCap(makeRun({ billedCostUsd: 1, runId: 'r' }), 1)).toBe(false);
+  });
+
+  it('falls back to the registry-priced estimate for unreported runs', () => {
+    // openai gpt-5.2 registry pricing over 2M/2M tokens is well above $1.
+    const run = makeRun({ inputTokens: 2_000_000, outputTokens: 2_000_000, runId: 'r' });
+    expect(isRunOverCap(run, 1)).toBe(true);
+    expect(isRunOverCap(run, 10_000)).toBe(false);
+  });
+
+  it('never flags unpriced or zero-usage runs (no fabricated verdicts)', () => {
+    expect(isRunOverCap(makeRun({ model: 'gemma', provider: 'local', runId: 'r' }), 0.0001)).toBe(
+      false
+    );
+    expect(isRunOverCap(makeRun({ inputTokens: 0, outputTokens: 0, runId: 'r' }), 0.0001)).toBe(
+      false
+    );
   });
 });

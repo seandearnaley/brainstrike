@@ -66,7 +66,12 @@ describe('assistant UI panel architecture', () => {
     // checkpoint-turn-revert.tsx) after AssistantMessageError. The control's
     // phase machine, part-scanning, and per-run revert wiring all live in that
     // module; this file only imports + renders it.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1792);
+    // Bumped 1792 → 1800 for the last-24h budget guardrail: the composer shell
+    // mounts <BudgetGuardrailControl /> and EditComposer gains a body to call
+    // useBudgetSendGate (edit-resend must not bypass the cap). The chip, the
+    // over-cap notice, and the gate derivation all live in their own module
+    // (budget-guardrail-control.tsx / budget-guardrail-context.tsx).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1800);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -127,6 +132,28 @@ describe('assistant UI panel architecture', () => {
 
     expect(readSource('assistant-ui-panel/run-verdict-control.tsx')).toContain(
       'export function RunVerdictControl'
+    );
+  });
+
+  it('mounts the budget guardrail as an owned module and gates BOTH send paths', () => {
+    // Last-24h budget cap (Task Ledger phase 1): the chip, over-cap notice, and
+    // gate derivation live in budget-guardrail-control.tsx / the context seam in
+    // budget-guardrail-context.tsx; this file only imports + renders the control
+    // and calls the gate hook. The composer input row AND the edit-composer
+    // resend both consume the gate — a blocked send must have no hidden path.
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './budget-guardrail-control'");
+    expect(source).toContain('<BudgetGuardrailControl />');
+
+    const editComposerStart = source.indexOf('const EditComposer =');
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const editComposerSource = source.slice(editComposerStart, assistantMessageStart);
+    expect(editComposerSource).toContain('useBudgetSendGate()');
+
+    const composerInputSource = readSource('assistant-ui-panel/composer-input.tsx');
+    expect(composerInputSource).toContain('useBudgetSendGate()');
+    expect(readSource('assistant-ui-panel/budget-guardrail-control.tsx')).toContain(
+      'export function BudgetGuardrailControl'
     );
   });
 

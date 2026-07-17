@@ -1,6 +1,12 @@
 export * from './assistant-run-timeline';
 export * from './assistant-ui-panel';
 export {
+  type BudgetGuardrailContextValue,
+  BudgetGuardrailProvider,
+  type BudgetGuardrailStatus,
+  useBudgetGuardrailContext,
+} from './budget-guardrail-context';
+export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';

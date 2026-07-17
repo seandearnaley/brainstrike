@@ -1,6 +1,7 @@
 import { ComposerPrimitive, ThreadPrimitive } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, SquareIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useBudgetSendGate } from './budget-guardrail-control';
 
 /**
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
@@ -39,57 +40,69 @@ const ComposerInputRow = ({
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
   slashPopover?: ReactNode;
-}) => (
-  <div className="bs-composer-input-frame">
-    <ComposerPrimitive.Input
-      aria-label="Message input"
-      className="aui-composer-input"
-      disabled={isComposerDisabled}
-      id="assistant-input"
-      placeholder="Ask BrainStrike anything..."
-      rows={1}
-    />
-    {slashPopover}
-    {mentionPopover}
-    <div className="bs-composer-primary-actions">
-      {planMode ? (
-        <button
-          aria-label="Toggle plan mode"
-          aria-pressed={planMode.enabled}
-          className="aui-button aui-button-ghost"
-          data-testid="assistant-plan-mode-toggle"
-          onClick={planMode.onToggle}
-          title="Plan mode: investigate read-only and propose a plan for approval before any changes."
-          type="button"
-        >
-          <ClipboardListIcon
-            className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
-          />
-        </button>
-      ) : null}
-      <ThreadPrimitive.If running={false}>
-        <ComposerPrimitive.Send
-          aria-label="Send"
-          className="aui-button aui-button-primary aui-composer-send"
-          disabled={isComposerDisabled}
-          title="Send"
-        >
-          <ArrowUpIcon className="size-4" />
-        </ComposerPrimitive.Send>
-      </ThreadPrimitive.If>
-      <ThreadPrimitive.If running>
-        <ComposerPrimitive.Cancel
-          aria-label="Stop"
-          className="aui-button aui-button-primary aui-composer-cancel"
-          disabled={isComposerDisabled}
-          title="Stop"
-        >
-          <SquareIcon className="size-3.5 fill-current" />
-        </ComposerPrimitive.Cancel>
-      </ThreadPrimitive.If>
+}) => {
+  // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
+  // cap without a session override, BOTH send paths are disabled — the Send
+  // button and the textarea (a disabled textarea cannot submit via Enter, so
+  // there is no hidden path around the gate). The block is never silent: the
+  // BudgetGuardrailControl notice with its explicit "Send anyway" override
+  // renders in the composer shell whenever this gate is closed. The Cancel
+  // (Stop) button deliberately ignores the gate — stopping an in-flight run
+  // must always be possible.
+  const budgetSendBlocked = useBudgetSendGate();
+  const sendDisabled = isComposerDisabled || budgetSendBlocked;
+  return (
+    <div className="bs-composer-input-frame">
+      <ComposerPrimitive.Input
+        aria-label="Message input"
+        className="aui-composer-input"
+        disabled={sendDisabled}
+        id="assistant-input"
+        placeholder="Ask BrainStrike anything..."
+        rows={1}
+      />
+      {slashPopover}
+      {mentionPopover}
+      <div className="bs-composer-primary-actions">
+        {planMode ? (
+          <button
+            aria-label="Toggle plan mode"
+            aria-pressed={planMode.enabled}
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-plan-mode-toggle"
+            onClick={planMode.onToggle}
+            title="Plan mode: investigate read-only and propose a plan for approval before any changes."
+            type="button"
+          >
+            <ClipboardListIcon
+              className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
+            />
+          </button>
+        ) : null}
+        <ThreadPrimitive.If running={false}>
+          <ComposerPrimitive.Send
+            aria-label="Send"
+            className="aui-button aui-button-primary aui-composer-send"
+            disabled={sendDisabled}
+            title="Send"
+          >
+            <ArrowUpIcon className="size-4" />
+          </ComposerPrimitive.Send>
+        </ThreadPrimitive.If>
+        <ThreadPrimitive.If running>
+          <ComposerPrimitive.Cancel
+            aria-label="Stop"
+            className="aui-button aui-button-primary aui-composer-cancel"
+            disabled={isComposerDisabled}
+            title="Stop"
+          >
+            <SquareIcon className="size-3.5 fill-current" />
+          </ComposerPrimitive.Cancel>
+        </ThreadPrimitive.If>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at

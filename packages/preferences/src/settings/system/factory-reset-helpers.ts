@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetAssistantBudgetPreferencesStoreToDefaults } from '../../stores/assistant-budget-preferences-store';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
@@ -354,6 +355,14 @@ function clearBrowserStorage(): void {
     resetWorkspaceInstructionsPreferencesStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset workspace instructions preferences store', { error });
+  }
+
+  // Budget guardrail caps are persisted preferences; reset the live store too
+  // so an in-memory cap never survives a reset without a reload (web path).
+  try {
+    resetAssistantBudgetPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset assistant budget preferences store', { error });
   }
 
   // Drain externally-registered session-store resetters (see the registry doc
