@@ -1,7 +1,8 @@
-import type {
-  DatabaseWorkPriority,
-  DatabaseWorkRunOptions,
-  RunDimensionIndexMaintenanceResult,
+import {
+  type DatabaseWorkPriority,
+  type DatabaseWorkRunOptions,
+  type RunDimensionIndexMaintenanceResult,
+  resolveIndexBuildMaintenanceWorkMemMb,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopDimensionIndexMaintenanceScheduler } from '../dimension-index-maintenance-scheduler';
@@ -182,5 +183,173 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       'Dimension index maintenance no longer supports the concurrent strategy.'
     );
     expect(maintenanceExec).not.toHaveBeenCalled();
+  });
+
+  describe('maintenance_work_mem tuning', () => {
+    const EMBEDDED_ROW_COUNT_SQL_FRAGMENT = 'COUNT(*)';
+
+    function createCountingQuery(count: string) {
+      return vi.fn(async (sql: string) => {
+        if (sql.includes(EMBEDDED_ROW_COUNT_SQL_FRAGMENT) && sql.includes('file_chunks')) {
+          return { rows: [{ count }] };
+        }
+        return { rows: [] };
+      });
+    }
+
+    function createSchedulerWithDb(options: {
+      maintenanceExec: ReturnType<typeof vi.fn>;
+      query: ReturnType<typeof vi.fn>;
+      runDimensionMaintenance: ReturnType<typeof vi.fn>;
+    }) {
+      return createDesktopDimensionIndexMaintenanceScheduler({
+        getDatabase: vi.fn(async () => ({
+          maintenance: { exec: options.maintenanceExec },
+          query: options.query,
+        })),
+        getDimensionIndexStrategy: () => 'regular' as const,
+        getPowerSnapshot: idleAcSnapshot,
+        getSchedulerSnapshot: idleSchedulerSnapshot,
+        logger: createLogger(),
+        runDimensionMaintenance: options.runDimensionMaintenance,
+        runScheduledWork: vi.fn(async (_options, work) => await work()),
+      });
+    }
+
+    it('sets sized maintenance_work_mem before CREATE INDEX and resets after, all on the maintenance channel', async () => {
+      const maintenanceExec = vi.fn(async () => undefined);
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await options.createIndex({ dimension: 1024, strategy: 'regular' });
+        return {
+          dimension: 1024,
+          durationMs: 1,
+          status: 'completed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
+
+      const expectedMb = resolveIndexBuildMaintenanceWorkMemMb(100_000, 1024);
+      const statements = maintenanceExec.mock.calls.map((call) => String(call[0]));
+      const setIndex = statements.findIndex((sql) =>
+        sql.includes(`SET maintenance_work_mem = '${expectedMb}MB'`)
+      );
+      const createIndex = statements.findIndex((sql) => sql.includes('CREATE INDEX'));
+      const resetIndex = statements.findIndex((sql) => sql.includes('RESET maintenance_work_mem'));
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(createIndex).toBeGreaterThan(setIndex);
+      expect(resetIndex).toBeGreaterThan(createIndex);
+    });
+
+    it('resets maintenance_work_mem on the maintenance channel even when the build throws', async () => {
+      const buildError = new Error('hnsw build exploded');
+      const maintenanceExec = vi.fn(async (sql: string) => {
+        if (sql.includes('CREATE INDEX')) {
+          throw buildError;
+        }
+        return;
+      });
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await expect(options.createIndex({ dimension: 1024, strategy: 'regular' })).rejects.toThrow(
+          'hnsw build exploded'
+        );
+        return {
+          dimension: 1024,
+          error: buildError.message,
+          status: 'failed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'failed' });
+
+      const statements = maintenanceExec.mock.calls.map((call) => String(call[0]));
+      const createIndex = statements.findIndex((sql) => sql.includes('CREATE INDEX'));
+      const resetIndex = statements.findIndex((sql) => sql.includes('RESET maintenance_work_mem'));
+      expect(createIndex).toBeGreaterThanOrEqual(0);
+      expect(resetIndex).toBeGreaterThan(createIndex);
+    });
+
+    it('surfaces a RESET failure after a successful build instead of recording a healthy rebuild', async () => {
+      // maintenance_work_mem is session-global on PGlite's single connection:
+      // a swallowed RESET failure would leave the raised limit applied to every
+      // subsequent query while the scheduler logs a completed rebuild.
+      const maintenanceExec = vi.fn(async (sql: string) => {
+        if (sql.includes('RESET maintenance_work_mem')) {
+          throw new Error('simulated reset failure');
+        }
+        return;
+      });
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await expect(options.createIndex({ dimension: 1024, strategy: 'regular' })).rejects.toThrow(
+          /reset maintenance_work_mem/i
+        );
+        return {
+          dimension: 1024,
+          error: 'reset failed',
+          status: 'failed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'failed' });
+      expect(runDimensionMaintenance).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates the build error (not the reset error) when both the build and the RESET fail', async () => {
+      const maintenanceExec = vi.fn(async (sql: string) => {
+        if (sql.includes('CREATE INDEX')) {
+          throw new Error('hnsw build exploded');
+        }
+        if (sql.includes('RESET maintenance_work_mem')) {
+          throw new Error('simulated reset failure');
+        }
+        return;
+      });
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await expect(options.createIndex({ dimension: 1024, strategy: 'regular' })).rejects.toThrow(
+          'hnsw build exploded'
+        );
+        return {
+          dimension: 1024,
+          error: 'hnsw build exploded',
+          status: 'failed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'failed' });
+      expect(runDimensionMaintenance).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the SET/RESET pair when the estimated build fits the default maintenance_work_mem', async () => {
+      const maintenanceExec = vi.fn(async () => undefined);
+      const query = createCountingQuery('10');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await options.createIndex({ dimension: 384, strategy: 'regular' });
+        return {
+          dimension: 384,
+          durationMs: 1,
+          status: 'completed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
+
+      const statements = maintenanceExec.mock.calls.map((call) => String(call[0]));
+      expect(statements.some((sql) => sql.includes('maintenance_work_mem'))).toBe(false);
+      expect(statements.some((sql) => sql.includes('CREATE INDEX'))).toBe(true);
+    });
   });
 });
