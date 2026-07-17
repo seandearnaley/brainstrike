@@ -7,6 +7,8 @@ function baseRow(overrides: Record<string, unknown> = {}): Record<string, unknow
     completedAt: '2026-07-16T10:01:30.000Z',
     durationMs: '90000',
     editCount: '2',
+    estimatedInputTokens: '0',
+    estimatedOutputTokens: '0',
     failedToolCallCount: '1',
     inputTokens: '1400',
     model: 'claude-sonnet-5',
@@ -57,6 +59,15 @@ describe('mapRunLedgerRow', () => {
 
   it('carries an exact billed cost through when present', () => {
     expect(mapRunLedgerRow(baseRow({ billedCostUsd: '0.5' })).billedCostUsd).toBe(0.5);
+  });
+
+  it('carries the unreported-token remainder so partial exact costs stay honest', () => {
+    const row = mapRunLedgerRow(
+      baseRow({ billedCostUsd: '0.5', estimatedInputTokens: '400', estimatedOutputTokens: '100' })
+    );
+    expect(row.billedCostUsd).toBe(0.5);
+    expect(row.estimatedInputTokens).toBe(400);
+    expect(row.estimatedOutputTokens).toBe(100);
   });
 
   it('maps known outcome labels', () => {

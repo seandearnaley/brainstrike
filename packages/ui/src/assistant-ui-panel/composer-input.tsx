@@ -2,6 +2,7 @@ import { ComposerPrimitive, ThreadPrimitive, useComposerRuntime } from '@assista
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
 import type { ClipboardEvent, ReactNode } from 'react';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
+import { useBudgetSendGate } from './budget-guardrail-control';
 
 /**
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
@@ -61,8 +62,18 @@ const ComposerInputRow = ({
   queueControl?: ReactNode;
   slashPopover?: ReactNode;
 }) => {
+  // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
+  // cap without a session override, BOTH send paths are disabled — the Send
+  // button and the textarea (a disabled textarea cannot submit via Enter, so
+  // there is no hidden path around the gate). Attachment staging is gated the
+  // same way. The block is never silent: the BudgetGuardrailControl notice
+  // with its explicit "Send anyway" override renders in the composer shell
+  // whenever this gate is closed. The Cancel (Stop) button deliberately
+  // ignores the gate — stopping an in-flight run must always be possible.
+  const budgetSendBlocked = useBudgetSendGate();
+  const sendDisabled = isComposerDisabled || budgetSendBlocked;
   const InputFrame =
-    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled
+    attachmentsAvailability?.state === 'enabled' && !sendDisabled
       ? AttachmentPasteFrame
       : PlainInputFrame;
 
@@ -71,7 +82,7 @@ const ComposerInputRow = ({
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
-        disabled={isComposerDisabled}
+        disabled={sendDisabled}
         id="assistant-input"
         placeholder="Ask BrainStrike anything..."
         rows={1}
@@ -84,7 +95,7 @@ const ComposerInputRow = ({
             aria-label="Attach image"
             className="aui-button aui-button-ghost"
             data-testid="assistant-attach-image"
-            disabled={isComposerDisabled}
+            disabled={sendDisabled}
             multiple
             title="Attach an image (you can also paste one)"
           >
@@ -126,7 +137,7 @@ const ComposerInputRow = ({
           <ComposerPrimitive.Send
             aria-label="Send"
             className="aui-button aui-button-primary aui-composer-send"
-            disabled={isComposerDisabled}
+            disabled={sendDisabled}
             title="Send"
           >
             <ArrowUpIcon className="size-4" />

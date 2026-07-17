@@ -259,6 +259,15 @@ export interface RunLedgerRow {
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
   readonly editCount: number;
+  /**
+   * Tokens from usage rows WITHOUT a provider-reported cost (always emitted,
+   * unlike CrossRootUsageRow's billed-anchored optionality): `billedCostUsd`
+   * covers only the reported rows, so a mixed run's exact figure is PARTIAL —
+   * consumers must price/mark this remainder rather than presenting the billed
+   * portion as the whole cost.
+   */
+  readonly estimatedInputTokens: number;
+  readonly estimatedOutputTokens: number;
   readonly failedToolCallCount: number;
   readonly inputTokens: number;
   readonly model: string;
@@ -321,11 +330,15 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     tr.completed_at AS "completedAt",
     CASE
       WHEN tr.completed_at IS NULL THEN NULL
-      ELSE ROUND(EXTRACT(EPOCH FROM (tr.completed_at - tr.started_at)) * 1000)::bigint
+      -- GREATEST(0, …): a backward clock adjustment between start and finish
+      -- must degrade to 0ms for ONE row, never throw and blank the whole ledger.
+      ELSE GREATEST(0, ROUND(EXTRACT(EPOCH FROM (tr.completed_at - tr.started_at)) * 1000))::bigint
     END AS "durationMs",
     COALESCE(u.input_tokens, 0)::bigint AS "inputTokens",
     COALESCE(u.output_tokens, 0)::bigint AS "outputTokens",
     u.billed_cost_usd AS "billedCostUsd",
+    COALESCE(u.estimated_input_tokens, 0)::bigint AS "estimatedInputTokens",
+    COALESCE(u.estimated_output_tokens, 0)::bigint AS "estimatedOutputTokens",
     COALESCE(e.tool_call_count, 0)::bigint AS "toolCallCount",
     COALESCE(e.failed_tool_call_count, 0)::bigint AS "failedToolCallCount",
     COALESCE(c.edit_count, 0)::bigint AS "editCount",
@@ -339,7 +352,11 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     SELECT run_id,
       SUM(input_tokens) AS input_tokens,
       SUM(output_tokens) AS output_tokens,
-      SUM(billed_cost_usd) AS billed_cost_usd
+      SUM(billed_cost_usd) AS billed_cost_usd,
+      SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)
+        AS estimated_input_tokens,
+      SUM(CASE WHEN billed_cost_usd IS NULL THEN output_tokens ELSE 0 END)
+        AS estimated_output_tokens
     FROM brainstrike_assistant_run_usage
     JOIN scope ON brainstrike_assistant_run_usage.resource_id = scope.resource_id
     GROUP BY run_id
@@ -411,6 +428,14 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
     completedAt: normalizeNullableDate(row['completedAt']),
     durationMs: nullableNonNegativeInteger(row['durationMs'], 'durationMs'),
     editCount: requireNonNegativeInteger(row['editCount'], 'editCount'),
+    estimatedInputTokens: requireNonNegativeInteger(
+      row['estimatedInputTokens'],
+      'estimatedInputTokens'
+    ),
+    estimatedOutputTokens: requireNonNegativeInteger(
+      row['estimatedOutputTokens'],
+      'estimatedOutputTokens'
+    ),
     failedToolCallCount: requireNonNegativeInteger(
       row['failedToolCallCount'],
       'failedToolCallCount'
@@ -2754,12 +2779,15 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       // One label per run: a later verdict replaces the earlier one (a user
       // verdict overriding a derived edit_revert or hook label is the intended
-      // flow). EXCEPTION: a 'hook' write never overwrites an explicit 'user'
-      // label — the conflict clause carries the precedence rule so it holds in
-      // SQL, byte-consistent with the main-process writer
-      // (apps/desktop assistant-server.ts recordDesktopAssistantHookRunOutcome).
+      // flow). EXCEPTION: NO derived writer ('hook' OR 'edit_revert') ever
+      // overwrites an explicit 'user' label — the conflict clause carries the
+      // precedence rule so it holds in SQL, byte-consistent with the
+      // main-process writer (apps/desktop assistant-server.ts
+      // recordDesktopAssistantHookRunOutcome). Review #1694: without this, a
+      // post-verdict revert would silently clobber the user's authoritative
+      // verdict.
       const conflictGuard =
-        input.source === 'hook' ? ` WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'` : '';
+        input.source === 'user' ? '' : ` WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'`;
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
           (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)

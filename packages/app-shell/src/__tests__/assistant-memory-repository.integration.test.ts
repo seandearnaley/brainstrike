@@ -3589,6 +3589,10 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       billedCostUsd: 0.5,
       durationMs: 90_000,
       editCount: 2,
+      // The second usage row carried no provider-reported cost, so its tokens
+      // surface as the estimated remainder alongside the PARTIAL exact figure.
+      estimatedInputTokens: 400,
+      estimatedOutputTokens: 100,
       failedToolCallCount: 1,
       inputTokens: 1400,
       model: 'claude-sonnet-5',

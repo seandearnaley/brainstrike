@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetAssistantBudgetPreferencesStoreToDefaults } from '../../stores/assistant-budget-preferences-store';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
@@ -371,6 +372,14 @@ function clearBrowserStorage(): void {
     logger.warn('Failed to reset workspace instructions preferences store', { error });
   }
 
+  // Budget guardrail caps are persisted preferences; reset the live store too
+  // so an in-memory cap never survives a reset without a reload (web path).
+  try {
+    resetAssistantBudgetPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset assistant budget preferences store', { error });
+  }
+
   // Agent Skills preferences: the master toggle + per-skill disable map are
   // live in-memory state a reset without a reload would otherwise leave in
   // place (FACTORY RESET CONTRACT).
@@ -379,7 +388,6 @@ function clearBrowserStorage(): void {
   } catch (error) {
     logger.warn('Failed to reset skills preferences store', { error });
   }
-
   // Drain externally-registered session-store resetters (see the registry doc
   // above). Each is guarded so one failure cannot abort the rest of the reset.
   for (const reset of sessionStoreResetters) {

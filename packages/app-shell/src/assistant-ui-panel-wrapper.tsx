@@ -46,6 +46,7 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
+  BudgetGuardrailProvider,
   EditCheckpointProvider,
   hasDesktopLlmHost,
   RunVerdictProvider,
@@ -114,6 +115,7 @@ import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
@@ -1437,6 +1439,12 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId
   );
 
+  // Last-24h budget guardrail binding (composer burn-down + send gate). Null
+  // when no cap is configured or the durable spend capability is absent (web);
+  // the gate/notice logic lives in packages/ui, the spend derivation in
+  // cost-tracking/use-daily-spend.ts — this is wiring only.
+  const budgetGuardrailBinding = useBudgetGuardrailBinding(memoryResourceId);
+
   // Re-read the checkpoint journal when a run reaches a terminal state — the
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
@@ -1474,55 +1482,57 @@ export function AssistantUiPanelWrapper({
     <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
       <EditCheckpointProvider value={editCheckpoints}>
         <RunVerdictProvider value={runVerdictBinding}>
-          <AssistantUiPanel
-            {...(composerDraftCommand ? { composerDraftCommand } : {})}
-            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-            completePreparedRequest={completePreparedRequest}
-            contextWindow={selectedLlmModelDef?.contextWindow}
-            {...(cumulativeUsage ? { cumulativeUsage } : {})}
-            effectiveInputBudget={effectiveInputBudget}
-            omSegment={omSegment}
-            {...(selectedMemoryThreadId
-              ? {
-                  onComposerDraftCommandApplied: handleComposerCommandApplied,
-                  onComposerTextChange: handleComposerTextChange,
-                }
-              : {})}
-            onProviderSettingsChange={handleProviderSettingsChange}
-            onRunFailed={handleRunFailed}
-            onRunFinished={handleRunFinished}
-            onStreamActivity={renewActiveAssistantForegroundActivity}
-            onToolApprovalRequired={onToolApprovalRequired}
-            onUsage={handleUsage}
-            pickerModels={pickerModels}
-            pickerProviders={pickerProviders}
-            prepareRequestData={prepareRequestData}
-            providerGroups={providerGroups}
-            providerSettings={effectiveProviderSettings}
-            requestData={requestData}
-            slashCommands={slashCommands}
-            {...(desktopAssistantBackendAvailable
-              ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-              : {})}
-            toolMenu={toolMenu}
-            {...(historyAdapter ? { historyAdapter } : {})}
-            {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-            localChatTransport={localChatTransport}
-            {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-            {...(selectedProvider ? { selectedProvider } : {})}
-            {...(currentModel ? { selectedModel: currentModel } : {})}
-            disabled={!isProviderReady || Boolean(memoryDisabledReason)}
-            onModelChange={handleModelChange}
-            onModelToggle={handleModelToggle}
-            {...(disabledReason ? { disabledReason } : {})}
-            {...(planModeAvailable
-              ? {
-                  onExitPlanMode: exitPlanMode,
-                  onTogglePlanMode: togglePlanMode,
-                  planModeEnabled: planModeEnabledPref,
-                }
-              : {})}
-          />
+          <BudgetGuardrailProvider value={budgetGuardrailBinding}>
+            <AssistantUiPanel
+              {...(composerDraftCommand ? { composerDraftCommand } : {})}
+              {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+              completePreparedRequest={completePreparedRequest}
+              contextWindow={selectedLlmModelDef?.contextWindow}
+              {...(cumulativeUsage ? { cumulativeUsage } : {})}
+              effectiveInputBudget={effectiveInputBudget}
+              omSegment={omSegment}
+              {...(selectedMemoryThreadId
+                ? {
+                    onComposerDraftCommandApplied: handleComposerCommandApplied,
+                    onComposerTextChange: handleComposerTextChange,
+                  }
+                : {})}
+              onProviderSettingsChange={handleProviderSettingsChange}
+              onRunFailed={handleRunFailed}
+              onRunFinished={handleRunFinished}
+              onStreamActivity={renewActiveAssistantForegroundActivity}
+              onToolApprovalRequired={onToolApprovalRequired}
+              onUsage={handleUsage}
+              pickerModels={pickerModels}
+              pickerProviders={pickerProviders}
+              prepareRequestData={prepareRequestData}
+              providerGroups={providerGroups}
+              providerSettings={effectiveProviderSettings}
+              requestData={requestData}
+              slashCommands={slashCommands}
+              {...(desktopAssistantBackendAvailable
+                ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+                : {})}
+              toolMenu={toolMenu}
+              {...(historyAdapter ? { historyAdapter } : {})}
+              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+              localChatTransport={localChatTransport}
+              {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+              {...(selectedProvider ? { selectedProvider } : {})}
+              {...(currentModel ? { selectedModel: currentModel } : {})}
+              disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+              onModelChange={handleModelChange}
+              onModelToggle={handleModelToggle}
+              {...(disabledReason ? { disabledReason } : {})}
+              {...(planModeAvailable
+                ? {
+                    onExitPlanMode: exitPlanMode,
+                    onTogglePlanMode: togglePlanMode,
+                    planModeEnabled: planModeEnabledPref,
+                  }
+                : {})}
+            />
+          </BudgetGuardrailProvider>
         </RunVerdictProvider>
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>

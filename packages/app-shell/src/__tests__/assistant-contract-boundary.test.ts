@@ -58,7 +58,11 @@ describe('app-shell assistant contract boundary', () => {
     // only calls useRunVerdictBinding and mounts <RunVerdictProvider>; the
     // phase machine and runId detection live in packages/ui
     // (run-verdict-control.tsx / run-verdict-context.tsx).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1550);
+    // Bumped 1550 → 1565 for the budget guardrail binding: the wrapper only
+    // calls useBudgetGuardrailBinding and mounts <BudgetGuardrailProvider>; the
+    // spend derivation lives in cost-tracking/use-daily-spend.ts and the
+    // chip/gate UI in packages/ui (budget-guardrail-control.tsx).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1565);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

@@ -829,6 +829,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         tx,
         '[DbProvider] Skipped missing prompt_items table during clear:'
       );
+      // Task Ledger outcome labels (migration 062): writable on web via the
+      // renderer repository (user verdicts), no FK cascades them — clear
+      // explicitly per the FACTORY RESET CONTRACT (review #1693).
+      try {
+        await tx.query('DELETE FROM brainstrike_assistant_run_outcomes');
+      } catch (error) {
+        logger.warn(
+          '[DbProvider] Failed to clear brainstrike_assistant_run_outcomes (table may not exist):',
+          error
+        );
+      }
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -865,6 +876,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
     await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
+    try {
+      // Task Ledger outcome labels: web-writable (user verdicts), no FK —
+      // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
+      await tx.query('DELETE FROM brainstrike_assistant_run_outcomes');
+    } catch (err) {
+      logger.warn('Failed to clear brainstrike_assistant_run_outcomes during reset:', err);
+    }
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {

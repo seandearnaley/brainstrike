@@ -407,6 +407,39 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   failures surface as a visible error state with retry, never an
   empty-but-fine panel.
 
+- **Budget guardrails (v1):** user-set spend caps over the ledger's own data.
+  State ownership: the caps (`dailyCapUsd`, `perRunCapUsd`, both null = off by
+  default) are persisted in
+  `packages/preferences/src/stores/assistant-budget-preferences-store.ts`
+  (STRICT set validation — finite > 0 or null, else THROW; factory-reset via
+  `resetAssistantBudgetPreferencesStoreToDefaults`), edited in the Cost
+  Tracking settings category (`budget-settings-panel.tsx`, blank = off,
+  invalid input shows a visible validation message — never coerced). Spend is
+  derived, never stored: `DAILY_SPEND_AGGREGATION_SQL` (+ strict
+  `mapDailySpendUsageRow` / pure `resolveDailySpendSummary` in
+  `cost-tracking/daily-spend.ts`, live-queried by `use-daily-spend.ts` under
+  the durable-usage capability gate) sums run_usage over a ROLLING
+  `created_at >= NOW() - INTERVAL '24 hours'` window — deliberately
+  timezone-free, so ALL UI copy says "last 24h", never "today"; it binds each
+  SQL param exactly once (PGlite live format() constraint, see
+  RUN_LEDGER_AGGREGATION_SQL). Honesty: exact billed cost + registry-priced
+  remainder; unpriced-model tokens are EXCLUDED from the total and surfaced as
+  an explicit "+N unpriced" marker — never a fabricated price. App-shell binds
+  cap + spend (`hooks/use-budget-guardrail.ts`) into the packages/ui context
+  seam (`budget-guardrail-context.tsx`, provider mounted in the wrapper beside
+  RunVerdictProvider); the composer chip/notice/gate live in
+  `budget-guardrail-control.tsx`. Over-cap rules — no silent block, no silent
+  allow: while `overCap && !overridden`, BOTH send paths (composer input+Send,
+  edit-composer resend) are disabled and a visible notice states "Last-24h
+  budget cap reached — $X of $Y" with an explicit "Send anyway" session
+  override; an active override is stated next to the chip; Stop/Cancel is
+  never gated. If the spend query fails the guardrail deactivates (null
+  binding) and the failure is logged as an error — v1 deliberately fails open
+  because blocking on a broken analytics query would be a silent block with no
+  honest number to show. `perRunCapUsd` is DISPLAY-ONLY: the ledger panel
+  badges runs whose exact-or-priced cost exceeds it (`isRunOverCap`; unpriced
+  or zero-usage runs are never flagged on a fabricated number).
+
 When changing this flow, update this section and the paired tests
 (`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
 `packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
@@ -416,9 +449,15 @@ outcome-labeling suite in `use-edit-checkpoints.test.ts`, the hook-verdict
 suites in `apps/desktop/src/__tests__/assistant-server/`
 (`hooks/run-verdict.test.ts`, the verdict cases in
 `hooks/server-composition.integration.test.ts`,
-`hook-run-outcome.integration.test.ts`), and the panel suites
+`hook-run-outcome.integration.test.ts`), the panel suites
 in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
-`use-run-ledger`, `use-ledger-analytics`).
+`use-run-ledger`, `use-ledger-analytics`, and the budget-guardrail suites:
+`daily-spend` / `use-daily-spend` / `budget-settings-panel` there,
+`use-budget-guardrail` + `daily-spend.integration` in
+`packages/app-shell/src/__tests__/`, `budget-guardrail-control` in
+`packages/ui/src/__tests__/`, and `assistant-budget-preferences-store` +
+`factory-reset-assistant-budget-preferences` in
+`packages/preferences/src/__tests__/`).
 
 ---
 
