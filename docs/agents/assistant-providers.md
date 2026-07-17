@@ -186,6 +186,23 @@ The assistant's search verbs, in the order the default instructions present them
    and overall via `fitItemsToCharBudget`. Hermetic tests:
    apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
 
+Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
+in ALL THREE chunk repositories — `FileChunkRepository`,
+`ElectronFileChunkRepository`, and `DrizzleFileChunkRepository` (the web/
+DbProvider path) — routes NARROWED
+searches (any filter beyond `embedding_set_id` — rootId/rootIds, filePaths,
+selectionSnapshotId, fileRecordId, chunkType) via bounded selectivity counts
+(`resolveFilteredVectorSearchRoute` in packages/db/src/repositories/_shared.ts):
+a filter matching ≤20k rows AND ≤15% of its set bypasses the partial halfvec
+HNSW index with an exact full-precision `embedding <=> $1::vector(N)` scan
+(the expression cannot match the index, so the planner exact-scans — 100%
+recall). Benchmarked: the ANN path returns 39.8% recall@10 at 100k chunks with
+a ~10% filter AT THE SAME latency as the exact scan; `hnsw.max_scan_tuples`
+and per-root partial indexes were measured and rejected
+(docs/binary-quantization-two-stage-benchmark-2026-07-11.md). Un-narrowed
+whole-set searches never run the counts. Do not "optimize" selective filtered
+searches back onto the ANN index without re-running that benchmark.
+
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.

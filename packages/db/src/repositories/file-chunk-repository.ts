@@ -22,11 +22,13 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  type FilteredVectorSearchRoute,
   hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
   resolveEmbeddingDimensions,
+  resolveFilteredVectorSearchRoute,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -73,6 +75,18 @@ interface FileChunkRow {
 interface FileChunkSearchRow extends FileChunkRow {
   rank: string;
   similarity: string;
+}
+
+/** Scoping filters of a similarity search, reusable across the search SQL and
+ * the bounded selectivity counts (which need their own parameter numbering). */
+interface SearchScope {
+  chunkType?: string | undefined;
+  embeddingSetId: string;
+  filePaths?: string[] | undefined;
+  fileRecordId?: string | undefined;
+  rootId?: string | undefined;
+  rootIds?: readonly string[] | undefined;
+  selectionSnapshotId?: string | undefined;
 }
 
 // Type for stats query rows
@@ -376,56 +390,53 @@ export class FileChunkRepository {
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Resolve distance config and get dimension for index matching
-    const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
+    const { distance, dimension } = await this.resolveDistanceConfig(
       embeddingSetId,
       queryEmbedding
     );
 
-    const vectorParam = `[${queryEmbedding.join(',')}]`;
-    const params: unknown[] = [vectorParam];
-    let paramIndex = 2;
+    const scope: SearchScope = {
+      chunkType,
+      embeddingSetId,
+      filePaths: normalizedFilePaths,
+      fileRecordId,
+      rootId,
+      rootIds,
+      selectionSnapshotId: normalizedSnapshotId,
+    };
+    // Search params start at $2 ($1 is the query vector).
+    const searchScope = this.buildScopeFilters(2, scope);
 
-    // Build WHERE clause - include vector_dims() to enable partial HNSW index usage
-    // The query planner requires this clause to match the partial index predicate
+    // Narrowed searches (any filter beyond embedding_set_id) route adaptively:
+    // the partial halfvec HNSW index collapses on selective filters (39.5%
+    // recall@10 at 100k chunks with a ~10% filter — see _shared.ts), so bounded
+    // selectivity counts pick between the tuned ANN path and an exact
+    // full-precision scan of the filtered subset. Un-narrowed whole-set
+    // searches (the dominant, fast query) skip the counts entirely.
+    let route: FilteredVectorSearchRoute = 'ann';
+    if (searchScope.narrowed) {
+      route = await this.resolveNarrowedSearchRoute(scope);
+      if (route === 'empty') {
+        return [];
+      }
+    }
+
+    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+      distance,
+      dimension,
+      route === 'exact' ? 'exact' : 'halfvec'
+    );
+
+    const vectorParam = `[${queryEmbedding.join(',')}]`;
+    // `vector_dims(embedding) = N` matches the partial HNSW index predicate on
+    // the ANN route, and on the exact route guards the fixed-dimension
+    // `$1::vector(N)` operator against rows of other dimensions.
     const whereParts = [
       'embedding IS NOT NULL',
-      `vector_dims(embedding) = ${dimension}`, // Enables HNSW index usage
+      `vector_dims(embedding) = ${dimension}`,
+      ...searchScope.clauses,
     ];
-
-    paramIndex = this.appendFilterClause(
-      whereParts,
-      params,
-      paramIndex,
-      fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
-    paramIndex = this.appendSelectionFilters(
-      whereParts,
-      params,
-      paramIndex,
-      normalizedFilePaths,
-      normalizedSnapshotId
-    );
-    // Scope to one workspace root via a subquery (not a JOIN) so the main
-    // file_chunks predicate still matches the partial HNSW index.
-    if (rootId !== undefined) {
-      whereParts.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
-      );
-      params.push(rootId);
-      paramIndex += 1;
-    }
-    if (rootIds !== undefined) {
-      whereParts.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      params.push(Array.from(rootIds));
-      paramIndex += 1;
-    }
-    whereParts.push(`embedding_set_id = $${paramIndex}`);
-    params.push(embeddingSetId);
-    paramIndex += 1;
+    const params: unknown[] = [vectorParam, ...searchScope.values];
 
     // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks.
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
@@ -439,15 +450,22 @@ export class FileChunkRepository {
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`;
+      LIMIT $${params.length + 1}`;
     const searchParams = [...params, overfetchLimit];
 
-    // Run the ANN tuning and the search inside ONE transaction. `SET LOCAL` only
-    // takes effect within a transaction block, so issuing it autocommit (as the
-    // previous code did) was a silent no-op. The tuning widens `hnsw.ef_search`
-    // and enables iterative scans so heavily filtered searches keep walking the
-    // index until enough rows survive the WHERE clause instead of under-returning.
-    const result = await this.runVectorSearchInTransaction(searchSql, searchParams, efSearch);
+    // ANN route: run the HNSW tuning and the search inside ONE transaction.
+    // `SET LOCAL` only takes effect within a transaction block, so issuing it
+    // autocommit (as the previous code did) was a silent no-op. The tuning
+    // widens `hnsw.ef_search` and enables iterative scans so heavily filtered
+    // searches keep walking the index until enough rows survive the WHERE
+    // clause instead of under-returning.
+    // Exact route: the full-precision order expression cannot match the
+    // halfvec expression index, so the planner exact-scans the filtered
+    // subset — no tuning (or transaction) needed.
+    const result =
+      route === 'exact'
+        ? await this.db.query<Record<string, unknown>>(searchSql, searchParams)
+        : await this.runVectorSearchInTransaction(searchSql, searchParams, efSearch);
 
     const mapped = result.rows.map((row) => {
       const searchRow = row as unknown as FileChunkSearchRow;
@@ -954,6 +972,104 @@ export class FileChunkRepository {
     return Array.from(new Set(trimmed));
   }
 
+  /**
+   * Materialize a search's scoping filters starting at `startIndex` ($1 is the
+   * query vector in the search SQL, so it passes 2; the selectivity counts have
+   * no vector parameter and pass 1). `narrowed` is true when any filter beyond
+   * the mandatory `embedding_set_id` is present — only narrowed searches run
+   * the adaptive-routing counts.
+   */
+  private buildScopeFilters(
+    startIndex: number,
+    scope: SearchScope
+  ): { clauses: string[]; narrowed: boolean; values: unknown[] } {
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = startIndex;
+    paramIndex = this.appendFilterClause(
+      clauses,
+      values,
+      paramIndex,
+      scope.fileRecordId,
+      'file_record_id'
+    );
+    paramIndex = this.appendFilterClause(
+      clauses,
+      values,
+      paramIndex,
+      scope.chunkType,
+      'chunk_type'
+    );
+    paramIndex = this.appendSelectionFilters(
+      clauses,
+      values,
+      paramIndex,
+      scope.filePaths,
+      scope.selectionSnapshotId
+    );
+    // Scope to workspace roots via a subquery (not a JOIN) so the main
+    // file_chunks predicate still matches the partial HNSW index.
+    if (scope.rootId !== undefined) {
+      clauses.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
+      );
+      values.push(scope.rootId);
+      paramIndex += 1;
+    }
+    if (scope.rootIds !== undefined) {
+      clauses.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      values.push(Array.from(scope.rootIds));
+      paramIndex += 1;
+    }
+    const narrowed = clauses.length > 0;
+    clauses.push(`embedding_set_id = $${paramIndex}`);
+    values.push(scope.embeddingSetId);
+    return { clauses, narrowed, values };
+  }
+
+  /**
+   * Route a NARROWED similarity search (exact filtered scan vs ANN) from two
+   * bounded selectivity counts. See `resolveFilteredVectorSearchRoute` in
+   * `_shared.ts` for the decision rule and the measured recall collapse it fixes.
+   */
+  private async resolveNarrowedSearchRoute(scope: SearchScope): Promise<FilteredVectorSearchRoute> {
+    const countScope = this.buildScopeFilters(1, scope);
+    return await resolveFilteredVectorSearchRoute(
+      (cap) =>
+        this.runBoundedCount(
+          ['embedding IS NOT NULL', ...countScope.clauses],
+          countScope.values,
+          cap
+        ),
+      (cap) =>
+        this.runBoundedCount(
+          ['embedding IS NOT NULL', 'embedding_set_id = $1'],
+          [scope.embeddingSetId],
+          cap
+        )
+    );
+  }
+
+  /**
+   * Count matching rows, stopping the scan once `cap` rows are seen. Cheap
+   * predicates only — the callers deliberately omit `vector_dims(embedding)`
+   * (it would detoast every candidate's vector just to route the query).
+   */
+  private async runBoundedCount(
+    whereParts: string[],
+    values: unknown[],
+    cap: number
+  ): Promise<number> {
+    const boundedCap = Math.max(1, Math.floor(cap));
+    const result = await this.db.query<{ c: number | string }>(
+      `SELECT COUNT(*)::int AS c FROM (SELECT 1 FROM file_chunks WHERE ${whereParts.join(' AND ')} LIMIT ${boundedCap}) t`,
+      values
+    );
+    return Number(result.rows[0]?.c ?? 0);
+  }
+
   private appendSelectionFilters(
     whereParts: string[],
     params: unknown[],
@@ -984,7 +1100,7 @@ export class FileChunkRepository {
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
-  ): Promise<{ similarityExpr: string; orderExpr: string; dimension: number }> {
+  ): Promise<{ distance: 'cosine' | 'l2' | 'ip'; dimension: number }> {
     const setRes = await this.db.query<{ distance: string; dimensions?: number }>(
       'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
@@ -1008,25 +1124,33 @@ export class FileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
-    return { ...expressions, dimension: expectedDimension };
+    return { dimension: expectedDimension, distance };
   }
 
   /**
    * Build distance expressions for similarity search.
-   * CRITICAL: The embedding column is cast to halfvec(dimension) to match the
-   * half-precision partial HNSW index expression `(embedding::halfvec(N))`.
-   * Without this cast, the query planner cannot use the dimension-specific indexes.
+   * CRITICAL ('halfvec' precision, the ANN route): the embedding column is cast
+   * to halfvec(dimension) to match the half-precision partial HNSW index
+   * expression `(embedding::halfvec(N))`. Without this cast, the query planner
+   * cannot use the dimension-specific indexes.
+   * 'exact' precision (the selective-filter route) is the mirror-image
+   * guarantee: full-precision `embedding <=> $1::vector(N)` CANNOT match that
+   * index expression, so the planner must exact-scan the filtered subset —
+   * 100% recall by construction, with fp32 similarity scores.
+   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
+   * halfvec/ANN route, so scores near the threshold can differ across routes —
+   * callers must not assume one scale.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',
-    dimension: number
+    dimension: number,
+    precision: 'exact' | 'halfvec' = 'halfvec'
   ): {
     similarityExpr: string;
     orderExpr: string;
   } {
-    // Cast embedding (and the query param) to fixed-dimension halfvec so the
-    // ORDER BY matches the half-precision HNSW partial index built by the
+    // halfvec: cast embedding (and the query param) to fixed-dimension halfvec so
+    // the ORDER BY matches the half-precision HNSW partial index built by the
     // dimension-index-helpers. The full-precision vector stays in the COLUMN, but
     // BOTH the ANN ranking (orderExpr) AND the returned similarity score
     // (similarityExpr, also used for the `>= threshold` filter) are computed in fp16
@@ -1035,8 +1159,10 @@ export class FileChunkRepository {
     // full-precision `vector` would give exact scores but could desync them from the
     // halfvec rank; the fp16 quantization error (~3 sig digits) is negligible for
     // thresholding/display.
-    const embeddingCast = `(embedding::halfvec(${dimension}))`;
-    const paramCast = `$1::halfvec(${dimension})`;
+    const embeddingCast =
+      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
+    const paramCast =
+      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {
