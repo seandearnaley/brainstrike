@@ -86,6 +86,25 @@ function dimensionIndexName(dimension: number, metric: NonNullable<IndexStats['m
   return `idx_mastra_vectors_emb_hnsw_${dimension}_${metric}`;
 }
 
+/**
+ * Transaction-scoped pgvector tuning for filtered HNSW searches (mirrors
+ * `hnswSearchTuningStatements` in packages/db, which is hardwired to that
+ * package's tables/env plumbing). Every query here filters by `index_name`
+ * AFTER the ANN candidate window, and all logical indexes sharing a
+ * (dimension, metric) live in ONE physical graph — so with pgvector's default
+ * `ef_search = 40` a minority logical index can under-return. Widening the
+ * window and enabling `strict_order` iterative scans keeps the index walking
+ * until enough rows survive the filter. `strict_order` (not relaxed) because
+ * the query relies on the index's emission order directly (single
+ * `ORDER BY <distance> LIMIT n`, no downstream re-sort). `SET LOCAL` is a
+ * silent no-op outside a transaction, so these MUST run inside the same
+ * transaction as the SELECT.
+ */
+const HNSW_SEARCH_TUNING_STATEMENTS: readonly string[] = [
+  'SET LOCAL hnsw.ef_search = 100',
+  "SET LOCAL hnsw.iterative_scan = 'strict_order'",
+];
+
 function vectorLiteral(vector: number[]): string {
   if (vector.length === 0) {
     throw new Error('Vector cannot be empty');
@@ -426,15 +445,25 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       indexName,
       topK,
     });
-    const result = await this.database.query<VectorRow>(
-      `SELECT id, metadata, ${includeVector ? 'embedding::text' : 'NULL'} AS embedding,
+    const searchSql = `SELECT id, metadata, ${includeVector ? 'embedding::text' : 'NULL'} AS embedding,
         ${scoreSql} AS score
        FROM ${MASTRA_VECTOR_TABLE}
        WHERE ${clauses.join(' AND ')}
        ORDER BY ${orderSql}
-       LIMIT ${limitParam}`,
-      values
-    );
+       LIMIT ${limitParam}`;
+    // Vector searches run inside a transaction so the filtered-HNSW tuning can
+    // take effect (SET LOCAL is a no-op in autocommit). A handle without the
+    // optional transaction capability (query-only test doubles) skips tuning —
+    // the search stays correct, it just keeps pgvector's default window.
+    const runInTransaction = queryVector ? this.database.transaction?.bind(this.database) : null;
+    const result = runInTransaction
+      ? await runInTransaction(async (tx) => {
+          for (const statement of HNSW_SEARCH_TUNING_STATEMENTS) {
+            await tx.query(statement);
+          }
+          return await tx.query<VectorRow>(searchSql, values);
+        })
+      : await this.database.query<VectorRow>(searchSql, values);
     const rows = result.rows.map((row) => {
       const queryResult: QueryResult = {
         id: row.id,
@@ -538,6 +567,9 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
    * HNSW ceiling are skipped with a visible warning — queries stay correct via
    * sequential scan, they just lose ANN acceleration. Creation failures reject
    * loudly (no silent fallback); the failed key is cleared so a retry is possible.
+   * The success memo is PER-INSTANCE: an index dropped externally after creation
+   * is only recreated by a FRESH store's create/re-declare (the every-session
+   * Mastra init path) — acceptable because nothing in the app drops these.
    */
   private async ensureDimensionIndex(
     dimension: number,
