@@ -321,10 +321,21 @@ export function setupInlineFixtureSubscription(
         // Multi-root harness: the adapter appends the fixture state (throws
         // without a primary fixture / on duplicates — no half-activation) and
         // the inject 'add' path appends the handle as an additional root.
-        const handle = await adapter.addInlineFixtureRoot(fixture);
-        dispatchInjectRootHandle(handle, 'add');
-        logger.info('Inline fixture root added', { name: fixture.name });
-        return handle;
+        // Shares the load/clear re-entrancy guard: an in-flight
+        // loadInlineFixture reassigns the adapter's fixture list, which would
+        // silently drop a concurrently-added root — fail loudly instead.
+        if (isProcessing) {
+          throw new Error('Cannot add a fixture root while a fixture load or clear is in flight');
+        }
+        isProcessing = true;
+        try {
+          const handle = await adapter.addInlineFixtureRoot(fixture);
+          dispatchInjectRootHandle(handle, 'add');
+          logger.info('Inline fixture root added', { name: fixture.name });
+          return handle;
+        } finally {
+          isProcessing = false;
+        }
       };
       window.__BRAINSTRIKE_INDEXING_DEBUG__ = createIndexingDebugApi();
     } else {
