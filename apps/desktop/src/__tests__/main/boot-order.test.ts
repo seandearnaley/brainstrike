@@ -162,14 +162,12 @@ vi.mock('../../db-main', async () => {
   };
 });
 
-const { probeMock, selectStrategyMock } = vi.hoisted(() => ({
+const { probeMock } = vi.hoisted(() => ({
   probeMock: vi.fn(async () => ({
-    concurrentIndexBuild: true,
     hnswIndexBuild: true,
     maintenanceSettings: { maintenanceWorkMem: null, maxParallelMaintenanceWorkers: null },
     progressReporting: true,
   })),
-  selectStrategyMock: vi.fn(() => ({ reason: 'test', strategy: 'rebuild-concurrently' })),
 }));
 
 vi.mock('../../dimension-index-maintenance-capabilities', async () => {
@@ -179,7 +177,6 @@ vi.mock('../../dimension-index-maintenance-capabilities', async () => {
   return {
     ...actual,
     probeDimensionIndexRuntimeCapabilities: probeMock,
-    selectDimensionIndexStrategy: selectStrategyMock,
   };
 });
 
