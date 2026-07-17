@@ -172,6 +172,77 @@ async function estimateEmbeddedRowCount(db: Pick<DimensionIndexDb, 'query'>): Pr
   }
 }
 
+/**
+ * Run an HNSW index build with maintenance_work_mem sized for the estimated
+ * graph (embedded row count x dimension, see
+ * resolveIndexBuildMaintenanceWorkMemMb). The SET only fires when the resolved
+ * value exceeds the 64MB default, and the RESET always runs in a finally:
+ * PGlite is one shared connection, so a leaked setting would ride along in
+ * every subsequent query's session. `db.exec` MUST be the same channel/session
+ * that executes the build itself (see the desktop maintenance scheduler and
+ * embedding backfill), or the session-scoped SET silently would not apply.
+ */
+export async function withIndexBuildMaintenanceWorkMem(
+  db: DimensionIndexDb,
+  dimension: number,
+  build: () => Promise<void>
+): Promise<void> {
+  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
+    await estimateEmbeddedRowCount(db),
+    dimension
+  );
+  // Defense-in-depth before SQL interpolation: the resolver clamps to
+  // [default, cap], so anything else is a bug.
+  if (
+    !Number.isInteger(workMemMb) ||
+    workMemMb < DEFAULT_MAINTENANCE_WORK_MEM_MB ||
+    workMemMb > MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
+  ) {
+    throw new Error(
+      `withIndexBuildMaintenanceWorkMem: Invalid maintenance_work_mem value: ${workMemMb}`
+    );
+  }
+  const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
+  let buildFailed = false;
+  let buildError: unknown;
+
+  try {
+    if (tuneBuildMemory) {
+      await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
+    }
+    await build();
+  } catch (error) {
+    buildFailed = true;
+    buildError = error;
+  }
+
+  if (tuneBuildMemory) {
+    try {
+      await db.exec('RESET maintenance_work_mem');
+    } catch (resetError) {
+      const resetMessage = resetError instanceof Error ? resetError.message : String(resetError);
+      logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
+        dimension,
+        error: resetMessage,
+      });
+      // A successful build with a failed RESET must NOT resolve: the raised
+      // limit would silently ride along in every subsequent query's session
+      // while the caller records a healthy rebuild. When the build itself
+      // failed, the original build error propagates below (the reset failure
+      // is logged here) — masking the root cause would misdirect retries.
+      if (!buildFailed) {
+        throw new Error(
+          `Failed to reset maintenance_work_mem after HNSW index build for ${dimension}D: ${resetMessage}`
+        );
+      }
+    }
+  }
+
+  if (buildFailed) {
+    throw buildError;
+  }
+}
+
 const DIMENSION_INDEX_SUSPENSIONS_TABLE = 'embedding_dimension_index_suspensions';
 
 /**
@@ -258,45 +329,17 @@ export async function createDimensionIndex(
 
   // A graph larger than maintenance_work_mem forces pgvector's slow disk-based
   // build phase (benchmarked 5x slower at 100k chunks x 1024 dims — see
-  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). Raise the setting for the build
-  // only; PGlite is one shared connection, so it MUST be reset afterwards or
-  // it leaks into every subsequent query's session.
-  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
-    await estimateEmbeddedRowCount(db),
-    dimension
-  );
-  // Defense-in-depth before SQL interpolation, mirroring the checks above:
-  // the resolver clamps to [default, cap], so anything else is a bug.
-  if (
-    !Number.isInteger(workMemMb) ||
-    workMemMb < DEFAULT_MAINTENANCE_WORK_MEM_MB ||
-    workMemMb > MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
-  ) {
-    throw new Error(`createDimensionIndex: Invalid maintenance_work_mem value: ${workMemMb}`);
-  }
-  const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
-
+  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). withIndexBuildMaintenanceWorkMem
+  // raises the setting for the build only and always resets it afterwards.
   try {
-    if (tuneBuildMemory) {
-      await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
-    }
-    await db.exec(sqlStatement);
+    await withIndexBuildMaintenanceWorkMem(db, dimension, async () => {
+      await db.exec(sqlStatement);
+    });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // Ignore "already exists" errors for idempotency
     if (!msg.includes('already exists')) {
       throw new Error(`Failed to create HNSW index for ${dimension}D: ${msg}`);
-    }
-  } finally {
-    if (tuneBuildMemory) {
-      try {
-        await db.exec('RESET maintenance_work_mem');
-      } catch (resetError) {
-        logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
-          dimension,
-          error: resetError instanceof Error ? resetError.message : String(resetError),
-        });
-      }
     }
   }
 }

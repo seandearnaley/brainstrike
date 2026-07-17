@@ -1335,7 +1335,7 @@ export class JobQueue {
       succeeded: number;
       succeededLifetime: number;
       /**
-       * Durable lifetime outcome totals (migration 063). Optional in the type
+       * Durable lifetime outcome totals (migration 064). Optional in the type
        * so pre-existing JobQueue mocks/stubs stay assignable; the real
        * implementation always returns them.
        */
