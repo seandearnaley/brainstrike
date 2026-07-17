@@ -173,7 +173,9 @@ The assistant's search verbs, in the order the default instructions present them
    apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
 
 Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
-in BOTH `FileChunkRepository` and `ElectronFileChunkRepository` routes NARROWED
+in ALL THREE chunk repositories — `FileChunkRepository`,
+`ElectronFileChunkRepository`, and `DrizzleFileChunkRepository` (the web/
+DbProvider path) — routes NARROWED
 searches (any filter beyond `embedding_set_id` — rootId/rootIds, filePaths,
 selectionSnapshotId, fileRecordId, chunkType) via bounded selectivity counts
 (`resolveFilteredVectorSearchRoute` in packages/db/src/repositories/_shared.ts):

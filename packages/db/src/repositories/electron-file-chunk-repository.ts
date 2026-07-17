@@ -69,6 +69,7 @@ interface SearchScope {
   embeddingSetId: string;
   filePaths?: string[] | undefined;
   fileRecordId?: string | undefined;
+  rootId?: string | undefined;
   rootIds?: readonly string[] | undefined;
   selectionSnapshotId?: string | undefined;
 }
@@ -439,6 +440,7 @@ export class ElectronFileChunkRepository {
       embeddingSetId,
       efSearch,
       filePaths,
+      rootId,
       rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
@@ -469,6 +471,7 @@ export class ElectronFileChunkRepository {
       embeddingSetId,
       filePaths: normalizedFilePaths,
       fileRecordId,
+      rootId,
       rootIds,
       selectionSnapshotId: normalizedSnapshotId,
     };
@@ -1020,6 +1023,13 @@ export class ElectronFileChunkRepository {
     );
     // Scope to workspace roots via a subquery (not a JOIN) so the main
     // file_chunks predicate still matches the partial HNSW index.
+    if (scope.rootId !== undefined) {
+      clauses.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
+      );
+      values.push(scope.rootId);
+      paramIndex += 1;
+    }
     if (scope.rootIds !== undefined) {
       clauses.push(
         `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
@@ -1120,6 +1130,9 @@ export class ElectronFileChunkRepository {
    * full-precision `embedding <=> $1::vector(N)` CANNOT match that index expression,
    * so the planner must exact-scan the filtered subset — 100% recall by
    * construction, with fp32 similarity scores.
+   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
+   * halfvec/ANN route, so scores near the threshold can differ across routes —
+   * callers must not assume one scale.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',

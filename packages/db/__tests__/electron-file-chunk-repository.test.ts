@@ -410,6 +410,41 @@ describe('ElectronFileChunkRepository.searchSimilar adaptive routing', () => {
     expect(query.mock.calls.map((c) => c[0])).not.toContain('BEGIN');
   });
 
+  // The single-root `rootId` option (ChunkSearchOptions) must scope the Electron
+  // path exactly like the direct FileChunkRepository: the root predicate has to
+  // reach BOTH the selectivity counts (so routing sees the narrowed subset) and
+  // the search SQL itself. Dropping it silently widens desktop results to every
+  // root in the embedding set.
+  it('carries the single-root rootId scope through the counts and the search SQL', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    // matched=10 <= 20k cap; total cap ceil(10/0.15)=67 reached -> exact.
+    setupQueryMock(query as QueryMock, [10, 67]);
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootId: 'root-a',
+    });
+
+    // rootId alone narrows the search -> the selectivity counts run and carry
+    // the root predicate.
+    const countSql = query.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('SELECT COUNT(*)'));
+    expect(countSql).toBeDefined();
+    expect(countSql).toContain('file_record_id IN (SELECT id FROM file_records WHERE root_id = $');
+
+    // The search SQL carries the same predicate with the rootId value bound.
+    const searchCall = query.mock.calls.find((c) => (c[0] as string).includes('ROW_NUMBER() OVER'));
+    expect(searchCall).toBeDefined();
+    expect(searchCall?.[0]).toContain(
+      'file_record_id IN (SELECT id FROM file_records WHERE root_id = $'
+    );
+    expect(searchCall?.[1]).toContain('root-a');
+    // Selective single-root scope -> exact route (no tuned ANN transaction).
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it('keeps a large narrowed subset on the tuned ANN path (single count)', async () => {
     const { repo, query, transaction } = createRepoWithTransaction();
     // matched cap is 20_001; a full cap count means "too many for exact".

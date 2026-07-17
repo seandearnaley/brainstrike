@@ -1137,6 +1137,9 @@ export class FileChunkRepository {
    * guarantee: full-precision `embedding <=> $1::vector(N)` CANNOT match that
    * index expression, so the planner must exact-scan the filtered subset —
    * 100% recall by construction, with fp32 similarity scores.
+   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
+   * halfvec/ANN route, so scores near the threshold can differ across routes —
+   * callers must not assume one scale.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',
