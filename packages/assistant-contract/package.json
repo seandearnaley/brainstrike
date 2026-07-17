@@ -5,9 +5,10 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -17,6 +18,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
+    },
+    "./hook-trust-request": {
+      "types": "./dist/hook-trust-request.d.ts",
+      "import": "./dist/hook-trust-request.js",
+      "require": "./dist/hook-trust-request.js"
     },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
@@ -63,6 +69,11 @@
       "import": "./dist/memory-settings.js",
       "require": "./dist/memory-settings.js"
     },
+    "./personas": {
+      "types": "./dist/personas.d.ts",
+      "import": "./dist/personas.js",
+      "require": "./dist/personas.js"
+    },
     "./provider-metadata": {
       "types": "./dist/provider-metadata.d.ts",
       "import": "./dist/provider-metadata.js",
@@ -78,6 +89,11 @@
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
     },
+    "./shell-output": {
+      "types": "./dist/shell-output.d.ts",
+      "import": "./dist/shell-output.js",
+      "require": "./dist/shell-output.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",
@@ -92,6 +108,16 @@
       "types": "./dist/tool-metadata.d.ts",
       "import": "./dist/tool-metadata.js",
       "require": "./dist/tool-metadata.js"
+    },
+    "./tool-suspend": {
+      "types": "./dist/tool-suspend.d.ts",
+      "import": "./dist/tool-suspend.js",
+      "require": "./dist/tool-suspend.js"
+    },
+    "./user-personas": {
+      "types": "./dist/user-personas.d.ts",
+      "import": "./dist/user-personas.js",
+      "require": "./dist/user-personas.js"
     }
   },
   "files": [

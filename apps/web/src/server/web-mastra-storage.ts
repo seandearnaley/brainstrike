@@ -49,7 +49,7 @@ export function getWebMastraStorage(): Promise<PgliteMastraMemoryResult> {
 }
 
 async function initWebMastraStorage(): Promise<PgliteMastraMemoryResult> {
-  // PGlite Extension Invariant (AGENTS.md): load the same engine-extension set as
+  // PGlite Extension Invariant (docs/agents/database.md): load the same engine-extension set as
   // every other construction site so any path that later touches the Mastra
   // vector store (semantic recall / observational vector retrieval once an
   // embedder is threaded) can run `CREATE EXTENSION vector` without the cryptic

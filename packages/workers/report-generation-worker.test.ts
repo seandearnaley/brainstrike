@@ -74,7 +74,6 @@ describe('report-generation-worker', () => {
       selectedLineRangesByFile: {
         'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
       },
-      useTapestryRanges: true,
     });
 
     const call = spy.mock.calls[0];
@@ -83,7 +82,6 @@ describe('report-generation-worker', () => {
       selectedLineRangesByFile: {
         'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
       },
-      useTapestryRanges: true,
     });
   });
 });

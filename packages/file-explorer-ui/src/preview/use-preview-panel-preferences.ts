@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_TAPESTRY_SCALE, MAX_TAPESTRY_SCALE, MIN_TAPESTRY_SCALE } from '../tapestry/utils';
 import type { TableRowData } from '../utils/grouping-configs';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 import {
@@ -48,7 +49,7 @@ interface StoredPreferences {
   pageSize?: number;
   sortDirection?: 'asc' | 'desc';
   sortField?: keyof TableRowData;
-  useTapestryRangesForContextOutput?: boolean;
+  tapestryScale?: number;
 }
 
 interface PreviewPanelPreferences {
@@ -60,7 +61,7 @@ interface PreviewPanelPreferences {
   pageSize: number;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
-  useTapestryRangesForContextOutput: boolean;
+  tapestryScale: number;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -69,7 +70,6 @@ interface PreviewPanelPreferencesDefaults {
   groupingConfig: string;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 function loadStoredPreferences(): StoredPreferences | null {
@@ -169,10 +169,16 @@ function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferenc
   return;
 }
 
-function sanitizeUseTapestryRangesForContextOutput(
-  value: StoredPreferences['useTapestryRangesForContextOutput']
-): StoredPreferences['useTapestryRangesForContextOutput'] {
-  if (typeof value === 'boolean') {
+function sanitizeTapestryScale(
+  value: StoredPreferences['tapestryScale']
+): StoredPreferences['tapestryScale'] {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= MIN_TAPESTRY_SCALE &&
+    value <= MAX_TAPESTRY_SCALE
+  ) {
     return value;
   }
   return;
@@ -230,11 +236,9 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (pageSize !== undefined) {
     sanitized.pageSize = pageSize;
   }
-  const useTapestryRangesForContextOutput = sanitizeUseTapestryRangesForContextOutput(
-    stored.useTapestryRangesForContextOutput
-  );
-  if (useTapestryRangesForContextOutput !== undefined) {
-    sanitized.useTapestryRangesForContextOutput = useTapestryRangesForContextOutput;
+  const tapestryScale = sanitizeTapestryScale(stored.tapestryScale);
+  if (tapestryScale !== undefined) {
+    sanitized.tapestryScale = tapestryScale;
   }
   const footerMode = sanitizeFooterMode(stored.footerMode);
   const footerHeight = sanitizeFooterHeight(stored.footerHeight);
@@ -263,7 +267,7 @@ interface PreviewPanelPreferencesSetters {
   setPageSize: Dispatch<SetStateAction<number>>;
   setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
   setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
-  setUseTapestryRangesForContextOutput: Dispatch<SetStateAction<boolean>>;
+  setTapestryScale: Dispatch<SetStateAction<number>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -301,16 +305,11 @@ export function usePreviewPanelPreferences(
   const [pageSize, setPageSize] = useState<number>(() =>
     getStoredValue(storedPreferences, 'pageSize', DEFAULT_PAGE_SIZE)
   );
-  const [useTapestryRangesForContextOutput, setUseTapestryRangesForContextOutput] =
-    useState<boolean>(() =>
-      getStoredValue(
-        storedPreferences,
-        'useTapestryRangesForContextOutput',
-        defaults.useTapestryRangesForContextOutput
-      )
-    );
   const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
+  );
+  const [tapestryScale, setTapestryScale] = useState<number>(() =>
+    getStoredValue(storedPreferences, 'tapestryScale', DEFAULT_TAPESTRY_SCALE)
   );
 
   useEffect(() => {
@@ -325,7 +324,7 @@ export function usePreviewPanelPreferences(
           pageSize,
           sortDirection,
           sortField,
-          useTapestryRangesForContextOutput,
+          tapestryScale,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -351,8 +350,8 @@ export function usePreviewPanelPreferences(
     collapsedGroups,
     activeTab,
     pageSize,
-    useTapestryRangesForContextOutput,
     footerMode,
+    tapestryScale,
   ]);
 
   return {
@@ -370,9 +369,9 @@ export function usePreviewPanelPreferences(
     setPageSize,
     setSortDirection,
     setSortField,
-    setUseTapestryRangesForContextOutput,
+    setTapestryScale,
     sortDirection,
     sortField,
-    useTapestryRangesForContextOutput,
+    tapestryScale,
   };
 }

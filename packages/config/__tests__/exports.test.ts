@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import biome from '../../../biome.json';
 import baseTsconfig from '../tsconfig/base.json';
-import reactLibrary from '../tsconfig/react-library.json';
 
 it('imports runtime export modules without throwing', { timeout: 20_000 }, async () => {
   await expect(import('../src/playwright-environment')).resolves.toBeTruthy();
@@ -25,9 +24,5 @@ describe('tsconfig presets', () => {
   it('base compiler options are set', () => {
     expect(baseTsconfig.compilerOptions?.module).toBe('ESNext');
     expect(baseTsconfig.compilerOptions?.strict).toBe(true);
-  });
-
-  it('react-library extends base', () => {
-    expect(reactLibrary.extends).toBe('./base.json');
   });
 });

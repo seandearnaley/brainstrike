@@ -1,6 +1,14 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+// Relative import (not the package self-reference) — this IS @brainstrike/test-utils.
+import { workspaceSrcAliases } from './workspace-src-aliases.mjs';
 
 export default defineConfig({
+  resolve: {
+    // Stryker mutation lane: resolve workspace deps (@brainstrike/types) from
+    // SOURCE, not dist. See ./workspace-src-aliases.mjs (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
+  },
   test: {
     environment: 'jsdom',
     exclude: ['node_modules', 'dist'],

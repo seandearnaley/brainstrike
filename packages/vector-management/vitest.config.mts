@@ -3,6 +3,7 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -74,10 +75,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../utils/src/env-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(__dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: resolve(__dirname, '../utils/src/$1.ts'),
       },
@@ -126,6 +123,11 @@ export default defineConfig({
         find: '@brainstrike/preferences',
         replacement: resolve(__dirname, '../preferences/src/index.ts'),
       },
+      // Registry fills gaps (e.g. the @brainstrike/embeddings ROOT specifier,
+      // executed via importOriginal in vector-queue-service.test.ts — only the
+      // subpaths were aliased above). Hand-rolled entries win by first-match.
+      // See workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(__dirname, '..')),
     ],
   },
   test: {

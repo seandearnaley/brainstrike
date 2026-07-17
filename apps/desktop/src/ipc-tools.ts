@@ -284,10 +284,6 @@ function sanitizeWorkspaceContext(input: unknown): RuntimeWorkspaceContext | und
     }
     workspaceContext.tokenBudget = tokenBudget;
   }
-  const useTapestryRanges = readOptionalBoolean(input, 'useTapestryRanges');
-  if (useTapestryRanges !== undefined) {
-    workspaceContext.useTapestryRanges = useTapestryRanges;
-  }
 
   return workspaceContext;
 }

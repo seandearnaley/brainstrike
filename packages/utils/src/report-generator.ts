@@ -38,7 +38,6 @@ export interface ContextGenerationOptions {
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges?: boolean;
 }
 
 /**
@@ -229,9 +228,8 @@ function buildFileContextContent(args: {
   displayPath?: string;
   fileContents: Record<string, string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges: boolean;
 }): string {
-  const { filePath, displayPath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const { filePath, displayPath, fileContents, selectedLineRangesByFile } = args;
   const escapedFilePath = escapeXmlAttribute(displayPath ?? filePath);
   const content =
     fileContents[filePath] ?? `Unable to read file content for ${displayPath ?? filePath}`;
@@ -239,13 +237,19 @@ function buildFileContextContent(args: {
 ${content}
 </file>`;
 
-  if (!(useTapestryRanges && filePath in fileContents)) {
+  // A file whose content was never loaded cannot be sliced by ranges — emit the
+  // full/fallback `<file>` path instead of an empty selection.
+  if (!(filePath in fileContents)) {
     return fullFileContextContent;
   }
 
-  const hasExplicitRangesForFile = selectedLineRangesByFile
-    ? Object.hasOwn(selectedLineRangesByFile, filePath)
-    : false;
+  // Invariant: absence of ranges = whole file. A present-but-EMPTY array is
+  // equivalent to absence (empty ≡ absent), so it must be treated as whole file
+  // too — only a present, NON-EMPTY range list is "explicit". A present list of
+  // all-inactive ranges stays explicit (length > 0) and falls through to the
+  // <selection_summary> exclusion notice below.
+  const explicitRanges = selectedLineRangesByFile?.[filePath];
+  const hasExplicitRangesForFile = explicitRanges !== undefined && explicitRanges.length > 0;
 
   // If a file has no explicit tapestry ranges, treat it as fully selected.
   // This preserves expected "default hot" behavior for context export.
@@ -303,7 +307,6 @@ ${Array.from(selectedFiles)
       ...(options.selectedLineRangesByFile
         ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
         : {}),
-      useTapestryRanges: options.useTapestryRanges ?? false,
     })
   )
   .join('\n')}

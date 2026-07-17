@@ -434,6 +434,33 @@ describe('useRecursiveFolderSelect', () => {
     expect(selectionResult.filePaths).toEqual(['/root/src/keep.ts']);
   });
 
+  it('applies the active quick filter to unloaded-subtree scans (#1595)', async () => {
+    // The display tree respects the quick filter; a folder click that scans
+    // unloaded directories must too, or it would select search-hidden files.
+    mockStoreState = { quickFilter: 'keep' };
+    const root = createDirectory({ children: [], loadState: 'unloaded', path: '/root/src' });
+    const fileSystemAdapter = createMockAdapter({
+      '/root/src': [
+        createFile({ depth: 1, name: 'keep.ts', path: '/root/src/keep.ts' }),
+        createFile({ depth: 1, name: 'other.ts', path: '/root/src/other.ts' }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 10, 0)
+    );
+
+    // Only the quick-filter-matching file is selected; 'other.ts' is hidden.
+    expect(selectionResult.filePaths).toEqual(['/root/src/keep.ts']);
+  });
+
   it('blocks concurrent recursive folder selection operations', async () => {
     const root = createDirectory({
       children: [],

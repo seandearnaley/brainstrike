@@ -64,6 +64,10 @@ export function SearchCollectionSelector({
 
   // Use shared hook for collection data
   const { collections, loading, error } = useCollections(db);
+  const visibleCollections = useMemo(
+    () => collections.filter((collection) => collection.systemRole !== 'workspace-index'),
+    [collections]
+  );
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === activeCollectionId) ?? null,
     [activeCollectionId, collections]
@@ -72,6 +76,14 @@ export function SearchCollectionSelector({
     selectedCollection && !getCollectionPickerProtection(selectedCollection).isDisabled
       ? activeCollectionId
       : null;
+
+  useEffect(() => {
+    if (selectedCollection?.systemRole !== 'workspace-index') {
+      return;
+    }
+    // eslint-disable-next-line react-doctor/no-prop-callback-in-effect -- The parent already owns selection; this repairs a persisted ID only after async collection metadata proves it is system-owned.
+    onCollectionChange(null);
+  }, [onCollectionChange, selectedCollection]);
 
   // Handle errors with toast notifications
   useEffect(() => {
@@ -132,7 +144,7 @@ export function SearchCollectionSelector({
   return (
     <ErrorBoundary>
       <CollectionPicker
-        collections={collections}
+        collections={visibleCollections}
         loading={isLoading}
         maxHeight="none"
         onCreate={onCreateCollection}

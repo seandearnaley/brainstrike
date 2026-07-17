@@ -41,7 +41,6 @@ const toContextGenerationOverrides = (
         })),
       ])
     ),
-    useTapestryRanges: options.useTapestryRanges,
   };
 };
 

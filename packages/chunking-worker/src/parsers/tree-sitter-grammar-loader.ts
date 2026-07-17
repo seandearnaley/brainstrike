@@ -73,7 +73,23 @@ async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Arra
   //    correctly in BOTH environments.
   //
   // P1 fix (review comment on #1000): absolute path crashed Electron.
-  const grammarUrl = new URL(`./grammars/${language}.wasm`, import.meta.url).href;
+  //
+  // CRITICAL — do NOT inline `import.meta.url` into the `new URL(...)` call.
+  // Vite's asset plugin matches `new URL(<literal>, import.meta.url)` (regex
+  // `assetImportMetaUrlRE`, second arg must be the literal `import.meta.url`).
+  // Our first arg is a DYNAMIC template (`${language}`), so Vite takes its
+  // dynamic branch and rewrites this into an EMPTY glob-map lookup —
+  // `new URL(Object.assign({})[`./grammars/${language}.wasm`], import.meta.url)`
+  // — because the grammar WASM files ship via `viteStaticCopy`, NOT the module
+  // graph, so the glob matches nothing. That yields `undefined`, so the fetch
+  // URL becomes `<base>/assets/undefined` → 404 → grammar load throws → the
+  // tree-sitter adapter throws → portable-chunking SILENTLY degrades code
+  // chunking to recursive text splitting (violating the no-silent-fallback
+  // rule). Routing `import.meta.url` through a variable breaks the regex match
+  // so the URL is resolved at RUNTIME against the worker's own bundle URL,
+  // where `viteStaticCopy` has placed `assets/grammars/<lang>.wasm`.
+  const moduleUrl = import.meta.url;
+  const grammarUrl = new URL(`./grammars/${language}.wasm`, moduleUrl).href;
   const response = await fetch(grammarUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch grammar for ${language} at ${grammarUrl}: ${response.status}`);

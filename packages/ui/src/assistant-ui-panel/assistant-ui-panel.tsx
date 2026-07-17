@@ -23,11 +23,14 @@ import {
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+  type AssistantToolApprovalRequest,
   type LocalLlmBackendFactory,
+  SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
+  TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
-  ArrowUpIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -36,7 +39,6 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
-  SquareIcon,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
@@ -48,25 +50,27 @@ import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
-import { shouldShowBackgroundActivity } from './assistant-detail-level';
-import {
-  AssistantDetailLevelProvider,
-  useAssistantDetailLevel,
-} from './assistant-detail-level-context';
+import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import {
-  AssistantRunTimeline,
-  isAlwaysVisibleRunEvent,
-  resolveAssistantRunEventRenderPlan,
-  resolveAssistantRunEventStatus,
-} from './assistant-run-timeline';
+import { AssistantRunEventProvider } from './assistant-run-event-context';
+import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
+import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
+import { CheckpointTurnRevert } from './checkpoint-turn-revert';
+import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
+import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
+import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
+import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
+
+export type { ComposerAttachmentsAvailability } from './composer-input';
+
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -74,61 +78,24 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
+import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
+import { ShellOutputProvider } from './shell-output-context';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
-import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
+import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
-import { collectToolDurations } from './tool-durations';
-import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
+import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
-
-const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
-  // Memory/context background activity (observational memory, semantic recall,
-  // context prep, run steps) is internal bookkeeping that wraps the tool calls
-  // people care about. Hide every run-event row unless the Detail level is
-  // Developer — the default thread is just the grouped tool cards + the answer.
-  // EXCEPTION: terminal run failures/cancellations always surface, so a broken
-  // turn is never silently swallowed (see isAlwaysVisibleRunEvent).
-  const { detailLevel } = useAssistantDetailLevel();
-  const showRow = shouldShowBackgroundActivity(detailLevel) || isAlwaysVisibleRunEvent(data);
-  // Both selectors are O(total parts) and re-run on every streamed state change.
-  // In the default (non-Developer) case — now the common path for every hidden
-  // memory/context/run-step row — short-circuit INSIDE the selector so the scans
-  // are skipped entirely, not run only to discard the result. The ≤1-per-turn
-  // forced failure row pays for the scan, but the flood still skips it. Hooks
-  // still run unconditionally (rules-of-hooks safe); only one string primitive
-  // is selected.
-  const statusOverride = useAuiState((state) =>
-    showRow ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
-  );
-  const renderPlanKey = useAuiState((state) => {
-    if (!showRow) {
-      return 'hidden';
-    }
-    const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
-    return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
-  });
-  if (renderPlanKey === 'hidden') {
-    return null;
-  }
-  const repeatCount = Number(renderPlanKey.slice('visible:'.length));
-  return (
-    <AssistantRunTimeline
-      data={data}
-      repeatCount={repeatCount}
-      {...(statusOverride ? { statusOverride } : {})}
-    />
-  );
-};
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
   <AssistantToolApprovalNotice data={data} />
@@ -142,6 +109,24 @@ const assistantRunTimelineDataUI = {
 const assistantToolApprovalDataUI = {
   name: TOOL_APPROVAL_DATA_NAME,
   render: AssistantToolApprovalDataPart,
+} satisfies AssistantDataUIProps;
+
+const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
+  <AssistantToolSuspendNotice data={data} />
+);
+
+const assistantToolSuspendDataUI = {
+  name: TOOL_SUSPEND_DATA_NAME,
+  render: AssistantToolSuspendDataPart,
+} satisfies AssistantDataUIProps;
+
+// Live shell-output slices are consumed by the tool card (via the incremental
+// shell-output accumulator + ShellOutputProvider), NOT rendered inline in the
+// message flow — register a null renderer so the transient data parts never
+// surface as stray elements.
+const assistantShellOutputDataUI = {
+  name: SHELL_OUTPUT_DATA_NAME,
+  render: () => null,
 } satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
@@ -231,13 +216,25 @@ export type {
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
+export type { ComposerDraftCommand } from './composer-draft-command';
 
 import type {
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 
-export interface AssistantUiPanelProps {
+export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
+  /** Models for the ModelPicker component */
+  /**
+   * Composer image-attachment availability, resolved by the app-shell
+   * wrapper. Absent renders no attachment affordance and registers no
+   * attachment adapter (provider gate: the text-only built-in local
+   * provider); 'disabled' renders a visibly disabled attach button with the
+   * reason (per-model vision gate) while keeping the adapter + preview strip
+   * alive for already-staged attachments; 'enabled' activates attach, paste,
+   * and the preview strip.
+   */
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   className?: string;
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
@@ -275,6 +272,13 @@ export interface AssistantUiPanelProps {
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
   /**
+   * Clear the persisted plan-mode preference. Called when the user APPROVES a
+   * submitted plan so the resume request exits plan mode and the rebuilt server
+   * runtime unlocks the mutation tools. Absent → approving a plan leaves plan
+   * mode unchanged.
+   */
+  onExitPlanMode?: () => void;
+  /**
    * Reports the active "@" mention query so the app can load matching files into
    * `fileMentions`. Presence of this callback gates the "@" feature on.
    */
@@ -284,15 +288,32 @@ export interface AssistantUiPanelProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  /**
+   * Reports a `run.failed` run event exactly once (deduped by event id).
+   * Only ever fires for the Mastra-loop transport (hosted providers / desktop
+   * local-via-data-stream) — the in-renderer local runtime has no run events.
+   */
+  onRunFailed?: (event: AssistantRunEvent) => void;
+  /** Reports a `run.finished` run event exactly once (deduped by event id). */
+  onRunFinished?: (event: AssistantRunEvent) => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /** Toggle the persisted plan-mode preference. Absent → no toggle is shown. */
+  onTogglePlanMode?: () => void;
+  /**
+   * Reports a tool-approval-required pause exactly once, deduped by
+   * `runId:toolCallId` (a later re-render of the same pause is not a new
+   * request).
+   */
+  onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
-  /** Models for the ModelPicker component */
+  onUsage?: (usage: AssistantUsage) => void;
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
+  planModeEnabled?: boolean;
   prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -493,9 +514,10 @@ const LocalChainOfThought = () => {
     return entries.join(',');
   });
 
-  const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
-  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
-  const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
+  const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
+  // Per-turn derivations with context-value stability — see the hook's doc.
+  const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
+    useChainActivityDerivations(messageParts, messageId);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
@@ -529,10 +551,7 @@ const LocalChainOfThought = () => {
         components={{
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
           Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
-          tools: {
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-            Fallback: ToolFallback,
-          },
+          tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
         }}
         index={index}
       />
@@ -578,7 +597,10 @@ const LocalChainOfThought = () => {
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-      <ToolDurationProvider durations={toolDurations}>{content}</ToolDurationProvider>
+      {taskList ? <TodoProgress result={taskList} /> : null}
+      <ToolDurationProvider durations={toolDurations}>
+        <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
+      </ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -586,6 +608,8 @@ const LocalChainOfThought = () => {
 const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
+  useAssistantDataUI(assistantToolSuspendDataUI);
+  useAssistantDataUI(assistantShellOutputDataUI);
 
   return null;
 };
@@ -601,107 +625,6 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 // Stable empty default for the optional fileMentions prop (same memoization
 // rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
-
-/**
- * The composer input row (textarea + Send/Cancel), defined ONCE so both the
- * trigger-enabled and plain composer paths share it — only the optional
- * `slashPopover`/`mentionPopover` differ. Send / Cancel are unchanged
- * regardless of the trigger features. When both are omitted the row renders
- * without any "/" or "@" menu.
- *
- * Since @assistant-ui/react 0.12.26, each popover is a
- * `ComposerPrimitive.Unstable_TriggerPopover` (see `composer-trigger-popover.tsx`
- * / `composer-mention-popover.tsx`) that renders its own `role="listbox"`
- * container directly — they no longer need (or accept) a wrapping Mention/
- * SlashCommand root around the input; they read composer text via the
- * enclosing `Unstable_TriggerPopoverRoot` instead (see
- * `ComposerInputWithTriggers` below).
- */
-const ComposerInputRow = ({
-  isComposerDisabled,
-  mentionPopover,
-  slashPopover,
-}: {
-  isComposerDisabled: boolean;
-  mentionPopover?: ReactNode;
-  slashPopover?: ReactNode;
-}) => (
-  <div className="bs-composer-input-frame">
-    <ComposerPrimitive.Input
-      aria-label="Message input"
-      className="aui-composer-input"
-      disabled={isComposerDisabled}
-      id="assistant-input"
-      placeholder="Ask BrainStrike anything..."
-      rows={1}
-    />
-    {slashPopover}
-    {mentionPopover}
-    <div className="bs-composer-primary-actions">
-      <ThreadPrimitive.If running={false}>
-        <ComposerPrimitive.Send
-          aria-label="Send"
-          className="aui-button aui-button-primary aui-composer-send"
-          disabled={isComposerDisabled}
-          title="Send"
-        >
-          <ArrowUpIcon className="size-4" />
-        </ComposerPrimitive.Send>
-      </ThreadPrimitive.If>
-      <ThreadPrimitive.If running>
-        <ComposerPrimitive.Cancel
-          aria-label="Stop"
-          className="aui-button aui-button-primary aui-composer-cancel"
-          disabled={isComposerDisabled}
-          title="Stop"
-        >
-          <SquareIcon className="size-3.5 fill-current" />
-        </ComposerPrimitive.Cancel>
-      </ThreadPrimitive.If>
-    </div>
-  </div>
-);
-
-/**
- * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at
- * least one trigger feature (slash commands and/or file mentions) is active —
- * the root itself is cheap, but omitting it entirely when neither feature is
- * present keeps the "no trigger features" path free of any trigger-popover
- * bookkeeping. `slashPopover`/`mentionPopover` (built by the caller from
- * `ComposerTriggerPopover`/`ComposerMentionPopover`) are each a
- * `Unstable_TriggerPopover` declaring its own `char` ("/" or "@") and adapter;
- * both read the same composer text via the shared root and coexist as
- * siblings (this replaces the pre-0.12.26 nested Mention-inside-SlashCommand
- * root pattern, which the library no longer supports — triggers are now
- * siblings under one root, not nested wrappers). When neither is present the
- * bare input row renders, so the trigger chars do nothing special (never an
- * empty menu).
- */
-const ComposerInputWithTriggers = ({
-  isComposerDisabled,
-  slashPopover,
-  mentionPopover,
-}: {
-  isComposerDisabled: boolean;
-  slashPopover?: ReactNode;
-  mentionPopover?: ReactNode;
-}) => {
-  const row = (
-    <ComposerInputRow
-      isComposerDisabled={isComposerDisabled}
-      {...(slashPopover ? { slashPopover } : {})}
-      {...(mentionPopover ? { mentionPopover } : {})}
-    />
-  );
-  if (!(slashPopover || mentionPopover)) {
-    return row;
-  }
-  return (
-    <ComposerPrimitive.Unstable_TriggerPopoverRoot>
-      {row}
-    </ComposerPrimitive.Unstable_TriggerPopoverRoot>
-  );
-};
 
 const ThreadHistoryControl = ({
   controlsId,
@@ -741,7 +664,9 @@ const ThreadHistoryControl = ({
 };
 
 // Shared props for inner chat components
-interface ChatThreadProps {
+interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
+  /** Composer image-attachment availability (attach button, paste, previews). */
+  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -763,11 +688,16 @@ interface ChatThreadProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
-  onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
+  onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
+  onUsage?: ((usage: AssistantUsage) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
+  /** Composer plan-mode toggle; absent → no toggle rendered. */
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -783,6 +713,7 @@ interface ChatThreadProps {
  * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
  */
 const LocalRuntimeChat = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -795,8 +726,11 @@ const LocalRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onToolApprovalRequired,
   onUsage,
   disabled,
   disabledReason,
@@ -807,6 +741,9 @@ const LocalRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
+  planMode,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -877,6 +814,7 @@ const LocalRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
+          composerDraftCommand={composerDraftCommand}
           contextWindow={contextWindow}
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
@@ -886,12 +824,18 @@ const LocalRuntimeChat = ({
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
           omSegment={omSegment}
+          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+          onComposerTextChange={onComposerTextChange}
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onRunFailed={onRunFailed}
+          onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
+          onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
           providerSettings={providerSettings}
           selectedModel={selectedModel}
@@ -910,6 +854,7 @@ const LocalRuntimeChat = ({
  * Uses useDataStreamRuntime for API-based inference.
  */
 const DataStreamRuntimeChat = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -922,8 +867,11 @@ const DataStreamRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onToolApprovalRequired,
   onUsage,
   disabled,
   disabledReason,
@@ -938,6 +886,10 @@ const DataStreamRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
+  planMode,
+  attachmentsAvailability,
   toolMenu,
   threadKey,
 }: ChatThreadProps & {
@@ -977,9 +929,36 @@ const DataStreamRuntimeChat = ({
     []
   );
 
+  // Stable adapter instance: recreating it per render would reset composer
+  // attachment state. Keyed on availability PRESENCE (not the enabled state,
+  // and not the object identity): the adapter must survive an
+  // enabled→disabled model switch so attachments staged under a vision model
+  // stay removable/sendable — assistant-ui's composer wipes text + staged
+  // attachments and then throws an unhandled "Attachments are not supported"
+  // rejection if Send runs with no adapter. The 'disabled' vision-gate state
+  // blocks NEW adds through the disabled attach button and the absent paste
+  // frame (composer-input.tsx) instead; a sent-anyway staged image surfaces
+  // the documented visible provider error. Absent availability (provider
+  // gate) registers no adapter, so adds are rejected loudly, never silently
+  // accepted.
+  const attachmentsPresent = attachmentsAvailability !== undefined;
+  const attachmentsAdapter = useMemo(
+    () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
+    [attachmentsPresent]
+  );
+  const runtimeAdapters =
+    historyAdapter || attachmentsAdapter
+      ? {
+          adapters: {
+            ...(attachmentsAdapter ? { attachments: attachmentsAdapter } : {}),
+            ...(historyAdapter ? { history: historyAdapter } : {}),
+          },
+        }
+      : {};
+
   const runtime = useBrainstrikeDataStreamRuntime({
     api,
-    ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
+    ...runtimeAdapters,
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
@@ -1015,32 +994,42 @@ const DataStreamRuntimeChat = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantPanelErrorBoundary>
-        <ChatThreadUI
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          fileMentions={fileMentions}
-          hasGroupedProviders={hasGroupedProviders}
-          isComposerDisabled={isComposerDisabled}
-          localLoadingState={localLoadingState}
-          omSegment={omSegment}
-          onFileMentionQueryChange={onFileMentionQueryChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onThreadRunStart={onThreadRunStart}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          providerGroups={providerGroups}
-          providerSettings={providerSettings}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          slashCommands={slashCommands}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      </AssistantPanelErrorBoundary>
+      <PlanModeExitProvider onExit={planMode?.onExit}>
+        <AssistantPanelErrorBoundary>
+          <ChatThreadUI
+            composerDraftCommand={composerDraftCommand}
+            contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            fileMentions={fileMentions}
+            hasGroupedProviders={hasGroupedProviders}
+            isComposerDisabled={isComposerDisabled}
+            localLoadingState={localLoadingState}
+            omSegment={omSegment}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
+            onFileMentionQueryChange={onFileMentionQueryChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
+            onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            {...(planMode ? { planMode } : {})}
+            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+            providerGroups={providerGroups}
+            providerSettings={providerSettings}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        </AssistantPanelErrorBoundary>
+      </PlanModeExitProvider>
     </AssistantRuntimeProvider>
   );
 };
@@ -1050,6 +1039,7 @@ const DataStreamRuntimeChat = ({
  * Extracted to avoid duplication between local and data stream runtimes.
  */
 const ChatThreadUI = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -1063,20 +1053,30 @@ const ChatThreadUI = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onThreadRunStart,
+  onToolApprovalRequired,
   isComposerDisabled,
   disabledReason,
   localLoadingState,
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
+  planMode,
+  attachmentsAvailability,
   threadKey,
   toolMenu,
 }: {
+  composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
+  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
@@ -1088,13 +1088,18 @@ const ChatThreadUI = ({
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
+  onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
+  onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
   fileMentions: readonly FileMention[];
   onFileMentionQueryChange: ((query: string) => void) | undefined;
+  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
+  onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }) => {
@@ -1143,6 +1148,18 @@ const ChatThreadUI = ({
       data-history-collapsed={historyCollapsed ? 'true' : undefined}
     >
       <AssistantDataRendererRegistration />
+      <ComposerDraftCommandBridge
+        composerDraftCommand={composerDraftCommand}
+        onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+        onComposerTextChange={onComposerTextChange}
+      />
+      <RunLifecycleNotificationBridge
+        {...(onRunFailed ? { onRunFailed } : {})}
+        {...(onRunFinished ? { onRunFinished } : {})}
+        {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
+        {...(threadKey ? { threadKey } : {})}
+      />
+      <FollowUpQueueBridge threadKey={threadKey} />
       {/**
        * Messages Viewport
        *
@@ -1177,16 +1194,18 @@ const ChatThreadUI = ({
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
         />
-        <ThreadPrimitive.Messages
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            AssistantMessage,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            EditComposer,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            UserMessage,
-          }}
-        />
+        <AssistantRunEventProvider>
+          <ThreadPrimitive.Messages
+            components={{
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              AssistantMessage,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              EditComposer,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              UserMessage,
+            }}
+          />
+        </AssistantRunEventProvider>
       </ThreadPrimitive.Viewport>
 
       {/**
@@ -1220,6 +1239,7 @@ const ChatThreadUI = ({
           threadKey={threadKey}
         />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+        <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
           className="aui-composer-root"
@@ -1233,8 +1253,14 @@ const ChatThreadUI = ({
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
+          {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+              its preview + Remove button after a switch to a text-only model. */}
+          {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            queueControl={<QueueFollowUpButton threadKey={threadKey} />}
+            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+            {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
               ? {
                   slashPopover: (
@@ -1279,6 +1305,7 @@ const ChatThreadUI = ({
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel = ({
   className,
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -1294,12 +1321,21 @@ export const AssistantUiPanel = ({
   requestData,
   prepareRequestData,
   onModelChange,
+  onExitPlanMode,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onTogglePlanMode,
+  onToolApprovalRequired,
   onUsage,
+  attachmentsAvailability,
+  planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1366,6 +1402,7 @@ export const AssistantUiPanel = ({
         {isLocalProvider && modelName && !localViaDataStream ? (
           <LocalRuntimeChat
             completePreparedRequest={completePreparedRequest}
+            composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             disabled={disabled}
@@ -1379,10 +1416,15 @@ export const AssistantUiPanel = ({
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
@@ -1399,7 +1441,9 @@ export const AssistantUiPanel = ({
         ) : (
           <DataStreamRuntimeChat
             api={api}
+            attachmentsAvailability={attachmentsAvailability}
             completePreparedRequest={completePreparedRequest}
+            composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             disabled={disabled}
@@ -1412,11 +1456,25 @@ export const AssistantUiPanel = ({
             omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            {...(onTogglePlanMode
+              ? {
+                  planMode: {
+                    enabled: Boolean(planModeEnabled),
+                    onToggle: onTogglePlanMode,
+                    ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
+                  },
+                }
+              : {})}
             fileMentions={fileMentions}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
@@ -1447,6 +1505,7 @@ const UserMessage = () => {
         className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
         testId="assistant-user-message-content"
       >
+        <UserMessageAttachments />
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
@@ -1507,6 +1566,9 @@ const AssistantMessage = () => {
           }}
         />
         <AssistantMessageError />
+        {/* Turn-level "Revert all edits" footer — renders only on desktop turns
+            that made ≥1 still-revertible file edit; null everywhere else. */}
+        <CheckpointTurnRevert />
       </div>
 
       <AssistantActionBar />

@@ -1,10 +1,15 @@
 import type { McpConfig, McpServer } from '../mcp-loader';
-import { createSseClient } from './sse-client';
+import { createHttpClient } from './http-client';
 import { createStdioClient } from './stdio-client';
-import type { McpClient } from './types';
+import type { McpCallOptions, McpClient } from './types';
 
 type ClientMap = Map<string, McpClient>;
 let clients: ClientMap = new Map();
+
+function unsupportedTransport(server: never): never {
+  const transport = (server as { transport?: unknown }).transport;
+  throw new Error(`Unsupported MCP transport: ${String(transport)}`);
+}
 
 export function initClients(config: McpConfig | { servers: McpServer[] }): void {
   // Intentional fire-and-forget: client disposal can outlive config replacement,
@@ -16,9 +21,11 @@ export function initClients(config: McpConfig | { servers: McpServer[] }): void 
       next.set(s.name, createStdioClient(s));
       continue;
     }
-    if (s.transport === 'sse') {
-      next.set(s.name, createSseClient(s));
+    if (s.transport === 'sse' || s.transport === 'streamable-http') {
+      next.set(s.name, createHttpClient(s));
+      continue;
     }
+    unsupportedTransport(s);
   }
   clients = next;
 }
@@ -36,7 +43,7 @@ export function getClient(name: string): McpClient | undefined {
 export async function callTool(
   tool: string,
   params?: Record<string, unknown>,
-  opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
+  opts?: McpCallOptions
 ): Promise<unknown> {
   const clientName = tool.includes('.') ? tool.slice(0, tool.indexOf('.')) : undefined;
   if (clientName) {

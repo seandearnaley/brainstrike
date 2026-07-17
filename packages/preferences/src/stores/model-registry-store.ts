@@ -1,5 +1,6 @@
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { DbHandle, IDatabase } from '@brainstrike/db';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -8,7 +9,6 @@ import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -27,6 +27,8 @@ export interface DbModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
+    /** Image-input support (LLM rows only; backfilled by migration 061). */
+    vision?: boolean;
   };
   description: string | null;
   icon: string | null;
@@ -302,16 +304,22 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       },
 
       setDownloadProgress: (modelId: string, progress: number) => {
-        set((state) => {
-          const downloadedModels = { ...state.downloadedModels };
-          if (progress === 100) {
-            downloadedModels[modelId] = true;
-          }
-          return {
-            downloadedModels,
-            downloadProgress: { ...state.downloadProgress, [modelId]: progress },
-          };
-        });
+        const roundedProgress = Math.min(100, Math.max(0, Math.round(progress)));
+        const currentState = get();
+        const completesDownload =
+          roundedProgress === 100 && currentState.downloadedModels[modelId] !== true;
+        if (currentState.downloadProgress[modelId] === roundedProgress && !completesDownload) {
+          return;
+        }
+        set((state) => ({
+          downloadedModels: completesDownload
+            ? { ...state.downloadedModels, [modelId]: true }
+            : state.downloadedModels,
+          downloadProgress: {
+            ...state.downloadProgress,
+            [modelId]: roundedProgress,
+          },
+        }));
       },
 
       setModelCacheDir: (dir: string) => {

@@ -23,7 +23,6 @@ export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
-  useTapestryRanges?: boolean;
 }
 
 export interface ProgressEvent {
@@ -56,13 +55,11 @@ export function createReportGenerationWorker({
       folderSummaryThreshold,
       rootDisplayInfoById,
       selectedLineRangesByFile,
-      useTapestryRanges = false,
     } = request;
     const generationOptions = {
       projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
       ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
       ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
-      useTapestryRanges,
     };
 
     const context =

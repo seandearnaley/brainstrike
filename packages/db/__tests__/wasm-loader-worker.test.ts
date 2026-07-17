@@ -103,6 +103,25 @@ describe('wasmLoader browser worker host', () => {
     });
   });
 
+  it('relaxes durability only for ephemeral web E2E data dirs', async () => {
+    // Every Playwright session mints a throwaway `idb://web-e2e-<uuid>` store
+    // that is discarded when the context closes, so strict per-statement
+    // syncToFs buys nothing there — it only turns fresh-DB bootstrap
+    // (initdb + full migration suite) into a ~53s stall that times out the
+    // functional E2E readiness budget. Real stores keep strict durability.
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    await wasmLoader.createPGliteClient('idb://web-e2e-123e4567-e89b-12d3-a456-426614174000');
+
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        dataDir: 'idb://web-e2e-123e4567-e89b-12d3-a456-426614174000',
+        relaxedDurability: true,
+      })
+    );
+  });
+
   it('creates worker-owned PGlite for browser OPFS AHP paths', async () => {
     const { wasmLoader } = await import('../src/wasm-loader');
 
@@ -287,5 +306,133 @@ describe('wasmLoader browser worker host', () => {
 
     expect(pgliteConstructor).toHaveBeenCalledTimes(1);
     expect(pgliteWorkerCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('runFirstRunBootstrapInWorker', () => {
+  interface BootstrapWorkerMock {
+    emit(type: 'message' | 'error', payload: unknown): void;
+    readonly posted: unknown[];
+    terminate: ReturnType<typeof vi.fn>;
+    url: URL;
+  }
+
+  let workerInstances: BootstrapWorkerMock[];
+
+  beforeEach(() => {
+    vi.resetModules();
+    workerConstructor.mockReset();
+    workerInstances = [];
+
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      value: workerConstructor,
+      writable: true,
+    });
+
+    workerConstructor.mockImplementation(function WorkerMock(
+      this: Record<string, unknown>,
+      url: URL,
+      options: WorkerOptions
+    ) {
+      const listeners = new Map<string, Array<(event: unknown) => void>>();
+      const instance: BootstrapWorkerMock = {
+        emit: (type, payload) => {
+          for (const listener of listeners.get(type) ?? []) {
+            listener(payload);
+          }
+        },
+        posted: [],
+        terminate: vi.fn(),
+        url,
+      };
+      this.addEventListener = (type: string, listener: (event: unknown) => void) => {
+        const bucket = listeners.get(type) ?? [];
+        bucket.push(listener);
+        listeners.set(type, bucket);
+      };
+      this.postMessage = (message: unknown) => {
+        instance.posted.push(message);
+      };
+      this.terminate = instance.terminate;
+      this.options = options;
+      this.url = url;
+      workerInstances.push(instance);
+    });
+  });
+
+  it('spawns the dedicated bootstrap worker entry and sends the run message', async () => {
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    const worker = workerInstances[0];
+    expect(worker).toBeDefined();
+    expect(String(worker?.url)).toContain('browser-first-run-bootstrap-worker-entry');
+    expect(worker?.posted).toEqual([{ dataDir: 'idb://web-pg18', type: 'run' }]);
+
+    worker?.emit('message', { data: { ok: true, type: 'result' } });
+    await expect(run).resolves.toBeUndefined();
+    expect(worker?.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with the worker-reported error detail on a failed result', async () => {
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    workerInstances[0]?.emit('message', {
+      data: { error: 'migration exploded', ok: false, type: 'result' },
+    });
+
+    await expect(run).rejects.toThrow(
+      'First-run PGlite bootstrap worker failed: migration exploded'
+    );
+    expect(workerInstances[0]?.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects on a malformed result message', async () => {
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    workerInstances[0]?.emit('message', { data: { bogus: true } });
+
+    await expect(run).rejects.toThrow('malformed result message');
+  });
+
+  it('treats a failure result without an error string as malformed', async () => {
+    // Guards against surfacing "worker failed: undefined" — a failed result
+    // must carry its error detail or it routes through the malformed path.
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    workerInstances[0]?.emit('message', { data: { ok: false, type: 'result' } });
+
+    await expect(run).rejects.toThrow('malformed result message');
+  });
+
+  it('rejects and terminates on a worker crash', async () => {
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    workerInstances[0]?.emit('error', { message: 'importScripts failed' });
+
+    await expect(run).rejects.toThrow(
+      'First-run PGlite bootstrap worker crashed: importScripts failed'
+    );
+    expect(workerInstances[0]?.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects and terminates when the worker never reports within the timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+      const run = runFirstRunBootstrapInWorker('idb://web-pg18', 5000);
+      const assertion = expect(run).rejects.toThrow('timed out after 5000ms');
+      await vi.advanceTimersByTimeAsync(5001);
+      await assertion;
+      expect(workerInstances[0]?.terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

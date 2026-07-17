@@ -1,0 +1,84 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // @brainstrike/db tests are env-sensitive serialized PGlite lanes; never
+      // let them replay from cache.
+      //
+      // WHEN TO ADD A `cache: false` CARVE-OUT (the invariant this file anchors):
+      // the root `test` task caches with `outputs: []`, so a cache HIT replays a
+      // previously-logged green WITHOUT executing the tests. That is only safe if
+      // the lane's pass/fail is a pure function of the inputs turbo hashes
+      // (source + pnpm-lock + tsconfig/biome/turbo config). Carve a package out
+      // here (mirror this file) when its `test` lane's outcome can depend on an
+      // input turbo does NOT hash. Two mechanisms seen in this repo:
+      //   (1) NATIVE/EXTERNAL BINARIES whose result-affecting behavior is not in
+      //       the source hash — a compiled node-gyp/N-API addon (its `.node` +
+      //       host ABI), an installed CLI the test shells out to (git, node-pty,
+      //       /bin/sh). If the binary is absent/wrong-ABI the lane FAILS, and the
+      //       compiled artifact/ABI is invisible to turbo's file hash.
+      //   (2) HEAVY WASM-PGlite LANES on wall-clock testTimeouts, whose pass/fail
+      //       is sensitive to un-hashed CPU parallelism/contention (this file's
+      //       own reason — see MEMORY: "db#test is flaky under turbo
+      //       concurrency"). Caching also masks INTERMITTENT real failures: the
+      //       first lucky green locks that source hash green forever.
+      // A carve-out needs a NAMED mechanism, not a hunch; but on a REQUIRED check
+      // genuine uncertainty resolves toward carving out (state the uncertainty in
+      // the comment). Pure, deterministic logic/React-testing-library lanes stay
+      // cacheable.
+      //
+      // PREFERRED FIX (since Series A1): do NOT carve a package's WHOLE `test`
+      // task out when only a HANDFUL of its files are env-sensitive — that
+      // strands the package's fast, deterministic unit tests in the uncached lane
+      // too. Instead tag the env-sensitive files with the `*.integration.test.*`
+      // suffix and split them into a `test:integration` script; the pure `test`
+      // script excludes that suffix and STAYS cacheable, while the root uncached
+      // `test:integration` task (turbo.jsonc, `cache: false`) runs the split-out
+      // files. A WHOLE-TASK `cache: false` carve-out (this file) is reserved for
+      // packages whose ENTIRE suite is env-sensitive: db (heavy serialized WASM
+      // PGlite) and secure-fs-native (native N-API addon).
+      //
+      // Carve-out status (Series A complete):
+      //   - Whole-task `cache: false` (entire suite genuinely env-sensitive):
+      //     db (this file), secure-fs-native (native addon build+test).
+      //   - Converted to the test:integration split: web + file-import (A1,
+      //     #1625), desktop (A2, #1628), agent + app-shell (A3, #1627),
+      //     embeddings (A4, #1629).
+      "cache": false,
+      // B4 build-edge exception. The root `test` task now `dependsOn: ["topo"]`
+      // (a no-op transit node that builds nothing — see turbo.jsonc). db#test
+      // still needs @brainstrike/utils' BUILT declarations: __tests__/
+      // migration-runner-types.test.ts runs a nested `ts.createProgram` that
+      // type-checks a fixture importing db source, whose `@brainstrike/utils`
+      // specifier the TypeScript COMPILER resolves via the package `exports`
+      // `types` condition to dist/index.d.ts. Vitest `resolve.alias` maps every
+      // OTHER db test's runtime workspace import to src, but it cannot intercept
+      // a separate tsc instance — so this one edge must survive B4.
+      // `$TURBO_EXTENDS$` appends to the inherited `["topo"]` → the effective
+      // dependsOn is `["topo", "@brainstrike/utils#build"]` (per the Turborepo
+      // docs, without it a package config REPLACES the inherited array). Only
+      // utils#build is needed: migration-runner.ts imports no other workspace
+      // package, so no other dist declaration enters the compiler's graph.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"],
+      // Strict environment mode filtering is INDEPENDENT of caching, so the
+      // cache:false carve-out above does NOT exempt db's test task from having
+      // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly as
+      // deliberate conservatism: per the Turborepo configuration docs, a task
+      // field a package config SUPPLIES replaces the root's value (use
+      // $TURBO_EXTENDS$ to append), while an unspecified field inherits — but
+      // an explicit copy here survives someone later adding another field to
+      // this task without knowing that rule. Keep this list in sync with the
+      // root turbo.jsonc `test.passThroughEnv`.
+      "passThroughEnv": ["CI", "COVERAGE"]
+    },
+    // db#test:coverage runs `pnpm run test --coverage` (test-lanes.mjs run all),
+    // i.e. the SAME suite as db#test including migration-runner-types.test.ts, so
+    // it needs the same @brainstrike/utils#build edge. Inherits `["topo"]` from
+    // the root test:coverage task; $TURBO_EXTENDS$ appends the build edge. The
+    // per-bucket coverage lanes (test:coverage:db:* in turbo.jsonc) carry the
+    // same edge directly.
+    "test:coverage": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"]
+    }
+  }
+}

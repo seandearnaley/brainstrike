@@ -6,6 +6,7 @@ import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
+  type IndexingManagedCollectionStats,
   useIndexingActivityStore,
 } from '@brainstrike/preferences/stores/indexing-activity-store';
 import {
@@ -16,7 +17,7 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IndexingActivityCoordinator } from '../indexing-activity-coordinator';
 import type {
@@ -26,14 +27,17 @@ import type {
 } from '../vector-status/embedding-runtime-controller';
 
 const {
+  appActiveState,
   databaseWorkSchedulerState,
   createPriorityDbHandleMock,
+  getCollectionIndexingStatsMock,
   getDatabaseWorkSchedulerMock,
   makeLiveQueryKeyMock,
   usePGliteDatabaseMock,
   usePGliteLiveQueryMock,
   useSharedEmbeddingRuntimeMock,
 } = vi.hoisted(() => {
+  const appActiveState = { current: true };
   const databaseWorkSchedulerState = {
     current: null as {
       getSnapshot: ReturnType<typeof vi.fn>;
@@ -41,8 +45,10 @@ const {
     } | null,
   };
   return {
+    appActiveState,
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     databaseWorkSchedulerState,
+    getCollectionIndexingStatsMock: vi.fn(),
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
     usePGliteDatabaseMock: vi.fn((): unknown => null),
@@ -50,6 +56,11 @@ const {
     useSharedEmbeddingRuntimeMock: vi.fn(),
   };
 });
+
+vi.mock('@brainstrike/hooks', () => ({
+  isAppActive: () => appActiveState.current,
+  useAppActive: () => appActiveState.current,
+}));
 
 interface LiveQueryState {
   error: Error | null;
@@ -131,11 +142,47 @@ function createDatabaseWorkSnapshot(
 
 vi.mock('@brainstrike/db', () => ({
   createPriorityDbHandle: createPriorityDbHandleMock,
+  getCollectionIndexingStats: getCollectionIndexingStatsMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
   usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+
+function createManagedCollectionStats(
+  embeddingSetId: string,
+  overrides: Partial<IndexingManagedCollectionStats> = {}
+): IndexingManagedCollectionStats {
+  return {
+    chunkCount: 42,
+    dirty: false,
+    embeddedChunkCount: 30,
+    embeddingSetId,
+    fileCount: 7,
+    lastRefreshedAt: '2026-07-09T12:00:00.000Z',
+    pendingChunkCount: 12,
+    ...overrides,
+  };
+}
+
+function createQueueDatabase(): {
+  readonly query: ReturnType<typeof vi.fn>;
+} {
+  return {
+    query: vi.fn(async () => ({
+      rows: [
+        {
+          failed: '0',
+          nextRunnableAt: null,
+          queued: '0',
+          running: '0',
+          succeeded: '0',
+          succeededLifetime: '0',
+        },
+      ],
+    })),
+  };
+}
 
 vi.mock('../embedding-runtime-provider', () => ({
   useSharedEmbeddingRuntime: useSharedEmbeddingRuntimeMock,
@@ -203,11 +250,13 @@ function createMockRuntime(): {
 describe('IndexingActivityCoordinator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    appActiveState.current = true;
     liveQueryState.rows = [];
     liveQueryState.loading = false;
     liveQueryState.error = null;
     databaseWorkSchedulerState.current = null;
     usePGliteDatabaseMock.mockReturnValue(null);
+    getCollectionIndexingStatsMock.mockResolvedValue(null);
     usePGliteLiveQueryMock.mockImplementation(() => ({
       error: liveQueryState.error,
       loading: liveQueryState.loading,
@@ -367,6 +416,189 @@ describe('IndexingActivityCoordinator', () => {
     });
   });
 
+  it('marks managed collection stats unavailable when no database is connected', async () => {
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: null,
+        stats: null,
+        status: 'unavailable',
+      });
+    });
+    expect(getCollectionIndexingStatsMock).not.toHaveBeenCalled();
+  });
+
+  it('moves managed collection stats from loading to pending when the stats row is absent', async () => {
+    const pendingRead = createDeferred<null>();
+    const db = createQueueDatabase();
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockReturnValueOnce(pendingRead.promise);
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: null,
+        stats: null,
+        status: 'loading',
+      });
+    });
+
+    pendingRead.resolve(null);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: null,
+        stats: null,
+        status: 'pending',
+      });
+    });
+  });
+
+  it('polls denormalized managed collection stats through the background-priority database lane', async () => {
+    const db = createQueueDatabase();
+    const stats = createManagedCollectionStats('collection-a');
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockResolvedValue(stats);
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: null,
+        stats,
+        status: 'ready',
+      });
+    });
+
+    expect(getCollectionIndexingStatsMock).toHaveBeenCalledWith(db, 'collection-a', {
+      label: 'managed collection stats',
+      priority: 'background',
+    });
+    expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
+  });
+
+  it('clears old stats immediately and ignores an in-flight read after the managed collection changes', async () => {
+    const collectionARead = createDeferred<IndexingManagedCollectionStats | null>();
+    const collectionBRead = createDeferred<IndexingManagedCollectionStats | null>();
+    const collectionAStats = createManagedCollectionStats('collection-a');
+    const collectionBStats = createManagedCollectionStats('collection-b', {
+      chunkCount: 84,
+      embeddedChunkCount: 60,
+      fileCount: 14,
+      pendingChunkCount: 24,
+    });
+    const db = createQueueDatabase();
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockImplementation((_db: unknown, collectionId: string) =>
+      collectionId === 'collection-a' ? collectionARead.promise : collectionBRead.promise
+    );
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(getCollectionIndexingStatsMock).toHaveBeenCalledWith(
+        db,
+        'collection-a',
+        expect.any(Object)
+      );
+    });
+
+    act(() => {
+      // Model a later poll in flight while the same collection still has a
+      // last-known successful snapshot. Switching identity must drop it.
+      useIndexingActivityStore.getState().setManagedCollectionStats({
+        collectionId: 'collection-a',
+        error: null,
+        stats: collectionAStats,
+        status: 'ready',
+      });
+      useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-b');
+    });
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-b',
+        error: null,
+        stats: null,
+        status: 'loading',
+      });
+    });
+
+    collectionARead.resolve(collectionAStats);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'collection-b',
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+
+    collectionBRead.resolve(collectionBStats);
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-b',
+        error: null,
+        stats: collectionBStats,
+        status: 'ready',
+      });
+    });
+  });
+
+  it('surfaces read failures and retains last-known stats for the same collection on a later poll', async () => {
+    vi.useFakeTimers();
+    const db = createQueueDatabase();
+    const stats = createManagedCollectionStats('collection-a');
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock
+      .mockResolvedValueOnce(stats)
+      .mockRejectedValueOnce(new Error('stats read failed'));
+
+    try {
+      const view = render(<IndexingActivityCoordinator />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: null,
+        stats,
+        status: 'ready',
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+        collectionId: 'collection-a',
+        error: 'stats read failed',
+        stats,
+        status: 'error',
+      });
+
+      view.unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('mirrors direct database scheduler pressure into the canonical snapshot', async () => {
     const listeners = new Set<(snapshot: IndexingDatabaseWorkSnapshot) => void>();
     const initialSnapshot = createDatabaseWorkSnapshot();
@@ -457,6 +689,90 @@ describe('IndexingActivityCoordinator', () => {
         configurable: true,
         value: undefined,
       });
+    }
+  });
+
+  it('does not run polling reads while the app is inactive', async () => {
+    vi.useFakeTimers();
+    const db = createQueueDatabase();
+    const schedulerSnapshot = vi.fn(async () => createDatabaseWorkSnapshot());
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockResolvedValue(createManagedCollectionStats('collection-a'));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { schedulerSnapshot } },
+    });
+
+    try {
+      const view = render(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      appActiveState.current = false;
+      view.rerender(<IndexingActivityCoordinator />);
+      schedulerSnapshot.mockClear();
+      db.query.mockClear();
+      getCollectionIndexingStatsMock.mockClear();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(schedulerSnapshot).not.toHaveBeenCalled();
+      expect(db.query).not.toHaveBeenCalled();
+      expect(getCollectionIndexingStatsMock).not.toHaveBeenCalled();
+      view.unmount();
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: undefined,
+      });
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('immediately resumes all polling reads when the app becomes active', async () => {
+    vi.useFakeTimers();
+    appActiveState.current = false;
+    const db = createQueueDatabase();
+    const schedulerSnapshot = vi.fn(async () => createDatabaseWorkSnapshot());
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockResolvedValue(createManagedCollectionStats('collection-a'));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { schedulerSnapshot } },
+    });
+
+    try {
+      const view = render(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      schedulerSnapshot.mockClear();
+      db.query.mockClear();
+      getCollectionIndexingStatsMock.mockClear();
+
+      appActiveState.current = true;
+      view.rerender(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+      expect(db.query).toHaveBeenCalledTimes(1);
+      expect(getCollectionIndexingStatsMock).toHaveBeenCalledTimes(1);
+      view.unmount();
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: undefined,
+      });
+      vi.clearAllTimers();
+      vi.useRealTimers();
     }
   });
 });

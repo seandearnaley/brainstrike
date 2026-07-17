@@ -1,0 +1,62 @@
+{
+  "name": "@brainstrike/workspace-search",
+  "description": "Workspace search result model and session-lived search store",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "lucide-react": "^1.23.0",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/storage": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "happy-dom": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./chunk-selection-store": {
+      "types": "./dist/bridge/chunk-selection-store.d.ts",
+      "import": "./dist/bridge/chunk-selection-store.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./styles.css": "./styles.css",
+    "./workspace-search-store": {
+      "types": "./dist/core/workspace-search-store.d.ts",
+      "import": "./dist/core/workspace-search-store.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "peerDependencies": {
+    "react": "^19.2.4"
+  },
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}

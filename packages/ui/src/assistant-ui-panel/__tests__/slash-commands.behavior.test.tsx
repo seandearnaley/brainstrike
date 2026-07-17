@@ -41,7 +41,10 @@ vi.mock('../local-runtime-adapter', () => ({
   hasDesktopLlmHost: vi.fn(() => false),
 }));
 
+import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
+import { useState } from 'react';
 import { AssistantUiPanel } from '../assistant-ui-panel';
+import type { ComposerDraftCommand } from '../composer-draft-command';
 import type { SlashCommand } from '../slash-commands';
 
 const SettingsIcon = (_props: { className?: string }) => null;
@@ -49,6 +52,39 @@ const SettingsIcon = (_props: { className?: string }) => null;
 function renderPanel(slashCommands: readonly SlashCommand[]) {
   return render(
     <AssistantUiPanel pickerModels={[]} pickerProviders={[]} slashCommands={slashCommands} />
+  );
+}
+
+/**
+ * F1 end-to-end harness: mirrors the app-shell wrapper's live write-back. A
+ * user-command `execute` expands the template (with an EMPTY arg string — the
+ * only state the pinned trigger can deliver) via the REAL contract function and
+ * stages it as a `composerDraftCommand`, which `useComposerDraftCommand` writes
+ * into the real assistant-ui composer. Proves the reachable flow through the real
+ * trigger popover + adapter + write-back, not a seeded store.
+ */
+function PlaceholderFillHarness({ template }: { readonly template: string }) {
+  const [command, setCommand] = useState<ComposerDraftCommand | undefined>(undefined);
+  const slashCommands: SlashCommand[] = [
+    {
+      execute: () => {
+        setCommand({
+          id: 'review',
+          mode: 'replace',
+          text: expandUserCommandTemplate({ argString: '', template }),
+        });
+      },
+      id: 'review',
+      label: 'Review',
+    },
+  ];
+  return (
+    <AssistantUiPanel
+      composerDraftCommand={command}
+      pickerModels={[]}
+      pickerProviders={[]}
+      slashCommands={slashCommands}
+    />
   );
 }
 
@@ -147,6 +183,43 @@ describe('composer slash commands', () => {
     const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
     expect(within(popover).getByText('New thread')).toBeInTheDocument();
     expect(within(popover).queryByText('Reveal in Finder')).not.toBeInTheDocument();
+  });
+
+  it('F1: the popover CLOSES at the first space, so inline `/cmd args` is unreachable', async () => {
+    // This pins the pinned-library constraint that motivated the placeholder-fill
+    // redesign: `detectTrigger` returns null at the first whitespace, so a user
+    // can never select a command while argument text is present in the composer.
+    const slashCommands: SlashCommand[] = [{ execute: vi.fn(), id: 'review', label: 'Review' }];
+    renderPanel(slashCommands);
+    const input = await screen.findByRole('textbox', { name: 'Message input' });
+    const user = userEvent.setup();
+    await user.click(input);
+    await user.keyboard('/review');
+    // Popover is open while the trigger is active (no whitespace yet).
+    expect(await screen.findByRole('listbox', { name: 'Slash commands' })).toBeInTheDocument();
+    // Typing a space closes it — args can never coexist with the open popover.
+    await user.keyboard(' ');
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox', { name: 'Slash commands' })).not.toBeInTheDocument()
+    );
+  });
+
+  it('F1: selecting an argful command fills the composer with a VISIBLE $ARGUMENTS placeholder', async () => {
+    render(<PlaceholderFillHarness template="Review this: $ARGUMENTS" />);
+    const input = await screen.findByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Message input',
+    });
+    const user = userEvent.setup();
+    await user.click(input);
+    await user.keyboard('/review');
+
+    const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
+    await user.click(within(popover).getByText('Review'));
+
+    // The reachable flow (empty args) leaves the placeholder visible + editable in
+    // the composer, never a silent empty blank; the `/review` trigger is gone.
+    await waitFor(() => expect(input.value).toBe('Review this: $ARGUMENTS'));
+    expect(input.value).not.toContain('/review');
   });
 
   it('does NOT mount the slash root (no popover opens) when no commands are passed', async () => {

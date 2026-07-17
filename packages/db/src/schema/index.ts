@@ -273,6 +273,78 @@ export const embeddingSets = pgTable('embedding_sets', {
   tags: text('tags'),
 });
 
+// ============================================================================
+// PROMPT WORKBENCH TABLES
+// ============================================================================
+
+export const promptEmbeddingProfiles = pgTable('prompt_embedding_profiles', {
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  dimensions: integer('dimensions').notNull(),
+  distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine').notNull(),
+  id: text('id').primaryKey(),
+  modelId: text('model_id').notNull(),
+  modelKey: text('model_key').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const promptItems = pgTable(
+  'prompt_items',
+  {
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    embedding: vector('embedding'),
+    embeddingError: text('embedding_error'),
+    embeddingProfileId: text('embedding_profile_id').references(() => promptEmbeddingProfiles.id, {
+      onDelete: 'set null',
+    }),
+    embeddingRevision: integer('embedding_revision'),
+    embeddingUpdatedAt: timestamp('embedding_updated_at', { withTimezone: true }),
+    id: text('id').primaryKey(),
+    isFavorite: boolean('is_favorite').default(false).notNull(),
+    kind: text('kind').$type<'prompt' | 'snippet' | 'fragment'>().notNull(),
+    lastUsedAction: text('last_used_action').$type<'compose' | 'insert' | 'new-thread'>(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    modelKey: text('model_key'),
+    modelSettings: jsonb('model_settings').$type<Record<string, unknown>>(),
+    rating: integer('rating'),
+    revision: integer('revision').default(1).notNull(),
+    sourceUrl: text('source_url'),
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    title: text('title').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    useCount: integer('use_count').default(0).notNull(),
+  },
+  (table) => [
+    index('idx_prompt_items_kind_updated_at').on(table.kind, table.updatedAt),
+    index('idx_prompt_items_embedding_profile_id').on(table.embeddingProfileId),
+  ]
+);
+
+export const promptItemRevisions = pgTable(
+  'prompt_item_revisions',
+  {
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    id: text('id').primaryKey(),
+    modelKey: text('model_key'),
+    modelSettings: jsonb('model_settings').$type<Record<string, unknown>>(),
+    note: text('note'),
+    promptItemId: text('prompt_item_id')
+      .notNull()
+      .references(() => promptItems.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    title: text('title').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_prompt_item_revisions_unique').on(table.promptItemId, table.revision),
+    index('idx_prompt_item_revisions_item_revision').on(table.promptItemId, table.revision),
+  ]
+);
+
 export const collectionIndexingStats = pgTable(
   'collection_indexing_stats',
   {

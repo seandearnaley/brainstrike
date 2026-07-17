@@ -7,6 +7,7 @@ import {
   DbProvider,
   useClearQueuesAndEmbeddingSets,
   useFileRecordRepository,
+  usePGliteDatabase,
 } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
@@ -44,6 +45,7 @@ interface MockIpcBridge {
   ping: Mock;
   query: Mock;
   resetLocal: Mock;
+  runTransaction: Mock;
   test: Mock;
 }
 
@@ -60,6 +62,7 @@ function createMockIpcBridge(): MockIpcBridge {
       return { rows: [] };
     }),
     resetLocal: vi.fn(async () => ({ success: true })),
+    runTransaction: vi.fn(async () => ({ rows: [] })),
     test: vi.fn(async () => ({ message: 'ok', success: true })),
   };
 }
@@ -124,6 +127,18 @@ describe('DbProvider lifecycle', () => {
 
       // close should never be called in IPC mode — the main process owns the DB
       expect(closeSpy).not.toHaveBeenCalled();
+    });
+
+    it('exposes the callback-free atomic transaction bridge to renderer repositories', async () => {
+      const bridge = createMockIpcBridge();
+      setWindowElectronAPI(bridge);
+
+      const { result } = renderHook(() => usePGliteDatabase(), { wrapper: ipcWrapper });
+      await waitFor(() => expect(result.current).not.toBeNull(), { timeout: 10_000 });
+
+      const statements = [{ sql: 'SELECT 1' }];
+      await expect(result.current?.runTransaction?.(statements, 0)).resolves.toEqual({ rows: [] });
+      expect(bridge.runTransaction).toHaveBeenCalledWith(statements, 0, undefined);
     });
 
     it('nulls connectionRef on IPC unmount', async () => {

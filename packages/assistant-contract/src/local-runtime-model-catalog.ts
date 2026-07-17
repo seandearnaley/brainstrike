@@ -27,6 +27,7 @@ import type {
   LocalRuntimeOllamaCapabilitiesResult,
   OllamaModelCapability,
 } from './local-runtime-model-catalog-types.js';
+import { hydrateOllamaModelCapabilities } from './local-runtime-ollama-capabilities.js';
 import {
   buildRuntimeAuthHeaders,
   buildRuntimeEndpoint,
@@ -37,6 +38,7 @@ import {
   noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils.js';
+import type { ModelVisionSupport } from './provider-registry.js';
 
 export {
   isLoadedRuntimeModelCatalogState,
@@ -134,6 +136,7 @@ type ModelEndpointAttemptOutcome =
   | {
       readonly ok: false;
       readonly message: string;
+      readonly terminal?: boolean;
     };
 
 const DEFAULT_SUCCESS_TTL_MS = 30_000;
@@ -433,6 +436,7 @@ interface ResolvedCapabilities {
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly embeddings: LocalRuntimeEmbeddingCapability;
   readonly llm: boolean;
+  readonly vision: ModelVisionSupport;
 }
 
 function resolveReportedCapabilities(
@@ -447,7 +451,10 @@ function resolveReportedCapabilities(
         dimensionsKnown: { state: 'needs_verification' },
         embeddings: 'supported',
         llm: false,
+        vision: 'unsupported',
       };
+    // LM Studio's native type discriminant separates text-only 'llm' from
+    // vision-language 'vlm' models, so both classifications are authoritative.
     case 'llm':
     case 'vlm':
       return {
@@ -455,6 +462,7 @@ function resolveReportedCapabilities(
         dimensionsKnown: { state: 'not_applicable' },
         embeddings: 'unsupported',
         llm: true,
+        vision: modelType === 'vlm' ? 'supported' : 'unsupported',
       };
   }
 }
@@ -464,6 +472,8 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
 
+  // Name inference carries no vision signal, so every inferred branch keeps
+  // vision 'unknown' — never a silent unsupported.
   if (hasEmbeddingHint) {
     // Prefer embedding classification when both patterns match so "embedding"-labeled
     // models remain actionable for this catalog even if names also contain chat terms.
@@ -472,6 +482,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
       dimensionsKnown: { state: 'needs_verification' },
       embeddings: 'supported',
       llm: hasChatHint,
+      vision: 'unknown',
     };
   }
 
@@ -481,6 +492,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
       dimensionsKnown: { state: 'not_applicable' },
       embeddings: 'unsupported',
       llm: true,
+      vision: 'unknown',
     };
   }
 
@@ -491,6 +503,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
     dimensionsKnown: { state: 'needs_verification' },
     embeddings: 'needs_verification',
     llm: true,
+    vision: 'unknown',
   };
 }
 
@@ -738,6 +751,17 @@ export class LocalRuntimeModelCatalogService {
         };
       }
 
+      if (!(isRecord(result.payload) && Array.isArray(result.payload['capabilities']))) {
+        return {
+          checkedAt,
+          endpoint: showEndpoint,
+          message:
+            'Ollama /api/show returned no capabilities array. Update Ollama to a version that exposes the documented capabilities field, then retry discovery.',
+          modelId: trimmed,
+          state: 'unavailable',
+        };
+      }
+
       const capabilities = parseOllamaCapabilityList(result.payload);
       const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
         capabilities,
@@ -900,10 +924,13 @@ export class LocalRuntimeModelCatalogService {
       );
     }
 
-    const candidateEndpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
-    const endpoints = this.resolveEndpointOrder(candidateEndpoints, availability);
+    // Keep model endpoints in adapter authority order. Discovery may succeed
+    // first through an OpenAI-compatible health probe, but that must not demote
+    // richer native catalog endpoints that expose model type/capabilities.
+    const endpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
+      ...(options.force ? { force: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       maxVerificationModels: sanitizeVerificationLimit(options.maxVerificationModels),
       verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
@@ -1184,29 +1211,13 @@ export class LocalRuntimeModelCatalogService {
     };
   }
 
-  private resolveEndpointOrder(
-    endpoints: readonly RuntimeModelEndpointDefinition[],
-    availability: LocalRuntimeAvailabilityState
-  ): readonly RuntimeModelEndpointDefinition[] {
-    if (!('endpoint' in availability && availability.endpoint)) {
-      return endpoints;
-    }
-
-    const preferred = endpoints.find((endpoint) => endpoint.endpoint === availability.endpoint);
-
-    if (!preferred) {
-      return endpoints;
-    }
-
-    return [preferred, ...endpoints.filter((endpoint) => endpoint !== preferred)];
-  }
-
   private async fetchAndNormalizeModels(
     runtime: LocalRuntimeId,
     availability: LocalRuntimeAvailabilityState,
     endpoints: readonly RuntimeModelEndpointDefinition[],
     options: {
       readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
       readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
@@ -1241,6 +1252,9 @@ export class LocalRuntimeModelCatalogService {
         };
       }
       errors.push(attempt.message);
+      if (attempt.terminal) {
+        return attempt;
+      }
     }
 
     return {
@@ -1254,6 +1268,7 @@ export class LocalRuntimeModelCatalogService {
     endpoint: RuntimeModelEndpointDefinition,
     options: {
       readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
       readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
@@ -1299,6 +1314,20 @@ export class LocalRuntimeModelCatalogService {
 
       const dedupedCandidates = this.dedupeCandidates(parsed);
       let normalized = this.normalizeModels(runtime, endpoint, dedupedCandidates);
+
+      if (runtime === 'ollama' && endpoint.source === 'ollama_api_tags') {
+        const reportedCapabilities = await hydrateOllamaModelCapabilities(normalized, (modelId) =>
+          this.resolveOllamaCapabilities(modelId, {
+            ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+            ...(options.force ? { force: true } : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
+          })
+        );
+        if (!reportedCapabilities.ok) {
+          return { ...reportedCapabilities, terminal: true };
+        }
+        normalized = reportedCapabilities.models;
+      }
 
       if (options.verifyEmbeddingDimensions) {
         normalized = await this.applyEmbeddingVerification(runtime, normalized, {
@@ -1362,6 +1391,7 @@ export class LocalRuntimeModelCatalogService {
         capabilities: {
           embeddings: resolved.embeddings,
           llm: resolved.llm,
+          vision: resolved.vision,
         },
         capabilitySource: resolved.capabilitySource,
         dimensionsKnown: resolved.dimensionsKnown,

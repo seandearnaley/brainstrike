@@ -43,4 +43,12 @@ describe('embedding-context helpers', () => {
     expect(detectLanguage('archive.unknown')).toBeUndefined();
     expect(detectLanguage('no-extension')).toBeUndefined();
   });
+
+  it('detects language from the final extension only', () => {
+    expect(detectLanguage('packages/app-shell/src/background-indexing/worker.TSX')).toBe(
+      'typescript'
+    );
+    expect(detectLanguage('packages.v2/docs/no-extension')).toBeUndefined();
+    expect(detectLanguage('src/config.')).toBeUndefined();
+  });
 });

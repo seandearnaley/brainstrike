@@ -37,4 +37,19 @@ describe('file-explorer-ui domain imports', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('keeps renderer hooks out of the manually grouped context-action modules', () => {
+    const contextActionsRoot = path.resolve(process.cwd(), 'src/context-actions');
+    const offenders = collectSourceFiles(contextActionsRoot)
+      .filter((filePath) => {
+        const source = readFileSync(filePath, 'utf8');
+        return source.includes("from '@brainstrike/ui") || /from ['"]react['"]/.test(source);
+      })
+      .map((filePath) => path.relative(contextActionsRoot, filePath));
+
+    // Vite co-locates this directory to protect define-at-init actions from a
+    // cross-chunk TDZ. Pulling renderer hooks into the group absorbs the shared
+    // UI graph and can turn the chunk into an async startup dependency.
+    expect(offenders).toEqual([]);
+  });
 });

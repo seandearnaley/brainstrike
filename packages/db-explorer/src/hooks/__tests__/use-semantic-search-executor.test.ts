@@ -15,9 +15,21 @@ import {
   type LogRecord,
   setLogLevel,
 } from '@brainstrike/utils';
-import { act, renderHook } from '@testing-library/react';
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
+import { act, renderHook as baseRenderHook, type RenderHookOptions } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
+
+// The executor now reads the shared embedder via `useSharedSearchEmbedder`,
+// which THROWS without a provider (no silent fallback). Render every hook under
+// the real `SearchEmbedderProvider` so it resolves — the embeddings factory is
+// mocked above, so the provider's lazy machinery never loads a real model.
+function renderHook<Result, Props>(
+  callback: (props: Props) => Result,
+  options?: RenderHookOptions<Props>
+): ReturnType<typeof baseRenderHook<Result, Props>> {
+  return baseRenderHook(callback, { wrapper: SearchEmbedderProvider, ...options });
+}
 
 const mockDb = {
   query: vi.fn(),

@@ -157,6 +157,81 @@ describe('logger', () => {
       expect(record?.bindings['scope']).toBe('DbProvider');
       expect(record?.message).toBe('initialising');
     });
+
+    it('redacts nested secrets before notifying log listeners', () => {
+      class ProviderConfig {
+        apiKey = 'class-secret';
+      }
+
+      configureLogger({
+        baseBindings: {
+          clientSecret: 'binding-secret',
+          profile: { tenantId: 'binding-tenant-secret' },
+        },
+        redactPaths: [
+          'profile.tenantId',
+          'provider.accounts[*]["refresh.key"]',
+          'provider.profile.tenantId',
+          'provider.regions.*.credential',
+          'sessionId',
+        ],
+      });
+
+      const [record] = collectLogs(() => {
+        info(
+          {
+            headers: { 'x-api-key': 'header-secret' },
+            provider: {
+              accessToken: 'access-secret',
+              accounts: [{ 'refresh.key': 'refresh-secret' }],
+              apiKey: 'sk-secret',
+              authorization: 'Bearer secret',
+              config: new ProviderConfig(),
+              failure: Object.assign(new Error('provider failed'), { accessToken: 'error-secret' }),
+              profile: { tenantId: 'tenant-secret' },
+              regions: {
+                east: { credential: 'east-secret' },
+                west: { credential: 'west-secret' },
+              },
+              tokenCount: 42,
+            },
+            sessionId: 'session-secret',
+          },
+          'configured provider'
+        );
+      });
+
+      expect(record?.bindings).toEqual({
+        clientSecret: '[REDACTED]',
+        profile: { tenantId: '[REDACTED]' },
+      });
+      expect(record?.args).toEqual([
+        {
+          headers: { 'x-api-key': '[REDACTED]' },
+          provider: {
+            accessToken: '[REDACTED]',
+            accounts: [{ 'refresh.key': '[REDACTED]' }],
+            apiKey: '[REDACTED]',
+            authorization: '[REDACTED]',
+            config: { apiKey: '[REDACTED]' },
+            failure: {
+              accessToken: '[REDACTED]',
+              message: 'provider failed',
+              name: 'Error',
+              stack: expect.any(String),
+            },
+            profile: { tenantId: '[REDACTED]' },
+            regions: {
+              east: { credential: '[REDACTED]' },
+              west: { credential: '[REDACTED]' },
+            },
+            tokenCount: 42,
+          },
+          sessionId: '[REDACTED]',
+        },
+        'configured provider',
+      ]);
+    });
   });
 
   describe('listeners', () => {

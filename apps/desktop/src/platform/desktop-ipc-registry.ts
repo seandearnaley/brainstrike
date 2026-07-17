@@ -2,22 +2,29 @@ import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } fro
 
 export type DesktopIpcDomain =
   | 'agent'
+  | 'assistantCheckpoint'
   | 'chunking-host'
   | 'clipboard'
+  | 'contextFiles'
   | 'db'
   | 'diagnostics'
   | 'embeddings'
   | 'files'
   | 'git'
+  | 'hooks'
   | 'llm-host'
   | 'logging'
   | 'mcp'
+  | 'notesVault'
   | 'preferences'
   | 'runtime'
   | 'shell'
+  | 'skills'
   | 'storage'
   | 'terminal'
-  | 'tools';
+  | 'tools'
+  | 'userCommands'
+  | 'userPersonas';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 

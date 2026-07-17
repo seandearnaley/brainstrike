@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import http from 'node:http';
+import { homedir } from 'node:os';
 import type {
   AgentMessage,
   AssistantRunEvent,
+  AssistantTaskItem,
   AssistantToolApprovalAction,
+  AssistantToolResumeAction,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -15,6 +18,7 @@ import {
   AssistantInvalidJsonError,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
+  buildNativeToolRiskMap,
   convertAssistantUiMessages,
   createEmbeddingProvider,
   createLocalHostEmbeddingModel,
@@ -22,32 +26,53 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  listSuspendedMastraRuns,
   PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
+  type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
+  readToolResumeRunConfigAction,
+  resolveApprovalStaleMs,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   resolveRequestPermissionPolicy,
+  type SuspendedApprovalsResponse,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import { resolveRequestPersonas } from './assistant-server/request-personas';
+import { scanUserPersonas } from './assistant-server/user-personas-loader';
+import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
-type AssistantRoute = 'status' | 'assistant' | 'not-found';
+type AssistantRoute = 'status' | 'assistant' | 'suspended-runs' | 'not-found';
 interface AssistantRequestPayload {
+  assistantMessageId?: string;
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessage[];
   toolApprovalAction?: AssistantToolApprovalAction;
   toolApprovalActionInvalid?: boolean;
+  toolResumeAction?: AssistantToolResumeAction;
+  toolResumeActionInvalid?: boolean;
 }
 interface AgentStreamSuccess {
   ok: true;
   stream: AsyncIterable<StreamChunk>;
+  terminalError?: string | null;
+  /**
+   * Terminal run-row status to record after the stream is served. Defaults to
+   * `completed`; a turn that streams a visible failure BEFORE the model runs
+   * (e.g. a UserPromptSubmit hook block) sets `failed` so the persisted run row
+   * matches the visible `run.failed` event instead of a contradictory
+   * `completed`.
+   */
+  terminalStatus?: 'cancelled' | 'completed' | 'failed';
 }
 interface AgentStreamFailure {
   ok: false;
@@ -60,12 +85,24 @@ import {
   buildDesktopAssistantTools,
   readWorkspaceTextFile,
 } from './assistant-server/assistant-tools';
+import {
+  finalizeHookedStream,
+  hookRunEventToAssistant,
+  makeHookBlockedStream,
+  prepareRequestHooks,
+  runUserPromptSubmitGate,
+} from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { prepareRequestSkills } from './assistant-server/request-skills';
+import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
+import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
+import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
@@ -208,6 +245,11 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'suspended-runs') {
+    await handleSuspendedRunsRequest(req, res, options);
+    return;
+  }
+
   if (route === 'not-found') {
     respondNotFound(res);
     return;
@@ -225,7 +267,14 @@ async function handleAssistantPost(
   if (!prepared) {
     return;
   }
-  const { messages, runtimeData, apiKey, toolApprovalAction } = prepared;
+  const {
+    assistantMessageId,
+    messages,
+    runtimeData,
+    apiKey,
+    toolApprovalAction,
+    toolResumeAction,
+  } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -236,6 +285,7 @@ async function handleAssistantPost(
   try {
     await streamAssistantPostResponse({
       apiKey,
+      assistantMessageId,
       messages,
       res,
       runId,
@@ -246,6 +296,7 @@ async function handleAssistantPost(
         llmHostManager: options.llmHostManager,
       },
       ...(toolApprovalAction === undefined ? {} : { toolApprovalAction }),
+      ...(toolResumeAction === undefined ? {} : { toolResumeAction }),
     });
   } catch (error) {
     await handleAssistantPostStreamError({ error, res, runId, signal });
@@ -291,18 +342,22 @@ async function streamAssistantPostResponse({
   messages,
   runtimeData,
   apiKey,
+  assistantMessageId,
   signal,
   runId,
   toolApprovalAction,
+  toolResumeAction,
   toolDependencies,
 }: {
   readonly res: http.ServerResponse;
   readonly messages: AgentMessage[];
   readonly runtimeData: RuntimeData;
   readonly apiKey: string | undefined;
+  readonly assistantMessageId: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
   readonly toolApprovalAction?: AssistantToolApprovalAction;
+  readonly toolResumeAction?: AssistantToolResumeAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
@@ -317,6 +372,7 @@ async function streamAssistantPostResponse({
     signal,
     runId,
     toolApprovalAction,
+    toolResumeAction,
     toolDependencies
   );
   if (!streamResult.ok) {
@@ -327,15 +383,21 @@ async function streamAssistantPostResponse({
     return;
   }
 
-  const session = assistantDataStreamSessions.create(streamResult.stream);
+  const session = assistantDataStreamSessions.create(streamResult.stream, {
+    ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
+  });
   const response = session.createResponse();
   await streamResponse(res, response, signal);
   if (runId) {
-    await recordDesktopAssistantThreadRunStatus(runId, 'completed', null);
+    await recordDesktopAssistantThreadRunStatus(
+      runId,
+      streamResult.terminalStatus ?? 'completed',
+      streamResult.terminalError ?? null
+    );
   }
 }
 
-async function* observeDesktopAssistantRunEvents(
+export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
   queuedEvents: AssistantRunEvent[]
@@ -534,9 +596,24 @@ async function recordDesktopAssistantRunEvent(
 
 interface PreparedAssistantPostRequest {
   apiKey: string;
+  assistantMessageId?: string;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
+  toolResumeAction?: AssistantToolResumeAction;
+}
+
+function withTrustedAssistantMessageId(
+  data: RuntimeData | undefined,
+  provider: SupportedProvider,
+  assistantMessageId: string | undefined
+): RuntimeData {
+  const { assistantMessageId: _ignoredClientAssistantMessageId, ...clientRuntimeData } = data ?? {};
+  return {
+    ...clientRuntimeData,
+    provider,
+    ...(assistantMessageId ? { assistantMessageId } : {}),
+  };
 }
 
 async function prepareAssistantPostRequest(
@@ -545,14 +622,20 @@ async function prepareAssistantPostRequest(
 ): Promise<PreparedAssistantPostRequest | undefined> {
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
+  let assistantMessageId: string | undefined;
   let toolApprovalAction: AssistantToolApprovalAction | undefined;
   let toolApprovalActionInvalid = false;
+  let toolResumeAction: AssistantToolResumeAction | undefined;
+  let toolResumeActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(req);
+    assistantMessageId = payload.assistantMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
     toolApprovalAction = payload.toolApprovalAction;
     toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
+    toolResumeAction = payload.toolResumeAction;
+    toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
     if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
@@ -583,6 +666,14 @@ async function prepareAssistantPostRequest(
     return;
   }
 
+  if (toolResumeActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_resume_action',
+      message: 'Tool resume action must include runId, toolCallId, and resumeData.',
+    });
+    return;
+  }
+
   if (!provider) {
     respondJson(res, 400, {
       error: 'missing_provider',
@@ -600,7 +691,7 @@ async function prepareAssistantPostRequest(
   const apiKey = provider === 'local' ? '' : await resolveProviderApiKey(provider);
 
   const runtimeData: RuntimeData = hydrateRuntimeDataWithLocalRuntimeToken(
-    data ? { ...data, provider } : { provider },
+    withTrustedAssistantMessageId(data, provider, assistantMessageId),
     provider,
     apiKey
   );
@@ -619,7 +710,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!(toolApprovalAction || hasNonEmptyPrompt(messages))) {
+  if (!(toolApprovalAction || toolResumeAction || hasNonEmptyPrompt(messages))) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -628,9 +719,11 @@ async function prepareAssistantPostRequest(
 
   return {
     apiKey: apiKey ?? '',
+    ...(assistantMessageId ? { assistantMessageId } : {}),
     messages,
     runtimeData,
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
+    ...(toolResumeAction ? { toolResumeAction } : {}),
   };
 }
 
@@ -655,6 +748,93 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
         message: 'Assistant status unavailable.',
       })
     );
+  }
+}
+
+/**
+ * Restart-safe rediscovery of pending tool approvals for a thread. On reload the
+ * live-stream approval notice is gone (it was never persisted), but the suspended
+ * run snapshot survives in workflow storage — this endpoint surfaces it so the
+ * renderer can re-render a working Approve/Decline notice (reusing the existing
+ * resume seam). Discovery is CONTEXT-FREE + KEYLESS + MODEL-FREE: the stable
+ * agent id ('brainstrike-assistant') is provider-independent, and
+ * `listSuspendedMastraRuns` builds its runtime with an INERT listing-only model
+ * (no provider/model is ever resolved), so no provider/apiKey is required from
+ * the renderer and no inference happens (listing only reads snapshots). The
+ * `provider: 'ollama'` below is a keyless placeholder that satisfies runtime
+ * config; it is never used to construct a model.
+ */
+async function handleSuspendedRunsRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions
+): Promise<void> {
+  const query = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams;
+  const threadId = query.get('threadId')?.trim() ?? '';
+  const resourceId = query.get('resourceId')?.trim() ?? '';
+  if (!(threadId && resourceId)) {
+    respondJson(res, 400, {
+      error: 'missing_thread_context',
+      message: 'Both threadId and resourceId query parameters are required.',
+    });
+    return;
+  }
+
+  try {
+    const memoryResult = await getDesktopMastraMemory(
+      DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      undefined,
+      undefined,
+      undefined,
+      { embeddingHostManager: options.embeddingHostManager }
+    );
+    if (!memoryResult?.storage) {
+      respondJson(res, 503, {
+        error: 'tool_approval_storage_unavailable',
+        message: 'Workflow storage is unavailable; suspended approvals cannot be discovered.',
+      });
+      return;
+    }
+
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId, threadId },
+      {
+        memory: memoryResult.memory,
+        // Keyless, provider-independent, model-free listing (see the doc comment
+        // above). `listSuspendedMastraRuns` injects an inert listing-only model,
+        // so this provider is a placeholder that is never used to build a model.
+        runtime: { memory: { resourceId, threadId }, provider: 'ollama' },
+        storage: memoryResult.storage,
+      }
+    );
+
+    const riskByTool = buildNativeToolRiskMap();
+    const staleThresholdMs = resolveApprovalStaleMs();
+    const now = Date.now();
+    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      const riskCategory = riskByTool[approval.toolName];
+      return {
+        runId: approval.runId,
+        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
+        suspendedAt: approval.suspendedAt,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        ...(approval.args === undefined ? {} : { args: approval.args }),
+        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+      };
+    });
+
+    const payload: SuspendedApprovalsResponse = { approvals };
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
+    res.end(JSON.stringify(payload));
+  } catch (error) {
+    logger.error('Suspended approval discovery failed', { error });
+    respondJson(res, 500, {
+      error: 'suspended_runs_failed',
+      message: 'Suspended approval discovery failed.',
+    });
   }
 }
 
@@ -727,7 +907,7 @@ function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
   );
 }
 
-function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
+function resolveRequestedProvider(data: RuntimeData | undefined): SupportedProvider | undefined {
   const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
   if (!raw) {
     return;
@@ -901,6 +1081,12 @@ function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
   if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
     return 'status';
   }
+  if (
+    req.method === 'GET' &&
+    (requestPath === '/assistant/suspended-runs' || requestPath === '/suspended-runs')
+  ) {
+    return 'suspended-runs';
+  }
   if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
     return 'assistant';
   }
@@ -948,13 +1134,21 @@ async function parseAssistantRequestPayload(
   });
   const payload = parseAssistantRequestPayloadText(body);
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
-  if (!toolApprovalActionResult) {
-    return payload;
+  if (toolApprovalActionResult) {
+    if ('invalid' in toolApprovalActionResult) {
+      return { ...payload, toolApprovalActionInvalid: true };
+    }
+    return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
   }
-  if ('invalid' in toolApprovalActionResult) {
-    return { ...payload, toolApprovalActionInvalid: true };
+  // Suspend/resume transport (submitPlan/askUser), parallel to approval.
+  const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
+  if (toolResumeActionResult) {
+    if ('invalid' in toolResumeActionResult) {
+      return { ...payload, toolResumeActionInvalid: true };
+    }
+    return { ...payload, toolResumeAction: toolResumeActionResult.action };
   }
-  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
+  return payload;
 }
 
 async function resumeStreamIfAvailable(
@@ -1049,6 +1243,154 @@ function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): st
   return [...modelIds];
 }
 
+/**
+ * Read the current thread's task list for re-injection this turn. Returns `[]`
+ * when there is no thread, no DB, the run targets the built-in local provider,
+ * or the read fails (a warn is logged) — an absent plan is a legitimate empty
+ * state, not a swallowed policy fallback. The local-provider skip is the
+ * DB-read-avoiding gate of the same policy enforced again (defense in depth)
+ * by the provider check on `taskListNote` in agent-runtime.ts, and by omitting
+ * the manageTaskList tool for local in buildDesktopAssistantTools.
+ */
+async function readThreadTaskListForTurn(
+  runtimeData: RuntimeData | undefined,
+  database: Parameters<typeof readThreadTaskList>[0] | null
+): Promise<readonly AssistantTaskItem[]> {
+  const threadId = runtimeData?.memory?.threadId;
+  if (!(threadId && database) || isLocalChatProvider(runtimeData)) {
+    return [];
+  }
+  try {
+    return await readThreadTaskList(database, threadId);
+  } catch (error) {
+    logger.warn('Failed to read thread task list; no task-list block this turn.', { error });
+    return [];
+  }
+}
+
+interface InitialStreamMemoryOptions {
+  memory?: DesktopMastraMemoryResult['memory'];
+  storage?: DesktopMastraMemoryResult['storage'];
+}
+
+/**
+ * Pick the initial stream for the turn: approval-resume, suspend-resume
+ * (submitPlan/askUser), or a fresh generation. Both resume paths skip
+ * `injectReferencedFilesContext` — there is no new user turn to scan — mirroring
+ * the approval path's contract.
+ */
+async function resolveInitialAgentStream(args: {
+  messages: AgentMessage[];
+  runtime: RuntimeData;
+  memoryOptions: InitialStreamMemoryOptions;
+  toolApprovalAction: AssistantToolApprovalAction | undefined;
+  toolResumeAction: AssistantToolResumeAction | undefined;
+}): Promise<AsyncIterable<StreamChunk>> {
+  const { messages, runtime, memoryOptions, toolApprovalAction, toolResumeAction } = args;
+  if (toolApprovalAction) {
+    return streamMastraToolApprovalAction(toolApprovalAction, {
+      ...memoryOptions,
+      requireToolApproval: true,
+      runtime,
+    });
+  }
+  if (toolResumeAction) {
+    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
+  }
+  // Prepend the turn's `@file` references (referenced-files), then any explicit
+  // `:skill[name]` activations, then the mounted roots' workspace instructions
+  // (AGENTS.md/AGENT.md/CLAUDE.md). Instructions are applied LAST so they land
+  // at the FRONT of the message array — general workspace conventions precede
+  // the turn's skill activations, which precede the turn-specific referenced
+  // files and the conversation. All are no-ops (same array identity) when
+  // nothing applies.
+  const withReferencedFiles = await injectReferencedFilesContext(
+    messages,
+    runtime,
+    readWorkspaceTextFile
+  );
+  const withSkillActivations = await injectActivatedSkillsContext(
+    withReferencedFiles,
+    runtime.workspaceSkills
+  );
+  return toAiSdkStyleStream(
+    await injectWorkspaceInstructionsContext(withSkillActivations, runtime, readWorkspaceTextFile),
+    runtime,
+    memoryOptions
+  );
+}
+
+/**
+ * Build the TRUSTED per-request Agent Skills engine over a SecureRoot fs
+ * surface spanning the request's resolved workspace roots + the home dir.
+ * Extracted from initializeAgentStream for the cognitive-complexity budget.
+ */
+function prepareRequestSkillsFromDisk(runtimeData: RuntimeData | undefined): {
+  workspaceSkills?: NonNullable<RuntimeData['workspaceSkills']>;
+} {
+  const { workspaceSkills } = prepareRequestSkills({
+    fs: createSecureSkillsFs([
+      ...(runtimeData?.workspaceRoots ?? [])
+        .map((root) => root.path)
+        .filter((rootPath): rootPath is string => Boolean(rootPath)),
+      homedir(),
+    ]),
+    homedir,
+    runtimeData,
+  });
+  // Shaped as a runtime-field fragment (like resolvePersonaRuntimeFields) so
+  // the caller spreads it unconditionally.
+  return workspaceSkills ? { workspaceSkills } : {};
+}
+
+/**
+ * Scan user-defined personas from disk over the request's already-resolved
+ * workspace roots (SecureRoot-backed fs; disposed after the scan). Extracted
+ * from initializeAgentStream for the cognitive-complexity budget.
+ */
+function scanUserPersonasFromDisk(
+  workspaceRoots: RuntimeData['workspaceRoots']
+): ReturnType<typeof scanUserPersonas> {
+  const filesystem = createNodeFsScanDeps();
+  try {
+    const scanRoots = (workspaceRoots ?? [])
+      .filter((root) => Boolean(root.path))
+      .map((root) => ({
+        absPath: root.path,
+        displayName: root.displayName,
+        id: root.rootId,
+      }));
+    return scanUserPersonas({ homeDir: homedir(), roots: scanRoots }, filesystem);
+  } finally {
+    filesystem.dispose();
+  }
+}
+
+/**
+ * Resolve the request's persona set (built-in + user-defined, availability
+ * preference applied) and any pinned-provider API keys, shaped as the runtime
+ * fields to spread onto the request RuntimeData. See request-personas.ts for
+ * the trust boundaries.
+ */
+async function resolvePersonaRuntimeFields(
+  runtimeData: RuntimeData | undefined,
+  subagentPersonasRequest: RuntimeData['subagentPersonasRequest']
+): Promise<Pick<RuntimeData, 'personas' | 'personaProviderApiKeys'>> {
+  const resolved = await resolveRequestPersonas({
+    logger,
+    parentProvider: runtimeData?.provider ?? '',
+    request: subagentPersonasRequest,
+    resolveApiKey: resolveProviderApiKey,
+    scanUserPersonas: () => scanUserPersonasFromDisk(runtimeData?.workspaceRoots),
+  });
+  return {
+    personas: resolved.personas,
+    ...(resolved.personaProviderApiKeys
+      ? { personaProviderApiKeys: resolved.personaProviderApiKeys }
+      : {}),
+  };
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1057,6 +1399,7 @@ async function initializeAgentStream(
   signal: AbortSignal,
   runId: string | undefined,
   toolApprovalAction: AssistantToolApprovalAction | undefined,
+  toolResumeAction: AssistantToolResumeAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
@@ -1070,6 +1413,10 @@ async function initializeAgentStream(
     return null;
   });
   const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(incomingRuntimeData, rootsDatabase);
+
+  // Re-inject the current per-thread task list into the instructions this
+  // turn (see readThreadTaskListForTurn for the local-provider skip).
+  const taskList = await readThreadTaskListForTurn(runtimeData, rootsDatabase);
 
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
@@ -1089,12 +1436,61 @@ async function initializeAgentStream(
     // client must not be able to inject `riskByTool` or bypass the opt-in.
     permissionPolicy: _ignoredClientPermissionPolicy,
     permissionPolicyRequest,
+    // Strip any client-supplied `hookRunner` for the same reason: it is the
+    // TRUSTED, server-built closure (below). The renderer only ATTESTS approved
+    // hashes via `hookTrustRequest`, which the server re-hashes against disk.
+    hookRunner: _ignoredClientHookRunner,
+    hookTrustRequest,
+    // Strip any client-supplied `personaProviderApiKeys`: pinned-persona keys
+    // are server-resolved from the secrets bridge below — a client must never
+    // inject credentials into the runtime.
+    personaProviderApiKeys: _ignoredClientPersonaKeys,
+    // Strip any client-supplied `workspaceSkills`: the skills engine is the
+    // TRUSTED, server-built object over the SecureRoot scan (below). The
+    // renderer only sends the `skillsPreference` wire field, which can only
+    // REDUCE the skill set.
+    workspaceSkills: _ignoredClientWorkspaceSkills,
+    // The renderer's persona availability preference; resolved (with the
+    // user-persona disk scan) into `runtime.personas` below.
+    subagentPersonasRequest,
     ...runtimeWithoutMcpConfig
   } = runtimeData ?? {};
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
+  // Subagent personas: built-ins + user-defined (scanned from
+  // `.brainstrike/agents` under each mounted root and the home dir), with the
+  // renderer's availability preference applied and cross-provider pin keys
+  // resolved from the secrets bridge. Set on the shared runtime so BOTH the
+  // initial turn and the approval/suspend-resume paths keep the `agent-<id>`
+  // delegation tools; the agent runtime skips personas for the built-in local
+  // provider (D10).
+  const personaRuntimeFields = await resolvePersonaRuntimeFields(
+    runtimeData,
+    subagentPersonasRequest
+  );
+
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    // Tool-lifecycle hooks (desktop): build the per-request manager over the
+    // mounted roots + server-resolved trust. Hook run events flow through the
+    // same queued sink the memory + stream observer drain, so hook.blocked and
+    // hook.notice reach the timeline. The queue is hoisted here (was built with
+    // memory below) so the manager can push into it.
+    const queuedRunEvents: AssistantRunEvent[] = [];
+    // TRUSTED server-built runner (never the client-supplied one, stripped above);
+    // present iff valid hooks exist.
+    const { manager: hookManager, runner: hookRunner } = prepareRequestHooks({
+      emitRunEvent: (event) => queuedRunEvents.push(hookRunEventToAssistant(event)),
+      hookTrustRequest,
+      logger,
+      runId,
+      runtimeData,
+    });
+    // Agent Skills: TRUSTED server-built engine over the SecureRoot scan of the
+    // four skills tiers (mounted roots + home dir), with the renderer's
+    // preference applied (master toggle / per-skill disables — reduce-only).
+    // Undefined when skills are off or the provider is the built-in local model.
+    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData);
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       // The execute-risk shell tool is registered like every other native tool;
@@ -1104,10 +1500,19 @@ async function initializeAgentStream(
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       mcpEnabled: true,
       signal, // ← AbortSignal passed here, used by stream iterator
+      // Always set: an empty list yields no <current-task-list> block (the note
+      // builder returns null), so no branch is needed here.
+      taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
+      ...(hookRunner ? { hookRunner } : {}),
+      // TRUSTED server-built skills engine (or nothing when skills are off).
+      ...skillsRuntimeFields,
+      // Resolved subagent personas (built-in + user-defined, availability
+      // preference applied) + pinned-provider keys — see resolvePersonaRuntimeFields.
+      ...personaRuntimeFields,
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
@@ -1117,7 +1522,6 @@ async function initializeAgentStream(
         await localLlmHostClient.warmup(modelId, { signal });
       }
     }
-    const queuedRunEvents: AssistantRunEvent[] = [];
     const memoryResult = runtime.memory
       ? await getDesktopMastraMemory(
           runtime.memory.memorySettings,
@@ -1141,27 +1545,71 @@ async function initializeAgentStream(
         status: 400,
       };
     }
+    if (toolResumeAction && !memoryResult?.storage) {
+      return {
+        ok: false,
+        payload: {
+          error: 'tool_resume_memory_required',
+          message: 'Tool suspend resume requires Mastra memory context with workflow storage.',
+        },
+        status: 400,
+      };
+    }
     // @file context-insert: resolve any `:file[…]{name=…}` directives in the
     // current turn's user message into a prepended `system` context message
     // carrying the referenced files' content. Uses the same containment/size/
     // binary-guarded reader as the read tools; unresolvable references surface a
     // visible note rather than being silently dropped. Skipped on the approval-
     // resume path (no new user turn to scan).
-    const stream = toolApprovalAction
-      ? await streamMastraToolApprovalAction(toolApprovalAction, {
-          ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-          requireToolApproval: true,
-          runtime,
-        })
-      : await toAiSdkStyleStream(
-          await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
-          runtime,
-          memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
-        );
+    const memoryOptions = memoryResult
+      ? { memory: memoryResult.memory, storage: memoryResult.storage }
+      : {};
+
+    // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
+    // resume path — no new user message to gate). A block short-circuits the
+    // turn with a visible message + run.failed and NEVER invokes the model;
+    // additionalContext is prepended as a system message (mirrors @file inject).
+    // Run-event observer wrapper (a no-op when there is no runId to stamp).
+    const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
+      runId ? observeDesktopAssistantRunEvents(source, runId, queuedRunEvents) : source;
+
+    const upsGate = await runUserPromptSubmitGate(
+      hookManager,
+      messages,
+      Boolean(toolApprovalAction || toolResumeAction)
+    );
+    if (upsGate.kind === 'block') {
+      // The blocked turn still streams a visible message + run.failed, but it
+      // never invokes the model — record the run row as failed (not completed)
+      // so persistence matches the visible failure.
+      return {
+        ok: true,
+        stream: observe(makeHookBlockedStream(upsGate.reason)),
+        terminalError: upsGate.reason,
+        terminalStatus: 'failed',
+      };
+    }
+
+    const stream = await resolveInitialAgentStream({
+      memoryOptions,
+      messages: upsGate.messages,
+      runtime,
+      toolApprovalAction,
+      toolResumeAction,
+    });
     logger.info('Assistant stream initialized');
+    // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
+    // stream ends (clean/error/abort). Its run events ride the queued sink the
+    // observer drains.
     return {
       ok: true,
-      stream: runId ? observeDesktopAssistantRunEvents(stream, runId, queuedRunEvents) : stream,
+      stream: finalizeHookedStream(stream, {
+        logger,
+        manager: hookManager,
+        observe,
+        runner: hookRunner,
+        signal,
+      }),
     };
   } catch (error) {
     logger.error('Failed to initialize assistant stream', { error });

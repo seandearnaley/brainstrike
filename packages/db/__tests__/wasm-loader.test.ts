@@ -280,4 +280,61 @@ describe('wasmLoader.deleteIndexedDB', () => {
     expect(deleted).toContain('/pglite/app-pg18');
     expect(deleted).toContain('app-pg18');
   });
+
+  function installBlockedDeleteDatabaseSpy(): void {
+    // Fires ONLY `blocked` — another connection holds the database open and
+    // never closes (the delete would complete on some later `success` we never
+    // deliver in this harness).
+    const deleteDatabase = vi.fn((_name: string) => {
+      const request: {
+        onsuccess: ((event: unknown) => void) | null;
+        onerror: ((event: unknown) => void) | null;
+        onblocked: ((event: unknown) => void) | null;
+        error: unknown;
+      } = { error: null, onblocked: null, onerror: null, onsuccess: null };
+      queueMicrotask(() => request.onblocked?.(undefined));
+      return request;
+    });
+    g.window = { indexedDB: { deleteDatabase } };
+  }
+
+  it("blockedBehavior 'resolve' settles a BLOCKED delete reporting blocked: true", async () => {
+    // The first-run bootstrap recovery path relies on this: it throws its
+    // "close other tabs" error directly on the reported block — without
+    // settling it would hang DB initialization forever on a tab we don't
+    // control, and without the report a follow-up open probe would queue
+    // behind the pending delete and hang anyway.
+    installBlockedDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    await expect(
+      mod.wasmLoader.deleteIndexedDB('idb://web-pg18', { blockedBehavior: 'resolve' })
+    ).resolves.toEqual({ blocked: true });
+  });
+
+  it('reports blocked: false when the delete completes', async () => {
+    installDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    await expect(
+      mod.wasmLoader.deleteIndexedDB('idb://web-pg18', { blockedBehavior: 'resolve' })
+    ).resolves.toEqual({ blocked: false });
+  });
+
+  it("default blockedBehavior 'wait-for-close' keeps waiting on a BLOCKED delete", async () => {
+    // Factory reset's contract: its own teardown closes the holding
+    // connections, so the delete completes shortly — waiting is correct there.
+    installBlockedDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    const pending = mod.wasmLoader.deleteIndexedDB('idb://web-pg18');
+    const outcome = await Promise.race([
+      pending.then(() => 'settled'),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('still-waiting'), 50);
+      }),
+    ]);
+
+    expect(outcome).toBe('still-waiting');
+  });
 });

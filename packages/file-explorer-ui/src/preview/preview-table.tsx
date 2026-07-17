@@ -1173,7 +1173,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   if (groupingConfig === 'none') {
     return (
       <div
-        className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}
+        className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
         data-rows-ready={rowsReadyAttr}
         data-testid="preview-table"
       >
@@ -1190,6 +1190,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           rowClassName={rowClassName}
           selectionMode="none"
           sortState={ungroupedSortState}
+          viewportClassName={scrollAreaClassName}
           windowingStrategy="none"
         />
       </div>
@@ -1199,7 +1200,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   // Group rows are modeled as parent nodes with item children for true tree semantics.
   return (
     <div
-      className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}
+      className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
       data-rows-ready={rowsReadyAttr}
       data-testid="preview-table"
     >
@@ -1215,6 +1216,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         onToggleExpand={onGroupedTreeToggleExpand}
         rowClassName={rowClassName}
         selectionMode="none"
+        viewportClassName={scrollAreaClassName}
         windowingStrategy="none"
       />
     </div>

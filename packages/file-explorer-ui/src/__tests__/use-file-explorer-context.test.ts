@@ -127,6 +127,7 @@ describe('useFileExplorer (context)', () => {
       })),
       addSelectedFile: vi.fn(),
       clearAllFileContents: vi.fn(),
+      clearDisabledFilters: vi.fn(),
       clearFileContents: vi.fn(),
       clearQuickFilter: vi.fn(),
       clearSelectedFiles: vi.fn(),
@@ -328,6 +329,26 @@ describe('useFileExplorer (context)', () => {
     expect(result.current.rootDirectoryHandle).toBeNull();
     await expect(result.current.refreshFileExplorer()).rejects.toBeInstanceOf(Error);
     expect(mockRefreshTree).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'completed',
+    'cancelled',
+  ] as const)('refreshFileExplorer passes through a %s tree refresh outcome', async (status) => {
+    mockRefreshTree.mockResolvedValueOnce({ status });
+    const { result } = renderHook(() => useFileExplorer());
+
+    await expect(result.current.refreshFileExplorer()).resolves.toEqual({ status });
+    expect(mockRefreshTree).toHaveBeenCalledOnce();
+  });
+
+  it('refreshFileExplorer passes through the exact tree refresh error', async () => {
+    const refreshError = new Error('tree refresh failed');
+    mockRefreshTree.mockRejectedValueOnce(refreshError);
+    const { result } = renderHook(() => useFileExplorer());
+
+    await expect(result.current.refreshFileExplorer()).rejects.toBe(refreshError);
+    expect(mockRefreshTree).toHaveBeenCalledOnce();
   });
 
   it('loadMultipleFileContents calls handleFileContentLoading with array of keys', async () => {

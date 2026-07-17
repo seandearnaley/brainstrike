@@ -31,45 +31,57 @@ env:
 jobs:
   static:
     name: Static
-    runs-on: ubuntu-latest
+    # Series C R9b: arm64 runners became available for private repos on
+    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
+    # Probe P1 measured this job's full step suite (install, secret scan,
+    # script tests, lane-manifest checks, lint, type-check) GENUINELY
+    # RUNNING and PASSING on ubuntu-24.04-arm, with wall-clock parity to x64
+    # (~3.0m either arch — arm64 is NOT faster, only cheaper per minute).
+    # See docs/agents/ci-quality.md / the Series C design doc for the probe
+    # results. `.turbo` cache key (setup-workspace/action.yml) already
+    # includes `runner.arch`, so this move cannot cross-restore an
+    # incompatible cache layer.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
+      # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
+      # action is read off the runner's filesystem, so the repo has to be on
+      # disk before it can resolve. See setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Secret scan
         run: pnpm secrets:scan
 
+      # Includes scripts/__tests__/verify-playwright-pin-sync.test.mjs — the
+      # single-source guard that the Playwright container image tag pinned in
+      # test.yml/web-e2e.yml/performance.yml matches @playwright/test's
+      # installed version. `container.image:` cannot consume a workflow
+      # expression, so the tag stays a literal in all three files and this
+      # guard is the verification (throws on drift, and throws if it can no
+      # longer find a pin at all rather than passing vacuously).
       - name: Script tests
         run: pnpm test:scripts
 
       - name: Check DB test + coverage lane assignments
-        # Both the unit `test-lanes` and the nightly `coverage-lanes` registries
-        # error on any unassigned `packages/db/__tests__/*.test.ts`. The unit one
-        # is validated implicitly when the Unit job runs `test`, but the coverage
-        # one was only validated in the nightly job — so a new test could pass every
-        # PR check and silently break Nightly Coverage. Validate BOTH here (fast,
-        # ~1s) so drift is caught on the PR, not at 2am.
+        # These are two DERIVED VIEWS of one shared manifest
+        # (packages/db/scripts/db-test-lane-manifest.mjs), not two registries to be
+        # maintained by hand: `test-lanes` (PR unit lanes) and `coverage-lanes`
+        # (nightly coverage lanes) both import it, and a test's coverage lane is
+        # resolved from its unit lane automatically. Adding a test therefore takes ONE
+        # edit — a regex in `dbUnitLaneDefinitions` — and cannot leave the two views
+        # inconsistent the way the old hand-synced registries could (issue #1101).
+        #
+        # Still worth running both here: a brand-new UNIT LANE needs its own
+        # `coverageDefaultsByUnitLane` entry, and only the coverage check catches a
+        # missing one (it fails loudly rather than dropping the test). The checks
+        # validate lane assignment without executing the suite (~1s), so drift
+        # surfaces on the PR rather than at 2am in Nightly Coverage.
         run: |
           pnpm --filter @brainstrike/db test:db:check-lanes
           pnpm --filter @brainstrike/db test:coverage:db:check-lanes
@@ -82,163 +94,157 @@ jobs:
 
   unit:
     name: Unit
-    runs-on: ubuntu-latest
+    # Series C R9b: arm64 runners became available for private repos on
+    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
+    # Probe P1 measured this job's full suite — including the 6 `cache: false`
+    # `test:integration` lanes (real PGlite, embeddings: the heaviest,
+    # most native-dependent work in this workflow) — GENUINELY RUNNING and
+    # PASSING on ubuntu-24.04-arm, with wall-clock parity to x64 (arm64 is
+    # NOT faster, only cheaper per minute). `.turbo` cache key
+    # (setup-workspace/action.yml) already includes `runner.arch`, so this
+    # move cannot cross-restore an incompatible cache layer.
+    runs-on: ubuntu-24.04-arm
     # Foundational PRs (e.g. changes to @brainstrike/utils or lint presets)
     # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
     # aligned with Coverage so broad but valid changes do not time out mid-run.
     timeout-minutes: 60
     steps:
+      # `fetch-depth: 0` is REQUIRED here: the turbo filter below diffs against
+      # `origin/$BASE_REF`, which needs full history. Checkout stays in the
+      # caller (not the composite) — see setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
+          turbo-cache: 'true'
 
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
+      # NO standalone build step (B4). Test lanes resolve workspace imports
+      # from SOURCE (the B3 #1651 registry + the app vitest alias maps), so
+      # tests no longer need `dist` to exist, and `test.dependsOn` is the
+      # no-build `topo` transit node instead of `^build` (turbo.jsonc). The few
+      # lanes that genuinely consume built artifacts (packages/utils' own-dist
+      # test, packages/db's nested-tsc test) declare exact `#build` edges in
+      # their own turbo.json, and `turbo run test` SELF-BUILDS exactly those
+      # (verified: the whole-repo test+test:integration graph contains 3 build
+      # tasks — utils + its dep closure — and a full clean-state no-dist run is
+      # green; see the B4 PR). The predecessor step's #1066/#1207 rationale
+      # ("exports maps pointing at dist fail to resolve at test time") is
+      # retired by source resolution, and unlike that incident a regression
+      # here fails LOUDLY on the always-clean CI runner instead of passing
+      # against stale dist. The Build job below still exercises the full build.
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Build workspace deps first, for BOTH test paths below. The previous
-      # `turbo run test --affected` got its build dependency via turbo.jsonc's
-      # `dependsOn: ["^build"]`, but pnpm's filter doesn't traverse that graph
-      # — workspace deps with exports maps pointing at `dist/` would otherwise
-      # fail to resolve at test time.
-      # MUST stay unconditional (no `if: pull_request`): the
-      # `Push and manual unit tests` step runs the full suite on push/main and
-      # workflow_dispatch, and hits the same unbuilt-`dist` resolution failure
-      # (e.g. @brainstrike/indexing-contract importing @brainstrike/types).
-      # A PR-only guard here left push-to-main Unit red for ~3 weeks invisibly.
-      # Use turbo for build (cache makes this fast); use pnpm for affected
-      # test selection (turbo's --affected over-selects on merge commits).
-      - name: Build workspace dependencies
-        run: pnpm turbo run build --concurrency=4
-
-      # PR-affected unit tests via pnpm's documented filter syntax.
-      # https://pnpm.io/filtering — pattern: `pnpm --filter "...[origin/master]" test`
+      # PR-affected unit tests routed THROUGH turbo so the remote cache
+      # (TURBO_TOKEN/TURBO_TEAM, set at the workflow `env:` block above and
+      # inherited by this step) covers test execution — the only expensive,
+      # previously-uncached CI step.
       #
-      # `...[ref]` = changed packages + their dependents — same semantic as
-      # `turbo run test --affected`. `!./` excludes the root workspace
-      # (which would otherwise run its root-level `test` script that
-      # delegates back to turbo over every workspace, defeating the scoping).
-      # --if-present skips packages that don't define a `test` script. Turbo
-      # silently skipped them via its task graph; pnpm errors without this
-      # flag. Per https://pnpm.io/cli/run:
-      # "Use the --if-present flag to avoid exiting with a non-zero exit
-      # code when the script is undefined."
+      # `--filter="...[origin/$BASE_REF]"` is turbo's EXPLICIT git-range filter:
+      # `...[ref]` = packages changed since `ref` + their dependents. It is
+      # deliberately NOT `--affected`: turbo's `--affected` derives its own
+      # base/head and over-selects on merge commits, the exact reason the prior
+      # pnpm-filter approach spelled the range out. Turbo's task graph skips
+      # packages with no `test` script (no `--if-present` needed) and never runs
+      # the workspace-root task under a plain `turbo run` (so the old pnpm-only
+      # `!./` root exclusion is unnecessary — verified via `--dry=json`).
+      #
+      # SELECTION vs the retired `pnpm --filter "...[ref]"`: measured across four
+      # real historical ranges (HEAD~1, origin/main~10/~20/~30 — see the PR body
+      # for the exact package lists), turbo's selection is a strict SUPERSET of
+      # pnpm's. It NEVER under-selects — every package the old pnpm path would
+      # have tested is always selected, so a changed package can never be
+      # silently skipped/under-tested. On ranges whose diff touches root/global
+      # files (lockfile, pnpm-workspace.yaml) turbo may additionally pull in a
+      # few leaf config packages pnpm did not; that is safe over-selection
+      # (marginal CI time, usually a cache hit — never missed coverage).
+      #
+      # TURBO_TEST_MODE=unit is set EXPLICITLY here so the `test` task cache key
+      # (turbo.jsonc `test.env` = [NODE_ENV, TURBO_TEST_MODE]) matches the push
+      # path below AND the local `pnpm test` script (scripts/run-env.mjs sets the
+      # same value) — otherwise PR and push runs would compute different hashes
+      # and never share cache entries. --concurrency=4 preserves the prior
+      # `--workspace-concurrency=4` parallelism cap.
+      #
+      # PHASE SPLIT (two sequential turbo invocations, one named step each).
+      # `test` and `test:integration` previously ran in a SINGLE
+      # `turbo run test test:integration --concurrency=4`. On whole-repo-
+      # selection PRs (any global-file edit) that starved the runner: once the
+      # cacheable `test` lanes fill from cache, all 4 turbo slots end up occupied
+      # exclusively by the heavy UNCACHED lanes — the `test:integration` suites
+      # (embeddings, agent, app-shell, desktop, web, file-import) plus the
+      # whole-task-uncached `db#test` — i.e. 4 concurrent real-PGlite/wall-clock
+      # suites on a small hosted runner (PR #1650 run 29294546967: job-timeout,
+      # then lost-runner, then a 4-lane turbo cancellation cascade). The lanes
+      # are individually sound (local `--concurrency=1` = 128/128 green); this is
+      # the documented PGlite-under-CI-load flake class manifesting through lane
+      # CONCURRENCY, so the fix is at source in CI.
+      #
+      # Phase 1 runs the cacheable `test` lanes (+ the whole-task-uncached
+      # db/secure-fs-native `test` lanes, mostly light or singular) at
+      # --concurrency=4. Phase 2 runs ONLY the uncached env-sensitive
+      # `test:integration` lanes (root turbo.jsonc, `cache: false`) capped at
+      # --concurrency=2 so at most two real-subsystem suites run at once. Two
+      # named steps (not one `&&` step) give clearer failure attribution in the
+      # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
+      # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
+      # node), so phase 2's graph builds nothing and is cheap. turbo skips each
+      # task for packages that do not define it (no `--if-present` needed).
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        # --workspace-concurrency=4 explicitly matches pnpm's documented
-        # default for `pnpm -r` (https://pnpm.io/cli/recursive); making it
-        # explicit avoids surprises if the default changes.
-        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test --filter="...[origin/$BASE_REF]" --concurrency=4
 
+      - name: Pull request affected integration tests
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test:integration --filter="...[origin/$BASE_REF]" --concurrency=2
+
+      # Push (main) + workflow_dispatch: full non-affected suite routed through
+      # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
+      # workflow `env:` block) covers these runs too, and so push and PR runs
+      # share cache entries. TURBO_TEST_MODE=unit (below) keeps the `test` task
+      # cache key identical to the PR path and the local `pnpm test` script.
+      # Same PHASE SPLIT as the PR path: phase 1 runs the cacheable `test` lanes
+      # at --concurrency=4 (matches the PR path and the root `pnpm test`
+      # script), phase 2 runs the uncached env-sensitive `test:integration`
+      # lanes capped at --concurrency=2 so at most two real-subsystem suites run
+      # at once. See the PR-path comment above for the starvation rationale.
+      #
+      # @brainstrike/embeddings is NO LONGER excluded (Series A4, #1629): its
+      # env-sensitive files now carry the `*.integration.test.*` suffix and run
+      # in the uncached `test:integration` lane, so its pure `test` lane is
+      # cacheable and is finally CI-covered on push. The manual model-download
+      # tier stays out of CI by FILENAME (`*.models.test.*`, selected only by
+      # `test:models` via vitest.models.config.mts) — not by this package
+      # filter — so dropping the filter cannot pull model downloads into CI.
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm run test:fast
+        run: pnpm turbo run test --concurrency=4
 
-  coverage:
-    name: Coverage
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Clear coverage directories
-        run: |
-          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf .nyc_output
-
-      # See the Unit job for the rationale. Coverage instrumentation runs
-      # tests so it has the same build-dependency requirement.
-      - name: Build workspace dependencies
-        run: pnpm turbo run build --concurrency=4
-
-      # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
-      # gate is on changed lines, which only live in directly-changed
-      # packages — dependents add no patch-coverage signal. `!./` excludes
-      # the root workspace's `test:coverage` script (which delegates to
-      # `turbo run test:coverage` over every workspace).
-      - name: Run affected-only coverage
+      - name: Push and manual integration tests
+        if: github.event_name != 'pull_request'
         env:
-          COVERAGE: "true"
-          NODE_ENV: test
-          BASE_REF: ${{ github.base_ref }}
-        # --if-present skips packages that don't define `test:coverage`.
-        # See the Unit step comment above for the rationale.
-        # Explicit --workspace-concurrency=4; same rationale as Unit.
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
+          COVERAGE: "false"
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test:integration --concurrency=2
 
-      - name: Prepare coverage workspace
-        id: coverage
-        run: |
-          pnpm coverage:prepare-workspace
-          coverage_files=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
-          echo "coverage_files=${coverage_files}" >> "$GITHUB_OUTPUT"
-          if [ "$coverage_files" -gt 0 ]; then
-            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
-            echo "No affected packages produced coverage; skipping merge and upload."
-          fi
-
-      - name: Generate merged coverage report
-        if: steps.coverage.outputs.has_coverage == 'true'
-        run: |
-          pnpm coverage:merge -- --quiet packages apps
-          pnpm coverage:report
-
-      - name: Upload coverage to Codecov
-        if: steps.coverage.outputs.has_coverage == 'true'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          flags: pr
-          fail_ci_if_error: false
+  # The `coverage` job MOVED to .github/workflows/coverage.yml. It needs a
+  # `coverage`-label trigger, which would mean subscribing THIS workflow to
+  # the `pull_request` `labeled` action — and this workflow is the sole
+  # producer of every required status check, so every label add would then
+  # report those checks as `skipped` and grey out the merge box (measured on
+  # PR #1664). See the header comment in coverage.yml for the full rationale.
+  # Coverage is advisory; nightly-coverage.yml remains the threshold gate.
 
   build:
     name: Build
@@ -248,25 +254,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Build
         run: TAILWIND_DEBUG=1 pnpm run build
@@ -300,18 +291,69 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  native-windows:
+    name: Native Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # No turbo-cache: this job doesn't route through turbo. `shell: bash` in
+      # the composite's install step works on windows-latest via the runner's
+      # bundled Git Bash, same as every other step in this composite already
+      # running fine cross-platform.
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Build and test secure filesystem capability
+        run: pnpm --filter @brainstrike/secure-fs-native test
+
+  native-electron:
+    name: Native Electron Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Load the native capability in Electron
+        run: pnpm --filter @brainstrike/secure-fs-native test:electron
+
+      - name: Package the desktop application
+        run: pnpm --filter @brainstrike/desktop run pack
+
+      - name: Load the packaged native capability in Electron
+        run: pnpm --filter @brainstrike/secure-fs-native test:packaged
+
   web-e2e:
     name: Web E2E
     if: github.event_name != 'workflow_dispatch'
-    needs: [static, unit, build]
+    needs: [build]
     runs-on: ubuntu-latest
     # Run inside the official Playwright image: browsers and their system
     # dependencies are baked in, so there is NO `playwright install` step and
     # NO download from cdn.playwright.dev at job time. This removes the CDN
     # browser download that was stalling at 100% and hanging the job to its
-    # timeout. KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1);
-    # the same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
-    # performance.yml} — bump all three together on a Playwright upgrade.
+    # timeout. KEEP IN SYNC: the image tag MUST equal @playwright/test's
+    # version; the same pin is hard-coded in .github/workflows/{test.yml,
+    # web-e2e.yml,performance.yml} — bump all three together on a Playwright
+    # upgrade. `container.image:` cannot consume a workflow expression, so this
+    # stays a literal; scripts/verify-playwright-pin-sync.mjs (run via
+    # `pnpm test:scripts` in the Static job) is the automated drift check.
+    #
+    # NOT folded into the setup-workspace composite (Series C R9a): this
+    # container has no C toolchain/sudo, so the install below excludes both
+    # native-build projects — a different `pnpm install` invocation than the
+    # composite's fixed `pnpm install --frozen-lockfile`. Parameterizing the
+    # composite's install command for this one caller is the documented trap;
+    # this job's setup stays bespoke literal YAML on purpose.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
@@ -339,15 +381,11 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        # Exclude apps/desktop: it is the ONLY project carrying node-pty, a native
-        # module compiled from source via node-gyp. This Playwright container ships
-        # no C toolchain (make/g++ absent) and pwuser (`--user 1001`) has no sudo to
-        # apt-get one, so a full install dies building node-pty. The web E2E never
-        # loads node-pty (the terminal is desktop-only); dropping just the desktop
-        # app keeps root + web + every shared package (41/42 projects). Do NOT
-        # revert to a bare full install — it will re-break this job. See node-pty in
-        # apps/desktop/package.json.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop'
+        # Exclude both desktop-only native projects: this pwuser container has no
+        # C toolchain or sudo, and web E2E loads neither node-pty nor secure-fs.
+        # Keeps root + web + every shared package (42/44 projects). Do NOT revert
+        # to a bare full install; node-gyp will fail before Playwright starts.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -370,7 +408,7 @@ jobs:
   desktop-e2e:
     name: Desktop E2E
     if: github.event_name != 'workflow_dispatch'
-    needs: [static, unit, build]
+    needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -378,6 +416,11 @@ jobs:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
+    # NOT folded into the setup-workspace composite (Series C R9a): the
+    # Electron-version lookup + binary cache below must run BETWEEN Node setup
+    # and `pnpm install`, which the composite's fixed step order (checkout ->
+    # pnpm -> node -> turbo cache -> install, nothing injectable in the
+    # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
       - name: Checkout
         uses: actions/checkout@v6

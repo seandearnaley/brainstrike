@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { testBase } from '@brainstrike/test-utils/vitest.base';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import type { InlineConfig } from 'vitest';
 import { defineConfig } from 'vitest/config';
 // NOTE: TypeScript can get confused about Vitest type identities under pnpm workspaces.
@@ -45,12 +46,12 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: '@brainstrike/utils',
         replacement: resolve(import.meta.dirname, '../utils/src'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
       },
       {
         find: '@brainstrike/file-explorer',
@@ -80,6 +81,21 @@ export default defineConfig({
         find: '@brainstrike/context-actions',
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
+      // @brainstrike/workers has no src/ dir (worker files at the package root),
+      // so the registry skips it; alias its subpaths explicitly.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
+      },
+      // Registry fills the remaining workspace deps (file-system, selection-rules,
+      // token-cache, file-tree-worker, workers, platform-utils transitively, …)
+      // from SOURCE. Hand-rolled entries above win by first-match ordering.
+      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   // Cast mitigates TS2769 type identity noise in some editors

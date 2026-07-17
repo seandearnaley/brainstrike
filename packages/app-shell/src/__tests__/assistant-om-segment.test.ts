@@ -8,7 +8,10 @@ import {
 /** A well-formed raw OM row as returned by the live query (camelCase columns). */
 function rawRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    bufferedObservationChunks: [{ tokenCount: 750 }, { tokenCount: 250 }],
+    config: { observation: { messageTokens: 30_000 } },
     observationTokenCount: 5000,
+    pendingMessageTokens: 14_000,
     totalTokensObserved: 12_000,
     ...overrides,
   };
@@ -17,7 +20,13 @@ function rawRow(overrides: Record<string, unknown> = {}): Record<string, unknown
 describe('parseObservationalMemoryRow', () => {
   it('parses a well-formed row', () => {
     const parsed = parseObservationalMemoryRow(rawRow());
-    expect(parsed).toEqual({ observationTokenCount: 5000, totalTokensObserved: 12_000 });
+    expect(parsed).toEqual({
+      bufferedObservationTokens: 1000,
+      messageTokenThreshold: 30_000,
+      observationTokenCount: 5000,
+      pendingMessageTokens: 14_000,
+      totalTokensObserved: 12_000,
+    });
   });
 
   it('THROWS on a non-object row (never fabricates 0)', () => {
@@ -45,7 +54,23 @@ describe('parseObservationalMemoryRow', () => {
     const parsed = parseObservationalMemoryRow(
       rawRow({ observationTokenCount: '5000', totalTokensObserved: '12000' })
     );
-    expect(parsed).toEqual({ observationTokenCount: 5000, totalTokensObserved: 12_000 });
+    expect(parsed).toEqual({
+      bufferedObservationTokens: 1000,
+      messageTokenThreshold: 30_000,
+      observationTokenCount: 5000,
+      pendingMessageTokens: 14_000,
+      totalTokensObserved: 12_000,
+    });
+  });
+
+  it('THROWS when buffered chunks or pending activation progress are malformed', () => {
+    expect(() =>
+      parseObservationalMemoryRow(rawRow({ bufferedObservationChunks: [{ tokenCount: -1 }] }))
+    ).toThrow();
+    expect(() => parseObservationalMemoryRow(rawRow({ pendingMessageTokens: -1 }))).toThrow();
+    expect(() =>
+      parseObservationalMemoryRow(rawRow({ config: { observation: { messageTokens: 0 } } }))
+    ).toThrow();
   });
 });
 
@@ -106,10 +131,13 @@ describe('resolveOmMeterState', () => {
       input({ row: rawRow({ observationTokenCount: 5000, totalTokensObserved: 12_000 }) })
     );
     expect(state).toEqual<OmMeterState>({
+      bufferedObservationTokens: 1000,
       // 12000 - 5000
       compactionSavedTokens: 7000,
       kind: 'stats',
+      messageTokenThreshold: 30_000,
       observationTokens: 5000,
+      pendingMessageTokens: 14_000,
     });
   });
 
@@ -133,9 +161,12 @@ describe('resolveOmMeterState', () => {
       input({ row: rawRow({ observationTokenCount: 999_999, totalTokensObserved: 999_999 }) })
     );
     expect(state).toEqual<OmMeterState>({
+      bufferedObservationTokens: 1000,
       compactionSavedTokens: 0,
       kind: 'stats',
+      messageTokenThreshold: 30_000,
       observationTokens: 999_999,
+      pendingMessageTokens: 14_000,
     });
   });
 

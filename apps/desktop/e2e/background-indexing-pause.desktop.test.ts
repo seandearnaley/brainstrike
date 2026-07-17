@@ -1,10 +1,28 @@
-import type { Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 
 const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
 
 interface PersistedBackgroundIndexingPreferences {
   readonly paused: boolean;
+}
+
+async function requireBoundingBox(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error('Expected a visible indexing surface with measurable geometry.');
+  }
+  return box;
+}
+
+function expectStableRect(
+  before: { height: number; width: number; x: number; y: number },
+  after: { height: number; width: number; x: number; y: number }
+): void {
+  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.width - before.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
 }
 
 async function readBackgroundIndexingPreferences(
@@ -56,6 +74,12 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
       timeout: 15_000,
     });
 
+    const indexingTrigger = window.getByTestId('indexing-status-trigger');
+    const statusBarRight = window.getByTestId('status-bar-right');
+    await expect(indexingTrigger).toBeVisible({ timeout: 15_000 });
+    await expect(statusBarRight).toContainText('Workspace Index');
+    const triggerBeforePause = await requireBoundingBox(indexingTrigger);
+
     const pauseButton = settingsPanel.getByRole('button', { name: 'Pause workspace index' });
     await expect(pauseButton).toBeVisible({ timeout: 15_000 });
     await pauseButton.focus();
@@ -63,6 +87,8 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
 
     const resumeButton = settingsPanel.getByRole('button', { name: 'Resume workspace index' });
     await expect(resumeButton).toBeVisible({ timeout: 15_000 });
+    await expect(indexingTrigger).toContainText('Paused', { timeout: 15_000 });
+    expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
 
     await expect
       .poll(async () => await readBackgroundIndexingPreferences(window), {
@@ -84,5 +110,28 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(settingsPanel.getByRole('button', { name: 'Pause workspace index' })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(indexingTrigger).not.toContainText('Paused', { timeout: 15_000 });
+    expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
+
+    await window.getByRole('button', { name: 'Close' }).click();
+    await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeHidden();
+
+    await indexingTrigger.click();
+    const indexingPopover = window.getByTestId('indexing-status-popover');
+    await expect(indexingPopover).toBeVisible({ timeout: 15_000 });
+    await expect(indexingPopover.getByText('Files', { exact: true })).toBeVisible();
+    await expect(indexingPopover.getByText('Chunks', { exact: true })).toBeVisible();
+    const popoverBeforeDiagnostics = await requireBoundingBox(indexingPopover);
+
+    await expect(indexingTrigger).toContainText('Blocked');
+    await expect(
+      indexingPopover.getByRole('button', { name: 'Pause workspace index' })
+    ).toHaveCount(0);
+    await expect(indexingPopover.getByTestId('indexing-action-region')).toHaveClass(/\bh-11\b/);
+
+    await indexingPopover.getByRole('button', { name: 'Worker and database diagnostics' }).click();
+    await expect(indexingPopover.getByText('Worker state')).toBeVisible();
+    expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
+    expectStableRect(popoverBeforeDiagnostics, await requireBoundingBox(indexingPopover));
   });
 });

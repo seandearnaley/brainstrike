@@ -15,9 +15,12 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { TransactionStatement } from './atomic-transaction.js';
+import { maybeBootstrapBrowserFirstRunStore } from './browser-first-run-bootstrap.js';
 import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
+  isIndexedDbPGliteDataDir,
 } from './browser-pglite-storage.js';
 import {
   createDatabaseWorkScheduler,
@@ -34,12 +37,40 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
+import {
+  type PGliteRuntimeClient,
+  runFirstRunBootstrapInWorker,
+  wasmLoader,
+} from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
 function logDatabaseError(message: string, error: unknown): void {
   logger.error({ err: error }, message);
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:relation|table)\s+(?:"(?:[a-z_][\w$]*\.)?prompt_items"|(?:(?:"[a-z_][\w$]*"|[a-z_][\w$]*)\.)?(?:"prompt_items"|prompt_items))\s+does not exist\b/iu.test(
+    message
+  );
+}
+
+async function clearPromptItemsIfPresent(
+  tx: { query: (sql: string) => Promise<unknown> },
+  missingRelationMessage: string
+): Promise<void> {
+  try {
+    await tx.query('DELETE FROM prompt_items');
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+    logger.warn(missingRelationMessage, error);
+  }
 }
 
 /**
@@ -77,6 +108,7 @@ async function purgeAndCloseDirectDb(
     });
   } catch (error) {
     logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+    throw error;
   }
   try {
     await db.exec('VACUUM');
@@ -139,6 +171,11 @@ export interface DbHandle extends IDatabase {
     workOptions?: DatabaseWorkOptions
   ) => Promise<void>;
   readonly raw?: unknown;
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
 }
 
@@ -155,6 +192,11 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
@@ -280,6 +322,12 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
         workOptions
       );
     };
+  }
+
+  if (typeof executor.runTransaction === 'function') {
+    const runTransaction = executor.runTransaction;
+    handle.runTransaction = async (statements, resultIndex, options) =>
+      await runTransaction.call(executor, statements, resultIndex, options);
   }
 
   if (typeof executor.transaction === 'function') {
@@ -521,11 +569,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
 
-      // Dynamic import via module-level helpers (avoids import() in component scope)
-      const ElectronEmbeddingSetsRepo = await loadElectronEmbeddingSetsRepository();
+      // Dynamic imports via module-level helpers (avoids import() in component scope);
+      // the two repository modules are independent, so load them concurrently.
+      const [ElectronEmbeddingSetsRepo, ElectronViewFilterPresetsRepo] = await Promise.all([
+        loadElectronEmbeddingSetsRepository(),
+        loadElectronViewFilterPresetsRepository(),
+      ]);
       const embeddingSetsRepo = new ElectronEmbeddingSetsRepo(repositoryDb);
-
-      const ElectronViewFilterPresetsRepo = await loadElectronViewFilterPresetsRepository();
       const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo(repositoryDb);
 
       if (!cancelled.value) {
@@ -547,6 +597,25 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
+
+      // First-run fast bootstrap: a not-yet-existing browser idb:// store is
+      // created greenfield from an in-memory migrated dump (strict flush)
+      // instead of paying strict per-statement durability through initdb +
+      // every migration (~53s → a few seconds). Existing stores skip in one
+      // cheap probe; failures propagate to the visible init error state.
+      if (isIndexedDbPGliteDataDir(resolvedPath) && typeof Worker !== 'undefined') {
+        const bootstrapResult = await maybeBootstrapBrowserFirstRunStore(resolvedPath, {
+          bootstrapStore: (dataDir) => runFirstRunBootstrapInWorker(dataDir),
+          // 'resolve' on BLOCKED (another tab still holds the torn store): the
+          // delete settles reporting `blocked: true` and the recovery path
+          // throws its loud "close other tabs" error directly — instead of
+          // hanging DB init on the factory-reset default of waiting for the
+          // holding connection to close.
+          deleteStore: (dataDir) =>
+            wasmLoader.deleteIndexedDB(dataDir, { blockedBehavior: 'resolve' }),
+        });
+        logger.info('First-run PGlite bootstrap check', { ...bootstrapResult, resolvedPath });
+      }
 
       const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { dataDir: resolvedPath, db, kind: 'direct' };
@@ -575,9 +644,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       // Create Drizzle instance and type-safe repositories
-      // Dynamic imports via module-level helpers (avoids import() in component scope)
-      const DrizzleEmbeddingSetsRepo = await loadDrizzleEmbeddingSetsRepository();
-      const DrizzleViewFilterPresetsRepo = await loadDrizzleViewFilterPresetsRepository();
+      // Dynamic imports via module-level helpers (avoids import() in component scope);
+      // the two repository modules are independent, so load them concurrently.
+      const [DrizzleEmbeddingSetsRepo, DrizzleViewFilterPresetsRepo] = await Promise.all([
+        loadDrizzleEmbeddingSetsRepository(),
+        loadDrizzleViewFilterPresetsRepository(),
+      ]);
       const drizzleInstance = drizzle(scheduledDb);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
@@ -751,6 +823,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Tables may not exist in older schema versions - log but don't fail
         logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
       }
+      // Revisions cascade from prompt_items. The system embedding profile is
+      // configuration seeded by migration 051 and intentionally survives.
+      await clearPromptItemsIfPresent(
+        tx,
+        '[DbProvider] Skipped missing prompt_items table during clear:'
+      );
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -786,6 +864,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
+    await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {
@@ -882,10 +961,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const resetPGliteState = useCallback(async () => {
     resetPendingReloadRef.current = true;
 
-    if (connectionRef.current) {
-      await purgeAndClosePGlite();
-    } else {
-      logger.warn('[DbProvider] No active database to purge during factory reset');
+    try {
+      if (connectionRef.current) {
+        await purgeAndClosePGlite();
+      } else {
+        logger.warn('[DbProvider] No active database to purge during factory reset');
+      }
+    } catch (error) {
+      resetPendingReloadRef.current = false;
+      throw error;
     }
 
     connectionRef.current = null;

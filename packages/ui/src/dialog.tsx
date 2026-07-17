@@ -34,13 +34,15 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = ({
   className,
   children,
+  overlayClassName,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  overlayClassName?: string;
   ref?: React.RefObject<React.ElementRef<typeof DialogPrimitive.Content> | null>;
 }) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       className={cn(
         // Content above overlay (overlay stays z-50) so RemoveScroll + equal z-index cannot steal hits.

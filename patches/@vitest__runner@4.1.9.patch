@@ -1,0 +1,73 @@
+diff --git a/dist/chunk-artifact.js b/dist/chunk-artifact.js
+index 0877a7d249825cd2ff81eef4ff30c23eb60e6294..e3647c96bd26d0f0abb01402b21eeb3b903f92bf 100644
+--- a/dist/chunk-artifact.js
++++ b/dist/chunk-artifact.js
+@@ -2834,13 +2834,14 @@ function sendTasksUpdate(runner) {
+ 	}
+ }
+ async function finishSendTasksUpdate(runner) {
++	sendTasksUpdateThrottled.cancel();
+ 	sendTasksUpdate(runner);
+ 	await Promise.all(pendingTasksUpdates);
+ }
+ function throttle(fn, ms) {
+ 	let last = 0;
+ 	let pendingCall;
+-	return function call(...args) {
++	function call(...args) {
+ 		const now = unixNow();
+ 		if (now - last > ms) {
+ 			last = now;
+@@ -2849,8 +2850,16 @@ function throttle(fn, ms) {
+ 			return fn.apply(this, args);
+ 		}
+ 		// Make sure fn is still called even if there are no further calls
+-		pendingCall ??= setTimeout(() => call.bind(this)(...args), ms);
++		pendingCall ??= setTimeout(() => {
++			pendingCall = undefined;
++			call.apply(this, args);
++		}, ms);
++	}
++	call.cancel = () => {
++		clearTimeout(pendingCall);
++		pendingCall = undefined;
+ 	};
++	return call;
+ }
+ // throttle based on summary reporter's DURATION_UPDATE_INTERVAL_MS
+ const sendTasksUpdateThrottled = throttle(sendTasksUpdate, 100);
+@@ -3455,4 +3464,4 @@ function manageArtifactAttachment(attachment) {
+ 	}
+ }
+ 
+-export { createTagsFilter as A, createTaskName as B, findTestFileStackTrace as C, generateFileHash as D, generateHash as E, getFullName as F, getNames as G, getSuites as H, getTasks as I, getTestName as J, getTests as K, hasFailed as L, hasTests as M, interpretTaskModes as N, isTestCase as O, limitConcurrency as P, matchesTags as Q, partitionSuiteChildren as R, someTasksAreOnly as S, validateTags as T, afterAll as a, afterEach as b, aroundAll as c, aroundEach as d, beforeAll as e, beforeEach as f, createTaskCollector as g, describe as h, getCurrentSuite as i, getCurrentTest as j, getFn as k, getHooks as l, it as m, onTestFinished as n, onTestFailed as o, publicCollect as p, setHooks as q, recordArtifact as r, setFn as s, startTests as t, suite as u, test as v, updateTask as w, calculateSuiteHash as x, createChainable as y, createFileTask as z };
++export { finishSendTasksUpdate, createTagsFilter as A, createTaskName as B, findTestFileStackTrace as C, generateFileHash as D, generateHash as E, getFullName as F, getNames as G, getSuites as H, getTasks as I, getTestName as J, getTests as K, hasFailed as L, hasTests as M, interpretTaskModes as N, isTestCase as O, limitConcurrency as P, matchesTags as Q, partitionSuiteChildren as R, someTasksAreOnly as S, validateTags as T, afterAll as a, afterEach as b, aroundAll as c, aroundEach as d, beforeAll as e, beforeEach as f, createTaskCollector as g, describe as h, getCurrentSuite as i, getCurrentTest as j, getFn as k, getHooks as l, it as m, onTestFinished as n, onTestFailed as o, publicCollect as p, setHooks as q, recordArtifact as r, setFn as s, startTests as t, suite as u, test as v, updateTask as w, calculateSuiteHash as x, createChainable as y, createFileTask as z };
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 2ca305a1100f16339942af1fbffe72f10e488a45..a0b2e76b927afe5c7c25633c78d4b5e51d4c48fb 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -47,6 +47,8 @@ declare function getHooks(key: Suite): SuiteHooks;
+ 
+ declare function updateTask(event: TaskUpdateEvent, task: Task, runner: VitestRunner): void;
+ declare function startTests(specs: string[] | FileSpecification[], runner: VitestRunner): Promise<File[]>;
++/** Flush pending task updates and cancel the throttled update timer (patched: brainstrike). */
++declare function finishSendTasksUpdate(runner: VitestRunner): Promise<void>;
+ declare function publicCollect(specs: string[] | FileSpecification[], runner: VitestRunner): Promise<File[]>;
+ 
+ /**
+@@ -176,4 +178,4 @@ declare function createTaskCollector(fn: (...args: any[]) => any): TestAPI;
+ 
+ declare function getCurrentTest<T extends Test | undefined>(): T;
+ 
+-export { File, FileSpecification, Suite, SuiteAPI, SuiteCollector, SuiteHooks, Task, TaskUpdateEvent, Test, TestAPI, TestArtifact, VitestRunner, publicCollect as collectTests, createTaskCollector, describe, getCurrentSuite, getCurrentTest, getFn, getHooks, it, recordArtifact, setFn, setHooks, startTests, suite, test, updateTask };
++export { File, FileSpecification, Suite, SuiteAPI, SuiteCollector, SuiteHooks, Task, TaskUpdateEvent, Test, TestAPI, TestArtifact, VitestRunner, publicCollect as collectTests, createTaskCollector, describe, getCurrentSuite, getCurrentTest, getFn, getHooks, it, recordArtifact, setFn, setHooks, startTests, suite, test, updateTask, finishSendTasksUpdate };
+diff --git a/dist/index.js b/dist/index.js
+index e81f04a99dd822e5c592156cc9eb652b48621f30..466d49a459be52d328d94845c4f38b6fc874d07d 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,4 +1,4 @@
+-export { a as afterAll, b as afterEach, c as aroundAll, d as aroundEach, e as beforeAll, f as beforeEach, p as collectTests, g as createTaskCollector, h as describe, i as getCurrentSuite, j as getCurrentTest, k as getFn, l as getHooks, m as it, o as onTestFailed, n as onTestFinished, r as recordArtifact, s as setFn, q as setHooks, t as startTests, u as suite, v as test, w as updateTask } from './chunk-artifact.js';
++export { finishSendTasksUpdate, a as afterAll, b as afterEach, c as aroundAll, d as aroundEach, e as beforeAll, f as beforeEach, p as collectTests, g as createTaskCollector, h as describe, i as getCurrentSuite, j as getCurrentTest, k as getFn, l as getHooks, m as it, o as onTestFailed, n as onTestFinished, r as recordArtifact, s as setFn, q as setHooks, t as startTests, u as suite, v as test, w as updateTask } from './chunk-artifact.js';
+ import '@vitest/utils/error';
+ import '@vitest/utils/helpers';
+ import '@vitest/utils/timers';

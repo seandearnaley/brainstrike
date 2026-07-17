@@ -38,6 +38,78 @@ export function throwIfAborted(
   }
 }
 
+/**
+ * Generic leading+trailing throttle for high-frequency progress callbacks.
+ * The import pipeline reports once per FILE READ — thousands of emissions
+ * during initial indexing; unthrottled, each one became a status-store patch
+ * (and a re-render of every subscriber). Semantics: first report emits
+ * immediately; reports within the window coalesce to the LATEST value on the
+ * trailing edge; `flush()` emits the pending value now (call after the
+ * producing loop finishes so the final state always lands); `dispose()` drops
+ * pending work.
+ */
+export function createThrottledProgressReporter<T>(
+  emit: (value: T) => void,
+  throttleMs: number
+): {
+  dispose: () => void;
+  flush: () => void;
+  report: (value: T) => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let hasPending = false;
+  let pending: T | undefined;
+  let lastEmitAt = 0;
+
+  const clearTimer = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const emitNow = (value: T): void => {
+    clearTimer();
+    hasPending = false;
+    pending = undefined;
+    lastEmitAt = Date.now();
+    emit(value);
+  };
+
+  return {
+    dispose() {
+      clearTimer();
+      hasPending = false;
+      pending = undefined;
+    },
+    flush() {
+      if (hasPending) {
+        emitNow(pending as T);
+      }
+    },
+    report(value) {
+      pending = value;
+      hasPending = true;
+      const now = Date.now();
+      if (now - lastEmitAt >= throttleMs) {
+        emitNow(value);
+        return;
+      }
+      if (timer !== null) {
+        return;
+      }
+      timer = setTimeout(
+        () => {
+          if (hasPending) {
+            emitNow(pending as T);
+          }
+        },
+        Math.max(0, throttleMs - (now - lastEmitAt))
+      );
+    },
+  };
+}
+
 export function createScanningStatusReporter(
   emit: (path: string | null) => void,
   throttleMs = SCANNING_STATUS_THROTTLE_MS

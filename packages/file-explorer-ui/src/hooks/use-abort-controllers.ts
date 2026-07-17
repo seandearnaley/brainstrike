@@ -10,6 +10,8 @@
 import { useCallback, useRef } from 'react';
 
 export interface UseAbortControllersReturn {
+  /** Cancel every child loading operation without affecting the root load */
+  cancelAllChildLoading: () => void;
   /** Cancel all loading operations */
   cancelAllLoading: () => void;
   /** Cancel a specific child loading operation */
@@ -81,19 +83,22 @@ export function useAbortControllers(): UseAbortControllersReturn {
   }, []);
 
   /**
-   * Cancel all loading operations (root and all children).
+   * Cancel every child directory load while preserving an independent root load.
    */
-  const cancelAllLoading = useCallback(() => {
-    // Cancel root
-    rootAbortControllerRef.current?.abort();
-    rootAbortControllerRef.current = null;
-
-    // Cancel all children
+  const cancelAllChildLoading = useCallback(() => {
     for (const controller of childAbortControllersRef.current.values()) {
       controller.abort();
     }
     childAbortControllersRef.current.clear();
   }, []);
+
+  /**
+   * Cancel all loading operations (root and all children).
+   */
+  const cancelAllLoading = useCallback(() => {
+    cancelRootLoading();
+    cancelAllChildLoading();
+  }, [cancelAllChildLoading, cancelRootLoading]);
 
   /**
    * Remove a child abort controller after operation completes.
@@ -110,6 +115,7 @@ export function useAbortControllers(): UseAbortControllersReturn {
   }, []);
 
   return {
+    cancelAllChildLoading,
     cancelAllLoading,
     cancelChildLoading,
     cancelRootLoading,

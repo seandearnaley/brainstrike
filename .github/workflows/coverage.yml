@@ -1,0 +1,183 @@
+name: Coverage
+
+# WHY THIS IS A SEPARATE WORKFLOW — do not "simplify" this back into test.yml.
+#
+# Coverage must run on a `coverage` LABEL (an explicit re-run request), which
+# means subscribing to the `pull_request` `labeled` action. test.yml is the
+# SOLE producer of all five required status checks in the repo's ruleset
+# (`Static`, `Unit`, `Build`, `Web E2E`, `Desktop E2E`). If test.yml
+# subscribed to `labeled`, then EVERY label add would create a test.yml run,
+# and those five jobs would have to be `if:`-guarded off — reporting a
+# `skipped` check run for each required context on a SHA that already had
+# them green.
+#
+# That was measured on PR #1664, not assumed. Findings:
+#   - Merges are NOT blocked: with all five required checks reporting
+#     `skipped`, `gh pr view --json mergeable` still returned MERGEABLE.
+#     (`skipped` satisfies a required status check.)
+#   - BUT the merge box renders the LATEST check run per context, and the head
+#     SHA ended up with three runs per context (`cancelled` -> `success` ->
+#     `skipped`). So all five required checks DISPLAYED as `skipping` instead
+#     of `pass`. The green evidence that the code actually passed was still in
+#     the Actions tab, but no longer in the merge box.
+# This is not theoretical: the `codex` label is already in use on this repo,
+# so unrelated label churn would grey out the merge box for an existing flow.
+#
+# Keeping the label trigger in its own workflow means test.yml never fires on
+# `labeled`, never produces a skipped check run for a required context, and
+# green stays green. It also removes a maintenance footgun: under the
+# guard-every-job design, any NEW job added to test.yml would have to remember
+# its own `if:` guard or silently start running on label churn.
+#
+# The setup block below (checkout / pnpm / node / turbo cache / install) is
+# the `./.github/actions/setup-workspace` composite (Series C R9a) — the same
+# composite test.yml and nightly-coverage.yml use. The duplicated TRIGGER /
+# concurrency / permissions plumbing above this comment is NOT deduplicated by
+# that composite (composite actions can't express `on:`/`concurrency:`), and
+# stays hand-synced across the three workflow-level blocks; that's the
+# accepted remaining cost of keeping this trigger split out of test.yml.
+#
+# Coverage is ADVISORY: it is deliberately NOT in the required-status-check
+# ruleset (verified against the live ruleset). `nightly-coverage.yml` remains
+# the authoritative threshold gate. This workflow exists to give per-PR
+# patch-coverage signal to Codecov once per PR lifecycle, NOT to gate merges —
+# which is why it does not run on `synchronize` (that re-instrumented changed
+# packages for 11-14 min on EVERY push, the cost this split removes).
+
+on:
+  pull_request:
+    branches:
+      - '**'
+    # NO `synchronize` — that omission IS the cost fix. Coverage runs once per
+    # PR lifecycle (when it becomes review-ready) plus on explicit request.
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - labeled
+
+concurrency:
+  # Distinct from test.yml's group: `github.workflow` is this file's `name:`
+  # ("Coverage"), so a coverage run can never cancel — or queue behind — a
+  # test.yml run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name }}-${{ github.head_ref }}
+  # FALSE, deliberately. This workflow subscribes to `labeled` for ALL labels
+  # (GitHub cannot filter label names at the trigger level — only the job-level
+  # `if:` below can). So adding an unrelated label like `codex` DOES create a
+  # run here, whose job is then skipped. Workflow-level concurrency is
+  # evaluated before job-level `if:`, so that no-op run still enters this
+  # group — and with `cancel-in-progress: true` it would CANCEL an in-flight,
+  # nearly-complete, legitimate 11-14 min Coverage run and replace it with a
+  # run that does nothing. `false` makes that impossible.
+  # The usual argument FOR cancelling (kill runs made stale by a newer push)
+  # barely applies here: `synchronize` is not subscribed, so concurrent runs on
+  # one branch are rare, and every event this workflow listens to leaves the
+  # head SHA unchanged. A queued duplicate is cheap; a destroyed run is not.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# test.yml sets these at its workflow level; this file needs its own copy.
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  # Job id stays `coverage` and job name stays exactly `Coverage`: the NAME is
+  # the check-run name Codecov's flags/history key off. (The ID previously fed
+  # `github.job` into a per-job turbo cache key; Series C R9a's composite
+  # re-keys the local `.turbo` cache on lockfile+turbo.jsonc content instead —
+  # see setup-workspace/action.yml — so this job now SHARES that cache entry
+  # with static/unit/build/nightly-coverage rather than owning a private one.)
+  coverage:
+    name: Coverage
+    # Runs once per PR lifecycle: on a non-draft `opened`, on
+    # `ready_for_review`, on a non-draft `reopened`, or on an explicit
+    # `coverage` label add. Never on `synchronize` (not subscribed above).
+    #
+    # Draft guard: `ready_for_review` always fires with `draft == false`, so
+    # the check is redundant-but-harmless there. It is NOT redundant for
+    # `opened` (a PR can be opened directly as a draft), nor for `reopened` /
+    # `labeled` (a still-draft PR can be reopened or labeled). No path here
+    # runs coverage against a draft.
+    #
+    # The `labeled` clause is what makes the label-name filter happen at all —
+    # the trigger above fires for EVERY label, so without this every label add
+    # would run a 14-minute coverage job.
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action == 'opened' ||
+       github.event.action == 'reopened' ||
+       github.event.action == 'ready_for_review' ||
+       (github.event.action == 'labeled' && github.event.label.name == 'coverage'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # `fetch-depth: 0` is REQUIRED: the affected-only coverage filter below
+      # diffs against `origin/$BASE_REF`. Checkout stays in the caller (not the
+      # composite) — see .github/actions/setup-workspace/action.yml's header.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Clear coverage directories
+        run: |
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
+
+      # See test.yml's Unit job for the rationale. Coverage instrumentation
+      # runs tests so it has the same build-dependency requirement.
+      - name: Build workspace dependencies
+        run: pnpm turbo run build --concurrency=4
+
+      # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
+      # gate is on changed lines, which only live in directly-changed
+      # packages — dependents add no patch-coverage signal. `!./` excludes
+      # the root workspace's `test:coverage` script (which delegates to
+      # `turbo run test:coverage` over every workspace).
+      - name: Run affected-only coverage
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          BASE_REF: ${{ github.base_ref }}
+        # --if-present skips packages that don't define `test:coverage`.
+        # Explicit --workspace-concurrency=4; same rationale as Unit.
+        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
+
+      - name: Prepare coverage workspace
+        id: coverage
+        run: |
+          pnpm coverage:prepare-workspace
+          coverage_files=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
+          echo "coverage_files=${coverage_files}" >> "$GITHUB_OUTPUT"
+          if [ "$coverage_files" -gt 0 ]; then
+            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
+            echo "No affected packages produced coverage; skipping merge and upload."
+          fi
+
+      - name: Generate merged coverage report
+        if: steps.coverage.outputs.has_coverage == 'true'
+        run: |
+          pnpm coverage:merge -- --quiet packages apps
+          pnpm coverage:report
+
+      - name: Upload coverage to Codecov
+        if: steps.coverage.outputs.has_coverage == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: pr
+          fail_ci_if_error: false

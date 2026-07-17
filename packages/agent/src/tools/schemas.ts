@@ -1,3 +1,7 @@
+import {
+  WEB_EXTRACT_TOOL_ID,
+  WEB_SEARCH_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
@@ -194,6 +198,40 @@ export const StringReplaceWorkspaceFileInputSchema = z
   .strict();
 
 export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorkspaceFileInputSchema>;
+
+export const DeleteWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to delete (same path convention as readWorkspaceFile). Must be a FILE, not a directory — directory deletes are refused.'
+      ),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type DeleteWorkspaceFileInput = z.infer<typeof DeleteWorkspaceFileInputSchema>;
+
+export const RenameWorkspaceFileInputSchema = z
+  .object({
+    fromPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Existing workspace-relative file path to rename/move FROM (same path convention as readWorkspaceFile). Must be a FILE.'
+      ),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+    toPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Destination workspace-relative file path to rename/move TO, within the SAME workspace root. Must NOT already exist (no overwrite); missing parent directories are created.'
+      ),
+  })
+  .strict();
+
+export type RenameWorkspaceFileInput = z.infer<typeof RenameWorkspaceFileInputSchema>;
 
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
@@ -604,6 +642,30 @@ export const WebSearchInputSchema = z
 
 export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
 
+// ============================================================================
+// Web Extract Tool Schema
+// ============================================================================
+
+export const WebExtractInputSchema = z
+  .object({
+    urls: z
+      .array(
+        z
+          .string()
+          .min(10)
+          .max(2000)
+          .describe('Absolute http(s) URL of a PUBLIC page — never internal/private hosts')
+      )
+      .min(1)
+      .max(5)
+      .describe(
+        'Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts.'
+      ),
+  })
+  .strict();
+
+export type WebExtractInput = z.infer<typeof WebExtractInputSchema>;
+
 export const ExecuteCommandInputSchema = z
   .object({
     command: z
@@ -639,7 +701,116 @@ export const ExecuteCommandInputSchema = z
 
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
+// ============================================================================
+// Manage Task List Tool Schema
+// ============================================================================
+
+const ManageTaskListItemSchema = z
+  .object({
+    activeForm: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('Present-tense in-progress label, e.g. "Implementing the parser"'),
+    content: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('Imperative task label, e.g. "Implement the parser"'),
+    status: z
+      .enum(['pending', 'in_progress', 'completed'])
+      .describe('Task status; keep exactly one task in_progress'),
+  })
+  .strict();
+
+export const ManageTaskListInputSchema = z
+  .object({
+    tasks: z
+      .array(ManageTaskListItemSchema)
+      .max(50)
+      .describe(
+        'The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.'
+      ),
+  })
+  .strict();
+
+export type ManageTaskListInput = z.infer<typeof ManageTaskListInputSchema>;
+
+// ============================================================================
+// Submit Plan Tool Schema (suspending tool)
+// ============================================================================
+
+const SubmitPlanStepSchema = z
+  .object({
+    detail: z
+      .string()
+      .max(2000)
+      .optional()
+      .describe('Optional elaboration of the step (what/why/how).'),
+    title: z.string().min(1).max(500).describe('Short imperative step title.'),
+  })
+  .strict();
+
+export const SubmitPlanInputSchema = z
+  .object({
+    overview: z
+      .string()
+      .min(1)
+      .max(4000)
+      .describe('One or two paragraphs summarizing the plan and its goal.'),
+    risks: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe('Optional risks, tradeoffs, or things that could go wrong.'),
+    steps: z.array(SubmitPlanStepSchema).min(1).max(30).describe('Ordered implementation steps.'),
+    title: z.string().min(1).max(300).describe('Short title for the plan.'),
+    verification: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe('Optional how-to-verify: tests, checks, or acceptance criteria.'),
+  })
+  .strict();
+
+export type SubmitPlanInput = z.infer<typeof SubmitPlanInputSchema>;
+
+// ============================================================================
+// Ask User Tool Schema (suspending tool)
+// ============================================================================
+
+const AskUserOptionSchema = z
+  .object({
+    description: z
+      .string()
+      .max(1000)
+      .optional()
+      .describe('Optional context for the option (does not change the answer value).'),
+    label: z.string().min(1).max(500).describe('Option label; the value returned when chosen.'),
+  })
+  .strict();
+
+export const AskUserInputSchema = z
+  .object({
+    options: z
+      .array(AskUserOptionSchema)
+      .min(1)
+      .max(10)
+      .optional()
+      .describe('Optional choices. Omit for a free-text question.'),
+    question: z.string().min(1).max(2000).describe('The clear, specific question to ask the user.'),
+    selectionMode: z
+      .enum(['single_select', 'multi_select'])
+      .optional()
+      .describe('How many options the user may pick. Requires options; defaults to single_select.'),
+  })
+  .strict();
+
+export type AskUserInput = z.infer<typeof AskUserInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
+  'brainstrike.askUser': AskUserInputSchema,
+  'brainstrike.deleteWorkspaceFile': DeleteWorkspaceFileInputSchema,
   'brainstrike.executeCommand': ExecuteCommandInputSchema,
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
@@ -647,14 +818,18 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.grepSearch': GrepSearchInputSchema,
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
+  'brainstrike.manageTaskList': ManageTaskListInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.renameWorkspaceFile': RenameWorkspaceFileInputSchema,
   'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
+  'brainstrike.submitPlan': SubmitPlanInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
-  'brainstrike.webSearch': WebSearchInputSchema,
+  [WEB_EXTRACT_TOOL_ID]: WebExtractInputSchema,
+  [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
   'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
   // Web tools
   'web.echo': EchoInput,

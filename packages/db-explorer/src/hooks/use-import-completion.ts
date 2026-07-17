@@ -11,14 +11,36 @@ interface ImportCounts {
 }
 
 function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
-  return {
-    existedButProcessed: results.filter((r) => !r.imported && r.existed).length,
-    failed: results.filter((r) => !(r.imported || r.existed)).length,
-    newFiles: results.filter((r) => r.imported && !r.existed).length,
-    processingErrors: results.filter((r) => r.error && (r.imported || r.existed)).length,
-    totalChunks: results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0),
-    totalEmbeddings: results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0),
+  const counts: ImportCounts = {
+    existedButProcessed: 0,
+    failed: 0,
+    newFiles: 0,
+    processingErrors: 0,
+    totalChunks: 0,
+    totalEmbeddings: 0,
   };
+
+  // Import batches can be large, so accumulate every summary field in one pass.
+  for (const result of results) {
+    const { chunksCreated, chunksWithEmbeddings, error, existed, imported } = result;
+    if (imported) {
+      if (!existed) {
+        counts.newFiles += 1;
+      }
+    } else if (existed) {
+      counts.existedButProcessed += 1;
+    } else {
+      counts.failed += 1;
+    }
+
+    if (error && (imported || existed)) {
+      counts.processingErrors += 1;
+    }
+    counts.totalChunks += chunksCreated || 0;
+    counts.totalEmbeddings += chunksWithEmbeddings || 0;
+  }
+
+  return counts;
 }
 
 function buildFileStatusMessage(counts: ImportCounts): string {

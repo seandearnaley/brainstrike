@@ -29,34 +29,88 @@ describe('StatusBarItem', () => {
 
   it('applies connected status styling', () => {
     render(<StatusBarItem label="Connected" status="connected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-green-600');
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'text-emerald-700',
+      'dark:text-emerald-300'
+    );
   });
 
   it('applies disconnected status styling', () => {
     render(<StatusBarItem label="Disconnected" status="disconnected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-red-600');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-red-700', 'dark:text-red-300');
   });
 
   it('applies warning status styling', () => {
     render(<StatusBarItem label="Warning" status="warning" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-yellow-600');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-amber-700', 'dark:text-amber-300');
   });
 
-  it('applies loading status styling with animation', () => {
-    render(<StatusBarItem label="Loading" status="loading" testId="test-item" />);
+  it('animates only the loading icon and respects reduced motion', () => {
+    render(<StatusBarItem icon={Database} label="Loading" status="loading" testId="test-item" />);
     const item = screen.getByTestId('test-item');
     expect(item).toHaveClass('text-muted-foreground');
-    expect(item).toHaveClass('animate-pulse');
+    expect(item).not.toHaveClass('animate-pulse');
+    expect(item.querySelector('svg')).toHaveClass('animate-pulse', 'motion-reduce:animate-none');
   });
 
   it('defaults to connected status when not specified', () => {
     render(<StatusBarItem label="Default" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-green-600');
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'text-emerald-700',
+      'dark:text-emerald-300'
+    );
+  });
+
+  it('keeps compact labels and values on one truncatable line', () => {
+    render(<StatusBarItem label="Workspace Storage" testId="test-item" value="Connecting..." />);
+
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'h-full',
+      'min-w-0',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'leading-none'
+    );
+    expect(screen.getByText('Workspace Storage')).toHaveClass(
+      'min-w-0',
+      'flex-1',
+      'truncate',
+      'whitespace-nowrap'
+    );
+    expect(screen.getByText('Connecting...')).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+      'tabular-nums'
+    );
   });
 
   it('applies custom className', () => {
     render(<StatusBarItem className="custom-class" label="Custom" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('custom-class');
+  });
+
+  it('announces only items that explicitly opt into live status semantics', () => {
+    const { rerender } = render(<StatusBarItem label="Quiet" testId="test-item" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    rerender(<StatusBarItem announce label="Storage: IPC" testId="test-item" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Storage: IPC');
+  });
+
+  it('uses explicit announcement text without duplicating compact visual content', () => {
+    render(
+      <StatusBarItem
+        announce
+        announcement="Storage connected: IPC"
+        label="Storage: IPC"
+        testId="test-item"
+      />
+    );
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Storage connected: IPC');
+    expect(screen.getByText('Storage connected: IPC')).toHaveClass('sr-only');
+    expect(screen.getByText('Storage: IPC').closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
   describe('Snapshots', () => {

@@ -107,7 +107,7 @@ export class AssistantDataStreamSession {
 
   private cancelAllListeners(): void {
     for (const listener of Array.from(this.listeners)) {
-      listener.close();
+      listener.cancel();
     }
     this.listeners.clear();
   }

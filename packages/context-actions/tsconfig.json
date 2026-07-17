@@ -6,12 +6,13 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "src",
     "outDir": "dist",
-    "declarationDir": "dist",
     "emitDeclarationOnly": true,
+    "declarationDir": "dist",
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "declaration": true
   },
   "include": [
     "src/**/*"

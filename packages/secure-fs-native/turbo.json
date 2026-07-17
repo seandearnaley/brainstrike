@@ -1,0 +1,22 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": ["build/**"]
+    },
+    "test": {
+      // NEVER cache: the `test` script is `pnpm build && node --test
+      // test/*.test.cjs`, i.e. it node-gyp-rebuilds a NATIVE addon and exercises
+      // the compiled `.node` binary directly. Pass/fail depends on the host
+      // toolchain + Node/OS ABI producing a working binary — a result-affecting
+      // input turbo does NOT hash (it hashes the C/C++/JS source, never the
+      // compiled artifact or the ABI it was built against). A cache hit would
+      // replay a green without proving the addon builds/loads on this machine,
+      // defeating the entire purpose of a native-addon test.
+      "cache": false,
+      // cache:false does NOT exempt strict-env filtering; package configs REPLACE
+      // array fields. Redeclare to keep CI/COVERAGE visible. Sync with root.
+      "passThroughEnv": ["CI", "COVERAGE"]
+    }
+  }
+}

@@ -363,6 +363,8 @@ describe('SettingsPageContent tool operations', () => {
       'logging',
       'ai-tools',
       'permissions',
+      'subagents',
+      'notifications',
       'diagnostics',
       'factory-reset',
     ]);

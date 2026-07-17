@@ -18,15 +18,14 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
+    "@testing-library/react": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^6.0.3",
-    "rimraf": "^6.1.3",
-    "tsup": "^8.5.1",
+    "tsup": "catalog:",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -42,7 +41,7 @@
     "dist"
   ],
   "license": "ISC",
-  "main": "dist/index.cjs",
+  "main": "dist/index.js",
   "module": "dist/index.mjs",
   "peerDependencies": {
     "react": "^19.2.4"
@@ -50,7 +49,7 @@
   "private": true,
   "scripts": {
     "build": "tsc -b . && tsup",
-    "clean": "rimraf dist .tsbuildinfo",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "lint": "pnpm run --dir=../.. lint",
     "mutation": "npx @stryker-mutator/core run",

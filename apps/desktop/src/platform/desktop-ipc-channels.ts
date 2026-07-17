@@ -7,6 +7,10 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
+  assistantCheckpoint: {
+    revertEntry: 'assistant-checkpoint:revert-entry',
+    revertRun: 'assistant-checkpoint:revert-run',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -14,6 +18,9 @@ export const DESKTOP_IPC_CHANNELS = {
     // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
+  },
+  contextFiles: {
+    scan: 'context-files:scan',
   },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
@@ -53,12 +60,22 @@ export const DESKTOP_IPC_CHANNELS = {
   git: {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',
+    commitDiff: 'git:commitDiff',
+    commitFiles: 'git:commitFiles',
     diff: 'git:diff',
+    fetch: 'git:fetch',
+    history: 'git:history',
     pull: 'git:pull',
     push: 'git:push',
+    repository: 'git:repository',
     stage: 'git:stage',
     status: 'git:status',
+    switchBranch: 'git:switchBranch',
     unstage: 'git:unstage',
+  },
+  hooks: {
+    getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
+    resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
   },
   mcp: {
     configCreateSample: 'mcp:config:createSample',
@@ -68,6 +85,7 @@ export const DESKTOP_IPC_CHANNELS = {
     configSelectPath: 'mcp:config:selectPath',
     configSetPath: 'mcp:config:setPath',
     configUnwatch: 'mcp:config:unwatch',
+    configUpdated: 'mcp:config:updated',
     configWatch: 'mcp:config:watch',
     configWriteText: 'mcp:config:writeText',
     toolsDisable: 'mcp:tools:disable',
@@ -78,6 +96,24 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsList: 'mcp:tools:list',
     toolsReset: 'mcp:tools:reset',
     toolsUpdated: 'mcp:tools:updated',
+  },
+  notesVault: {
+    // One-way main→renderer push: a watched vault directory changed. Pushed to
+    // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
+    // so it is never registered on the registry (see notes-vault-ipc-handlers.ts).
+    changed: 'notes-vault:changed',
+    createDirectory: 'notes-vault:create-directory',
+    deleteEntry: 'notes-vault:delete-entry',
+    ensureDefaultVault: 'notes-vault:ensure-default-vault',
+    listDirectory: 'notes-vault:list-directory',
+    pickDirectory: 'notes-vault:pick-directory',
+    readFile: 'notes-vault:read-file',
+    registerRoot: 'notes-vault:register-root',
+    rename: 'notes-vault:rename',
+    statEntry: 'notes-vault:stat-entry',
+    unwatch: 'notes-vault:unwatch',
+    watch: 'notes-vault:watch',
+    writeFile: 'notes-vault:write-file',
   },
   preferences: {
     layoutLoad: 'layout:load',
@@ -107,8 +143,12 @@ export const DESKTOP_IPC_CHANNELS = {
     save: 'secrets:save',
   },
   shell: {
+    openExternal: 'shell:open-external',
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
+  },
+  skills: {
+    scan: 'skills:scan',
   },
   storage: {
     clear: 'storage:clear',
@@ -129,6 +169,12 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   tools: {
     execute: 'tools:execute',
+  },
+  userCommands: {
+    list: 'user-commands:list',
+  },
+  userPersonas: {
+    list: 'user-personas:list',
   },
 } as const;
 

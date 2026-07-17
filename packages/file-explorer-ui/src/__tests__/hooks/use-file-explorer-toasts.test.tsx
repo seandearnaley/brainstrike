@@ -43,7 +43,7 @@ describe('useFileExplorerToasts', () => {
     cancelOperation: vi.fn(),
     handleRootDirectorySelect: vi.fn().mockResolvedValue(null),
     isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
-    refreshFileExplorer: vi.fn().mockResolvedValue(undefined),
+    refreshFileExplorer: vi.fn().mockResolvedValue({ status: 'completed' }),
     rootDirectoryHandle: null,
     ...overrides,
   });
@@ -96,7 +96,7 @@ describe('useFileExplorerToasts', () => {
     });
 
     it('should call refreshFileExplorer when rootDirectoryHandle exists', async () => {
-      const refreshFileExplorer = vi.fn().mockResolvedValue(undefined);
+      const refreshFileExplorer = vi.fn().mockResolvedValue({ status: 'completed' });
       const mockHandle = { name: 'test-folder' };
       const params = createMockParams({
         refreshFileExplorer,
@@ -113,8 +113,8 @@ describe('useFileExplorerToasts', () => {
     });
 
     it('should set isRefreshing during refresh operation', async () => {
-      let resolveRefresh: () => void;
-      const refreshPromise = new Promise<void>((resolve) => {
+      let resolveRefresh: (result: { status: 'completed' }) => void;
+      const refreshPromise = new Promise<{ status: 'completed' }>((resolve) => {
         resolveRefresh = resolve;
       });
       const refreshFileExplorer = vi.fn().mockReturnValue(refreshPromise);
@@ -134,7 +134,7 @@ describe('useFileExplorerToasts', () => {
         expect(result.current.isRefreshing).toBe(true);
       });
 
-      resolveRefresh!();
+      resolveRefresh!({ status: 'completed' });
       await refreshPromiseResult;
 
       await waitFor(() => {
@@ -143,7 +143,7 @@ describe('useFileExplorerToasts', () => {
     });
 
     it('should show success toast after successful refresh', async () => {
-      const refreshFileExplorer = vi.fn().mockResolvedValue(undefined);
+      const refreshFileExplorer = vi.fn().mockResolvedValue({ status: 'completed' });
       const mockHandle = { name: 'test-folder' };
       const params = createMockParams({
         refreshFileExplorer,
@@ -162,6 +162,24 @@ describe('useFileExplorerToasts', () => {
           title: expect.any(String),
         })
       );
+    });
+
+    it('should not show success or error feedback when refresh is cancelled', async () => {
+      const refreshFileExplorer = vi.fn().mockResolvedValue({ status: 'cancelled' });
+      const params = createMockParams({
+        refreshFileExplorer,
+        rootDirectoryHandle: { name: 'test-folder' },
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleRefresh();
+
+      expect(mockShowToast).not.toHaveBeenCalled();
+      expect(mockHandleRefreshError).not.toHaveBeenCalled();
+      expect(result.current.isRefreshing).toBe(false);
     });
 
     it('should call handleRefreshError when refresh fails', async () => {

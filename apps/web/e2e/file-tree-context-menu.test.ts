@@ -26,7 +26,7 @@ async function expandDirectory(explorer: FileExplorerPage, directoryName: string
   await row.getByRole('button', { name: 'Expand' }).click();
 }
 
-test.describe('File tree context menu', { tag: ['@smoke', '@web-smoke'] }, () => {
+test.describe('File tree context menu', { tag: '@web-smoke' }, () => {
   test('copies the relative path of a nested file', async ({ page }) => {
     const consoleMessages: string[] = [];
     page.on('console', (message) => consoleMessages.push(message.text()));

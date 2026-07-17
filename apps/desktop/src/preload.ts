@@ -1,5 +1,6 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
+type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -68,23 +69,51 @@ const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
 const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
 const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
 const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
+const SHELL_OPEN_EXTERNAL_CHANNEL = 'shell:open-external' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL = 'assistant-checkpoint:revert-entry' as const;
+const ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL = 'assistant-checkpoint:revert-run' as const;
 const GIT_STATUS_CHANNEL = 'git:status' as const;
 const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
 const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
 const GIT_COMMIT_CHANNEL = 'git:commit' as const;
+const GIT_COMMIT_DIFF_CHANNEL = 'git:commitDiff' as const;
+const GIT_COMMIT_FILES_CHANNEL = 'git:commitFiles' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
+const GIT_FETCH_CHANNEL = 'git:fetch' as const;
+const GIT_HISTORY_CHANNEL = 'git:history' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
+const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
+const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
+const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
+const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
+const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
+const SKILLS_SCAN_CHANNEL = 'skills:scan' as const;
+const USER_COMMANDS_LIST_CHANNEL = 'user-commands:list' as const;
+const USER_PERSONAS_LIST_CHANNEL = 'user-personas:list' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
 const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
 const TERMINAL_DATA_EVENT = 'terminal:data' as const;
 const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
+const NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL = 'notes-vault:ensure-default-vault' as const;
+const NOTES_VAULT_PICK_DIRECTORY_CHANNEL = 'notes-vault:pick-directory' as const;
+const NOTES_VAULT_REGISTER_ROOT_CHANNEL = 'notes-vault:register-root' as const;
+const NOTES_VAULT_LIST_DIRECTORY_CHANNEL = 'notes-vault:list-directory' as const;
+const NOTES_VAULT_STAT_ENTRY_CHANNEL = 'notes-vault:stat-entry' as const;
+const NOTES_VAULT_READ_FILE_CHANNEL = 'notes-vault:read-file' as const;
+const NOTES_VAULT_WRITE_FILE_CHANNEL = 'notes-vault:write-file' as const;
+const NOTES_VAULT_CREATE_DIRECTORY_CHANNEL = 'notes-vault:create-directory' as const;
+const NOTES_VAULT_DELETE_ENTRY_CHANNEL = 'notes-vault:delete-entry' as const;
+const NOTES_VAULT_RENAME_CHANNEL = 'notes-vault:rename' as const;
+const NOTES_VAULT_WATCH_CHANNEL = 'notes-vault:watch' as const;
+const NOTES_VAULT_UNWATCH_CHANNEL = 'notes-vault:unwatch' as const;
+const NOTES_VAULT_CHANGED_EVENT = 'notes-vault:changed' as const;
 
 import type {
   ApplyManagedCacheBatchArgs,
@@ -152,6 +181,7 @@ const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse' as const;
 const AGENT_CHAT_CHANNEL = 'agent:chat' as const;
 const ASSISTANT_GET_URL_CHANNEL = 'assistant:get-url' as const;
 const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
+const MCP_CONFIG_UPDATED_EVENT = 'mcp:config:updated' as const;
 const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
 const MCP_CONFIG_UNWATCH_CHANNEL = 'mcp:config:unwatch' as const;
 const MCP_CONFIG_GET_PATH_CHANNEL = 'mcp:config:getPath' as const;
@@ -541,7 +571,10 @@ if (shouldExposeBridge('electronAPI')) {
       // Atomic transaction over IPC (#1141): ships an ordered statement list to main
       // to run inside one pglite.transaction() and return statements[resultIndex] rows.
       runTransaction: (
-        statements: { sql: string; params?: unknown[] }[],
+        statements: {
+          params?: unknown[];
+          sql: string;
+        }[],
         resultIndex: number,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_TRANSACTION_CHANNEL, statements, resultIndex, options),
@@ -663,6 +696,30 @@ contextBridge.exposeInMainWorld('mcp', {
   getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
   // Tool management
   listTools: () => ipcRenderer.invoke(MCP_TOOLS_LIST_CHANNEL),
+  onConfigUpdated: (
+    callback: (config: {
+      error?: string;
+      exists: boolean;
+      loadedAt?: number;
+      path: string;
+      servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
+    }) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      config: {
+        error?: string;
+        exists: boolean;
+        loadedAt?: number;
+        path: string;
+        servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
+      }
+    ) => callback(config);
+    ipcRenderer.on(MCP_CONFIG_UPDATED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_CONFIG_UPDATED_EVENT, listener);
+    };
+  },
   onToolsUpdated: (
     callback: (
       tools: Record<
@@ -1040,9 +1097,25 @@ contextBridge.exposeInMainWorld('clipboard', {
   writeText: (text: string) => ipcRenderer.invoke(CLIPBOARD_WRITE_TEXT_CHANNEL, text),
 });
 
+// Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
+// only: web never defines this (no assistant server / main process).
+contextBridge.exposeInMainWorld('assistantCheckpoints', {
+  revertEntry: (id: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL, {
+      force: options?.force ?? false,
+      id,
+    }),
+  revertRun: (runId: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL, {
+      force: options?.force ?? false,
+      runId,
+    }),
+});
+
 // Platform shell bridge: reveal/open absolute paths in the OS file manager.
 if (shouldExposeBridge('platform')) {
   contextBridge.exposeInMainWorld('platform', {
+    openExternal: (url: string) => ipcRenderer.invoke(SHELL_OPEN_EXTERNAL_CHANNEL, url),
     openPath: (absolutePath: string) => ipcRenderer.invoke(SHELL_OPEN_PATH_CHANNEL, absolutePath),
     showItemInFolder: (absolutePath: string) =>
       ipcRenderer.invoke(SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL, absolutePath),
@@ -1054,21 +1127,91 @@ if (shouldExposeBridge('platform')) {
 // checks it to an absolute cwd and runs git via execFile (no shell). Web never
 // constructs this bridge (there is no preload), so `window.git` is simply
 // absent there; consumers must capability-check `window.git` rather than
-// `isElectron()`. The Git panel UI lands in a later PR.
+// `isElectron()`.
 if (shouldExposeBridge('git')) {
   contextBridge.exposeInMainWorld('git', {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
-    commit: (rootId: string, params: { message: string }) =>
+    commit: (rootId: string, params: { description?: string; summary: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
-    diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
-      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    commitDiff: (rootId: string, params: { commit: string; originalPath?: string; path: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
+    commitFiles: (rootId: string, params: { commit: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
+    diff: (rootId: string, params: GitDiffParams) =>
+      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),
+    fetch: (rootId: string, params: { remote: string }) =>
+      ipcRenderer.invoke(GIT_FETCH_CHANNEL, rootId, params),
+    history: (rootId: string, params: { limit: number; offset: number; ref?: string }) =>
+      ipcRenderer.invoke(GIT_HISTORY_CHANNEL, rootId, params),
     pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
-    push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
+    push: (rootId: string, params?: { remote?: string }) =>
+      ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId, params ?? {}),
+    repository: (rootId: string) => ipcRenderer.invoke(GIT_REPOSITORY_CHANNEL, rootId),
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    switchBranch: (rootId: string, params: { branch: string }) =>
+      ipcRenderer.invoke(GIT_SWITCH_BRANCH_CHANNEL, rootId, params),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+  });
+}
+
+// Hooks trust-review bridge (desktop). Capability-gated: the Hooks settings
+// panel reads a project root's `.brainstrike/hooks.json` (content + sha256) to
+// display before the user approves it. The server remains the trust authority.
+if (shouldExposeBridge('hooks')) {
+  contextBridge.exposeInMainWorld('hooks', {
+    getProjectHooksForReview: (rootId: string, absPath: string) =>
+      ipcRenderer.invoke(HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL, rootId, absPath),
+    // Maps mounted-root absolute paths → their DB `roots.id` so the assistant
+    // wrapper can SCOPE the hook-trust attestation to currently-mounted roots
+    // (a disconnected root's grant is never presented to the server).
+    resolveTrustedRootIds: (absPaths: readonly string[]) =>
+      ipcRenderer.invoke(HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL, absPaths),
+  });
+}
+
+// Workspace context-files bridge (desktop). Capability-gated: the Workspace
+// Instructions settings panel scans each mounted root's detected
+// AGENTS.md/AGENT.md/CLAUDE.md (size + token estimate + injection status) so the
+// user can opt an oversized file in. Web never constructs this bridge.
+if (shouldExposeBridge('contextFiles')) {
+  contextBridge.exposeInMainWorld('contextFiles', {
+    scan: () => ipcRenderer.invoke(CONTEXT_FILES_SCAN_CHANNEL),
+  });
+}
+
+// User-defined slash command discovery bridge (desktop-only). Capability-gated:
+// the composer's "/" menu calls `list` to load prompt-template commands scanned
+// from `.brainstrike/commands` + `.claude/commands`. Web never constructs this
+// bridge (no preload), so consumers must capability-check `window.userCommands`
+// rather than `isElectron()`.
+if (shouldExposeBridge('userCommands')) {
+  contextBridge.exposeInMainWorld('userCommands', {
+    list: () => ipcRenderer.invoke(USER_COMMANDS_LIST_CHANNEL),
+  });
+}
+
+// Agent Skills discovery bridge (desktop-only). Capability-gated: the Settings
+// → Skills panel and the composer's "/" menu call `scan` to list every skill
+// discovered across `.brainstrike/skills` + `.claude/skills` (mounted roots +
+// home). Web never constructs this bridge (no preload), so consumers must
+// capability-check `window.skills` rather than `isElectron()`.
+if (shouldExposeBridge('skills')) {
+  contextBridge.exposeInMainWorld('skills', {
+    scan: () => ipcRenderer.invoke(SKILLS_SCAN_CHANNEL),
+  });
+}
+
+// Subagent persona discovery bridge (desktop-only). Capability-gated: the
+// Settings -> Subagents panel calls `list` to show built-in + user-defined
+// personas scanned from `.brainstrike/agents`. Web never constructs this
+// bridge (no preload), so consumers must capability-check
+// `window.assistantPersonas` rather than `isElectron()`.
+if (shouldExposeBridge('assistantPersonas')) {
+  contextBridge.exposeInMainWorld('assistantPersonas', {
+    list: () => ipcRenderer.invoke(USER_PERSONAS_LIST_CHANNEL),
   });
 }
 
@@ -1109,5 +1252,46 @@ if (shouldExposeBridge('terminal')) {
       ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
     write: (params: { terminalId: string; data: string }) =>
       ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+  });
+}
+
+// Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
+// vault, per packages/notes-vault/src/desktop/bridge-contract.ts. Every path is
+// containment-checked in main against the APPROVED vault roots; every method
+// resolves to a structured NotesVaultResult (never throws across IPC).
+// pickDirectory resolves { ok: true, value: null } when the user cancels the
+// native dialog. Watch change pushes arrive one-way on `notes-vault:changed`
+// for THIS renderer only; `onChanged` registers a listener and returns an
+// unsubscribe fn. Web never constructs this bridge (no preload), so consumers
+// must capability-check `window.notesVault` rather than `isElectron()`.
+if (shouldExposeBridge('notesVault')) {
+  contextBridge.exposeInMainWorld('notesVault', {
+    createDirectory: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_CREATE_DIRECTORY_CHANNEL, absolutePath),
+    deleteEntry: (absolutePath: string, options: { recursive: boolean }) =>
+      ipcRenderer.invoke(NOTES_VAULT_DELETE_ENTRY_CHANNEL, absolutePath, options),
+    ensureDefaultVault: () => ipcRenderer.invoke(NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL),
+    listDirectory: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_LIST_DIRECTORY_CHANNEL, absolutePath),
+    onChanged: (callback: (event: { watchId: string }) => void) => {
+      const listener = (_event: unknown, payload: { watchId: string }) => callback(payload);
+      ipcRenderer.on(NOTES_VAULT_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(NOTES_VAULT_CHANGED_EVENT, listener);
+      };
+    },
+    pickDirectory: () => ipcRenderer.invoke(NOTES_VAULT_PICK_DIRECTORY_CHANNEL),
+    readFile: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_READ_FILE_CHANNEL, absolutePath),
+    registerRoot: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_REGISTER_ROOT_CHANNEL, absolutePath),
+    rename: (fromPath: string, toPath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_RENAME_CHANNEL, fromPath, toPath),
+    statEntry: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_STAT_ENTRY_CHANNEL, absolutePath),
+    unwatch: (watchId: string) => ipcRenderer.invoke(NOTES_VAULT_UNWATCH_CHANNEL, watchId),
+    watch: (absolutePath: string) => ipcRenderer.invoke(NOTES_VAULT_WATCH_CHANNEL, absolutePath),
+    writeFile: (absolutePath: string, content: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_WRITE_FILE_CHANNEL, absolutePath, content),
   });
 }

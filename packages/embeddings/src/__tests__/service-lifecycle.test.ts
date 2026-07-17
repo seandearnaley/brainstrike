@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmbeddingConfig, EmbeddingProgress, ModelConfig } from '../types';
+import type {
+  EmbeddingConfig,
+  EmbeddingExecutionOptions,
+  EmbeddingProgress,
+  ModelConfig,
+} from '../types';
 
 const setTargetDimensionsMock = vi.fn<(dim: number | null) => void>();
 const generateEmbeddingMock =
   vi.fn<
     (
       text: string,
-      modelId: string
+      modelId: string,
+      options?: EmbeddingExecutionOptions
     ) => Promise<{ embedding: number[]; model: string; dimensions: number }>
   >();
 const initializeMock =
@@ -30,8 +36,8 @@ vi.mock('../transformers-backend', () => ({
     isInitialized() {
       return backendInitialized;
     }
-    async generateEmbedding(text: string, modelId: string) {
-      return generateEmbeddingMock(text, modelId);
+    async generateEmbedding(text: string, modelId: string, options?: EmbeddingExecutionOptions) {
+      return generateEmbeddingMock(text, modelId, options);
     }
     getSelectedDevice() {
       return 'webgpu';
@@ -184,6 +190,19 @@ describe('SimpleEmbeddingService lifecycle', () => {
     expect(prompt.startsWith('query: ')).toBe(false);
     expect(modelId).toBeDefined();
     expect(result.embedding).toHaveLength(2);
+  });
+
+  it('passes query execution options to the backend', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+    const controller = new AbortController();
+
+    await svc.initializeWithModel(BGE_M3_MODEL);
+    await svc.generateQueryEmbedding('cancelable query', { signal: controller.signal });
+
+    expect(generateEmbeddingMock).toHaveBeenLastCalledWith('cancelable query', BGE_M3_MODEL.id, {
+      signal: controller.signal,
+    });
   });
 
   it('applies Jina code retrieval prompt for document embeddings', async () => {

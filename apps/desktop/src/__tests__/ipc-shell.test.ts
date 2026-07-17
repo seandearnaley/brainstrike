@@ -3,6 +3,7 @@ import { createShellIpcHandlers } from '../ipc-shell-handlers';
 
 function makeShell() {
   return {
+    openExternal: vi.fn().mockResolvedValue(undefined),
     openPath: vi.fn().mockResolvedValue(''),
     showItemInFolder: vi.fn(),
   };

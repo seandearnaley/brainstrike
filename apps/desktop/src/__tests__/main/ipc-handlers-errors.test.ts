@@ -50,22 +50,22 @@ describe('ipc-handlers error branches', () => {
     registerIpcHandlers(fsAdapter, storage, store as never);
   });
 
-  it('fs:restoreLastFolder swallows storage error and returns null', async () => {
+  it('fs:restoreLastFolder propagates storage errors', async () => {
     const handler = handlers.get('fs:restoreLastFolder');
     (storage.getItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    const res = await handler?.({} as unknown as IpcMainInvokeEvent);
-    expect(res).toBeNull();
+    await expect(handler?.({} as unknown as IpcMainInvokeEvent)).rejects.toThrow('boom');
   });
 
-  it('fs:saveLastFolder swallows storage.setItem error', async () => {
+  it('fs:saveLastFolder propagates storage.setItem errors', async () => {
     const handler = handlers.get('fs:saveLastFolder');
     (storage.setItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    // Should not throw
-    await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/folder');
+    await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/folder')).rejects.toThrow(
+      'boom'
+    );
     expect(storage.setItem).toHaveBeenCalled();
   });
 });

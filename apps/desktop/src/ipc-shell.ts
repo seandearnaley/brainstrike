@@ -17,6 +17,11 @@ export function registerShellIpcHandlers(): () => void {
     DESKTOP_IPC_CHANNELS.shell.openPath,
     (_event, rawPath: unknown) => handlers.openPath(rawPath)
   );
+  registry.registerInvoke(
+    'shell',
+    DESKTOP_IPC_CHANNELS.shell.openExternal,
+    (_event, url: unknown) => handlers.openExternal(url)
+  );
 
   return () => {
     registry.unregisterAll();

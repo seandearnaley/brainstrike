@@ -49,12 +49,12 @@ async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
   const sidebarPanel = page.locator('#agent-workspace-explorer-panel');
   const showSidebarButton = page
     .locator('[data-testid="show-threads-panel"]')
-    .or(page.getByRole('button', { name: 'Show agent panel' }))
-    .or(page.locator('button[aria-label="Show agent panel"]'));
+    .or(page.getByRole('button', { name: 'Show library panel' }))
+    .or(page.locator('button[aria-label="Show library panel"]'));
   const hideSidebarButton = page
     .locator('[data-testid="hide-threads-panel"]')
-    .or(page.getByRole('button', { name: 'Hide agent panel' }))
-    .or(page.locator('button[aria-label="Hide agent panel"]'));
+    .or(page.getByRole('button', { name: 'Hide library panel' }))
+    .or(page.locator('button[aria-label="Hide library panel"]'));
 
   const panelBox = await sidebarPanel.boundingBox().catch(() => null);
   const sidebarVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
@@ -68,12 +68,12 @@ async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
       await hideSidebarButton.first().click();
       await showSidebarButton.first().click();
     } else {
-      console.warn('⚠️ Agent sidebar controls not found; waiting for panel to appear.');
+      console.warn('⚠️ Library panel controls not found; waiting for panel to appear.');
     }
   }
 
   await sidebarPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Agent sidebar did not become visible after request.');
+    console.warn('⚠️ Library panel did not become visible after request.');
   });
 
   return sidebarPanel;
@@ -135,7 +135,7 @@ export async function showDatabaseDemoPanel(
 
     const databaseTabTrigger = activePage
       .getByTestId('database-tab-trigger')
-      .or(activePage.getByRole('tab', { name: 'Database' }));
+      .or(activePage.getByRole('tab', { name: 'Collections' }));
     await databaseTabTrigger.waitFor({ state: 'visible', timeout: tabTimeoutMs });
     await databaseTabTrigger.click();
 

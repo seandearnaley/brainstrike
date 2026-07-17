@@ -5,6 +5,8 @@
  * These are simplified representations of the Zod schemas for UI display.
  */
 
+import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
+
 /**
  * Parameter type for display purposes.
  */
@@ -42,6 +44,64 @@ export interface ToolSchemaDisplay {
  * This is a browser-safe representation of the Zod schemas.
  */
 export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
+  'brainstrike.askUser': {
+    description:
+      'Ask the user a clarifying question and wait for their answer; the run pauses until they respond. Provide options for a structured choice (set selectionMode to multi_select to allow several), or omit options for a free-text question.',
+    parameters: [
+      {
+        description: 'The clear, specific question to ask the user.',
+        maxLength: 2000,
+        minLength: 1,
+        name: 'question',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'object',
+        description:
+          'Optional choices; each has a label and optional description. Omit for free-text.',
+        max: 10,
+        name: 'options',
+        required: false,
+        type: 'array',
+      },
+      {
+        description:
+          'How many options the user may pick. Requires options; defaults to single_select.',
+        enumValues: ['single_select', 'multi_select'],
+        name: 'selectionMode',
+        required: false,
+        type: 'enum',
+      },
+    ],
+    returns: "The user's answer as a string (multi-select answers are comma-joined).",
+    toolId: 'brainstrike.askUser',
+  },
+
+  'brainstrike.deleteWorkspaceFile': {
+    description:
+      'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). Workspace-scoped: the path can never escape the open folder. Removes the file from the workspace index when it was indexed. Requires approval (edit-risk).',
+    parameters: [
+      {
+        description: 'Workspace-relative file path to delete (the file must already exist)',
+        minLength: 1,
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Folder name or id to delete from when multiple folders are open (omit when one)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Delete result: ok: true, the normalized workspace path, rootName, and indexInvalidated (true when the file had workspace-index rows that were removed)',
+    toolId: 'brainstrike.deleteWorkspaceFile',
+  },
+
   'brainstrike.executeCommand': {
     description:
       "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. By default the call suspends for the user's per-call approval before running (execute resolves to 'ask'); the user can let it run unprompted or deny it entirely. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
@@ -325,6 +385,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.manageTaskList': {
+    description:
+      'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the full desired list every call. Keep exactly one task in_progress and mark tasks completed as you finish them. The list is re-injected into your instructions each turn and shown to the user as a progress checklist.',
+    parameters: [
+      {
+        arrayItemType: 'object',
+        description:
+          'The full task list to store (whole-list replace). Each item is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. Maximum 50 tasks.',
+        max: 50,
+        name: 'tasks',
+        required: true,
+        type: 'array',
+      },
+    ],
+    returns:
+      'The stored tasks (with stable server-assigned ids) and a summary of counts by status (total, completed, inProgress, pending)',
+    toolId: 'brainstrike.manageTaskList',
+  },
+
   'brainstrike.queryEmbeddingSpace': {
     description:
       'Query semantic workspace context. Omit embeddingSetId for codebase searches to use the Workspace Index; provide embeddingSetId only to query a specific non-default embedding space.',
@@ -574,6 +653,38 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.readWorkspaceFile',
   },
 
+  'brainstrike.renameWorkspaceFile': {
+    description:
+      'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (no overwrite — delete the target first if needed). Both paths stay inside ONE open folder (cross-root moves are refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires approval (edit-risk).',
+    parameters: [
+      {
+        description: 'Existing workspace-relative file path to rename/move from',
+        minLength: 1,
+        name: 'fromPath',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Destination workspace-relative file path (must not already exist; parent directories are created)',
+        minLength: 1,
+        name: 'toPath',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Folder name or id to operate in when multiple folders are open (omit when one)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Rename result: ok: true, the normalized fromPath and toPath, rootName, and indexInvalidated (true when the source path had workspace-index rows that were removed; the destination is re-indexed by the background sync)',
+    toolId: 'brainstrike.renameWorkspaceFile',
+  },
+
   'brainstrike.stringReplaceWorkspaceFile': {
     description:
       'Surgically edit an existing workspace file: find one oldStr block and replace it with newStr. Matching is fuzzy (exact, then whitespace-tolerant, then close-match) but a single line that matches multiple locations, or no sufficiently close match, is REFUSED rather than guessed. Use an empty newStr to delete the block. Workspace-scoped and edit-risk (requires approval).',
@@ -611,6 +722,54 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Edit result: the normalized workspace path, bytesWritten, matchType (which cascade branch matched), and replaced: true',
     toolId: 'brainstrike.stringReplaceWorkspaceFile',
+  },
+
+  'brainstrike.submitPlan': {
+    description:
+      'Submit a structured implementation plan for the user to Approve or Reject. The run pauses until the user responds; on rejection their feedback is returned so you can revise and submit again.',
+    parameters: [
+      {
+        description: 'Short title for the plan.',
+        maxLength: 300,
+        minLength: 1,
+        name: 'title',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'One or two paragraphs summarizing the plan and its goal.',
+        maxLength: 4000,
+        minLength: 1,
+        name: 'overview',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'object',
+        description: 'Ordered implementation steps; each has a title and optional detail.',
+        max: 30,
+        name: 'steps',
+        required: true,
+        type: 'array',
+      },
+      {
+        description: 'Optional risks, tradeoffs, or things that could go wrong.',
+        maxLength: 4000,
+        name: 'risks',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Optional how-to-verify: tests, checks, or acceptance criteria.',
+        maxLength: 4000,
+        name: 'verification',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      "The user's decision: status approved or rejected, plus optional feedback on rejection.",
+    toolId: 'brainstrike.submitPlan',
   },
 
   'brainstrike.updateWorkspaceContextSelection': {
@@ -690,12 +849,28 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.updateWorkspaceTapestrySelections',
   },
 
-  'brainstrike.webSearch': {
+  [WEB_EXTRACT_TOOL_ID]: {
     description:
-      'Search the web via Tavily for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily): never include secrets or private workspace contents. Requires a Tavily API key configured in Settings; when no key is set the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+      'Fetch the readable content of up to 5 public web pages as markdown — the natural follow-up to webSearch results, or for a user-pasted URL. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass internal or private URLs. Non-http(s), credentialed, and private/loopback/link-local URLs are refused server-side before anything is sent, and each refusal is reported per-URL in the result. When no Tavily API key is configured the tool returns a clear "unavailable, add a key" message instead of failing the run.',
     parameters: [
       {
-        description: 'The web search query (sent to Tavily, an external service)',
+        description: 'Absolute http(s) URLs of public pages to extract (1-5)',
+        name: 'urls',
+        required: true,
+        type: 'array',
+      },
+    ],
+    returns:
+      'Per-URL extracted markdown content (bounded per page and self-bound overall to the tool output budget, with a truncation flag and hint), plus a per-URL failed list (refused/unreachable URLs with reasons). When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+    toolId: WEB_EXTRACT_TOOL_ID,
+  },
+
+  [WEB_SEARCH_TOOL_ID]: {
+    description:
+      'Search the web for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE: never include secrets or private workspace contents. Uses the model provider\'s built-in web search when available (Anthropic/OpenAI), otherwise Tavily; when neither a provider-native search nor a Tavily API key is configured the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+    parameters: [
+      {
+        description: 'The web search query (sent to an external web-search service)',
         maxLength: 400,
         minLength: 2,
         name: 'query',
@@ -713,8 +888,8 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
-    toolId: 'brainstrike.webSearch',
+      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When neither a provider-native search nor a Tavily key is available, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+    toolId: WEB_SEARCH_TOOL_ID,
   },
 
   'brainstrike.writeWorkspaceFile': {
@@ -745,6 +920,86 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
     toolId: 'brainstrike.writeWorkspaceFile',
+  },
+  skill: {
+    description:
+      "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled reference/script/asset files. Read-only.",
+    parameters: [
+      {
+        description:
+          'The skill name from the available-skills list (or its directory path when two skills share a name).',
+        name: 'name',
+        required: true,
+        type: 'string',
+      },
+    ],
+    returns:
+      'The skill instructions (SKILL.md body) followed by listings of its references/, scripts/, and assets/ files; oversized instructions are truncated with an honest note.',
+    toolId: 'skill',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read: {
+    description:
+      'Read a bundled file from a skill directory (references/, scripts/, or assets/), optionally sliced by line range. Read-only and containment-checked to the skill directory.',
+    parameters: [
+      {
+        description: 'The skill name (or directory path when two skills share a name).',
+        name: 'skillName',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Path relative to the skill root, e.g. "references/forms.md" or "scripts/fill.py".',
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Starting line number (1-indexed); omit to read from the beginning.',
+        name: 'startLine',
+        required: false,
+        type: 'number',
+      },
+      {
+        description: 'Ending line number (1-indexed, inclusive); omit to read to the end.',
+        name: 'endLine',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'The file content (or the requested line slice); binary files report their size instead of raw bytes; oversized output is truncated with a line-range hint.',
+    toolId: 'skill_read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search: {
+    description:
+      'Search across installed skill instructions and reference files by keyword. Read-only.',
+    parameters: [
+      {
+        description: 'The search query.',
+        name: 'query',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Optional list of skill names to search within.',
+        name: 'skillNames',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Maximum number of results to return (default 5).',
+        name: 'topK',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'Matching snippets labeled with their skill, source file, line range, and relevance score.',
+    toolId: 'skill_search',
   },
 };
 

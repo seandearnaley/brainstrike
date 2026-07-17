@@ -456,6 +456,7 @@ describe('assistant-stream integration', () => {
         content: [
           { data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain', type: 'file' },
         ],
+        id: 'file-user',
         role: 'user',
       },
       {
@@ -648,6 +649,13 @@ describe('assistant-stream integration', () => {
     expect(
       (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
     ).toEqual(['user']);
+    expect(requestBody?.['messages']).toEqual([
+      {
+        content: [{ text: 'current-user' }],
+        id: 'current-user',
+        role: 'user',
+      },
+    ]);
   });
 
   it('reports null response bodies as transport failures', async () => {
@@ -946,6 +954,68 @@ describe('assistant-stream integration', () => {
     expect(lastMessage.status).toMatchObject({ type: 'complete' });
   });
 
+  it('does not expose a complete message until every decoded part has drained', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    const yielded: { status?: { type?: string } }[] = [];
+    for await (const nextMessage of adapter.run(runOptions())) {
+      yielded.push(nextMessage as { status?: { type?: string } });
+    }
+
+    const firstCompleteIndex = yielded.findIndex((item) => item.status?.type === 'complete');
+    expect(firstCompleteIndex).toBe(yielded.length - 1);
+  });
+
+  it('preserves the authoritative abort reason instead of reporting a teardown error', async () => {
+    const abortController = new AbortController();
+    const abortReason = new DOMException('superseded by the next turn', 'AbortError');
+    const teardownError = new TypeError(
+      "Failed to execute 'enqueue' on 'ReadableStreamDefaultController': Cannot enqueue a chunk into a readable stream that is closed"
+    );
+    const onError = vi.fn();
+    const encoder = new TextEncoder();
+
+    globalThis.fetch = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('f:{"messageId":"msg-test"}\n'));
+          controller.enqueue(encoder.encode('0:"Started"\n'));
+          abortController.signal.addEventListener('abort', () => controller.error(teardownError), {
+            once: true,
+          });
+        },
+      });
+      return new Response(body);
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+    const iterator = adapter.run(runOptions({ abortSignal: abortController.signal }));
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false });
+    abortController.abort(abortReason);
+    const drainAfterAbort = async () => {
+      while (true) {
+        await iterator.next();
+      }
+    };
+    await expect(drainAfterAbort()).rejects.toBe(abortReason);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('fires onUsage with provider token counts from finish-message chunks', async () => {
     const usageEvents: { inputTokens: number; outputTokens: number }[] = [];
     globalThis.fetch = vi.fn(
@@ -989,6 +1059,40 @@ describe('assistant-stream integration', () => {
 
     // Exact wire values forwarded to the callback.
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
+  });
+
+  it('forwards provider-reported billed cost with token usage', async () => {
+    const usageEvents: Array<{
+      billedCostUsd?: number;
+      inputTokens: number;
+      outputTokens: number;
+    }> = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost"}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":123,"outputTokens":45},"billedCostUsd":0.0042,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage: (usage) => usageEvents.push(usage),
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(usageEvents).toEqual([{ billedCostUsd: 0.0042, inputTokens: 123, outputTokens: 45 }]);
   });
 
   it('completes normally and does not call onUsage when finish-message chunk has no usage field', async () => {
@@ -1062,6 +1166,39 @@ describe('assistant-stream integration', () => {
     expect(yielded.length).toBeGreaterThan(0);
     // The stream still completes (pass-through tap), it just skips the {0,0} usage.
     expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it('forwards a cost-only zero-token finish when the transport supplies one', async () => {
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost-pause"}',
+            'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"billedCostUsd":0.00125,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(onUsage).toHaveBeenCalledWith({
+      billedCostUsd: 0.001_25,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
   });
 
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {

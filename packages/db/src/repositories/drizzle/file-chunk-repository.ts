@@ -8,7 +8,7 @@
  * since pgvector operators aren't natively supported by the query builder.
  */
 
-import { count, eq, inArray, sql } from 'drizzle-orm';
+import { count, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type {
   ChunkSearchOptions,
@@ -28,6 +28,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
@@ -358,6 +359,7 @@ export class DrizzleFileChunkRepository {
       embeddingSetId,
       efSearch,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -441,6 +443,19 @@ export class DrizzleFileChunkRepository {
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
     }
+    // Scope to a set of workspace roots by resolving their file ids first, then
+    // constraining `file_record_id` with an IN list — the same shape the
+    // filePaths branch below uses, so the main file_chunks predicate still
+    // matches the partial HNSW index. An empty allowlist / no-owned-files
+    // matches nothing; NULL-root legacy rows are excluded. Mirrors
+    // FileChunkRepository / ElectronFileChunkRepository scoping.
+    if (rootIds !== undefined) {
+      const rootScopeCondition = this.rootScopedFileIdCondition(rootIds);
+      if (rootScopeCondition === null) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
+    }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
         SELECT 1
@@ -513,10 +528,10 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
-      rankNormalization = 0,
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
@@ -548,12 +563,23 @@ export class DrizzleFileChunkRepository {
       ? sql`ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
       : sql``;
+    // Ranked by BM25 (pg_textsearch, migration 053): matching stays
+    // tsvector-based below, so query-mode semantics are unchanged; only the
+    // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
+    // deterministic — BM25 produces exact score ties for rows with identical
+    // term statistics.
+    // NOTE: this is the drizzle-idiomatic form of `bm25RankExpression` from
+    // ../_shared.ts (used by the raw-SQL repos): the index name rides as a
+    // BOUND PARAMETER here instead of a SQL literal — semantically identical
+    // to Postgres, and both spellings share BM25_CONTENT_INDEX_NAME so the
+    // name cannot drift between the paths.
+    const bm25Rank = sql`(-(content <@> to_bm25query(${trimmedQuery}, ${BM25_CONTENT_INDEX_NAME})))::float8`;
     let baseQuery = sql`
       SELECT
         ${sql.raw(ftsColumns)},
-        ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
+        ${bm25Rank} as fts_rank,
         ${headlineColumn}
-        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) DESC) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
       FROM file_chunks
       WHERE content_tsvector IS NOT NULL
         AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
@@ -564,6 +590,15 @@ export class DrizzleFileChunkRepository {
     }
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+    }
+    // Scope to a set of workspace roots (see searchSimilar above for the empty /
+    // NULL-root semantics). Mirrors the PGlite + Electron repos.
+    if (rootIds !== undefined) {
+      const rootScopeCondition = this.rootScopedFileIdCondition(rootIds);
+      if (rootScopeCondition === null) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
     }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
@@ -587,7 +622,7 @@ export class DrizzleFileChunkRepository {
     }
 
     baseQuery = sql`${baseQuery}
-      ORDER BY fts_rank DESC
+      ORDER BY fts_rank DESC, id
       LIMIT ${limit}
     `;
 
@@ -635,6 +670,30 @@ export class DrizzleFileChunkRepository {
         // 'websearch' is the default query mode
         return 'websearch_to_tsquery';
     }
+  }
+
+  /**
+   * Build the `file_record_id ∈ (roots' files)` predicate for scoping a search
+   * to `rootIds`. Returns `null` for an EMPTY allowlist (matches nothing — the
+   * caller short-circuits to an empty result set), otherwise a subquery
+   * predicate: `file_record_id IN (SELECT id FROM file_records WHERE root_id IN
+   * (…))`. The subquery keeps the id set in SQL instead of materializing every
+   * owned file id into a JS array and re-binding it (a large workspace would
+   * round-trip thousands of ids per search). NULL-root legacy rows are never
+   * matched (their root_id is not in the list). Mirrors the raw-SQL subqueries
+   * the PGlite/Electron repos already use for the same scoping.
+   */
+  private rootScopedFileIdCondition(rootIds: readonly string[]): SQL | null {
+    if (rootIds.length === 0) {
+      return null;
+    }
+    return inArray(
+      fileChunks.fileRecordId,
+      this.db
+        .select({ id: fileRecords.id })
+        .from(fileRecords)
+        .where(inArray(fileRecords.rootId, Array.from(rootIds)))
+    );
   }
 
   private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {

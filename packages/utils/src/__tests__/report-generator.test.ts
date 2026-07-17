@@ -660,7 +660,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 
@@ -683,7 +682,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 
@@ -711,7 +709,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: false, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 
@@ -719,6 +716,33 @@ describe('reportGenerator', () => {
       '<selection_summary>No active tapestry ranges selected.</selection_summary>'
     );
     expect(report).not.toContain('export const formatDate');
+  });
+
+  it('treats a literally-present EMPTY range array as whole file (empty ≡ absent)', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        // A stray present-but-empty entry must behave exactly like absence: the
+        // whole file is emitted, NOT the "no active ranges" exclusion notice.
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [],
+        },
+      }
+    );
+
+    expect(report).toContain('<file path="src/lib/utils.ts">');
+    expect(report).toContain('export const formatDate');
+    expect(report).not.toContain(
+      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
+    );
   });
 
   it('strips all XML-illegal control characters from file paths', async () => {

@@ -25,6 +25,26 @@ export const NATIVE_TOOL_RESULT_TOKEN_BUDGET = 2750;
 export const NATIVE_TOOL_RESULT_CHAR_BUDGET =
   NATIVE_TOOL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
 
+/**
+ * Dedicated budget for the `skill` activation tool. A skill activation's
+ * result IS the payload (the SKILL.md instructions the model must follow), and
+ * the Agent Skills spec allows bodies up to ~5000 tokens — above the generic
+ * {@link MAX_TOOL_RESULT_TOKENS} guard, whose "narrow the request" recovery
+ * does not exist for an activation. The skill tool self-bounds to this same
+ * ceiling with an honest truncation note (see skills/skill-tools.ts), so the
+ * transport override below is a backstop, not the working bound.
+ */
+export const SKILL_ACTIVATION_RESULT_TOKEN_BUDGET = 6000;
+
+/**
+ * Per-tool transport-guard budget overrides. Explicit and enumerated — every
+ * other tool keeps the generic budget. Keyed by the SANITIZED tool id (the id
+ * the data-stream mapper reports).
+ */
+const TOOL_RESULT_TOKEN_BUDGET_OVERRIDES: Readonly<Record<string, number>> = {
+  skill: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+};
+
 function approxTokensFromChars(charCount: number): number {
   return Math.max(1, Math.ceil(charCount / APPROX_CHARS_PER_TOKEN));
 }
@@ -131,6 +151,10 @@ const TRIMMABLE_COLLECTION_KEYS = [
   'files',
   'chunks',
   'rows',
+  // A delegation (`agent-<key>`) tool result carries the child's raw
+  // `subAgentToolResults` list; trim it structurally when oversized rather than
+  // failing the whole delegation with a hard size error.
+  'subAgentToolResults',
 ] as const;
 
 function isPlainRecordOutput(value: unknown): value is Record<string, unknown> {
@@ -192,9 +216,11 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
     return { errorText: output.error, output };
   }
 
+  const maxTokens = TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ?? MAX_TOOL_RESULT_TOKENS;
+  const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);
-  if (serialized.length <= MAX_TOOL_RESULT_SERIALIZED_CHARS) {
+  if (serialized.length <= maxSerializedChars) {
     return { output: jsonSafeOutput };
   }
 
@@ -214,7 +240,7 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
     typeof jsonSafeOutput === 'string'
       ? sliceCodePoints(jsonSafeOutput, TOOL_RESULT_PREVIEW_CHARS)
       : sliceCodePoints(serialized, TOOL_RESULT_PREVIEW_CHARS);
-  const errorText = `${toolName} returned too much output (~${approxTokensFromChars(serialized.length)} tokens; budget ~${MAX_TOOL_RESULT_TOKENS} tokens). Narrow the request or use a more specific query.`;
+  const errorText = `${toolName} returned too much output (~${approxTokensFromChars(serialized.length)} tokens; budget ~${maxTokens} tokens). Narrow the request or use a more specific query.`;
   return {
     errorText,
     output: {
@@ -223,8 +249,8 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
       error: errorText,
       // Char-denominated fields keep the shape of previously persisted bounded
       // results (the idempotency check above matches on them).
-      maxLength: MAX_TOOL_RESULT_SERIALIZED_CHARS,
-      maxTokens: MAX_TOOL_RESULT_TOKENS,
+      maxLength: maxSerializedChars,
+      maxTokens,
       originalLength: serialized.length,
       preview,
       truncated: true,

@@ -3,7 +3,12 @@ import { navigationItems } from '../navigation';
 
 describe('navigationItems', () => {
   it('should have the correct number of items', () => {
-    expect(navigationItems).toHaveLength(3);
+    expect(navigationItems).toHaveLength(2);
+  });
+
+  it('keeps prompts in the agent sidebar instead of root navigation', () => {
+    expect(navigationItems.find((item) => item.name === 'Prompts')).toBeUndefined();
+    expect(navigationItems.find((item) => item.path === '/prompts')).toBeUndefined();
   });
 
   it('should have the correct properties for Context Explorer', () => {

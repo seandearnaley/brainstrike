@@ -152,7 +152,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     try {
-      const response = await this.requestEmbeddings(normalizedTexts.value, apiKey);
+      const response = await this.requestEmbeddings(normalizedTexts.value, apiKey, input.signal);
       if (!response.ok) {
         return this.handleErrorResponse(response);
       }
@@ -169,11 +169,15 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
   }
 
-  private async requestEmbeddings(texts: string[], apiKey: string): Promise<Response> {
+  private async requestEmbeddings(
+    texts: string[],
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
     if (texts.length > 1) {
-      return this.requestBatchEmbedding(texts, apiKey);
+      return this.requestBatchEmbedding(texts, apiKey, signal);
     }
-    return this.requestSingleEmbedding(texts[0] ?? '', apiKey);
+    return this.requestSingleEmbedding(texts[0] ?? '', apiKey, signal);
   }
 
   private async handleErrorResponse(
@@ -249,7 +253,11 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     return buildEmbeddingOutput(embeddings, modelId, usageTokens);
   }
 
-  private async requestSingleEmbedding(text: string, apiKey: string): Promise<Response> {
+  private async requestSingleEmbedding(
+    text: string,
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
     const body: {
       model: string;
@@ -271,10 +279,15 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         'x-goog-api-key': apiKey,
       },
       method: 'POST',
+      ...(signal ? { signal } : {}),
     });
   }
 
-  private async requestBatchEmbedding(texts: string[], apiKey: string): Promise<Response> {
+  private async requestBatchEmbedding(
+    texts: string[],
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
     const model = normalizeModelPath(this.modelId);
     const requests = texts.map((text) => ({
@@ -291,6 +304,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         'x-goog-api-key': apiKey,
       },
       method: 'POST',
+      ...(signal ? { signal } : {}),
     });
   }
 

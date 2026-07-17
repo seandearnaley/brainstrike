@@ -9,9 +9,90 @@
     <link rel="icon" href="/favicon-light.ico" media="(prefers-color-scheme: light)" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BrainStrike.ai</title>
+
+    <!-- Pre-React startup splash: inline so it paints before any JS loads.
+         Kept byte-identical with apps/desktop/index.html — pinned by
+         apps/web/src/__tests__/startup-splash.test.ts. -->
+    <style>
+      .bs-startup-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 20% 20%, #1a2744 0%, #0b1020 55%, #070b16 100%);
+        color: #e7eefc;
+        z-index: 1;
+        font-family:
+          "Geist Variable",
+          "Geist",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      .bs-startup-card {
+        min-width: 320px;
+        border: 1px solid rgba(151, 169, 211, 0.24);
+        border-radius: 12px;
+        background: rgba(10, 17, 34, 0.9);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        padding: 20px 22px;
+      }
+
+      .bs-startup-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .bs-startup-subtitle {
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: #b2c0e5;
+      }
+
+      .bs-startup-progress {
+        margin-top: 14px;
+        height: 3px;
+        width: 100%;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(164, 182, 230, 0.2);
+      }
+
+      .bs-startup-progress::before {
+        content: "";
+        display: block;
+        width: 45%;
+        height: 100%;
+        background: linear-gradient(90deg, #5ea2ff 0%, #9bc8ff 100%);
+        border-radius: inherit;
+        animation: bs-startup-progress 1.15s ease-in-out infinite;
+      }
+
+      @keyframes bs-startup-progress {
+        0% {
+          transform: translateX(-120%);
+        }
+        100% {
+          transform: translateX(260%);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="bs-startup-shell">
+        <div class="bs-startup-card" role="status" aria-live="polite">
+          <p class="bs-startup-title">Starting BrainStrike...</p>
+          <p class="bs-startup-subtitle">Restoring your workspace</p>
+          <div class="bs-startup-progress"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

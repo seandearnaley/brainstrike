@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
-  resolveAssistantVendorChunk,
+  isContextActionSystemModule,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
@@ -199,33 +199,26 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
   });
 });
 
-describe('resolveAssistantVendorChunk', () => {
-  it('returns assistant-markdown-vendor for react-markdown dependency', () => {
-    expect(
-      resolveAssistantVendorChunk('/node_modules/@assistant-ui/react-markdown/dist/index.js')
-    ).toBe('assistant-markdown-vendor');
-  });
-
-  it('returns assistant-markdown-vendor for shiki dependency', () => {
-    expect(resolveAssistantVendorChunk('/node_modules/react-shiki/dist/core.js')).toBe(
-      'assistant-markdown-vendor'
+describe('isContextActionSystemModule', () => {
+  it('matches the core context-actions package and feature context-actions modules', () => {
+    expect(isContextActionSystemModule('/workspace/packages/context-actions/src/registry.ts')).toBe(
+      true
     );
-  });
-
-  it('returns assistant-vendor for react dependency', () => {
-    expect(resolveAssistantVendorChunk('/node_modules/@assistant-ui/react/dist/index.js')).toBe(
-      'assistant-vendor'
-    );
-  });
-
-  it('returns assistant-vendor for data-stream dependency', () => {
     expect(
-      resolveAssistantVendorChunk('/node_modules/@assistant-ui/react-data-stream/dist/index.js')
-    ).toBe('assistant-vendor');
+      isContextActionSystemModule(
+        '/workspace/packages/file-explorer-ui/src/context-actions/file-actions.ts'
+      )
+    ).toBe(true);
   });
 
-  it('returns undefined for unrelated modules', () => {
-    expect(resolveAssistantVendorChunk('/node_modules/react/index.js')).toBeUndefined();
+  it('matches the commands registry package', () => {
+    expect(isContextActionSystemModule('/workspace/packages/commands/src/define.ts')).toBe(true);
+  });
+
+  it('never matches node_modules', () => {
+    expect(
+      isContextActionSystemModule('/workspace/node_modules/some-lib/context-actions/index.js')
+    ).toBe(false);
   });
 });
 

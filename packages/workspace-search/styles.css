@@ -1,0 +1,4 @@
+/*
+ * Ensures Tailwind scans this package's components for utility classes.
+ */
+@source "./src";

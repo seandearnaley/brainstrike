@@ -67,6 +67,7 @@ vi.mock('electron', async () => {
       start: vi.fn(() => 1),
       stop: vi.fn(),
     },
+    protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     screen,
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     shell: {

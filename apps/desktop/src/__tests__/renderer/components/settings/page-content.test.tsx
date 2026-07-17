@@ -20,7 +20,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     // Return a mock store function that returns default values
     const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
       const mockState = {
+        activeRootIds: [],
         devInlineFixtureEnabled: false,
+        rootDescriptors: {},
         setDevInlineFixtureEnabled: vi.fn(),
       };
       return selector(mockState);
@@ -29,7 +31,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   },
   useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
     const mockState = {
+      activeRootIds: [],
       devInlineFixtureEnabled: false,
+      rootDescriptors: {},
       setDevInlineFixtureEnabled: vi.fn(),
     };
     return selector(mockState);

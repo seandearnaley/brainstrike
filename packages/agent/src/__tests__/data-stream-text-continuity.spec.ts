@@ -74,6 +74,26 @@ function runEventChunk(id: string, label: string): StreamChunk {
   } as unknown as StreamChunk;
 }
 
+function subagentRunEventChunk(
+  id: string,
+  kind: string,
+  status: string,
+  label: string,
+  metadata: Record<string, unknown> = {}
+): StreamChunk {
+  return {
+    event: {
+      id,
+      kind,
+      label,
+      metadata,
+      status,
+      timestamp: '2026-06-12T00:00:00.000Z',
+    },
+    type: 'run-event',
+  } as unknown as StreamChunk;
+}
+
 async function mapChunks(chunks: StreamChunk[]): Promise<Encoded[]> {
   const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
     messageId: 'msg-text-continuity',
@@ -148,6 +168,100 @@ describe('run-event deferral keeps streamed text contiguous', () => {
 
     const codes = parsed.map((p) => p.code);
     expect(codes.indexOf('aui-data')).toBeLessThan(codes.indexOf('0'));
+  });
+
+  it('defers a subagent.* run event that arrives mid-text and flushes it at the next boundary', async () => {
+    const parsed = await mapChunks([
+      { type: 'text-delta', value: 'Delegating ' } as StreamChunk,
+      // A nested subagent tool event arrives WHILE the parent text is streaming.
+      subagentRunEventChunk('sub-1', 'subagent.tool.started', 'running', 'Subagent tool started', {
+        parentToolCallId: 'delegation-1',
+        personaId: 'explore',
+      }),
+      { type: 'text-delta', value: 'to the explorer.' } as StreamChunk,
+      finishChunk,
+    ]);
+
+    const codes = parsed.map((p) => p.code);
+    const firstText = codes.indexOf('0');
+    const lastText = codes.lastIndexOf('0');
+    const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
+    // The subagent event never slices the text block: it lands after the last
+    // text delta (flushed at the finish boundary), not between the two deltas.
+    expect(dataIndices).toHaveLength(1);
+    expect(dataIndices[0]).toBeGreaterThan(lastText);
+    expect(dataIndices[0]).toBeLessThan(codes.indexOf('d'));
+    // Sanity: the two text deltas remained contiguous.
+    expect(lastText - firstText).toBe(1);
+  });
+
+  it('surfaces subagent.failed and subagent.tool.failed through the mapper failure branches', async () => {
+    const parsed = await mapChunks([
+      subagentRunEventChunk('sub-tf', 'subagent.tool.failed', 'failed', 'Subagent tool failed', {
+        childToolName: 'brainstrike_grepSearch',
+        parentToolCallId: 'delegation-1',
+        personaId: 'explore',
+        toolCallId: 'child-1',
+      }),
+      subagentRunEventChunk('sub-f', 'subagent.failed', 'failed', 'Subagent failed', {
+        parentToolCallId: 'delegation-1',
+        personaId: 'explore',
+      }),
+      finishChunk,
+    ]);
+
+    const failureEvents = parsed
+      .filter((p) => p.code === 'aui-data')
+      .map((p) => p.value as { name?: string; data?: { kind?: string; status?: string } })
+      .filter((part) => part.name === 'brainstrike.run-event')
+      .map((part) => part.data);
+
+    expect(failureEvents).toEqual(
+      [
+        { kind: 'subagent.tool.failed', status: 'failed' },
+        { kind: 'subagent.failed', status: 'failed' },
+      ].map((expected) => expect.objectContaining(expected))
+    );
+  });
+});
+
+describe('tool-suspend-required data part respects text continuity', () => {
+  it('finalizes open text before emitting exactly one brainstrike.tool-suspend data part', async () => {
+    const parsed = await mapChunks([
+      { type: 'text-delta', value: 'Let me ask you.' } as StreamChunk,
+      runEventChunk('ev-1', 'Observation'),
+      {
+        runId: 'run-1',
+        suspendPayload: { question: 'Which city?' },
+        toolCallId: 'call-suspend-1',
+        toolName: 'brainstrike.askUser',
+        type: 'tool-suspend-required',
+      } as unknown as StreamChunk,
+      finishChunk,
+    ]);
+
+    const codes = parsed.map((p) => p.code);
+    const dataParts = parsed.filter(
+      (p) =>
+        p.code === 'aui-data' && (p.value as { name?: string }).name === 'brainstrike.tool-suspend'
+    );
+    // Exactly one suspend data part, carrying the pause payload.
+    expect(dataParts).toHaveLength(1);
+    expect((dataParts[0]?.value as { data: Record<string, unknown> }).data).toMatchObject({
+      runId: 'run-1',
+      suspendPayload: { question: 'Which city?' },
+      toolCallId: 'call-suspend-1',
+      toolName: 'brainstrike.askUser',
+    });
+    // Text-part-closed-before-data-part: the open text is FULLY finalized before
+    // ANY data part is emitted. Pinning only the LAST data part would still pass
+    // if an earlier data part sliced mid-text, so assert the FIRST data part
+    // (the flushed run event) already lands after the last text delta — no data
+    // part may appear before the text block is closed.
+    const lastTextIndex = codes.lastIndexOf('0');
+    expect(codes.indexOf('aui-data')).toBeGreaterThan(lastTextIndex);
+    const suspendDataIndex = codes.lastIndexOf('aui-data');
+    expect(suspendDataIndex).toBeGreaterThan(lastTextIndex);
   });
 });
 

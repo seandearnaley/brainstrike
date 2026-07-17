@@ -2,7 +2,7 @@ import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/preferences';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseStatusItem } from '../status-items/database-status-item';
 
@@ -17,7 +17,23 @@ describe('DatabaseStatusItem', () => {
 
     expect(screen.getByTestId('status-bar-db-loading')).toBeInTheDocument();
     expect(screen.getByText('Storage:')).toBeInTheDocument();
-    expect(screen.getByText('Connecting...')).toBeInTheDocument();
+    expect(screen.getByText('Connecting…')).toBeInTheDocument();
+  });
+
+  it('announces meaningful database connection transitions', () => {
+    render(<DatabaseStatusItem />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Storage connecting');
+
+    act(() => {
+      useDatabaseStatusStore.getState().setConnected('Main Process', 'Connected (IPC)');
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Storage connected: IPC');
+
+    act(() => {
+      useDatabaseStatusStore.getState().setDisconnected('Main Process', 'Connection failed');
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Storage disconnected: IPC');
   });
 
   it('shows connected state with IPC location', () => {
@@ -26,6 +42,13 @@ describe('DatabaseStatusItem', () => {
     render(<DatabaseStatusItem />);
 
     expect(screen.getByTestId('status-bar-db-connected')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar-db-connected')).toHaveClass(
+      'w-40',
+      'max-w-full',
+      'shrink-0',
+      'overflow-hidden',
+      'whitespace-nowrap'
+    );
     expect(screen.getByText('Storage: IPC')).toBeInTheDocument();
   });
 

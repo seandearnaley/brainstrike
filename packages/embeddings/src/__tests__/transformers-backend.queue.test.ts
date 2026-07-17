@@ -100,6 +100,77 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
+  it('forwards the exact abort signal so the queue halts in-flight work', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('Worker', class {});
+
+    const { queue, add } = createQueueStub();
+    let queueCanceled = false;
+    let workerCompleted = false;
+    let finishWork: () => void = () => {
+      throw new Error('Queue work did not start');
+    };
+    add.mockImplementation(
+      (task, options) =>
+        new Promise<QueueResult>((resolve, reject) => {
+          let settled = false;
+          const handleAbort = () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            queueCanceled = true;
+            reject(options?.signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+          };
+          options?.signal?.addEventListener('abort', handleAbort, { once: true });
+          finishWork = () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            options?.signal?.removeEventListener('abort', handleAbort);
+            workerCompleted = true;
+            resolve(createQueueResult(task.id, [0.4, 0.6]));
+          };
+        })
+    );
+
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
+
+    registerEmbeddingQueueFactory(() => queue);
+
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      device: 'webgpu',
+      modelId: 'bge-m3',
+      quantized: false,
+    });
+
+    const controller = new AbortController();
+    const pendingEmbedding = backend.generateEmbedding('cancel-me', 'bge-m3', {
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(1));
+    controller.abort(new Error('query context hidden'));
+    finishWork();
+
+    try {
+      await expect(pendingEmbedding).rejects.toThrow('query context hidden');
+      expect(add.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+      expect(queueCanceled).toBe(true);
+      expect(workerCompleted).toBe(false);
+    } finally {
+      finishWork();
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it('surfaces queue failures without falling back to local pipeline', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });

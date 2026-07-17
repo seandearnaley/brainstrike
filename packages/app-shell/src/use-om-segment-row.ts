@@ -48,10 +48,12 @@ export function buildObservationalMemoryLookupKey(input: {
 /**
  * Select the LATEST observation generation for a lookup key, mirroring the memory
  * store's read order (`getObservationalMemory`: generationCount DESC, createdAt
- * DESC, LIMIT 1). Only the two token columns the meter needs are projected.
+ * DESC, LIMIT 1). Projects active, buffered, and pending/threshold state so the
+ * meter never mistakes unactivated background observations for no activity.
  */
 const OM_ROW_QUERY = `
-  SELECT "observationTokenCount", "totalTokensObserved"
+  SELECT "bufferedObservationChunks", config, "observationTokenCount",
+         "pendingMessageTokens", "totalTokensObserved"
   FROM mastra_observational_memory
   WHERE "lookupKey" = $1
   ORDER BY "generationCount" DESC, "createdAt" DESC
@@ -59,7 +61,10 @@ const OM_ROW_QUERY = `
 `;
 
 interface ObservationalMemoryRowQueryResult {
+  bufferedObservationChunks: unknown;
+  config: unknown;
   observationTokenCount: number | string;
+  pendingMessageTokens: number | string;
   totalTokensObserved: number | string;
 }
 

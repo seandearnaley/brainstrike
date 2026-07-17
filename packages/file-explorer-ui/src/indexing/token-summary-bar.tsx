@@ -109,11 +109,9 @@ interface SelectedTokensTooltipProps {
   rangeAdjustedFilesCount: number;
   selectedTokensPendingCount: number;
   totalFiles: number;
-  useTapestryRanges: boolean;
 }
 
 const SelectedTokensTooltip = memo<SelectedTokensTooltipProps>(function SelectedTokensTooltip({
-  useTapestryRanges,
   isEstimating,
   totalFiles,
   selectedTokensPendingCount,
@@ -122,23 +120,17 @@ const SelectedTokensTooltip = memo<SelectedTokensTooltipProps>(function Selected
 }) {
   const countedText = isEstimating
     ? `Counted ${totalFiles - selectedTokensPendingCount} of ${totalFiles} file${totalFiles === 1 ? '' : 's'}…`
-    : useTapestryRanges
-      ? 'Estimated tokens included in final context export'
-      : `Tokens from ${totalFiles} selected file${totalFiles === 1 ? '' : 's'}`;
+    : 'Estimated tokens included in final context export';
 
   return (
     <div className="text-xs">
-      <div className="font-medium">
-        {useTapestryRanges ? 'Context Output Tokens' : 'Selected Tokens'}
-      </div>
+      <div className="font-medium">Context Output Tokens</div>
       <div className="text-muted-foreground">{countedText}</div>
-      {useTapestryRanges && (
-        <div className="text-muted-foreground">
-          {rangeAdjustedFilesCount > 0
-            ? `${activeRangeFilesCount} of ${rangeAdjustedFilesCount} ranged file${rangeAdjustedFilesCount === 1 ? '' : 's'} currently include active selections`
-            : 'Files without explicit ranges are treated as fully selected'}
-        </div>
-      )}
+      <div className="text-muted-foreground">
+        {rangeAdjustedFilesCount > 0
+          ? `${activeRangeFilesCount} of ${rangeAdjustedFilesCount} ranged file${rangeAdjustedFilesCount === 1 ? '' : 's'} currently include active selections`
+          : 'Files without explicit ranges are treated as fully selected'}
+      </div>
     </div>
   );
 });
@@ -174,7 +166,6 @@ interface TokenSummaryBarProps {
   totalFiles: number;
   treeLoading?: boolean;
   treeTokens: number;
-  useTapestryRanges?: boolean;
 }
 
 /**
@@ -189,7 +180,6 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
   sourceSelectedTokens = selectedTokens,
   treeTokens,
   includeTree,
-  useTapestryRanges = false,
   rangeAdjustedFilesCount = 0,
   activeRangeFilesCount = 0,
   treeLoading = false,
@@ -202,11 +192,10 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
   // BST-153: Show estimating indicator when files are still being indexed
   const isEstimating = selectedTokensPendingCount > 0;
   const sourceAndOutputDiffer = sourceSelectedTokens !== selectedTokens;
-  const showSourceTokens = useTapestryRanges;
 
   const selectedTokensValue = isEstimating
     ? `${selectedTokens.toLocaleString()}+ estimating…`
-    : `${selectedTokens.toLocaleString()} ${useTapestryRanges ? 'output' : 'selected'}`;
+    : `${selectedTokens.toLocaleString()} output`;
 
   const treeTokensValue = treeLoading ? '…' : `${treeTokens.toLocaleString()} tree`;
 
@@ -245,27 +234,24 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
               rangeAdjustedFilesCount={rangeAdjustedFilesCount}
               selectedTokensPendingCount={selectedTokensPendingCount}
               totalFiles={totalFiles}
-              useTapestryRanges={useTapestryRanges}
             />
           </TooltipContent>
         </Tooltip>
 
-        {showSourceTokens && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="cursor-default">
-                <StatItem
-                  icon={FileText}
-                  iconColor="text-muted-foreground"
-                  label=""
-                  muted={!sourceAndOutputDiffer}
-                  value={`${sourceSelectedTokens.toLocaleString()} source`}
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{SOURCE_TOKENS_TOOLTIP}</TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="cursor-default">
+              <StatItem
+                icon={FileText}
+                iconColor="text-muted-foreground"
+                label=""
+                muted={!sourceAndOutputDiffer}
+                value={`${sourceSelectedTokens.toLocaleString()} source`}
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{SOURCE_TOKENS_TOOLTIP}</TooltipContent>
+        </Tooltip>
 
         {/* Tree tokens (if enabled) */}
         <Tooltip>

@@ -32,6 +32,9 @@
       "@brainstrike/agent/client": [
         "../../packages/agent/dist/client.d.ts"
       ],
+      "@brainstrike/agent/mcp-client": [
+        "../../packages/agent/dist/mcp-client.d.ts"
+      ],
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/dist/local-llm.d.ts"
       ],
@@ -50,6 +53,12 @@
       "@brainstrike/file-system/path-validation": [
         "../../packages/file-system/dist/path-validation.d.ts"
       ],
+      "@brainstrike/notes-vault/core": [
+        "../../packages/notes-vault/dist/core/index.d.ts"
+      ],
+      "@brainstrike/notes-vault/desktop-contract": [
+        "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
+      ],
       "@brainstrike/utils/logger": [
         "../../packages/utils/dist/logger.d.ts"
       ],
@@ -65,11 +74,11 @@
       "@brainstrike/utils/collator": [
         "../../packages/utils/dist/collator.d.ts"
       ],
+      "@brainstrike/utils/string-utils": [
+        "../../packages/utils/dist/string-utils.d.ts"
+      ],
       "@brainstrike/utils/crypto": [
         "../../packages/utils/dist/crypto.d.ts"
-      ],
-      "@brainstrike/utils/safe-storage": [
-        "../../packages/utils/dist/safe-storage.d.ts"
       ],
       "@brainstrike/utils/workspace-indexing-qos": [
         "../../packages/utils/dist/workspace-indexing-qos.d.ts"

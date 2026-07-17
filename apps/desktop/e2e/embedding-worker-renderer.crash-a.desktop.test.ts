@@ -76,6 +76,11 @@ test.describe('Embedding Host Renderer - crash a', () => {
       return;
     }
 
+    // CI has no WebGPU and the host refuses to auto-downgrade to WASM without a
+    // configured device preference (#1246) — opt in explicitly like every other
+    // embedding spec, or reset lands in 'error' instead of 'running'.
+    await setVectorDevicePreference(activeWindow, 'wasm');
+
     // Explicitly stop first to avoid a race between the prior test's 'stop' command and
     // our 'reset' command. Without this, startWorker can silently skip starting when
     // startingRef.current is still true from a concurrent stop/start sequence.
@@ -115,6 +120,11 @@ test.describe('Embedding Host Renderer - crash a', () => {
       return;
     }
 
+    // Same #1246 opt-in as above: without a configured device preference the
+    // host errors with the WebGPU-required message, which this test's error
+    // allowlist below deliberately does not accept.
+    await setVectorDevicePreference(activeWindow, 'wasm');
+
     await activeWindow.evaluate(async () => {
       const host = (
         globalThis as unknown as Window & {
@@ -133,13 +143,10 @@ test.describe('Embedding Host Renderer - crash a', () => {
     const before = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, before.jobId)).not.toBeNull();
 
-    const promptsNav = activeWindow
-      .getByRole('button', { name: /prompts/i })
-      .or(activeWindow.getByRole('link', { name: /prompts/i }))
-      .first();
-    await expect(promptsNav).toBeVisible({ timeout: 10_000 });
-    await promptsNav.click();
-    await expect(activeWindow.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+    const promptsTab = activeWindow.getByTestId('prompts-tab-trigger');
+    await expect(promptsTab).toBeVisible({ timeout: 10_000 });
+    await promptsTab.click();
+    await expect(activeWindow.getByRole('region', { name: 'Prompt workbench' })).toBeVisible({
       timeout: 15_000,
     });
 

@@ -65,6 +65,8 @@ describe('grep search tool', () => {
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }
+    // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
+    // stripped from the model-facing output to save tokens.
     expect(result.matches).toEqual([
       {
         after: ['omega'],
@@ -75,6 +77,10 @@ describe('grep search tool', () => {
         source: 'index',
       },
     ]);
+    const [match] = result.matches;
+    expect(match).not.toHaveProperty('chunkId');
+    expect(match).not.toHaveProperty('chunkStartLine');
+    expect(match).not.toHaveProperty('chunkEndLine');
     expect(result.truncated).toBe(false);
   });
 

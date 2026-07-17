@@ -34,7 +34,6 @@ interface ContextSelectedTokenSummaryArgs {
   sourceSelectedTokens: number;
   tapestryRangesByKey: TapestryRangeMap;
   tokenCountByFile: Map<string, number>;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 function buildLinePrefixLengths(lines: string[]): number[] {
@@ -190,10 +189,6 @@ export function computeContextSelectedTokenSummary(
     sourceSelectedTokens: args.sourceSelectedTokens,
   };
 
-  if (!args.useTapestryRangesForContextOutput) {
-    return summary;
-  }
-
   let sourceTokensFromKnownFiles = 0;
   let outputTokensFromKnownFiles = 0;
 
@@ -205,8 +200,12 @@ export function computeContextSelectedTokenSummary(
 
     sourceTokensFromKnownFiles += fullFileTokenCount;
 
+    // Invariant: absence of ranges = whole file, and a present-but-EMPTY array
+    // is equivalent to absence (empty ≡ absent) — both count full-file output
+    // tokens. A present list of all-inactive ranges stays range-adjusted
+    // (length > 0) and resolves to 0 active tokens below.
     const explicitRanges = args.tapestryRangesByKey[compositeKey];
-    if (!explicitRanges) {
+    if (!explicitRanges || explicitRanges.length === 0) {
       outputTokensFromKnownFiles += fullFileTokenCount;
       continue;
     }

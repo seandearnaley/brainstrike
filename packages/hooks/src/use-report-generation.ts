@@ -20,7 +20,6 @@ export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
-  useTapestryRanges?: boolean;
 }
 
 export interface ReportProgressEvent {
@@ -42,7 +41,6 @@ export type CreateReportGenerator = (options?: ReportGenerationWorkerOptions) =>
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges?: boolean;
 }
 
 interface UseReportGenerationProps {
@@ -170,7 +168,6 @@ export function useReportGeneration({
           ...(overrides?.selectedLineRangesByFile
             ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
             : {}),
-          useTapestryRanges: overrides?.useTapestryRanges ?? false,
         },
         (e: ReportProgressEvent) => setProgress(e)
       );

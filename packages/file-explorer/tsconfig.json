@@ -14,7 +14,8 @@
       "@brainstrike/utils/*": [
         "../utils/dist/*.d.ts"
       ]
-    }
+    },
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": [
     "src/**/*.ts",

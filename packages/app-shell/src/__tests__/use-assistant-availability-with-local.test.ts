@@ -35,6 +35,12 @@ const useEnsureModelRegistryMock = vi.mocked(useEnsureModelRegistry);
 const useModelRegistryStoreMock = vi.mocked(useModelRegistryStore);
 const getBestBuiltInLocalLlmDeviceMock = vi.mocked(getBestBuiltInLocalLlmDevice);
 
+function setModelRegistryState(state: ReturnType<typeof useModelRegistryStore>): void {
+  useModelRegistryStoreMock.mockImplementation(((
+    selector: (storeState: ReturnType<typeof useModelRegistryStore>) => unknown
+  ) => selector(state)) as typeof useModelRegistryStore);
+}
+
 describe('useAssistantAvailabilityWithLocal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,7 +50,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
   it('returns enabled when server says enabled (hosted provider)', () => {
     useAssistantAvailabilityMock.mockReturnValue({ state: 'enabled' });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: false,
       models: [],
@@ -60,7 +66,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -83,7 +89,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -106,7 +112,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [],
@@ -123,7 +129,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -146,7 +152,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -169,7 +175,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -192,7 +198,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [
@@ -212,7 +218,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
   it('returns loading when server is loading', () => {
     useAssistantAvailabilityMock.mockReturnValue({ state: 'loading' });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: false,
       models: [],
@@ -228,7 +234,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: false, // Not loaded yet
       models: [
@@ -252,7 +258,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: 'failed to load registry',
       hasLoaded: false,
       models: [],
@@ -270,7 +276,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
       state: 'disabled',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: false,
       models: [
@@ -294,7 +300,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       message: 'Network error',
       state: 'error',
     });
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [],
@@ -312,7 +318,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
     });
 
     // Start with no models
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [],
@@ -323,7 +329,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
     expect(result.current).toEqual({ reason: 'missing_api_key', state: 'disabled' });
 
     // Now models become available
-    useModelRegistryStoreMock.mockReturnValue({
+    setModelRegistryState({
       error: null,
       hasLoaded: true,
       models: [

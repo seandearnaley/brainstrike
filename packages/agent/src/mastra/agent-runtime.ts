@@ -1,27 +1,41 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
+import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
+import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
+import {
+  Agent,
+  type AgentMemoryOption,
+  type DelegationConfig,
+  type ToolsInput,
+} from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
-import { TokenLimiter } from '@mastra/core/processors';
+import { SkillsProcessor, TokenLimiter } from '@mastra/core/processors';
+import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { MastraCompositeStore } from '@mastra/core/storage';
-import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
+import type { IdGeneratorContext } from '@mastra/core/types';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
 } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import { createListingOnlyModel } from '../providers/listing-only-model';
+import { applyProviderNativeWebSearch } from '../providers/native-web-search';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
   AssistantRunEventKind,
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
+import { createAssistantSkillTools } from '../skills/skill-tools';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import { applyToolGuards } from '../tools/guard-tool-execution';
+import type { AgentHookRunner } from '../tools/hook-runner';
+import { applyToolHooks } from '../tools/hook-tool-wrap';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -31,30 +45,61 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
+import { buildPersonaSubAgents } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
+  buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  type DelegationPersonaSummary,
 } from './default-instructions';
+import {
+  ASSISTANT_MAX_PROCESSOR_RETRIES,
+  buildAssistantErrorProcessors,
+  buildProviderHistoryCompatInputProcessor,
+} from './error-processors';
+import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import {
+  createMcpRuntimeClient,
+  MCP_PROGRESS_STREAM_PART_TYPE,
+  type McpRuntimeClient,
+  mapMcpProgressStreamPart,
+} from './mcp-runtime-client';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { createPersonaPinnedModelResolver } from './persona-pinned-model';
+import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
+import {
+  createDelegationConfig,
+  createDelegationLifecycleTracker,
+  type DelegationLifecycleTracker,
+  shouldEnablePersonas,
+} from './subagent-delegation';
 import {
   mapMastraToolEvent,
   readMastraStreamPartString,
   readMastraStreamPartValue,
+  readNestedToolOutputChunk,
 } from './tool-event-mapper';
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
+  /**
+   * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
+   * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
+   * both are present. OPTIONAL — absent means no hooks (production default).
+   */
+  hookRunner?: AgentHookRunner;
   instructions?: string;
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
@@ -62,12 +107,26 @@ export interface MastraAgentRuntimeOptions {
   memory?: MastraMemory;
   model?: string;
   /**
+   * Pre-built language model to use INSTEAD of resolving provider/model. When
+   * set, `createProvider`/`getDefaultModel` are skipped entirely — the sole
+   * consumer is the suspended-run DISCOVERY path (see `createListingOnlyModel`),
+   * which needs a runtime with no inference and must not require a provider key
+   * or a static default model. Never set on a real chat/resume turn.
+   */
+  modelOverride?: MastraModelConfig;
+  /**
    * Serializable permission posture + tool risk classification used to gate the
    * tool map before the Agent is built. Overrides `runtime.permissionPolicy`
    * when both are present. OPTIONAL — when neither is set the tool map is
    * unchanged (production-default).
    */
   permissionPolicy?: PermissionToolGateSnapshot;
+  /**
+   * Built-in subagent personas the supervisor may delegate to. Server-set,
+   * agent-only (mirrors `mastraTools`). When present AND the provider is not
+   * `'local'` (D10), each persona becomes an `agent-<id>` delegation tool.
+   */
+  personas?: readonly AssistantPersonaDefinition[];
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
@@ -86,69 +145,23 @@ export interface MastraAgentRuntime {
    * lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /** Fail-loud completion check for the client-provided persisted assistant id. */
+  assertAssistantMessageIdPersisted?: () => void;
+  /**
+   * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
+   * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
+   * `subagent.*` run events keyed by the delegation toolCallId.
+   */
+  delegationToolPersonas: ReadonlyMap<string, string>;
   dispose: () => Promise<void>;
-  mcpClient?: MCPClient;
+  mcpClient?: McpRuntimeClient;
+  /** Persona id → definition for the registered delegation tools (delegation caps). */
+  personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   resilienceConfig: AssistantResilienceConfig;
   toolNameMap: Map<string, string>;
 }
 
 const logger = createLogger('MastraAgent');
-
-function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
-  if (!(config && Array.isArray(config.servers))) {
-    return {};
-  }
-
-  const map: Record<string, MCPClientOptions['servers'][string]> = {};
-
-  const buildStdio = (
-    command: string,
-    args?: string[] | undefined,
-    env?: Record<string, string> | undefined
-  ): { command: string; args?: string[]; env?: Record<string, string> } => {
-    const entry: { command: string; args?: string[]; env?: Record<string, string> } = { command };
-    if (Array.isArray(args) && args.length > 0) {
-      entry.args = args;
-    }
-    if (env && Object.keys(env).length > 0) {
-      entry.env = env;
-    }
-    return entry;
-  };
-
-  const buildSse = (
-    urlString: string,
-    headers?: Record<string, string> | undefined
-  ): MCPClientOptions['servers'][string] | undefined => {
-    try {
-      const entry: MCPClientOptions['servers'][string] = { url: new URL(urlString) };
-      if (headers && Object.keys(headers).length > 0) {
-        entry.requestInit = { headers };
-      }
-      return entry;
-    } catch {
-      return;
-    }
-  };
-
-  for (const server of config.servers) {
-    if (!server?.name) {
-      continue;
-    }
-    if (server.transport === 'stdio') {
-      map[server.name] = buildStdio(server.command, server.args, server.env);
-      continue;
-    }
-    if (server.transport === 'sse') {
-      const entry = buildSse(server.url, server.headers);
-      if (entry) {
-        map[server.name] = entry;
-      }
-    }
-  }
-
-  return map;
-}
 
 function instantiateLanguageModel(
   provider: string,
@@ -172,13 +185,37 @@ function instantiateLanguageModel(
   }
 }
 
+/** AI-SDK v5 user-content parts Mastra's MessageList accepts directly. */
+interface MastraContentTextPart {
+  text: string;
+  type: 'text';
+}
+interface MastraContentImagePart {
+  image: string;
+  mediaType: string;
+  type: 'image';
+}
+type MastraMessageContent = string | Array<MastraContentImagePart | MastraContentTextPart>;
+
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: MastraMessageContent }> {
+  const result: Array<{
+    content: MastraMessageContent;
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+  }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
+    const imageParts: MastraContentImagePart[] = [];
     for (const part of message.parts) {
+      if (part.type === 'file') {
+        // Validated image attachment (message-utils enforces the shared
+        // allowlist/caps). Emitted as the canonical AI-SDK user-message
+        // ImagePart — the shape every provider adapter converts for vision.
+        imageParts.push({ image: part.data, mediaType: part.mediaType, type: 'image' });
+        continue;
+      }
       if (part.type !== 'text') {
         continue;
       }
@@ -187,8 +224,18 @@ export function convertMessagesToMastra(
         textParts.push(trimmed);
       }
     }
+    if (imageParts.length > 0) {
+      // Content ARRAY only when an image is present; text-only messages keep
+      // the exact legacy string join for prompt stability.
+      result.push({
+        content: [...textParts.map((text) => ({ text, type: 'text' as const })), ...imageParts],
+        id: message.id,
+        role: message.role,
+      });
+      continue;
+    }
     if (textParts.length > 0) {
-      result.push({ content: textParts.join('\n\n'), role: message.role });
+      result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });
     }
   }
   return result;
@@ -260,6 +307,194 @@ function resolveAskToolsForRun(
   return { askTools: gateResult.askTools, tools: gateResult.tools };
 }
 
+interface GatedToolMapParams {
+  readonly hasStorage: boolean;
+  readonly hookedTools: ToolsInput;
+  readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
+  readonly planModeActive: boolean;
+  readonly toolNameMap: Map<string, string>;
+}
+
+/**
+ * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
+ * gate → suspend-storage gate. Extracted from `createMastraAgentRuntime` so the
+ * plan/permission/suspend conditionals live in one cohesive place (and keep the
+ * runtime builder under the cognitive-complexity ceiling). Each stage only omits
+ * tools; see the inline invariants at the call site.
+ */
+function resolveGatedToolMap(params: GatedToolMapParams): {
+  readonly gatedTools: ToolsInput;
+  readonly askTools: ResolvedAskTools['askTools'];
+} {
+  const planFilteredTools = params.planModeActive
+    ? filterToolsForPlanMode(
+        params.hookedTools,
+        params.toolNameMap,
+        params.permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
+        logger
+      )
+    : params.hookedTools;
+
+  const gateResult = filterToolsByPermissionWithMetadata(
+    planFilteredTools,
+    params.permissionSnapshot,
+    params.toolNameMap,
+    logger
+  );
+  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(
+    gateResult,
+    params.hasStorage
+  );
+  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
+  // storage, so omit the suspending tools when storage is absent (never run one
+  // that would wedge the run — no-silent-fallbacks).
+  const gatedTools = resolveSuspendToolsForRun(
+    askResolvedTools,
+    params.hasStorage,
+    params.toolNameMap,
+    logger
+  );
+  return { askTools, gatedTools };
+}
+
+interface PersonaRuntimeParts {
+  delegationToolPersonas: ReadonlyMap<string, string>;
+  hasSubAgents: boolean;
+  instructionPersonaSummaries: DelegationPersonaSummary[] | undefined;
+  personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+  subAgents: Record<string, Agent>;
+}
+
+const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
+  delegationToolPersonas: new Map(),
+  hasSubAgents: false,
+  instructionPersonaSummaries: undefined,
+  personasById: new Map(),
+  subAgents: {},
+};
+
+/**
+ * Build the persona delegation parts (child Agents + summaries) for a run.
+ * Skipped for the built-in local provider (prompt budget) and in plan mode
+ * (delegation is out of scope for planning — the `agent-<id>` tools are
+ * Mastra-constructed and never enter the plan-mode-filtered tool map, so we
+ * simply do not pass `agents`). Children re-gate the parent's GUARDED tool map
+ * (pre-permission-filter) so ask tools are omitted per the child's own gate.
+ */
+function resolvePersonaRuntimeParts(params: {
+  guardedTools: ToolsInput;
+  languageModel: MastraModelConfig;
+  permissionSnapshot: PermissionToolGateSnapshot | undefined;
+  personas: readonly AssistantPersonaDefinition[] | undefined;
+  planModeActive: boolean;
+  provider: string;
+  resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
+  toolNameMap: Map<string, string>;
+}): PersonaRuntimeParts {
+  if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
+    return EMPTY_PERSONA_RUNTIME_PARTS;
+  }
+  const personaBuild = buildPersonaSubAgents({
+    guardedTools: params.guardedTools,
+    languageModel: params.languageModel,
+    logger,
+    permissionSnapshot: params.permissionSnapshot,
+    personas: params.personas ?? [],
+    resolvePinnedModel: params.resolvePinnedModel,
+    toolNameMap: params.toolNameMap,
+  });
+  return {
+    delegationToolPersonas: personaBuild.delegationToolPersonas,
+    hasSubAgents: Object.keys(personaBuild.subAgents).length > 0,
+    instructionPersonaSummaries: Array.from(personaBuild.personasById.values(), (persona) => ({
+      description: persona.description,
+      id: persona.id,
+      label: persona.label,
+    })),
+    personasById: personaBuild.personasById,
+    subAgents: personaBuild.subAgents,
+  };
+}
+
+/**
+ * Compose the final system instructions. The built-in local model gets a compact
+ * instruction set (its 2B WebGPU prefill can't afford the hosted playbook); the
+ * hosted path advertises only the personas that actually registered a delegation
+ * tool this run. Order: instructions, budget note, task list LAST (most recent).
+ */
+function composeRuntimeInstructions(params: {
+  budgetNote: string | null;
+  instructionsOverride: string | undefined;
+  personaSummaries: DelegationPersonaSummary[] | undefined;
+  planModeActive: boolean;
+  provider: string;
+  taskListNote: string | null;
+  toolNameMap: ReadonlyMap<string, string>;
+}): string {
+  const resolvedInstructions =
+    params.instructionsOverride ??
+    (params.provider === 'local'
+      ? buildLocalDefaultInstructions(params.toolNameMap)
+      : buildDefaultInstructions(params.toolNameMap, {
+          planMode: params.planModeActive,
+          ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
+        }));
+  return [resolvedInstructions, params.budgetNote, params.taskListNote]
+    .filter((part): part is string => Boolean(part))
+    .join('\n');
+}
+
+function registerAgentWithMastra(
+  agent: Agent,
+  storage: MastraCompositeStore | undefined,
+  assistantMessageId: string | undefined
+): {
+  assertAssistantMessageIdPersisted?: () => void;
+  mastra?: Mastra;
+} {
+  if (!storage) {
+    return {};
+  }
+  const assistantMessageIdGenerator = assistantMessageId
+    ? createAssistantMessageIdGenerator(assistantMessageId)
+    : undefined;
+  const mastra = new Mastra({
+    agents: { brainstrikeAssistant: agent },
+    ...(assistantMessageIdGenerator ? { idGenerator: assistantMessageIdGenerator.generate } : {}),
+    logger: false,
+    storage,
+  });
+  return {
+    ...(assistantMessageIdGenerator
+      ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
+      : {}),
+    mastra,
+  };
+}
+
+/**
+ * Fold the skill tools into the local tool map (skills engine present) — a
+ * caller-supplied tool with a colliding id wins, loudly. Returns the original
+ * map untouched when no engine is attached.
+ */
+function mergeSkillToolsIntoLocalTools(
+  localTools: MastraAgentRuntimeOptions['tools'],
+  workspaceSkills: WorkspaceSkills | undefined
+): MastraAgentRuntimeOptions['tools'] {
+  if (!workspaceSkills) {
+    return localTools;
+  }
+  const skillTools = createAssistantSkillTools(workspaceSkills);
+  for (const skillToolId of Object.keys(skillTools)) {
+    if (localTools && skillToolId in localTools) {
+      logger.error('Local tool id collides with a reserved skill tool id; keeping the local tool', {
+        toolId: skillToolId,
+      });
+    }
+  }
+  return { ...skillTools, ...localTools } as MastraAgentRuntimeOptions['tools'];
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -271,9 +506,12 @@ export async function createMastraAgentRuntime(
     tools: localTools,
     mcpTimeoutMs,
     permissionPolicy,
+    personas,
+    hookRunner: hookRunnerOption,
     resolved,
     memory,
     storage,
+    modelOverride,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -288,18 +526,31 @@ export async function createMastraAgentRuntime(
   }
   const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
 
-  const servers = toMastraServerMap(mcpConfig ?? sanitizedRuntime.mcpConfig);
-  const hasServers = Object.keys(servers).length > 0;
-  const mcpClient = hasServers
-    ? // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
-      new MCPClient({ id: `mcp-client-${Date.now()}-${generateUUID()}`, servers })
-    : undefined;
+  const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
+  // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
+  const mcpClient = createMcpRuntimeClient({
+    config: resolvedMcpConfig,
+    id: `mcp-client-${Date.now()}-${generateUUID()}`,
+  });
+
+  // Agent Skills (desktop-injected engine): fold Mastra's canonical
+  // skill/skill_read/skill_search tools into the LOCAL tool map BEFORE
+  // sanitize/guards/hooks/plan-mode/permission — never via the Agent-level
+  // `skills` option, whose auto-added tools would bypass that whole pipeline
+  // (the adoption blocker recorded in docs/agents/workspace-context.md).
+  // Excluded for the built-in local provider (mirrors the task-list/plan-mode
+  // local gating: the 2B on-device model's context budget cannot afford skill
+  // payloads).
+  const localToolsWithSkills = mergeSkillToolsIntoLocalTools(
+    localTools,
+    normalizedProvider === 'local' ? undefined : sanitizedRuntime.workspaceSkills
+  );
 
   const toolNameMap = new Map<string, string>();
-  const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
+  const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const combinedTools = await collectCombinedTools({
     mcpClient,
-    mcpConfig: mcpConfig ?? sanitizedRuntime.mcpConfig,
+    mcpConfig: resolvedMcpConfig,
     sanitizedLocalTools,
     timeoutOverrideMs: mcpTimeoutMs,
     toolNameMap,
@@ -312,6 +563,16 @@ export async function createMastraAgentRuntime(
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
 
+  // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the
+  // permission gate. A PreToolUse hook can BLOCK an already-permitted tool but
+  // can never widen access — permission runs downstream of `execute`, so a hook
+  // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
+  // An explicit `options.hookRunner` wins over one carried on the runtime data.
+  const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
+  const hookedTools = hookRunner
+    ? applyToolHooks(guardedTools, { hookRunner, logger, toolNameMap })
+    : guardedTools;
+
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
   // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
@@ -323,57 +584,142 @@ export async function createMastraAgentRuntime(
   // with an empty askTools. An explicit `options.permissionPolicy` wins over one
   // carried on the runtime data.
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
-  const gateResult = filterToolsByPermissionWithMetadata(
-    guardedTools,
-    permissionSnapshot,
-    toolNameMap,
-    logger
-  );
-  const { tools: gatedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
 
-  // Create provider-specific model instance
-  const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel = instantiateLanguageModel(
-    normalizedProvider,
+  // Plan mode (opt-in, per-request; NEVER for the built-in local provider — it
+  // mirrors the local gating on the task-list tool/note): constrain the tool map
+  // to read/mcp + the suspending tools (submitPlan/askUser) and omit every
+  // edit/execute tool, BEFORE the permission gate (a dropped mutation tool is
+  // dropped regardless of allow/ask/deny). The risk map is the authoritative
+  // static registry classification (never client-supplied).
+  const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
+  const { gatedTools, askTools } = resolveGatedToolMap({
+    hasStorage: Boolean(storage),
+    hookedTools,
+    permissionSnapshot,
+    planModeActive,
+    toolNameMap,
+  });
+
+  // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
+  // so it uses the gate's authoritative decision — swap the web-search entry to
+  // the provider-executed tool ONLY when it resolved to `allow`; on `ask`/`deny`
+  // the execute-backed Tavily tool stays (a provider-native tool has no execute
+  // and cannot be approval-gated). Guarded to supported providers, so every other
+  // caller/path is unchanged (see native-web-search.ts).
+  const finalTools = applyProviderNativeWebSearch({
     apiKey,
-    modelName,
-    sanitizedRuntime
-  );
+    askTools,
+    logger,
+    provider: normalizedProvider,
+    toolNameMap,
+    tools: gatedTools,
+  });
+
+  // Create provider-specific model instance. The DISCOVERY path passes
+  // `modelOverride` (an inert listing-only model) so provider/model are never
+  // resolved — listing suspended runs performs no inference and must not require
+  // a provider key or a static default model.
+  const modelName = model ?? getDefaultModel(normalizedProvider);
+  const languageModel =
+    modelOverride ??
+    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
   const budgetNote = buildContextBudgetNote(sanitizedRuntime.agentLoop?.inputTokenLimit);
-  // The built-in local model gets a compact instruction set: the hosted
-  // playbook overwhelms a 2B on-device model and bloats the WebGPU prefill.
-  const resolvedInstructions =
-    instructions ??
-    (normalizedProvider === 'local'
-      ? buildLocalDefaultInstructions(toolNameMap)
-      : buildDefaultInstructions(toolNameMap));
-  const agent = new Agent({
-    id: 'brainstrike-assistant',
-    instructions: budgetNote ? `${resolvedInstructions}\n${budgetNote}` : resolvedInstructions,
-    model: languageModel,
-    name: 'Brainstrike Assistant',
-    tools: gatedTools,
-    ...(memory ? { memory } : {}),
+  // The current per-thread plan, re-serialized into the instructions every turn
+  // (the loop's TokenLimiter never trims the system instructions), so it
+  // survives observational-memory truncation. Absent list → null (no block).
+  // The built-in local provider never gets this block (its own manageTaskList
+  // tool is also omitted from the tool map — see buildDesktopAssistantTools):
+  // the tiny on-device model's WebGPU prefill budget cannot afford it. Gated
+  // here too (not just at the caller's DB-read site) so a caller that still
+  // threads a populated taskList through can never leak it into a local run.
+  const taskListNote =
+    normalizedProvider === 'local' ? null : buildCurrentTaskListNote(sanitizedRuntime.taskList);
+  // Instructions must reflect the FINAL tool map the Agent actually receives:
+  // the plan-mode filter, permission gate, and suspend-storage gate all omit
+  // tools BEFORE this point, so building guidance from the raw `toolNameMap`
+  // would advertise (name + usage block) tools the model can no longer call —
+  // e.g. plan mode still listing writeWorkspaceFile/executeCommand. Restrict the
+  // name map to the sanitized ids present in `gatedTools` (both are keyed by the
+  // same sanitized id — see sanitizeTools) so an omitted tool is never advertised.
+  const effectiveToolNameMap = new Map(
+    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in finalTools)
+  );
+
+  // Subagent personas (D10): built BEFORE the instructions so guidance only
+  // names personas that actually registered a delegation tool this run.
+  const {
+    delegationToolPersonas,
+    hasSubAgents,
+    instructionPersonaSummaries,
+    personasById,
+    subAgents,
+  } = resolvePersonaRuntimeParts({
+    guardedTools,
+    languageModel,
+    permissionSnapshot,
+    personas,
+    planModeActive,
+    provider: normalizedProvider,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
+    toolNameMap,
   });
 
-  const mastra = storage
-    ? new Mastra({
-        agents: { brainstrikeAssistant: agent },
-        logger: false,
-        storage,
-      })
-    : undefined;
+  const composedInstructions = composeRuntimeInstructions({
+    budgetNote,
+    instructionsOverride: instructions,
+    personaSummaries: instructionPersonaSummaries,
+    planModeActive,
+    provider: normalizedProvider,
+    taskListNote,
+    toolNameMap: effectiveToolNameMap,
+  });
+
+  // Error-processor resilience layer (PrefillErrorHandler +
+  // StreamErrorRetryProcessor + ProviderHistoryCompat's reactive rules) on the
+  // Agent-config `errorProcessors` seam — the ONE processor array a per-call
+  // override never clobbers (the per-call TokenLimiter only replaces
+  // `inputProcessors`). Excluded for the built-in local provider. When present
+  // we MUST pin `maxProcessorRetries`: any errorProcessors flips Mastra's
+  // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See docs/agents/assistant-runtime.md
+  // ASSISTANT RESILIENCE.
+  const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
+  const agent = new Agent({
+    id: 'brainstrike-assistant',
+    instructions: composedInstructions,
+    model: languageModel,
+    name: 'Brainstrike Assistant',
+    tools: finalTools,
+    ...(hasSubAgents ? { agents: subAgents } : {}),
+    ...(memory ? { memory } : {}),
+    ...(errorProcessors
+      ? { errorProcessors, maxProcessorRetries: ASSISTANT_MAX_PROCESSOR_RETRIES }
+      : {}),
+  });
+
+  const { mastra, ...assistantIdentityRuntime } = registerAgentWithMastra(
+    agent,
+    storage,
+    runtime?.assistantMessageId
+  );
 
   return {
     agent,
+    ...assistantIdentityRuntime,
     askTools,
+    delegationToolPersonas,
     dispose: async () => {
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
+    personasById,
     resilienceConfig,
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
@@ -424,8 +770,9 @@ interface MastraStreamPart {
     tripwireReason?: string;
     stepResult?: { reason?: unknown };
     output?: { usage?: UsageLike };
-    metadata?: { usage?: UsageLike };
+    metadata?: { providerMetadata?: unknown; usage?: UsageLike };
   };
+  providerMetadata?: unknown;
   runId?: unknown;
   text?: string;
   textDelta?: string;
@@ -441,7 +788,39 @@ function asMastraStreamPart(part: unknown): MastraStreamPart {
   return { type: 'unknown' };
 }
 
-function makeFinishChunk(part: unknown): StreamChunk {
+function readOpenRouterBilledCost(part: MastraStreamPart): number | undefined {
+  const providerMetadata = part.payload?.metadata?.providerMetadata ?? part.providerMetadata;
+  if (providerMetadata === undefined) {
+    return;
+  }
+  if (!providerMetadata || typeof providerMetadata !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const openrouter = (providerMetadata as Record<string, unknown>)['openrouter'];
+  if (openrouter === undefined) {
+    return;
+  }
+  if (!openrouter || typeof openrouter !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const usage = (openrouter as Record<string, unknown>)['usage'];
+  if (usage === undefined) {
+    return;
+  }
+  if (!usage || typeof usage !== 'object') {
+    throw new Error('OpenRouter usage metadata must be an object.');
+  }
+  const cost = (usage as Record<string, unknown>)['cost'];
+  if (cost === undefined) {
+    return;
+  }
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
+    throw new Error('OpenRouter billed cost must be a finite, non-negative number.');
+  }
+  return cost;
+}
+
+function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
   const usageCandidates: Array<UsageLike | undefined> = [
     p.usage,
@@ -453,7 +832,25 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
+  const finishCost = readOpenRouterBilledCost(p);
+  if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
+    // Mastra makes terminal token usage cumulative, but copies providerMetadata
+    // from only the final model step. A terminal cost therefore cannot repair a
+    // missing earlier step without silently undercounting the provider bill.
+    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
+  }
+  if (
+    lifecycleState.requiresBilledCost &&
+    !lifecycleState.sawStepBilledCost &&
+    finishCost === undefined
+  ) {
+    throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
+  }
+  const billedCostUsd = lifecycleState.sawStepBilledCost
+    ? lifecycleState.stepBilledCostUsd
+    : finishCost;
   return {
+    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
     path: [],
     type: 'message-finish',
@@ -578,8 +975,26 @@ interface OutputOnlyToolEvent {
 }
 
 interface ToolLifecycleState {
+  delegationLifecycle: DelegationLifecycleTracker;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
+  requiresBilledCost: boolean;
+  sawStepBilledCost: boolean;
+  sawStepWithoutBilledCost: boolean;
+  stepBilledCostUsd: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+}
+
+/**
+ * Terminal `subagent.failed` (cancelled) chunks for every delegation still in
+ * flight when the parent run aborts — so a cancelled parent never leaves an
+ * orphaned `subagent.started` with no counterpart.
+ */
+function makeCancelledDelegationRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
+  return lifecycleState.delegationLifecycle
+    .drainInFlight()
+    .map((metadata) =>
+      makeRunEventChunk('subagent.failed', 'cancelled', 'Subagent cancelled', metadata)
+    );
 }
 
 function getToolEventPayload(toolEvent: StreamChunkTool): AssistantRunEventMetadata | undefined {
@@ -828,9 +1243,210 @@ function makeApprovalRequiredChunks(
   ];
 }
 
+/**
+ * Turn a `tool-call-suspended` stream part (emitted when a suspending tool calls
+ * `suspend()`) into the resumable `tool-suspend-required` chunk + a tool-calls
+ * finish. Mirrors {@link makeApprovalRequiredChunks} but carries the tool-defined
+ * `suspendPayload` (plan body / question) instead of approval-risk metadata. When
+ * the pause is malformed (missing toolCallId/runId) we fall back to the existing
+ * unsupported-termination so a bad pause fails visibly rather than silently.
+ */
+function makeToolSuspendRequiredChunks(
+  part: unknown,
+  toolNames: Map<string, string>,
+  sanitizedNameMap: Map<string, string> | undefined
+): StreamChunk[] {
+  const toolCallId =
+    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
+  const runId = readMastraStreamPartString(part, 'runId');
+  if (!(toolCallId && runId)) {
+    return makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, 'tool-call-suspended');
+  }
+
+  const rawToolName =
+    readMastraStreamPartString(part, 'toolName') ??
+    readMastraStreamPartString(part, 'name') ??
+    toolNames.get(toolCallId) ??
+    'unknown-tool';
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
+  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
+
+  logger.info('mastra tool suspend pause surfaced for client resume', {
+    code: 'mastra_agent_tool_suspend_required',
+    runId,
+    toolCallId,
+    toolName,
+  });
+
+  return [
+    {
+      runId,
+      toolCallId,
+      toolName,
+      type: 'tool-suspend-required',
+      ...(suspendPayload === undefined ? {} : { suspendPayload }),
+      ...(resumeSchema === undefined ? {} : { resumeSchema }),
+    },
+    makeToolCallsFinishChunk(),
+  ];
+}
+
 interface ProcessStreamPartResult {
   chunks: StreamChunk[];
   finished: boolean;
+}
+
+/**
+ * Resolve the delegation persona id for a parent `tool-call`/`tool-result`/
+ * `tool-error` part whose tool is an `agent-<key>` delegation tool, or undefined
+ * when it is an ordinary tool. Delegation tool names are Mastra-constructed
+ * (`agent-<personaId>`) and never enter the sanitized name map, so the raw
+ * toolName equals the key we look up.
+ */
+function resolveDelegationPersona(
+  part: unknown,
+  toolNames: Map<string, string>,
+  delegationToolPersonas: ReadonlyMap<string, string>
+): { parentToolCallId: string | undefined; personaId: string; toolName: string } | undefined {
+  if (delegationToolPersonas.size === 0) {
+    return;
+  }
+  const callId =
+    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
+  const rawToolName =
+    readMastraStreamPartString(part, 'toolName') ??
+    readMastraStreamPartString(part, 'name') ??
+    (callId ? toolNames.get(callId) : undefined);
+  if (!rawToolName) {
+    return;
+  }
+  const personaId = delegationToolPersonas.get(rawToolName);
+  if (!personaId) {
+    return;
+  }
+  return { parentToolCallId: callId, personaId, toolName: rawToolName };
+}
+
+/**
+ * Map a delegation `tool-output` part (nested child chunk forwarded on the parent
+ * stream, §2.5) into `subagent.tool.*` run events. The generic `mapMastraToolEvent`
+ * path is deliberately BYPASSED for these parts (it would emit a bogus
+ * successful tool event + `toolCallResult` frame per nested chunk). Child
+ * text/reasoning/step/finish chunks produce NOTHING.
+ */
+function mapDelegationToolOutput(
+  part: unknown,
+  parentToolCallId: string | undefined,
+  personaId: string,
+  delegationToolName: string
+): StreamChunk[] {
+  const nested = readNestedToolOutputChunk(part);
+  if (!nested) {
+    return [];
+  }
+  const baseMetadata: AssistantRunEventMetadata = {
+    personaId,
+    ...(parentToolCallId ? { parentToolCallId } : {}),
+    toolName: delegationToolName,
+  };
+  const childMetadata: AssistantRunEventMetadata = {
+    ...baseMetadata,
+    ...(nested.toolCallId ? { toolCallId: nested.toolCallId } : {}),
+    ...(nested.toolName ? { childToolName: nested.toolName } : {}),
+  };
+  if (nested.type === 'tool-call') {
+    return [
+      makeRunEventChunk('subagent.tool.started', 'running', 'Subagent tool started', childMetadata),
+    ];
+  }
+  if (nested.type === 'tool-result') {
+    return [
+      nested.isError
+        ? makeRunEventChunk('subagent.tool.failed', 'failed', 'Subagent tool failed', childMetadata)
+        : makeRunEventChunk(
+            'subagent.tool.completed',
+            'completed',
+            'Subagent tool completed',
+            childMetadata
+          ),
+    ];
+  }
+  if (nested.type === 'tool-error') {
+    return [
+      makeRunEventChunk('subagent.tool.failed', 'failed', 'Subagent tool failed', childMetadata),
+    ];
+  }
+  return [];
+}
+
+/** The generic (non-delegation) tool-event mapping shared by every tool part. */
+function mapGenericToolEvent(
+  part: unknown,
+  toolNames: Map<string, string>,
+  lifecycleState: ToolLifecycleState,
+  partType: string,
+  sanitizedNameMap?: Map<string, string>
+): ProcessStreamPartResult {
+  const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
+  if (!(evt && evt.type === 'tool-event')) {
+    return { chunks: [], finished: false };
+  }
+  const runEvent = makeToolLifecycleRunEventChunk(evt, partType, lifecycleState);
+  return {
+    chunks: runEvent ? [evt, runEvent] : [evt],
+    finished: false,
+  };
+}
+
+/** The subagent.* run event that mirrors a delegation tool-call/result/error. */
+function makeSubagentLifecycleChunk(
+  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  metadata: AssistantRunEventMetadata
+): StreamChunk {
+  if (partType === 'tool-call') {
+    return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
+  }
+  if (partType === 'tool-error') {
+    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent failed', metadata);
+  }
+  return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
+}
+
+/**
+ * A delegation tool-call/result/error part: the generic tool event PLUS a
+ * mirrored subagent.* run event, while tracking the delegation's in-flight
+ * lifecycle so an aborted run can emit a terminal event for orphans.
+ */
+function mapToolLifecyclePart(
+  part: unknown,
+  toolNames: Map<string, string>,
+  lifecycleState: ToolLifecycleState,
+  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  sanitizedNameMap: Map<string, string> | undefined,
+  delegationToolPersonas: ReadonlyMap<string, string>
+): ProcessStreamPartResult {
+  const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
+  const generic = mapGenericToolEvent(part, toolNames, lifecycleState, partType, sanitizedNameMap);
+  if (!delegation) {
+    return generic;
+  }
+  const metadata: AssistantRunEventMetadata = {
+    personaId: delegation.personaId,
+    toolName: delegation.toolName,
+    ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),
+  };
+  if (delegation.parentToolCallId) {
+    if (partType === 'tool-call') {
+      lifecycleState.delegationLifecycle.started(delegation.parentToolCallId, metadata);
+    } else {
+      lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
+    }
+  }
+  return {
+    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata)],
+    finished: false,
+  };
 }
 
 function processMastraStreamPart(
@@ -838,7 +1454,8 @@ function processMastraStreamPart(
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
   sanitizedNameMap?: Map<string, string>,
-  askTools?: ReadonlyMap<string, PermissionAskToolMetadata>
+  askTools?: ReadonlyMap<string, PermissionAskToolMetadata>,
+  delegationToolPersonas: ReadonlyMap<string, string> = new Map()
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
 
@@ -879,7 +1496,14 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
-    case 'step-finish':
+    case 'step-finish': {
+      const billedCostUsd = readOpenRouterBilledCost(p);
+      if (billedCostUsd === undefined) {
+        lifecycleState.sawStepWithoutBilledCost = true;
+      } else {
+        lifecycleState.sawStepBilledCost = true;
+        lifecycleState.stepBilledCostUsd += billedCostUsd;
+      }
       return {
         chunks: [
           makeRunEventChunk(
@@ -891,6 +1515,7 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
+    }
     case 'finish': {
       return {
         chunks: [
@@ -901,28 +1526,45 @@ function processMastraStreamPart(
             'Assistant run completed',
             makeStepMetadata(part)
           ),
-          makeFinishChunk(part),
+          makeFinishChunk(part, lifecycleState),
         ],
         finished: true,
       };
     }
+    case 'tool-output': {
+      // Delegation `tool-output` = a nested child chunk forwarded on the parent
+      // stream. BYPASS the generic tool-event path (it would emit a bogus
+      // successful tool event + a `toolCallResult` frame per nested chunk,
+      // flooding the UI) and translate to `subagent.tool.*` run events instead.
+      const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
+      if (delegation) {
+        return {
+          chunks: mapDelegationToolOutput(
+            part,
+            delegation.parentToolCallId,
+            delegation.personaId,
+            delegation.toolName
+          ),
+          finished: false,
+        };
+      }
+      return mapGenericToolEvent(part, toolNames, lifecycleState, p.type, sanitizedNameMap);
+    }
     case 'tool-call':
+    case 'tool-result':
+    case 'tool-error':
+      return mapToolLifecyclePart(
+        part,
+        toolNames,
+        lifecycleState,
+        p.type,
+        sanitizedNameMap,
+        delegationToolPersonas
+      );
     case 'tool-call-input-streaming-start':
     case 'tool-call-delta':
     case 'tool-call-input-streaming-end':
-    case 'tool-result':
-    case 'tool-error':
-    case 'tool-output': {
-      const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
-      if (!(evt && evt.type === 'tool-event')) {
-        return { chunks: [], finished: false };
-      }
-      const runEvent = makeToolLifecycleRunEventChunk(evt, p.type, lifecycleState);
-      return {
-        chunks: runEvent ? [evt, runEvent] : [evt],
-        finished: false,
-      };
-    }
+      return mapGenericToolEvent(part, toolNames, lifecycleState, p.type, sanitizedNameMap);
     case 'tool-call-approval':
       // Stop at the first approval pause and surface resumable metadata. Later
       // stream parts are only valid after an explicit approve/decline action.
@@ -934,13 +1576,13 @@ function processMastraStreamPart(
         finished: true,
       };
     case 'tool-call-suspended':
-      // This client cannot resume suspended tool calls yet, so stop at the
-      // first pause instead of consuming later stream parts that would imply
-      // forward progress.
+      // A suspending tool (submitPlan/askUser) paused via suspend(). Surface the
+      // resumable suspend metadata and STOP at the pause; later stream parts are
+      // only valid after an explicit resume (streamMastraToolResumeAction).
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          ...makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+          ...makeToolSuspendRequiredChunks(part, toolNames, sanitizedNameMap),
         ],
         finished: true,
       };
@@ -953,7 +1595,7 @@ function processMastraStreamPart(
       // and an error finish so the thread reaches a terminal state. Previously
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
-      // "Generation step started" (the "large white pause"). See AGENTS.md.
+      // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
       return makeProviderErrorTermination(
         extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
         lifecycleState,
@@ -969,6 +1611,18 @@ function processMastraStreamPart(
         lifecycleState,
         part
       );
+    }
+    case SHELL_OUTPUT_STREAM_PART_TYPE: {
+      // A live shell-output slice streamed by executeCommand via `writer.custom`.
+      // Transient (never persisted): it rides its own StreamChunk type so the
+      // server's run-event persistence tap ignores it. A malformed slice is
+      // dropped rather than mis-attributed.
+      const shellOutput = mapShellOutputStreamPart(part);
+      return { chunks: shellOutput ? [shellOutput] : [], finished: false };
+    }
+    case MCP_PROGRESS_STREAM_PART_TYPE: {
+      const progress = mapMcpProgressStreamPart(part);
+      return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
       return { chunks: [], finished: false };
@@ -999,7 +1653,7 @@ function makeProviderErrorTermination(
   // invisible server-side — the `mastra_agent_stream_finished` success line in
   // the finally block would be the only record. Log at error level with a
   // distinct code so these stay diagnosable even though the user sees a clean
-  // message. (Per AGENTS.md "Feedback & Observability".) The FULL detail goes to
+  // message. (Per AGENTS.md's observability working rule.) The FULL detail goes to
   // the log; the visible message is clamped below.
   logger.error('mastra stream terminated by provider error', {
     code: 'mastra_agent_stream_provider_error',
@@ -1025,21 +1679,41 @@ function makeProviderErrorTermination(
 
 function makeStreamStalledTermination(
   error: StreamStalledError,
-  lifecycleState: ToolLifecycleState
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
 ): StreamChunk[] {
-  logger.error('mastra stream stalled by inactivity timeout', {
-    code: 'mastra_agent_stream_inactivity_timeout',
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const localRuntimeName =
+    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  const diagnosticContext = {
     inactivityMs: error.inactivityMs,
-  });
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    {
+      code: 'mastra_agent_stream_inactivity_timeout',
+      ...diagnosticContext,
+    },
+    'mastra stream stalled by inactivity timeout'
+  );
+  const visibleMessage =
+    localRuntimeName && model
+      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
+      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
   return [
+    // A stall mid-delegation must never leave an orphaned `subagent.started`
+    // with no terminal counterpart — mirror the abort branches' drain.
+    ...makeCancelledDelegationRunEventChunks(lifecycleState),
     ...makePendingToolOutputRunEventChunks(lifecycleState),
     {
       type: 'text-delta',
-      value: `The model stream stalled after ${error.inactivityMs}ms without output.`,
+      value: visibleMessage,
     },
     makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
       code: error.code,
-      inactivityMs: error.inactivityMs,
+      ...diagnosticContext,
     }),
     makeErrorFinishChunk(),
   ];
@@ -1086,16 +1760,19 @@ async function initializeMastraRuntime(
     const resolvedModel =
       options.model && options.model.length > 0
         ? options.model
-        : (getDefaultModel(runtimeResolution.provider) ?? '');
-    logger.info('mastra runtime initialized', {
-      code: 'mastra_agent_runtime_initialized',
-      // Empty string means the caller did not specify a model AND the
-      // provider has no static default (e.g. local runtimes whose models are
-      // discovered dynamically). This is a real failure mode worth logging.
-      model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
-      provider: runtimeResolution.provider,
-      toolCount: Object.keys(options.tools ?? {}).length,
-    });
+        : (runtimeResolution.runtime.model ?? getDefaultModel(runtimeResolution.provider) ?? '');
+    logger.info(
+      {
+        code: 'mastra_agent_runtime_initialized',
+        // Empty string means the caller did not specify a model AND the
+        // provider has no static default (e.g. local runtimes whose models are
+        // discovered dynamically). This is a real failure mode worth logging.
+        model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
+        provider: runtimeResolution.provider,
+        toolCount: Object.keys(options.tools ?? {}).length,
+      },
+      'mastra runtime initialized'
+    );
     return { runtime: instance, sanitizedNameMap: instance.toolNameMap };
   } catch (err) {
     logger.error('mastra runtime init failed', {
@@ -1154,14 +1831,115 @@ interface ToolApprovalIterationParams {
   sanitizedNameMap?: Map<string, string>;
 }
 
+/**
+ * Per-call approval decision, matching Mastra's `RequireToolApproval` union
+ * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
+ * the resume leg uses it to exempt Mastra-internal tools (see
+ * {@link resolveResumeApprovalGate}).
+ */
+type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
+
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
+  delegation?: DelegationConfig;
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
-  requireToolApproval?: boolean;
+  requireToolApproval?: ApprovalGate;
+}
+
+const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 4096;
+
+function buildModelSettingsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
+  const modelSettings =
+    runtimeData?.provider === 'openrouter'
+      ? {
+          maxOutputTokens: DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
+          ...runtimeData.modelSettings,
+        }
+      : runtimeData?.modelSettings;
+  return modelSettings ? { modelSettings } : {};
+}
+
+/**
+ * Keep Brainstrike's local-server transport settings out of Mastra generation
+ * options. Mastra namespaces compatible-provider options by the model id's
+ * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
+ * serialize `baseUrl` and `apiToken` into the chat-completions request body.
+ */
+function buildGenerationProviderOptionsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'providerOptions'> {
+  const providerOptions = runtimeData?.providerOptions;
+  if (!providerOptions) {
+    return {};
+  }
+  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
+    return { providerOptions };
+  }
+
+  const generationProviderOptions = Object.fromEntries(
+    Object.entries(providerOptions).filter(
+      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
+    )
+  ) as NonNullable<RuntimeData['providerOptions']>;
+  if (Object.keys(generationProviderOptions).length === 0) {
+    return {};
+  }
+  return { providerOptions: generationProviderOptions };
+}
+
+interface AssistantMessageIdGenerator {
+  assertConsumed: () => void;
+  generate: (context?: IdGeneratorContext) => string;
+}
+
+function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
+} {
+  const assistantMessageId = runtimeData?.assistantMessageId;
+  if (!assistantMessageId) {
+    return {};
+  }
+  return {
+    // The stream and persistence paths each consume their own one-shot
+    // generator. Sharing one would make whichever Mastra path runs first force
+    // the other to a UUID, breaking visible/persisted identity alignment.
+    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
+  };
+}
+
+function createAssistantMessageIdGenerator(initialMessageId: string): AssistantMessageIdGenerator {
+  let nextMessageId: string | undefined = initialMessageId;
+  return {
+    assertConsumed() {
+      if (nextMessageId === undefined) {
+        return;
+      }
+      throw new Error(
+        `Mastra completed without persisting assistant message ID "${initialMessageId}" through its memory ID context.`
+      );
+    },
+    generate(context?: IdGeneratorContext) {
+      if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+        return generateUUID();
+      }
+      if (nextMessageId !== undefined) {
+        const messageId = nextMessageId;
+        nextMessageId = undefined;
+        return messageId;
+      }
+      return generateUUID();
+    },
+  };
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -1212,13 +1990,35 @@ function buildToolLoopOptions(
     agentLoop?.inputTokenLimit,
     'agentLoop.inputTokenLimit'
   );
-  const inputProcessors: unknown[] | undefined = inputTokenLimit
-    ? [new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })]
+  // ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip
+  // foreign/unsupported reasoning before a provider that would reject it — the
+  // only place cross-provider reasoning incompatibility is handled) fire ONLY
+  // from `inputProcessors`, never `errorProcessors` (verified against the
+  // compiled loop). It rides the SAME per-call array as the TokenLimiter so the
+  // per-call replacement doesn't drop either; their hooks are disjoint stages,
+  // so token trimming is unaffected. Excluded for the local provider.
+  const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
+  const tokenLimiter = inputTokenLimit
+    ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
     : undefined;
+  // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
+  // own SkillsProcessor puts the <available_skills> block into the system
+  // message each input step. It rides the SAME per-call inputProcessors array
+  // as the TokenLimiter (per-call options REPLACE the Agent-config array, so it
+  // cannot live on the Agent config) and runs FIRST so the limiter counts the
+  // injected block. Excluded for the built-in local provider — mirrors the
+  // tool-map gate in createMastraAgentRuntime.
+  const skillsProcessor =
+    runtimeData?.workspaceSkills && runtimeData.provider !== 'local'
+      ? new SkillsProcessor({ skills: runtimeData.workspaceSkills })
+      : undefined;
+  const inputProcessors: unknown[] = [skillsProcessor, tokenLimiter, historyCompat].filter(
+    (processor): processor is NonNullable<typeof processor> => processor !== undefined
+  );
 
   return {
     maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-    ...(inputProcessors ? { inputProcessors } : {}),
+    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
   };
 }
 
@@ -1269,7 +2069,12 @@ async function* streamChunksFromMastra({
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
+    delegationLifecycle: createDelegationLifecycleTracker(),
     outputOnlyToolEvents: new Map(),
+    requiresBilledCost: runtimeData?.provider === 'openrouter',
+    sawStepBilledCost: false,
+    sawStepWithoutBilledCost: false,
+    stepBilledCostUsd: 0,
     terminalToolCallStates: new Map(),
   };
 
@@ -1284,44 +2089,58 @@ async function* streamChunksFromMastra({
         toolNames,
         lifecycleState,
         sanitizedNameMap,
-        runtime.askTools
+        runtime.askTools,
+        runtime.delegationToolPersonas
       );
       for (const chunk of chunks) {
         yield chunk;
       }
 
       if (finished) {
+        runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
-    if (!runtimeData?.signal?.aborted) {
-      logger.warn('mastra stream ended without finish event', {
-        code: 'mastra_agent_stream_missing_finish',
-      });
-      for (const chunk of makePendingToolOutputRunEventChunks(lifecycleState)) {
-        yield chunk;
-      }
-      yield makeSyntheticFinishChunk();
+    // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
+    // never leave a forever-"running" subagent.started). Otherwise finalize a
+    // missing-finish stream with pending tool output + a synthetic finish.
+    const endChunks = runtimeData?.signal?.aborted
+      ? makeCancelledDelegationRunEventChunks(lifecycleState)
+      : makeMissingFinishStreamChunks(lifecycleState);
+    for (const chunk of endChunks) {
+      yield chunk;
     }
   } catch (error) {
-    if (error instanceof StreamStalledError) {
-      if (runtimeData?.signal?.aborted) {
-        return;
-      }
-      for (const chunk of makeStreamStalledTermination(error, lifecycleState)) {
-        yield chunk;
-      }
-      return;
+    if (!(error instanceof StreamStalledError)) {
+      throw error;
     }
-    throw error;
+    const stalledChunks = runtimeData?.signal?.aborted
+      ? makeCancelledDelegationRunEventChunks(lifecycleState)
+      : makeStreamStalledTermination(error, lifecycleState, runtimeData);
+    for (const chunk of stalledChunks) {
+      yield chunk;
+    }
+    return;
   } finally {
-    if (runtimeData?.signal?.aborted) {
-      logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
-    } else {
-      logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
-    }
+    logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
     await runtime?.dispose();
   }
+}
+
+/** Post-loop chunks when a stream ends WITHOUT a finish event (not aborted). */
+function makeMissingFinishStreamChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
+  logger.warn('mastra stream ended without finish event', {
+    code: 'mastra_agent_stream_missing_finish',
+  });
+  return [...makePendingToolOutputRunEventChunks(lifecycleState), makeSyntheticFinishChunk()];
+}
+
+function logStreamOutcome(aborted: boolean): void {
+  if (aborted) {
+    logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
+    return;
+  }
+  logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
 }
 
 async function createStreamIteratorFromRuntime({
@@ -1341,9 +2160,15 @@ async function createStreamIteratorFromRuntime({
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
+      // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
+      // rejection (only when the run has registered personas).
+      ...(runtime.personasById.size > 0
+        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+        : {}),
       // When enabled, Mastra pauses before tool execution and emits resumable
       // approval metadata for the UI action bridge.
       ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
@@ -1353,7 +2178,14 @@ async function createStreamIteratorFromRuntime({
     const streamResult = resolvedStreamOptions
       ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
       : await runtime.agent.stream(streamInput);
-    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
+    logger.info(
+      {
+        code: 'mastra_agent_stream_started',
+        ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+        ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+      },
+      'mastra stream started'
+    );
 
     const fullStream = resolveFullStream(streamResult);
     if (!fullStream) {
@@ -1386,6 +2218,29 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
   }
 }
 
+/**
+ * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
+ * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
+ * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
+ * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
+ * allowed read/state tools run free, ask-gated mutations can suspend again, and
+ * Mastra's internal memory tools remain exempt. An empty ask set means the
+ * approval was explicitly global rather than policy-scoped, so every
+ * non-internal follow-up remains gated. A caller-supplied function or a
+ * non-`true` value passes through unchanged.
+ */
+function resolveResumeApprovalGate(
+  requireToolApproval: ApprovalGate | undefined,
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>
+): ApprovalGate {
+  if (requireToolApproval !== true) {
+    return requireToolApproval ?? false;
+  }
+  const isExplicitGlobalApproval = askTools.size === 0;
+  return ({ toolName }: { toolName: string }): boolean =>
+    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
+}
+
 async function createToolApprovalIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -1405,10 +2260,22 @@ async function createToolApprovalIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
-      ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
+      // Resume keeps the delegation rails so a resumed run still caps/rejects
+      // subagent delegations consistently with the initial turn.
+      ...(runtime.personasById.size > 0
+        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+        : {}),
+      // Reapply the per-tool permission decisions instead of letting Mastra's
+      // run-wide resume flag gate every subsequent tool call.
+      ...(requireToolApproval === undefined
+        ? {}
+        : {
+            requireToolApproval: resolveResumeApprovalGate(requireToolApproval, runtime.askTools),
+          }),
     };
 
     const streamResult =
@@ -1487,7 +2354,7 @@ export async function streamMastraAgent(
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
     ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }
@@ -1520,6 +2387,12 @@ function withRuntimeDerivedStreamOptions(
   if (derived.model === undefined && runtimeData.model) {
     derived.model = runtimeData.model;
   }
+  // Personas ride the same resume-parity seam: without this, the approval-resume
+  // path rebuilds the supervisor WITHOUT its `agent-<id>` delegation tools (the
+  // documented write-on-approval bug class applied to delegation).
+  if (derived.personas === undefined && runtimeData.personas) {
+    derived.personas = runtimeData.personas;
+  }
   return derived;
 }
 
@@ -1551,7 +2424,220 @@ export async function streamMastraToolApprovalAction(
     ...(options.requireToolApproval === undefined
       ? {}
       : { requireToolApproval: options.requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
+    ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+  });
+}
+
+export interface DiscoveredSuspendedApproval {
+  readonly args?: unknown;
+  readonly runId: string;
+  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
+  readonly suspendedAt: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export interface ListSuspendedApprovalsResult {
+  readonly approvals: readonly DiscoveredSuspendedApproval[];
+}
+
+/**
+ * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
+ * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
+ * sanctioned `agent.listSuspendedRuns` — it holds no in-memory stream handle, so
+ * it works after a process restart / renderer reload given only the thread
+ * context. It is INERT: listing performs no inference and never resumes a run.
+ *
+ * Returns ONLY approval-gated tool calls (`requiresApproval === true`) that carry
+ * a `toolCallId` + `toolName`. Non-approval `suspend()` pauses (submitPlan/askUser)
+ * and delegation-thread runs are tolerated and skipped without error (logged at
+ * debug) — a unified suspend rediscovery is a follow-up. Storage is REQUIRED (no
+ * storage ⇒ no discovery, never a silent empty result).
+ */
+export async function listSuspendedMastraRuns(
+  filter: { readonly threadId: string; readonly resourceId: string },
+  options: MastraAgentRuntimeOptions = {}
+): Promise<ListSuspendedApprovalsResult> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to discover suspended approvals.',
+    });
+  }
+
+  const runtimeResolution = resolveRuntimeConfiguration(options.runtime);
+  // Listing performs NO inference: build the runtime with an inert model so no
+  // provider/model is resolved. This is why the discovery route can pass a
+  // keyless provider with no static default (e.g. ollama) without the
+  // `No default model configured` init throw (the D1 fix).
+  const { runtime } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions({ ...options, modelOverride: createListingOnlyModel() }),
+    runtimeResolution
+  );
+
+  try {
+    const { runs } = await runtime.agent.listSuspendedRuns({
+      resourceId: filter.resourceId,
+      threadId: filter.threadId,
+    });
+
+    const approvals: DiscoveredSuspendedApproval[] = [];
+    for (const run of runs) {
+      const suspendedAt = run.suspendedAt.toISOString();
+      for (const toolCall of run.toolCalls) {
+        if (!(toolCall.requiresApproval && toolCall.toolCallId && toolCall.toolName)) {
+          logger.debug('skipping non-approval suspended tool call', {
+            code: 'mastra_agent_suspended_run_skipped',
+            requiresApproval: toolCall.requiresApproval,
+            runId: run.runId,
+            toolName: toolCall.toolName,
+          });
+          continue;
+        }
+        approvals.push({
+          runId: run.runId,
+          suspendedAt,
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+        });
+      }
+    }
+
+    approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+
+    logger.info('discovered suspended approvals', {
+      approvalCount: approvals.length,
+      code: 'mastra_agent_suspended_runs_discovered',
+      runCount: runs.length,
+      threadId: filter.threadId,
+    });
+
+    return { approvals };
+  } finally {
+    await runtime.dispose();
+  }
+}
+
+// resumeStream's resumeData param is typed `any` by Mastra; we cast a typed
+// `unknown` through this alias at the single call site (no other `any` here).
+type AgentResumeStreamOptions = Parameters<Agent['resumeStream']>[1];
+
+interface ToolResumeIterationParams {
+  action: AssistantToolResumeAction;
+  memory?: MastraMemory;
+  runtime: MastraAgentRuntime;
+  runtimeData?: RuntimeData;
+  sanitizedNameMap?: Map<string, string>;
+}
+
+function validateToolResumeAction(action: AssistantToolResumeAction): void {
+  if (!action.runId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool resume action requires runId',
+    });
+  }
+  if (!action.toolCallId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool resume action requires toolCallId',
+    });
+  }
+}
+
+async function createToolResumeIteratorFromRuntime({
+  runtime,
+  runtimeData,
+  action,
+  memory,
+  sanitizedNameMap,
+}: ToolResumeIterationParams): Promise<StreamIterator> {
+  try {
+    validateToolResumeAction(action);
+    const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const resumeOptions = {
+      ...buildToolLoopOptions(runtimeData),
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
+      ...(memoryOption ? { memory: memoryOption } : {}),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
+      // Resume keeps the delegation rails so a resumed run (e.g. an askUser
+      // pause→answer that then delegates) still caps/rejects subagent
+      // delegations consistently with the initial + approval-resume iterators.
+      ...(runtime.personasById.size > 0
+        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+        : {}),
+    };
+
+    // resumeData is validated by Mastra against the suspended tool's resumeSchema.
+    const streamResult = await runtime.agent.resumeStream(
+      action.resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+      resumeOptions as AgentResumeStreamOptions
+    );
+
+    logger.info('mastra tool resume stream started', {
+      code: 'mastra_agent_tool_resume_started',
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+    });
+
+    const fullStream = resolveFullStream(streamResult);
+    if (!fullStream) {
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: 'empty_stream',
+      });
+    }
+
+    return streamChunksFromMastra({
+      runtime,
+      stream: fullStream,
+      ...(runtimeData ? { runtimeData } : {}),
+      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+    });
+  } catch (err) {
+    return await handleStreamFailure(err, runtime);
+  }
+}
+
+/**
+ * Resume a SUSPENDED tool call (submitPlan/askUser) via
+ * `agent.resumeStream(resumeData, { runId, toolCallId })`. Parallels
+ * {@link streamMastraToolApprovalAction} but for the generic suspend transport:
+ * `action.resumeData` is arbitrary (a plan decision or an answer) and validated
+ * by Mastra against the tool's resumeSchema. Workflow storage is REQUIRED (the
+ * snapshot must exist to resume — no silent fallback). `withRuntimeDerivedStreamOptions`
+ * is mandatory so the rebuilt Agent keeps its native tools (the same desktop
+ * write-on-approval fix). Stateless: it holds no in-memory runId, so a future
+ * `listSuspendedRuns` rehydrator can call it with a discovered runId unchanged.
+ * Does NOT pass `requireToolApproval` (that is approval-specific).
+ */
+export async function streamMastraToolResumeAction(
+  action: AssistantToolResumeAction,
+  options: MastraAgentRuntimeOptions = {}
+): Promise<StreamIterator> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  validateToolResumeAction(action);
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to resume a suspended tool.',
+    });
+  }
+
+  const runtimeData = options.runtime;
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions(options),
+    runtimeResolution
+  );
+
+  return createToolResumeIteratorFromRuntime({
+    action,
+    runtime,
+    ...(options.memory ? { memory: options.memory } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }

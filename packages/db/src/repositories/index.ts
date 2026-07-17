@@ -44,7 +44,11 @@ export {
   type EmbeddingSpaceStats,
   type ListEmbeddingSpacesOptions,
 } from './embedding-sets-repository.js';
-export { FileChunkRepository } from './file-chunk-repository.js';
+export {
+  type FileChunkDatabase,
+  type FileChunkQueryTx,
+  FileChunkRepository,
+} from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
 export type {
   IDatabase,
@@ -52,6 +56,10 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
+export {
+  type PromptItemDatabase,
+  PromptItemRepository,
+} from './prompt-item-repository.js';
 
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';

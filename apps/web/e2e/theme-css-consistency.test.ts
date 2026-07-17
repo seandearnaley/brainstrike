@@ -132,6 +132,29 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(themeValues.lightness).toBeGreaterThan(0);
   });
 
+  test('uses neutral focus tokens instead of brand-blue borders', async ({ page }) => {
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+
+    for (const mode of ['Light', 'Dark'] as const) {
+      await clickSettingsThemeButton(page, mode);
+      await waitForThemeApplied(page, mode.toLowerCase() as 'light' | 'dark');
+
+      const tokens = await page.evaluate(() => {
+        const styles = getComputedStyle(document.documentElement);
+        return {
+          ring: styles.getPropertyValue('--bs-ring').trim(),
+          sidebarRing: styles.getPropertyValue('--bs-sidebar-ring').trim(),
+        };
+      });
+
+      for (const token of [tokens.ring, tokens.sidebarRing]) {
+        const hue = Number.parseInt(token.split(' ')[0] ?? '', 10);
+        expect(hue).toBeGreaterThanOrEqual(20);
+        expect(hue).toBeLessThanOrEqual(40);
+      }
+    }
+  });
+
   test('should ensure --background equals --bs-background', async ({ page }) => {
     await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');

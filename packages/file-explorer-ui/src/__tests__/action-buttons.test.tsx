@@ -108,7 +108,10 @@ describe('ActionButtons', () => {
     it('should show "Select All" when files are within max limit', () => {
       const props = getProps({ displayedFiles: new Set(['file1.txt', 'file2.txt']) });
       render(<ActionButtons {...props} />);
-      expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: 'Select All' });
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveAttribute('data-size', 'icon-xs');
+      expect(button).toHaveClass('size-6', '@[96px]:size-7', '@[128px]:size-8', '@[180px]:w-auto');
     });
 
     it('should show "Select All" even when files exceed limit (recursive selection handles limits)', () => {

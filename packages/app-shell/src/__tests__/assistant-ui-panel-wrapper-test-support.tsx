@@ -8,7 +8,9 @@ import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferenc
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
@@ -73,6 +75,9 @@ vi.mock('@brainstrike/preferences', async () => {
         ? 'anthropic/claude-sonnet-4.6'
         : undefined,
       testEnabledModels.has('google/gemini-3.5-flash') ? 'google/gemini-3.5-flash' : undefined,
+      // Text-only route (vision: 'unsupported' in the static registry) for
+      // composer attachment gating tests; opt in via testEnabledModels.
+      testEnabledModels.has('qwen/qwen3-coder-next') ? 'qwen/qwen3-coder-next' : undefined,
     ].filter((modelId): modelId is string => Boolean(modelId)),
   });
 
@@ -117,6 +122,12 @@ vi.mock('@brainstrike/preferences', async () => {
       capabilities: { type: 'llm' as const },
       id: 'google/gemini-3.5-flash',
       isEnabled: testEnabledModels.has('google/gemini-3.5-flash'),
+      providerId: 'openrouter',
+    },
+    {
+      capabilities: { type: 'llm' as const },
+      id: 'qwen/qwen3-coder-next',
+      isEnabled: testEnabledModels.has('qwen/qwen3-coder-next'),
       providerId: 'openrouter',
     },
   ];
@@ -349,10 +360,14 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const usePanelLayoutStore = create<{
     activeTab: string;
+    openSettings: () => void;
     setActiveTab: (tab: string) => void;
+    settingsOpen: boolean;
   }>((set) => ({
     activeTab: 'explorer',
+    openSettings: () => set({ settingsOpen: true }),
     setActiveTab: (tab: string) => set({ activeTab: tab }),
+    settingsOpen: false,
   }));
 
   return {
@@ -649,6 +664,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   AssistantUiPanel: ({
+    composerDraftCommand,
     providerGroups = [],
     selectedProvider,
     selectedModel,
@@ -656,6 +672,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle,
     onProviderSettingsChange,
     onThreadRunStart,
+    onRunFinished,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -664,7 +681,11 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     disabled,
     disabledReason,
     toolMenu,
+    onComposerDraftCommandApplied,
+    onComposerTextChange,
+    attachmentsAvailability,
   }: {
+    composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
       runtime: string;
       label: string;
@@ -680,6 +701,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
     onThreadRunStart?: () => void;
+    onRunFinished?: (event: { runId: string; kind: string }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -698,6 +720,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       onRefresh?: () => void;
       onOpenSettings?: () => void;
     };
+    onComposerDraftCommandApplied?: (commandId: string) => void;
+    onComposerTextChange?: (text: string) => void;
+    attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
@@ -717,8 +742,38 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
     return (
       <div data-testid="assistant-ui-panel">
+        <div data-testid="composer-draft-command">{composerDraftCommand?.id ?? ''}</div>
+        <button
+          data-testid="apply-composer-draft-command"
+          disabled={!composerDraftCommand}
+          onClick={() => {
+            if (composerDraftCommand) {
+              onComposerDraftCommandApplied?.(composerDraftCommand.id);
+            }
+          }}
+          type="button"
+        >
+          Apply composer draft command
+        </button>
+        <button
+          data-testid="report-composer-text"
+          onClick={() => onComposerTextChange?.('Live composer draft')}
+          type="button"
+        >
+          Report composer text
+        </button>
+        <button
+          data-testid="trigger-run-finished"
+          onClick={() => onRunFinished?.({ kind: 'run.finished', runId: 'run-live' })}
+          type="button"
+        >
+          Trigger run finished
+        </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
+        <div data-testid="attachments-availability">
+          {JSON.stringify(attachmentsAvailability ?? null)}
+        </div>
         <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
         <div data-testid="context-menu">{JSON.stringify(contextMenu ?? {})}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
@@ -892,9 +947,16 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // Passthrough double for the real context provider — these tests render the
+  // mocked AssistantUiPanel, so the checkpoint context is never read; the
+  // provider just needs to mount its children without error.
+  EditCheckpointProvider: ({ children }: { children: ReactNode }) => children,
   // Defaults to no desktop llm-host bridge, so local chat resolves to the
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,
+  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
+  // never renders an approval notice, so the grant context is never read.
+  ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)
   // and via getState() inside the usage callback. The mock supports both: the
   // selector receives an empty usage map and getState exposes recordUsage.
@@ -922,6 +984,7 @@ beforeEach(() => {
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
+  useAssistantComposerCommandStore.getState().reset();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},

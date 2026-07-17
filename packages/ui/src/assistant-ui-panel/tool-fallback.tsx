@@ -1,5 +1,13 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, CircleDashed } from 'lucide-react';
+import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  CircleDashed,
+  Undo2,
+} from 'lucide-react';
 import {
   type ComponentProps,
   type ReactElement,
@@ -13,6 +21,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import {
+  REVERTIBLE_MUTATION_TOOL_NAMES,
+  useCheckpointForToolCall,
+} from './edit-checkpoint-context';
+import { LiveShellOutputPane } from './live-shell-output-pane';
+import { useShellOutput } from './shell-output-context';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
@@ -42,7 +56,7 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (result: ToolResult): string | undefined => {
+const readResultErrorMessage = (result: ToolResult, isErrorResult = false): string | undefined => {
   if (typeof result === 'string') {
     return;
   }
@@ -55,7 +69,13 @@ const readResultErrorMessage = (result: ToolResult): string | undefined => {
   if (typeof error === 'string' && error.length > 0) {
     return error;
   }
-  if (record['isError'] === true) {
+  if (record['ok'] === false && error && typeof error === 'object' && !Array.isArray(error)) {
+    const message = (error as Record<string, unknown>)['message'];
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+  }
+  if (isErrorResult || record['isError'] === true) {
     return 'Tool execution failed.';
   }
   return;
@@ -64,7 +84,8 @@ const readResultErrorMessage = (result: ToolResult): string | undefined => {
 const resolveDisplayStatus = (
   status: ToolStatus,
   hasResult: boolean,
-  result: ToolResult
+  result: ToolResult,
+  isErrorResult: boolean
 ): DisplayStatus => {
   if (status.type === 'running') {
     return 'running';
@@ -72,7 +93,7 @@ const resolveDisplayStatus = (
   if (status.type === 'incomplete') {
     return 'error';
   }
-  if (readResultErrorMessage(result)) {
+  if (readResultErrorMessage(result, isErrorResult)) {
     return 'error';
   }
   if (hasResult) {
@@ -81,9 +102,13 @@ const resolveDisplayStatus = (
   return 'unknown';
 };
 
-const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
+const resolveErrorMessage = (
+  status: ToolStatus,
+  result: ToolResult,
+  isErrorResult: boolean
+): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result);
+    return readResultErrorMessage(result, isErrorResult);
   }
 
   if (typeof status.error === 'string') {
@@ -220,6 +245,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   args,
   argsText,
   result,
+  isError: isErrorResult = false,
   status,
 }) => {
   const { detailLevel } = useAssistantDetailLevel();
@@ -235,14 +261,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult, result);
+  const displayStatus = resolveDisplayStatus(status, hasResult, result, isErrorResult);
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
-  const errorMessage = resolveErrorMessage(status, result);
+  const errorMessage = resolveErrorMessage(status, result, isErrorResult);
   const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
-  const formattedResult = hasResult ? formatResult(result) : undefined;
 
   const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
   const resultSummary = useMemo(
@@ -311,6 +336,9 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
             {resultSummary}
           </span>
         ) : null}
+        {isRunning || isError ? null : (
+          <CheckpointRevertButton toolCallId={toolCallId} toolName={toolName} />
+        )}
         {showDetails ? (
           <DetailsToggleButton
             detailsId={detailsId}
@@ -324,13 +352,18 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         <p className="px-2.5 pb-1.5 text-destructive text-xs">{errorMessage}</p>
       ) : null}
 
+      {/* Live incremental output while the command runs. Once it finishes, the
+          captured output lives in the collapsible Result pane, so the live pane
+          only shows during execution (transient — absent on a reloaded thread). */}
+      <LiveShellOutputRegion isRunning={isRunning} toolCallId={toolCallId} />
+
       {showDetails && !isCollapsed ? (
         <ToolDetailsPane
           argsText={argsText}
           detailsId={detailsId}
-          formattedResult={formattedResult}
           hasResult={hasResult}
           isError={isError}
+          result={result}
           showRawIo={policy.showRawIo}
           toolCallId={toolCallId}
           toolName={toolName}
@@ -341,6 +374,154 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 };
 
 ToolFallback.displayName = 'ToolFallback';
+
+/**
+ * Live incremental output while a shell command runs. Once it finishes, the
+ * captured output lives in the collapsible Result pane, so this only renders
+ * during execution (transient — absent on a reloaded thread). Split out of
+ * ToolFallback so its own hook + condition don't add to that component's
+ * cognitive complexity.
+ */
+function LiveShellOutputRegion({
+  isRunning,
+  toolCallId,
+}: {
+  isRunning: boolean;
+  toolCallId: string;
+}): ReactNode {
+  const shellOutput = useShellOutput(toolCallId);
+  if (!(isRunning && shellOutput && shellOutput.text.length > 0)) {
+    return null;
+  }
+  return <LiveShellOutputPane text={shellOutput.text} truncated={shellOutput.truncated} />;
+}
+
+/**
+ * Per-card undo control for the four agent mutation tools. Renders nothing when
+ * there is no journal entry for this tool call (web / not-yet-journaled) — pure
+ * capability gating, never a disabled stub. States: revertible → confirm →
+ * revert; already reverted → disabled "Reverted"; non-revertible capture →
+ * disabled with a reason tooltip; conflict response → inline "Revert anyway?".
+ */
+function CheckpointRevertButton({
+  toolCallId,
+  toolName,
+}: {
+  toolCallId: string;
+  toolName: string;
+}): ReactElement | null {
+  const checkpoint = useCheckpointForToolCall(toolCallId);
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'reverting' | 'conflict'>('idle');
+
+  if (!(checkpoint && REVERTIBLE_MUTATION_TOOL_NAMES.has(toolName))) {
+    return null;
+  }
+  const { entry, revert } = checkpoint;
+
+  if (entry.revertedAt) {
+    return (
+      <span
+        className="shrink-0 text-[11px] text-muted-foreground"
+        data-testid="checkpoint-reverted"
+      >
+        Reverted
+      </span>
+    );
+  }
+
+  if (!isRevertibleCaptureStatus(entry.captureStatus)) {
+    const reason =
+      entry.captureStatus === 'skipped_binary'
+        ? 'Binary file — cannot revert.'
+        : entry.captureStatus === 'skipped_too_large'
+          ? 'File too large — cannot revert.'
+          : 'Prior content is no longer stored — cannot revert.';
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="shrink-0 text-[11px] text-muted-foreground"
+            data-testid="checkpoint-unrevertible"
+          >
+            Can't revert
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{reason}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  const runRevert = async (force: boolean): Promise<void> => {
+    setPhase('reverting');
+    const result = await revert(force ? { force: true } : undefined);
+    if (result.ok) {
+      setPhase('idle');
+      return;
+    }
+    setPhase(result.code === 'conflict' ? 'conflict' : 'idle');
+  };
+
+  if (phase === 'conflict') {
+    return (
+      <span className="flex shrink-0 items-center gap-1 text-[11px]">
+        <span className="text-muted-foreground">Changed since —</span>
+        <Button
+          className="h-5 px-1.5 text-[11px]"
+          data-testid="checkpoint-revert-anyway"
+          onClick={() => runRevert(true)}
+          size="sm"
+          variant="ghost"
+        >
+          Revert anyway
+        </Button>
+      </span>
+    );
+  }
+
+  if (phase === 'confirm') {
+    return (
+      <span className="flex shrink-0 items-center gap-1">
+        <Button
+          className="h-5 px-1.5 text-[11px]"
+          data-testid="checkpoint-revert-confirm"
+          onClick={() => runRevert(false)}
+          size="sm"
+          variant="ghost"
+        >
+          Confirm revert
+        </Button>
+        <Button
+          className="h-5 px-1.5 text-[11px] text-muted-foreground"
+          onClick={() => setPhase('idle')}
+          size="sm"
+          variant="ghost"
+        >
+          Cancel
+        </Button>
+      </span>
+    );
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={`Revert ${toolName}`}
+          className="h-5 shrink-0 gap-1 px-1.5 text-[11px]"
+          data-testid="checkpoint-revert"
+          disabled={phase === 'reverting'}
+          onClick={() => setPhase('confirm')}
+          size="sm"
+          variant="ghost"
+        >
+          <Undo2 className="size-3" />
+          Revert
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Undo this file edit</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** Expand/collapse control for a tool card's details panes. */
 function DetailsToggleButton({
@@ -377,26 +558,35 @@ function ToolDetailLabel({ children }: { children: ReactNode }) {
   );
 }
 
-/** The expanded args/result panes, plus a developer-only metadata block. */
+/**
+ * The expanded args/result panes, plus a developer-only metadata block.
+ * Serializes the result HERE (memoized) rather than in ToolFallback: this
+ * pane only mounts while expanded, so collapsed cards — which still re-render
+ * with the streaming turn — never pay the multi-KB JSON.stringify.
+ */
 function ToolDetailsPane({
   argsText,
   detailsId,
-  formattedResult,
   hasResult,
   isError,
+  result,
   showRawIo,
   toolCallId,
   toolName,
 }: {
   argsText: string | undefined;
   detailsId: string;
-  formattedResult: string | undefined;
   hasResult: boolean;
   isError: boolean;
+  result: ToolResult;
   showRawIo: boolean;
   toolCallId: string;
   toolName: string;
 }) {
+  const formattedResult = useMemo(
+    () => (hasResult ? formatResult(result) : undefined),
+    [hasResult, result]
+  );
   return (
     <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
       {showRawIo ? (

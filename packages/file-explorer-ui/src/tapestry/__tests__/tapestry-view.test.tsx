@@ -1,10 +1,20 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { TAPESTRY_COLOR_HEX } from '@brainstrike/types';
+import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { type ComponentProps, memo, useMemo, useState } from 'react';
+import { type ComponentProps, memo, type ReactNode, useMemo, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GroupedData, TableRowData } from '../../utils/grouping-configs';
 import { TapestryView } from '../tapestry-view';
 import type { FileTapestry, TapestryRange } from '../types';
+
+const testActionRegistry = createTestActionRegistry().registry;
+const TapestryTestProviders = ({ children }: { children: ReactNode }) => (
+  <ActionRegistryProvider registry={testActionRegistry}>
+    <TooltipProvider>{children}</TooltipProvider>
+  </ActionRegistryProvider>
+);
 
 const buildFile = (index: number): FileTapestry => {
   const totalLines = 100;
@@ -69,10 +79,13 @@ function renderTapestryView(overrides: Partial<ComponentProps<typeof TapestryVie
     isGroupPartiallySelected: () => false,
     onDeselectAll: vi.fn(),
     onGroupDeselectAll: vi.fn(),
+    onGroupingChange: vi.fn(),
     onGroupSelectAll: vi.fn(),
     onRangesChange: vi.fn(),
     onResetRanges: vi.fn(),
+    onScaleChange: vi.fn(),
     onSelectAllOnPage: vi.fn(),
+    onSelectionControlsToggle: vi.fn(),
     onToggleGroupCollapse: vi.fn(),
     onToggleSelection: vi.fn(),
     pagination: {
@@ -84,61 +97,51 @@ function renderTapestryView(overrides: Partial<ComponentProps<typeof TapestryVie
       totalPages: 1,
     },
     previewSelections: new Set<string>(),
+    scale: 4,
     showSelectionControls: true,
     totalFiles: files.length,
-    totalLinesSelected: 20,
     ungroupedFiles: files,
     visibleFilesOnPage: tableRows,
     ...overrides,
   };
-  return render(<TapestryView {...props} />);
+  return render(
+    <TapestryTestProviders>
+      <TapestryView {...props} />
+    </TapestryTestProviders>
+  );
 }
 
 const TapestryHarness = memo(
   ({
     count = 12,
+    onRangesCommitted,
     showSelectionControls = true,
   }: {
     count?: number;
+    /** Observes every onRangesChange commit (the store write in the real app). */
+    onRangesCommitted?: (fileId: string, ranges: TapestryRange[]) => void;
     showSelectionControls?: boolean;
   }) => {
     const [files, setFiles] = useState<FileTapestry[]>(() =>
       Array.from({ length: count }).map((_, index) => buildFile(index))
     );
     const [previewSelections] = useState<Set<string>>(new Set());
+    const [scale, setScale] = useState(4);
 
     const tableRows = useMemo(() => buildTableRows(files), [files]);
 
     const handleRangesChange = (fileId: string, ranges: TapestryRange[]) => {
+      onRangesCommitted?.(fileId, ranges);
       setFiles((prev) =>
         prev.map((file) => (file.id === fileId ? { ...file, selections: ranges } : file))
       );
     };
 
+    // Mirrors preview-panel.tsx's handleResetTapestryRanges: reset clears
+    // ranges (no re-seeded default) — a rangeless file is the whole file.
     const handleResetRanges = (fileIds: string[]) => {
       setFiles((prev) =>
-        prev.map((file) => {
-          if (!fileIds.includes(file.id)) {
-            return file;
-          }
-          const baseRange =
-            file.selections[0] ??
-            ({
-              color: '#ff0000',
-              endLine: file.totalLines,
-              id: `range-${file.id}-reset`,
-              isActive: true,
-              startLine: 0,
-            } satisfies TapestryRange);
-          const resetRange: TapestryRange = {
-            color: baseRange.color,
-            endLine: file.totalLines,
-            id: baseRange.id,
-            isActive: baseRange.isActive,
-            startLine: 0,
-          };
-          return { ...file, selections: [resetRange] };
-        })
+        prev.map((file) => (fileIds.includes(file.id) ? { ...file, selections: [] } : file))
       );
     };
 
@@ -146,15 +149,6 @@ const TapestryHarness = memo(
       (acc, file) => acc + file.selections.filter((range) => range.isActive).length,
       0
     );
-    const totalLinesSelected = files.reduce(
-      (acc, file) =>
-        acc +
-        file.selections
-          .filter((range) => range.isActive)
-          .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
-      0
-    );
-
     const pagination = useMemo(
       () => ({
         currentPage: 0,
@@ -166,30 +160,35 @@ const TapestryHarness = memo(
     );
 
     return (
-      <TapestryView
-        activeRangesCount={activeRangesCount}
-        groupedSections={[]}
-        groupingConfig="none"
-        isAllSelected={() => false}
-        isEmpty={false}
-        isGroupFullySelected={() => false}
-        isGroupPartiallySelected={() => false}
-        onDeselectAll={vi.fn()}
-        onGroupDeselectAll={vi.fn()}
-        onGroupSelectAll={vi.fn()}
-        onRangesChange={handleRangesChange}
-        onResetRanges={handleResetRanges}
-        onSelectAllOnPage={vi.fn()}
-        onToggleGroupCollapse={vi.fn()}
-        onToggleSelection={vi.fn()}
-        pagination={pagination}
-        previewSelections={previewSelections}
-        showSelectionControls={showSelectionControls}
-        totalFiles={files.length}
-        totalLinesSelected={totalLinesSelected}
-        ungroupedFiles={files}
-        visibleFilesOnPage={tableRows}
-      />
+      <TapestryTestProviders>
+        <TapestryView
+          activeRangesCount={activeRangesCount}
+          groupedSections={[]}
+          groupingConfig="none"
+          isAllSelected={() => false}
+          isEmpty={false}
+          isGroupFullySelected={() => false}
+          isGroupPartiallySelected={() => false}
+          onDeselectAll={vi.fn()}
+          onGroupDeselectAll={vi.fn()}
+          onGroupingChange={vi.fn()}
+          onGroupSelectAll={vi.fn()}
+          onRangesChange={handleRangesChange}
+          onResetRanges={handleResetRanges}
+          onScaleChange={setScale}
+          onSelectAllOnPage={vi.fn()}
+          onSelectionControlsToggle={vi.fn()}
+          onToggleGroupCollapse={vi.fn()}
+          onToggleSelection={vi.fn()}
+          pagination={pagination}
+          previewSelections={previewSelections}
+          scale={scale}
+          showSelectionControls={showSelectionControls}
+          totalFiles={files.length}
+          ungroupedFiles={files}
+          visibleFilesOnPage={tableRows}
+        />
+      </TapestryTestProviders>
     );
   }
 );
@@ -229,29 +228,135 @@ describe('TapestryView', () => {
     }
 
     await act(async () => {
-      fireEvent.pointerDown(firstButton);
+      fireEvent.click(firstButton);
     });
 
     const activateButtons = await screen.findAllByRole('button', { name: /activate range/i });
     expect(activateButtons.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('handles scale and overlap changes', async () => {
+  it('scales the spatial gallery and changes overlap from view options', async () => {
     await act(async () => {
       render(<TapestryHarness />);
     });
 
-    const scaleInput = screen.getByLabelText(/Density/i);
-    await act(async () => {
-      fireEvent.change(scaleInput, { target: { value: '10' } });
-    });
-    expect(scaleInput).toHaveValue('10');
+    const gallery = screen.getByTestId('tapestry-gallery');
+    expect(gallery.style.gridTemplateColumns).toContain('184px');
+    expect(gallery.style.columnGap).toBe('12px');
+    expect(gallery.style.gridAutoRows).toBe('4px');
+    expect(gallery.style.rowGap).toBe('4px');
 
-    const overlapCheckbox = screen.getByRole('checkbox', { name: /Allow Overlap/i });
+    const scaleInput = screen.getByRole('slider', { name: 'Gallery scale' });
     await act(async () => {
-      await user.click(overlapCheckbox);
+      fireEvent.change(scaleInput, { target: { value: '8' } });
     });
-    expect(overlapCheckbox.getAttribute('aria-checked')).toBe('true');
+    expect(scaleInput).toHaveValue('8');
+    expect(gallery.style.gridTemplateColumns).toContain('256px');
+    expect(gallery.style.columnGap).toBe('16px');
+
+    await user.click(screen.getByRole('button', { name: 'View options' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'Allow overlapping clips' }));
+    await user.click(screen.getByRole('button', { name: 'View options' }));
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Allow overlapping clips' })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('shares code-lens state between the document context menu and command dock', async () => {
+    render(<TapestryHarness count={1} />);
+
+    const track = screen.getByTestId('tapestry-track');
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      bottom: 400,
+      height: 400,
+      left: 0,
+      right: 200,
+      toJSON: () => {},
+      top: 0,
+      width: 200,
+      x: 0,
+      y: 0,
+    } as DOMRect);
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: /inspect or create range in file-0\.ts/i }),
+      { clientX: 40, clientY: 200 }
+    );
+    await user.click(screen.getByRole('menuitem', { name: /disable code lens/i }));
+
+    expect(screen.getByRole('button', { name: 'Toggle code lens' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('commits an exact one-line clip from a document context action', async () => {
+    render(<TapestryHarness count={1} />);
+    const track = screen.getByTestId('tapestry-track');
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      bottom: 400,
+      height: 400,
+      left: 0,
+      right: 200,
+      toJSON: () => {},
+      top: 0,
+      width: 200,
+      x: 0,
+      y: 0,
+    } as DOMRect);
+
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: /inspect or create range in file-0\.ts/i }),
+      { clientX: 40, clientY: 240 }
+    );
+    await user.click(screen.getByRole('menuitem', { name: /create clip at line 61/i }));
+
+    expect(
+      await screen.findByRole('slider', { name: /selection lines 61 to 61 in file-0\.ts/i })
+    ).toBeVisible();
+  });
+
+  it('persists a named context-menu color in the rendered clip', async () => {
+    render(<TapestryHarness count={1} />);
+    const range = screen.getByRole('slider', {
+      name: /selection lines 11 to 20 in file-0\.ts/i,
+    });
+
+    fireEvent.contextMenu(range);
+    await user.click(screen.getByRole('menuitem', { name: /color: green/i }));
+
+    await waitFor(() => {
+      expect(range.parentElement?.getAttribute('style')).toContain(TAPESTRY_COLOR_HEX.green);
+    });
+  });
+
+  it('permits an exact clip on an occupied line only after overlap is enabled', async () => {
+    render(<TapestryHarness count={1} />);
+    await user.click(screen.getByRole('button', { name: 'View options' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'Allow overlapping clips' }));
+
+    const track = screen.getByTestId('tapestry-track');
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      bottom: 400,
+      height: 400,
+      left: 0,
+      right: 200,
+      toJSON: () => {},
+      top: 0,
+      width: 200,
+      x: 0,
+      y: 0,
+    } as DOMRect);
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: /inspect or create range in file-0\.ts/i }),
+      { clientX: 40, clientY: 60 }
+    );
+    const createAction = screen.getByRole('menuitem', { name: /create clip at line 16/i });
+    expect(createAction).not.toHaveAttribute('aria-disabled', 'true');
+    await user.click(createAction);
+
+    expect(
+      await screen.findByRole('slider', { name: /selection lines 16 to 16 in file-0\.ts/i })
+    ).toBeVisible();
   });
 
   it('hides selection controls when multi-select is disabled', async () => {
@@ -270,7 +375,7 @@ describe('TapestryView', () => {
 
     const ranges = screen
       .getAllByRole('slider')
-      .filter((s) => s.getAttribute('aria-label')?.startsWith('Range'));
+      .filter((s) => s.getAttribute('aria-label')?.startsWith('Selection'));
     const range = ranges[0];
     if (!range) {
       throw new Error('Range slider not found');
@@ -280,12 +385,12 @@ describe('TapestryView', () => {
     await act(async () => {
       fireEvent.keyDown(range, { key: 'ArrowDown' });
     });
-    expect(range.getAttribute('aria-valuenow')).toBe('11');
+    expect(range.getAttribute('aria-valuenow')).toBe('12');
 
     await act(async () => {
       fireEvent.keyDown(range, { key: 'ArrowUp' });
     });
-    expect(range.getAttribute('aria-valuenow')).toBe('10');
+    expect(range.getAttribute('aria-valuenow')).toBe('11');
   });
 
   it('handles range interactions (drag start)', async () => {
@@ -295,7 +400,7 @@ describe('TapestryView', () => {
 
     const ranges = screen
       .getAllByRole('slider')
-      .filter((s) => s.getAttribute('aria-label')?.startsWith('Range'));
+      .filter((s) => s.getAttribute('aria-label')?.startsWith('Selection'));
     const range = ranges[0];
     if (!range) {
       throw new Error('Range slider not found');
@@ -309,11 +414,185 @@ describe('TapestryView', () => {
       window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
     });
 
-    expect(range.getAttribute('aria-valuenow')).toBe('11');
+    expect(range.getAttribute('aria-valuenow')).toBe('12');
 
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 104, pointerId: 1 }));
     });
+  });
+
+  it('does not write ranges to the parent during drag frames — one commit on pointer-up', async () => {
+    // Per-frame onRangesChange writes hit the workspace-context store and
+    // re-rendered the entire PreviewPanel (plus every untouched card) at
+    // pointer-move cadence. Frames must render from a local draft; the store
+    // sees exactly ONE commit, on drag end.
+    const commits = vi.fn();
+    await act(async () => {
+      render(<TapestryHarness count={1} onRangesCommitted={commits} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    await act(async () => {
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    });
+
+    // Three drag frames (rAF runs synchronously via the beforeEach mock).
+    for (const clientY of [104, 108, 112]) {
+      await act(async () => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY, pointerId: 1 }));
+      });
+    }
+
+    // The visual position tracks the drag (draft layer renders live)…
+    expect(range.getAttribute('aria-valuenow')).toBe('14');
+    // …but nothing was committed to the parent/store yet.
+    expect(commits).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 112, pointerId: 1 }));
+    });
+
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(range.getAttribute('aria-valuenow')).toBe('14');
+  });
+
+  it('commits the latest queued drag position when pointer-up lands before the next frame', async () => {
+    let queuedFrame: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      queuedFrame = callback;
+      return 17;
+    });
+
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    await act(async () => {
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    });
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    });
+
+    expect(queuedFrame).toBeTypeOf('function');
+    expect(range).toHaveAttribute('aria-valuenow', '11');
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 104, pointerId: 1 }));
+    });
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(17);
+    expect(range).toHaveAttribute('aria-valuenow', '12');
+  });
+
+  it('commits the pointer-up release coordinate after the previous drag frame has rendered', async () => {
+    let queuedFrame: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      queuedFrame = callback;
+      return 23;
+    });
+
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    act(() => queuedFrame?.(0));
+    expect(range).toHaveAttribute('aria-valuenow', '12');
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 108, pointerId: 1 }));
+    });
+
+    expect(range).toHaveAttribute('aria-valuenow', '13');
+  });
+
+  it('rolls back all applied drag frames when the active pointer is canceled', async () => {
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    });
+    expect(range).toHaveAttribute('aria-valuenow', '12');
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 }));
+    });
+
+    expect(range).toHaveAttribute('aria-valuenow', '11');
+  });
+
+  it('commits the latest accepted drag position when the window blurs', async () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 29);
+
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    expect(range).toHaveAttribute('aria-valuenow', '11');
+
+    act(() => window.dispatchEvent(new Event('blur')));
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(29);
+    expect(range).toHaveAttribute('aria-valuenow', '12');
+  });
+
+  it('ends and rolls back a range drag when the active pointer is canceled', async () => {
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+
+    await act(async () => {
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    });
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    });
+    expect(range).toHaveAttribute('aria-valuenow', '12');
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 108, pointerId: 1 }));
+    });
+
+    expect(range).toHaveAttribute('aria-valuenow', '11');
+  });
+
+  it('discards a queued drag frame when the active pointer is canceled', async () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 19);
+
+    await act(async () => {
+      render(<TapestryHarness count={1} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    await act(async () => {
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    });
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
+    });
+
+    expect(range).toHaveAttribute('aria-valuenow', '11');
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 }));
+    });
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(19);
+    expect(range).toHaveAttribute('aria-valuenow', '11');
   });
 
   it('handles range resizing', async () => {
@@ -321,13 +600,13 @@ describe('TapestryView', () => {
       render(<TapestryHarness />);
     });
 
-    const resizeTop = screen.getAllByLabelText(/Resize range top/i)[0];
+    const resizeTop = screen.getAllByTestId('resize-range-top')[0];
     if (!resizeTop) {
       throw new Error('Resize top handle not found');
     }
     const ranges = screen
       .getAllByRole('slider')
-      .filter((s) => s.getAttribute('aria-label')?.startsWith('Range'));
+      .filter((s) => s.getAttribute('aria-label')?.startsWith('Selection'));
     const range = ranges[0];
     if (!range) {
       throw new Error('Range slider not found');
@@ -339,13 +618,13 @@ describe('TapestryView', () => {
     await act(async () => {
       window.dispatchEvent(new PointerEvent('pointermove', { clientY: 96, pointerId: 1 }));
     });
-    expect(range.getAttribute('aria-valuenow')).toBe('9');
+    expect(range.getAttribute('aria-valuenow')).toBe('10');
 
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 96, pointerId: 1 }));
     });
 
-    const resizeBottom = screen.getAllByLabelText(/Resize range bottom/i)[0];
+    const resizeBottom = screen.getAllByTestId('resize-range-bottom')[0];
     if (!resizeBottom) {
       throw new Error('Resize bottom handle not found');
     }
@@ -355,7 +634,7 @@ describe('TapestryView', () => {
     await act(async () => {
       window.dispatchEvent(new PointerEvent('pointermove', { clientY: 204, pointerId: 1 }));
     });
-    expect(range.getAttribute('aria-label')).toMatch(/Range 9 to 21/i);
+    expect(range.getAttribute('aria-label')).toMatch(/Selection lines 10 to 21/i);
   });
 
   it('creates new range on background click', async () => {
@@ -363,14 +642,17 @@ describe('TapestryView', () => {
       render(<TapestryHarness />);
     });
 
-    const minimapBg = document.getElementById('minimap-bg');
+    const minimapBg = document.querySelector('[data-minimap-background="true"]');
     if (!minimapBg) {
       throw new Error('minimap-bg not found');
     }
 
     await act(async () => {
-      const container = minimapBg.parentElement as HTMLElement;
-      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      const track = screen.getAllByTestId('tapestry-track')[0];
+      if (!track) {
+        throw new Error('Tapestry track not found');
+      }
+      vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
         bottom: 400,
         height: 400,
         left: 0,
@@ -382,24 +664,63 @@ describe('TapestryView', () => {
         y: 0,
       } as DOMRect);
 
-      fireEvent.pointerDown(minimapBg, { clientY: 200, pointerId: 1 });
+      fireEvent.pointerDown(minimapBg, { clientX: 10, clientY: 200, pointerId: 1 });
+      fireEvent.pointerMove(minimapBg, { clientX: 10, clientY: 206, pointerId: 1 });
     });
 
-    const sliders = screen.getAllByRole('slider');
-    expect(sliders.length).toBeGreaterThanOrEqual(13);
+    expect(screen.getAllByRole('slider', { name: /^selection/i })).toHaveLength(13);
   });
 
-  it('resets ranges when button is clicked', async () => {
+  it('removes a newly created clip when its pointer is canceled', async () => {
+    render(<TapestryHarness count={1} />);
+    const minimapBg = document.querySelector('[data-minimap-background="true"]');
+    const track = screen.getByTestId('tapestry-track');
+    if (!minimapBg) {
+      throw new Error('minimap-bg not found');
+    }
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      bottom: 400,
+      height: 400,
+      left: 0,
+      right: 200,
+      toJSON: () => {},
+      top: 0,
+      width: 200,
+      x: 0,
+      y: 0,
+    } as DOMRect);
+
+    fireEvent.pointerDown(minimapBg, { clientX: 10, clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(minimapBg, { clientX: 10, clientY: 206, pointerId: 1 });
+    expect(screen.getAllByRole('slider', { name: /^selection/i })).toHaveLength(2);
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 }));
+    });
+
+    expect(screen.getAllByRole('slider', { name: /^selection/i })).toHaveLength(1);
+  });
+
+  it('resets ranges when button is clicked (clears ranges, does not re-seed a default)', async () => {
     await act(async () => {
       render(<TapestryHarness />);
     });
 
-    const resetButton = screen.getByRole('button', { name: /Reset ranges/i });
+    expect(screen.getAllByRole('slider', { name: /^selection/i })).toHaveLength(12);
+
+    await user.click(screen.getByRole('button', { name: 'View options' }));
+    const resetButton = screen.getByRole('menuitem', {
+      name: /Clear manual clips on this page/i,
+    });
     await act(async () => {
       await user.click(resetButton);
     });
 
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(12);
+    // No ranges remain — a rangeless file renders no range sliders, and each
+    // minimap shows the whole-file affordance instead.
+    expect(screen.queryAllByRole('slider', { name: /^selection/i })).toHaveLength(0);
+    expect(screen.getAllByText(/whole file.*click to inspect or drag to select/i)).toHaveLength(12);
   });
 
   it('prevents range creation on overlap when disabled', async () => {
@@ -407,14 +728,17 @@ describe('TapestryView', () => {
       render(<TapestryHarness />);
     });
 
-    const minimapBg = document.getElementById('minimap-bg');
+    const minimapBg = document.querySelector('[data-minimap-background="true"]');
     if (!minimapBg) {
       throw new Error('minimap-bg not found');
     }
 
     await act(async () => {
-      const container = minimapBg.parentElement as HTMLElement;
-      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      const track = screen.getAllByTestId('tapestry-track')[0];
+      if (!track) {
+        throw new Error('Tapestry track not found');
+      }
+      vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
         bottom: 400,
         height: 400,
         left: 0,
@@ -426,20 +750,49 @@ describe('TapestryView', () => {
         y: 0,
       } as DOMRect);
 
-      fireEvent.pointerDown(minimapBg, { clientY: 60, pointerId: 1 });
+      fireEvent.pointerDown(minimapBg, { clientX: 10, clientY: 60, pointerId: 1 });
+      fireEvent.pointerMove(minimapBg, { clientX: 10, clientY: 66, pointerId: 1 });
     });
 
-    expect(screen.getAllByRole('slider').length).toBeGreaterThanOrEqual(13);
+    expect(screen.getAllByRole('slider', { name: /^selection/i })).toHaveLength(12);
   });
 
-  it('shows peek tooltip on range hover', async () => {
+  it('numbers visible manual clips without gaps from hidden Search-managed clips', () => {
+    const file = buildFile(0);
+    const searchRange: TapestryRange = {
+      ...file.selections[0]!,
+      endLine: 8,
+      id: 'search-range',
+      origin: 'search',
+      startLine: 1,
+    };
+    const manualRange: TapestryRange = {
+      ...file.selections[0]!,
+      endLine: 20,
+      id: 'manual-range',
+      startLine: 10,
+    };
+    const mixedFile = { ...file, selections: [searchRange, manualRange] };
+
+    renderTapestryView({
+      activeRangesCount: 2,
+      totalFiles: 1,
+      ungroupedFiles: [mixedFile],
+      visibleFilesOnPage: buildTableRows([mixedFile]),
+    });
+
+    expect(screen.getByText('#1')).toBeInTheDocument();
+    expect(screen.queryByText('#2')).toBeNull();
+  });
+
+  it('uses the document-wide code lens instead of a range-bound tooltip', async () => {
     await act(async () => {
       render(<TapestryHarness />);
     });
 
     const range = screen
       .getAllByRole('slider')
-      .find((s) => s.getAttribute('aria-label')?.startsWith('Range'));
+      .find((s) => s.getAttribute('aria-label')?.startsWith('Selection'));
 
     if (!range) {
       throw new Error('Range slider not found');
@@ -449,17 +802,69 @@ describe('TapestryView', () => {
       fireEvent.mouseEnter(range);
     });
 
-    const tooltips = screen.getAllByText(/Lines 10-20/i);
-    expect(tooltips.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/Lines 10-20/i)).not.toBeInTheDocument();
 
-    const lineContents = screen.getAllByText(/line 10/i);
-    expect(lineContents.length).toBeGreaterThanOrEqual(1);
+    const track = screen.getAllByTestId('tapestry-track')[0];
+    if (!track) {
+      throw new Error('Tapestry track not found');
+    }
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      bottom: 400,
+      height: 400,
+      left: 0,
+      right: 200,
+      toJSON: () => {},
+      top: 0,
+      width: 200,
+      x: 0,
+      y: 0,
+    } as DOMRect);
 
     await act(async () => {
-      fireEvent.mouseLeave(range);
+      fireEvent.pointerMove(track, { clientX: 300, clientY: 238, pointerType: 'mouse' });
     });
 
-    expect(screen.queryByText(/Lines 10-20/i)).not.toBeInTheDocument();
+    const lens = screen.getByTestId('tapestry-lens');
+    expect(lens).toHaveTextContent('Line 60');
+    expect(lens.querySelector('[data-lens-active="true"]')).toHaveTextContent('line 59');
+
+    await act(async () => {
+      fireEvent.pointerLeave(track);
+    });
+
+    expect(screen.queryByTestId('tapestry-lens')).not.toBeInTheDocument();
+  });
+
+  it('keeps only one pinned precision lens open across the gallery', () => {
+    renderTapestryView();
+
+    const tracks = screen.getAllByTestId('tapestry-track');
+    const backgrounds = screen.getAllByRole('button', { name: /inspect or create range in/i });
+    for (const track of tracks) {
+      vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+        bottom: 120,
+        height: 120,
+        left: 0,
+        right: 100,
+        toJSON: () => {},
+        top: 0,
+        width: 100,
+        x: 0,
+        y: 0,
+      } as DOMRect);
+    }
+
+    fireEvent.keyDown(backgrounds[0]!, { key: 'Enter' });
+    expect(
+      screen.getByRole('dialog', { name: /precision line selector for file-0\.ts/i })
+    ).toBeVisible();
+
+    fireEvent.keyDown(backgrounds[1]!, { key: 'Enter' });
+
+    expect(screen.getAllByRole('dialog', { name: /precision line selector/i })).toHaveLength(1);
+    expect(
+      screen.getByRole('dialog', { name: /precision line selector for file-1\.ts/i })
+    ).toBeVisible();
   });
 
   it('renders the empty state when there are no matching files', () => {
@@ -496,35 +901,40 @@ describe('TapestryView', () => {
     expect(onSelectAllOnPage).toHaveBeenCalledWith(tableRows);
 
     rerender(
-      <TapestryView
-        activeRangesCount={2}
-        groupedSections={[]}
-        groupingConfig="none"
-        isAllSelected={() => true}
-        isEmpty={false}
-        isGroupFullySelected={() => false}
-        isGroupPartiallySelected={() => false}
-        onDeselectAll={onDeselectAll}
-        onGroupDeselectAll={vi.fn()}
-        onGroupSelectAll={vi.fn()}
-        onRangesChange={vi.fn()}
-        onResetRanges={vi.fn()}
-        onSelectAllOnPage={onSelectAllOnPage}
-        onToggleGroupCollapse={vi.fn()}
-        onToggleSelection={vi.fn()}
-        pagination={{
-          currentPage: 0,
-          onPageChange: vi.fn(),
-          totalItems: files.length,
-          totalPages: 1,
-        }}
-        previewSelections={new Set(tableRows.map((row) => row.compositeKey))}
-        showSelectionControls={true}
-        totalFiles={files.length}
-        totalLinesSelected={20}
-        ungroupedFiles={files}
-        visibleFilesOnPage={tableRows}
-      />
+      <TapestryTestProviders>
+        <TapestryView
+          activeRangesCount={2}
+          groupedSections={[]}
+          groupingConfig="none"
+          isAllSelected={() => true}
+          isEmpty={false}
+          isGroupFullySelected={() => false}
+          isGroupPartiallySelected={() => false}
+          onDeselectAll={onDeselectAll}
+          onGroupDeselectAll={vi.fn()}
+          onGroupingChange={vi.fn()}
+          onGroupSelectAll={vi.fn()}
+          onRangesChange={vi.fn()}
+          onResetRanges={vi.fn()}
+          onScaleChange={vi.fn()}
+          onSelectAllOnPage={onSelectAllOnPage}
+          onSelectionControlsToggle={vi.fn()}
+          onToggleGroupCollapse={vi.fn()}
+          onToggleSelection={vi.fn()}
+          pagination={{
+            currentPage: 0,
+            onPageChange: vi.fn(),
+            totalItems: files.length,
+            totalPages: 1,
+          }}
+          previewSelections={new Set(tableRows.map((row) => row.compositeKey))}
+          scale={4}
+          showSelectionControls={true}
+          totalFiles={files.length}
+          ungroupedFiles={files}
+          visibleFilesOnPage={tableRows}
+        />
+      </TapestryTestProviders>
     );
 
     await user.click(screen.getByRole('checkbox', { name: /select all files on current page/i }));
@@ -569,6 +979,10 @@ describe('TapestryView', () => {
 
     expect(screen.getByText('Source files')).toBeInTheDocument();
     expect(screen.getByText('2 files')).toBeInTheDocument();
+    expect(screen.getByTestId('tapestry-group-header')).toHaveClass('@container', 'min-w-0');
+    expect(screen.getByText('Source files')).toHaveClass('truncate');
+    expect(screen.getByTestId('tapestry-group-token-count')).toHaveClass('@max-[360px]:hidden');
+    expect(screen.getByTestId('tapestry-group-size')).toHaveClass('@max-[440px]:hidden');
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(2);
 
     await user.click(screen.getByRole('button', { name: /collapse group source files/i }));

@@ -132,6 +132,7 @@ describe('state-serialization', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 100,
             selectedFilePaths: new Set(),
+            selectionModel: createEmptySelectionModel(),
             tokenBudget: 100,
             useRegex: false,
             viewFilterPresetId: null,
@@ -184,6 +185,7 @@ describe('state-serialization', () => {
           materializedAt: '2024-01-01T00:00:00Z',
           materializedPaths: new Set(['m1', 'm2']),
           mode: 'rules',
+          queryDescriptor: null,
           ruleSetJson: '{"rules":[]}',
         },
       });
@@ -195,6 +197,7 @@ describe('state-serialization', () => {
         materializedAt: '2024-01-01T00:00:00Z',
         materializedPaths: ['m1', 'm2'],
         mode: 'rules',
+        queryDescriptor: null,
         ruleSetJson: '{"rules":[]}',
       });
     });
@@ -634,6 +637,7 @@ describe('state-serialization', () => {
           materializedAt: '2024-01-01',
           materializedPaths: ['m1'],
           mode: 'rules',
+          queryDescriptor: null,
           ruleSetJson: '{"rules":[]}',
         },
         tokenBudget: 100,
@@ -862,6 +866,7 @@ describe('state-serialization', () => {
           materializedAt: null,
           materializedPaths: null,
           mode: 'explicit',
+          queryDescriptor: null,
           ruleSetJson: null,
         },
         tokenBudget: 100,
@@ -895,6 +900,7 @@ describe('state-serialization', () => {
           materializedAt: undefined as unknown as null,
           materializedPaths: null,
           mode: 'explicit',
+          queryDescriptor: null,
           ruleSetJson: undefined as unknown as null,
         },
         tokenBudget: 100,

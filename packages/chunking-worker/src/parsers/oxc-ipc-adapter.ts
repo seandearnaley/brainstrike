@@ -150,17 +150,14 @@ function getWorkerSelf(): WorkerSelfLike | null {
   return null;
 }
 
-let counter = 0;
 function generateRequestId(): string {
-  counter += 1;
-  // crypto.randomUUID is available in Web Workers and Node 18+ — guards
-  // against worker-respawn collisions that the bare Date.now()+counter
-  // form could hit (counter resets on module reload; Date.now is
-  // millisecond-resolution so two workers spawned in the same tick can
-  // collide on the first few requestIds).
+  // crypto.randomUUID is available in Web Workers and Node 18+.
+  // No silent Date.now fallback — missing crypto is a hard failure.
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  const uuid = c && typeof c.randomUUID === 'function' ? c.randomUUID() : '';
-  return uuid ? `oxc-ipc-${uuid}` : `oxc-ipc-${Date.now().toString(36)}-${counter.toString(36)}`;
+  if (!(c && typeof c.randomUUID === 'function')) {
+    throw new Error('oxc-ipc-adapter: crypto.randomUUID is required to generate request ids');
+  }
+  return `oxc-ipc-${c.randomUUID()}`;
 }
 
 export const oxcIpcAdapter: ParserAdapter = {
@@ -214,5 +211,4 @@ export function __resetIpcAdapterForTesting(): void {
   }
   pending.clear();
   listenerInstalled = false;
-  counter = 0;
 }

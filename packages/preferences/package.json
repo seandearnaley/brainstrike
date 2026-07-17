@@ -14,14 +14,15 @@
     "lucide-react": "^1.23.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
-    "jsdom": "29.1.1",
-    "vitest": "^4.1.9",
-    "zustand": "^5.0.14"
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "jsdom": "catalog:",
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=22"

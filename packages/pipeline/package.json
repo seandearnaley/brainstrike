@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/pipeline",
-  "description": "Indexing pipeline orchestrator for File → Chunk → Embed → Vector flows",
+  "description": "Indexing pipeline orchestrator for File \u2192 Chunk \u2192 Embed \u2192 Vector flows",
   "version": "0.0.1",
   "dependencies": {
     "@brainstrike/indexing-contract": "workspace:*",
@@ -8,9 +8,10 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

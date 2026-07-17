@@ -2,6 +2,7 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import path from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -70,6 +71,31 @@ export default defineConfig({
         ),
       },
       {
+        find: '@brainstrike/db-explorer/embedding-models',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../db-explorer/src/utils/embedding-models.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/workspace-search/chunk-selection-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../workspace-search/src/bridge/chunk-selection-store.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/workspace-search/workspace-search-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../workspace-search/src/core/workspace-search-store.ts'
+        ),
+      },
+      {
+        find: /^@brainstrike\/workspace-search$/,
+        replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
+      },
+      {
         find: /^@brainstrike\/db-explorer$/,
         replacement: path.resolve(import.meta.dirname, '../db-explorer/src/index.ts'),
       },
@@ -84,10 +110,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/queue$/,
         replacement: path.resolve(import.meta.dirname, '../queue/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/storage',
-        replacement: path.resolve(import.meta.dirname, '../storage/dist'),
       },
       {
         find: '@brainstrike/embeddings',
@@ -125,6 +147,24 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
       },
       {
+        find: '@brainstrike/ui/assistant-ui-panel/context-usage-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../ui/src/assistant-ui-panel/context-usage-store.ts'
+        ),
+      },
+      // Explicit subpath entry BEFORE the '@brainstrike/ui/assistant-ui-panel'
+      // string alias below: string aliases match by prefix, so without this the
+      // store specifier resolves to `.../index.ts/follow-up-queue-store` (the
+      // workspace-src-alias guard flags exactly that).
+      {
+        find: '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../ui/src/assistant-ui-panel/follow-up-queue-store.ts'
+        ),
+      },
+      {
         find: '@brainstrike/ui/assistant-ui-panel',
         replacement: path.resolve(import.meta.dirname, '../ui/src/assistant-ui-panel/index.ts'),
       },
@@ -156,7 +196,10 @@ export default defineConfig({
         ),
       },
       {
-        find: '@brainstrike/file-import',
+        // Regex-EXACT: a string find would also capture subpaths like
+        // file-import/browser-queue-port and rewrite them onto index.ts/<sub>
+        // (nonexistent). Subpaths resolve via the registry's exact entries.
+        find: /^@brainstrike\/file-import$/,
         replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
       },
       {
@@ -175,6 +218,15 @@ export default defineConfig({
         find: '/worker-storage.worker.js',
         replacement: path.resolve(import.meta.dirname, '__mocks__/worker-storage.worker.js'),
       },
+      // Registry fills gaps (commands, file-system, file-explorer-hooks,
+      // file-explorer-ui root, etc. — previously resolved from built dist).
+      // @brainstrike/storage now also comes from the registry (source): its old
+      // `../storage/dist` pin traced to the #304 config standardization, not a
+      // behavioral fix, and the suite passes from src with no dist present.
+      // The deliberate local overrides above (embeddings -> mock, electron ->
+      // mock, worker-storage.worker.js -> mock) win by first-match ordering.
+      // See workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
   },
   server: {

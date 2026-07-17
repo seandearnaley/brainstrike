@@ -1,6 +1,6 @@
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 /**
  * Sort comparator for collections: descending by createdAt, then id.

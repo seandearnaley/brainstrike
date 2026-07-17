@@ -163,6 +163,7 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
 });
 
 export const createUiModuleMock = () => ({
+  ActionContextMenu: ({ children }: MockComponentProps) => <>{children}</>,
   Badge: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="badge" {...props}>
       {children}
@@ -243,6 +244,25 @@ export const createUiModuleMock = () => ({
       {children}
     </div>
   ),
+  DropdownMenuCheckboxItem: ({
+    children,
+    checked,
+    onCheckedChange,
+    ...props
+  }: MockComponentProps & {
+    checked?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <button
+      aria-checked={Boolean(checked)}
+      onClick={() => onCheckedChange?.(!checked)}
+      role="menuitemcheckbox"
+      type="button"
+      {...props}
+    >
+      {children}
+    </button>
+  ),
   DropdownMenuContent: ({
     children,
     align,
@@ -252,6 +272,18 @@ export const createUiModuleMock = () => ({
     <div className={className} data-align={align} data-testid="dropdown-menu-content" {...props}>
       {children}
     </div>
+  ),
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+    ...props
+  }: MockComponentProps & { onSelect?: () => void }) => (
+    <button onClick={onSelect} role="menuitem" type="button" {...props}>
+      {children}
+    </button>
+  ),
+  DropdownMenuLabel: ({ children, ...props }: MockComponentProps) => (
+    <div {...props}>{children}</div>
   ),
   DropdownMenuRadioGroup: ({
     children,
@@ -270,7 +302,7 @@ export const createUiModuleMock = () => ({
     value,
     ...props
   }: MockComponentProps & { value: string }) => {
-    const context = React.useContext(DropdownMenuRadioContext);
+    const context = React.use(DropdownMenuRadioContext);
     return (
       <button
         aria-checked={context?.value === value}
@@ -284,6 +316,7 @@ export const createUiModuleMock = () => ({
       </button>
     );
   },
+  DropdownMenuSeparator: (props: MockComponentProps) => <hr {...props} />,
   DropdownMenuTrigger: ({
     children,
     asChild: _asChild,
@@ -395,6 +428,11 @@ export const createUiModuleMock = () => ({
   ),
   Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
     <div data-testid="progress" data-value={value} {...props} />
+  ),
+  SelectionActionBarOverlay: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="selection-action-overlay" {...props}>
+      {children}
+    </div>
   ),
   SortableTableHeader: ({
     title,
@@ -614,7 +652,7 @@ export const createUiModuleMock = () => ({
     );
   },
   TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
-    const context = React.useContext(TabsContext);
+    const context = React.use(TabsContext);
     const isActive = context?.value === value;
 
     if (!(isActive || forceMount)) {
@@ -638,7 +676,7 @@ export const createUiModuleMock = () => ({
     </div>
   ),
   TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
-    const context = React.useContext(TabsContext);
+    const context = React.use(TabsContext);
     const isActive = context?.value === value;
 
     const handleClick = () => {
@@ -731,6 +769,15 @@ export const createUiModuleMock = () => ({
       </table>
     </div>
   ),
+  useContextMenuTarget: () => {
+    const [target, setTargetState] = React.useState<unknown>(null);
+    const targetRef = React.useRef<unknown>(null);
+    const setTarget = React.useCallback((nextTarget: unknown) => {
+      targetRef.current = nextTarget;
+      setTargetState(nextTarget);
+    }, []);
+    return { setTarget, target, targetRef };
+  },
   useToast: () => ({ toast: () => {} }),
 });
 
@@ -821,6 +868,7 @@ export const createLucideModuleMock = () => ({
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
+  GripVertical: () => <div data-testid="grip-vertical" />,
   Group: () => <div data-testid="group" />,
   Layers: () => <div data-testid="layers" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
@@ -829,12 +877,16 @@ export const createLucideModuleMock = () => ({
   Maximize2: () => <div data-testid="maximize" />,
   Minimize2: () => <div data-testid="minimize" />,
   MinusCircle: () => <div data-testid="minus" />,
+  MoreHorizontal: () => <div data-testid="more-horizontal" />,
   Pencil: () => <div data-testid="pencil" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
+  ScanSearch: () => <div data-testid="scan-search" />,
   Sparkles: () => <div data-testid="sparkles" />,
   Table: () => <div data-testid="table" />,
   Target: () => <div data-testid="target" />,
   TreePine: () => <div data-testid="tree-pine" />,
   X: () => <div data-testid="x" />,
+  ZoomIn: () => <div data-testid="zoom-in" />,
+  ZoomOut: () => <div data-testid="zoom-out" />,
 });

@@ -74,21 +74,23 @@ function streamNodesInBatches(
 ): void {
   const batchSize = options?.batchSize ?? 50;
   const signal = options?.signal;
+  signal?.throwIfAborted();
 
   let batch: IFileNode[] = [];
   let total = 0;
 
   for (const node of nodes) {
-    if (signal?.aborted) {
-      break;
-    }
+    signal?.throwIfAborted();
     batch.push(node);
     total++;
     if (batch.length >= batchSize) {
       onBatch(batch, { done: false, total });
       batch = [];
+      signal?.throwIfAborted();
     }
   }
+
+  signal?.throwIfAborted();
 
   // Emit completion signal (match Web adapter semantics)
   if (batch.length > 0 || total === 0) {
@@ -345,7 +347,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     optionsArg?: StreamingDirectoryReadOptions
   ): Promise<void> {
     if (fixtureState) {
+      optionsArg?.signal?.throwIfAborted();
       await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
+      optionsArg?.signal?.throwIfAborted();
       const lookupPath = resolveFixtureLookupPath(fixtureState, handle.path);
       streamNodesInBatches(
         cloneNodes(fixtureState.directories.get(lookupPath) ?? []),

@@ -85,6 +85,25 @@ export type {
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
 export type { GrepCandidate, GrepCandidateOptions } from './models/grep.js';
+export {
+  buildPromptItemEmbeddingText,
+  type CreatePromptItemInput,
+  derivePromptItemTitle,
+  normalizePromptItemTags,
+  PROMPT_ITEM_KINDS,
+  PROMPT_ITEM_USAGE_ACTIONS,
+  type PromptEmbeddingProfile,
+  type PromptItem,
+  type PromptItemEmbeddingStatus,
+  type PromptItemFilter,
+  type PromptItemKind,
+  type PromptItemRevision,
+  type PromptItemSimilarityOptions,
+  type PromptItemSimilarityResult,
+  type PromptItemUsageAction,
+  type StorePromptItemEmbeddingInput,
+  type UpdatePromptItemInput,
+} from './models/prompt-item.js';
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,
@@ -101,7 +120,11 @@ export type {
 // Queue
 export { JobQueue } from './queue/index.js';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
-export { FileChunkRepository } from './repositories/file-chunk-repository.js';
+export {
+  type FileChunkDatabase,
+  type FileChunkQueryTx,
+  FileChunkRepository,
+} from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
 // Schema types for embedding cache (BST-170)

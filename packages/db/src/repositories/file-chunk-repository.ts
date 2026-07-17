@@ -1,4 +1,3 @@
-import type { PGlite } from '@electric-sql/pglite';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -18,6 +17,7 @@ import {
   appendColumn,
   appendColumnIfDefined,
   batchArray,
+  bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
@@ -30,6 +30,19 @@ import {
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
+
+export interface FileChunkQueryTx {
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+}
+
+/**
+ * Minimal transactional query surface used by FileChunkRepository.
+ * Both PGlite and the desktop RemoteDbClient satisfy this structurally, so
+ * assistant-server tools can pass `getDatabase()` without cast chains.
+ */
+export interface FileChunkDatabase extends FileChunkQueryTx {
+  transaction: <T>(fn: (tx: FileChunkQueryTx) => Promise<T>) => Promise<T>;
+}
 
 // Type definition for database row returned by PGlite
 interface FileChunkRow {
@@ -72,7 +85,7 @@ interface FileChunkStatsRow {
 }
 
 export class FileChunkRepository {
-  constructor(private readonly db: PGlite) {}
+  constructor(private readonly db: FileChunkDatabase) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
@@ -221,10 +234,7 @@ export class FileChunkRepository {
     return allResults;
   }
 
-  async insertManyWithTx(
-    tx: Pick<PGlite, 'query'>,
-    chunks: FileChunkInsert[]
-  ): Promise<FileChunk[]> {
+  async insertManyWithTx(tx: FileChunkQueryTx, chunks: FileChunkInsert[]): Promise<FileChunk[]> {
     if (chunks.length === 0) {
       return [];
     }
@@ -344,6 +354,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       rootId,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -403,6 +414,13 @@ export class FileChunkRepository {
         `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
       );
       params.push(rootId);
+      paramIndex += 1;
+    }
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
       paramIndex += 1;
     }
     whereParts.push(`embedding_set_id = $${paramIndex}`);
@@ -479,7 +497,9 @@ export class FileChunkRepository {
    * Full-text search on file chunks using PostgreSQL's tsvector/tsquery.
    *
    * Uses the pre-computed `content_tsvector` column with GIN index for fast
-   * keyword-based search. Supports multiple query modes:
+   * keyword-based MATCHING, ordered by BM25 relevance (pg_textsearch,
+   * migration 053; rank = negated BM25 score, higher = better). Supports
+   * multiple query modes:
    * - 'plain': Simple AND of all words
    * - 'websearch': Google-like syntax (OR, quotes, -negation)
    * - 'phrase': Exact phrase matching
@@ -512,10 +532,10 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
-      rankNormalization = 0,
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
@@ -561,22 +581,33 @@ export class FileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
+      paramIndex += 1;
+    }
 
-    // Execute search query with ts_rank for relevance scoring
+    // Execute search query ranked by BM25 (pg_textsearch, migration 053):
+    // matching stays tsvector-based above, so query-mode semantics are
+    // unchanged; only the ORDERING comes from BM25. The `, id` tiebreaks keep
+    // ordering deterministic — BM25 produces exact score ties for rows with
+    // identical term statistics.
     const result = await this.db.query(
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
+        ${bm25RankExpression('$2')} as fts_rank,
         ${
           includeHeadline
             ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
             : ''
         }
-        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$2')} DESC, id) as position
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
-      ORDER BY fts_rank DESC
+      ORDER BY fts_rank DESC, id
       LIMIT $${paramIndex}`,
       [...params, limit]
     );
@@ -618,7 +649,8 @@ export class FileChunkRepository {
    * fullTextSearch/searchSimilar).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
-    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId } = options;
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId, rootIds } =
+      options;
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -634,6 +666,13 @@ export class FileChunkRepository {
     if (rootId !== undefined) {
       params.push(rootId);
       conditions.push(`fr.root_id = $${params.length}`);
+    }
+    if (rootIds !== undefined) {
+      if (rootIds.length === 0) {
+        return []; // empty allowlist = nothing allowed (mirror filePaths semantics)
+      }
+      params.push(Array.from(rootIds));
+      conditions.push(`fr.root_id = ANY($${params.length}::text[])`);
     }
     if (filePaths !== undefined) {
       if (filePaths.length === 0) {
@@ -654,7 +693,7 @@ export class FileChunkRepository {
     // root id + display name travel with every candidate so matches stay
     // unambiguous across workspace roots that share a relative path.
     const result = await this.db.query(
-      `SELECT fc.content, fc.start_line, fr.path, fr.root_id, r.display_name
+      `SELECT fc.id AS chunk_id, fc.content, fc.start_line, fc.end_line, fr.path, fr.root_id, r.display_name
          FROM file_chunks fc
          JOIN file_records fr ON fr.id = fc.file_record_id
          LEFT JOIN roots r ON r.id = fr.root_id
@@ -666,14 +705,18 @@ export class FileChunkRepository {
 
     return (
       result.rows as Array<{
+        chunk_id: string;
         content: string;
+        end_line: number | null;
         path: string;
         root_id: string | null;
         display_name: string | null;
         start_line: number | null;
       }>
     ).map((row) => ({
+      chunkId: row.chunk_id,
       content: row.content,
+      endLine: row.end_line,
       filePath: row.path,
       rootId: row.root_id,
       rootName: row.display_name,

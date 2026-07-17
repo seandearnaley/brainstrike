@@ -8,6 +8,14 @@
  */
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 export const DEFAULT_STREAM_INACTIVITY_MS = 120_000;
+/**
+ * Advisory age after which a rediscovered suspended approval is flagged `stale`
+ * in the re-surfaced notice (24h). Deliberately generous and DECOUPLED from the
+ * in-flight stream/tool timeouts above: a human approval may legitimately take
+ * hours after a restart. Advisory only — never auto-declines (see docs/agents/assistant-runtime.md
+ * PERMISSION ENGINE). Strict-parsed: a malformed override THROWS, no silent fallback.
+ */
+export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 
 export interface AssistantResilienceConfig {
   streamInactivityMs: number;
@@ -49,6 +57,10 @@ export function resolveStreamInactivityMs(override?: number): number {
     DEFAULT_STREAM_INACTIVITY_MS,
     override
   );
+}
+
+export function resolveApprovalStaleMs(override?: number): number {
+  return resolvePositiveIntMs('BRAINSTRIKE_APPROVAL_STALE_MS', DEFAULT_APPROVAL_STALE_MS, override);
 }
 
 export function resolveAssistantResilienceConfig(options?: {

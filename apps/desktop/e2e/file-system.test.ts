@@ -196,7 +196,13 @@ test.describe('File System Integration', () => {
   test('should maintain file system state across app restart', async ({ electron, window }) => {
     test.setTimeout(120_000);
 
-    const fileSystemButtons = window.getByRole('button').filter({ hasText: /browse|open|select/i });
+    // Match only the folder picker (same canonical matcher as the rest of this
+    // file). The old loose /browse|open|select/i also matched the disabled
+    // "Select All" bulk button, and .first() then clicked a permanently
+    // disabled control until timeout.
+    const fileSystemButtons = window.getByRole('button', {
+      name: /add folder to workspace|browse/i,
+    });
 
     if (
       await fileSystemButtons

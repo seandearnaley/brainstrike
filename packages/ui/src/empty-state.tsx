@@ -25,9 +25,8 @@ export function EmptyState({
     <div
       className={cn(
         'flex h-full w-full flex-col items-center justify-center px-8 text-center',
-        // LIGHT: Warm, airy sky gradient
-        // DARK: Deep, grounded obsidian/slate gradient
-        'bg-gradient-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]',
+        // Shared panel surface gradient (see --panel-surface / .bg-panel-surface)
+        'bg-panel-surface',
         className
       )}
       style={style}

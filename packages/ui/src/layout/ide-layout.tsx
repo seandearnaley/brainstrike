@@ -16,10 +16,25 @@ import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-cons
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
 
+/** Options for {@link FileEditorContextValue.openFileInTab}. */
+export interface OpenFileInTabOptions {
+  /** 1-based line to scroll into view on first render of the opened tab. */
+  line?: number;
+  /**
+   * Inclusive, 1-based line range to select (and scroll to) on first render of
+   * the opened tab — e.g. a search chunk the user opened so the block is
+   * highlighted and ready to copy. Wins over {@link OpenFileInTabOptions.line}.
+   */
+  selection?: { startLine: number; endLine: number };
+}
+
+/** Opens (or focuses) the file tab for a compositeKey, optionally line-targeted. */
+export type OpenFileInTab = (compositeKey: string, options?: OpenFileInTabOptions) => void;
+
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
-  openFileInTab: ((compositeKey: string) => void) | undefined;
-  registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
+  openFileInTab: OpenFileInTab | undefined;
+  registerOpenFileInTab: (fn: OpenFileInTab) => void;
 }
 
 const IdeFileEditorContext = createContext<FileEditorContextValue>({
@@ -596,11 +611,9 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
 
 // Custom hook for managing file editor context
 function useFileEditorContext() {
-  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
-    ((compositeKey: string) => void) | null
-  >(null);
+  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<OpenFileInTab | null>(null);
 
-  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
+  const registerOpenFileInTab = useCallback((fn: OpenFileInTab) => {
     setOpenFileInTabFn(() => fn);
   }, []);
 
@@ -1298,7 +1311,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={leftPanelRef}
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="left-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <LeftPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedLeftPanelChrome.title}</span>
@@ -1321,8 +1337,9 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               </Panel>
               <Separator
+                aria-label={`Resize ${resolvedLeftPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showLeftPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1369,8 +1386,9 @@ export const IdeLayout = React.memo(function IdeLayout({
               {hasConsole && (
                 <>
                   <Separator
+                    aria-label="Resize File Editor panel"
                     className={cn(
-                      'z-10 h-1',
+                      'z-10 h-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       showConsole ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                     )}
                     onPointerDown={handleSeparatorPointerDown}
@@ -1392,7 +1410,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                     panelRef={consolePanelRef}
                   >
                     <div className="flex h-full flex-col [contain:layout_paint_style]">
-                      <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                      <div
+                        className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                        data-testid="console-panel-header"
+                      >
                         <div className="flex items-center gap-2">
                           <Terminal className="h-4 w-4" />
                           <span className="font-medium text-sm">File Editor</span>
@@ -1422,8 +1443,9 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasTools && (
             <>
               <Separator
+                aria-label={`Resize ${resolvedRightPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showRightPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1445,7 +1467,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={rightPanelRef}
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="right-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <RightPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedRightPanelChrome.title}</span>

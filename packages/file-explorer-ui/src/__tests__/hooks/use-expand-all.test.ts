@@ -365,6 +365,57 @@ describe('useExpandAll', () => {
     expect(result.current.isExpandingAll).toBe(false);
   });
 
+  it('does not let a stale cancelled session finalize a newer session', async () => {
+    const releaseLoads: Array<() => void> = [];
+    const loadDirectoryPath = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseLoads.push(resolve);
+        })
+    );
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    let firstSessionPromise: Promise<void> | undefined;
+    await act(async () => {
+      firstSessionPromise = result.current.expandAllProgressively(setExpandedPaths);
+      await Promise.resolve();
+    });
+    expect(loadDirectoryPath).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.cancelExpandAll();
+    });
+
+    let secondSessionPromise: Promise<void> | undefined;
+    await act(async () => {
+      secondSessionPromise = result.current.expandAllProgressively(setExpandedPaths);
+      await Promise.resolve();
+    });
+    expect(loadDirectoryPath).toHaveBeenCalledTimes(2);
+    expect(result.current.isExpandingAll).toBe(true);
+    expect(result.current.isExpandingAllRef.current).toBe(true);
+
+    await act(async () => {
+      releaseLoads[0]?.();
+      await firstSessionPromise;
+    });
+
+    const remainedActiveAfterStaleSettlement = result.current.isExpandingAll;
+    const refRemainedActiveAfterStaleSettlement = result.current.isExpandingAllRef.current;
+
+    await act(async () => {
+      releaseLoads[1]?.();
+      await secondSessionPromise;
+    });
+
+    expect(remainedActiveAfterStaleSettlement).toBe(true);
+    expect(refRemainedActiveAfterStaleSettlement).toBe(true);
+    expect(result.current.isExpandingAll).toBe(false);
+    expect(result.current.isExpandingAllRef.current).toBe(false);
+    expect(onErrorMock).not.toHaveBeenCalled();
+  });
+
   it('leaves a valid partial expansion state when cancelled between batches', async () => {
     rootNodesRef.current = [
       createDirectoryNode({

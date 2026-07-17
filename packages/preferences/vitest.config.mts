@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
@@ -67,10 +68,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/file-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
@@ -98,6 +95,11 @@ export default defineConfig({
         find: '@brainstrike/file-system',
         replacement: resolve(import.meta.dirname, '../file-system/src/index.ts'),
       },
+      // Registry fills the remaining workspace deps reached transitively from the
+      // src-resolved graph (platform-utils via storage, context-actions via
+      // hooks, queue via db, …). Hand-rolled entries above win by first-match.
+      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   test: {

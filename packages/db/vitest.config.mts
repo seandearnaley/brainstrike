@@ -13,6 +13,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 const sharedAliases: Record<string, string> = {
   '@': path.resolve(__dirname, 'src'),
+  // Root import (registry↔migration vision agreement test) resolves to source
+  // so the lane never depends on a prebuilt assistant-contract dist. Subpath
+  // aliases (e.g. mastra-memory-schema in unitAliases) must stay declared
+  // BEFORE this key so the prefix match cannot shadow them.
+  '@brainstrike/assistant-contract': path.resolve(__dirname, '../assistant-contract/src/index.ts'),
   '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
   '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
@@ -82,6 +87,12 @@ export default defineConfig({
         },
       },
       {
+        // Browser project: same source aliases as the unit project — inline
+        // projects do not inherit the top-level resolve.alias, and workspace
+        // imports must execute source, not dist (incident #1066/#1207).
+        resolve: {
+          alias: unitAliases,
+        },
         test: {
           browser: {
             enabled: true,

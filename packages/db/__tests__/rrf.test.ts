@@ -350,6 +350,25 @@ describe('RRF Algorithm', () => {
       expect(normalized[0].rrfScore).toBe(0);
     });
 
+    it('maps all-equal non-zero scores to 1.0 without producing NaN', () => {
+      // When every fused score is identical the score range collapses (max ===
+      // min). A range-based normalization would divide by zero → NaN; the guard
+      // maps every item to the top of the range (1.0) instead. There is no
+      // discriminating signal, so treating them all as top-ranked is correct.
+      const results: FusedResult[] = [
+        { contributions: [], id: 'doc1', rrfScore: 0.02, sourceCount: 1 },
+        { contributions: [], id: 'doc2', rrfScore: 0.02, sourceCount: 1 },
+        { contributions: [], id: 'doc3', rrfScore: 0.02, sourceCount: 1 },
+      ];
+
+      const normalized = normalizeRRFScores(results);
+
+      for (const item of normalized) {
+        expect(Number.isNaN(item.rrfScore)).toBe(false);
+        expect(item.rrfScore).toBe(1.0);
+      }
+    });
+
     it('should preserve other properties', () => {
       const results: FusedResult[] = [
         {

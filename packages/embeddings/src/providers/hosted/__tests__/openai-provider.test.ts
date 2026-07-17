@@ -127,8 +127,10 @@ describe('OpenAIEmbeddingProvider', () => {
       targetDimensions: 3,
     });
 
+    const signal = new AbortController().signal;
     const input: EmbeddingInput = {
       modelId: 'text-embedding-3-small',
+      signal,
       text: 'hello world',
     };
 
@@ -138,5 +140,12 @@ describe('OpenAIEmbeddingProvider', () => {
       expect(result.value.usage?.inputTokens).toBe(12);
       expect(result.value.usage?.totalTokens).toBe(20);
     }
+    const call = mockFetch.mock.calls.at(0) as unknown as
+      | [RequestInfo | URL, RequestInit | undefined]
+      | undefined;
+    if (!call) {
+      throw new Error('Expected OpenAI fetch to be called.');
+    }
+    expect(call[1]?.signal).toBe(signal);
   });
 });

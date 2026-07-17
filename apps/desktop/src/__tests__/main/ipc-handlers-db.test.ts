@@ -945,6 +945,8 @@ describe('database IPC handlers', () => {
       });
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM embedding_sets');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
@@ -1066,6 +1068,7 @@ describe('database IPC handlers', () => {
             .mockResolvedValueOnce(undefined) // DELETE snapshot files
             .mockResolvedValueOnce(undefined) // DELETE snapshot headers
             .mockResolvedValueOnce(undefined) // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE roots
             .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
             .mockResolvedValueOnce(undefined) // DELETE embedding_sets
             .mockResolvedValueOnce(undefined), // DELETE job_queue
@@ -1082,6 +1085,45 @@ describe('database IPC handlers', () => {
         success: true,
       });
       expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when optional table cleanup reports an unrelated undefined relation', async () => {
+      const handler = handlers.get('db:clearAll');
+      const unrelatedMissingRelation = Object.assign(
+        new Error('relation "prompt_item_audit_log" does not exist while deleting prompt_items'),
+        { code: '42P01' }
+      );
+      let transactionCommitted = false;
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const query = vi.fn(async (sql: string) => {
+          if (sql.startsWith('SELECT COUNT(*)')) {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'DELETE FROM prompt_items') {
+            throw unrelatedMissingRelation;
+          }
+          return { rows: [] };
+        });
+        const result = await callback({ query });
+        transactionCommitted = true;
+        return result;
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(transactionCommitted).toBe(false);
+      expect(result).toEqual({
+        deletedChunks: 0,
+        deletedFiles: 0,
+        message:
+          'Database clear failed: relation "prompt_item_audit_log" does not exist while deleting prompt_items',
+        success: false,
+      });
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to clear optional database table', {
+        error: unrelatedMissingRelation,
+        tableName: 'prompt_items',
+      });
     });
 
     it('fails the clear when optional indexing table cleanup hits an unexpected error', async () => {

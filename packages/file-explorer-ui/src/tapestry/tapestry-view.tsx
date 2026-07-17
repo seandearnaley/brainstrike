@@ -7,7 +7,12 @@ import { formatPreviewFileSize } from '../utils/preview-formatters';
 import { Minimap } from './minimap';
 import { TapestryControls } from './tapestry-controls';
 import type { DragState, FileTapestry, InteractionMode, TapestryRange } from './types';
-import { createRangeId, generateColor, getTapestryRenderMetrics } from './utils';
+import {
+  createRangeId,
+  generateColor,
+  getTapestryGalleryMetrics,
+  getTapestryRenderMetrics,
+} from './utils';
 
 const EMPTY_STATE_ICON = <FileX2 />;
 
@@ -172,6 +177,45 @@ interface TapestrySection {
   showHeader: boolean;
 }
 
+/** In-flight drag state rendered locally; committed to the store on drag end. */
+interface TapestryDragDraft {
+  fileId: string;
+  ranges: TapestryRange[];
+}
+
+function applyDragDraftToFiles(
+  files: FileTapestry[],
+  draft: TapestryDragDraft | null
+): FileTapestry[] {
+  if (!(draft && files.some((file) => file.id === draft.fileId))) {
+    return files;
+  }
+  // Only the dragged file gets a new object — every other card keeps identity
+  // so its memo bails out during drag frames.
+  return files.map((file) =>
+    file.id === draft.fileId ? { ...file, selections: draft.ranges } : file
+  );
+}
+
+function applyDragDraftToSections(
+  sections: TapestrySection[],
+  draft: TapestryDragDraft | null
+): TapestrySection[] {
+  if (!draft) {
+    return sections;
+  }
+  let changed = false;
+  const next = sections.map((section) => {
+    const items = applyDragDraftToFiles(section.items, draft);
+    if (items === section.items) {
+      return section;
+    }
+    changed = true;
+    return { ...section, items };
+  });
+  return changed ? next : sections;
+}
+
 interface TapestryViewProps {
   activeRangesCount: number;
   groupedSections: TapestrySection[];
@@ -182,11 +226,14 @@ interface TapestryViewProps {
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
   onDeselectAll: () => void;
   onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  onGroupingChange: (value: string) => void;
   onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   onRangesChange: (fileId: string, ranges: TapestryRange[]) => void;
   onRequestFileContent?: (compositeKey: string) => void;
   onResetRanges: (fileIds: string[]) => void;
+  onScaleChange: (scale: number) => void;
   onSelectAllOnPage: (items: TableRowData[]) => void;
+  onSelectionControlsToggle: (enabled: boolean) => void;
   onToggleGroupCollapse: (groupKey: GroupKey) => void;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   pagination: {
@@ -198,9 +245,9 @@ interface TapestryViewProps {
     pageSize?: number;
   };
   previewSelections: Set<string>;
+  scale: number;
   showSelectionControls: boolean;
   totalFiles: number;
-  totalLinesSelected: number;
   ungroupedFiles: FileTapestry[];
   visibleFilesOnPage: TableRowData[];
 }
@@ -228,11 +275,15 @@ const TapestryGroupHeader = memo<{
     const checkboxState = isPartiallySelected ? 'indeterminate' : isFullySelected;
 
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm shadow-xs">
+      <div
+        className="@container flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/40 px-2 py-2 text-sm shadow-xs"
+        data-testid="tapestry-group-header"
+      >
         {showSelectionControls ? (
           <Checkbox
             aria-label={`Select all items in group ${group.groupLabel}`}
             checked={checkboxState}
+            className="size-6"
             onCheckedChange={(checked) => {
               if (typeof checked === 'boolean') {
                 if (checked) {
@@ -248,16 +299,30 @@ const TapestryGroupHeader = memo<{
         <button
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${group.groupLabel}`}
-          className="flex flex-1 items-center gap-2 text-left font-medium text-foreground text-sm transition-colors hover:text-primary"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left font-medium text-foreground text-sm transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onToggleGroupCollapse(group.groupKey)}
           type="button"
         >
-          {isCollapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
-          <span>{group.groupLabel}</span>
-          <div className="ml-auto flex items-center gap-4 text-muted-foreground text-xs">
-            <span>{group.count} files</span>
-            <span className="font-mono tabular-nums">{formatTokenCount(group.totalTokens)}</span>
-            <span className="font-mono tabular-nums">{formatPreviewFileSize(group.totalSize)}</span>
+          {isCollapsed ? (
+            <ChevronRight className="size-4 shrink-0" />
+          ) : (
+            <ChevronDown className="size-4 shrink-0" />
+          )}
+          <span className="min-w-0 truncate">{group.groupLabel}</span>
+          <div className="ml-auto flex shrink-0 items-center gap-3 text-muted-foreground text-xs">
+            <span className="@max-[280px]:hidden">{group.count} files</span>
+            <span
+              className="@max-[360px]:hidden font-mono tabular-nums"
+              data-testid="tapestry-group-token-count"
+            >
+              {formatTokenCount(group.totalTokens)}
+            </span>
+            <span
+              className="@max-[440px]:hidden font-mono tabular-nums"
+              data-testid="tapestry-group-size"
+            >
+              {formatPreviewFileSize(group.totalSize)}
+            </span>
           </div>
         </button>
       </div>
@@ -320,13 +385,18 @@ function useTapestryDrag(
   files: FileTapestry[],
   onRangesChange: (fileId: string, ranges: TapestryRange[]) => void,
   scale: number,
-  allowOverlap: boolean
+  allowOverlap: boolean,
+  onPreviewRanges: (draft: TapestryDragDraft | null) => void
 ) {
   const dragStateRef = useRef<DragState>({ ...IDLE_DRAG_STATE });
   const [isDragging, setIsDragging] = useState(false);
   const rafIdRef = useRef<number>(0);
   const activePointerIdRef = useRef<number | null>(null);
   const latestClientYRef = useRef<number>(0);
+  // Per-frame drag output. Rendered via onPreviewRanges (local state in
+  // TapestryView) and committed to the store ONCE on drag end — per-frame
+  // store writes re-rendered the whole PreviewPanel at pointer-move cadence.
+  const draftRef = useRef<TapestryDragDraft | null>(null);
 
   // Always-fresh ref avoids stale closures when mouse events fire between renders.
   const filesRef = useRef(files);
@@ -349,10 +419,130 @@ function useTapestryDrag(
     [onRangesChange]
   );
 
+  const discardDraft = useCallback(() => {
+    if (draftRef.current !== null) {
+      draftRef.current = null;
+      onPreviewRanges(null);
+    }
+  }, [onPreviewRanges]);
+
+  const commitDraft = useCallback(() => {
+    const draft = draftRef.current;
+    draftRef.current = null;
+    if (draft) {
+      onRangesChange(draft.fileId, draft.ranges);
+    }
+    onPreviewRanges(null);
+  }, [onRangesChange, onPreviewRanges]);
+
   const resetDragState = useCallback(() => {
+    // Safety net: any surviving draft at reset is DISCARDED (e.g. the
+    // totalLines-changed mid-drag abort). Commit paths call commitDraft first.
+    discardDraft();
     dragStateRef.current = { ...IDLE_DRAG_STATE };
     setIsDragging(false);
+  }, [discardDraft]);
+
+  const cancelScheduledFrame = useCallback((): boolean => {
+    if (rafIdRef.current === 0) {
+      return false;
+    }
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = 0;
+    return true;
   }, []);
+
+  const releaseActivePointer = useCallback((pointerId?: number) => {
+    const activePointerId = activePointerIdRef.current;
+    activePointerIdRef.current = null;
+    const releasePointerId = pointerId ?? activePointerId;
+    if (releasePointerId === null || releasePointerId === undefined) {
+      return;
+    }
+    try {
+      document.documentElement.releasePointerCapture(releasePointerId);
+    } catch {
+      // Pointer capture may already be released.
+    }
+  }, []);
+
+  const rollbackDrag = useCallback(() => {
+    const current = dragStateRef.current;
+    if (current.mode === 'IDLE' || !current.fileId || !current.rangeId || !current.initialRange) {
+      return;
+    }
+
+    // Move/resize drags never touched the store (frames render from the
+    // draft), so discarding the draft fully restores the pre-drag state. A
+    // CREATING drag committed its new range on pointer-down — remove it.
+    discardDraft();
+    const { anchorLine, fileId, rangeId } = current;
+    if (anchorLine !== undefined) {
+      updateRanges(fileId, (ranges) => ranges.filter((range) => range.id !== rangeId));
+    }
+  }, [discardDraft, updateRanges]);
+
+  const applyLatestDragPosition = useCallback(() => {
+    // Clear the gate before applying so a synchronous state update cannot leave
+    // the drag loop looking as though a stale frame is still pending.
+    rafIdRef.current = 0;
+    const current = dragStateRef.current;
+    if (current.mode === 'IDLE' || !current.fileId || !current.rangeId || !current.initialRange) {
+      return;
+    }
+
+    const file = filesRef.current.find((entry) => entry.id === current.fileId);
+    if (!file) {
+      return;
+    }
+
+    // Abort drag if totalLines changed mid-drag (e.g. content loaded).
+    if (file.totalLines !== current.initialTotalLines) {
+      resetDragState();
+      return;
+    }
+
+    const { fileId, rangeId, startY, initialRange, mode } = current;
+    const { lineScale } = getTapestryRenderMetrics(file.totalLines, scaleRef.current);
+    const deltaLines = Math.round((latestClientYRef.current - startY) / lineScale);
+
+    // Frames write to the local draft (rendered by TapestryView), NOT the
+    // store — the store sees one commit on drag end. `file.selections` comes
+    // from the drafted files, so overlap constraints see the live positions.
+    const ranges = file.selections;
+    const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
+    const otherRanges = ranges.filter((range) => range.id !== rangeId);
+
+    // Bidirectional range creation: if dragging upward from anchor point
+    const { anchorLine } = current;
+    const newBounds =
+      anchorLine !== undefined && mode === 'RESIZING_BOTTOM' && deltaLines < 0
+        ? computeUpwardCreationBounds(
+            anchorLine,
+            deltaLines,
+            file.totalLines,
+            initialRange,
+            otherRanges,
+            allowOverlapRef.current
+          )
+        : calculateNewRange(
+            currentRange,
+            initialRange,
+            mode,
+            deltaLines,
+            file.totalLines,
+            allowOverlapRef.current,
+            otherRanges
+          );
+
+    draftRef.current = {
+      fileId,
+      ranges: ranges.map((range) =>
+        range.id === rangeId ? { ...range, ...newBounds, userModified: true } : range
+      ),
+    };
+    onPreviewRanges(draftRef.current);
+  }, [onPreviewRanges, resetDragState]);
 
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
@@ -381,102 +571,79 @@ function useTapestryDrag(
         return;
       }
 
-      rafIdRef.current = requestAnimationFrame(() => {
-        // Re-check drag state inside rAF (pointerUp may have fired between scheduling and execution)
-        const current = dragStateRef.current;
-        if (
-          current.mode === 'IDLE' ||
-          !current.fileId ||
-          !current.rangeId ||
-          !current.initialRange
-        ) {
-          rafIdRef.current = 0;
-          return;
-        }
-
-        const file = filesRef.current.find((entry) => entry.id === current.fileId);
-        if (!file) {
-          rafIdRef.current = 0;
-          return;
-        }
-
-        // Abort drag if totalLines changed mid-drag (e.g. content loaded).
-        if (file.totalLines !== current.initialTotalLines) {
-          rafIdRef.current = 0;
-          resetDragState();
-          return;
-        }
-
-        const { fileId, rangeId, startY, initialRange, mode } = current;
-        const { lineScale } = getTapestryRenderMetrics(file.totalLines, scaleRef.current);
-        const deltaLines = Math.round((latestClientYRef.current - startY) / lineScale);
-
-        updateRanges(fileId, (ranges) => {
-          const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
-          const otherRanges = ranges.filter((range) => range.id !== rangeId);
-
-          // Bidirectional range creation: if dragging upward from anchor point
-          const { anchorLine } = current;
-          const newBounds =
-            anchorLine !== undefined && mode === 'RESIZING_BOTTOM' && deltaLines < 0
-              ? computeUpwardCreationBounds(
-                  anchorLine,
-                  deltaLines,
-                  file.totalLines,
-                  initialRange,
-                  otherRanges,
-                  allowOverlapRef.current
-                )
-              : calculateNewRange(
-                  currentRange,
-                  initialRange,
-                  mode,
-                  deltaLines,
-                  file.totalLines,
-                  allowOverlapRef.current,
-                  otherRanges
-                );
-
-          return ranges.map((range) =>
-            range.id === rangeId ? { ...range, ...newBounds, userModified: true } : range
-          );
-        });
-
-        // Clear rAF gate after the update — this ensures strictly one update per frame.
-        rafIdRef.current = 0;
-      });
+      rafIdRef.current = requestAnimationFrame(applyLatestDragPosition);
     },
-    [resetDragState, updateRanges]
+    [applyLatestDragPosition]
   );
 
   const handlePointerUp = useCallback(
-    (e?: PointerEvent) => {
+    (e: PointerEvent) => {
       // Ignore events from other pointers (e.g. multi-touch)
-      if (e && activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
         return;
       }
 
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = 0;
-      activePointerIdRef.current = null;
-      if (e) {
-        try {
-          document.documentElement.releasePointerCapture(e.pointerId);
-        } catch {
-          // Pointer capture may already be released
-        }
-      }
+      cancelScheduledFrame();
+      latestClientYRef.current = e.clientY;
+      applyLatestDragPosition();
+      commitDraft();
+      releaseActivePointer(e.pointerId);
       resetDragState();
     },
-    [resetDragState]
+    [
+      applyLatestDragPosition,
+      cancelScheduledFrame,
+      commitDraft,
+      releaseActivePointer,
+      resetDragState,
+    ]
   );
 
+  const handlePointerCancel = useCallback(
+    (e: PointerEvent) => {
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+
+      cancelScheduledFrame();
+      rollbackDrag();
+      releaseActivePointer(e.pointerId);
+      resetDragState();
+    },
+    [cancelScheduledFrame, releaseActivePointer, resetDragState, rollbackDrag]
+  );
+
+  const handleWindowBlur = useCallback(() => {
+    if (cancelScheduledFrame()) {
+      applyLatestDragPosition();
+    }
+    commitDraft();
+    releaseActivePointer();
+    resetDragState();
+  }, [
+    applyLatestDragPosition,
+    cancelScheduledFrame,
+    commitDraft,
+    releaseActivePointer,
+    resetDragState,
+  ]);
+
   // Store latest handlers in ref to avoid recreating event listeners
-  const handlersRef = useRef({ handlePointerMove, handlePointerUp });
+  const handlersRef = useRef({
+    handlePointerCancel,
+    handlePointerMove,
+    handlePointerUp,
+    handleWindowBlur,
+  });
 
   useEffect(() => {
-    handlersRef.current = { handlePointerMove, handlePointerUp };
-  }, [handlePointerMove, handlePointerUp]);
+    handlersRef.current = {
+      handlePointerCancel,
+      handlePointerMove,
+      handlePointerUp,
+      handleWindowBlur,
+    };
+  }, [handlePointerCancel, handlePointerMove, handlePointerUp, handleWindowBlur]);
 
   // Cancel pending rAF on unmount
   useEffect(() => () => cancelAnimationFrame(rafIdRef.current), []);
@@ -485,17 +652,52 @@ function useTapestryDrag(
     if (isDragging) {
       const moveHandler = (e: PointerEvent) => handlersRef.current.handlePointerMove(e);
       const upHandler = (e: PointerEvent) => handlersRef.current.handlePointerUp(e);
+      const cancelHandler = (e: PointerEvent) => handlersRef.current.handlePointerCancel(e);
+      const blurHandler = () => handlersRef.current.handleWindowBlur();
 
       window.addEventListener('pointermove', moveHandler);
       window.addEventListener('pointerup', upHandler);
+      window.addEventListener('pointercancel', cancelHandler);
+      window.addEventListener('blur', blurHandler);
 
       return () => {
         window.removeEventListener('pointermove', moveHandler);
         window.removeEventListener('pointerup', upHandler);
+        window.removeEventListener('pointercancel', cancelHandler);
+        window.removeEventListener('blur', blurHandler);
       };
     }
     return;
   }, [isDragging]);
+
+  const createRange = useCallback(
+    (fileId: string, clickedLine: number): TapestryRange | null => {
+      const file = filesRef.current.find((entry) => entry.id === fileId);
+      if (file?.contentStatus !== 'ready' || file.totalLines <= 0) {
+        return null;
+      }
+
+      const line = Math.min(Math.max(clickedLine, 0), file.totalLines - 1);
+      if (
+        !allowOverlapRef.current &&
+        file.selections.some((range) => line >= range.startLine && line < range.endLine)
+      ) {
+        return null;
+      }
+
+      const newRange: TapestryRange = {
+        color: generateColor(file.selections.length),
+        endLine: line + 1,
+        id: createRangeId(),
+        isActive: true,
+        startLine: line,
+        userModified: true,
+      };
+      updateRanges(fileId, (ranges) => [...ranges, newRange]);
+      return newRange;
+    },
+    [updateRanges]
+  );
 
   const startDrag = useCallback(
     (
@@ -513,37 +715,26 @@ function useTapestryDrag(
       }
 
       if (mode === 'CREATING' && clickedLine !== undefined) {
-        if (
-          !allowOverlapRef.current &&
-          file.selections.some((s) => clickedLine >= s.startLine && clickedLine < s.endLine)
-        ) {
+        const newRange = createRange(fileId, clickedLine);
+        if (!newRange) {
           return;
         }
-
-        const newId = createRangeId();
-        const newRange: TapestryRange = {
-          color: generateColor(file.selections.length),
-          endLine: clickedLine + 1,
-          id: newId,
-          isActive: true,
-          startLine: clickedLine,
-          userModified: true,
-        };
-
-        updateRanges(fileId, (ranges) => [...ranges, newRange]);
         dragStateRef.current = {
-          anchorLine: clickedLine,
+          anchorLine: newRange.startLine,
           fileId,
           initialRange: newRange,
           initialTotalLines: file.totalLines,
           mode: 'RESIZING_BOTTOM',
-          rangeId: newId,
+          rangeId: newRange.id,
           startY: clientY,
         };
         setIsDragging(true);
       } else {
         const resolvedRange =
           initialRange ?? file.selections.find((range) => range.id === rangeId) ?? null;
+        if (!resolvedRange || resolvedRange.origin === 'search') {
+          return;
+        }
         dragStateRef.current = {
           anchorLine: undefined,
           fileId,
@@ -566,19 +757,20 @@ function useTapestryDrag(
         }
       }
     },
-    [updateRanges]
+    [createRange]
   );
 
-  return { isDragging, startDrag };
+  return { createRange, isDragging, startDrag };
 }
 
 export const TapestryView = memo<TapestryViewProps>(function TapestryView({
-  ungroupedFiles,
-  groupedSections,
+  ungroupedFiles: ungroupedFilesProp,
+  groupedSections: groupedSectionsProp,
   groupingConfig,
   onToggleGroupCollapse,
   onGroupSelectAll,
   onGroupDeselectAll,
+  onGroupingChange,
   isGroupFullySelected,
   isGroupPartiallySelected,
   previewSelections,
@@ -592,13 +784,32 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   isEmpty,
   onRangesChange,
   onResetRanges,
+  onScaleChange,
   activeRangesCount,
-  totalLinesSelected,
   pagination,
   showSelectionControls,
+  onSelectionControlsToggle,
+  scale,
 }) {
-  const [scale, setScale] = useState(4);
   const [allowOverlap, setAllowOverlap] = useState(false);
+  const [activePinnedLensFileId, setActivePinnedLensFileId] = useState<string | null>(null);
+  const [lensEnabled, setLensEnabled] = useState(true);
+  const handleLensEnabledChange = useCallback((enabled: boolean) => {
+    setLensEnabled(enabled);
+  }, []);
+
+  // Drag draft: per-frame range updates render from this LOCAL state (only
+  // the dragged file's object is patched, so other cards' memos bail); the
+  // workspace-context store sees one onRangesChange commit at drag end.
+  const [dragDraft, setDragDraft] = useState<TapestryDragDraft | null>(null);
+  const ungroupedFiles = useMemo(
+    () => applyDragDraftToFiles(ungroupedFilesProp, dragDraft),
+    [ungroupedFilesProp, dragDraft]
+  );
+  const groupedSections = useMemo(
+    () => applyDragDraftToSections(groupedSectionsProp, dragDraft),
+    [groupedSectionsProp, dragDraft]
+  );
 
   const files = useMemo(
     () =>
@@ -611,7 +822,14 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   const filesRef = useRef(files);
   filesRef.current = files;
 
-  const { startDrag, isDragging } = useTapestryDrag(files, onRangesChange, scale, allowOverlap);
+  const galleryMetrics = useMemo(() => getTapestryGalleryMetrics(scale), [scale]);
+  const { createRange, startDrag, isDragging } = useTapestryDrag(
+    files,
+    onRangesChange,
+    galleryMetrics.lineDensity,
+    allowOverlap,
+    setDragDraft
+  );
 
   const rangeIdToIndexMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -619,7 +837,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     for (const file of files) {
       const sorted = [...file.selections].sort((a, b) => a.startLine - b.startLine);
       for (const selection of sorted) {
-        if (selection.isActive) {
+        if (selection.isActive && selection.origin !== 'search') {
           map.set(selection.id, count);
           count += 1;
         }
@@ -646,6 +864,12 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
 
   const handleToggleRange = useCallback(
     (fileId: string, rangeId: string) => {
+      const target = filesRef.current
+        .find((file) => file.id === fileId)
+        ?.selections.find((range) => range.id === rangeId);
+      if (!target || target.origin === 'search') {
+        return;
+      }
       updateRanges(fileId, (ranges) =>
         ranges.map((range) =>
           range.id === rangeId ? { ...range, isActive: !range.isActive } : range
@@ -657,6 +881,12 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
 
   const handleMoveRange = useCallback(
     (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => {
+      const target = filesRef.current
+        .find((file) => file.id === fileId)
+        ?.selections.find((range) => range.id === rangeId);
+      if (!target || target.origin === 'search') {
+        return;
+      }
       updateRanges(fileId, (ranges) =>
         ranges.map((range) =>
           range.id === rangeId
@@ -664,6 +894,34 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
             : range
         )
       );
+    },
+    [updateRanges]
+  );
+
+  const handleChangeRangeColor = useCallback(
+    (fileId: string, rangeId: string, color: string) => {
+      const target = filesRef.current
+        .find((file) => file.id === fileId)
+        ?.selections.find((range) => range.id === rangeId);
+      if (!target || target.origin === 'search') {
+        return;
+      }
+      updateRanges(fileId, (ranges) =>
+        ranges.map((range) => (range.id === rangeId ? { ...range, color } : range))
+      );
+    },
+    [updateRanges]
+  );
+
+  const handleRemoveRange = useCallback(
+    (fileId: string, rangeId: string) => {
+      const target = filesRef.current
+        .find((file) => file.id === fileId)
+        ?.selections.find((range) => range.id === rangeId);
+      if (!target || target.origin === 'search') {
+        return;
+      }
+      updateRanges(fileId, (ranges) => ranges.filter((range) => range.id !== rangeId));
     },
     [updateRanges]
   );
@@ -688,6 +946,15 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     onResetRanges(files.map((file) => file.id));
   }, [files, onResetRanges]);
 
+  const handleClearManualRanges = useCallback(
+    (fileId: string) => onResetRanges([fileId]),
+    [onResetRanges]
+  );
+  const handleCreateRange = useCallback(
+    (fileId: string, lineIndex: number) => createRange(fileId, lineIndex) !== null,
+    [createRange]
+  );
+
   const paginationInfo = pagination.pageInfo ? { pageInfo: pagination.pageInfo } : {};
 
   if (isEmpty) {
@@ -704,26 +971,32 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+      <div className="@container/tapestry flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
         <TapestryControls
           activeRanges={activeRangesCount}
           allowOverlap={allowOverlap}
+          groupingConfig={groupingConfig}
+          lensEnabled={lensEnabled}
+          onGroupingChange={onGroupingChange}
           onReset={handleResetRanges}
+          onSelectionControlsToggle={onSelectionControlsToggle}
           scale={scale}
+          selectionControlsEnabled={showSelectionControls}
           setAllowOverlap={setAllowOverlap}
-          setScale={setScale}
+          setLensEnabled={handleLensEnabledChange}
+          setScale={onScaleChange}
           totalFiles={totalFiles}
-          totalLinesSelected={totalLinesSelected}
         />
 
-        <div className="scrollbar-thin flex-1 overflow-y-auto p-6">
-          <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
+        <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
+          <div className="flex w-full flex-col gap-3">
             {showSelectionControls ? (
               <div className="flex justify-end">
                 <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-xs">
                   <Checkbox
                     aria-label="Select all files on current page"
                     checked={pageCheckboxState}
+                    className="size-6"
                     onCheckedChange={(checked) =>
                       checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
                     }
@@ -735,21 +1008,35 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
             ) : null}
             {groupingConfig === 'none' ? (
               <div
-                className="grid items-start gap-6"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+                className="grid items-start"
+                data-testid="tapestry-gallery"
+                style={{
+                  columnGap: galleryMetrics.gap,
+                  gridAutoRows: 4,
+                  gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
+                  rowGap: 4,
+                }}
               >
                 {ungroupedFiles.map((file) => (
                   <Minimap
+                    activePinnedLensFileId={activePinnedLensFileId}
                     allowOverlap={allowOverlap}
                     file={file}
                     getGlobalIndex={getGlobalIndex}
                     isDragging={isDragging}
                     isSelected={previewSelections.has(file.compositeKey)}
                     key={file.id}
+                    lensEnabled={lensEnabled}
+                    onChangeRangeColor={handleChangeRangeColor}
+                    onClearManualRanges={handleClearManualRanges}
+                    onCreateRange={handleCreateRange}
+                    onLensEnabledChange={handleLensEnabledChange}
                     onMoveRange={handleMoveRange}
+                    onPinnedLensChange={setActivePinnedLensFileId}
+                    onRemoveRange={handleRemoveRange}
                     onToggleRange={handleToggleRange}
                     onToggleSelection={onToggleSelection}
-                    scale={scale}
+                    scale={galleryMetrics.lineDensity}
                     showSelectionControls={showSelectionControls}
                     smartStart={startDrag}
                     {...(onRequestFileContent ? { onRequestFileContent } : {})}
@@ -773,21 +1060,35 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                   )}
                   {!section.isCollapsed && section.items.length > 0 && (
                     <div
-                      className="grid items-start gap-6"
-                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+                      className="grid items-start"
+                      data-testid="tapestry-gallery"
+                      style={{
+                        columnGap: galleryMetrics.gap,
+                        gridAutoRows: 4,
+                        gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
+                        rowGap: 4,
+                      }}
                     >
                       {section.items.map((file) => (
                         <Minimap
+                          activePinnedLensFileId={activePinnedLensFileId}
                           allowOverlap={allowOverlap}
                           file={file}
                           getGlobalIndex={getGlobalIndex}
                           isDragging={isDragging}
                           isSelected={previewSelections.has(file.compositeKey)}
                           key={file.id}
+                          lensEnabled={lensEnabled}
+                          onChangeRangeColor={handleChangeRangeColor}
+                          onClearManualRanges={handleClearManualRanges}
+                          onCreateRange={handleCreateRange}
+                          onLensEnabledChange={handleLensEnabledChange}
                           onMoveRange={handleMoveRange}
+                          onPinnedLensChange={setActivePinnedLensFileId}
+                          onRemoveRange={handleRemoveRange}
                           onToggleRange={handleToggleRange}
                           onToggleSelection={onToggleSelection}
-                          scale={scale}
+                          scale={galleryMetrics.lineDensity}
                           showSelectionControls={showSelectionControls}
                           smartStart={startDrag}
                           {...(onRequestFileContent ? { onRequestFileContent } : {})}
@@ -809,12 +1110,6 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
           {...paginationInfo}
           {...(pagination.pageSize === undefined ? {} : { pageSize: pagination.pageSize })}
         />
-
-        <div className="flex justify-end gap-4 border-border border-t bg-muted/20 p-2 text-[10px] text-muted-foreground">
-          <span>Hold drag to resize</span>
-          <span>Click headers to toggle</span>
-          <span>Drag body to move</span>
-        </div>
       </div>
     </TooltipProvider>
   );

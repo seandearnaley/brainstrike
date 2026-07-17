@@ -1,5 +1,6 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
@@ -67,6 +68,25 @@ export function FileExplorerProvider({
       }
     };
   }, [store]);
+
+  // Factory reset clears chunk selections via the session-store registry, but
+  // search also selects containing files in this live store. Without clearing
+  // those file selections, "no chunk subset + file selected" reads as a
+  // whole-file selection after reset (docs/agents/explorer-search-tapestry.md search bridge invariant).
+  // Persist keys are wiped by localStorage.clear(); this drains the in-memory
+  // instance for reset paths that do not immediately reload.
+  useEffect(
+    () =>
+      registerFactoryResetSessionStore(() => {
+        const state = store.getState();
+        state.clearSelectedFiles();
+        state.clearSelectionRules();
+        for (const folderId of Object.keys(state.folderStates)) {
+          state.setFolderSelection(folderId, []);
+        }
+      }),
+    [store]
+  );
 
   return (
     <FileExplorerStoreContext.Provider value={store}>{children}</FileExplorerStoreContext.Provider>

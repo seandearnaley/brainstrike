@@ -139,7 +139,7 @@ describe('SearchCollectionSelector', () => {
     expect(onDeleteCollection).toHaveBeenCalledWith(expect.objectContaining({ id: 'set-1' }));
   });
 
-  it('refuses workspace index selection and collection mutations', async () => {
+  it('hides only the workspace index while preserving regular collection actions', async () => {
     const user = userEvent.setup();
     const onCollectionChange = vi.fn();
     const onDeleteCollection = vi.fn();
@@ -162,6 +162,22 @@ describe('SearchCollectionSelector', () => {
           systemRole: 'workspace-index',
           tags: null,
         },
+        {
+          category: null,
+          chunkCount: 4,
+          createdAt: '2026-06-06T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          embeddingCount: 4,
+          fileCount: 2,
+          id: 'user-collection',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'User Collection',
+          systemRole: null,
+          tags: null,
+        },
       ],
       error: null,
       loading: false,
@@ -169,7 +185,7 @@ describe('SearchCollectionSelector', () => {
 
     render(
       <SearchCollectionSelector
-        activeCollectionId="workspace-index"
+        activeCollectionId="user-collection"
         db={{} as never}
         onCollectionChange={onCollectionChange}
         onCreateCollection={vi.fn()}
@@ -178,14 +194,71 @@ describe('SearchCollectionSelector', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Workspace Index' }));
-    await user.click(screen.getByRole('button', { name: 'edit-workspace-index' }));
-    await user.click(screen.getByRole('button', { name: 'delete-workspace-index' }));
+    expect(screen.queryByRole('button', { name: 'Workspace Index' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('selected-id')).toHaveTextContent('user-collection');
 
-    expect(screen.queryByTestId('selected-id')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'User Collection' }));
+    await user.click(screen.getByRole('button', { name: 'edit-user-collection' }));
+    await user.click(screen.getByRole('button', { name: 'delete-user-collection' }));
+
+    expect(onCollectionChange).toHaveBeenCalledWith('user-collection');
+    expect(onEditCollection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-collection' })
+    );
+    expect(onDeleteCollection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-collection' })
+    );
+  });
+
+  it('clears a stale active workspace index only after its identity resolves', async () => {
+    const onCollectionChange = vi.fn();
+    mockUseCollections.mockReturnValue({
+      collections: [],
+      error: null,
+      loading: true,
+    });
+
+    const props = {
+      activeCollectionId: 'workspace-index',
+      db: {} as never,
+      onCollectionChange,
+      onCreateCollection: vi.fn(),
+      onDeleteCollection: vi.fn(),
+      onEditCollection: vi.fn(),
+    };
+    const { rerender } = render(<SearchCollectionSelector {...props} />);
+
     expect(onCollectionChange).not.toHaveBeenCalled();
-    expect(onEditCollection).not.toHaveBeenCalled();
-    expect(onDeleteCollection).not.toHaveBeenCalled();
+
+    mockUseCollections.mockReturnValue({
+      collections: [
+        {
+          category: null,
+          chunkCount: 0,
+          createdAt: '2026-06-07T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          embeddingCount: 0,
+          fileCount: 0,
+          id: 'workspace-index',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
+          systemRole: 'workspace-index',
+          tags: null,
+        },
+      ],
+      error: null,
+      loading: false,
+    });
+    rerender(<SearchCollectionSelector {...props} />);
+
+    await vi.waitFor(() => {
+      expect(onCollectionChange).toHaveBeenCalledTimes(1);
+      expect(onCollectionChange).toHaveBeenCalledWith(null);
+    });
+    expect(screen.queryByRole('button', { name: 'Workspace Index' })).not.toBeInTheDocument();
   });
 
   it('keeps edit and delete actions available when only search selection is disabled', async () => {

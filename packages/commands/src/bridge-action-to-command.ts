@@ -22,6 +22,7 @@ const ACTION_GROUP_TO_COMMAND_GROUP: Record<ActionGroup, CommandGroup> = {
   danger: 'danger',
   inspect: 'workspace',
   navigate: 'navigate',
+  primary: 'navigate',
   tree: 'file',
 };
 

@@ -5,7 +5,10 @@ import type { TreeNode } from '@brainstrike/ui';
 import { isDescendantPath } from '@brainstrike/utils';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
-import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
+import {
+  hasNormalizedIncompleteDescendants,
+  type NormalizedFileTreeState,
+} from '../utils/normalized-file-tree';
 import {
   getQuerySelectionMatchingCount,
   isDirectoryCoveredByQuerySelection,
@@ -28,6 +31,12 @@ export interface FileTreeRowsBuildResult {
 export interface FileTreeRowData {
   directoryTotalFiles: number;
   fileNode: IFileNode;
+  /**
+   * True when any directory in this row's subtree (itself included) is not
+   * fully loaded — directoryTotalFiles then UNDERSTATES the true total, so
+   * "selected count equals total" must never render as checked.
+   */
+  hasIncompleteDescendants: boolean;
   hasUnloadedDirectoryChildren: boolean;
   immediateChildren: IFileNode[];
   isChildrenLoading: boolean;
@@ -69,6 +78,13 @@ interface DirectorySelectionMutationInput {
 
 interface DirectorySelectionMutation {
   action: DirectorySelectionMutationAction;
+  /**
+   * True when the selection cap constrained this mutation: either no slot was
+   * left at all ('none') or only part of the folder fit ('add' with fewer
+   * paths than remain unselected). Callers surface this — decision D3 is
+   * partial-fill WITH feedback, never a silent truncation.
+   */
+  limitTruncated: boolean;
   paths: string[];
 }
 
@@ -104,6 +120,8 @@ interface LoadedChildSelectionSummary {
 export interface DirectorySelectionTraversalContext {
   getDirectoryMetadata: (node: IFileNode) => {
     directoryTotalFiles: number;
+    /** Deep flag: any not-fully-loaded directory in the subtree, self included. */
+    hasIncompleteDescendants: boolean;
     hasUnloadedDirectoryChildren: boolean;
     immediateChildren: IFileNode[];
   };
@@ -113,7 +131,8 @@ function computeDirectoryCheckboxState(
   directoryPath: string,
   totalFiles: number,
   folderId: string,
-  selectedDirectoryCounts: Map<string, number>
+  selectedDirectoryCounts: Map<string, number>,
+  hasIncompleteDescendants: boolean
 ): { checkboxState: boolean | 'indeterminate'; selectedCount: number } {
   const selectedCount = folderId ? (selectedDirectoryCounts.get(directoryPath) ?? 0) : 0;
   if (totalFiles === 0) {
@@ -130,8 +149,12 @@ function computeDirectoryCheckboxState(
     };
   }
 
+  // Count equality only proves "everything selected" when the counted subtree
+  // is fully loaded; an incomplete subtree's total understates reality, so the
+  // honest answer is indeterminate (never a false checked over unseen files).
   return {
-    checkboxState: selectedCount === totalFiles ? true : 'indeterminate',
+    checkboxState:
+      selectedCount === totalFiles && !hasIncompleteDescendants ? true : 'indeterminate',
     selectedCount,
   };
 }
@@ -296,15 +319,21 @@ function computeLoadedDirectoryCheckboxState(
   directoryTraversalContext: DirectorySelectionTraversalContext
 ): boolean | 'indeterminate' {
   const isQueryDirectorySelection = selectionModel.mode === 'query';
+  const directoryMetadata = directoryTraversalContext.getDirectoryMetadata(node);
 
   const totalFiles = fileExplorer.getFolderFileCount(node).count;
   const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
-  if (selectionModel.mode !== 'query' && totalFiles > 0 && selectedCount === totalFiles) {
+  if (
+    selectionModel.mode !== 'query' &&
+    totalFiles > 0 &&
+    selectedCount === totalFiles &&
+    !directoryMetadata.hasIncompleteDescendants
+  ) {
     return true;
   }
 
   const loadedChildSelectionSummary = summarizeLoadedChildSelection({
-    children: directoryTraversalContext.getDirectoryMetadata(node).immediateChildren,
+    children: directoryMetadata.immediateChildren,
     directoryTraversalContext,
     folderId,
     parentDirectoryPath: node.path,
@@ -354,7 +383,9 @@ function computeLoadedDirectoryCheckboxState(
   if (selectedCount === 0) {
     return false;
   }
-  return selectedCount === totalFiles ? true : 'indeterminate';
+  return selectedCount === totalFiles && !directoryMetadata.hasIncompleteDescendants
+    ? true
+    : 'indeterminate';
 }
 
 function computeLoadedChildCheckboxState(
@@ -459,6 +490,21 @@ function summarizeLoadedChildSelection(args: {
       continue;
     }
 
+    // A child directory contributing NOTHING selectable to the visible
+    // universe (zero visible files, nothing selected under it, fully loaded)
+    // must not drag the parent's summary — e.g. a directory the active view
+    // filter emptied while its raw contents remain on disk (spike B5).
+    if (child.type === 'directory') {
+      const childMetadata = directoryTraversalContext.getDirectoryMetadata(child);
+      if (
+        childMetadata.directoryTotalFiles === 0 &&
+        !childMetadata.hasIncompleteDescendants &&
+        (selectedDirectoryCounts.get(child.path) ?? 0) === 0
+      ) {
+        continue;
+      }
+    }
+
     consideredChildren += 1;
     const childState = computeLoadedChildCheckboxState(
       child,
@@ -499,6 +545,7 @@ function createQueryDirectoryNodeSelectionState(
 function computeDirectorySelectionState(
   node: IFileNode,
   directoryTotalFiles: number,
+  hasIncompleteDescendants: boolean,
   hasUnloadedDirectoryChildren: boolean,
   immediateChildren: IFileNode[],
   directoryTraversalContext: DirectorySelectionTraversalContext,
@@ -523,7 +570,8 @@ function computeDirectorySelectionState(
     node.path,
     directoryTotalFiles,
     folderId,
-    selectedDirectoryCounts
+    selectedDirectoryCounts,
+    hasIncompleteDescendants
   );
   if (
     selectionModel.mode !== 'query' &&
@@ -535,7 +583,8 @@ function computeDirectorySelectionState(
   if (
     selectionModel.mode !== 'query' &&
     directoryTotalFiles > 0 &&
-    directoryState.selectedCount === directoryTotalFiles
+    directoryState.selectedCount === directoryTotalFiles &&
+    !hasIncompleteDescendants
   ) {
     return createQueryDirectoryNodeSelectionState(true);
   }
@@ -618,6 +667,7 @@ export function computeNodeSelectionState(
     return computeDirectorySelectionState(
       node,
       rowData.directoryTotalFiles,
+      rowData.hasIncompleteDescendants,
       rowData.hasUnloadedDirectoryChildren,
       rowData.immediateChildren,
       directoryTraversalContext,
@@ -657,11 +707,12 @@ function isNodeFileLoading(node: IFileNode, folderId: string, loadingFiles: Set<
 function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): FileTreeRowData {
   const { folderId, loadingFiles, loadingPaths, isLoadingForSelection, loadingPathForSelection } =
     options;
+  const folderFileCount = node.type === 'directory' ? fileExplorer.getFolderFileCount(node) : null;
 
   return {
-    directoryTotalFiles:
-      node.type === 'directory' ? fileExplorer.getFolderFileCount(node).count : 0,
+    directoryTotalFiles: folderFileCount?.count ?? 0,
     fileNode: node,
+    hasIncompleteDescendants: folderFileCount ? !folderFileCount.isComplete : false,
     hasUnloadedDirectoryChildren:
       node.type === 'directory' ? hasUnloadedDirectoryChildren(node) : false,
     immediateChildren: node.type === 'directory' ? (node.children ?? []) : [],
@@ -676,12 +727,14 @@ function createTreeRowDataWithDirectoryTotalFiles(
   options: BuildFileTreeRowsOptions,
   directoryTotalFiles: number,
   hasUnloadedChildrenOverride?: boolean,
-  immediateChildrenOverride?: IFileNode[]
+  immediateChildrenOverride?: IFileNode[],
+  hasIncompleteDescendantsOverride?: boolean
 ): FileTreeRowData {
   const rowData = createTreeRowData(node, options);
   return {
     ...rowData,
     directoryTotalFiles,
+    hasIncompleteDescendants: hasIncompleteDescendantsOverride ?? rowData.hasIncompleteDescendants,
     hasUnloadedDirectoryChildren:
       hasUnloadedChildrenOverride ?? rowData.hasUnloadedDirectoryChildren,
     immediateChildren: immediateChildrenOverride ?? rowData.immediateChildren,
@@ -708,6 +761,7 @@ export function resolveDirectorySelectionMutation({
   if (allFilePaths.length === 0) {
     return {
       action: 'none',
+      limitTruncated: false,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
@@ -715,6 +769,7 @@ export function resolveDirectorySelectionMutation({
   if (selectedCount === directoryTotalFiles) {
     return {
       action: 'remove',
+      limitTruncated: false,
       paths: allFilePaths,
     };
   }
@@ -723,30 +778,35 @@ export function resolveDirectorySelectionMutation({
   if (availableSlots === 0) {
     return {
       action: 'none',
+      limitTruncated: true,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
 
   const pathsToSelect: string[] = [];
+  let sawUnselectedBeyondBudget = false;
   for (const path of allFilePaths) {
     if (isPathSelectedInFolder(selectedFilePaths, folderId, path)) {
       continue;
     }
-    pathsToSelect.push(path);
     if (pathsToSelect.length >= availableSlots) {
+      sawUnselectedBeyondBudget = true;
       break;
     }
+    pathsToSelect.push(path);
   }
 
   if (pathsToSelect.length === 0) {
     return {
       action: 'none',
+      limitTruncated: false,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
 
   return {
     action: 'add',
+    limitTruncated: sawUnselectedBeyondBudget,
     paths: pathsToSelect,
   };
 }
@@ -1012,7 +1072,8 @@ export function buildRowsFromNormalizedTree(
   normalizedTree: NormalizedFileTreeState,
   options: BuildFileTreeRowsOptions,
   getDirectoryTotalFiles: (path: string) => number,
-  allowedPaths: Set<string> | null
+  allowedPaths: Set<string> | null,
+  getHasIncompleteDescendants?: (path: string) => boolean
 ): TreeNode<FileTreeRowData>[] {
   const rows: TreeNode<FileTreeRowData>[] = [];
   const stack: StackEntry[] = [];
@@ -1048,7 +1109,8 @@ export function buildRowsFromNormalizedTree(
       normalizedTree,
       options,
       getDirectoryTotalFiles,
-      allowedPaths
+      allowedPaths,
+      getHasIncompleteDescendants
     );
     rows.push({
       data: rowData,
@@ -1075,7 +1137,8 @@ function createNormalizedRowData(
   normalizedTree: NormalizedFileTreeState,
   options: BuildFileTreeRowsOptions,
   getDirectoryTotalFiles: (path: string) => number,
-  allowedPaths: Set<string> | null
+  allowedPaths: Set<string> | null,
+  getHasIncompleteDescendants?: (path: string) => boolean
 ): FileTreeRowData {
   const hasUnloadedChildren =
     entry.node.type === 'directory'
@@ -1091,7 +1154,11 @@ function createNormalizedRowData(
     options,
     entry.node.type === 'directory' ? getDirectoryTotalFiles(entry.node.path) : 0,
     hasUnloadedChildren,
-    immediateChildren
+    immediateChildren,
+    entry.node.type === 'directory'
+      ? (getHasIncompleteDescendants?.(entry.node.path) ??
+          hasNormalizedIncompleteDescendants(normalizedTree, entry.node.path))
+      : false
   );
 }
 

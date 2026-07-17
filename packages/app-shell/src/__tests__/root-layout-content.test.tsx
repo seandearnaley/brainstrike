@@ -1,5 +1,6 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
@@ -10,12 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({
-    fileSystemAdapter: null,
-    storageAdapter: new MemoryStorageAdapter(),
-  }),
-}));
+vi.mock('@brainstrike/file-explorer-hooks', async () => {
+  const { createContext } = await import('react');
+  return {
+    AdaptersContext: createContext(null),
+    useAdapters: () => ({
+      fileSystemAdapter: null,
+      storageAdapter: new MemoryStorageAdapter(),
+    }),
+  };
+});
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
@@ -36,19 +41,29 @@ vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
 }));
 
 const mockHandlers = {
+  ideLayoutProps: [] as Array<{
+    panelConstraints: { mainContentMinSize?: string; rightPanelMinSize?: string } | undefined;
+    panelIdPrefix: string | undefined;
+  }>,
   onNavigationClick: (_path: string) => {},
+  onOpenSettings: () => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
+  promptManagerSuspended: false,
+  promptManagerSuspense: new Promise<never>(() => {}),
 };
 
 vi.mock('../app-layout', () => ({
   AppLayout: ({
     children,
     onNavigationClick,
+    onOpenSettings,
   }: {
     children: React.ReactNode;
     onNavigationClick: (path: string) => void;
+    onOpenSettings: () => void;
   }) => {
     mockHandlers.onNavigationClick = onNavigationClick;
+    mockHandlers.onOpenSettings = onOpenSettings;
     return <div data-testid="app-layout">{children}</div>;
   },
 }));
@@ -62,19 +77,26 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       leftPanelContent,
       rightPanelContent,
       consoleContent,
+      panelConstraints,
+      panelIdPrefix,
     }: {
       children: React.ReactNode;
       leftPanelContent?: React.ReactNode;
       rightPanelContent?: React.ReactNode;
       consoleContent?: React.ReactNode;
-    }) => (
-      <div data-testid="ide-layout">
-        {leftPanelContent}
-        {children}
-        {rightPanelContent}
-        {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
-      </div>
-    ),
+      panelConstraints?: { mainContentMinSize?: string; rightPanelMinSize?: string };
+      panelIdPrefix?: string;
+    }) => {
+      mockHandlers.ideLayoutProps.push({ panelConstraints, panelIdPrefix });
+      return (
+        <div data-testid="ide-layout">
+          {leftPanelContent}
+          {children}
+          {rightPanelContent}
+          {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
+        </div>
+      );
+    },
     PanelLayoutProvider: ({
       children,
       onChange,
@@ -93,6 +115,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 vi.mock('@brainstrike/vector-management', () => ({
   EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
+  SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
@@ -119,15 +142,47 @@ vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,
     databaseContent,
+    promptsContent,
   }: {
     threadsContent: React.ReactNode;
     databaseContent: React.ReactNode;
-  }) => (
-    <div data-testid="agent-sidebar-shell">
-      <div data-testid="threads-tab-content">{threadsContent}</div>
-      <div data-testid="database-tab-content">{databaseContent}</div>
-    </div>
-  ),
+    promptsContent: React.ReactNode | ((isActive: boolean) => React.ReactNode);
+  }) => {
+    const [promptsActive, setPromptsActive] = useState(false);
+    return (
+      <div data-testid="agent-sidebar-shell">
+        <button onClick={() => setPromptsActive(true)} type="button">
+          Select Prompts tab
+        </button>
+        <div data-testid="threads-tab-content">{threadsContent}</div>
+        <div data-testid="database-tab-content">{databaseContent}</div>
+        <div data-testid="prompts-tab-content">
+          {typeof promptsContent === 'function' ? promptsContent(promptsActive) : promptsContent}
+        </div>
+      </div>
+    );
+  },
+}));
+
+vi.mock('../connected-prompt-manager-lazy', () => ({
+  ConnectedPromptManagerLazy: ({
+    loadEmbeddingQueue,
+    suggestionsEnabled,
+  }: {
+    loadEmbeddingQueue: (() => Promise<unknown>) | null;
+    suggestionsEnabled?: boolean;
+  }) => {
+    if (mockHandlers.promptManagerSuspended) {
+      throw mockHandlers.promptManagerSuspense;
+    }
+    return (
+      <div
+        data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
+        data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
+        data-testid="connected-prompt-manager"
+      />
+    );
+  },
 }));
 
 vi.mock('../threads-panel', () => ({
@@ -141,9 +196,13 @@ vi.mock('../database-panel', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     mockHandlers.onNavigationClick = vi.fn();
+    mockHandlers.onOpenSettings = vi.fn();
+    mockHandlers.ideLayoutProps = [];
     mockHandlers.panelLayoutChanges = [];
+    mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
+      settingsOpen: false,
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
@@ -174,7 +233,6 @@ describe('RootLayoutContent', () => {
       <RootLayoutContent
         contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
         navigationItems={navigationItems}
-        promptsPageContent={<div data-testid="prompts-page">Prompts</div>}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
       />
@@ -194,45 +252,186 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
     expect(screen.getByTestId('database-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('connected-prompt-manager')).toBeInTheDocument();
+    expect(screen.getByTestId('connected-prompt-manager')).toBe(
+      screen.getByTestId('prompts-tab-content').firstElementChild
+    );
+    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
+      'data-suggestions-enabled',
+      'false'
+    );
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
+    expect(
+      mockHandlers.ideLayoutProps.find(({ panelIdPrefix }) => panelIdPrefix === 'context-explorer')
+        ?.panelConstraints
+    ).toEqual({ mainContentMinSize: '20%', rightPanelMinSize: '180px' });
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
   });
 
-  it('renders settings as a full-frame route without the agent shell', () => {
+  it('forwards the app embedding queue loader to the prompt workbench', () => {
+    const loadEmbeddingQueue = vi.fn(async () => ({ id: 'queue' }) as unknown as QueueAdapter);
+    renderComponent({ loadEmbeddingQueue });
+
+    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
+      'data-has-embedding-queue',
+      'true'
+    );
+  });
+
+  it('shows a stable prompt-workbench fallback while the lazy panel graph loads', () => {
+    mockHandlers.promptManagerSuspended = true;
+
+    renderComponent();
+
+    expect(screen.getByTestId('prompt-workbench-lazy-fallback')).toHaveTextContent(
+      'Opening Prompt Workbench…'
+    );
+    expect(screen.queryByTestId('connected-prompt-manager')).not.toBeInTheDocument();
+  });
+
+  it('opens settings as a modal while keeping the app workspace visible', () => {
     renderComponent();
 
     act(() => {
-      mockHandlers.onNavigationClick('/settings');
+      mockHandlers.onOpenSettings();
     });
 
     expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
-    expect(screen.getByTestId('settings-route')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
-  it('renders prompts as a full-frame route without the agent shell', () => {
+  it('opens the settings modal when an existing caller selects the settings tab', () => {
     renderComponent();
 
     act(() => {
-      mockHandlers.onNavigationClick('/prompts');
+      usePanelLayoutStore.getState().setActiveTab('settings');
     });
 
-    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
-    expect(screen.getByTestId('prompts-route')).toBeInTheDocument();
-    expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
   });
 
-  it('keeps settings mounted after first visit so local form state survives route switches', async () => {
+  it('keeps the current shell tab active when settings opens and closes', async () => {
+    usePanelLayoutStore.setState({ activeTab: 'terminal' });
+    const user = userEvent.setup();
+    renderComponent({ terminalPageContent: <div data-testid="terminal-page">Terminal</div> });
+
+    act(() => {
+      usePanelLayoutStore.getState().openSettings();
+    });
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(usePanelLayoutStore.getState().activeTab).toBe('terminal');
+    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+  });
+
+  it('closes settings when navigating to another shell tab', () => {
+    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
+
+    act(() => {
+      mockHandlers.onOpenSettings();
+    });
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/git');
+    });
+
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
+  });
+
+  it('mounts the notes route when the notes nav item is selected', () => {
+    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
+
+    // Lazily mounted: not in the DOM until the tab is first opened.
+    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+
+    const notesRoute = screen.getByTestId('notes-route');
+    expect(notesRoute).not.toHaveClass('hidden');
+    expect(notesRoute).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
+  });
+
+  it('keeps the notes route mounted but hidden after switching to another tab', () => {
+    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+
+    // Keep-mounted contract: the vault surface only toggles hidden so
+    // watchers, scan state, and scroll position survive tab switches.
+    const notesRoute = screen.getByTestId('notes-route');
+    expect(notesRoute).toBeInTheDocument();
+    expect(notesRoute).toHaveClass('hidden');
+    expect(notesRoute).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+  });
+
+  it('renders no notes route when notesPageContent is absent', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+
+    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
+  });
+
+  it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
+    const user = userEvent.setup();
+    renderComponent({
+      gitPageContent: <div>Git</div>,
+      terminalPageContent: <div>Terminal</div>,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
+    const promptManager = screen.getByTestId('connected-prompt-manager');
+    expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
+
+    for (const path of ['/git', '/terminal']) {
+      act(() => {
+        mockHandlers.onNavigationClick(path);
+      });
+
+      expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
+      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'false');
+
+      act(() => {
+        mockHandlers.onNavigationClick('/');
+      });
+
+      expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
+    }
+  });
+
+  it('closes and reopens settings without replacing the workspace', async () => {
     const user = userEvent.setup();
 
     function StatefulSettingsPage() {
@@ -254,23 +453,20 @@ describe('RootLayoutContent', () => {
       settingsPageContent: <StatefulSettingsPage />,
     });
 
-    act(() => {
-      mockHandlers.onNavigationClick('/settings');
+    await act(async () => {
+      mockHandlers.onOpenSettings();
     });
 
     await user.type(screen.getByTestId('settings-input'), 'persist me');
 
-    act(() => {
-      mockHandlers.onNavigationClick('/');
-    });
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
 
-    expect(screen.getByTestId('settings-route')).toHaveClass('hidden');
+    await act(async () => mockHandlers.onOpenSettings());
 
-    act(() => {
-      mockHandlers.onNavigationClick('/settings');
-    });
-
-    expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-input')).toHaveValue('');
   });
 
   it('debounces size-only explorer layout updates and keeps the latest size payload', () => {
@@ -392,23 +588,5 @@ describe('RootLayoutContent', () => {
     view.unmount();
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it('mounts an empty prompts route shell when prompts content is omitted', () => {
-    renderComponent({ promptsPageContent: undefined });
-
-    act(() => {
-      mockHandlers.onNavigationClick('/prompts');
-    });
-
-    const promptsRoute = screen.getByTestId('prompts-route');
-    expect(promptsRoute).toBeInTheDocument();
-    expect(promptsRoute).toBeEmptyDOMElement();
-
-    act(() => {
-      mockHandlers.onNavigationClick('/settings');
-    });
-
-    expect(promptsRoute).toHaveClass('hidden');
   });
 });

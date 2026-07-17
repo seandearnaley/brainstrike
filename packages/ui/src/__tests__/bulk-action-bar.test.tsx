@@ -60,7 +60,10 @@ describe('BulkActionBar', () => {
     );
 
     expect(screen.getByText('3 selected')).toBeInTheDocument();
-    expect(screen.getByText('(2 files, 1 chunk)')).toBeInTheDocument();
+    const detail = screen.getByText('(2 files, 1 chunk)');
+    expect(detail).toBeInTheDocument();
+    expect(detail.className).toContain('truncate');
+    expect(detail.className).not.toContain('hidden');
   });
 
   it('renders custom summary text and subtext when provided', () => {

@@ -8,6 +8,12 @@ vi.mock('@brainstrike/preferences', () => ({
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
   useDatabaseStatusSync: () => {},
 }));
+vi.mock('@brainstrike/preferences/components/global-download-indicator', () => ({
+  GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
+}));
+vi.mock('@brainstrike/preferences/hooks/use-database-status-sync', () => ({
+  useDatabaseStatusSync: () => {},
+}));
 
 // Mock the shell barrel to avoid worker/provider setup in layout tests.
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -76,18 +82,6 @@ vi.mock('@brainstrike/ui', () => ({
 
 // Mock the status items. AppLayout imports the direct modules so React Doctor
 // can verify there is no status-items barrel import in the production path.
-vi.mock('../status-items', () => ({
-  CollectionSyncStatusItem: () => (
-    <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
-  ),
-  DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
-  IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
-}));
-vi.mock('../status-items/collection-sync-status-item', () => ({
-  CollectionSyncStatusItem: () => (
-    <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
-  ),
-}));
 vi.mock('../status-items/database-status-item', () => ({
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
 }));
@@ -125,7 +119,7 @@ describe('AppLayout', () => {
     expect(screen.getByText('Page Content')).toBeInTheDocument();
   });
 
-  it('should render the status bar with database status', () => {
+  it('places the unified indexing surface at the far right after downloads', () => {
     render(
       <AppLayout config={mockConfig} currentPath="/">
         <div>Page Content</div>
@@ -134,7 +128,20 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('collection-sync-status-item')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar-center')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('status-bar-right')).toContainElement(
+      screen.getByTestId('global-download-indicator')
+    );
+    expect(screen.getByTestId('status-bar-right')).toContainElement(
+      screen.getByTestId('indexing-status-item')
+    );
+    expect(
+      screen
+        .getByTestId('global-download-indicator')
+        .compareDocumentPosition(screen.getByTestId('indexing-status-item')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
     expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
   });
 

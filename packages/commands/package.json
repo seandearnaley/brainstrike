@@ -1,15 +1,15 @@
 {
   "name": "@brainstrike/commands",
-  "description": "Headless command registry: global commands + one-way bridge that projects context-actions into a searchable command surface (⌘K palette)",
+  "description": "Headless command registry: global commands + one-way bridge that projects context-actions into a searchable command surface (\u2318K palette)",
   "version": "0.1.0",
   "devDependencies": {
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "happy-dom": "^20.10.6",
-    "tsup": "^8.5.1",
+    "happy-dom": "catalog:",
+    "tsup": "catalog:",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "dependencies": {
     "@brainstrike/context-actions": "workspace:*"

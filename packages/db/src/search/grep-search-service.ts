@@ -39,11 +39,19 @@ export interface GrepSearchOptions {
   pattern: string;
   /** Optional workspace-root filter (file_records.root_id). */
   rootId?: string;
+  /** Optional multi-root workspace filter (file_records.root_id ∈ rootIds). */
+  rootIds?: readonly string[];
 }
 
 export interface GrepMatch {
   after: string[];
   before: string[];
+  /** 1-based last line of the containing chunk within its file. */
+  chunkEndLine?: number;
+  /** Owning chunk id (file_chunks.id). */
+  chunkId?: string;
+  /** 1-based first line of the containing chunk within its file. */
+  chunkStartLine?: number;
   line: number;
   lineText: string;
   path: string;
@@ -209,9 +217,12 @@ function processCandidate(
     accumulator.matches.push({
       after: lines.slice(index + 1, index + 1 + contextLines),
       before: lines.slice(Math.max(0, index - contextLines), index),
+      chunkId: candidate.chunkId,
+      chunkStartLine: candidate.startLine,
       line: absoluteLine,
       lineText,
       path: candidate.filePath,
+      ...(candidate.endLine === null ? {} : { chunkEndLine: candidate.endLine }),
       ...(candidate.rootId === undefined ? {} : { rootId: candidate.rootId }),
       ...(candidate.rootName === undefined ? {} : { rootName: candidate.rootName }),
     });
@@ -246,6 +257,7 @@ export class GrepSearchService {
       ...(options.embeddingSetId === undefined ? {} : { embeddingSetId: options.embeddingSetId }),
       ...(options.filePaths === undefined ? {} : { filePaths: options.filePaths }),
       ...(options.rootId === undefined ? {} : { rootId: options.rootId }),
+      ...(options.rootIds === undefined ? {} : { rootIds: options.rootIds }),
     };
     const candidates = await this.repository.findGrepCandidates(candidateOptions);
 

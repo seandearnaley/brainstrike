@@ -24,6 +24,7 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
   BUNDLED_PG_MAJOR,
@@ -37,6 +38,16 @@ import {
 
 const logger = createLogger('DatabaseMain');
 
+/**
+ * Shared main-process DB handle returned by {@link getDatabase}.
+ *
+ * Production desktop main uses the remote DB-host client; the utility-process
+ * DB host holds a local PGlite instance that satisfies the same query /
+ * transaction / live / maintenance surface. Typing the facade as this shared
+ * client removes `as unknown as PGlite` cast chains at assistant-tool call sites.
+ */
+export type DesktopDatabase = RemoteDbClient;
+
 interface ErrorDetails {
   code?: string;
   message: string;
@@ -47,6 +58,7 @@ interface ErrorDetails {
 interface ExtensionModuleShape {
   default?: unknown;
   live?: unknown;
+  pg_textsearch?: unknown;
   pg_trgm?: unknown;
   vector?: unknown;
 }
@@ -56,7 +68,10 @@ interface GitProfileContext {
   workspaceSeed: string;
 }
 
-function extractExtensionExport(module: unknown, field: 'vector' | 'live' | 'pg_trgm'): unknown {
+function extractExtensionExport(
+  module: unknown,
+  field: 'vector' | 'live' | 'pg_trgm' | 'pg_textsearch'
+): unknown {
   if (module && typeof module === 'object') {
     const record = module as ExtensionModuleShape;
     if (record[field]) {
@@ -242,6 +257,24 @@ async function loadPgTrgmExtension(): Promise<unknown> {
   }
 }
 
+async function loadPgTextsearchExtension(): Promise<unknown> {
+  try {
+    const textsearchModule = await import('@electric-sql/pglite-pg_textsearch');
+    const pgTextsearch = extractExtensionExport(textsearchModule, 'pg_textsearch');
+    if (!pgTextsearch) {
+      throw new Error('pg_textsearch export missing from module');
+    }
+    logger.debug('pg_textsearch extension loaded successfully (ESM)');
+    return pgTextsearch;
+  } catch (error) {
+    const details = getErrorDetails(error);
+    logger.error('pg_textsearch extension failed to load.', details);
+    throw new Error(
+      `pg_textsearch extension is required and failed to load via ESM import. (${details.message})`
+    );
+  }
+}
+
 // Dynamic imports for ESM packages
 const getPGlite = async () => {
   const { PGlite } = await import('@electric-sql/pglite');
@@ -249,20 +282,20 @@ const getPGlite = async () => {
   const vector = await loadPgVectorExtension();
   const live = await loadPgLiveExtension();
   const pgTrgm = await loadPgTrgmExtension();
-  return { live, migrate, PGlite, pgTrgm, vector };
+  const pgTextsearch = await loadPgTextsearchExtension();
+  return { live, migrate, PGlite, pgTextsearch, pgTrgm, vector };
 };
 
 // Database instance for main process
 // These runtime handles intentionally live outside mutableState because they carry
-// live process resources (`any` PGlite instance + single-flight Promise), while
-// mutableState is focused on diagnostic/profile metadata snapshots.
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
+// live process resources (local PGlite or remote client) + single-flight Promise,
+// while mutableState is focused on diagnostic/profile metadata snapshots.
+// biome-ignore lint/suspicious/noExplicitAny: local PGlite instance is constructed via dynamic import
 let db: any = null;
 // Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
 // Without this we can spawn multiple PGlite initializations at once, which causes
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
-let dbInitializationPromise: Promise<any> | null = null;
+let dbInitializationPromise: Promise<DesktopDatabase> | null = null;
 interface DatabaseMutableState {
   cachedDatabaseProfile: string | null;
   // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
@@ -367,18 +400,27 @@ async function createVectorDatabase(
   dataDir: string,
   vector: unknown,
   live: unknown,
-  pgTrgm: unknown
+  pgTrgm: unknown,
+  pgTextsearch: unknown
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
   const Ctor: any = PGliteCtor as any;
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
-    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 038
-    // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
-    // isn't loaded here. The vector check predates the migration-based approach.
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
-    extensions: { live: live as any, pg_trgm: pgTrgm as any, vector: vector as any },
+    // pg_trgm / pg_textsearch have no runtime pg_extension check below (unlike
+    // vector): their CREATE EXTENSION migrations fail loudly if the module isn't
+    // loaded here. The vector check predates the migration-based approach.
+    extensions: {
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      live: live as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      pg_textsearch: pgTextsearch as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      pg_trgm: pgTrgm as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      vector: vector as any,
+    },
   });
 
   try {
@@ -1079,8 +1121,7 @@ async function handleCorruptionError(
   err: unknown,
   context: string,
   retryAfterCorruption: boolean
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
-): Promise<any> {
+): Promise<DesktopDatabase | null> {
   await safeCloseDatabase();
 
   const hasCorruptionSignal = isCorruptionError(err);
@@ -1248,10 +1289,11 @@ function setIncompatibleDataDirAside(
  * Creates the directory if it doesn't exist and runs migrations.
  * If corruption is detected, automatically resets and retries once.
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function initializeMainDatabaseInternal(retryAfterCorruption = true): Promise<any> {
+async function initializeMainDatabaseInternal(
+  retryAfterCorruption = true
+): Promise<DesktopDatabase> {
   if (db) {
-    return db;
+    return db as DesktopDatabase;
   }
 
   mutableState.initializationAttemptCount += 1;
@@ -1302,7 +1344,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
         dataDir,
         loadedPGlite.vector,
         loadedPGlite.live,
-        loadedPGlite.pgTrgm
+        loadedPGlite.pgTrgm,
+        loadedPGlite.pgTextsearch
       );
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
@@ -1373,17 +1416,16 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
   recordInitializationSuccess();
   logger.debug(`Database initialized successfully at: ${dataDir}`);
-  return db;
+  return db as DesktopDatabase;
 }
 
 /**
  * Initialize the database once per process lifecycle event loop.
  * Concurrent callers share a single in-flight initialization.
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<any> {
+async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<DesktopDatabase> {
   if (db) {
-    return db;
+    return db as DesktopDatabase;
   }
 
   if (dbInitializationPromise) {
@@ -1403,13 +1445,14 @@ async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise
  * Get the database instance
  * Automatically initializes if not already done (lazy loading)
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function getLocalDatabase(): Promise<any> {
+async function getLocalDatabase(): Promise<DesktopDatabase> {
   if (!db) {
     logger.debug('Lazy-loading database (triggered by IPC usage)');
     await initializeLocalMainDatabase();
   }
-  return db;
+  // Local PGlite is constructed via dynamic import; it structurally satisfies
+  // DesktopDatabase / RemoteDbClient for query/transaction/live/maintenance.
+  return db as DesktopDatabase;
 }
 
 /**
@@ -1433,8 +1476,7 @@ async function closeLocalDatabase(): Promise<void> {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function reinitializeDatabase(): Promise<any> {
+export async function reinitializeDatabase(): Promise<DesktopDatabase> {
   if (!isUtilityProcessRuntime()) {
     const manager = await getRemoteDbHostManager();
     await manager.close();
@@ -1449,8 +1491,7 @@ export async function reinitializeDatabase(): Promise<any> {
  * Resets the database and reinitializes, returning the new database instance.
  * This is meant to be called from IPC handlers when they catch corruption errors.
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
-async function handleLocalRuntimeCorruption(context: string): Promise<any> {
+async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDatabase> {
   mutableState.runtimeCorruptionRecoveryCount += 1;
   mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
   mutableState.lastRuntimeCorruptionContext = context;
@@ -1510,8 +1551,9 @@ async function resetLocalDatabaseInternal(): Promise<void> {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
-export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
+export async function initializeMainDatabase(
+  retryAfterCorruption = true
+): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
     return await initializeLocalMainDatabase(retryAfterCorruption);
   }
@@ -1519,8 +1561,7 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
   return await manager.getDatabase();
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
-export async function getDatabase(): Promise<any> {
+export async function getDatabase(): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
     return await getLocalDatabase();
   }
@@ -1536,8 +1577,7 @@ export async function closeDatabase(): Promise<void> {
   await closeRemoteDbHostManager();
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
-export async function handleRuntimeCorruption(context: string): Promise<any> {
+export async function handleRuntimeCorruption(context: string): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
     return await handleLocalRuntimeCorruption(context);
   }

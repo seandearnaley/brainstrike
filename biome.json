@@ -209,6 +209,16 @@
       }
     },
     {
+      "includes": ["apps/desktop/src/assistant-server/hooks/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "apps/web/**",
         "packages/ui/**",
@@ -382,7 +392,6 @@
     },
     {
       "includes": [
-        "packages/queue-telemetry-collector/test/**",
         "packages/embedding-worker/test/**",
         "packages/queue/test/**"
       ],

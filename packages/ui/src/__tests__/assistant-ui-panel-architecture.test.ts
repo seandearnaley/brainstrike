@@ -49,7 +49,28 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1730 → 1735 for React.FC → plain function typings: explicit
     // destructured props + inline type annotations add a few lines per component
     // without changing runtime behavior.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1735);
+    // Bumped 1735 → 1786 for assistant run-lifecycle OS notifications:
+    // onRunFailed/onRunFinished/onToolApprovalRequired thread the SAME 5 layers
+    // as onUsage/onModelChange (AssistantUiPanel → Local/DataStream chat →
+    // ChatThreadUI), and ChatThreadUI mounts a `RunLifecycleNotificationBridge`
+    // (its own module, run-lifecycle-notifications.ts) that reports each new
+    // terminal run event / approval request up to app-shell exactly once. The
+    // notification DECISION logic (settings gate, permission, coalescing) lives
+    // entirely in @brainstrike/preferences — this file only plumbs three
+    // optional callback props, matching the existing onUsage seam.
+    // Bumped 1786 → 1787 for the hydration-replay fix: RunLifecycleNotificationBridge
+    // now also receives `threadKey` so a thread switch re-seeds its "seen"
+    // sets instead of treating the new thread's history as new activity.
+    // Bumped 1787 → 1792 for the turn-level "Revert all edits" footer:
+    // AssistantMessage mounts <CheckpointTurnRevert /> (its own module,
+    // checkpoint-turn-revert.tsx) after AssistantMessageError. The control's
+    // phase machine, part-scanning, and per-run revert wiring all live in that
+    // module; this file only imports + renders it.
+    // Bumped 1792 → 1800 for the attachments-availability adapter contract
+    // comments (PR #1690 review fix): the adapter memo documents WHY it is
+    // keyed on availability presence — tearing it down on an enabled→disabled
+    // model switch would wipe staged attachments via an adapter-less send.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1800);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -82,6 +103,20 @@ describe('assistant UI panel architecture', () => {
     );
   });
 
+  it('mounts the turn-level revert footer as an owned module on assistant messages', () => {
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './checkpoint-turn-revert'");
+
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    expect(assistantMessageSource).toContain('<CheckpointTurnRevert />');
+
+    expect(readSource('assistant-ui-panel/checkpoint-turn-revert.tsx')).toContain(
+      'export function CheckpointTurnRevert'
+    );
+  });
+
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     const assistantMessageStart = source.indexOf('const AssistantMessage =');
@@ -92,8 +127,11 @@ describe('assistant UI panel architecture', () => {
     const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
 
     expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
-    expect(localChainOfThoughtSource).toContain('tools: {');
-    expect(localChainOfThoughtSource).toContain('Fallback: ToolFallback');
+    // The tool-components map (by_name + Fallback) is extracted to
+    // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
+    // source-file budget above; assert the wiring there instead of inline.
+    expect(localChainOfThoughtSource).toContain('tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS');
+    expect(readSource('assistant-ui-panel/todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 
   it('uses the shared thinking indicator instead of a bare streaming caret', () => {

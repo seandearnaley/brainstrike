@@ -1,5 +1,10 @@
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
-import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
+import {
+  createEmptySelectionModel,
+  DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_STATE,
+  DEFAULT_TOKEN_BUDGET,
+} from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FILE_EXPLORER_STORAGE_VERSION } from '../persistence/persistence-constants';
 
@@ -80,6 +85,7 @@ describe('file-explorer-persistence', () => {
       const storage = persistOptions.storage as NonNullable<(typeof persistOptions)['storage']>;
       const base: SerializedState = {
         currentFolderId: null,
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
         folderAccessOrder: [],
@@ -89,7 +95,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
+        quickFilter: '',
         selectedFilePaths: [],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
 
@@ -212,6 +220,7 @@ describe('file-explorer-persistence', () => {
     it('should unwrap state from { state, version } wrapper', () => {
       const actualState: SerializedState = {
         currentFolderId: 'folder-abc',
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
         folderAccessOrder: [],
@@ -221,6 +230,7 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
+        quickFilter: '',
         selectedFilePaths: ['file.ts'],
         selectionModel: {
           explicitPaths: ['file.ts'],
@@ -230,6 +240,7 @@ describe('file-explorer-persistence', () => {
           queryDescriptor: null,
           ruleSetJson: null,
         },
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
       const wrappedState = { state: actualState, version: FILE_EXPLORER_STORAGE_VERSION };
@@ -240,6 +251,7 @@ describe('file-explorer-persistence', () => {
     it('should discard persisted snapshots from older storage versions', () => {
       const oldSnapshot: SerializedState = {
         currentFolderId: 'stale-folder',
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: ['src'],
         folderAccessOrder: ['stale-folder'],
@@ -249,7 +261,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 2000,
+        quickFilter: '',
         selectedFilePaths: ['stale-folder|@|file.ts'],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
 
@@ -267,6 +281,7 @@ describe('file-explorer-persistence', () => {
     it('should return state as is if not wrapped', () => {
       const actualState: SerializedState = {
         currentFolderId: 'folder-xyz',
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
         folderAccessOrder: [],
@@ -276,6 +291,7 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
+        quickFilter: '',
         selectedFilePaths: ['file.js'],
         selectionModel: {
           explicitPaths: ['file.js'],
@@ -285,6 +301,7 @@ describe('file-explorer-persistence', () => {
           queryDescriptor: null,
           ruleSetJson: null,
         },
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
       const result = migrateFn(actualState, FILE_EXPLORER_STORAGE_VERSION);
@@ -410,6 +427,7 @@ describe('file-explorer-persistence', () => {
       };
       const persisted: SerializedState = {
         currentFolderId: 'stale-root',
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
         folderAccessOrder: ['stale-root', 'configured-root'],
@@ -422,7 +440,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: true,
         lastActiveTab: 'files',
         maxSelectionCount: 10,
+        quickFilter: '',
         selectedFilePaths: [],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
 
@@ -433,9 +453,74 @@ describe('file-explorer-persistence', () => {
       expect(result.folderStates['configured-root']?.maxSelectionCount).toBe(100);
     });
 
+    it('heals the legacy default cap (10) up to the current default on load', () => {
+      // The pre-2026-07 default was 10 — an always-persisted value, so a
+      // profile carrying 10 everywhere is indistinguishable from an opt-in.
+      // 10 was hostile enough (constant silent truncation) that we adopt the
+      // new default for those profiles; a deliberate 10 can be re-lowered in
+      // settings once. Any OTHER persisted value is a real user choice and is
+      // preserved verbatim (below).
+      const serializedFolder = {
+        excludeFilters: [] as string[],
+        expandedDirectoryPaths: [] as string[],
+        folderSummaryThreshold: 10,
+        includeFilters: [] as string[],
+        includeProjectTree: true,
+        lastAccessed: Date.now(),
+        lastActiveTab: 'files',
+        selectedFilePaths: [] as string[],
+        tokenBudget: 1000,
+        useRegex: false,
+      };
+      const basePersisted: SerializedState = {
+        currentFolderId: 'root-a',
+        devInlineFixtureEnabled: false,
+        excludeFilters: [],
+        expandedDirectoryPaths: [],
+        folderAccessOrder: ['root-a'],
+        folderStates: {
+          'root-a': { ...serializedFolder, maxSelectionCount: 10 },
+        },
+        folderSummaryThreshold: 20,
+        includeFilters: [],
+        includeProjectTree: true,
+        lastActiveTab: 'files',
+        maxSelectionCount: 10,
+        quickFilter: '',
+        selectedFilePaths: [],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
+        useRegex: false,
+      };
+
+      const healed = mergeFn(basePersisted, initialCurrentState);
+      expect(healed.maxSelectionCount).toBe(DEFAULT_MAX_SELECTION_COUNT);
+      expect(healed.folderStates['root-a']?.maxSelectionCount).toBe(DEFAULT_MAX_SELECTION_COUNT);
+
+      const lowered = mergeFn(
+        {
+          ...basePersisted,
+          folderStates: { 'root-a': { ...serializedFolder, maxSelectionCount: 5 } },
+          maxSelectionCount: 5,
+        },
+        initialCurrentState
+      );
+      expect(lowered.maxSelectionCount).toBe(5);
+
+      const raised = mergeFn(
+        {
+          ...basePersisted,
+          folderStates: { 'root-a': { ...serializedFolder, maxSelectionCount: 200 } },
+          maxSelectionCount: 200,
+        },
+        initialCurrentState
+      );
+      expect(raised.maxSelectionCount).toBe(200);
+    });
+
     it('should merge persisted SerializedState into current FileExplorerState, converting arrays to Sets', () => {
       const persisted: SerializedState = {
         currentFolderId: 'persisted-folder',
+        devInlineFixtureEnabled: false,
         excludeFilters: ['backups'],
         expandedDirectoryPaths: ['persisted-global-dir'],
         folderAccessOrder: ['persisted-folder', 'another-persisted'],
@@ -450,6 +535,7 @@ describe('file-explorer-persistence', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 0,
             selectedFilePaths: ['another.txt'],
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
             useRegex: false,
           },
           'persisted-folder': {
@@ -462,6 +548,7 @@ describe('file-explorer-persistence', () => {
             lastActiveTab: 'files',
             maxSelectionCount: 10,
             selectedFilePaths: ['persisted-sel.txt'],
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
             useRegex: false,
           },
         },
@@ -470,7 +557,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: true,
         lastActiveTab: 'preview',
         maxSelectionCount: 20,
+        quickFilter: '',
         selectedFilePaths: ['persisted-global.txt'],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: true,
       };
 
@@ -557,6 +646,7 @@ describe('file-explorer-persistence', () => {
 
       const persisted: SerializedState = {
         currentFolderId: null,
+        devInlineFixtureEnabled: false,
         excludeFilters: [],
         expandedDirectoryPaths: [],
         folderAccessOrder: [],
@@ -566,7 +656,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: false,
         lastActiveTab: 'files',
         maxSelectionCount: 0,
+        quickFilter: '',
         selectedFilePaths: [],
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
       };
 
@@ -645,7 +737,11 @@ describe('file-explorer-persistence', () => {
         maxSelectionCount: 0,
         selectedFilePaths: [],
         useRegex: false,
-      } as SerializedState;
+        // Deliberately missing devInlineFixtureEnabled/quickFilter/tokenBudget and
+        // the folder's own tokenBudget — this fixture intentionally models a
+        // pre-migration/incomplete persisted snapshot to exercise merge-with-
+        // unknown-shape handling, hence the `unknown` escape hatch below.
+      } as unknown as SerializedState;
 
       const merged = mergeFn(persisted, initialCurrentState);
 

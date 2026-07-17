@@ -53,10 +53,6 @@ export interface EmbeddingServiceInitializationOptions {
   streamingWorkerUrl?: string;
 }
 
-export interface EmbeddingProviderExecutionOptions {
-  distance?: 'cosine' | 'l2' | 'ip';
-}
-
 function createSimpleEmbeddingServiceOptions(
   options: Pick<EmbeddingServiceInitializationOptions, 'streamBatchSize' | 'streamingWorkerUrl'>
 ): SimpleEmbeddingServiceOptions | undefined {

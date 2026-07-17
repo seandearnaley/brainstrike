@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { findSymbolMatches } from '../../assistant-server/find-workspace-symbol';
 
 const TS = `import x from 'y';
@@ -72,6 +72,31 @@ describe('findSymbolMatches', () => {
   });
 
   describe('declaration ranking', () => {
+    it('compiles query-specific declaration matchers once per search', () => {
+      const nativeRegExp = RegExp;
+      let constructionCount = 0;
+      vi.stubGlobal(
+        'RegExp',
+        new Proxy(nativeRegExp, {
+          construct(target, args) {
+            constructionCount += 1;
+            return Reflect.construct(target, args);
+          },
+        })
+      );
+      try {
+        const content = Array.from({ length: 20 }, (_, index) => `target(value${index});`).join(
+          '\n'
+        );
+
+        findSymbolMatches(content, 'target', { contextLines: 0, maxMatches: 5 });
+
+        expect(constructionCount).toBe(3);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('surfaces the real declaration over earlier imports/call sites when capped', () => {
       const content = [
         "import { add } from './math';", // 1: import (usage)

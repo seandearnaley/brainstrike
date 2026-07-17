@@ -1,30 +1,28 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`StatusBar > Snapshots > renders empty status bar 1`] = `
-<output
-  aria-live="polite"
-  class="flex h-6 items-center justify-between px-2 border-border border-t bg-muted/50 text-muted-foreground text-xs"
+<footer
+  class="grid h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1.5 border-border/80 border-t bg-muted/70 text-[11px] text-muted-foreground leading-none"
   data-testid="status-bar"
 >
   <div
-    class="flex items-center gap-2"
+    class="col-start-1 flex h-full w-full min-w-0 items-center gap-1 justify-self-start overflow-hidden whitespace-nowrap"
     data-testid="status-bar-left"
   />
   <div
-    class="flex items-center gap-2"
+    class="col-start-3 flex h-full w-full min-w-0 items-center justify-end gap-1 justify-self-end overflow-hidden whitespace-nowrap"
     data-testid="status-bar-right"
   />
-</output>
+</footer>
 `;
 
 exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
-<output
-  aria-live="polite"
-  class="flex h-6 items-center justify-between px-2 border-border border-t bg-muted/50 text-muted-foreground text-xs"
+<footer
+  class="grid h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1.5 border-border/80 border-t bg-muted/70 text-[11px] text-muted-foreground leading-none"
   data-testid="status-bar"
 >
   <div
-    class="flex items-center gap-2"
+    class="col-start-1 flex h-full w-full min-w-0 items-center gap-1 justify-self-start overflow-hidden whitespace-nowrap"
     data-testid="status-bar-left"
   >
     <span>
@@ -32,7 +30,7 @@ exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
     </span>
   </div>
   <div
-    class="flex items-center gap-2"
+    class="col-start-2 flex h-full min-w-0 items-center gap-1 justify-self-center overflow-hidden whitespace-nowrap"
     data-testid="status-bar-center"
   >
     <span>
@@ -40,12 +38,12 @@ exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
     </span>
   </div>
   <div
-    class="flex items-center gap-2"
+    class="col-start-3 flex h-full w-full min-w-0 items-center justify-end gap-1 justify-self-end overflow-hidden whitespace-nowrap"
     data-testid="status-bar-right"
   >
     <span>
       Right
     </span>
   </div>
-</output>
+</footer>
 `;

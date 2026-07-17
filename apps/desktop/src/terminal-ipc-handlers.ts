@@ -37,6 +37,7 @@
  * throw across IPC and never a silent success.
  */
 
+import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
@@ -137,12 +138,9 @@ const liveTerminals = new Map<string, LiveTerminal>();
  */
 const reaperAttachedOwners = new WeakSet<WebContents>();
 
-let terminalSequence = 0;
-
 /** Generate a process-unique, non-guessable terminal id. */
 function nextTerminalId(): string {
-  terminalSequence += 1;
-  return `pty-${Date.now().toString(36)}-${terminalSequence}-${Math.random().toString(36).slice(2, 8)}`;
+  return `pty-${randomUUID()}`;
 }
 
 /**

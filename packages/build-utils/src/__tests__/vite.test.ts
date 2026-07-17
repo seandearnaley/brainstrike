@@ -14,7 +14,7 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
-  resolveAssistantVendorChunk,
+  isContextActionSystemModule,
 } = await import('../vite');
 
 afterEach(() => {
@@ -132,14 +132,21 @@ describe('assistant vite helpers', () => {
     ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
   });
 
-  test('classifies assistant vendor chunks consistently', () => {
+  test('classifies context-action system modules for chunk co-location', () => {
+    // Core package + feature context-actions modules + commands registry are
+    // grouped into ONE chunk (circular chunk-init TDZ guard — see vite.ts).
+    expect(isContextActionSystemModule('/workspace/packages/context-actions/src/registry.ts')).toBe(
+      true
+    );
     expect(
-      resolveAssistantVendorChunk('/workspace/node_modules/@assistant-ui/react/index.js')
-    ).toBe('assistant-vendor');
-    expect(
-      resolveAssistantVendorChunk('/workspace/node_modules/@shikijs/langs/typescript.mjs')
-    ).toBe('assistant-markdown-vendor');
-    expect(resolveAssistantVendorChunk('/workspace/node_modules/react/index.js')).toBeUndefined();
+      isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
+    ).toBe(true);
+    expect(isContextActionSystemModule('/workspace/packages/commands/src/registry.ts')).toBe(true);
+    // node_modules and unrelated app code stay under default chunking.
+    expect(isContextActionSystemModule('/workspace/node_modules/context-actions/index.js')).toBe(
+      false
+    );
+    expect(isContextActionSystemModule('/workspace/packages/ui/src/button.tsx')).toBe(false);
   });
 });
 

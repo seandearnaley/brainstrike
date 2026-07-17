@@ -33,8 +33,7 @@ import {
 } from '@brainstrike/embeddings/provider-core';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
-import { getDatabase } from '../db-main';
+import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
 import { resolveWorkspaceRoot } from './workspace-roots';
@@ -230,7 +229,10 @@ interface QueryResult<T> {
   rows: T[];
 }
 
-async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<EmbeddingSetRow> {
+async function resolveEmbeddingSet(
+  db: DesktopDatabase,
+  embeddingSetId: string
+): Promise<EmbeddingSetRow> {
   let result: QueryResult<EmbeddingSetRow>;
   try {
     result = (await db.query(
@@ -322,7 +324,10 @@ function createHostedProvider(
   }
 }
 
-async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+async function createSelectionSnapshot(
+  db: DesktopDatabase,
+  filePaths: readonly string[]
+): Promise<string> {
   assertValidSelectionFilePaths(filePaths);
   // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
   void db
@@ -506,7 +511,10 @@ interface RootLabel {
  * chunks can be disambiguated across roots that share a relative path. LEFT
  * JOIN so legacy/unrooted files still resolve (root id/name null).
  */
-async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<string, RootLabel>> {
+async function loadRootLabels(
+  db: DesktopDatabase,
+  ids: readonly string[]
+): Promise<Map<string, RootLabel>> {
   const result = (await db.query(
     `SELECT fr.id, fr.root_id AS "rootId", r.display_name AS "rootName"
        FROM file_records fr
@@ -524,7 +532,7 @@ async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<s
 
 async function buildFileRecordMap(
   repository: FileRecordRepository,
-  db: PGlite,
+  db: DesktopDatabase,
   ids: readonly string[]
 ): Promise<Map<string, FileRecordRow>> {
   const map = new Map<string, FileRecordRow>();
@@ -616,7 +624,7 @@ function assertEmbeddingDimensions(expected: number, actual: number): void {
 }
 
 async function resolveSelectionState(
-  db: PGlite,
+  db: DesktopDatabase,
   runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput
 ): Promise<RetrievalSelectionState> {
@@ -651,7 +659,7 @@ async function resolveSelectionState(
 }
 
 async function searchForChunks(
-  db: PGlite,
+  db: DesktopDatabase,
   embedding: number[],
   embeddingSetId: string,
   input: RetrievalContextInput,
@@ -675,7 +683,7 @@ async function searchForChunks(
 }
 
 async function packRetrievedContext(
-  db: PGlite,
+  db: DesktopDatabase,
   searchResults: Array<{
     chunk: {
       id: string;
@@ -740,7 +748,7 @@ async function runRetrieval(
     throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
   }
 
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
   const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);

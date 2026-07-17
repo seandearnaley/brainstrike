@@ -67,8 +67,10 @@
         "@brainstrike/file-explorer-hooks",
         "@brainstrike/file-explorer-ui",
         "@brainstrike/file-tree-worker",
+        "@brainstrike/notes-vault",
         "@brainstrike/selection-rules",
-        "@brainstrike/vector-management"
+        "@brainstrike/vector-management",
+        "@brainstrike/workspace-search"
       ],
       "mayDependOn": [
         "indexing",
@@ -101,7 +103,6 @@
         "@brainstrike/embeddings",
         "@brainstrike/file-import",
         "@brainstrike/pipeline",
-        "@brainstrike/queue-telemetry-collector",
         "@brainstrike/text-splitter",
         "@brainstrike/token-cache",
         "@brainstrike/worker-runtime",
@@ -120,8 +121,7 @@
       "packages": [
         "@brainstrike/db",
         "@brainstrike/preferences",
-        "@brainstrike/queue",
-        "@brainstrike/storage"
+        "@brainstrike/queue"
       ],
       "mayDependOn": [
         "shared-foundation",
@@ -139,6 +139,7 @@
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
+        "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/types",
         "@brainstrike/ui",
@@ -156,6 +157,7 @@
         "@brainstrike/build-utils",
         "@brainstrike/config",
         "@brainstrike/platform-utils",
+        "@brainstrike/secure-fs-native",
         "@brainstrike/server-config",
         "@brainstrike/tailwind-config"
       ],

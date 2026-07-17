@@ -23,6 +23,13 @@ export function buildQuerySelectionFingerprint(args: {
   folderId: string;
   includeFilters: readonly string[];
   kind: SelectionQueryDescriptor['kind'];
+  /**
+   * Active quick-filter (search-box) string. Folded in so a manifest scanned
+   * under one quick filter is never reused under another — the recursive scan
+   * respects the quick filter, so its result set is quick-filter-specific.
+   * Absent/empty is normalized to '' (a stable, distinct-from-active value).
+   */
+  quickFilter?: string;
   rootPath: string | null;
   useRegex: boolean;
 }): string {
@@ -33,6 +40,7 @@ export function buildQuerySelectionFingerprint(args: {
     folderId: args.folderId,
     includeFilters: [...args.includeFilters].sort(defaultCollator.compare),
     kind: args.kind,
+    quickFilter: args.quickFilter ?? '',
     rootPath: args.rootPath,
     useRegex: args.useRegex,
   });

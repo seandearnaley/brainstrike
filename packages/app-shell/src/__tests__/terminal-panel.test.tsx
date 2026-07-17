@@ -277,6 +277,32 @@ describe('TerminalPanel', () => {
     );
   });
 
+  it('silently retries create while the workspace root has not reconciled into the DB yet', async () => {
+    // Right after boot the renderer can be interactive BEFORE roots
+    // reconciliation lands the workspace row in the DB; the main process then
+    // rejects create with the transient "No open folder matches root id"
+    // error. The panel must keep the starting state and retry — no dead
+    // error state, no toast.
+    const create = vi.fn(
+      async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> =>
+        ok({ cwd: '/abs/repo', terminalId: 'pty-1' })
+    );
+    create.mockResolvedValueOnce({
+      error: 'No open folder matches root id "root-1".',
+      ok: false,
+    });
+    create.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
+    installBridge({ create: create as TerminalBridge['create'] });
+    render(<TerminalPanel />);
+
+    await waitFor(() => expect(create.mock.calls.length).toBeGreaterThanOrEqual(3), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(lastTerminal().focus).toHaveBeenCalled(), { timeout: 5000 });
+    expect(screen.queryByTestId('terminal-panel-error')).not.toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
   it('unsubscribes and destroys the pty on unmount', async () => {
     const bridge = installBridge();
     const { unmount } = render(<TerminalPanel />);

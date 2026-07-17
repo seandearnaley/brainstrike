@@ -70,9 +70,11 @@ function getCSPDirectives(env: Environment): CSPDirectives {
     'form-action': ["'self'"],
     'frame-ancestors': ["'none'"],
 
+    // `brainstrike-asset:` serves root-validated local images (markdown viewer);
+    // the custom protocol enforces workspace-root containment, CSP scopes usage.
     'img-src': isDev
-      ? ["'self'", 'data:', 'blob:', 'http://localhost:*']
-      : ["'self'", 'data:', 'blob:'],
+      ? ["'self'", 'data:', 'blob:', 'brainstrike-asset:', 'http://localhost:*']
+      : ["'self'", 'data:', 'blob:', 'brainstrike-asset:'],
 
     'object-src': ["'none'"],
 

@@ -7,15 +7,16 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/browser-playwright": "^4.1.9",
     "electron": "^43.0.0",
-    "jsdom": "29.1.1",
-    "playwright": "^1.61.1",
-    "tsup": "^8.5.1",
+    "jsdom": "catalog:",
+    "playwright": "catalog:",
+    "tsup": "catalog:",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "sideEffects": false,
   "exports": {

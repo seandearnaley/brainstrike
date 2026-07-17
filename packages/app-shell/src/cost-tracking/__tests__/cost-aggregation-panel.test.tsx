@@ -44,6 +44,7 @@ describe('CostAggregationPanelView', () => {
     const cost = screen.getByTestId('cost-aggregation-cost');
     // openai gpt-5.2 pricing (registry): (1000*1.25 + 200*10)/1e6 = $0.00325.
     expect(cost).toHaveTextContent(/\$0\.003/);
+    expect(cost).toHaveTextContent(/captured usage est\./i);
     expect(cost).not.toHaveTextContent('cost unavailable');
   });
 

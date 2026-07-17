@@ -30,6 +30,7 @@ describe('panel-layout-store', () => {
     expect(s.showRightPanel).toBe(true);
     expect(s.showConsole).toBe(false);
     expect(s.activeTab).toBe('explorer');
+    expect(s.settingsOpen).toBe(false);
   });
 
   it('toggles panel visibility flags', () => {
@@ -52,6 +53,20 @@ describe('panel-layout-store', () => {
     expect(store.getState().activeTab).toBe('explorer');
     store.getState().setActiveTab('settings');
     expect(store.getState().activeTab).toBe('settings');
+    expect(store.getState().settingsOpen).toBe(true);
+
+    store.getState().setActiveTab('terminal');
+    expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  it('opens settings over the current tab without replacing the underlay', () => {
+    store.getState().openSettings();
+
+    expect(store.getState().activeTab).toBe('explorer');
+    expect(store.getState().settingsOpen).toBe(true);
+
+    store.getState().setSettingsOpen(false);
+    expect(store.getState().settingsOpen).toBe(false);
   });
 
   it('normalizes sizes and preserves tuple shape', () => {
@@ -71,11 +86,6 @@ describe('panel-layout-store', () => {
     expect(s.activeTab).toBe('settings');
     // unchanged remain
     expect(s.showLeftPanel).toBe(true);
-  });
-
-  it('supports prompts tab', () => {
-    store.getState().setActiveTab('prompts');
-    expect(store.getState().activeTab).toBe('prompts');
   });
 
   it('supports terminal tab', () => {
@@ -164,6 +174,28 @@ describe('panel-layout-store', () => {
     await getPersistApi(persistedStore).rehydrate();
 
     expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(persistedStore.getState().activeTab).toBe('explorer');
+  });
+
+  it('does not restore the removed prompts root tab from a legacy snapshot', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          activeTab: 'prompts',
+          showConsole: false,
+          showLeftPanel: true,
+          showRightPanel: true,
+          sizes: [18, 40, 20],
+        },
+        version: 4,
+      })
+    );
+
+    const persistedStore = createPanelLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
     expect(persistedStore.getState().activeTab).toBe('explorer');
   });
 });

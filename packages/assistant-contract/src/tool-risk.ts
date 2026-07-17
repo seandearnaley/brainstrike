@@ -26,12 +26,20 @@ import type { ToolCategory } from './tool-categories.js';
  */
 export type ToolRiskCategory = 'read' | 'edit' | 'execute' | 'mcp';
 
+/** Every risk category, in taxonomy order (read → edit → execute → mcp). */
+export const TOOL_RISK_CATEGORIES: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 'mcp'];
+
+/** Runtime narrowing for untrusted risk-category values (mirrors `isPermissionDecision`). */
+export function isToolRiskCategory(value: unknown): value is ToolRiskCategory {
+  return (TOOL_RISK_CATEGORIES as readonly unknown[]).includes(value);
+}
+
 /**
  * The minimal metadata the resolver needs to classify a tool's risk.
  *
- * This is a structural subset shared by the contract-level
- * `NativeToolDefaultMetadata` and the agent-level `UnifiedToolMetadata`, so the
- * resolver works against either without importing the agent package.
+ * This is a structural subset of the contract-level
+ * `NativeToolDefaultMetadata`, so the resolver works against catalog metadata
+ * without importing the agent package.
  */
 export interface ToolRiskMetadata {
   /** Load-ordering / UI category (NOT the risk category). */

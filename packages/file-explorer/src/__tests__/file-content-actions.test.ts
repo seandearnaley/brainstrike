@@ -10,12 +10,18 @@ import { createFileContentActions } from '../actions/file-content-actions';
 function createTestStore() {
   const store = createStore<FileExplorerState>(() => ({
     ...DEFAULT_STATE,
+    addActiveRoot: vi.fn(),
     addMultipleSelectedFiles: vi.fn(),
+    addMultipleSelectedFilesChunked: vi.fn(),
     addSelectedFile: vi.fn(),
     clearAllFileContents: vi.fn(),
+    clearDisabledFilters: vi.fn(),
     clearFileContents: vi.fn(),
+    clearQuickFilter: vi.fn(),
     clearSelectedFiles: vi.fn(),
+    clearSelectionRules: vi.fn(),
     collapseAllDirectories: vi.fn(),
+    commitRulesToExplicit: vi.fn(),
     currentFolderId: null,
     evictOldFileContents: vi.fn(),
     expandAllDirectories: vi.fn(),
@@ -25,20 +31,35 @@ function createTestStore() {
     getFileContent: vi.fn(),
     getFileContentCacheStats: vi.fn(),
     hydrateFolderState: vi.fn(),
+    removeActiveRoot: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
     removeSelectedFile: vi.fn(),
-    selectedFilePaths: new Set<string>(),
+    setActiveRoots: vi.fn(),
     setCurrentFolderId: vi.fn(),
+    setDevInlineFixtureEnabled: vi.fn(),
     setExpandedPaths: vi.fn(),
     setFileContent: vi.fn(),
+    setFilterChipsVisible: vi.fn(),
     setFilters: vi.fn(),
+    setFiltersExpanded: vi.fn(),
+    setFolderSelection: vi.fn(),
     setFolderSummaryThreshold: vi.fn(),
     setIncludeProjectTree: vi.fn(),
+    setIsAccessLoading: vi.fn(),
     setLastActiveTab: vi.fn(),
+    setMaterializedPaths: vi.fn(),
     setMaxSelectionCount: vi.fn(),
+    setQuerySelection: vi.fn(),
+    setQuerySelectionManifest: vi.fn(),
+    setQuickFilter: vi.fn(),
     setSelectedFiles: vi.fn(),
+    setSelectionMode: vi.fn(),
+    setSelectionRules: vi.fn(),
+    setTokenBudget: vi.fn(),
     setUseRegex: vi.fn(),
+    setViewFilterPresetId: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),
+    toggleFilterEnabled: vi.fn(),
     toggleSelectedFile: vi.fn(),
   }));
 
@@ -56,6 +77,9 @@ describe('file-content-actions', () => {
 
   beforeEach(() => {
     store = createTestStore();
+    // The file-content cache is a module-level singleton shared across
+    // stores; reset it so tests don't depend on execution order.
+    store.getState().clearAllFileContents();
   });
 
   it('setFileContent should update fileContents with given key and content', () => {

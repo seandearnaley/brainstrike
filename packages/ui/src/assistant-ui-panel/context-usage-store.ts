@@ -42,9 +42,7 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
 }));
 
 /**
- * Test-only helper.
- *
- * @internal
+ * Clears all per-thread usage (session reset / factory reset). Also used by tests.
  */
 export function resetContextUsageStore(): void {
   useContextUsageStore.setState({ usageByThread: {} });

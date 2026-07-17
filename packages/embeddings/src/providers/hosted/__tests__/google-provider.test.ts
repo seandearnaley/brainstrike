@@ -17,7 +17,8 @@ describe('GoogleEmbeddingProvider', () => {
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: 'hello' };
+    const signal = new AbortController().signal;
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', signal, text: 'hello' };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
 
@@ -27,6 +28,7 @@ describe('GoogleEmbeddingProvider', () => {
     }
     const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
     expect(String(url)).toContain(':embedContent');
+    expect(init?.signal).toBe(signal);
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       model?: string;
       content?: { parts?: Array<{ text?: string }> };
@@ -51,7 +53,12 @@ describe('GoogleEmbeddingProvider', () => {
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: ['a', 'b'] };
+    const signal = new AbortController().signal;
+    const input: EmbeddingInput = {
+      modelId: 'gemini-embedding-001',
+      signal,
+      text: ['a', 'b'],
+    };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -64,6 +71,7 @@ describe('GoogleEmbeddingProvider', () => {
     }
     const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
     expect(String(url)).toContain(':batchEmbedContents');
+    expect(init?.signal).toBe(signal);
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       model?: string;
       requests?: Array<{

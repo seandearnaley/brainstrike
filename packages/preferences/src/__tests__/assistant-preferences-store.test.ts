@@ -44,6 +44,16 @@ describe('assistant-preferences-store', () => {
     Reflect.deleteProperty(secretTarget, 'secrets');
   });
 
+  it('defaults planModeEnabled to false and toggles/sets it', () => {
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+
+    useAssistantPreferencesStore.getState().togglePlanMode();
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(true);
+
+    useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+  });
+
   it('returns composite model when set', () => {
     const store = useAssistantPreferencesStore.getState();
     expect(store.selectedModel).toBeNull();

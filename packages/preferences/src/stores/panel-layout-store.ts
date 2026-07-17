@@ -4,7 +4,8 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal'
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
+ * - settingsOpen: session-only visibility for the modal settings surface
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -16,16 +17,19 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal';
+export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes';
 
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
+  openSettings: () => void;
   setActiveTab: (tab: PanelTab) => void;
+  setSettingsOpen: (open: boolean) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
+  settingsOpen: boolean;
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
@@ -46,9 +50,17 @@ export interface PanelLayoutStoreState {
  */
 const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,
-  'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setActiveTab' | 'setState'
+  | 'setSizes'
+  | 'toggleLeft'
+  | 'toggleRight'
+  | 'toggleConsole'
+  | 'openSettings'
+  | 'setActiveTab'
+  | 'setSettingsOpen'
+  | 'setState'
 > = {
   activeTab: 'explorer',
+  settingsOpen: false,
   showConsole: false,
   showLeftPanel: true,
   showRightPanel: true,
@@ -71,7 +83,11 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
 ) => ({
   ...DEFAULT_STATE,
 
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
+  openSettings: () => set({ settingsOpen: true }),
+
+  setActiveTab: (tab: PanelTab) => set({ activeTab: tab, settingsOpen: tab === 'settings' }),
+
+  setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
 
   setSizes: (sizes: number[]) => {
     const normalized = normalizeSizes(sizes);
@@ -127,10 +143,19 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelStorageValu
       state?: PersistedPanelState;
       version?: number;
     };
-    const state = parsed?.state;
-    if (!state) {
+    const rawState = parsed?.state;
+    if (!rawState) {
       return null;
     }
+    // Root-tab selection is intentionally session-only. Whitelist the persisted
+    // layout fields so legacy snapshots containing activeTab: "prompts" cannot
+    // restore a route that now lives inside the agent sidebar.
+    const state: PersistedPanelState = {
+      showConsole: rawState.showConsole,
+      showLeftPanel: rawState.showLeftPanel,
+      showRightPanel: rawState.showRightPanel,
+      sizes: rawState.sizes,
+    };
     const version = typeof parsed.version === 'number' ? parsed.version : 0;
     if (state.sizes && hasCorruptedSizes(state.sizes)) {
       return {

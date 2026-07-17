@@ -2,12 +2,13 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { useCallback, useState } from 'react';
+import type { FileTreeRefreshResult } from '../tree/use-file-tree-context';
 
 interface UseFileExplorerToastsParams {
   cancelOperation: () => void;
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isFileSystemAccessSupported: () => { supported: boolean; reason: string };
-  refreshFileExplorer: () => Promise<void>;
+  refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   rootDirectoryHandle: DirectoryHandle | null;
 }
 
@@ -35,7 +36,10 @@ export function useFileExplorerToasts({
 
     setIsRefreshing(true);
     try {
-      await refreshFileExplorer();
+      const refreshResult = await refreshFileExplorer();
+      if (refreshResult.status === 'cancelled') {
+        return;
+      }
       showToast({
         description: FileExplorerStrings.success.refreshSuccess,
         title: FileExplorerStrings.success.title,

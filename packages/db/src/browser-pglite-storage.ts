@@ -76,6 +76,25 @@ export function getOpfsAhpBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME)
 }
 
 /**
+ * Prefix for the throwaway per-Playwright-session web E2E stores. Owned here so
+ * the web entry (which mints `idb://web-e2e-<uuid>` paths) and the worker
+ * loader (which relaxes durability for them — see
+ * `isEphemeralWebE2eDataDir`) can never drift apart.
+ */
+export const EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX = 'idb://web-e2e-';
+
+/**
+ * True for the per-session throwaway web E2E stores. These are discarded when
+ * the Playwright context closes, so strict per-statement durability buys
+ * nothing and only makes fresh-DB bootstrap (initdb + the full migration
+ * suite) take ~50s — past the E2E readiness budget. Real user stores must
+ * NEVER relax durability (see the #1111 rationale at the worker options site).
+ */
+export function isEphemeralWebE2eDataDir(dataDir: string): boolean {
+  return dataDir.startsWith(EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX);
+}
+
+/**
  * Current embedded Postgres engine major (e.g. 18), parsed from the version token.
  * Exported so an integration test can anchor it to the major actually reported by
  * an opened PGlite handle — closing the loop so this constant (and, via the

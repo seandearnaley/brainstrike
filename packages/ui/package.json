@@ -5,7 +5,6 @@
   "author": "",
   "dependencies": {
     "@assistant-ui/react": "~0.14.26",
-    "@assistant-ui/react-data-stream": "^0.12.18",
     "@assistant-ui/react-markdown": "^0.14.5",
     "@assistant-ui/styles": "^0.3.7",
     "@brainstrike/assistant-contract": "workspace:*",
@@ -41,29 +40,37 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "katex": "^0.17.0",
     "lucide-react": "^1.23.0",
+    "mermaid": "^11.16.0",
     "motion": "^12.42.2",
+    "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.12.1",
     "react-shiki": "^0.10.1",
+    "rehype-katex": "^7.0.1",
+    "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "shiki": "^4.3.1",
     "tailwind-merge": "^3.6.0",
-    "zustand": "^5.0.14"
+    "yaml": "^2.9.0",
+    "zustand": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^6.0.3",
-    "jsdom": "29.1.1",
-    "react-router-dom": "^7.18.1",
+    "jsdom": "catalog:",
+    "react-router-dom": "catalog:",
     "tailwindcss": "^4.3.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -77,11 +84,22 @@
       "types": "./dist/assistant-ui-panel/index.d.ts",
       "import": "./dist/assistant-ui-panel/index.js"
     },
+    "./assistant-ui-panel/context-usage-store": {
+      "types": "./dist/assistant-ui-panel/context-usage-store.d.ts",
+      "import": "./dist/assistant-ui-panel/context-usage-store.js"
+    },
+    "./assistant-ui-panel/follow-up-queue-store": {
+      "types": "./dist/assistant-ui-panel/follow-up-queue-store.d.ts",
+      "import": "./dist/assistant-ui-panel/follow-up-queue-store.js"
+    },
+    "./markdown-surface": {
+      "types": "./dist/markdown-surface/index.d.ts",
+      "import": "./dist/markdown-surface/index.js"
+    },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
-    "./icons/*": "./icons/*",
-    "./preflight.css": "./dist/preflight.css"
+    "./icons/*": "./icons/*"
   },
   "files": [
     "dist",

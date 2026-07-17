@@ -1,6 +1,17 @@
 import {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
+  isGuardedToolError,
+} from '@brainstrike/assistant-contract';
+import {
+  DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
+  THREAD_TITLE_SOURCE_METADATA_KEY,
+  THREAD_TITLE_SOURCE_OM,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -11,8 +22,14 @@ import {
   type AssistantRunEventStatus,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
+import {
+  type RediscoveredToolApproval,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
+import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
+import type { SuspendedApprovalDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
@@ -106,6 +123,8 @@ export interface CompleteAssistantThreadRunInput {
  * model.
  */
 export interface RecordRunUsageInput {
+  /** Exact amount billed by the provider for this run, when reported. */
+  readonly billedCostUsd?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -130,6 +149,9 @@ export interface RecordRunUsageInput {
  * never cumulative tokens against a single price.
  */
 export interface CrossRootUsageRow {
+  readonly billedCostUsd?: number;
+  readonly estimatedInputTokens?: number;
+  readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -159,7 +181,12 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
     u.provider AS provider,
     u.model AS model,
     SUM(u.input_tokens)::bigint AS "inputTokens",
-    SUM(u.output_tokens)::bigint AS "outputTokens"
+    SUM(u.output_tokens)::bigint AS "outputTokens",
+    SUM(u.billed_cost_usd) AS "billedCostUsd",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.input_tokens ELSE 0 END)::bigint
+      AS "estimatedInputTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.output_tokens ELSE 0 END)::bigint
+      AS "estimatedOutputTokens"
   FROM brainstrike_assistant_run_usage u
   LEFT JOIN roots r ON r.id = u.root_id
   WHERE u.resource_id = $1
@@ -175,7 +202,21 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
  * Callers must catch and surface a visible "couldn't load" state.
  */
 export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsageRow {
+  const billedCostUsd = optionalNonNegativeFiniteNumber(row['billedCostUsd'], 'billedCostUsd');
   return {
+    ...(billedCostUsd === undefined
+      ? {}
+      : {
+          billedCostUsd,
+          estimatedInputTokens: requireNonNegativeInteger(
+            row['estimatedInputTokens'],
+            'estimatedInputTokens'
+          ),
+          estimatedOutputTokens: requireNonNegativeInteger(
+            row['estimatedOutputTokens'],
+            'estimatedOutputTokens'
+          ),
+        }),
     inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
     model: requireString(row['model'], 'model'),
     outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
@@ -188,6 +229,9 @@ export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsa
 
 /** Per-model token subtotal for a single thread. */
 export interface ThreadModelUsageSubtotal {
+  readonly billedCostUsd?: number;
+  readonly estimatedInputTokens?: number;
+  readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -209,9 +253,10 @@ export interface ThreadCumulativeUsage {
 export interface AssistantThreadRepository {
   appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;
   completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
-  createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
+  createThread: (resourceId: string, title?: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
   getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
@@ -220,25 +265,54 @@ export interface AssistantThreadRepository {
     resourceId: string,
     options?: AssistantThreadMessageListOptions
   ) => Promise<readonly AssistantHistoryMessage[]>;
+  listThreadCheckpoints: (threadId: string) => Promise<readonly AssistantEditCheckpointRecord[]>;
   listThreadRunEvents: (
     threadId: string,
-    resourceId: string
+    resourceId: string,
+    options?: AssistantThreadRunEventListOptions
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  /** Required by history-adapter append; optional only for read-only/test repositories. */
+  recordMessageParent?: (input: RecordAssistantMessageParentInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
+  updateThreadsMetadata?: (
+    threadIds: readonly string[],
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
+}
+
+export interface BulkAssistantThreadRepository extends AssistantThreadRepository {
+  deleteThreads: (threadIds: readonly string[]) => Promise<void>;
+  updateThreadsMetadata: (
+    threadIds: readonly string[],
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
 }
 
 interface AssistantHistoryMessage {
   readonly content: unknown;
   readonly createdAt: Date;
   readonly id: string;
+  /** Undefined only for legacy rows written before durable branch topology. */
+  readonly parentId?: string | null;
   readonly role: string;
+}
+
+export interface RecordAssistantMessageParentInput {
+  readonly messageId: string;
+  readonly parentId: string | null;
+  readonly resourceId: string;
+  readonly threadId: string;
 }
 
 export interface AssistantThreadMessageListOptions {
   readonly limitLatest?: number;
+}
+
+export interface AssistantThreadRunEventListOptions {
+  readonly limitLatestRuns?: number;
 }
 
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
@@ -246,8 +320,25 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
+
+-- assistant-ui's branch graph is client-owned topology layered over Mastra's
+-- durable message content. A parent row may be written before its Mastra
+-- message row, so message_id/parent_id intentionally have no message FK.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
+  message_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  resource_id text NOT NULL,
+  parent_id text,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
+  ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
@@ -318,18 +409,64 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   provider text NOT NULL,
   input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
   output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0),
   created_at timestamptz NOT NULL DEFAULT NOW(),
   root_id text
 );
+
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD COLUMN IF NOT EXISTS billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0);
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
+
+-- Per-turn edit checkpoint journal (undo of agent file edits). The renderer
+-- reads this table directly (Path A, like run_events), so it is bootstrapped
+-- here AND created by migration 051 — keep the shape byte-identical to 051.
+-- NO FK to thread_runs/mastra_threads: the numbered migration runner (tests)
+-- and drizzle path run on a bare PGlite without those parent tables, so an FK
+-- REFERENCES would break the migration suite. Full BEFORE-content is stored
+-- (capped/binary-refused via capture_status); after_hash/after_existed are for
+-- conflict detection only. Factory reset purges the table (db-ipc clearAll).
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (
+  id             text PRIMARY KEY,
+  run_id         text NOT NULL,
+  resource_id    text NOT NULL,
+  thread_id      text NOT NULL,
+  tool_call_id   text,
+  tool_name      text NOT NULL,
+  op             text NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),
+  root_id        text NOT NULL,
+  path           text NOT NULL,
+  from_path      text,
+  before_existed boolean NOT NULL,
+  before_hash    text,
+  before_content text,
+  before_size    integer,
+  after_hash     text,
+  after_existed  boolean NOT NULL,
+  capture_status text NOT NULL CHECK (capture_status IN
+                   ('ok','created','skipped_binary','skipped_too_large','expired','rename')),
+  reverted_at    timestamptz,
+  occurred_at    timestamptz NOT NULL,
+  created_at     timestamptz NOT NULL,
+  updated_at     timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_thread_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, resource_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (run_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
 `;
 
-const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
+const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
 const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
@@ -353,6 +490,17 @@ function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle 
 
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
+}
+
+function resolveInitialThreadTitle(title: string | undefined): string {
+  if (title === undefined) {
+    return DEFAULT_THREAD_TITLE;
+  }
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) {
+    throw new Error('Thread title is required.');
+  }
+  return normalizedTitle;
 }
 
 function normalizeDate(value: unknown): Date {
@@ -392,7 +540,7 @@ function toMemoryThread(thread: {
     createdAt: normalizeDate(thread.createdAt),
     id: thread.id,
     resourceId: thread.resourceId,
-    title: thread.title?.trim() || 'New Thread',
+    title: thread.title?.trim() || DEFAULT_THREAD_TITLE,
     updatedAt: normalizeDate(thread.updatedAt),
     ...(thread.latestRun ? { latestRun: thread.latestRun } : {}),
     ...(metadata ? { metadata } : {}),
@@ -417,6 +565,37 @@ function requireString(value: unknown, fieldName: string): string {
   return value;
 }
 
+function requireNonEmptyTopologyId(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Assistant message topology ${fieldName} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function mapAssistantHistoryMessageRow(row: Record<string, unknown>): AssistantHistoryMessage {
+  const parentMappingMessageId = row['parentMappingMessageId'];
+  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
+    requireNonEmptyTopologyId(parentMappingMessageId, 'parentMappingMessageId');
+  }
+  const parentId = row['parentId'];
+  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
+    if (parentId !== null) {
+      requireNonEmptyTopologyId(parentId, 'parentId');
+    }
+  } else if (parentId !== null && parentId !== undefined) {
+    throw new Error('Assistant message parent exists without a mapping row.');
+  }
+  return {
+    content: parseJson(row['content']),
+    createdAt: normalizeDate(row['createdAt']),
+    id: requireString(row['id'], 'id'),
+    ...(parentMappingMessageId === null || parentMappingMessageId === undefined
+      ? {}
+      : { parentId: parentId === null ? null : (parentId as string) }),
+    role: requireString(row['role'], 'role'),
+  };
+}
+
 /**
  * Validate a usage token count before persistence. Malformed values THROW —
  * there is no silent coercion to 0 (see AGENTS.md "no silent fallbacks").
@@ -435,6 +614,17 @@ function requireNonNegativeInteger(value: unknown, fieldName: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!(Number.isFinite(parsed) && Number.isInteger(parsed)) || parsed < 0) {
     throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative integer.`);
+  }
+  return parsed;
+}
+
+function optionalNonNegativeFiniteNumber(value: unknown, fieldName: string): number | undefined {
+  if (value === null || value === undefined) {
+    return;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative number.`);
   }
   return parsed;
 }
@@ -538,6 +728,43 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   }
 }
 
+function requireAssistantThreadIds(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds) || threadIds.length === 0) {
+    throw new Error('At least one assistant thread id is required.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    if (typeof threadId !== 'string' || !threadId.trim()) {
+      throw new Error('Assistant thread id is required.');
+    }
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate assistant thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
+}
+
+function requireNonemptyThreadMetadata(metadata: AssistantThreadMetadata): void {
+  assertPersistableThreadMetadata(metadata);
+  if (Object.keys(metadata).length === 0) {
+    throw new Error('Assistant thread metadata must include at least one field.');
+  }
+}
+
+function threadIdValuesSql(threadIds: readonly string[]): string {
+  return threadIds.map((_, index) => `($${index + 1})`).join(', ');
+}
+
+function assertAllBulkThreadsFound(row: Record<string, unknown> | undefined): void {
+  if (typeof row?.['allFound'] !== 'boolean') {
+    throw new Error('Invalid assistant thread bulk mutation result.');
+  }
+  if (!row['allFound']) {
+    throw new Error('One or more assistant threads do not exist.');
+  }
+}
+
 function requireRunStatus(value: unknown): AssistantThreadRunStatus {
   if (value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'running') {
     return value;
@@ -628,6 +855,60 @@ function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
     throw new Error('Invalid assistant run event row: sequence is not valid.');
   }
   return event;
+}
+
+function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_OPS as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointOp;
+  }
+  throw new Error(`Invalid edit checkpoint row: op "${String(value)}" is not valid.`);
+}
+
+function requireCheckpointCaptureStatus(value: unknown): AssistantEditCheckpointCaptureStatus {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointCaptureStatus;
+  }
+  throw new Error(`Invalid edit checkpoint row: capture_status "${String(value)}" is not valid.`);
+}
+
+function nullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toEditCheckpointRecord(row: Record<string, unknown>): AssistantEditCheckpointRecord {
+  const revertedAt = normalizeNullableDate(getRowValue(row, 'revertedAt', 'reverted_at'));
+  return {
+    afterExisted: Boolean(getRowValue(row, 'afterExisted', 'after_existed')),
+    afterHash: nullableString(getRowValue(row, 'afterHash', 'after_hash')),
+    beforeExisted: Boolean(getRowValue(row, 'beforeExisted', 'before_existed')),
+    beforeHash: nullableString(getRowValue(row, 'beforeHash', 'before_hash')),
+    beforeSize: nullableInteger(getRowValue(row, 'beforeSize', 'before_size')),
+    captureStatus: requireCheckpointCaptureStatus(
+      getRowValue(row, 'captureStatus', 'capture_status')
+    ),
+    fromPath: nullableString(getRowValue(row, 'fromPath', 'from_path')),
+    id: requireString(row['id'], 'id'),
+    occurredAt: normalizeDate(getRowValue(row, 'occurredAt', 'occurred_at')).toISOString(),
+    op: requireCheckpointOp(row['op']),
+    path: requireString(row['path'], 'path'),
+    resourceId: requireString(getRowValue(row, 'resourceId', 'resource_id'), 'resourceId'),
+    revertedAt: revertedAt ? revertedAt.toISOString() : null,
+    rootId: requireString(getRowValue(row, 'rootId', 'root_id'), 'rootId'),
+    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
+    threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
+    toolCallId: nullableString(getRowValue(row, 'toolCallId', 'tool_call_id')),
+    toolName: requireString(getRowValue(row, 'toolName', 'tool_name'), 'toolName'),
+  };
 }
 
 function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
@@ -769,12 +1050,18 @@ function toHistoryToolCallPart(
   const persistedResult = toolResultsByCallId.get(toolCallId);
   const hasInlineResult = Object.hasOwn(record, 'result');
   const isError =
-    typeof record['isError'] === 'boolean' ? record['isError'] : persistedResult?.isError;
+    typeof record['isError'] === 'boolean'
+      ? record['isError']
+      : isPersistedGuardedToolError(record['result'])
+        ? true
+        : persistedResult?.isError;
   return {
     args,
     argsText,
     toolCallId,
-    toolName,
+    // Persisted native tool ids are sanitized (`brainstrike_grepSearch`); render
+    // the dotted form so a reloaded card matches the live label (D3).
+    toolName: denormalizeNativeToolName(toolName),
     type: 'tool-call',
     ...(hasInlineResult ? { result: record['result'] } : {}),
     ...(hasInlineResult || !persistedResult || !Object.hasOwn(persistedResult, 'result')
@@ -807,7 +1094,7 @@ function toHistoryReasoningPart(
  * `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
  * state, result } }` parts with the result INLINE — there are no separate
  * `role: 'tool'` rows in this dialect (see the live-loop proof in
- * packages/agent/src/__tests__/mastra-memory-persistence.spec.ts).
+ * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts).
  */
 function toHistoryToolCallPartFromInvocation(
   record: Record<string, unknown>
@@ -836,12 +1123,17 @@ function toHistoryToolCallPartFromInvocation(
   ) as AssistantHistoryToolCallPart['args'];
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
-  const isError = state === 'output-error' || inv['isError'] === true;
+  const isError =
+    state === 'output-error' ||
+    inv['isError'] === true ||
+    isPersistedGuardedToolError(inv['result']);
   return {
     args,
     argsText: stringifyArgsText(args),
     toolCallId,
-    toolName,
+    // Persisted native tool ids are sanitized (`brainstrike_grepSearch`); render
+    // the dotted form so a reloaded card matches the live label (D3).
+    toolName: denormalizeNativeToolName(toolName),
     type: 'tool-call',
     ...(hasResult
       ? { result: inv['result'] }
@@ -850,6 +1142,10 @@ function toHistoryToolCallPartFromInvocation(
         : { result: errorText }),
     ...(isError ? { isError: true } : {}),
   };
+}
+
+function isPersistedGuardedToolError(value: unknown): boolean {
+  return isGuardedToolError(value);
 }
 
 /**
@@ -998,11 +1294,11 @@ function collectToolResults(
 }
 
 /**
- * A run of consecutive assistant rows (split only by user/system rows; legacy
- * `role: 'tool'` rows do not break a run). Observational-memory sealing and
- * per-step saves split ONE live assistant turn into several rows, so a group
- * hydrates back into a single assistant-ui message — matching what the thread
- * looked like while it streamed.
+ * A run of assistant snapshot rows for one branch identity. User/system rows
+ * and a new topology-bearing assistant ID split groups; legacy `role: 'tool'`
+ * rows do not. Observational-memory sealing and per-step saves split ONE live
+ * assistant turn into several rows, so a group hydrates back into a single
+ * assistant-ui message — matching what the thread looked like while it streamed.
  */
 interface AssistantHistoryRowGroup {
   readonly kind: 'assistant-group';
@@ -1122,11 +1418,16 @@ function appendAssistantGroupMessage(args: {
     args.groupEventParts,
     firstRow.createdAt.getTime()
   );
+  const topologyRows = args.group.rows.filter((row) => row.parentId !== undefined);
+  const messageId = topologyRows.at(0)?.id ?? lastRow.id;
+  if (topologyRows.some((row) => row.id !== messageId)) {
+    throw new Error(`Assistant message snapshots disagree on branch identity for ${lastRow.id}.`);
+  }
   args.repositoryMessages.push({
     message: {
       content,
       createdAt: firstRow.createdAt,
-      id: lastRow.id,
+      id: messageId,
       metadata: {
         custom: {},
         steps: [],
@@ -1142,7 +1443,84 @@ function appendAssistantGroupMessage(args: {
     },
     parentId: args.parentId,
   });
-  return lastRow.id;
+  return messageId;
+}
+
+function resolveAssistantGroupParentId(
+  group: AssistantHistoryRowGroup,
+  legacyParentId: string | null
+): string | null {
+  let resolvedParentId: string | null | undefined;
+  for (const row of group.rows) {
+    if (row.parentId === undefined) {
+      continue;
+    }
+    if (resolvedParentId === undefined) {
+      resolvedParentId = row.parentId;
+      continue;
+    }
+    if (resolvedParentId !== row.parentId) {
+      throw new Error(`Assistant message snapshots disagree on branch parent for ${row.id}.`);
+    }
+  }
+  return resolvedParentId === undefined ? legacyParentId : resolvedParentId;
+}
+
+type AssistantHistoryUserMessage = Extract<
+  AssistantHistoryRepositoryMessages[number]['message'],
+  { role: 'user' }
+>;
+type AssistantHistoryUserAttachment = AssistantHistoryUserMessage['attachments'][number];
+
+/**
+ * Rebuild composer image attachments from the persisted Mastra v2 FILE
+ * dialect: `{ type: 'file', data: <base64 data URL>, mimeType: 'image/…' }`
+ * parts (the shape pinned by the packages/agent persistence spec — note
+ * `mimeType`, not `mediaType`). Hydrated attachments render through the same
+ * `MessagePrimitive.Attachments` strip as live sends, and their content is
+ * re-merged into the outbound message on later turns so the model keeps
+ * seeing the image after a reload.
+ */
+function toUserHistoryAttachments(
+  messageId: string,
+  value: unknown
+): AssistantHistoryUserAttachment[] {
+  const rawParts = readContentPartArray(value);
+  if (!rawParts) {
+    return [];
+  }
+  const attachments: AssistantHistoryUserAttachment[] = [];
+  for (const raw of rawParts) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      continue;
+    }
+    const record = raw as Record<string, unknown>;
+    if (record['type'] !== 'file') {
+      continue;
+    }
+    const data = record['data'];
+    const mimeType = record['mimeType'];
+    if (typeof data !== 'string' || typeof mimeType !== 'string') {
+      continue;
+    }
+    // v1 attachments are images only; a non-image file part is not renderable
+    // attachment state (and never produced by the composer adapter).
+    const normalizedMimeType = mimeType.toLowerCase();
+    if (!normalizedMimeType.startsWith('image/')) {
+      continue;
+    }
+    const index = attachments.length + 1;
+    const subtype = normalizedMimeType.slice('image/'.length) || 'png';
+    attachments.push({
+      content: [{ image: data, type: 'image' }],
+      contentType: mimeType,
+      id: `${messageId}-attachment-${index}`,
+      name: `image-${index}.${subtype}`,
+      status: { type: 'complete' },
+      type: 'image',
+    });
+  }
+  return attachments;
 }
 
 function appendUserHistoryMessage(args: {
@@ -1151,13 +1529,15 @@ function appendUserHistoryMessage(args: {
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
   const content = toTextHistoryContentParts(args.message.content);
-  if (content.length === 0) {
+  const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
+  // An image-only user message has no text part but must survive hydration.
+  if (content.length === 0 && attachments.length === 0) {
     return false;
   }
 
   args.repositoryMessages.push({
     message: {
-      attachments: [],
+      attachments,
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,
@@ -1194,11 +1574,13 @@ function appendSystemHistoryMessage(args: {
 
 /**
  * Partition the row stream into units: user/system rows stand alone;
- * consecutive assistant rows collapse into one group (legacy `role: 'tool'`
- * rows neither render nor break a group). Conversion happens here exactly
- * once per row, in chronological order — the tool-call dedupe map is stateful
- * (it keeps the FIRST occurrence of each toolCallId across snapshot rows), so
- * re-converting a row would corrupt it.
+ * assistant snapshot rows with one topology identity collapse into one group
+ * (legacy `role: 'tool'` rows neither render nor break a group). A second
+ * topology-bearing assistant ID starts a regenerated sibling group even when
+ * no user row separates the persisted responses. Conversion happens here
+ * exactly once per row, in chronological order — the tool-call dedupe map is
+ * stateful (it keeps the FIRST occurrence of each toolCallId across snapshot
+ * rows), so re-converting a row would corrupt it.
  */
 function buildHistoryUnits(
   messages: readonly AssistantHistoryMessage[],
@@ -1206,12 +1588,34 @@ function buildHistoryUnits(
 ): AssistantHistoryUnit[] {
   const units: AssistantHistoryUnit[] = [];
   const seenToolCallsById = new Map<string, AssistantHistoryToolCallPart>();
-  let openGroup: { rows: AssistantHistoryMessage[]; parts: TimedHistoryContentPart[] } | null =
-    null;
+  let openGroup: {
+    parts: TimedHistoryContentPart[];
+    rows: AssistantHistoryMessage[];
+    topologyMessageId?: string;
+  } | null = null;
+
+  const closeOpenGroup = (): void => {
+    if (!openGroup) {
+      return;
+    }
+    units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    openGroup = null;
+  };
 
   for (const message of messages) {
     if (message.role === 'assistant') {
+      const topologyMessageId = message.parentId === undefined ? undefined : message.id;
+      if (
+        topologyMessageId !== undefined &&
+        openGroup !== null &&
+        openGroup.topologyMessageId !== topologyMessageId
+      ) {
+        closeOpenGroup();
+      }
       openGroup ??= { parts: [], rows: [] };
+      if (topologyMessageId !== undefined) {
+        openGroup.topologyMessageId = topologyMessageId;
+      }
       openGroup.rows.push(message);
       // Parts without a persisted timestamp anchor to their snapshot row's
       // save time — each row seals shortly after its parts were produced.
@@ -1226,39 +1630,183 @@ function buildHistoryUnits(
       continue;
     }
     if (message.role === 'user' || message.role === 'system') {
-      if (openGroup) {
-        units.push({ kind: 'assistant-group', ...openGroup });
-        openGroup = null;
-      }
+      closeOpenGroup();
       units.push({ kind: message.role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.
   }
-  if (openGroup) {
-    units.push({ kind: 'assistant-group', ...openGroup });
-  }
+  closeOpenGroup();
   return units;
 }
 
 /**
- * Anchor the thread's run events to the LAST assistant group. The event
- * source (listThreadRunEvents) returns ONLY the latest run's events, and a
- * run's early events (memory loads, tool starts) occur BEFORE that run's
- * first assistant row is saved — splitting by time against group start times
- * assigned those early events to the PREVIOUS turn's group on reload.
+ * Assign each persisted run back to its own assistant group. A run's earliest
+ * events occur before its first assistant row is saved, while the next run's
+ * events form the upper boundary. Choosing the newest unassigned group inside
+ * each run window preserves older turns and also avoids attaching a current
+ * run's early memory/tool events to the previous turn.
  */
 function assignRunEventsToGroups(
   units: readonly AssistantHistoryUnit[],
   runEvents: readonly AssistantRunEvent[]
 ): Map<AssistantHistoryUnit, AssistantRunEventDataPart[]> {
   const assignments = new Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>();
-  const lastGroup = units.findLast((unit) => unit.kind === 'assistant-group');
-  if (!lastGroup || runEvents.length === 0) {
+  const assistantGroups = units.filter(
+    (unit): unit is AssistantHistoryRowGroup => unit.kind === 'assistant-group'
+  );
+  if (assistantGroups.length === 0 || runEvents.length === 0) {
     return assignments;
   }
-  assignments.set(lastGroup, toRunEventDataParts(runEvents));
+
+  const eventsByRunId = new Map<string, AssistantRunEvent[]>();
+  for (const event of runEvents) {
+    const runId = event.runId;
+    if (!runId) {
+      continue;
+    }
+    const runEventsForId = eventsByRunId.get(runId);
+    if (runEventsForId) {
+      runEventsForId.push(event);
+    } else {
+      eventsByRunId.set(runId, [event]);
+    }
+  }
+  const runs = [...eventsByRunId.values()]
+    .map((events) => ({
+      events: events.sort(
+        (left, right) =>
+          (left.sequence ?? 0) - (right.sequence ?? 0) ||
+          Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
+          left.id.localeCompare(right.id)
+      ),
+      startedAt: Math.min(...events.map((event) => Date.parse(event.timestamp))),
+    }))
+    .filter((run) => Number.isFinite(run.startedAt))
+    .sort((left, right) => left.startedAt - right.startedAt);
+  const unassignedGroups = new Set(assistantGroups);
+
+  for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+    const run = runs[runIndex];
+    if (!run) {
+      continue;
+    }
+    const nextRunStartedAt = runs[runIndex + 1]?.startedAt ?? Number.POSITIVE_INFINITY;
+    const candidate = assistantGroups.findLast((group) => {
+      const firstRow = group.rows.at(0);
+      return (
+        unassignedGroups.has(group) &&
+        firstRow !== undefined &&
+        firstRow.createdAt.getTime() < nextRunStartedAt
+      );
+    });
+    if (!candidate) {
+      continue;
+    }
+    assignments.set(candidate, toRunEventDataParts(run.events));
+    unassignedGroups.delete(candidate);
+  }
   return assignments;
+}
+
+function historyMessagePartTimeRange(content: unknown): { first: number; last: number } | null {
+  const parts = readContentPartArray(content);
+  if (!parts) {
+    return null;
+  }
+  let first = Number.POSITIVE_INFINITY;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const part of parts) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) {
+      continue;
+    }
+    const createdAt = (part as Record<string, unknown>)['createdAt'];
+    if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+      continue;
+    }
+    first = Math.min(first, createdAt);
+    last = Math.max(last, createdAt);
+  }
+  return Number.isFinite(first) && Number.isFinite(last) ? { first, last } : null;
+}
+
+const HISTORY_ROLE_ORDER: Readonly<Record<string, number>> = {
+  assistant: 2,
+  system: 0,
+  tool: 3,
+  user: 1,
+};
+
+function compareHistoryMessages(left: AssistantHistoryMessage, right: AssistantHistoryMessage) {
+  const rowTimeDifference = left.createdAt.getTime() - right.createdAt.getTime();
+  if (rowTimeDifference !== 0) {
+    return rowTimeDifference;
+  }
+  const leftRange = historyMessagePartTimeRange(left.content);
+  const rightRange = historyMessagePartTimeRange(right.content);
+  const firstPartDifference = (leftRange?.first ?? 0) - (rightRange?.first ?? 0);
+  if (firstPartDifference !== 0) {
+    return firstPartDifference;
+  }
+  const lastPartDifference = (leftRange?.last ?? 0) - (rightRange?.last ?? 0);
+  if (lastPartDifference !== 0) {
+    return lastPartDifference;
+  }
+  const roleDifference =
+    (HISTORY_ROLE_ORDER[left.role] ?? Number.MAX_SAFE_INTEGER) -
+    (HISTORY_ROLE_ORDER[right.role] ?? Number.MAX_SAFE_INTEGER);
+  return roleDifference === 0 ? left.id.localeCompare(right.id) : roleDifference;
+}
+
+/**
+ * assistant-ui imports parents before children. Mastra updates `createdAt` when
+ * a regeneration reuses its user message ID, so persisted chronological order
+ * is not necessarily topological. Close the bounded graph, then perform a
+ * stable parent-first traversal without adding a database round trip.
+ */
+function orderHistoryGraphForImport(
+  repositoryMessages: AssistantHistoryRepositoryMessages
+): AssistantHistoryRepositoryMessages {
+  const messageById = new Map<string, AssistantHistoryRepositoryMessages[number]>();
+  for (const item of repositoryMessages) {
+    if (messageById.has(item.message.id)) {
+      throw new Error(`Assistant history contains duplicate message ID ${item.message.id}.`);
+    }
+    messageById.set(item.message.id, item);
+  }
+
+  const closedMessages = repositoryMessages.map((item) =>
+    item.parentId !== null && !messageById.has(item.parentId) ? { ...item, parentId: null } : item
+  );
+  const closedMessageById = new Map(closedMessages.map((item) => [item.message.id, item]));
+  const visitState = new Map<string, 'visited' | 'visiting'>();
+  const orderedMessages: AssistantHistoryRepositoryMessages = [];
+
+  const visit = (item: AssistantHistoryRepositoryMessages[number]): void => {
+    const messageId = item.message.id;
+    const state = visitState.get(messageId);
+    if (state === 'visited') {
+      return;
+    }
+    if (state === 'visiting') {
+      throw new Error(`Assistant history contains a parent cycle at message ${messageId}.`);
+    }
+    visitState.set(messageId, 'visiting');
+    if (item.parentId !== null) {
+      const parent = closedMessageById.get(item.parentId);
+      if (!parent) {
+        throw new Error(`Assistant history parent ${item.parentId} disappeared while ordering.`);
+      }
+      visit(parent);
+    }
+    visitState.set(messageId, 'visited');
+    orderedMessages.push(item);
+  };
+
+  for (const item of closedMessages) {
+    visit(item);
+  }
+  return orderedMessages;
 }
 
 function toHistoryRepository(
@@ -1270,7 +1818,8 @@ function toHistoryRepository(
   >['messages'] = [];
   let parentId: string | null = null;
   const toolResultsByCallId = collectToolResults(messages);
-  const units = buildHistoryUnits(messages, toolResultsByCallId);
+  const orderedMessages = [...messages].sort(compareHistoryMessages);
+  const units = buildHistoryUnits(orderedMessages, toolResultsByCallId);
   const runEventAssignments = assignRunEventsToGroups(units, runEvents);
 
   for (const unit of units) {
@@ -1278,7 +1827,7 @@ function toHistoryRepository(
       const appendedId = appendAssistantGroupMessage({
         group: unit,
         groupEventParts: runEventAssignments.get(unit) ?? [],
-        parentId,
+        parentId: resolveAssistantGroupParentId(unit, parentId),
         repositoryMessages,
       });
       if (appendedId !== null) {
@@ -1288,22 +1837,82 @@ function toHistoryRepository(
     }
     const appended =
       unit.kind === 'user'
-        ? appendUserHistoryMessage({ message: unit.message, parentId, repositoryMessages })
-        : appendSystemHistoryMessage({ message: unit.message, parentId, repositoryMessages });
+        ? appendUserHistoryMessage({
+            message: unit.message,
+            parentId: unit.message.parentId === undefined ? parentId : unit.message.parentId,
+            repositoryMessages,
+          })
+        : appendSystemHistoryMessage({
+            message: unit.message,
+            parentId: unit.message.parentId === undefined ? parentId : unit.message.parentId,
+            repositoryMessages,
+          });
     if (appended) {
       parentId = unit.message.id;
     }
   }
 
+  const headId = repositoryMessages.at(-1)?.message.id ?? null;
+
   return {
-    headId: repositoryMessages.at(-1)?.message.id ?? null,
-    messages: repositoryMessages,
+    headId,
+    messages: orderHistoryGraphForImport(repositoryMessages),
   };
+}
+
+/**
+ * Append one synthetic trailing assistant message per rediscovered suspended
+ * approval, each carrying a single `TOOL_APPROVAL_DATA_NAME` data part identical
+ * to the live-stream mapper's output — so the existing approval notice renders
+ * and its Approve/Decline reuses the (restart-safe) resume seam unchanged.
+ * Ordered oldest-first (by `suspendedAt`) and chained onto the current head so
+ * the notices sit at the bottom of the thread. `toHistoryRepository` stays
+ * untouched (its many existing tests keep passing).
+ */
+function appendSuspendedApprovalMessages(
+  result: AssistantHistoryLoadResult,
+  approvals: readonly RediscoveredToolApproval[]
+): AssistantHistoryLoadResult {
+  if (approvals.length === 0) {
+    return result;
+  }
+  const messages: AssistantHistoryRepositoryMessages = [...result.messages];
+  const sorted = [...approvals].sort(
+    (a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt)
+  );
+  let parentId: string | null = result.headId ?? null;
+  let headId: string | null = result.headId ?? null;
+  for (const approval of sorted) {
+    const id = `suspended-approval:${approval.runId}:${approval.toolCallId}`;
+    messages.push({
+      message: {
+        content: [{ data: approval, name: TOOL_APPROVAL_DATA_NAME, type: 'data' }],
+        createdAt: new Date(approval.suspendedAt),
+        id,
+        metadata: {
+          custom: {},
+          steps: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_annotations: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_data: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_state: null,
+        },
+        role: 'assistant',
+        status: { reason: 'stop', type: 'complete' },
+      },
+      parentId,
+    });
+    parentId = id;
+    headId = id;
+  }
+  return { headId, messages };
 }
 
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
-): AssistantThreadRepository {
+): BulkAssistantThreadRepository {
   assertMemoryDatabase(database);
   const cachedRepository = assistantThreadRepositoryCache.get(database);
   if (cachedRepository) {
@@ -1352,40 +1961,94 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
-  const listThreadRunEvents = async (
-    threadId: string,
-    resourceId: string
-  ): Promise<readonly AssistantRunEvent[]> => {
+  const listThreadCheckpoints = async (
+    threadId: string
+  ): Promise<readonly AssistantEditCheckpointRecord[]> => {
     await initialize();
+    // Read-through only (Path A, like listThreadRunEvents). Queried across ALL
+    // runs (not narrowed to the latest run) so past turns' edit cards stay
+    // revertible after reload. before_content is intentionally NOT selected —
+    // the raw prior bytes never leave the main process; revert reads them there.
     const result = await database.query<Record<string, unknown>>(
       `SELECT
           id,
-          run_id,
-          sequence,
-          kind,
-          status,
-          label,
-          detail,
-          duration_ms,
-          metadata,
-          occurred_at
-       FROM ${ASSISTANT_RUN_EVENTS_TABLE}
+          run_id AS "runId",
+          resource_id AS "resourceId",
+          thread_id AS "threadId",
+          tool_call_id AS "toolCallId",
+          tool_name AS "toolName",
+          op,
+          root_id AS "rootId",
+          path,
+          from_path AS "fromPath",
+          before_existed AS "beforeExisted",
+          before_hash AS "beforeHash",
+          before_size AS "beforeSize",
+          after_existed AS "afterExisted",
+          after_hash AS "afterHash",
+          capture_status AS "captureStatus",
+          reverted_at AS "revertedAt",
+          occurred_at AS "occurredAt"
+       FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
        WHERE thread_id = $1
-          AND resource_id = $2
-          AND run_id = (
-            SELECT id
-            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
-            WHERE thread_id = $1 AND resource_id = $2
-            ORDER BY started_at DESC, created_at DESC, id DESC
-            LIMIT 1
-          )
-       ORDER BY sequence ASC, occurred_at ASC, id ASC`,
-      [threadId, resourceId]
+       ORDER BY occurred_at ASC, id ASC`,
+      [threadId]
+    );
+    return result.rows.map(toEditCheckpointRecord);
+  };
+
+  const listThreadRunEvents = async (
+    threadId: string,
+    resourceId: string,
+    options?: AssistantThreadRunEventListOptions
+  ): Promise<readonly AssistantRunEvent[]> => {
+    await initialize();
+    const limitLatestRuns =
+      typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
+        ? options.limitLatestRuns
+        : undefined;
+    if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
+      throw new Error('Assistant run event history limit must be a positive safe integer.');
+    }
+    const params: unknown[] = [threadId, resourceId];
+    const boundedRunFilter =
+      limitLatestRuns === undefined
+        ? ''
+        : `AND run.id IN (
+            SELECT recent_run.id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
+            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
+            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
+            LIMIT $3
+          )`;
+    if (limitLatestRuns !== undefined) {
+      params.push(limitLatestRuns);
+    }
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          event.id,
+          event.run_id,
+          event.sequence,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail,
+          event.duration_ms,
+          event.metadata,
+          event.occurred_at
+       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
+       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
+       WHERE event.thread_id = $1
+          AND event.resource_id = $2
+          ${boundedRunFilter}
+       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
+                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
+      params
     );
     return result.rows.map(toThreadRunEvent);
   };
 
-  const repository: AssistantThreadRepository = {
+  const repository: BulkAssistantThreadRepository = {
     async appendThreadRunEvent(runId: string, event: AssistantRunEvent): Promise<void> {
       await initialize();
       const sequence = event.sequence ?? 0;
@@ -1465,14 +2128,14 @@ export function createPgliteAssistantThreadRepository(
         [runId, input.status, input.error ?? null, new Date(), new Date()]
       );
     },
-    async createThread(resourceId: string): Promise<AssistantMemoryThread> {
+    async createThread(resourceId: string, title?: string): Promise<AssistantMemoryThread> {
       await initialize();
       const now = new Date();
       const thread = {
         createdAt: now,
         id: createThreadId(),
         resourceId,
-        title: 'New Thread',
+        title: resolveInitialThreadTitle(title),
         updatedAt: now,
       } satisfies AssistantMemoryThread;
       await database.query(
@@ -1483,7 +2146,14 @@ export function createPgliteAssistantThreadRepository(
           thread.id,
           thread.resourceId,
           thread.title,
-          JSON.stringify({ source: 'brainstrike' }),
+          // Only the default title is an OM-owned placeholder. An explicit
+          // creation title is user-owned and must never be auto-overwritten.
+          JSON.stringify({
+            source: 'brainstrike',
+            ...(title === undefined
+              ? { [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+              : {}),
+          }),
           thread.createdAt,
           thread.updatedAt,
         ]
@@ -1562,6 +2232,16 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
+          deleted_message_parents AS (
+            DELETE FROM ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+            WHERE thread_id = $1
+            RETURNING message_id
+          ),
+          deleted_edit_checkpoints AS (
+            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+            WHERE thread_id = $1
+            RETURNING id
+          ),
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
@@ -1570,9 +2250,67 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
+          (SELECT count(*) FROM deleted_message_parents) AS deleted_message_parent_count,
+          (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
       );
+    },
+    async deleteThreads(threadIds: readonly string[]): Promise<void> {
+      requireAssistantThreadIds(threadIds);
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `WITH requested(id) AS (
+            VALUES ${threadIdValuesSql(threadIds)}
+          ),
+          validation AS (
+            SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
+            FROM requested
+            LEFT JOIN ${MASTRA_MEMORY_TABLES.threads} AS threads ON threads.id = requested.id
+          ),
+          deleted_observational_memory AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+            WHERE (SELECT all_found FROM validation)
+              AND (
+                "threadId" IN (SELECT id FROM requested)
+                OR "lookupKey" IN (SELECT 'thread:' || id FROM requested)
+              )
+            RETURNING id
+          ),
+          deleted_messages AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING id
+          ),
+          deleted_edit_checkpoints AS (
+            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING id
+          ),
+          deleted_thread_placements AS (
+            DELETE FROM brainstrike_assistant_thread_placements
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING thread_id
+          ),
+          deleted_threads AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
+            WHERE (SELECT all_found FROM validation)
+              AND id IN (SELECT id FROM requested)
+            RETURNING id
+          )
+         SELECT
+          (SELECT all_found FROM validation) AS "allFound",
+          (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
+          (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
+          (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
+          (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
+          (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
+        [...threadIds]
+      );
+      assertAllBulkThreadsFound(result.rows[0]);
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
@@ -1593,7 +2331,12 @@ export function createPgliteAssistantThreadRepository(
             provider,
             model,
             SUM(input_tokens)::bigint AS "inputTokens",
-            SUM(output_tokens)::bigint AS "outputTokens"
+            SUM(output_tokens)::bigint AS "outputTokens",
+            SUM(billed_cost_usd) AS "billedCostUsd",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)::bigint
+              AS "estimatedInputTokens",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN output_tokens ELSE 0 END)::bigint
+              AS "estimatedOutputTokens"
          FROM ${ASSISTANT_RUN_USAGE_TABLE}
          WHERE thread_id = $1
          GROUP BY provider, model
@@ -1608,9 +2351,26 @@ export function createPgliteAssistantThreadRepository(
       const perModel = result.rows.map((row) => {
         const inputTokens = requireNonNegativeInteger(row['inputTokens'], 'inputTokens');
         const outputTokens = requireNonNegativeInteger(row['outputTokens'], 'outputTokens');
+        const billedCostUsd = optionalNonNegativeFiniteNumber(
+          row['billedCostUsd'],
+          'billedCostUsd'
+        );
         totalInputTokens += inputTokens;
         totalOutputTokens += outputTokens;
         return {
+          ...(billedCostUsd === undefined
+            ? {}
+            : {
+                billedCostUsd,
+                estimatedInputTokens: requireNonNegativeInteger(
+                  row['estimatedInputTokens'],
+                  'estimatedInputTokens'
+                ),
+                estimatedOutputTokens: requireNonNegativeInteger(
+                  row['estimatedOutputTokens'],
+                  'estimatedOutputTokens'
+                ),
+              }),
           inputTokens,
           model: requireString(row['model'], 'model'),
           outputTokens,
@@ -1634,34 +2394,38 @@ export function createPgliteAssistantThreadRepository(
         throw new Error('Assistant message history limit must be a positive safe integer.');
       }
       const params: unknown[] = [threadId, resourceId];
-      const sql =
+      const limitClause =
         limitLatest === undefined
-          ? `SELECT id, role, content, "createdAt"
-             FROM ${MASTRA_MEMORY_TABLES.messages}
-             WHERE thread_id = $1 AND "resourceId" = $2
-             ORDER BY "createdAt" ASC, id ASC`
-          : `SELECT id, role, content, "createdAt"
-             FROM (
-               SELECT id, role, content, "createdAt"
-               FROM ${MASTRA_MEMORY_TABLES.messages}
-               WHERE thread_id = $1 AND "resourceId" = $2
-               -- id is a deterministic tie-breaker for same-timestamp rows;
+          ? ''
+          : `-- id is a deterministic tie-breaker for same-timestamp rows;
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
-               LIMIT $3
-             ) AS recent_messages
-             ORDER BY "createdAt" ASC, id ASC`;
+               LIMIT $3`;
+      const sql = `SELECT
+          recent_messages.id,
+          recent_messages.role,
+          recent_messages.content,
+          recent_messages."createdAt",
+          message_parents.message_id AS "parentMappingMessageId",
+          message_parents.parent_id AS "parentId"
+        FROM (
+          SELECT id, role, content, "createdAt"
+          FROM ${MASTRA_MEMORY_TABLES.messages}
+          WHERE thread_id = $1 AND "resourceId" = $2
+          ${limitClause}
+        ) AS recent_messages
+        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
+          ON message_parents.message_id = recent_messages.id
+          AND message_parents.thread_id = $1
+          AND message_parents.resource_id = $2
+        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
       if (limitLatest !== undefined) {
         params.push(limitLatest);
       }
       const result = await database.query<Record<string, unknown>>(sql, params);
-      return result.rows.map((row) => ({
-        content: parseJson(row['content']),
-        createdAt: normalizeDate(row['createdAt']),
-        id: requireString(row['id'], 'id'),
-        role: requireString(row['role'], 'role'),
-      }));
+      return result.rows.map(mapAssistantHistoryMessageRow);
     },
+    listThreadCheckpoints,
     listThreadRunEvents,
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
@@ -1689,14 +2453,44 @@ export function createPgliteAssistantThreadRepository(
         });
       });
     },
+    async recordMessageParent(input: RecordAssistantMessageParentInput): Promise<void> {
+      const messageId = requireNonEmptyTopologyId(input.messageId, 'messageId');
+      const threadId = requireNonEmptyTopologyId(input.threadId, 'threadId');
+      const resourceId = requireNonEmptyTopologyId(input.resourceId, 'resourceId');
+      const parentId =
+        input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
+      await initialize();
+      const now = new Date();
+      const result = await database.query(
+        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)
+         ON CONFLICT (message_id) DO UPDATE
+           SET updated_at = EXCLUDED.updated_at
+           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
+         RETURNING message_id`,
+        [messageId, threadId, resourceId, parentId, now]
+      );
+      if (result.rows.length !== 1) {
+        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
+      }
+    },
     async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
       assertUsageTokenCount(input.inputTokens, 'inputTokens');
       assertUsageTokenCount(input.outputTokens, 'outputTokens');
+      if (
+        input.billedCostUsd !== undefined &&
+        (!Number.isFinite(input.billedCostUsd) || input.billedCostUsd < 0)
+      ) {
+        throw new Error('Assistant run usage billedCostUsd must be a finite, non-negative number.');
+      }
       await initialize();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           crypto.randomUUID(),
           input.threadId,
@@ -1708,6 +2502,7 @@ export function createPgliteAssistantThreadRepository(
           input.outputTokens,
           new Date(),
           input.rootId ?? null,
+          input.billedCostUsd ?? null,
         ]
       );
     },
@@ -1717,11 +2512,13 @@ export function createPgliteAssistantThreadRepository(
         throw new Error('Thread title is required.');
       }
       await initialize();
+      // A manual rename is user-owned: clear the OM marker (if present) so no
+      // later auto-title write can ever overwrite this title again.
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET title = $2, "updatedAt" = $3
+         SET title = $2, metadata = COALESCE(metadata, '{}'::jsonb) - $3, "updatedAt" = $4
          WHERE id = $1`,
-        [threadId, normalizedTitle, new Date()]
+        [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
@@ -1729,10 +2526,42 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb, "updatedAt" = $3
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata), new Date()]
+        [threadId, JSON.stringify(metadata)]
       );
+    },
+    async updateThreadsMetadata(
+      threadIds: readonly string[],
+      metadata: AssistantThreadMetadata
+    ): Promise<void> {
+      requireAssistantThreadIds(threadIds);
+      requireNonemptyThreadMetadata(metadata);
+      await initialize();
+      const metadataParameter = threadIds.length + 1;
+      const result = await database.query<Record<string, unknown>>(
+        `WITH requested(id) AS (
+            VALUES ${threadIdValuesSql(threadIds)}
+          ),
+          validation AS (
+            SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
+            FROM requested
+            LEFT JOIN ${MASTRA_MEMORY_TABLES.threads} AS threads ON threads.id = requested.id
+          ),
+          updated_threads AS (
+            UPDATE ${MASTRA_MEMORY_TABLES.threads} AS threads
+            SET metadata = COALESCE(threads.metadata, '{}'::jsonb) || $${metadataParameter}::jsonb
+            FROM requested
+            WHERE (SELECT all_found FROM validation)
+              AND threads.id = requested.id
+            RETURNING threads.id
+          )
+         SELECT
+          (SELECT all_found FROM validation) AS "allFound",
+          (SELECT count(*) FROM updated_threads) AS "updatedThreadCount"`,
+        [...threadIds, JSON.stringify(metadata)]
+      );
+      assertAllBulkThreadsFound(result.rows[0]);
     },
   };
   assistantThreadRepositoryCache.set(database, repository);
@@ -1740,25 +2569,58 @@ export function createPgliteAssistantThreadRepository(
 }
 
 export function createAssistantThreadHistoryAdapter({
+  discoverSuspendedApprovals,
   repository,
   resourceId,
   threadId,
 }: {
+  /**
+   * Desktop-only capability: rediscover approvals stranded by a restart/reload
+   * (see assistant-suspended-approvals.ts). Omitted on web (no assistant server /
+   * storage, so web never suspends), where its absence means "no suspended
+   * approvals" and hydration is byte-identical to today.
+   */
+  readonly discoverSuspendedApprovals?: SuspendedApprovalDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
   readonly threadId: string;
 }): AssistantUiThreadHistoryAdapter {
   return {
-    async append() {
-      // Mastra is the durable writer for assistant conversations. The client adapter is read-through
-      // only to avoid duplicate message rows with client-generated IDs.
+    async append(item) {
+      // Mastra remains the only durable CONTENT writer. assistant-ui owns the
+      // branch graph, so persist only its id/parent edge here; writing the
+      // message body would duplicate or race Mastra's snapshots.
+      if (!repository.recordMessageParent) {
+        throw new Error('Assistant history repository cannot persist message branch topology.');
+      }
+      await repository.recordMessageParent({
+        messageId: item.message.id,
+        parentId: item.parentId,
+        resourceId,
+        threadId,
+      });
     },
     async load() {
-      const messages = await repository.listMessages(threadId, resourceId, {
-        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-      });
-      const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
-      return toHistoryRepository(messages, runEvents);
+      // Discovery is a bounded, best-effort HTTP round-trip (see
+      // assistant-suspended-approvals.ts) and the rare case, so it runs
+      // CONCURRENTLY with the history queries instead of gating them: thread
+      // render waits at most max(history, discovery-timeout), never their sum.
+      const [messages, runEvents, approvals] = await Promise.all([
+        repository.listMessages(threadId, resourceId, {
+          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+        }),
+        repository.listThreadRunEvents(threadId, resourceId, {
+          limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+        }),
+        discoverSuspendedApprovals
+          ? discoverSuspendedApprovals(threadId, resourceId)
+          : Promise.resolve<readonly RediscoveredToolApproval[]>([]),
+      ]);
+      const base = toHistoryRepository(messages, runEvents);
+      if (approvals.length === 0) {
+        return base;
+      }
+      return appendSuspendedApprovalMessages(base, approvals);
     },
   };
 }

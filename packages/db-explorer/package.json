@@ -16,6 +16,7 @@
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -27,15 +28,16 @@
     "react-resizable-panels": "^4.12.1"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
     "@types/file-saver": "2.0.7",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
-    "jsdom": "29.1.1",
-    "vitest": "^4.1.9",
-    "zustand": "^5.0.14"
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "jsdom": "catalog:",
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -49,13 +51,19 @@
       "types": "./dist/context-actions/index.d.ts",
       "import": "./dist/context-actions/index.js"
     },
+    "./embedding-models": {
+      "types": "./dist/utils/embedding-models.d.ts",
+      "import": "./dist/utils/embedding-models.js"
+    },
     "./database-demo-panel": {
       "types": "./dist/database-demo-panel.d.ts",
       "import": "./dist/database-demo-panel.js"
-    }
+    },
+    "./styles.css": "./styles.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "styles.css"
   ],
   "license": "ISC",
   "main": "dist/index.js",

@@ -1,7 +1,12 @@
+import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  type AssistantToolSuspendRequest,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -9,9 +14,11 @@ import type {
   StreamChunkMessageFinish,
   StreamChunkReasoning,
   StreamChunkRunEvent,
+  StreamChunkShellOutput,
   StreamChunkText,
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
+  StreamChunkToolSuspendRequired,
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
@@ -189,7 +196,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private pendingRunErrorText: string | null = null;
-  private pendingToolErrorTexts: string[] = [];
+  private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
@@ -224,11 +231,17 @@ export class DataStreamMapper {
       case 'run-event':
         yield* this.handleRunEvent(chunk);
         return;
+      case 'shell-output':
+        yield* this.handleShellOutput(chunk);
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
       case 'tool-approval-required':
         yield* this.handleToolApprovalRequired(chunk);
+        return;
+      case 'tool-suspend-required':
+        yield* this.handleToolSuspendRequired(chunk);
         return;
       case 'finish':
       case 'message-finish':
@@ -307,7 +320,7 @@ export class DataStreamMapper {
     // If the model continues with visible text after a tool error, treat that
     // as model-owned recovery. The emitted tool-result chunk still carries the
     // structured isError result for UI retry/error affordances.
-    this.pendingToolErrorTexts = [];
+    this.pendingToolErrorTexts.clear();
     this.hasVisibleText = true;
     this.streamingPartOpen = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
@@ -329,6 +342,34 @@ export class DataStreamMapper {
       value: {
         data: toJsonSafe(chunk.event),
         name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+    if (this.streamingPartOpen) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  /**
+   * Emit a live shell-output slice as a transient `aui-data` part. Subject to
+   * the SAME text-part deferral contract as run events: a data part emitted mid
+   * text/reasoning append would slice visible text, so while a part is open the
+   * encoded slice is queued and flushed at the next natural boundary. Shell
+   * output is produced during tool execution (after the text turn's finish), so
+   * in practice it streams live; the deferral only guards the rare interleave.
+   */
+  private *handleShellOutput(chunk: StreamChunkShellOutput): Generator<EncodedChunk> {
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data: {
+          chunk: chunk.chunk,
+          stream: chunk.stream,
+          toolCallId: chunk.toolCallId,
+          ...(chunk.truncated ? { truncated: true } : {}),
+        },
+        name: SHELL_OUTPUT_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.streamingPartOpen) {
@@ -434,6 +475,60 @@ export class DataStreamMapper {
     } satisfies EncodedChunk;
   }
 
+  private *handleToolSuspendRequired(
+    chunk: StreamChunkToolSuspendRequired
+  ): Generator<EncodedChunk> {
+    const callId = sanitizeToolCallId(chunk.toolCallId);
+    if (!callId) {
+      return;
+    }
+    // Mastra reports suspend() through the tool-error path before emitting the
+    // correlated suspension event. The pause is intentional, so discard only
+    // that call's transient error while preserving unrelated tool failures.
+    this.pendingToolErrorTexts.delete(callId);
+    // Text-part deferral contract: finalize any open text/reasoning append and
+    // flush deferred run events BEFORE emitting the data part (a data part
+    // mid-text slices visible text).
+    yield* this.flushPendingRunEvents();
+
+    if (!this.toolState.has(callId)) {
+      yield* this.handleToolStart(chunk.toolName, callId, {});
+    }
+
+    // Emit the tool-call args part (if not yet emitted) so assistant-ui shows the
+    // tool invocation the plan/question belongs to. The suspend payload is the
+    // pause data, not the tool input, so args default to the recorded input.
+    const state = this.toolState.get(callId);
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput, state.pendingArgsText),
+          toolCallId: callId,
+          toolName: state.toolName,
+        },
+      } satisfies EncodedChunk;
+    }
+
+    const data: AssistantToolSuspendRequest = {
+      runId: chunk.runId,
+      toolCallId: callId,
+      toolName: chunk.toolName,
+      ...(chunk.suspendPayload === undefined
+        ? {}
+        : { suspendPayload: toJsonSafe(chunk.suspendPayload) }),
+      ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+    };
+    yield {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data,
+        name: TOOL_SUSPEND_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+  }
+
   private *handleToolStart(
     toolName: string,
     callId: string,
@@ -513,7 +608,7 @@ export class DataStreamMapper {
         code: DataStreamCode.toolCallResult,
         value: { isError: true, result: bounded.output, toolCallId: callId },
       } satisfies EncodedChunk;
-      this.pendingToolErrorTexts.push(bounded.errorText);
+      this.pendingToolErrorTexts.set(callId, bounded.errorText);
       this.startNewStepForNextText = true;
       return;
     }
@@ -556,7 +651,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { isError: true, result: output, toolCallId: callId },
     } satisfies EncodedChunk;
-    this.pendingToolErrorTexts.push(readToolOutputErrorText(output));
+    this.pendingToolErrorTexts.set(callId, readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
   }
 
@@ -583,6 +678,7 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishMessage,
       value: {
+        ...(chunk.billedCostUsd === undefined ? {} : { billedCostUsd: chunk.billedCostUsd }),
         finishReason: abnormalFinishMessage
           ? 'error'
           : (stepBeforeFinalize?.finishReason ?? finishReason),
@@ -667,7 +763,7 @@ export class DataStreamMapper {
   }
 
   private *emitPendingToolErrorFallbackIfNeeded(): Generator<EncodedChunk> {
-    if (this.pendingToolErrorTexts.length === 0) {
+    if (this.pendingToolErrorTexts.size === 0) {
       return;
     }
     if (this.startNewStepForNextText) {
@@ -677,8 +773,8 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
-    const visibleText = formatToolActionFailure(this.pendingToolErrorTexts);
-    this.pendingToolErrorTexts = [];
+    const visibleText = formatToolActionFailure([...this.pendingToolErrorTexts.values()]);
+    this.pendingToolErrorTexts.clear();
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }

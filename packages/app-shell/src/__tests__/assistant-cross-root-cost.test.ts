@@ -49,6 +49,7 @@ describe('resolveCrossRootCostRows', () => {
       // openai: (1000*1.25 + 200*10)/1e6 = 0.00325
       // anthropic: (500*15 + 100*120)/1e6 = 0.0195
       expect(rootA.cost.usdAmount).toBeCloseTo(0.022_75, 8);
+      expect(rootA.cost.provenance).toBe('captured-usage-estimate');
     }
   });
 
@@ -77,6 +78,28 @@ describe('resolveCrossRootCostRows', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.totalTokens).toBe(425);
     expect(result[0]?.cost).toEqual({ available: false, reason: 'unpriced_model' });
+  });
+
+  it('uses exact OpenRouter cost even when a model has no static price', () => {
+    const rows: CrossRootUsageRow[] = [
+      {
+        billedCostUsd: 0.0065,
+        estimatedInputTokens: 0,
+        estimatedOutputTokens: 0,
+        inputTokens: 5000,
+        model: 'new-model-not-yet-priced',
+        outputTokens: 900,
+        provider: 'openrouter',
+        rootDisplayName: 'project-alpha',
+        rootId: 'root-a',
+      },
+    ];
+
+    expect(resolveCrossRootCostRows(rows, () => undefined)[0]?.cost).toEqual({
+      available: true,
+      provenance: 'provider-reported',
+      usdAmount: 0.0065,
+    });
   });
 
   it('renders the unattributed (null) root with a stable label and a truncated id fallback for join misses', () => {

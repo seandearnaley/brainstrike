@@ -1,4 +1,9 @@
-import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
+import type {
+  DirectoryLoadState,
+  FileNodeType,
+  IFileNode,
+  SelectionState,
+} from '@brainstrike/types';
 import { vi } from 'vitest';
 
 interface BaseNodeOptions {
@@ -6,6 +11,7 @@ interface BaseNodeOptions {
   depth?: number;
   handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
   isVisible?: boolean;
+  loadState?: DirectoryLoadState;
   name: string;
   path: string;
   rootFolderId?: string;
@@ -51,6 +57,9 @@ export function createDirectoryNode({
   rootFolderId = 'test-folder',
   isVisible = true,
   children = [],
+  // Production trees always stamp materialized directories 'loaded' (the row
+  // builder refuses to descend otherwise), so fixtures mirror that invariant.
+  loadState = 'loaded',
 }: Partial<BaseNodeOptions> = {}): IFileNode {
   const mockHandle = {
     entries: vi.fn().mockResolvedValue([]),
@@ -68,6 +77,7 @@ export function createDirectoryNode({
     depth,
     handle: mockHandle,
     isVisible,
+    loadState,
     name,
     path,
     rootFolderId,

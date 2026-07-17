@@ -1320,7 +1320,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     dbState.current = {
       exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('COUNT(*) AS file_count')) {
+        if (sql.includes('SELECT root_id, path')) {
           coverageAuditCount += 1;
         }
         return { rows: [] };
@@ -1397,13 +1397,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    let indexedFileCount = 0;
+    let indexedPaths: string[] = [];
     dbState.current = {
       exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('COUNT(*) AS file_count')) {
+        if (sql.includes('SELECT root_id, path')) {
           return {
-            rows: [{ file_count: String(indexedFileCount), root_id: 'db-root-id' }],
+            rows: indexedPaths.map((path) => ({ path, root_id: 'db-root-id' })),
           };
         }
         return { rows: [] };
@@ -1437,7 +1437,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
 
-      indexedFileCount = 1;
+      indexedPaths = ['src/index.ts'];
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           activeRootPath: '/workspace/root',
@@ -1459,13 +1459,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('allows another recovery sync after coverage was verified complete for the same roots', async () => {
-    let indexedFileCount = 0;
+    let indexedPaths: string[] = [];
     dbState.current = {
       exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('COUNT(*) AS file_count')) {
+        if (sql.includes('SELECT root_id, path')) {
           return {
-            rows: [{ file_count: String(indexedFileCount), root_id: 'db-root-id' }],
+            rows: indexedPaths.map((path) => ({ path, root_id: 'db-root-id' })),
           };
         }
         return { rows: [] };
@@ -1499,7 +1499,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
 
-      indexedFileCount = 1;
+      indexedPaths = ['src/index.ts'];
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           activeRootPath: '/workspace/root',
@@ -1521,7 +1521,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         });
       });
 
-      indexedFileCount = 0;
+      indexedPaths = [];
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           activeRootPath: '/workspace/root',
@@ -1551,6 +1551,198 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('treats files the import content gate refuses as covered by the idle audit', async () => {
+    // Repro for the false "coverage is incomplete" loop: a file passes the
+    // name/size entry policy (so it counts as expected) but its CONTENT can
+    // never be indexed (null bytes). The audit must classify it as covered
+    // instead of demanding a recovery sync that can never converge.
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
+        name: 'index.ts',
+        path: '/workspace/root/src/index.ts',
+        rootFolderId: '/workspace/root',
+        type: 'file',
+      },
+      {
+        handle: {
+          path: '/workspace/root/docs/binary-content.md',
+          platform: 'electron',
+        },
+        name: 'binary-content.md',
+        path: '/workspace/root/docs/binary-content.md',
+        rootFolderId: '/workspace/root',
+        type: 'file',
+      },
+    ]);
+    processFilesMock.mockImplementation(
+      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
+        Object.fromEntries(
+          requests.map((request) => [
+            request.compositeKey,
+            request.compositeKey.includes('binary-content.md')
+              ? 'looks like markdown but contains a null\0byte'
+              : 'export const value = 1;',
+          ])
+        )
+    );
+    dbState.current = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT root_id, path')) {
+          return { rows: [{ path: 'src/index.ts', root_id: 'db-root-id' }] };
+        }
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.INFO);
+    const capturedExclusionLogs: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceCollectionSyncProvider' &&
+        record.message?.includes('unindexable files excluded from coverage') === true
+      ) {
+        capturedExclusionLogs.push(record);
+      }
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
+        });
+      });
+
+      await waitFor(() => {
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          lastError: null,
+          state: 'idle',
+        });
+      });
+      // The unindexable file must not trigger a recovery sync.
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+      // The audit publishes the count so the UI can show it without logs.
+      expect(useWorkspaceCollectionSyncStatusStore.getState().unindexableFileCount).toBe(1);
+      // Diagnostics name the file and the exact content-gate reason.
+      expect(capturedExclusionLogs.length).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(capturedExclusionLogs[0]?.args ?? [])).toContain(
+        'docs/binary-content.md'
+      );
+      expect(JSON.stringify(capturedExclusionLogs[0]?.args ?? [])).toContain('null bytes');
+    } finally {
+      removeListener();
+      configureLogger({ enableInProduction: false });
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('names genuinely missing files in the incomplete coverage error', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
+        name: 'index.ts',
+        path: '/workspace/root/src/index.ts',
+        rootFolderId: '/workspace/root',
+        type: 'file',
+      },
+      {
+        handle: { path: '/workspace/root/src/missed.ts', platform: 'electron' },
+        name: 'missed.ts',
+        path: '/workspace/root/src/missed.ts',
+        rootFolderId: '/workspace/root',
+        type: 'file',
+      },
+    ]);
+    processFilesMock.mockImplementation(
+      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
+        Object.fromEntries(
+          requests.map((request) => [request.compositeKey, 'export const value = 1;'])
+        )
+    );
+    dbState.current = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT root_id, path')) {
+          return { rows: [{ path: 'src/index.ts', root_id: 'db-root-id' }] };
+        }
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
+        });
+      });
+
+      // One automatic recovery sync fires for the genuine gap.
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
+        });
+      });
+
+      await waitFor(() => {
+        const status = useWorkspaceCollectionSyncStatusStore.getState();
+        expect(status.state).toBe('waiting');
+        expect(status.lastError).toContain(
+          'Workspace Index coverage is incomplete after the pipeline reported idle'
+        );
+        expect(status.lastError).toContain('src/missed.ts');
+      });
     } finally {
       syncSpy.mockRestore();
     }
@@ -3218,9 +3410,14 @@ describe('WorkspaceCollectionSyncProvider', () => {
     dbState.current = {
       exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM file_records')) {
+        if (sql.includes('COUNT(*) AS file_count')) {
           return {
             rows: [{ file_count: '1', root_id: 'db-root-a' }],
+          };
+        }
+        if (sql.includes('SELECT root_id, path')) {
+          return {
+            rows: [{ path: 'index.ts', root_id: 'db-root-a' }],
           };
         }
         return { rows: [] };

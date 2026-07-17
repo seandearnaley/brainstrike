@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { createLogger } from '@brainstrike/utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import babel from '@rolldown/plugin-babel';
@@ -11,7 +12,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
+import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,52 +38,11 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
-  resolveAssistantVendorChunk,
+  isContextActionSystemModule,
 } = await import('@brainstrike/build-utils');
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
-
-function resolveVendorChunk(id: string): string | undefined {
-  if (!id.includes('node_modules')) {
-    return;
-  }
-
-  const assistantChunk = resolveAssistantVendorChunk(id);
-  if (assistantChunk) {
-    return assistantChunk;
-  }
-
-  return 'vendor';
-}
-
-/**
- * Co-locate the whole context-action / command system into ONE chunk.
- *
- * `defineContextAction` (packages/context-actions) and `defineCommand`
- * (packages/commands) are pure identity helpers, but the feature
- * `*​/context-actions` modules CALL them at MODULE-INIT to build their action
- * arrays (e.g. `const actions = [defineContextAction({ id: 'file.copy-name' })]`).
- * Rolldown's default chunking hoists the shared helper into its own chunk,
- * separate from its eager callers; the caller chunk then runs `helper(...)` at
- * init before the helper chunk has initialized → a circular chunk-init TDZ
- * ("k is not a function") that leaves the BUILT renderer with an empty #root on
- * startup. Dev is unaffected (Vite serves unbundled ESM, native init order); the
- * DESKTOP renderer is unaffected (its bundle already co-locates them). Forcing a
- * single chunk here removes the cross-chunk init-order hazard on web. Source
- * aliasing alone (below) does NOT fix it — rolldown still splits the shared
- * helper out for dedup. Do NOT remove without re-verifying the built web app
- * mounts (apps/web/e2e @web-smoke).
- */
-function isContextActionSystemModule(id: string): boolean {
-  if (id.includes('node_modules')) {
-    return false;
-  }
-  // Matches the core package (…/context-actions/src/…), every feature
-  // …/src/context-actions/… module that calls defineContextAction at init, and
-  // the commands registry that shares the same define-at-init pattern.
-  return /[\\/]context-actions[\\/]/.test(id) || /[\\/]packages[\\/]commands[\\/]/.test(id);
-}
 
 const WORKER_PROCESS_EXIT_CODE_BINDING = '__brainstrikeWorkerProcessExitCode';
 
@@ -120,13 +80,13 @@ export default defineConfig({
           groups: [
             {
               name(moduleId: string): string | null {
-                // Co-locate the context-action/command system first (prevents the
-                // circular chunk-init TDZ that blanks #root in the built renderer),
-                // then fall back to vendor chunking for node_modules.
-                if (isContextActionSystemModule(moduleId)) {
-                  return 'context-action-system';
-                }
-                return resolveVendorChunk(moduleId) ?? null;
+                // Co-locate the context-action/command system (prevents the
+                // circular chunk-init TDZ that blanks #root in the built
+                // renderer — see isContextActionSystemModule in build-utils).
+                // Everything else uses rolldown's default reachability-based
+                // splitting so dynamically-imported vendors (mermaid, shiki,
+                // katex, codemirror, …) stay OFF the startup critical path.
+                return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },
             },
           ],
@@ -159,9 +119,10 @@ export default defineConfig({
     exclude: [
       ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite', // Official PGlite requirement
-      // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
-      // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
+      // Split pgvector/pg_textsearch packages ship their WASM/tar via import.meta.url;
+      // prebundling into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
       '@electric-sql/pglite-pgvector',
+      '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
@@ -235,159 +196,96 @@ export default defineConfig({
     devHfProxyPlugin(),
   ],
   resolve: {
-    // biome-ignore assist/source/useSortedKeys: Vite object aliases are order-sensitive; subpath aliases must precede package-root aliases.
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      // Map stylesheet imports to source files for consistent theme loading
-      '@brainstrike/app-shell/styles.css': path.resolve(
-        __dirname,
-        '../../packages/app-shell/styles.css'
-      ),
-      '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
-      '@brainstrike/chunking-worker': path.resolve(__dirname, '../../packages/chunking-worker/src'),
-      // Source-alias like every other @brainstrike package. Resolving these to
-      // their built `dist` lands `defineContextAction` in a separate chunk from
-      // the source feature `*/context-actions` that call it at module-init →
-      // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
-      // renderer on startup (dev is unaffected). See the vite-alias coverage test.
-      '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
-      '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
-      '@brainstrike/embedding-worker': path.resolve(
-        __dirname,
-        '../../packages/embedding-worker/src'
-      ),
-      '@brainstrike/embeddings/backend': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/backend-entry.ts'
-      ),
-      '@brainstrike/embeddings/factory': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/factory-entry.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/runtime-config': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/service': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/service-entry.ts'
-      ),
-      '@brainstrike/embeddings/worker': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/worker-entry.ts'
-      ),
-      '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src'),
+    // Array form: first match wins, so deliberate overrides/exceptions come
+    // BEFORE the shared registry spread (mirrors apps/desktop/vite.config.mts
+    // and the vitest configs' B3/B4 convention, #1651/#1658). Every root/
+    // subpath alias the registry emits is an EXACT specifier match (derived
+    // from each package's own `exports` map), so — unlike the old object-form
+    // map's blanket string-prefix roots — subpath vs. root ordering can no
+    // longer shadow anything; only the exceptions below need to precede it.
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      // Stylesheet/asset imports: the registry deliberately excludes non-code
+      // exports (css/json/icons), so these stay explicit.
+      {
+        find: '@brainstrike/app-shell/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
+      },
+      {
+        find: '@brainstrike/workspace-search/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
+      },
+      {
+        find: '@brainstrike/db-explorer/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/db-explorer/styles.css'),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/vector-management/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/vector-management/styles.css'),
+      },
+      {
+        find: '@brainstrike/ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/ui/globals.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
+      },
       // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js
       // file is properly bundled. Aliasing to src causes the .ts worker file to be emitted without
       // transformation, which browsers cannot execute.
       // The web:dev script has a predev step that ensures file-explorer is built first.
-      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/dist'),
-      // Ensure hooks resolve to source once to avoid duplicates
-      '@brainstrike/file-explorer-hooks': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/file-explorer-ui/styles.css': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/styles.css'
-      ),
-      // Source alias to ensure consistent React Compiler transforms and HMR
-      '@brainstrike/file-explorer-ui': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/src'
-      ),
-      '@brainstrike/file-import/browser-queue-port': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/enhanced-import.ts'
-      ),
-      '@brainstrike/file-import': path.resolve(__dirname, '../../packages/file-import/src'),
-      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
+      {
+        find: '@brainstrike/file-explorer',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer/dist'),
+      },
+      // @brainstrike/file-tree-worker's root `exports['.']` targets a
+      // Node-worker_threads entry (dist/index.js); the registry would derive
+      // that same Node-targeted src/index.ts. vite.ts is the deliberate
+      // browser-adapted implementation (Vite Worker URL syntax) this app
+      // needs instead, so it must precede the spread.
+      {
+        find: '@brainstrike/file-tree-worker',
+        replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
+      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias explicitly.
+      {
+        find: '@brainstrike/workers',
+        replacement: path.resolve(__dirname, '../../packages/workers'),
+      },
       // NOTE: Do NOT alias @brainstrike/agent to source - server-side routes need the
       // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
-      // '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
-      // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
-      '@brainstrike/file-tree-worker': path.resolve(
-        __dirname,
-        '../../packages/file-tree-worker/src/vite.ts'
-      ),
-      '@brainstrike/platform-utils': path.resolve(__dirname, '../../packages/platform-utils/src'),
-      '@brainstrike/preferences': path.resolve(__dirname, '../../packages/preferences/src'),
-      '@brainstrike/queue/browser': path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
-      '@brainstrike/queue': path.resolve(__dirname, '../../packages/queue/src'),
-      '@brainstrike/selection-rules': path.resolve(
-        __dirname,
-        '../../packages/selection-rules/src/index.ts'
-      ),
-      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
-      '@brainstrike/text-splitter/chunking-core': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/chunking-core.ts'
-      ),
-      '@brainstrike/text-splitter/token-constants': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-constants.ts'
-      ),
-      '@brainstrike/text-splitter/token-counting-heuristics': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-counting-heuristics.ts'
-      ),
-      '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-      ),
-      '@brainstrike/text-splitter': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
-      '@brainstrike/token-cache/background-indexer': path.resolve(
-        __dirname,
-        '../../packages/token-cache/src/background-indexer.ts'
-      ),
-      '@brainstrike/token-cache/cache-runtime': path.resolve(
-        __dirname,
-        '../../packages/token-cache/src/cache-runtime.ts'
-      ),
-      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
-      '@brainstrike/ui/globals.css': path.resolve(__dirname, '../../packages/ui/src/globals.css'),
-      '@brainstrike/ui/styles.css': path.resolve(__dirname, '../../packages/ui/styles.css'),
-      '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
-      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
-      '@brainstrike/vector-management/styles.css': path.resolve(
-        __dirname,
-        '../../packages/vector-management/styles.css'
-      ),
-      '@brainstrike/vector-management': path.resolve(
-        __dirname,
-        '../../packages/vector-management/src'
-      ),
-      '@brainstrike/worker-runtime': path.resolve(__dirname, '../../packages/worker-runtime/src'),
-      '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
-      src: path.resolve(__dirname, './src'),
-      ...workerpoolBrowserStubAliases,
-      // Force pino to browser build to avoid dynamic require of node libs
-      pino: pinoBrowserPath,
-      'pino/browser.js': pinoBrowserPath,
+      // The registry EXCLUDES @brainstrike/agent's root by default (DEFAULT_SRC_ALIAS_EXCLUSIONS),
+      // so no override is needed here to preserve that — only the browser-safe subpaths below.
       // Agent browser-safe subpath exports (no Mastra dependencies)
-      ...createAgentBrowserSafeAliasMap(path.resolve(__dirname, '../../packages/agent')),
-      './fs/nodefs.js': './fs/opfs-ahp.js',
+      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
+      { find: 'src', replacement: path.resolve(__dirname, './src') },
+      ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
+        find,
+        replacement,
+      })),
+      // Force pino to browser build to avoid dynamic require of node libs
+      { find: 'pino', replacement: pinoBrowserPath },
+      { find: 'pino/browser.js', replacement: pinoBrowserPath },
+      { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
-      '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
-      // remove duplicate hooks alias
-    },
+      {
+        find: '@electric-sql/pglite/dist/fs/nodefs.js',
+        replacement: '@electric-sql/pglite/dist/fs/opfs-ahp.js',
+      },
+      // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
+      // the hand-maintained map this file used to carry — every entry it
+      // listed besides the exceptions above (including the chunk-init-TDZ
+      // motivated commands/context-actions entries and the renamed
+      // db-explorer/embedding-models subpath) is an exact match for what this
+      // registry derives from each package's own `exports` map.
+      ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
+    ],
     dedupe: ['react', 'react-dom'],
   },
   server: {

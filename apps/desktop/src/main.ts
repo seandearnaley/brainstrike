@@ -17,6 +17,7 @@ import {
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
@@ -32,7 +33,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
-import { markDesktopShuttingDown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   type DimensionIndexStrategySelection,
   probeDimensionIndexRuntimeCapabilities,
@@ -43,11 +44,14 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { createDatabaseRootResolver } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
+import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
+import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
@@ -59,14 +63,19 @@ import {
   setBackgrounded,
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
+import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
+import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
+import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
+import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
@@ -92,6 +101,10 @@ const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 configureAgentDevtoolsCommandLine(app.commandLine, process.env, process.argv);
+
+// MUST run before app.whenReady(): privileged scheme registration is only
+// honored if it happens before the app is ready.
+registerAssetProtocolPrivileges();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -635,7 +648,15 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
     });
   } catch (error) {
     desktopDimensionIndexStrategySelection = null;
-    logger.error('Dimension index maintenance capability probe failed', { error });
+    // The probe runs concurrently with the app lifecycle (it no longer gates
+    // window creation), so a short-lived session can tear the DB down while
+    // the probe is mid-flight. That rejection is an EXPECTED teardown (see
+    // desktop-shutdown-state), not a capability failure — log it quietly.
+    if (isDesktopShuttingDown()) {
+      logger.info('Dimension index maintenance capability probe aborted by shutdown', { error });
+    } else {
+      logger.error('Dimension index maintenance capability probe failed', { error });
+    }
   }
 }
 
@@ -651,8 +672,15 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterHooksIpcHandlers: null | (() => void) = null;
+let unregisterContextFilesIpcHandlers: null | (() => void) = null;
+let unregisterSkillsIpcHandlers: null | (() => void) = null;
+let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
+let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
+let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -962,8 +990,15 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterHooksIpcHandlers = registerHooksIpcHandlers();
+unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
+unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
+unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
+unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
+unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1052,6 +1087,12 @@ if (singleInstanceLockAcquired) {
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
 
+      // Register the root-validated `brainstrike-asset://` protocol now that the
+      // app is ready (protocol.handle requires ready). The resolver validates
+      // renderer-supplied paths against the DB `roots` table — the SAME source
+      // the git/read/search tools use — resolving the DB lazily per request.
+      registerAssetProtocol(createDatabaseRootResolver(getDatabase));
+
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
         app.setActivationPolicy?.('accessory');
@@ -1093,11 +1134,24 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
-      await initializeDesktopDimensionIndexStrategy();
-      desktopDatabaseMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop database maintenance started');
-      desktopDimensionIndexMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop dimension index maintenance started');
+      // Kick off DB initialization (utilityProcess spawn + migrations) and the
+      // dimension-index capability probe WITHOUT blocking window creation: the
+      // visible window needs none of it to paint, and renderer DB calls
+      // coalesce on the same getDatabase() promise. Only the maintenance
+      // schedulers wait for the probe (they consume the selected strategy).
+      // initializeDesktopDimensionIndexStrategy never rejects (it catches and
+      // degrades internally); the .catch guards the scheduler start() calls so
+      // a future throw there can never become an unhandled rejection.
+      void initializeDesktopDimensionIndexStrategy()
+        .then(() => {
+          desktopDatabaseMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop database maintenance started');
+          desktopDimensionIndexMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop dimension index maintenance started');
+        })
+        .catch((error) => {
+          logger.error('Failed to start desktop maintenance schedulers', { error });
+        });
 
       // Setup security before creating windows
       setupSecurity();
@@ -1551,14 +1605,43 @@ app.on('will-quit', () => {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
   }
+  if (unregisterAssistantCheckpointIpcHandlers) {
+    unregisterAssistantCheckpointIpcHandlers();
+    unregisterAssistantCheckpointIpcHandlers = null;
+  }
   if (unregisterGitIpcHandlers) {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
+  }
+  if (unregisterHooksIpcHandlers) {
+    unregisterHooksIpcHandlers();
+    unregisterHooksIpcHandlers = null;
+  }
+  if (unregisterContextFilesIpcHandlers) {
+    unregisterContextFilesIpcHandlers();
+    unregisterContextFilesIpcHandlers = null;
+  }
+  if (unregisterSkillsIpcHandlers) {
+    unregisterSkillsIpcHandlers();
+    unregisterSkillsIpcHandlers = null;
+  }
+  if (unregisterUserCommandsIpcHandlers) {
+    unregisterUserCommandsIpcHandlers();
+    unregisterUserCommandsIpcHandlers = null;
+  }
+  if (unregisterUserPersonasIpcHandlers) {
+    unregisterUserPersonasIpcHandlers();
+    unregisterUserPersonasIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).
     unregisterTerminalIpcHandlers();
     unregisterTerminalIpcHandlers = null;
+  }
+  if (unregisterNotesVaultIpcHandlers) {
+    // Disposer also stops every live notes vault watcher.
+    unregisterNotesVaultIpcHandlers();
+    unregisterNotesVaultIpcHandlers = null;
   }
   removeLogBufferListener();
 });

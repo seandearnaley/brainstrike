@@ -74,4 +74,17 @@ export class SessionSubscription {
     }
     this.session.removeSubscription(this);
   }
+
+  /**
+   * A ReadableStream cancel has already closed (or requested closure of) its
+   * controller. Only detach bookkeeping here; calling controller.close() again
+   * raises a noisy invalid-state error during normal request cancellation.
+   */
+  cancel(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.session.removeSubscription(this);
+  }
 }

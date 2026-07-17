@@ -6,6 +6,14 @@ export interface NormalizedFileTreeNode extends Omit<IFileNode, 'children'> {}
 export interface NormalizedFileTreeState {
   childPathsByPath: Map<string, string[]>;
   descendantFileCountByPath: Map<string, number>;
+  /**
+   * Per directory: how many directories in its subtree (itself included) have
+   * loadState !== 'loaded'. Zero means descendantFileCountByPath is exhaustive
+   * for that path; non-zero means the count understates the true total, so
+   * consumers (tri-state derivation) must not treat count equality as
+   * "everything selected".
+   */
+  incompleteDirCountByPath: Map<string, number>;
   nodeByPath: Map<string, NormalizedFileTreeNode>;
   parentPathByPath: Map<string, string | null>;
   rootPaths: string[];
@@ -32,6 +40,7 @@ function createBaseState(): NormalizedFileTreeState {
   return {
     childPathsByPath: new Map(),
     descendantFileCountByPath: new Map(),
+    incompleteDirCountByPath: new Map(),
     nodeByPath: new Map(),
     parentPathByPath: new Map(),
     rootPaths: [],
@@ -56,6 +65,35 @@ function addFileNodeToState(
   state.parentPathByPath.set(node.path, parentPath);
   state.childPathsByPath.delete(node.path);
   state.descendantFileCountByPath.set(node.path, 0);
+  state.incompleteDirCountByPath.set(node.path, 0);
+}
+
+function selfIncompleteDirCount(node: NormalizedFileTreeNode): number {
+  return node.type === 'directory' && node.loadState !== 'loaded' ? 1 : 0;
+}
+
+function sumSubtreeAggregatesFromChildren(
+  state: NormalizedFileTreeState,
+  directoryPath: string,
+  childPaths: readonly string[]
+): { descendantFileCount: number; incompleteDirCount: number } {
+  const directoryNode = state.nodeByPath.get(directoryPath);
+  let descendantFileCount = 0;
+  let incompleteDirCount = directoryNode ? selfIncompleteDirCount(directoryNode) : 0;
+  for (const childPath of childPaths) {
+    const childNode = state.nodeByPath.get(childPath);
+    if (!childNode) {
+      continue;
+    }
+    if (childNode.type === 'file') {
+      descendantFileCount += 1;
+      continue;
+    }
+    descendantFileCount += state.descendantFileCountByPath.get(childPath) ?? 0;
+    incompleteDirCount +=
+      state.incompleteDirCountByPath.get(childPath) ?? selfIncompleteDirCount(childNode);
+  }
+  return { descendantFileCount, incompleteDirCount };
 }
 
 function finalizeDirectoryNode(
@@ -63,18 +101,15 @@ function finalizeDirectoryNode(
   node: IFileNode & { type: 'directory' }
 ): void {
   const childPaths = (node.children ?? []).map((child) => child.path);
-  let descendantFileCount = 0;
-  for (const childPath of childPaths) {
-    const childNode = state.nodeByPath.get(childPath);
-    if (!childNode) {
-      continue;
-    }
-    descendantFileCount +=
-      childNode.type === 'file' ? 1 : (state.descendantFileCountByPath.get(childPath) ?? 0);
-  }
+  const { descendantFileCount, incompleteDirCount } = sumSubtreeAggregatesFromChildren(
+    state,
+    node.path,
+    childPaths
+  );
 
   state.childPathsByPath.set(node.path, childPaths);
   state.descendantFileCountByPath.set(node.path, descendantFileCount);
+  state.incompleteDirCountByPath.set(node.path, incompleteDirCount);
 }
 
 function isDirectoryNode(node: IFileNode): node is IFileNode & { type: 'directory' } {
@@ -139,9 +174,67 @@ export function createNormalizedFileTreeState(nodes: IFileNode[]): NormalizedFil
   return state;
 }
 
+const EMPTY_CHILD_PATHS: readonly string[] = [];
+
+interface MaterializedDirectoryCacheEntry {
+  childPaths: readonly string[];
+  result: IFileNode;
+}
+
+// Structural-sharing caches for materialization, keyed by the normalized node
+// objects — which are IMMUTABLE once stored (every field change replaces the
+// object, see setNormalizedNodeLoadState / replaceDirectoryChildrenInPlace).
+// A directory's cached materialization is valid iff its childPaths array
+// identity AND every child's materialized result identity are unchanged; the
+// same rule applied recursively means an untouched subtree materializes to
+// the exact same object graph across commits (memo'd rows bail out, WeakMap-
+// keyed derivation caches stay warm) instead of N fresh allocations per
+// commit. Consumers must treat materialized nodes as immutable — they are
+// shared across successive trees.
+const materializedFileNodeCache = new WeakMap<NormalizedFileTreeNode, IFileNode>();
+const materializedDirectoryCache = new WeakMap<
+  NormalizedFileTreeNode,
+  MaterializedDirectoryCacheEntry
+>();
+
 function materializeFileNode(state: NormalizedFileTreeState, path: string): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
-  return node?.type === 'file' ? { ...node } : undefined;
+  if (node?.type !== 'file') {
+    return;
+  }
+  const cached = materializedFileNodeCache.get(node);
+  if (cached) {
+    return cached;
+  }
+  const result = { ...node };
+  materializedFileNodeCache.set(node, result);
+  return result;
+}
+
+/**
+ * True when the cached directory result's children are identical (by object
+ * identity, per index) to the freshly materialized children for `childPaths`.
+ * Single pass, no allocation — the common "nothing under this dir changed"
+ * case costs pointer comparisons only.
+ */
+function directoryChildrenUnchanged(
+  cachedResult: IFileNode,
+  childPaths: readonly string[],
+  materializedNodes: Map<string, IFileNode>
+): boolean {
+  const cachedChildren = cachedResult.children ?? [];
+  let index = 0;
+  for (const childPath of childPaths) {
+    const child = materializedNodes.get(childPath);
+    if (child === undefined) {
+      continue;
+    }
+    if (cachedChildren[index] !== child) {
+      return false;
+    }
+    index += 1;
+  }
+  return index === cachedChildren.length;
 }
 
 function materializeDirectoryNode(
@@ -154,12 +247,23 @@ function materializeDirectoryNode(
     return;
   }
 
-  const childPaths = state.childPathsByPath.get(path) ?? [];
+  const childPaths = state.childPathsByPath.get(path) ?? EMPTY_CHILD_PATHS;
+  const cached = materializedDirectoryCache.get(node);
+  if (
+    cached &&
+    cached.childPaths === childPaths &&
+    directoryChildrenUnchanged(cached.result, childPaths, materializedNodes)
+  ) {
+    return cached.result;
+  }
+
   const children = childPaths
     .map((childPath) => materializedNodes.get(childPath))
     .filter((child): child is IFileNode => child !== undefined);
 
-  return children.length > 0 ? { ...node, children } : { ...node };
+  const result = children.length > 0 ? { ...node, children } : { ...node };
+  materializedDirectoryCache.set(node, { childPaths, result });
+  return result;
 }
 
 function queueDirectoryChildrenForMaterialization(
@@ -324,6 +428,7 @@ function removeSubtree(state: NormalizedFileTreeState, path: string): void {
     state.childPathsByPath.delete(subtreePath);
     state.parentPathByPath.delete(subtreePath);
     state.descendantFileCountByPath.delete(subtreePath);
+    state.incompleteDirCountByPath.delete(subtreePath);
   }
 }
 
@@ -341,26 +446,27 @@ function recomputeDescendantFileCountsFrom(
       continue;
     }
 
-    let descendantFileCount = 0;
-    for (const childPath of state.childPathsByPath.get(currentPath) ?? []) {
-      const childNode = state.nodeByPath.get(childPath);
-      if (!childNode) {
-        continue;
-      }
-      descendantFileCount +=
-        childNode.type === 'file' ? 1 : (state.descendantFileCountByPath.get(childPath) ?? 0);
-    }
+    const { descendantFileCount, incompleteDirCount } = sumSubtreeAggregatesFromChildren(
+      state,
+      currentPath,
+      state.childPathsByPath.get(currentPath) ?? []
+    );
     state.descendantFileCountByPath.set(currentPath, descendantFileCount);
+    state.incompleteDirCountByPath.set(currentPath, incompleteDirCount);
     currentPath = state.parentPathByPath.get(currentPath) ?? null;
   }
 }
 
 function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   return {
-    childPathsByPath: new Map(
-      Array.from(state.childPathsByPath.entries(), ([path, childPaths]) => [path, [...childPaths]])
-    ),
+    // Child arrays are SHARED, not copied: no code path mutates a stored
+    // array in place (updates always .set() a fresh array), and array
+    // identity doubles as the materialization cache key — copying here would
+    // both cost O(total children) per update and invalidate the structural-
+    // sharing cache for every directory.
+    childPathsByPath: new Map(state.childPathsByPath),
     descendantFileCountByPath: new Map(state.descendantFileCountByPath),
+    incompleteDirCountByPath: new Map(state.incompleteDirCountByPath),
     nodeByPath: new Map(state.nodeByPath),
     parentPathByPath: new Map(state.parentPathByPath),
     rootPaths: [...state.rootPaths],
@@ -442,6 +548,39 @@ export function applyNormalizedDirectoryChildrenUpdates(
   return changed ? nextState : state;
 }
 
+/**
+ * Recompute only incompleteDirCountByPath along the ancestor chain from
+ * startPath. Used when a node's loadState flips without a children update —
+ * descendant file counts are unaffected, so the shared count map stays intact.
+ */
+function recomputeIncompleteDirCountsFrom(
+  state: NormalizedFileTreeState,
+  startPath: string | null
+): void {
+  const visitedPaths = new Set<string>();
+  let currentPath = startPath;
+  while (currentPath && !visitedPaths.has(currentPath)) {
+    visitedPaths.add(currentPath);
+    const node = state.nodeByPath.get(currentPath);
+    if (node?.type !== 'directory') {
+      currentPath = state.parentPathByPath.get(currentPath) ?? null;
+      continue;
+    }
+
+    let incompleteDirCount = selfIncompleteDirCount(node);
+    for (const childPath of state.childPathsByPath.get(currentPath) ?? []) {
+      const childNode = state.nodeByPath.get(childPath);
+      if (childNode?.type !== 'directory') {
+        continue;
+      }
+      incompleteDirCount +=
+        state.incompleteDirCountByPath.get(childPath) ?? selfIncompleteDirCount(childNode);
+    }
+    state.incompleteDirCountByPath.set(currentPath, incompleteDirCount);
+    currentPath = state.parentPathByPath.get(currentPath) ?? null;
+  }
+}
+
 export function setNormalizedNodeLoadState(
   state: NormalizedFileTreeState,
   path: string,
@@ -467,13 +606,32 @@ export function setNormalizedNodeLoadState(
       loadState,
     });
   }
-  return {
+  const nextState: NormalizedFileTreeState = {
     childPathsByPath: state.childPathsByPath,
     descendantFileCountByPath: state.descendantFileCountByPath,
+    incompleteDirCountByPath: new Map(state.incompleteDirCountByPath),
     nodeByPath: nextNodeByPath,
     parentPathByPath: state.parentPathByPath,
     rootPaths: state.rootPaths,
   };
+  recomputeIncompleteDirCountsFrom(nextState, path);
+  return nextState;
+}
+
+/**
+ * True when the directory at `path` (or any directory below it) has not
+ * finished loading — i.e. descendant file counts for it are NOT exhaustive.
+ * Files and unknown paths report false.
+ */
+export function hasNormalizedIncompleteDescendants(
+  state: NormalizedFileTreeState,
+  path: string
+): boolean {
+  const node = state.nodeByPath.get(path);
+  if (node?.type !== 'directory') {
+    return false;
+  }
+  return (state.incompleteDirCountByPath.get(path) ?? selfIncompleteDirCount(node)) > 0;
 }
 
 export function getNormalizedNode(
@@ -556,4 +714,61 @@ export function getNormalizedParentPath(
   path: string
 ): string | null | undefined {
   return state.parentPathByPath.get(path);
+}
+
+export interface VisibleDirectoryAggregates {
+  /** Per directory: descendant FILE count within the visible (allowed) set. */
+  fileCountByPath: Map<string, number>;
+  /**
+   * Per directory: count of not-fully-loaded directories in its VISIBLE
+   * subtree (itself included) — the filtered twin of incompleteDirCountByPath.
+   * A filtered-out unloaded directory must not block a checked state the
+   * visible universe has earned.
+   */
+  incompleteDirCountByPath: Map<string, number>;
+}
+
+/**
+ * Compute per-directory aggregates restricted to the VISIBLE path set (the
+ * filtered display tree). One O(paths × depth) pass per tree/filter change —
+ * consumers then read O(1) per row, keeping tri-state derivation, click
+ * resolution, and row denominators in the SAME (visible) universe.
+ */
+export function buildVisibleDirectoryAggregates(
+  state: NormalizedFileTreeState,
+  allowedPaths: ReadonlySet<string>
+): VisibleDirectoryAggregates {
+  const fileCountByPath = new Map<string, number>();
+  const incompleteDirCountByPath = new Map<string, number>();
+
+  const bumpAncestors = (startPath: string, target: Map<string, number>): void => {
+    let currentPath: string | null | undefined = state.parentPathByPath.get(startPath);
+    while (currentPath) {
+      if (allowedPaths.has(currentPath)) {
+        target.set(currentPath, (target.get(currentPath) ?? 0) + 1);
+      }
+      currentPath = state.parentPathByPath.get(currentPath);
+    }
+  };
+
+  for (const path of allowedPaths) {
+    const node = state.nodeByPath.get(path);
+    if (!node) {
+      continue;
+    }
+    if (node.type === 'file') {
+      bumpAncestors(path, fileCountByPath);
+      continue;
+    }
+    // Ensure every visible directory has an entry (0 = known-empty visible).
+    if (!fileCountByPath.has(path)) {
+      fileCountByPath.set(path, 0);
+    }
+    if (node.loadState !== 'loaded') {
+      incompleteDirCountByPath.set(path, (incompleteDirCountByPath.get(path) ?? 0) + 1);
+      bumpAncestors(path, incompleteDirCountByPath);
+    }
+  }
+
+  return { fileCountByPath, incompleteDirCountByPath };
 }

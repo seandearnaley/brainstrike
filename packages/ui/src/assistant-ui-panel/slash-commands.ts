@@ -11,6 +11,8 @@ import type { ComponentType } from 'react';
  * panel just invokes `execute()` and the app surfaces the `ActionOutcome`.
  */
 export interface SlashCommand {
+  /** Optional one-line description: fuzzy-searched by the adapter + shown as the item tooltip. */
+  readonly description?: string | undefined;
   /** Pre-bound action: runs the command and surfaces its outcome (toast+log on failure). */
   readonly execute: () => void;
   /** Optional leading icon rendered in the popover item. */
@@ -45,6 +47,7 @@ export function toSlashCommandAdapterOptions(
       execute: command.execute,
       id: command.id,
       label: command.label,
+      ...(command.description === undefined ? {} : { description: command.description }),
     })),
     removeOnExecute: true,
   };

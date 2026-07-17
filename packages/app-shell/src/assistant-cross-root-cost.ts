@@ -32,6 +32,8 @@ interface RootAggregate {
   cost: number;
   displayName: string;
   hasUnpriced: boolean;
+  sawEstimatedUsage: boolean;
+  sawProviderReportedCost: boolean;
   totalTokens: number;
 }
 
@@ -51,7 +53,7 @@ function resolveDisplayName(row: CrossRootUsageRow): string {
 }
 
 /**
- * Aggregate durable per-(root, model) usage into per-root cost rows.
+ * Aggregate captured durable per-(root, model) usage into per-root cost rows.
  *
  * Cost is priced PER MODEL with that model's own registry rate, then summed
  * within each root. A root that mixed a priced and an unpriced model is
@@ -73,20 +75,31 @@ export function resolveCrossRootCostRows(
         cost: 0,
         displayName: resolveDisplayName(row),
         hasUnpriced: false,
+        sawEstimatedUsage: false,
+        sawProviderReportedCost: false,
         totalTokens: 0,
       };
       byRoot.set(row.rootId, aggregate);
       order.push(row.rootId);
     }
     aggregate.totalTokens += row.inputTokens + row.outputTokens;
-    const entryCost = computeCost(
-      { inputTokens: row.inputTokens, outputTokens: row.outputTokens },
-      resolvePricing(row.provider, row.model)
-    );
-    if (entryCost.available) {
-      aggregate.cost += entryCost.usdAmount;
-    } else {
-      aggregate.hasUnpriced = true;
+    if (row.billedCostUsd !== undefined) {
+      aggregate.cost += row.billedCostUsd;
+      aggregate.sawProviderReportedCost = true;
+    }
+    const estimatedInputTokens = row.estimatedInputTokens ?? row.inputTokens;
+    const estimatedOutputTokens = row.estimatedOutputTokens ?? row.outputTokens;
+    if (estimatedInputTokens + estimatedOutputTokens > 0) {
+      aggregate.sawEstimatedUsage = true;
+      const entryCost = computeCost(
+        { inputTokens: estimatedInputTokens, outputTokens: estimatedOutputTokens },
+        resolvePricing(row.provider, row.model)
+      );
+      if (entryCost.available) {
+        aggregate.cost += entryCost.usdAmount;
+      } else {
+        aggregate.hasUnpriced = true;
+      }
     }
   }
 
@@ -96,9 +109,16 @@ export function resolveCrossRootCostRows(
       // Unreachable: every key in `order` was set above. Keep typing honest.
       throw new Error('Cross-root cost aggregation lost a root key.');
     }
-    const cost: CostEstimate = aggregate.hasUnpriced
-      ? { available: false, reason: 'unpriced_model' }
-      : { available: true, provenance: 'exact-pricing', usdAmount: aggregate.cost };
+    const cost: CostEstimate =
+      aggregate.hasUnpriced || !(aggregate.sawEstimatedUsage || aggregate.sawProviderReportedCost)
+        ? { available: false, reason: 'unpriced_model' }
+        : {
+            available: true,
+            provenance: aggregate.sawEstimatedUsage
+              ? 'captured-usage-estimate'
+              : 'provider-reported',
+            usdAmount: Math.round(aggregate.cost * 1_000_000_000_000) / 1_000_000_000_000,
+          };
     return {
       cost,
       displayName: aggregate.displayName,

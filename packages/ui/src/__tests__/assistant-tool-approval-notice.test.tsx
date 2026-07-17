@@ -97,6 +97,39 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText(/runs a command/i)).toBeInTheDocument();
   });
 
+  it('shows a "pending since" line and a stale advisory for a rediscovered stale approval, keeping both buttons enabled', () => {
+    const staleApproval = {
+      ...baseApproval,
+      stale: true,
+      suspendedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    };
+    render(<AssistantToolApprovalNotice data={staleApproval} />);
+
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+  });
+
+  it('shows "pending since" but no advisory for a fresh (non-stale) rediscovered approval', () => {
+    const freshApproval = {
+      ...baseApproval,
+      stale: false,
+      suspendedAt: new Date(Date.now() - 30 * 1000).toISOString(),
+    };
+    render(<AssistantToolApprovalNotice data={freshApproval} />);
+
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a live approval (no suspendedAt) without the pending-since or advisory lines', () => {
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.queryByText(/pending since/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+  });
+
   it('expands to show approval identifiers and arguments', async () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);

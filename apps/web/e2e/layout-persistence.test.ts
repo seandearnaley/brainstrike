@@ -513,10 +513,23 @@ test.describe('IDE Layout Persistence', () => {
 
       await page.waitForTimeout(300);
 
-      // Verify panel respects maximum size (80% of middle panel used as guard)
+      // Verify the current constraints (#1591): the right panel is capped at
+      // the IdeLayout default rightPanelMaxSize (60% of the panel group) and
+      // the middle panel keeps its 20% mainContentMinSize.
+      const groupWidth = await rightPanel.evaluate((el) => {
+        const group = el.closest('[data-group]');
+        if (!group) {
+          throw new Error('Right panel is not inside a resizable panel group');
+        }
+        return group.getBoundingClientRect().width;
+      });
       const maxWidth = await rightPanel.evaluate((el) => el.getBoundingClientRect().width);
-      const maxExpectedWidth = middlePanelWidth * 0.8;
-      expect(maxWidth).toBeLessThan(maxExpectedWidth);
+      expect(maxWidth).toBeLessThanOrEqual(groupWidth * 0.6 + 1);
+
+      const middleWidthAfterExpand = await page
+        .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
+        .evaluate((el) => el.getBoundingClientRect().width);
+      expect(middleWidthAfterExpand).toBeGreaterThanOrEqual(groupWidth * 0.2 - 1);
     });
   });
 

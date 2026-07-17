@@ -202,7 +202,9 @@ export type StreamingDirectoryReadOptions = DirectoryReadOptions & {
   batchSize?: number;
   /**
    * AbortSignal for cancellation support.
-   * When aborted, streaming stops and no further batches are emitted.
+   * When aborted, streaming rejects with the signal's reason and no further
+   * batches are emitted. In particular, cancellation never emits a terminal
+   * `done: true` batch.
    */
   signal?: AbortSignal;
 };

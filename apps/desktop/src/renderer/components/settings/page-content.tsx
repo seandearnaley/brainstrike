@@ -9,6 +9,9 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
+import { createSkillsSettingsCategory } from '@brainstrike/preferences/settings/system/skills-settings-category';
+import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/preferences/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
@@ -18,10 +21,13 @@ import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createHooksSettingsCategory,
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
+  createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+  type HookReviewRoot,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
@@ -76,6 +82,26 @@ export default function SettingsPageContent() {
   const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
     (s) => s.setDevInlineFixtureEnabled
   );
+  // Live mounted workspace roots (reactive to mount/unmount via the zustand
+  // store) power the Hooks trust-review panel. Keyed by durable adapter rootId
+  // in sidebar order; absolute paths feed the desktop review IPC.
+  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
+  const hookReviewRoots = useMemo<readonly HookReviewRoot[]>(() => {
+    const roots: HookReviewRoot[] = [];
+    for (const rootId of activeRootIds) {
+      const descriptor = rootDescriptors[rootId];
+      if (!descriptor) {
+        continue;
+      }
+      roots.push({
+        absPath: descriptor.path,
+        displayName: descriptor.displayName,
+        rootId: descriptor.rootId,
+      });
+    }
+    return roots;
+  }, [activeRootIds, rootDescriptors]);
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
     // mid-lifecycle should reload or navigate to remount this settings view.
@@ -326,6 +352,11 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      createSubagentPersonasSettingsCategory(),
+      createSkillsSettingsCategory(),
+      createHooksSettingsCategory({ roots: hookReviewRoots }),
+      createWorkspaceInstructionsSettingsCategory(),
+      createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         inlineFixtureSetting: {
@@ -340,6 +371,7 @@ export default function SettingsPageContent() {
   }, [
     accurateRuntimeAvailable,
     devInlineFixtureEnabled,
+    hookReviewRoots,
     setDevInlineFixtureEnabled,
     toolOperations,
   ]);

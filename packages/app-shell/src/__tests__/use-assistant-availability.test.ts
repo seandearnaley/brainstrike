@@ -52,6 +52,43 @@ describe('useAssistantAvailability', () => {
     await waitFor(() => expect(result.current).toEqual({ state: 'enabled' }));
     expect(controller.signal.aborted).toBe(true);
   });
+
+  it('refetches when the availability override is removed', async () => {
+    window.__assistantAvailabilityOverride = {
+      reason: 'temporarily_disabled',
+      state: 'disabled',
+    };
+
+    let resolveFetch: ((status: AssistantAvailabilityStatus) => void) | undefined;
+    const fetcher = vi.fn<AssistantStatusFetcher>().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const { result } = renderHook(() => useAssistantAvailability(fetcher));
+
+    expect(result.current).toEqual({
+      reason: 'temporarily_disabled',
+      state: 'disabled',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+
+    act(() => {
+      Reflect.deleteProperty(window, '__assistantAvailabilityOverride');
+      window.dispatchEvent(new Event(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT));
+    });
+
+    expect(result.current).toEqual({ state: 'loading' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFetch?.({ state: 'enabled' });
+    });
+
+    expect(result.current).toEqual({ state: 'enabled' });
+  });
 });
 
 describe('resolveAssistantStatusUrl', () => {

@@ -118,7 +118,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
           </Tooltip>
         );
       })}
-      {children ? <div className="mt-auto">{children}</div> : null}
+      {children ? <div className="mt-auto flex flex-col items-center gap-2">{children}</div> : null}
     </nav>
   );
 });

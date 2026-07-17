@@ -4,14 +4,16 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const appGetPath = vi.hoisted(() => vi.fn());
-const decryptString = vi.hoisted(() => vi.fn());
+const decryptStringAsync = vi.hoisted(() => vi.fn());
+const isAsyncEncryptionAvailable = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   app: {
     getPath: (key: string) => appGetPath(key),
   },
   safeStorage: {
-    decryptString: (buf: Buffer) => decryptString(buf),
+    decryptStringAsync: (buf: Buffer) => decryptStringAsync(buf),
+    isAsyncEncryptionAvailable: () => isAsyncEncryptionAvailable(),
   },
 }));
 
@@ -21,7 +23,9 @@ describe('mcp-loader', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-loader-'));
     appGetPath.mockReturnValue(tempDir);
-    decryptString.mockReset();
+    decryptStringAsync.mockReset();
+    isAsyncEncryptionAvailable.mockReset();
+    isAsyncEncryptionAvailable.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -49,12 +53,12 @@ describe('mcp-loader', () => {
   });
 
   it('decrypts encrypted values and applies to headers/env', async () => {
-    decryptString.mockReturnValue('decrypted');
+    decryptStringAsync.mockResolvedValue({ result: 'decrypted', shouldReEncrypt: false });
     const { decryptIfEncrypted, withDecryptedSecrets } = await import('../../mcp-loader');
 
     const encoded = Buffer.from('secret', 'utf-8').toString('base64');
 
-    expect(decryptIfEncrypted(encoded)).toBe('decrypted');
+    await expect(decryptIfEncrypted(encoded)).resolves.toBe('decrypted');
 
     const config = {
       servers: [
@@ -73,7 +77,7 @@ describe('mcp-loader', () => {
       ],
     } as const;
 
-    const decrypted = withDecryptedSecrets(config);
+    const decrypted = await withDecryptedSecrets(config);
     const sseServer = decrypted.servers[0];
     const stdioServer = decrypted.servers[1];
 
@@ -85,14 +89,27 @@ describe('mcp-loader', () => {
     }
   });
 
-  it('returns raw value when decrypt fails', async () => {
-    decryptString.mockImplementation(() => {
+  it('rejects when decryption fails', async () => {
+    decryptStringAsync.mockRejectedValue(new Error('fail'));
+    isAsyncEncryptionAvailable.mockResolvedValue(true);
+    const { decryptIfEncrypted } = await import('../../mcp-loader');
+
+    const encoded = Buffer.from('plain', 'utf-8').toString('base64');
+    await expect(decryptIfEncrypted(encoded)).rejects.toThrow('MCP encrypted value: fail');
+  });
+
+  it('rejects when asynchronous safeStorage is unavailable', async () => {
+    isAsyncEncryptionAvailable.mockResolvedValue(false);
+    decryptStringAsync.mockImplementation(() => {
       throw new Error('fail');
     });
     const { decryptIfEncrypted } = await import('../../mcp-loader');
 
     const encoded = Buffer.from('plain', 'utf-8').toString('base64');
-    expect(decryptIfEncrypted(encoded)).toBe(encoded);
+    await expect(decryptIfEncrypted(encoded)).rejects.toThrow(
+      'MCP encrypted value: safeStorage encryption is unavailable'
+    );
+    expect(decryptStringAsync).not.toHaveBeenCalled();
   });
 
   it('uses custom config path when set', async () => {
@@ -293,19 +310,28 @@ describe('mcp-loader', () => {
     const template = getDefaultMcpConfigTemplate();
     expect(template).toContain('"servers"');
     expect(template).toContain('BrainStrike MCP configuration');
+    expect(template).toContain('Example: Remote Streamable HTTP server');
+    expect(template).toContain('"transport": "streamable-http"');
+    expect(template).toContain('"url": "https://your-host.example.com/mcp"');
+    expect(template).toContain('Example: Legacy remote SSE server');
   });
 
-  it('leaves unknown transport entries unchanged in withDecryptedSecrets fallback', async () => {
+  it('rejects unknown transport entries in withDecryptedSecrets', async () => {
     const { withDecryptedSecrets } = await import('../../mcp-loader');
     const unknownServer = { name: 'unknown-server', transport: 'custom' } as unknown as {
-      transport: 'sse' | 'stdio';
+      transport: 'sse' | 'stdio' | 'streamable-http';
       name: string;
     };
 
-    const result = withDecryptedSecrets({
-      servers: [unknownServer],
-    } as unknown as { servers: Array<{ transport: 'sse' | 'stdio'; name: string }> });
-
-    expect(result.servers[0]).toBe(unknownServer);
+    await expect(
+      withDecryptedSecrets({
+        servers: [unknownServer],
+      } as unknown as {
+        servers: Array<{
+          transport: 'sse' | 'stdio' | 'streamable-http';
+          name: string;
+        }>;
+      })
+    ).rejects.toThrow(/invalid_mcp_config:.*unknown-server.*custom/u);
   });
 });

@@ -49,6 +49,13 @@ function updateWithFolderState(
 }
 
 export interface SettingsActions {
+  /**
+   * Re-enable every disabled include/exclude filter. Called when a view
+   * filter preset is applied: the toggles reference entries of the OUTGOING
+   * lists, and a preset that reintroduces a previously-toggled-off string
+   * would otherwise arrive silently disabled (effective filters ≠ preset).
+   */
+  clearDisabledFilters: () => void;
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setIncludeProjectTree: (value: boolean) => void;
@@ -64,6 +71,13 @@ export const createSettingsActions = (
   set: SetState<FileExplorerState>,
   _get: GetState<FileExplorerState> // Re-added underscore to satisfy linter, despite usage in callback
 ): SettingsActions => ({
+  clearDisabledFilters: () => {
+    set({
+      disabledExcludeFilters: new Set<string>(),
+      disabledIncludeFilters: new Set<string>(),
+    });
+  },
+
   setFilters: (include: readonly string[], exclude: readonly string[]) => {
     set((state: FileExplorerState) =>
       updateWithFolderState(state, {

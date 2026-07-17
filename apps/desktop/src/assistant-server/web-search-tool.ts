@@ -1,11 +1,13 @@
 import type { WebSearchInput } from '@brainstrike/agent';
-import { fitItemsToCharBudget } from '@brainstrike/agent';
+import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
 
 const logger = createLogger('AssistantWebSearchTool');
 
-export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+// Single source of truth lives in @brainstrike/assistant-contract so the desktop
+// registry and the agent runtime's provider-native swap agree on the id.
+export { WEB_SEARCH_TOOL_ID };
 
 /**
  * The secrets-store provider id under which the Tavily API key is stored. NOT a
@@ -217,8 +219,10 @@ export async function runWebSearch(
     };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // AbortSignal.timeout aborts with TimeoutError (MDN). No external cancel
+  // signal is part of WebSearchToolDependencies today, so compose with
+  // AbortSignal.any only if one is added later — do not invent a cancel API.
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     const response = await fetchImpl(TAVILY_SEARCH_URL, {
       // The Tavily REST API requires snake_case request fields; these are the
@@ -236,7 +240,7 @@ export async function runWebSearch(
         'content-type': 'application/json',
       },
       method: 'POST',
-      signal: controller.signal,
+      signal,
     });
 
     if (!response.ok) {
@@ -258,11 +262,14 @@ export async function runWebSearch(
     const normalized = normalizeResults(payload).slice(0, maxResults);
     return buildBudgetedResult({ items: normalized, query });
   } catch (error) {
-    const aborted = error instanceof Error && error.name === 'AbortError';
-    const errorText = aborted
+    // AbortSignal.timeout uses TimeoutError; some runtimes/fetch paths still
+    // surface AbortError. Treat both as the non-fatal timeout result.
+    const timedOut =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    const errorText = timedOut
       ? `Tavily search timed out after ${timeoutMs}ms.`
       : 'Tavily search failed due to a network error.';
-    logger.error('webSearch failed', { aborted, error });
+    logger.error('webSearch failed', { aborted: timedOut, error });
     return {
       available: true,
       count: 0,
@@ -272,7 +279,5 @@ export async function runWebSearch(
       totalResults: 0,
       truncated: false,
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }

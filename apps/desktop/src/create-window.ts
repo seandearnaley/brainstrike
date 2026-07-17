@@ -69,8 +69,8 @@ function configureSecurity(win: BrowserWindow) {
 /**
  * Load built renderer files in production.
  */
-function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
-  win.loadFile(rendererPath);
+async function loadProductionRenderer(win: BrowserWindow, rendererPath: string): Promise<void> {
+  await win.loadFile(rendererPath);
 }
 
 /**
@@ -182,7 +182,7 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
     }
 
     startupLogger.debug('Loading built renderer file');
-    loadProductionRenderer(win, rendererPath);
+    await loadProductionRenderer(win, rendererPath);
     return;
   }
 
@@ -507,17 +507,32 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   }
 
   configureSecurity(win);
-  logStartupPhase('loading-renderer');
-  await loadRenderer(win, { isTestMode, launchMode });
-  logStartupPhase('renderer-load-invocation-returned');
 
-  // Show only after the target renderer has loaded.
-  // This keeps startup deterministic and avoids exposing transient blank frames.
-  const windowDestroyed = typeof win.isDestroyed === 'function' ? win.isDestroyed() : false;
-  if (!(isTestMode || windowDestroyed)) {
+  // Reveal the window BEFORE loading the renderer (Electron's documented
+  // `backgroundColor` strategy for apps with heavy startup work:
+  // https://www.electronjs.org/docs/latest/api/browser-window#showing-the-window-gracefully).
+  // The frame appears instantly painted with the dark backgroundColor, then the
+  // inline startup splash in index.html takes over as soon as the document
+  // parses. ready-to-show intentionally stays log-only (see above): it fires for
+  // the initial about:blank document, so gating reveal on it produced long blank
+  // windows.
+  if (!(isTestMode || win.isDestroyed())) {
     win.show();
     logStartupPhase('window-shown');
   }
+
+  logStartupPhase('loading-renderer');
+  try {
+    await loadRenderer(win, { isTestMode, launchMode });
+  } catch (error) {
+    // Don't leave a dead splash window on screen when the renderer never loads;
+    // destroy it and let the caller surface the failure.
+    if (!win.isDestroyed()) {
+      win.destroy();
+    }
+    throw error;
+  }
+  logStartupPhase('renderer-loaded');
 
   return win;
 }

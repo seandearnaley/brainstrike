@@ -14,9 +14,9 @@ vi.mock('@brainstrike/utils/logger', () => ({
 vi.mock('../worker-storage', () => ({
   resolveWorkerStorageUrl: vi.fn().mockReturnValue(new URL('file:///mock-worker.js')),
   WorkerStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-    this.isWorkerAvailable = true;
-    this.destroy = vi.fn();
-    this.flushPendingWrites = vi.fn();
+    this['isWorkerAvailable'] = true;
+    this['destroy'] = vi.fn();
+    this['flushPendingWrites'] = vi.fn();
   }),
 }));
 
@@ -53,9 +53,11 @@ describe('worker-init', () => {
     });
     // Also ensure playwright is not in globalThis (Vitest may inject it)
     const originalPlaywright =
-      'playwright' in globalThis ? (globalThis as Record<string, unknown>).playwright : undefined;
+      'playwright' in globalThis
+        ? (globalThis as Record<string, unknown>)['playwright']
+        : undefined;
     if ('playwright' in globalThis) {
-      (globalThis as Record<string, unknown>).playwright = undefined;
+      (globalThis as Record<string, unknown>)['playwright'] = undefined;
     }
 
     try {
@@ -72,7 +74,7 @@ describe('worker-init', () => {
     } finally {
       // Restore playwright if it was there
       if (originalPlaywright !== undefined) {
-        (globalThis as Record<string, unknown>).playwright = originalPlaywright;
+        (globalThis as Record<string, unknown>)['playwright'] = originalPlaywright;
       }
     }
   });

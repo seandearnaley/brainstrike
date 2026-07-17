@@ -141,6 +141,20 @@ describe('PreviewPanel', () => {
     });
   });
 
+  describe('View chrome', () => {
+    it('replaces the table toolbar with the spatial dock in Tapestry view', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      expect(screen.getByTestId('preview-view-toolbar')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Tapestry View' }));
+
+      expect(screen.queryByTestId('preview-view-toolbar')).toBeNull();
+      expect(screen.getByTestId('tapestry-command-dock')).toBeInTheDocument();
+      expect(screen.getByRole('slider', { name: 'Gallery scale' })).toBeInTheDocument();
+    });
+  });
+
   describe('Context Actions', () => {
     it('renders context actions and wires callbacks', async () => {
       const user = userEvent.setup();
@@ -215,13 +229,13 @@ describe('PreviewPanel', () => {
       );
     });
 
-    it('switches to compact summary mode and hides advanced toggles', async () => {
+    it('switches to compact summary mode and never renders the retired tapestry-ranges toggle', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
 
       expect(
-        screen.getByRole('switch', { name: /use tapestry ranges in context output/i })
-      ).toBeInTheDocument();
+        screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
+      ).not.toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /compact summary mode/i }));
 
@@ -613,6 +627,12 @@ describe('PreviewPanel', () => {
         const bulkActionBar = screen.getByTestId('bulk-action-bar');
         expect(within(bulkActionBar).getByText('1 file selected')).toBeInTheDocument();
       });
+      expect(screen.getByTestId('selection-action-overlay')).toHaveClass(
+        'flex',
+        'justify-center',
+        'px-3'
+      );
+      expect(screen.getByTestId('bulk-action-bar')).toHaveClass('w-full', 'max-w-3xl');
 
       // Click remove button
       const removeButton = screen.getByText('Remove Selected from Project');

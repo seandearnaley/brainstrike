@@ -10,6 +10,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   acquireAssistantForegroundActivity,
@@ -36,6 +37,62 @@ import {
 } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper', () => {
+  test('re-reads the checkpoint journal when a run finishes (no thread switch)', async () => {
+    const user = userEvent.setup();
+    const countCheckpointReads = (): number =>
+      mockDb.query.mock.calls.filter(
+        ([sql]) => typeof sql === 'string' && sql.includes('brainstrike_assistant_edit_checkpoints')
+      ).length;
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing');
+    await screen.findByTestId('assistant-ui-panel');
+
+    // The thread-open read happened; capture the baseline.
+    await waitFor(() => {
+      expect(countCheckpointReads()).toBeGreaterThan(0);
+    });
+    const beforeRunFinished = countCheckpointReads();
+
+    // A run reaching a terminal state must re-read the journal so an edit
+    // journaled during the turn that JUST ran surfaces without a thread switch.
+    await act(async () => {
+      await user.click(screen.getByTestId('trigger-run-finished'));
+    });
+
+    await waitFor(() => {
+      expect(countCheckpointReads()).toBeGreaterThan(beforeRunFinished);
+    });
+  });
+
+  test('bridges only the active thread command into the composer and acknowledges it', async () => {
+    const activeCommand = useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'append',
+      text: 'Use the evidence rubric.',
+      threadId: 'thread-active',
+    });
+    useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'replace',
+      text: 'Do not leak into the active composer.',
+      threadId: 'thread-other',
+    });
+
+    await renderAssistantThreadPanel(['openai'], 'thread-active');
+
+    expect(screen.getByTestId('composer-draft-command')).toHaveTextContent(activeCommand.id);
+    await userEvent.click(screen.getByTestId('apply-composer-draft-command'));
+    expect(
+      useAssistantComposerCommandStore.getState().commandsByThreadId['thread-active']
+    ).toBeUndefined();
+    expect(
+      useAssistantComposerCommandStore.getState().commandsByThreadId['thread-other']
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByTestId('report-composer-text'));
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId['thread-active']).toBe(
+      'Live composer draft'
+    );
+  });
+
   test('routes local chat through the data-stream transport when the desktop bridges exist', async () => {
     Object.defineProperty(window, 'assistant', {
       configurable: true,
@@ -56,6 +113,47 @@ describe('AssistantUiPanelWrapper', () => {
       Object.defineProperty(window, 'assistant', { configurable: true, value: undefined });
       Reflect.deleteProperty(window, 'desktopLifecycle');
       hasDesktopLlmHostMock.mockReturnValue(false);
+    }
+  });
+
+  test('enables composer attachments for hosted providers on the in-renderer transport (web gate)', async () => {
+    // localChatTransport describes the LOCAL provider's transport and must
+    // not gate hosted providers on web — the /api/assistant route shares the
+    // desktop server's image-aware conversion (#1685 review fix).
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+          '"state":"enabled"'
+        );
+      })
+    );
+  });
+
+  test('gates composer attachments on the selected model vision capability', async () => {
+    testEnabledModels.add('qwen/qwen3-coder-next');
+    try {
+      await renderAssistantPanel(['openrouter'], async () => {
+        // Auto-selection lands on the first enabled openrouter route, the
+        // text-only coder model: visibly disabled with a model-naming reason.
+        await waitFor(() => {
+          expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+            '"state":"disabled"'
+          );
+        });
+        expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+          'Qwen3 Coder Next (OpenRouter)'
+        );
+
+        // Switching to a vision-capable route enables the affordance.
+        await userEvent.selectOptions(screen.getByTestId('model-select'), 'openai/gpt-5.2');
+        await waitFor(() => {
+          expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+            '"state":"enabled"'
+          );
+        });
+      });
+    } finally {
+      testEnabledModels.delete('qwen/qwen3-coder-next');
     }
   });
 
@@ -164,7 +262,7 @@ describe('AssistantUiPanelWrapper', () => {
           freshness: 'live',
           models: [
             {
-              capabilities: { embeddings: 'supported', llm: true },
+              capabilities: { embeddings: 'supported', llm: true, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 10 },
               displayName: 'Nomic Embed Text',
@@ -252,7 +350,7 @@ describe('AssistantUiPanelWrapper', () => {
           freshness: 'live',
           models: [
             {
-              capabilities: { embeddings: 'unsupported', llm: true },
+              capabilities: { embeddings: 'unsupported', llm: true, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { state: 'not_applicable' },
               displayName: 'Qwen3',
@@ -265,7 +363,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
             },
             {
-              capabilities: { embeddings: 'supported', llm: false },
+              capabilities: { embeddings: 'supported', llm: false, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 20 },
               displayName: 'Nomic Embed Text',
@@ -1048,7 +1146,6 @@ describe('AssistantUiPanelWrapper', () => {
       selectedOutputApproxTokens: 180,
       selectedSourceApproxTokens: 320,
       tokenBudget: 8192,
-      useTapestryRanges: true,
     };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
@@ -1119,7 +1216,6 @@ describe('AssistantUiPanelWrapper', () => {
       selectedSourceApproxTokens: 320,
       selectionFolderId: 'other-folder',
       tokenBudget: 8192,
-      useTapestryRanges: true,
     };
 
     await renderAssistantPanel(['openai'], () =>
@@ -1343,7 +1439,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
+  test('stores model changes per thread and remembers them as the next thread default', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
@@ -1362,7 +1458,7 @@ describe('AssistantUiPanelWrapper', () => {
       model: 'claude-sonnet-4-6',
       provider: 'anthropic',
     });
-    expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
+    expect(useAssistantPreferencesStore.getState().selectedModel).toContain('anthropic::');
   });
 
   test('does not expose assistant runtime test hooks outside desktop E2E mode', async () => {
@@ -1905,7 +2001,7 @@ describe('AssistantUiPanelWrapper', () => {
       selectedModel: 'google::gemini-3.1-pro-preview',
       selectedProvider: 'google',
     }));
-    usePanelLayoutStore.setState({ activeTab: 'explorer' });
+    usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
     window.location.hash = '';
 
     const user = userEvent.setup();
@@ -1917,7 +2013,8 @@ describe('AssistantUiPanelWrapper', () => {
     );
 
     await user.click(screen.getByTestId('tool-menu-open-settings'));
-    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
+    expect(usePanelLayoutStore.getState().settingsOpen).toBe(true);
     expect(window.location.hash).toBe('#settings/ai-tools');
   });
 

@@ -1,3 +1,8 @@
+import type {
+  AssistantPersonasListResult,
+  SkillsScanResultSummary,
+  UserSlashCommandsListResult,
+} from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -7,6 +12,17 @@ import type {
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+  GitAheadBehind,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitDiffParams,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitSwitchBranchResult,
   IFileNode,
 } from '@brainstrike/types';
 import type {
@@ -21,14 +37,6 @@ import type {
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
-import type {
-  GitAheadBehind,
-  GitCommitResult,
-  GitDiff,
-  GitPushPullResult,
-  GitResult,
-  GitStatus,
-} from '../assistant-server/git-service';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
@@ -51,6 +59,12 @@ import type {
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
+import type {
+  NotesVaultChangedEvent,
+  NotesVaultEntry,
+  NotesVaultResult,
+  NotesVaultRoot,
+} from '../notes-vault-ipc-handlers';
 import type {
   TerminalCreateResult,
   TerminalDataEvent,
@@ -75,6 +89,15 @@ declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    /**
+     * Desktop-only subagent persona discovery bridge. Absent on web (no
+     * preload) — consumers MUST capability-check `window.assistantPersonas`.
+     * The Settings -> Subagents panel calls `list` to show built-in +
+     * user-defined personas (including invalid files with their error).
+     */
+    assistantPersonas?: {
+      list: () => Promise<AssistantPersonasListResult>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;
@@ -195,16 +218,34 @@ declare global {
      */
     git?: {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
-      diff: (
-        rootId: string,
-        params?: { path?: string; staged?: boolean; untracked?: boolean }
-      ) => Promise<GitResult<GitDiff>>;
+      diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
       stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
       unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
-      commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
+      commit: (
+        rootId: string,
+        params: { description?: string; summary: string }
+      ) => Promise<GitResult<GitCommitResult>>;
+      commitDiff: (
+        rootId: string,
+        params: { commit: string; originalPath?: string; path: string }
+      ) => Promise<GitResult<GitDiff>>;
+      commitFiles: (
+        rootId: string,
+        params: { commit: string }
+      ) => Promise<GitResult<readonly GitCommitFile[]>>;
       aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
-      push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
+      history: (
+        rootId: string,
+        params: { limit: number; offset: number; ref?: string }
+      ) => Promise<GitResult<GitHistoryPage>>;
+      push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
       pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      repository: (rootId: string) => Promise<GitResult<GitRepository>>;
+      switchBranch: (
+        rootId: string,
+        params: { branch: string }
+      ) => Promise<GitResult<GitSwitchBranchResult>>;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
@@ -241,7 +282,7 @@ declare global {
       getConfig: () => Promise<{
         path: string;
         exists: boolean;
-        servers?: { name: string; transport: 'stdio' | 'sse' }[];
+        servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
         loadedAt?: number;
         error?: string;
       }>;
@@ -262,6 +303,15 @@ declare global {
       >;
       selectPath: () => Promise<string | null>;
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
+      onConfigUpdated: (
+        callback: (config: {
+          path: string;
+          exists: boolean;
+          servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
+          loadedAt?: number;
+          error?: string;
+        }) => void
+      ) => () => void;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{
@@ -297,7 +347,39 @@ declare global {
         }) => void
       ) => () => void;
     };
+    /**
+     * Desktop-only notes vault bridge (see
+     * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no
+     * preload) — consumers MUST capability-check `window.notesVault`. Every
+     * path is containment-checked in main against the APPROVED vault roots;
+     * every method resolves to a structured `NotesVaultResult` (never throws
+     * across IPC). `pickDirectory` resolves `{ ok: true, value: null }` when
+     * the user cancels. `onChanged` registers a listener for one-way
+     * `notes-vault:changed` pushes and returns an unsubscribe fn.
+     */
+    notesVault?: {
+      createDirectory: (path: string) => Promise<NotesVaultResult<null>>;
+      deleteEntry: (
+        path: string,
+        options: { recursive: boolean }
+      ) => Promise<NotesVaultResult<null>>;
+      rename: (fromPath: string, toPath: string) => Promise<NotesVaultResult<null>>;
+      ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
+      pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
+      registerRoot: (path: string) => Promise<NotesVaultResult<NotesVaultRoot>>;
+      listDirectory: (path: string) => Promise<NotesVaultResult<NotesVaultEntry[]>>;
+      statEntry: (path: string) => Promise<NotesVaultResult<NotesVaultEntry | null>>;
+      readFile: (path: string) => Promise<NotesVaultResult<string>>;
+      writeFile: (
+        path: string,
+        content: string
+      ) => Promise<NotesVaultResult<{ lastModified: number }>>;
+      watch: (path: string) => Promise<NotesVaultResult<{ watchId: string }>>;
+      unwatch: (watchId: string) => Promise<NotesVaultResult<null>>;
+      onChanged: (callback: (event: NotesVaultChangedEvent) => void) => () => void;
+    };
     platform?: {
+      openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
       showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     };
@@ -324,6 +406,15 @@ declare global {
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * consumers MUST capability-check `window.skills`. The Settings → Skills
+     * panel and the composer's "/" menu call `scan` to list every skill
+     * discovered across `.brainstrike/skills` + `.claude/skills`.
+     */
+    skills?: {
+      scan: () => Promise<SkillsScanResultSummary>;
     };
     /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
@@ -378,6 +469,15 @@ declare global {
       onWorkspaceContextTapestryUpdate: (
         callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
+    };
+    /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — consumers MUST capability-check `window.userCommands`. The
+     * composer's "/" menu calls `list` to load prompt-template commands scanned
+     * from `.brainstrike/commands` + `.claude/commands`.
+     */
+    userCommands?: {
+      list: () => Promise<UserSlashCommandsListResult>;
     };
   }
 }

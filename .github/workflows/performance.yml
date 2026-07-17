@@ -40,11 +40,14 @@ jobs:
     # (GitHub reports the timeout as "cancelled"). The browser-cache guard could
     # not self-heal: the cache-populating run is the one that hung, so the cache
     # was never written and every run was a cold miss. Mirrors web-e2e.yml.
-    # KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1); the same
-    # pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,performance.yml}
-    # — bump all three together on a Playwright upgrade. The container runs on the
-    # same runner hardware and the same Chrome-for-Testing build, so performance
-    # measurements are unaffected.
+    # KEEP IN SYNC: the image tag MUST equal @playwright/test's version; the
+    # same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
+    # performance.yml} — bump all three together on a Playwright upgrade.
+    # `container.image:` cannot consume a workflow expression, so this stays a
+    # literal; scripts/verify-playwright-pin-sync.mjs (run via
+    # `pnpm test:scripts` in test.yml's Static job) is the automated drift
+    # check. The container runs on the same runner hardware and the same
+    # Chrome-for-Testing build, so performance measurements are unaffected.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
@@ -76,12 +79,10 @@ jobs:
             ${{ runner.os }}-node24-turbo-v4-
 
       - name: Install dependencies
-        # Exclude apps/desktop: it alone carries node-pty (native, node-gyp). This
-        # Playwright container has no C toolchain and pwuser cannot sudo one in, so
-        # a full install dies building node-pty. The perf run never loads it
-        # (terminal is desktop-only). Keeps root + web + all shared packages. See
-        # the matching note in test.yml's web-e2e job.
-        run: pnpm install --frozen-lockfile --filter '!@brainstrike/desktop'
+        # Exclude both desktop-only native projects: this pwuser container has no
+        # C toolchain or sudo, and web performance loads neither native surface.
+        # See the matching note in test.yml's web-e2e job.
+        run: pnpm install --frozen-lockfile --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
 
       - name: Build application
         run: |
@@ -116,3 +117,50 @@ jobs:
           name: perf-blob-report
           path: apps/web/blob-report
           retention-days: 1
+
+  notify-failure:
+    name: Notify performance E2E failure
+    needs: web-perf
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # gh issue create / comment are sub-second under normal conditions; cap at
+    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "performance-e2e-failure" \
+            --repo "$REPO" \
+            --color d93f0b \
+            --description "Auto-opened by performance.yml when the scheduled performance run fails" \
+            2>/dev/null || true
+
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --repo "$REPO" \
+            --label "performance-e2e-failure" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" \
+              --body "Nightly performance E2E failed again. Run: $RUN_URL"
+          else
+            gh issue create --repo "$REPO" \
+              --title "Performance E2E nightly failure ($(date -u +%Y-%m-%d))" \
+              --label "performance-e2e-failure" \
+              --body "Nightly Performance E2E workflow failed.
+
+          Run: $RUN_URL
+
+          This issue stays open while the failure persists and gets a new comment on each subsequent failure. Close it once the next nightly is green."
+          fi

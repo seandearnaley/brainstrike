@@ -29,6 +29,10 @@ import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
 import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';
 
 export interface SelectionModeBadgeProps {
+  compactValue?: {
+    accessibleLabel: string;
+    label: string;
+  };
   maxSelectionCount?: number;
   onMaxSelectionCountChange?: ((count: number) => void) | undefined;
   /** Callback when rules editor should be opened */
@@ -232,6 +236,7 @@ const SelectionSettingsPanel = ({
 );
 
 export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function SelectionModeBadge({
+  compactValue,
   maxSelectionCount,
   onMaxSelectionCountChange,
   onOpenRulesEditor,
@@ -375,17 +380,25 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
             <PopoverTrigger asChild>
               {triggerVariant === 'icon' ? (
                 <Button
-                  aria-label="Selection settings"
-                  className={
-                    isRulesMode
-                      ? 'border-primary bg-primary/10 text-primary hover:bg-primary/15'
-                      : ''
+                  aria-label={
+                    compactValue
+                      ? `Selection settings. ${compactValue.accessibleLabel}`
+                      : 'Selection settings'
                   }
+                  className={cn(
+                    compactValue && 'text-[10px] tabular-nums',
+                    isRulesMode && 'border-primary bg-primary/10 text-primary hover:bg-primary/15'
+                  )}
                   data-testid="selection-settings-button"
                   size="icon-xs"
                   variant="outline"
                 >
-                  <Settings2 className="size-3.5" />
+                  <Settings2 className={cn('size-3.5', compactValue && '@[72px]:block hidden')} />
+                  {compactValue && (
+                    <span className="@[72px]:hidden" data-testid="selection-compact-count">
+                      {compactValue.label}
+                    </span>
+                  )}
                 </Button>
               ) : (
                 <Badge
@@ -399,7 +412,10 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            <p className="text-xs">{tooltipText}</p>
+            <p className="text-xs">
+              {tooltipText}
+              {compactValue ? ` ${compactValue.accessibleLabel}` : ''}
+            </p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

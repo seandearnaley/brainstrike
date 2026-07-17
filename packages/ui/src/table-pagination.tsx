@@ -12,11 +12,38 @@ const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500, 1000] as const;
 const DEFAULT_FALLBACK_PAGE_SIZE = 50;
 const COMPACT_PAGINATION_BREAKPOINT = 640;
 const MINI_PAGINATION_BREAKPOINT = 500;
+const MICRO_PAGINATION_BREAKPOINT = 300;
 const PAGINATION_DENSITY_HYSTERESIS_PX = 20;
 
-type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini';
+type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini' | 'micro';
 type ResolvedPaginationDensity = Exclude<PaginationDensity, 'auto'>;
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+const PAGINATION_DENSITY_MAX_WIDTH: Record<ResolvedPaginationDensity, number> = {
+  compact: COMPACT_PAGINATION_BREAKPOINT,
+  full: Number.POSITIVE_INFINITY,
+  micro: MICRO_PAGINATION_BREAKPOINT,
+  mini: MINI_PAGINATION_BREAKPOINT,
+};
+const PAGINATION_DENSITY_ORDER: Record<ResolvedPaginationDensity, number> = {
+  compact: 2,
+  full: 3,
+  micro: 0,
+  mini: 1,
+};
+
+function resolvePaginationDensityForWidth(containerWidth: number): ResolvedPaginationDensity {
+  if (containerWidth <= MICRO_PAGINATION_BREAKPOINT) {
+    return 'micro';
+  }
+  if (containerWidth <= MINI_PAGINATION_BREAKPOINT) {
+    return 'mini';
+  }
+  if (containerWidth <= COMPACT_PAGINATION_BREAKPOINT) {
+    return 'compact';
+  }
+  return 'full';
+}
 
 function resolveAutoPaginationDensity(
   containerWidth: number | null,
@@ -26,28 +53,16 @@ function resolveAutoPaginationDensity(
   if (containerWidth === null || containerWidth <= 0 || !Number.isFinite(containerWidth)) {
     return currentDensity;
   }
-  if (currentDensity === 'mini') {
-    if (containerWidth <= MINI_PAGINATION_BREAKPOINT + PAGINATION_DENSITY_HYSTERESIS_PX) {
-      return 'mini';
-    }
-    return containerWidth <= COMPACT_PAGINATION_BREAKPOINT ? 'compact' : 'full';
+  const candidateDensity = resolvePaginationDensityForWidth(containerWidth);
+  const isShrinking =
+    PAGINATION_DENSITY_ORDER[candidateDensity] <= PAGINATION_DENSITY_ORDER[currentDensity];
+  if (isShrinking) {
+    return candidateDensity;
   }
-  if (currentDensity === 'compact') {
-    if (containerWidth <= MINI_PAGINATION_BREAKPOINT) {
-      return 'mini';
-    }
-    if (containerWidth <= COMPACT_PAGINATION_BREAKPOINT + PAGINATION_DENSITY_HYSTERESIS_PX) {
-      return 'compact';
-    }
-    return 'full';
-  }
-  if (containerWidth <= MINI_PAGINATION_BREAKPOINT) {
-    return 'mini';
-  }
-  if (containerWidth <= COMPACT_PAGINATION_BREAKPOINT) {
-    return 'compact';
-  }
-  return 'full';
+
+  const currentExitWidth =
+    PAGINATION_DENSITY_MAX_WIDTH[currentDensity] + PAGINATION_DENSITY_HYSTERESIS_PX;
+  return containerWidth <= currentExitWidth ? currentDensity : candidateDensity;
 }
 
 function resolvePaginationDensity(
@@ -66,6 +81,7 @@ function resolvePageSizeSelectWidthClass(density: ResolvedPaginationDensity): st
     case 'compact':
       return 'w-[72px]';
     case 'mini':
+    case 'micro':
       return 'w-[64px]';
     default:
       return 'w-[80px]';
@@ -139,10 +155,12 @@ const PageSizeControl = memo(function PageSizeControl({
 PageSizeControl.displayName = 'PageSizeControl';
 
 interface NavigationControlsProps {
+  displayPage: number;
   inputValue: string;
   isFirstPage: boolean;
   isLastPage: boolean;
-  isMiniDensity: boolean;
+  isMicroDensity: boolean;
+  isMinimalDensity: boolean;
   isReducedDensity: boolean;
   onGoToFirstPage: () => void;
   onGoToLastPage: () => void;
@@ -157,7 +175,9 @@ interface NavigationControlsProps {
 }
 
 const NavigationControls = memo(function NavigationControls({
-  isMiniDensity,
+  displayPage,
+  isMicroDensity,
+  isMinimalDensity,
   isReducedDensity,
   isFirstPage,
   isLastPage,
@@ -174,8 +194,10 @@ const NavigationControls = memo(function NavigationControls({
   onInputKeyDown,
 }: NavigationControlsProps) {
   return (
-    <div className="flex shrink-0 items-center justify-center gap-1">
-      {!isMiniDensity && (
+    <div
+      className={cn('flex shrink-0 items-center justify-center gap-1', isMicroDensity && 'gap-0.5')}
+    >
+      {!isMinimalDensity && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -206,32 +228,41 @@ const NavigationControls = memo(function NavigationControls({
         <TooltipContent side="bottom">Go to previous page</TooltipContent>
       </Tooltip>
 
-      <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
-        <Input
-          aria-label="Page number"
-          className={cn(
-            'h-7 px-2 text-center text-xs tabular-nums',
-            isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
-          )}
-          disabled={totalPages === 0}
-          max={totalPages}
-          min={1}
-          onBlur={onInputBlur}
-          onChange={onInputChange}
-          onFocus={onInputFocus}
-          onKeyDown={onInputKeyDown}
-          type="number"
-          value={inputValue}
-        />
-        <span
-          className={cn(
-            'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
-            isMiniDensity ? 'min-w-0' : 'min-w-[4rem]'
-          )}
+      {isMicroDensity ? (
+        <output
+          aria-label={`Page ${displayPage} of ${totalPages}`}
+          className="max-w-8 truncate text-center text-muted-foreground text-xs tabular-nums"
         >
-          {isMiniDensity ? `/${totalPages}` : `of ${totalPages}`}
-        </span>
-      </div>
+          {displayPage}/{totalPages}
+        </output>
+      ) : (
+        <div className={cn('flex items-center gap-1 px-1', isMinimalDensity && 'px-0.5')}>
+          <Input
+            aria-label="Page number"
+            className={cn(
+              'h-7 px-2 text-center text-xs tabular-nums',
+              isMinimalDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
+            )}
+            disabled={totalPages === 0}
+            max={totalPages}
+            min={1}
+            onBlur={onInputBlur}
+            onChange={onInputChange}
+            onFocus={onInputFocus}
+            onKeyDown={onInputKeyDown}
+            type="number"
+            value={inputValue}
+          />
+          <span
+            className={cn(
+              'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
+              isMinimalDensity ? 'min-w-0' : 'min-w-[4rem]'
+            )}
+          >
+            {isMinimalDensity ? `/${totalPages}` : `of ${totalPages}`}
+          </span>
+        </div>
+      )}
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -247,7 +278,7 @@ const NavigationControls = memo(function NavigationControls({
         </TooltipTrigger>
         <TooltipContent side="bottom">Go to next page</TooltipContent>
       </Tooltip>
-      {!isMiniDensity && (
+      {!isMinimalDensity && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -280,23 +311,22 @@ const RangeSummary = memo(function RangeSummary({
   shouldRenderRangeSummary,
   rangeSummary,
 }: RangeSummaryProps) {
-  if (!shouldRenderRangeSummary) {
-    return null;
-  }
   return (
     <div className="flex min-w-0 flex-1 justify-end text-muted-foreground text-xs tabular-nums">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className="truncate rounded-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
-            tabIndex={0}
-          >
-            {rangeSummary}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top">{rangeSummary}</TooltipContent>
-      </Tooltip>
+      {shouldRenderRangeSummary && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="truncate rounded-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
+              tabIndex={0}
+            >
+              {rangeSummary}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{rangeSummary}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 });
@@ -461,8 +491,9 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   }, [resolvedDensity]);
 
   const isReducedDensity = resolvedDensity !== 'full';
-  const isMiniDensity = resolvedDensity === 'mini';
-  const shouldRenderRangeSummary = !isMiniDensity && (showItemRange || pageInfo !== undefined);
+  const isMicroDensity = resolvedDensity === 'micro';
+  const isMinimalDensity = resolvedDensity === 'mini' || isMicroDensity;
+  const shouldRenderRangeSummary = !isMinimalDensity && (showItemRange || pageInfo !== undefined);
   const rangeSummary = useMemo(
     () =>
       formatRangeSummary({
@@ -483,26 +514,34 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className="flex w-full min-w-0 max-w-full items-center gap-2 border-t bg-background px-3 py-1.5"
+        className={cn(
+          'flex w-full min-w-0 max-w-full items-center border-t bg-background py-1.5',
+          isMicroDensity ? 'gap-0 px-1' : 'gap-2 px-3'
+        )}
+        data-testid="table-pagination"
         ref={containerRef}
       >
         {/* Left side: Page size selector */}
         <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
-          <PageSizeControl
-            actualPageSizeOptions={actualPageSizeOptions}
-            isReducedDensity={isReducedDensity}
-            onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
-            pageSize={pageSize}
-            resolvedDensity={resolvedDensity}
-          />
+          {!isMicroDensity && (
+            <PageSizeControl
+              actualPageSizeOptions={actualPageSizeOptions}
+              isReducedDensity={isReducedDensity}
+              onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
+              pageSize={pageSize}
+              resolvedDensity={resolvedDensity}
+            />
+          )}
         </div>
 
         {/* Center: Navigation controls */}
         <NavigationControls
+          displayPage={displayPage}
           inputValue={inputValue}
           isFirstPage={isFirstPage}
           isLastPage={isLastPage}
-          isMiniDensity={isMiniDensity}
+          isMicroDensity={isMicroDensity}
+          isMinimalDensity={isMinimalDensity}
           isReducedDensity={isReducedDensity}
           onGoToFirstPage={goToFirstPage}
           onGoToLastPage={goToLastPage}
