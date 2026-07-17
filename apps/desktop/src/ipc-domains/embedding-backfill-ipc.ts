@@ -17,6 +17,7 @@ import {
 } from '../ipc-embedding-backfill';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import {
+  handleRuntimeDatabaseCorruption,
   type RuntimeDatabaseCorruptionHandler,
   recoverRuntimeDatabaseCorruption,
 } from './runtime-database-corruption';
@@ -44,6 +45,18 @@ async function withCorruptionRecovery<T>(
     }
     return recoverRuntimeDatabaseCorruption(context, onRuntimeCorruption);
   }
+}
+
+async function handleDetachedFailure(
+  error: unknown,
+  context: string,
+  onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler
+): Promise<void> {
+  const { isCorruptionError } = await import('../db-main');
+  if (!isCorruptionError(error)) {
+    return;
+  }
+  await handleRuntimeDatabaseCorruption(context, onRuntimeCorruption);
 }
 
 export function registerEmbeddingBackfillIpcHandlers({
@@ -87,6 +100,12 @@ export function registerEmbeddingBackfillIpcHandlers({
                 : {}),
               isBackgrounded,
               ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+              onDetachedFailure: async (error: unknown) =>
+                await handleDetachedFailure(
+                  error,
+                  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+                  onRuntimeCorruption
+                ),
             }),
           EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
           onRuntimeCorruption

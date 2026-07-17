@@ -93,7 +93,10 @@ Desktop order:
    operation after its failing database call has settled. Do not wait for that
    scheduler to become idle from inside recovery: the current operation owns the
    lane. Queued closures can run only after recovery unwinds and must reject
-   against the invalidated generation.
+   against the invalidated generation. Background-indexing IPC resolves after
+   scheduling and finishes in a detached lifecycle; its terminal failure callback
+   MUST classify corruption and enter this same recovery path after lifecycle
+   cleanup settles.
 3. Unsubscribe renderer live queries.
 4. Terminate the DB utility process so all queued requests fail.
 5. Back up and replace the active database profile, then initialize migrations.

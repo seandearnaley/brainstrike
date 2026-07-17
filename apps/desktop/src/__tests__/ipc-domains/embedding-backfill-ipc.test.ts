@@ -163,4 +163,24 @@ describe('embedding backfill IPC domain', () => {
       EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
     );
   });
+
+  it('recovers corruption raised after background indexing detaches from IPC', async () => {
+    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
+
+    await expect(
+      handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)?.({} as IpcMainInvokeEvent, 'set-1')
+    ).resolves.toEqual({ enqueued: true });
+
+    const call = backfillMocks.runDesktopEmbeddingBackfill.mock.calls.at(-1)?.[0] as
+      | { onDetachedFailure?: (error: unknown) => Promise<void> }
+      | undefined;
+    expect(call?.onDetachedFailure).toBeTypeOf('function');
+    dbMainMocks.isCorruptionError.mockReturnValueOnce(true);
+
+    await call?.onDetachedFailure?.(corruption);
+
+    expect(dbMainMocks.handleRuntimeCorruption).toHaveBeenCalledWith(
+      EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
+    );
+  });
 });
