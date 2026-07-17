@@ -25,6 +25,7 @@ import {
   getProviderDefaultModel,
   getProviderDefinition,
   isSupportedProvider,
+  type ModelVisionSupport,
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -46,6 +47,7 @@ import {
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
+  ComposerAttachmentsAvailability,
 } from '@brainstrike/ui/assistant-ui-panel';
 import type {
   AssistantThreadRepository,
@@ -573,7 +575,44 @@ export function toRuntimeProviderModels(
     label: model.displayName,
     supportsStreaming: true,
     type: 'llm' as const,
+    vision: model.capabilities.vision,
   }));
+}
+
+/**
+ * Composer image-attachment gate. Layered on top of the provider predicate
+ * (every hosted provider is eligible — the desktop assistant server and the
+ * web /api/assistant route share the same image-aware conversion; only the
+ * text-only built-in local provider is excluded): when that gate fails the
+ * affordance is hidden entirely (undefined); when it passes, the SELECTED
+ * MODEL's vision capability decides between 'enabled' and a visibly
+ * 'disabled' button carrying the reason — never a silent hide. 'unknown'
+ * vision (runtime-discovered model without a capability signal) and an
+ * unresolved definition (e.g. runtime catalog still loading) stay
+ * optimistic: a wrong guess surfaces as a visible provider error downstream,
+ * whereas guessing 'unsupported' would silently block a capable model.
+ */
+export function resolveComposerAttachmentsAvailability(args: {
+  readonly providerGateAvailable: boolean;
+  readonly selectedModel:
+    | {
+        readonly id: string;
+        readonly label?: string | undefined;
+        readonly vision: ModelVisionSupport;
+      }
+    | undefined;
+}): ComposerAttachmentsAvailability | undefined {
+  if (!args.providerGateAvailable) {
+    return;
+  }
+  if (args.selectedModel?.vision === 'unsupported') {
+    const modelName = args.selectedModel.label ?? args.selectedModel.id;
+    return {
+      reason: `${modelName} doesn't support image input. Switch to a vision-capable model to attach images.`,
+      state: 'disabled',
+    };
+  }
+  return { state: 'enabled' };
 }
 
 function isNonEmptyString(value: unknown): value is string {

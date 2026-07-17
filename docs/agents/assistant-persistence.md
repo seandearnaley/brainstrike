@@ -113,16 +113,40 @@ Image attachments (composer → model → persistence → reload):
   image-only user messages survive reload. Hydrated attachments render
   through the same user-bubble strip as live sends, and their content
   re-merges into later outbound turns so the model keeps seeing the image.
-- Availability gating lives in the app-shell wrapper: data-stream transport
-  only, never the text-only built-in local provider. Per-model vision
-  capability gating is a documented FOLLOW-UP (the model catalog has no
-  vision field yet); a non-vision hosted model rejects the image with a
-  visible provider error.
+- Availability gating lives in the app-shell wrapper
+  (`resolveComposerAttachmentsAvailability`), layered: (1) provider gate —
+  every HOSTED provider is eligible (desktop assistant server AND the web
+  /api/assistant route share the same image-aware conversion; the local
+  transport must not gate hosted providers), only the text-only built-in
+  local provider is excluded; failing it HIDES the affordance entirely;
+  (2) per-model vision gate — the SELECTED MODEL's `vision` capability
+  (`ModelVisionSupport = 'supported' | 'unsupported' | 'unknown'`, declared on
+  every static registry LLM entry, mirrored into the DB catalog's
+  capabilities jsonb by migration 061, and carried through
+  `LocalRuntimeNormalizedModel.capabilities.vision` for Ollama /api/show +
+  LM Studio vlm/llm discovery). 'unsupported' renders a visibly DISABLED
+  attach button whose title names the model and the reason (never a silent
+  hide); NEW adds are blocked by the disabled button and the absent paste
+  frame, but the attachment ADAPTER stays registered and the preview strip
+  stays mounted — an attachment staged under a vision model must remain
+  visible/removable after a switch to a text-only model (assistant-ui's
+  composer wipes text + staged attachments and throws an unhandled
+  "Attachments are not supported" rejection if Send runs with no adapter;
+  a sent-anyway staged image surfaces the visible provider error instead).
+  Only ABSENT availability (provider gate) registers no adapter.
+  'unknown' (runtime-discovered model without a capability signal) and an
+  unresolved definition stay optimistic — a wrong guess surfaces as a visible
+  provider error, never a silently blocked composer.
 Paired tests: assistant-attachments.test.ts (contract),
+provider-registry-vision.test.ts (static vision declarations),
+local-runtime-model-catalog.spec.ts (runtime vision discovery),
+frontier-models-migration.test.ts (DB catalog vision backfill),
 assistant-messages.spec.ts + mastra-image-input.spec.ts (agent, incl. the
 live-loop prompt proof), mastra-memory-persistence.integration.spec.ts
 (persisted dialect pin), assistant-memory-repository.integration.test.ts
-(hydration), attachment-adapter.test.ts (composer adapter).
+(hydration), attachment-adapter.test.ts (composer adapter),
+assistant-ui-panel-wrapper-runtime.test.ts + assistant-ui-panel-wrapper.test.tsx
+(availability gate), assistant-ui-panel.test.tsx (composer render states).
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,

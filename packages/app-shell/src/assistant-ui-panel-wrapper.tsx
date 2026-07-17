@@ -97,11 +97,11 @@ import {
   type LocalRuntimeProviderId,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
+  resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
   resolveProviderModelSelection,
-  type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -361,31 +361,25 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
-  // Resolve the selected model's budget definition from the runtime model list.
+  // Resolve the selected model's definition from the runtime model list.
   // Using the runtime list (not getLlmModelDefinition) covers both static registry
   // models AND dynamically-discovered ollama/lmstudio models, which have a conservative
-  // contextWindow floor set by toRuntimeProviderModels.
-  const selectedModelBudgetDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
+  // contextWindow floor set by toRuntimeProviderModels. Feeds the token budget
+  // and the composer attachment (vision) gate.
+  const selectedLlmModelDef = useMemo<LlmProviderModelDefinition | undefined>(() => {
     if (!(selectedProvider && resolvedModelName)) {
       return;
     }
-    const modelDef = getProviderLlmModels(selectedProvider).find(
+    return getProviderLlmModels(selectedProvider).find(
       (m: LlmProviderModelDefinition) => m.id === resolvedModelName
     );
-    if (!modelDef) {
-      return;
-    }
-    return {
-      contextWindow: modelDef.contextWindow,
-      ...(modelDef.maxOutputTokens === undefined
-        ? {}
-        : { maxOutputTokens: modelDef.maxOutputTokens }),
-    };
   }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
-
   const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
-    [selectedModelBudgetDef, selectedProviderSettings]
+    // LlmProviderModelDefinition structurally satisfies SelectedModelBudgetDef
+    // (contextWindow required, maxOutputTokens optional on both) — no
+    // projection needed.
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef),
+    [selectedLlmModelDef, selectedProviderSettings]
   );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
@@ -840,8 +834,17 @@ export function AssistantUiPanelWrapper({
   // share the same image-aware conversion), so only the text-only built-in
   // local provider is excluded — localChatTransport describes the LOCAL
   // provider's transport and must not gate hosted providers on web (review
-  // fix). Per-model vision gating is a documented follow-up.
-  const attachmentsAvailable = selectedProvider !== 'local';
+  // fix). The SELECTED MODEL's vision capability then layers on top: a
+  // vision-less model renders a visibly disabled attach button with the
+  // reason (never a silent hide).
+  const attachmentsAvailability = useMemo(
+    () =>
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: selectedProvider !== 'local',
+        selectedModel: selectedLlmModelDef,
+      }),
+    [selectedProvider, selectedLlmModelDef]
+  );
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
   // Workspace instructions context-file injection (AGENTS.md/AGENT.md/CLAUDE.md).
@@ -1463,7 +1466,7 @@ export function AssistantUiPanelWrapper({
         <AssistantUiPanel
           {...(composerDraftCommand ? { composerDraftCommand } : {})}
           completePreparedRequest={completePreparedRequest}
-          contextWindow={selectedModelBudgetDef?.contextWindow}
+          contextWindow={selectedLlmModelDef?.contextWindow}
           {...(cumulativeUsage ? { cumulativeUsage } : {})}
           effectiveInputBudget={effectiveInputBudget}
           omSegment={omSegment}
@@ -1507,7 +1510,7 @@ export function AssistantUiPanelWrapper({
                 planModeEnabled: planModeEnabledPref,
               }
             : {})}
-          {...(attachmentsAvailable ? { attachmentsEnabled: true } : {})}
+          {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
         />
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>
