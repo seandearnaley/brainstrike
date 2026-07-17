@@ -41,7 +41,9 @@ Windowing and performance:
   and a toast. Keep this bound visible—never silently attempt an unbounded
   restore that can monopolize the renderer. Post-restoration selection changes
   use the same root scoping, separator-normalized shallowest-first ordering, and
-  100-directory cap before issuing worker I/O.
+  100-directory cap before issuing worker I/O. Root scoping must preserve
+  descendants when the workspace itself is a POSIX, drive, or UNC filesystem
+  root.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the

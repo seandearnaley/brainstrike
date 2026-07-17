@@ -319,7 +319,17 @@ function isPathWithinRoot(path: string, currentRootPath: string | null | undefin
   const scopedRootPath = isWindowsAbsolutePath(currentRootPath)
     ? normalizedRootPath.toLowerCase()
     : normalizedRootPath;
-  return scopedPath === scopedRootPath || isDescendantPath(scopedPath, scopedRootPath);
+  if (/^\/+$/u.test(scopedRootPath)) {
+    return scopedPath.startsWith(scopedRootPath);
+  }
+  const descendantRootPath = scopedRootPath.endsWith('/')
+    ? scopedRootPath.slice(0, -1)
+    : scopedRootPath;
+  return (
+    scopedPath === scopedRootPath ||
+    scopedPath === descendantRootPath ||
+    isDescendantPath(scopedPath, descendantRootPath)
+  );
 }
 
 function sortRestorationPaths(paths: Iterable<string>): string[] {

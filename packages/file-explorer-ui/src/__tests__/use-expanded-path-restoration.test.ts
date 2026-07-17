@@ -227,6 +227,54 @@ describe('useExpandedPathRestoration', () => {
     });
   });
 
+  it.each([
+    {
+      currentRootFolderId: 'posix-root',
+      currentRootPath: '/',
+      expectedPaths: ['/src', '/src/components'],
+    },
+    {
+      currentRootFolderId: 'windows-drive-root',
+      currentRootPath: 'C:\\',
+      expectedPaths: ['C:\\repo', 'C:\\repo\\src'],
+    },
+    {
+      currentRootFolderId: 'unc-share-root',
+      currentRootPath: '\\\\server\\share\\',
+      expectedPaths: ['\\\\server\\share\\repo', '\\\\server\\share\\repo\\src'],
+    },
+  ])('restores descendants when $currentRootPath is the selected filesystem root', async ({
+    currentRootFolderId,
+    currentRootPath,
+    expectedPaths,
+  }) => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(expectedPaths),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId,
+        currentRootPath,
+        fileTree: [createDirectoryNode(expectedPaths[0] ?? currentRootPath)],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: currentRootFolderId,
+        setExpandedPaths: vi.fn(),
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(expectedPaths, expect.any(Function));
+    });
+  });
+
   it('bounds automatic restoration and reports the folders kept collapsed', async () => {
     let resolveRestoration: (() => void) | undefined;
     const loadSpecificPaths = vi.fn<
@@ -724,6 +772,42 @@ describe('useExpandSelectedFileParentDirectories', () => {
 
     await waitFor(() => {
       expect(setExpandedPaths).toHaveBeenCalledWith(new Set(expectedScopedParents));
+    });
+  });
+
+  it('expands selected parents beneath a Windows drive root', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set<string>(),
+          selectedFilePaths: new Set([
+            '/workspace|@|C:\\repo\\src\\Button.tsx',
+            '/workspace|@|D:\\outside\\Ignored.ts',
+          ]),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandSelectedFileParentDirectories({
+        currentRootFolderId: '/workspace',
+        currentRootPath: 'C:\\',
+        isRestorationSettled: true,
+        loadSpecificPaths,
+        selectionVersion: 4,
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    const expectedParents = ['C:', 'C:\\repo', 'C:\\repo\\src'];
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(expectedParents);
+    });
+    await waitFor(() => {
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(expectedParents));
     });
   });
 
