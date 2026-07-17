@@ -5,7 +5,10 @@ export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
 /**
  * Default request body cap. Sized against the attachment contract: the 10MB
  * combined per-message attachment cap base64-encodes to ~13.4MB, leaving
- * prompt/history headroom. Overridable via
+ * prompt/history headroom. The UI transport keeps that sizing true on EVERY
+ * turn by bounding the whole request's inline images to the same combined cap
+ * (packages/ui data-stream-runtime `boundResentImageHistory` elides older
+ * history image bodies newest-first, loudly). Overridable via
  * BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow throws loudly.
  */
 export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
