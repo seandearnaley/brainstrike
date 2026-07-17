@@ -147,6 +147,41 @@ describe('useExpandedPathRestoration', () => {
     });
   });
 
+  it('restores root-relative web paths without loading stale absolute paths', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['src', 'src/components', '/other-workspace/downloads']),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'web-root-id',
+        currentRootPath: 'workspace',
+        fileTree: [createDirectoryNode('src')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'web-root-id',
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(
+        ['src', 'src/components'],
+        expect.any(Function)
+      );
+      expect(setExpandedPaths).toHaveBeenCalledWith(
+        new Set(['src', 'src/components', '/other-workspace/downloads'])
+      );
+    });
+  });
+
   it('bounds automatic restoration and reports the folders kept collapsed', async () => {
     let resolveRestoration: (() => void) | undefined;
     const loadSpecificPaths = vi.fn<

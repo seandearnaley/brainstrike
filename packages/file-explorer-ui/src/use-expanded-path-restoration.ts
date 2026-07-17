@@ -1,3 +1,4 @@
+import { isAbsolutePath } from '@brainstrike/context-actions';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -287,7 +288,13 @@ function handleRestorationLock(
 }
 
 function isPathWithinRoot(path: string, currentRootPath: string | null | undefined): boolean {
-  return !currentRootPath || path === currentRootPath || isDescendantPath(path, currentRootPath);
+  if (!currentRootPath) {
+    return true;
+  }
+  if (!isAbsolutePath(currentRootPath)) {
+    return !isAbsolutePath(path);
+  }
+  return path === currentRootPath || isDescendantPath(path, currentRootPath);
 }
 
 function sortRestorationPaths(paths: Iterable<string>): string[] {

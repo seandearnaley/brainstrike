@@ -31,6 +31,9 @@ Windowing and performance:
 - Avoid full-tree rematerialization during render paths; keep derived rows memoized and keyed by stable node ids.
 - Persisted expansion restoration is scoped to the active root path before any
   worker I/O. A multi-root provider must never replay another root's paths.
+  Web File System Access roots expose only a relative folder name, so their
+  root-relative expansion paths remain in scope while stale absolute paths are
+  excluded.
   Automatic startup restoration is capped at 100 directories per root,
   shallowest-first with selected/query parents prioritized; excess persisted
   paths are collapsed and surfaced through both the restoration progress card
