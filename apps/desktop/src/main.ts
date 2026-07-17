@@ -35,9 +35,8 @@ import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics'
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
-  type DimensionIndexStrategySelection,
+  type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
-  selectDimensionIndexStrategy,
 } from './dimension-index-maintenance-capabilities';
 import {
   createDesktopDimensionIndexMaintenanceScheduler,
@@ -626,27 +625,19 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   try {
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
       db: await getDatabase(),
-      foregroundHealthProbe: async () => {
-        throw new Error('Startup capability probe must not run foreground health measurement.');
-      },
       initialMemoryBytes: null,
       now: () => new Date(),
       scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
     });
-    desktopDimensionIndexStrategySelection = selectDimensionIndexStrategy({
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
-      foregroundHealthThresholdMs: 5000,
-    });
+    desktopDimensionIndexStrategy = 'regular';
     logger.info('Dimension index maintenance capability probe completed', {
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
       hnswIndexBuild: capabilities.hnswIndexBuild,
       maintenanceSettings: capabilities.maintenanceSettings,
       progressReporting: capabilities.progressReporting,
-      strategy: desktopDimensionIndexStrategySelection.strategy,
-      strategyReason: desktopDimensionIndexStrategySelection.reason,
+      strategy: desktopDimensionIndexStrategy,
     });
   } catch (error) {
-    desktopDimensionIndexStrategySelection = null;
+    desktopDimensionIndexStrategy = null;
     // The probe runs concurrently with the app lifecycle (it no longer gates
     // window creation), so a short-lived session can tear the DB down while
     // the probe is mid-flight. That rejection is an EXPECTED teardown (see
@@ -682,7 +673,7 @@ let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
-let desktopDimensionIndexStrategySelection: DimensionIndexStrategySelection | null = null;
+let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -909,7 +900,7 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
 });
 desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,
-  getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
+  getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
@@ -939,8 +930,7 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
-  getDimensionIndexMaintenanceStrategy: () =>
-    desktopDimensionIndexStrategySelection?.strategy ?? null,
+  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
