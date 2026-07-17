@@ -15,7 +15,6 @@
  *    the system context (progressive disclosure level 1), and activating a
  *    skill returns its full instructions as the tool result (level 2).
  */
-import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -176,7 +175,7 @@ function makeEngine(fs: MemoryFs) {
   });
 }
 
-async function drain(iterator: AsyncIterableIterator<StreamChunk>): Promise<StreamChunk[]> {
+async function drain(iterator: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
   const chunks: StreamChunk[] = [];
   for await (const chunk of iterator) {
     chunks.push(chunk);
