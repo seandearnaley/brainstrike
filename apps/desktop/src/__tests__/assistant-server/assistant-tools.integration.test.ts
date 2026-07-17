@@ -323,6 +323,7 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.readWorkspaceContext']).toBeDefined();
     expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeDefined();
+    expect(tools['brainstrike.hybridSearch']).toBeDefined();
     expect(tools['brainstrike.updateWorkspaceContextSelection']).toBeDefined();
     expect(tools['brainstrike.updateWorkspaceTapestrySelections']).toBeDefined();
     expect(tools['brainstrike.selectRootTreeFiles']).toBeUndefined();

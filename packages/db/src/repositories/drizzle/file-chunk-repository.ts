@@ -526,6 +526,7 @@ export class DrizzleFileChunkRepository {
     const {
       limit = 10,
       threshold = 0,
+      embeddingSetId,
       fileRecordId,
       chunkType,
       filePaths,
@@ -591,6 +592,13 @@ export class DrizzleFileChunkRepository {
     }
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+    }
+    // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
+    // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
+    // and its file record carries the set. Match (tsquery) semantics unchanged.
+    // Mirrors the PGlite + Electron repos.
+    if (embeddingSetId !== undefined) {
+      baseQuery = sql`${baseQuery} AND (embedding_set_id = ${embeddingSetId} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = ${embeddingSetId})))`;
     }
     // Scope to a set of workspace roots (see searchSimilar above for the empty /
     // NULL-root semantics). Mirrors the PGlite + Electron repos.

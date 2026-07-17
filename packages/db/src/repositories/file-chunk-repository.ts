@@ -547,6 +547,7 @@ export class FileChunkRepository {
     const {
       limit = 10,
       threshold = 0,
+      embeddingSetId,
       fileRecordId,
       chunkType,
       filePaths,
@@ -592,6 +593,16 @@ export class FileChunkRepository {
       'file_record_id'
     );
     paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
+    // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
+    // and its file record carries the set. Match (tsquery) semantics unchanged.
+    if (embeddingSetId !== undefined) {
+      whereParts.push(
+        `(embedding_set_id = $${paramIndex} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = $${paramIndex})))`
+      );
+      params.push(embeddingSetId);
+      paramIndex += 1;
+    }
     paramIndex = this.appendSelectionFilters(
       whereParts,
       params,
