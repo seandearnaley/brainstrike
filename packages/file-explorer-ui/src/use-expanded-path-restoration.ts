@@ -325,9 +325,10 @@ function isPathWithinRoot(path: string, currentRootPath: string | null | undefin
   const descendantRootPath = scopedRootPath.endsWith('/')
     ? scopedRootPath.slice(0, -1)
     : scopedRootPath;
+  const isWindowsDriveRoot = /^[a-z]:\/$/u.test(scopedRootPath);
   return (
     scopedPath === scopedRootPath ||
-    scopedPath === descendantRootPath ||
+    (!isWindowsDriveRoot && scopedPath === descendantRootPath) ||
     isDescendantPath(scopedPath, descendantRootPath)
   );
 }

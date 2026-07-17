@@ -275,6 +275,38 @@ describe('useExpandedPathRestoration', () => {
     });
   });
 
+  it('does not restore a drive-relative sentinel beneath a Windows drive root', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['C:\\repo', 'C:\\repo\\src']),
+          selectedFilePaths: new Set(['windows-drive-root|@|C:\\repo\\src\\Button.tsx']),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'windows-drive-root',
+        currentRootPath: 'C:\\',
+        fileTree: [createDirectoryNode('C:\\repo')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'windows-drive-root',
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    const expectedPaths = ['C:\\repo', 'C:\\repo\\src'];
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(expectedPaths, expect.any(Function));
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(expectedPaths));
+    });
+  });
+
   it('bounds automatic restoration and reports the folders kept collapsed', async () => {
     let resolveRestoration: (() => void) | undefined;
     const loadSpecificPaths = vi.fn<
@@ -802,7 +834,7 @@ describe('useExpandSelectedFileParentDirectories', () => {
       })
     );
 
-    const expectedParents = ['C:', 'C:\\repo', 'C:\\repo\\src'];
+    const expectedParents = ['C:\\repo', 'C:\\repo\\src'];
     await waitFor(() => {
       expect(loadSpecificPaths).toHaveBeenCalledWith(expectedParents);
     });
