@@ -6,7 +6,7 @@ export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = ['job_queue'] as const
 // PGlite runs a single standalone backend with no autovacuum launcher, so
 // column statistics are never collected unless maintenance runs ANALYZE
 // explicitly (plain VACUUM does not build histograms). These tables grow to
-// 100k+ rows and drive grep JOIN ordering, tsvector/BM25 estimates, and the
+// 100k+ rows and drive grep JOIN ordering, tsvector rank estimates, and the
 // dedupe CTE plans.
 export const DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES = [
   'file_chunks',

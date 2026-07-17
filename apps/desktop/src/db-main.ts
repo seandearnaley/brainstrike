@@ -1584,11 +1584,15 @@ export async function handleRuntimeCorruption(context: string): Promise<DesktopD
   mutableState.runtimeCorruptionRecoveryCount += 1;
   mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
   mutableState.lastRuntimeCorruptionContext = context;
-  logger.warn(`Runtime corruption detected during ${context}. Resetting DB host database...`);
-  const manager = await getRemoteDbHostManager();
-  await manager.reset();
-  logger.info('DB host reset complete after runtime corruption. Reinitializing...');
-  return await manager.getDatabase();
+  logger.warn(
+    `Runtime corruption detected during ${context}. Terminating the DB host and replacing its database...`
+  );
+  // Closing the utility process rejects every queued request and invalidates
+  // every live-query client. An in-process reset would leave requests queued
+  // behind the reset free to execute against the empty replacement database.
+  await resetLocalDatabase();
+  logger.info('DB host replacement complete after runtime corruption. Reinitializing...');
+  return await getDatabase();
 }
 
 export async function resetLocalDatabase(): Promise<void> {

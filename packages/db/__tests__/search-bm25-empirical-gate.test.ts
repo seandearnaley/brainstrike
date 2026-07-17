@@ -73,7 +73,7 @@ interface GateRow {
   position: string;
 }
 
-describe('BM25 empirical gate (production query shape at scale)', () => {
+describe.skip('BM25 empirical gate (pg_textsearch is quarantined by migration 064)', () => {
   let db: PGlite;
   let indexBuildMs = -1;
 

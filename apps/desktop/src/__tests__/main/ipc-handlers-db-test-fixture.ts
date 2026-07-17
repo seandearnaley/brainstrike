@@ -410,6 +410,12 @@ import '../../main';
 
 export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   vi.clearAllMocks();
+  // clearAllMocks intentionally preserves queued mock implementations. Reset
+  // this classifier explicitly so a test that proves validation short-circuits
+  // before classification cannot leak its unused `mockReturnValueOnce(true)`
+  // into the next handler invocation.
+  isCorruptionErrorMock.mockReset();
+  isCorruptionErrorMock.mockReturnValue(false);
   const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
     '../../ipc-handlers'
   );

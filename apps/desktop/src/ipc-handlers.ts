@@ -13,6 +13,7 @@ import {
 } from './ipc-domains/db-ipc';
 import { registerEmbeddingBackfillIpcHandlers } from './ipc-domains/embedding-backfill-ipc';
 import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
+import type { RuntimeDatabaseCorruptionHandler } from './ipc-domains/runtime-database-corruption';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
 import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -31,6 +32,7 @@ interface RegisterIpcHandlerOptions {
   readonly embeddingHostManager?: EmbeddingHostManager;
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
+  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
 
 /**
@@ -63,6 +65,7 @@ export function registerIpcHandlers(
       ? { getDimensionIndexMaintenanceStrategy: options.getDimensionIndexMaintenanceStrategy }
       : {}),
     isBackgrounded: isDesktopDatabaseBackgrounded,
+    ...(options?.onRuntimeCorruption ? { onRuntimeCorruption: options.onRuntimeCorruption } : {}),
   });
 
   return () => {

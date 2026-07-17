@@ -401,6 +401,7 @@ const FileExplorerPanelInner = React.memo(() => {
   const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const previousRootFolderIdRef = useRef<string | null>(null);
+  const restorationLimitNoticeKeyRef = useRef<string | null>(null);
 
   const {
     fileTree,
@@ -481,6 +482,28 @@ const FileExplorerPanelInner = React.memo(() => {
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
   } = useToastManager();
+
+  useEffect(() => {
+    const omittedPathCount = restorationProgress?.omitted ?? 0;
+    if (omittedPathCount <= 0) {
+      return;
+    }
+
+    const noticeKey = `${rootDirectoryHandle?.path ?? 'workspace'}:${omittedPathCount}`;
+    if (restorationLimitNoticeKeyRef.current === noticeKey) {
+      return;
+    }
+    restorationLimitNoticeKeyRef.current = noticeKey;
+    showToast({
+      description: `${omittedPathCount.toLocaleString()} previously expanded folders were kept collapsed. Restore is limited to ${restorationProgress?.total ?? 0} folders per root so the app remains responsive.`,
+      title: 'Large folder restore limited',
+    });
+  }, [
+    restorationProgress?.omitted,
+    restorationProgress?.total,
+    rootDirectoryHandle?.path,
+    showToast,
+  ]);
 
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);

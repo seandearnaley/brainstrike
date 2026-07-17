@@ -1,16 +1,15 @@
 /**
  * Desktop wiring for the `brainstrike.hybridSearch` assistant tool.
  *
- * Runs semantic (vector) and exact-term (BM25 keyword) search in parallel and
+ * Runs semantic (vector) and full-text keyword search in parallel and
  * fuses the rankings with reciprocal rank fusion by reusing the SAME
  * `HybridSearchService` that backs the Explorer search panel — no duplicated
  * fusion logic. Embedding-set resolution and query-embedding generation reuse
  * the retrieval tool's exported helpers, so hybrid search pins the exact same
  * embedding-set and root scoping `brainstrike.queryEmbeddingSpace` does.
  *
- * NO SILENT FALLBACKS: a failing keyword arm (e.g. `to_bm25query` erroring
- * because the BM25 index is absent) fails the whole call visibly — the tool
- * never quietly degrades to vector-only results.
+ * NO SILENT FALLBACKS: a failing keyword arm fails the whole call visibly —
+ * the tool never quietly degrades to vector-only results.
  */
 
 import type { HybridSearchInput, RuntimeData } from '@brainstrike/agent';
@@ -77,7 +76,7 @@ export interface HybridSearchToolResultItem {
   content: string;
   fileName?: string;
   filePath?: string;
-  /** FTS rank (negated BM25; higher = better, unbounded) when the keyword arm found it. */
+  /** FTS rank (higher = better) when the keyword arm found it. */
   ftsRank?: number;
   headline?: string;
   id: string;

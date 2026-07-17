@@ -103,7 +103,7 @@ export interface HybridSearchOptions {
 export interface HybridSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
-  /** FTS rank score (if found by FTS): negated BM25, higher = better, unbounded */
+  /** FTS rank score (if found by FTS) */
   ftsRank?: number;
   /** Headline snippet from FTS (if available) */
   headline?: string;
@@ -248,7 +248,7 @@ export class HybridSearchService {
 
     // The keyword arm is scoped to the SAME embedding set as the vector arm
     // (coverage-identity semantics in the repos), so fusion can never surface
-    // BM25-only chunks from another embedding space.
+    // keyword-only chunks from another embedding space.
     const ftsSearchOptions: FTSSearchOptions = {
       embeddingSetId,
       includeEmbedding,

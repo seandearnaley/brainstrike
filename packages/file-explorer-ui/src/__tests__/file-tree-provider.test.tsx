@@ -160,6 +160,7 @@ describe('FileTreeProvider', () => {
     );
     expect(useExpandedPathRestorationMock).toHaveBeenCalledWith({
       currentRootFolderId: '/workspace',
+      currentRootPath: '/workspace',
       fileTree: [],
       isTreeLoading: false,
       loadSpecificPaths: expect.any(Function),

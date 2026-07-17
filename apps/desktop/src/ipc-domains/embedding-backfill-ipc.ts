@@ -16,6 +16,10 @@ import {
   runDesktopEmbeddingBackfill,
 } from '../ipc-embedding-backfill';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import {
+  type RuntimeDatabaseCorruptionHandler,
+  recoverRuntimeDatabaseCorruption,
+} from './runtime-database-corruption';
 
 interface RegisterEmbeddingBackfillIpcHandlersOptions {
   readonly embeddingHostManager: EmbeddingHostManager | undefined;
@@ -23,18 +27,22 @@ interface RegisterEmbeddingBackfillIpcHandlersOptions {
   readonly getDatabaseWorkScheduler: () => DatabaseWorkScheduler;
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly isBackgrounded: () => boolean;
+  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
 
-async function withCorruptionRecovery<T>(operation: () => Promise<T>, context: string): Promise<T> {
+async function withCorruptionRecovery<T>(
+  operation: () => Promise<T>,
+  context: string,
+  onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
+    const { isCorruptionError } = await import('../db-main');
     if (!isCorruptionError(error)) {
       throw error;
     }
-    await handleRuntimeCorruption(context);
-    return await operation();
+    return recoverRuntimeDatabaseCorruption(context, onRuntimeCorruption);
   }
 }
 
@@ -44,6 +52,7 @@ export function registerEmbeddingBackfillIpcHandlers({
   getDatabaseWorkScheduler,
   getDimensionIndexMaintenanceStrategy,
   isBackgrounded,
+  onRuntimeCorruption,
 }: RegisterEmbeddingBackfillIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -79,7 +88,8 @@ export function registerEmbeddingBackfillIpcHandlers({
               isBackgrounded,
               ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
             }),
-          EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
+          EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+          onRuntimeCorruption
         );
       } catch (error) {
         // A deliberate cancellation is a benign STATE, not a handler failure.

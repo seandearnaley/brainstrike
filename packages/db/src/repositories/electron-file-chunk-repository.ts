@@ -14,7 +14,6 @@ import {
   appendColumn,
   appendColumnIfDefined,
   batchArray,
-  bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
@@ -623,6 +622,7 @@ export class ElectronFileChunkRepository {
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
+      rankNormalization = 0,
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
@@ -686,22 +686,20 @@ export class ElectronFileChunkRepository {
       paramIndex += 1;
     }
 
-    // Execute search query ranked by BM25 (pg_textsearch, migration 053):
-    // matching stays tsvector-based above, so query-mode semantics are
-    // unchanged; only the ORDERING comes from BM25. The `, id` tiebreaks keep
-    // ordering deterministic — BM25 produces exact score ties for rows with
-    // identical term statistics.
+    // Rank with PostgreSQL's built-in FTS implementation. Keeping matching and
+    // ranking on the same generated tsvector avoids a second write-maintained
+    // index and preserves the caller's language + normalization settings.
     const result = await this.db.query(
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-        ${bm25RankExpression('$2')} as fts_rank,
+        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
         ${
           includeHeadline
             ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
             : ''
         }
-        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$2')} DESC, id) as position
+        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC, id) as position
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY fts_rank DESC, id

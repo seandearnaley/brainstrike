@@ -128,7 +128,7 @@ async function seedHybridDataset(
   await seedGoldenFiles(chunkRepo, fileRepo, dataset.files, embeddingSet.id);
 
   // Seed the foreign-set decoys under a SEPARATE embedding set: an unscoped
-  // keyword arm would fuse them in (they top BM25 for every query).
+  // keyword arm would fuse them in (they top full-text ranking for every query).
   const foreignSet = await setRepo.getOrCreateSet(
     `${modelKey}-foreign`,
     `${modelId}-foreign`,
@@ -185,7 +185,7 @@ function buildFailures(
   foreignChunkIds: readonly string[]
 ): string[] {
   const failures: string[] = [];
-  // Embedding-set scoping guard: the foreign-set decoys top BM25 for every
+  // Embedding-set scoping guard: the foreign-set decoys top full-text ranking for every
   // query, so any appearance in a fused list means the keyword arm ran
   // unscoped — fail loudly.
   const foreignSet = new Set(foreignChunkIds);

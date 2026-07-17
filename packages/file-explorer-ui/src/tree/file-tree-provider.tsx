@@ -239,6 +239,7 @@ export function FileTreeProvider({
   const restorationKey = restorationFolderId ?? 'none';
   const restorationState = useExpandedPathRestoration({
     currentRootFolderId: restorationFolderId,
+    currentRootPath,
     fileTree: fileTreeState.fileTree,
     isTreeLoading: fileTreeState.isLoading,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,

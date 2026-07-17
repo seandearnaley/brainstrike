@@ -28,7 +28,12 @@ import {
   type DesktopDatabaseMaintenanceScheduler,
 } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import {
+  closeDatabase,
+  getDatabase,
+  handleRuntimeCorruption as replaceCorruptedDatabase,
+  resetLocalDatabase,
+} from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
@@ -51,6 +56,7 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
@@ -862,6 +868,67 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+let runtimeDatabaseRecoveryPromise: Promise<void> | null = null;
+
+async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
+  if (runtimeDatabaseRecoveryPromise) {
+    await runtimeDatabaseRecoveryPromise;
+    return;
+  }
+
+  const recovery = (async (): Promise<void> => {
+    logger.warn('Runtime database recovery started; active indexing work is being canceled', {
+      context,
+    });
+    cancelAllDesktopEmbeddingBackfills();
+    await cleanupDesktopLiveSubscriptionsForShutdown();
+    await replaceCorruptedDatabase(context);
+
+    const visibleWindows = BrowserWindow.getAllWindows().filter(
+      (window) =>
+        !(
+          chunkingHostManager.isHostWindow(window) ||
+          embeddingHostManager.isHostWindow(window) ||
+          llmHostManager.isHostWindow(window)
+        )
+    );
+    if (visibleWindows.length === 0) {
+      logger.warn('Runtime database recovery completed without a visible window to reload', {
+        context,
+      });
+      return;
+    }
+
+    for (const window of visibleWindows) {
+      noteNextWindowReload(window, {
+        reason: 'runtime-database-corruption-recovery',
+        source: 'main',
+      });
+      // Let the failed IPC invocation unwind first. The replacement database is
+      // already initialized, so this reload enters the existing bounded startup
+      // progress flow instead of leaving stale renderer stores mounted.
+      setTimeout(() => {
+        if (!window.isDestroyed()) {
+          window.webContents.reloadIgnoringCache();
+        }
+      }, 0);
+    }
+    logger.info('Runtime database recovery completed; visible windows will reload', {
+      context,
+      visibleWindowCount: visibleWindows.length,
+    });
+  })();
+
+  runtimeDatabaseRecoveryPromise = recovery;
+  try {
+    await recovery;
+  } finally {
+    if (runtimeDatabaseRecoveryPromise === recovery) {
+      runtimeDatabaseRecoveryPromise = null;
+    }
+  }
+}
+
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
   logger,
@@ -934,6 +1001,7 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   embeddingHostManager,
   getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
   onResetLocal: handleResetLocal,
+  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);

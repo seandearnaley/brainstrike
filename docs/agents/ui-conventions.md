@@ -29,6 +29,13 @@ Windowing and performance:
 - Default strategy should remain `auto` unless a product requirement explicitly pins behavior.
 - For search-heavy and large result flows, paged windowing is acceptable when it produces more stable UX than virtual scrolling.
 - Avoid full-tree rematerialization during render paths; keep derived rows memoized and keyed by stable node ids.
+- Persisted expansion restoration is scoped to the active root path before any
+  worker I/O. A multi-root provider must never replay another root's paths.
+  Automatic startup restoration is capped at 100 directories per root,
+  shallowest-first with selected/query parents prioritized; excess persisted
+  paths are collapsed and surfaced through both the restoration progress card
+  and a toast. Keep this bound visible—never silently attempt an unbounded
+  restore that can monopolize the renderer.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the

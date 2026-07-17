@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __getAllAncestorDirectories,
   __resetRestorationLock,
+  MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS,
   useExpandedPathRestoration,
   useExpandSelectedFileParentDirectories,
 } from '../use-expanded-path-restoration';
@@ -109,6 +110,102 @@ describe('useExpandedPathRestoration', () => {
       expect(setExpandedPaths).toHaveBeenCalledWith(new Set(['src', 'src/components']));
     });
   });
+
+  it('restores only paths owned by the current root in a multi-root workspace', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set([
+            '/workspace-a/src',
+            '/workspace-a/src/components',
+            '/workspace-b/downloads',
+          ]),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'root-a',
+        currentRootPath: '/workspace-a',
+        fileTree: [createDirectoryNode('/workspace-a/src')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'root-a',
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(
+        ['/workspace-a/src', '/workspace-a/src/components'],
+        expect.any(Function)
+      );
+    });
+  });
+
+  it('bounds automatic restoration and reports the folders kept collapsed', async () => {
+    let resolveRestoration: (() => void) | undefined;
+    const loadSpecificPaths = vi.fn<
+      (
+        paths: string[],
+        onProgress?: (loaded: number, total: number, currentPath: string) => void
+      ) => Promise<void>
+    >(
+      (_paths) =>
+        new Promise<void>((resolve) => {
+          resolveRestoration = resolve;
+        })
+    );
+    const rootPaths = Array.from(
+      { length: MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS + 25 },
+      (_, index) => `/workspace/directory-${index.toString().padStart(4, '0')}`
+    );
+    const crossRootPath = '/other-workspace/preserved';
+    const storeState = createStoreState({
+      expandedDirectoryPaths: new Set([...rootPaths, crossRootPath]),
+    });
+    const store = {
+      getState: vi.fn(() => storeState),
+    };
+    const setExpandedPaths = vi.fn((paths: Set<string>) => {
+      storeState.expandedDirectoryPaths = paths;
+    });
+
+    const { result } = renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'root-a',
+        currentRootPath: '/workspace',
+        fileTree: [createDirectoryNode(rootPaths[0] ?? '/workspace/directory-0000')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'root-a',
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledTimes(1);
+    });
+    const restoredPaths = loadSpecificPaths.mock.calls[0]?.[0] ?? [];
+    expect(restoredPaths).toHaveLength(MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS);
+    expect(restoredPaths.every((path) => path.startsWith('/workspace/'))).toBe(true);
+    expect(result.current.restorationProgress).toMatchObject({
+      loaded: 0,
+      omitted: 25,
+      total: MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS,
+    });
+    expect(storeState.expandedDirectoryPaths.has(crossRootPath)).toBe(true);
+    expect(storeState.expandedDirectoryPaths.size).toBe(MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS + 1);
+
+    await act(async () => {
+      resolveRestoration?.();
+    });
+  });
 });
 
 describe('useExpandSelectedFileParentDirectories', () => {
@@ -210,6 +307,34 @@ describe('useExpandSelectedFileParentDirectories', () => {
 
     expect(loadSpecificPaths).not.toHaveBeenCalled();
     expect(setExpandedPaths).not.toHaveBeenCalled();
+  });
+
+  it('does not expand selected-file parents owned by another root', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          selectedFilePaths: new Set(['/other-root|@|src/components/Button.tsx']),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandSelectedFileParentDirectories({
+        currentRootFolderId: '/workspace',
+        isRestorationSettled: true,
+        loadSpecificPaths,
+        selectionVersion: 1,
+        setExpandedPaths: vi.fn(),
+        store,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadSpecificPaths).not.toHaveBeenCalled();
   });
 
   it('expands query-covered directories when the selection version changes', async () => {

@@ -24,6 +24,10 @@ import {
 } from '../platform/desktop-database-work';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import {
+  type RuntimeDatabaseCorruptionHandler,
+  recoverRuntimeDatabaseCorruption,
+} from './runtime-database-corruption';
 
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;
@@ -33,6 +37,7 @@ interface RegisterDatabaseIpcHandlersOptions {
   readonly chunkingHostManager?: DatabaseHostWindowMatcher;
   readonly embeddingHostManager?: DatabaseHostWindowMatcher;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
+  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
 
 interface LiveSubscriptionRecord {
@@ -209,15 +214,18 @@ export function isDesktopDatabaseBackgrounded(): boolean {
   return isBackgrounded;
 }
 
-async function withCorruptionRecovery<T>(operation: () => Promise<T>, context: string): Promise<T> {
+async function runWithCorruptionRecovery<T>(
+  operation: () => Promise<T>,
+  context: string,
+  recover: RuntimeDatabaseCorruptionHandler
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
+    const { isCorruptionError } = await import('../db-main');
     if (isCorruptionError(error)) {
-      logger.warn(`Corruption detected in ${context}, attempting auto-recovery...`);
-      await handleRuntimeCorruption(context);
-      return await operation();
+      logger.warn(`Corruption detected in ${context}; replacing the database without retrying.`);
+      await recover(context);
     }
     throw error;
   }
@@ -241,17 +249,13 @@ function buildRefreshArgs(
 
 async function handleLiveQueryRefreshError(
   error: unknown,
-  queryId: number | undefined
+  queryId: number | undefined,
+  recover: RuntimeDatabaseCorruptionHandler
 ): Promise<{ success: boolean; message: string; corrupted?: boolean }> {
-  const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
+  const { isCorruptionError } = await import('../db-main');
   if (isCorruptionError(error)) {
     logger.warn('Corruption detected in db:live-query:refresh, resetting database...');
-    await handleRuntimeCorruption('db:live-query:refresh');
-    return {
-      corrupted: true,
-      message: 'Database was corrupted and has been reset. Please reload the application.',
-      success: false,
-    };
+    await recover('db:live-query:refresh');
   }
   logger.warn('Failed to refresh live query', { error, id: queryId });
   return {
@@ -419,6 +423,17 @@ export function registerDatabaseIpcHandlers(
   options?: RegisterDatabaseIpcHandlersOptions
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const recover = async (context: string): Promise<void> => {
+    // Stop renderer-owned reactive handles before the DB host is torn down.
+    // This prevents their refresh timers from retaining the old database and
+    // allocating an unbounded stream of failed updates during recovery.
+    await cleanupAllLiveSubscriptions();
+    await recoverRuntimeDatabaseCorruption(context, options?.onRuntimeCorruption);
+  };
+  const withCorruptionRecovery = async <T>(
+    operation: () => Promise<T>,
+    context: string
+  ): Promise<T> => await runWithCorruptionRecovery(operation, context, recover);
 
   registry.registerInvoke(
     'db',
@@ -563,7 +578,7 @@ export function registerDatabaseIpcHandlers(
             await record.handle.refresh(refreshArgs);
             return { success: true };
           } catch (error) {
-            return await handleLiveQueryRefreshError(error, payload?.id);
+            return await handleLiveQueryRefreshError(error, payload?.id, recover);
           }
         }
       );
@@ -742,17 +757,10 @@ export function registerDatabaseIpcHandlers(
           }
         );
       } catch (error) {
-        const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
+        const { isCorruptionError } = await import('../db-main');
         if (isCorruptionError(error)) {
           logger.warn('Corruption detected in db:clearAll, resetting database...');
-          await handleRuntimeCorruption('db:clearAll');
-          return {
-            corrupted: true,
-            deletedChunks: 0,
-            deletedFiles: 0,
-            message: 'Database was corrupted and has been fully reset.',
-            success: true,
-          };
+          await recover('db:clearAll');
         }
         return {
           deletedChunks: 0,

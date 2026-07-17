@@ -363,6 +363,29 @@ describe('FileExplorerPanel', () => {
     );
   });
 
+  it('surfaces when automatic folder restoration is bounded', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isRestoringExpandedPaths: true,
+      restorationProgress: {
+        currentPath: null,
+        loaded: 0,
+        omitted: 8850,
+        total: 100,
+      },
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    await waitFor(() => {
+      expect(showToastMock).toHaveBeenCalledWith({
+        description:
+          '8,850 previously expanded folders were kept collapsed. Restore is limited to 100 folders per root so the app remains responsive.',
+        title: 'Large folder restore limited',
+      });
+    });
+  });
+
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
     renderWithProviders(<FileExplorerPanel />);
 

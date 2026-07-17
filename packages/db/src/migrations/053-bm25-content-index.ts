@@ -1,20 +1,18 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 053: Enable pg_textsearch and add a BM25 index on file_chunks.content
+ * Historical migration 053: enable pg_textsearch and add a BM25 content index.
  *
- * Powers the BM25 lexical arm of hybrid search: fullTextSearch keeps its
- * tsvector match semantics (WHERE content_tsvector @@ ...) and orders by
- * negated BM25 score via `content <@> to_bm25query($q, 'idx_file_chunks_content_bm25')`,
- * which REQUIRES this index to exist by name — the repositories error without
- * it, so this migration must ship in the same release as the repository swap.
+ * Migration 064 quarantines and removes both objects after pg_textsearch 1.3.1
+ * produced persisted BM25 memtable corruption during file_chunks updates.
+ * This migration remains append-only so existing ledgers and greenfield
+ * bootstrap history stay valid; no runtime repository references the index.
  *
  * Built inline (not deferred like the HNSW dimension indexes): the empirical
  * gate (search-bm25-empirical-gate.test.ts) measured the build at ~0.5 s for
  * 50k chunks, far under the 15–20 s budget that motivated HNSW deferral, and
- * a missing bm25 index is a query ERROR rather than a graceful seq-scan
- * degradation, so deferral would force index-existence branching in every
- * repository. Requires the pg_textsearch extension module to be passed to the
+ * a missing bm25 index was a query ERROR rather than a graceful seq-scan
+ * degradation. Requires the pg_textsearch extension module to be passed to the
  * PGlite constructor (see wasm-loader.ts / pglite-worker-entry.ts /
  * browser-first-run-bootstrap-worker.ts / apps/desktop/src/db-main.ts) before
  * CREATE EXTENSION can succeed.

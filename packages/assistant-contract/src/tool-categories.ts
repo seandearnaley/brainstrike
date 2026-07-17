@@ -202,7 +202,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: false,
   },
-  // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
+  // Read-only hybrid (vector + full-text keyword, RRF-fused) workspace retrieval.
   'brainstrike.hybridSearch': {
     category: 'retrieval',
     estimatedTokens: 200,

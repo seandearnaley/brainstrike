@@ -118,6 +118,33 @@ describe('database IPC handlers', () => {
     expect(result).toBe(rows);
   });
 
+  it('resets on corruption without replaying the stale query against the replacement database', async () => {
+    const handler = handlers.get('db:query');
+    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
+    const reloadIgnoringCache = vi.fn();
+    browserWindowMock.getAllWindows.mockReturnValue([
+      {
+        id: 42,
+        isDestroyed: () => false,
+        webContents: { reloadIgnoringCache, send: vi.fn() },
+      },
+    ] as never);
+    mockDb.query.mockRejectedValueOnce(corruption);
+    isCorruptionErrorMock.mockReturnValueOnce(true);
+
+    await expect(handler?.({} as unknown, 'SELECT * FROM file_chunks')).rejects.toThrow(
+      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
+    );
+
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:query');
+    expect(browserWindowMock.getAllWindows).toHaveBeenCalled();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(reloadIgnoringCache).toHaveBeenCalledTimes(1);
+  });
+
   it('db:query accepts database work options as the second argument when params are omitted', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
@@ -706,14 +733,12 @@ describe('database IPC handlers', () => {
     liveHandle.refresh.mockRejectedValue(error);
     isCorruptionErrorMock.mockReturnValueOnce(true);
 
-    const refreshResult = await refreshHandler({} as unknown, { id: result.id });
+    await expect(refreshHandler({} as unknown, { id: result.id })).rejects.toThrow(
+      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
+    );
 
     expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
-    expect(refreshResult).toEqual({
-      corrupted: true,
-      message: 'Database was corrupted and has been reset. Please reload the application.',
-      success: false,
-    });
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('db:live-query:refresh returns error message for non-corruption errors', async () => {

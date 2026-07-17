@@ -53,6 +53,7 @@ import { migration060OpenRouterSparkKimiK3 } from '../migrations/060-openrouter-
 import { migration061ModelVisionCapability } from '../migrations/061-model-vision-capability.js';
 import { migration062AssistantRunOutcomes } from '../migrations/062-assistant-run-outcomes.js';
 import { migration063IndexConsolidation } from '../migrations/063-index-consolidation.js';
+import { migration064QuarantinePgTextsearch } from '../migrations/064-quarantine-pg-textsearch.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -214,6 +215,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-061-model-vision-capability', migration061ModelVisionCapability),
   customMigration('custom-062-assistant-run-outcomes', migration062AssistantRunOutcomes),
   customMigration('custom-063-index-consolidation', migration063IndexConsolidation),
+  customMigration('custom-064-quarantine-pg-textsearch', migration064QuarantinePgTextsearch),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
