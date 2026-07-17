@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/ui';
 import { PiggyBank } from 'lucide-react';
 import { useId, useState } from 'react';
+import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 
 /**
  * Strictly parse a cap input. Blank = cap off (`null`); otherwise the value
@@ -100,6 +101,28 @@ export function BudgetGuardrailSettingsPanel() {
   const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);
   const setDailyCapUsd = useAssistantBudgetPreferencesStore((state) => state.setDailyCapUsd);
   const setPerRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.setPerRunCapUsd);
+
+  // Same capability gate as the sibling cost panels (review #1714): without
+  // durable usage there is no spend to measure, so the guardrail binding stays
+  // null and a saved cap would be a silent promise. Show the honest state
+  // instead of active inputs.
+  if (!hasDurableAssistantUsageCapability()) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PiggyBank className="size-4" />
+            Budget guardrails
+          </CardTitle>
+          <CardDescription data-testid="budget-guardrail-unavailable">
+            Budget guardrails need durable usage tracking, which is available on desktop only. On
+            the web app, assistant usage is session-only, so spend caps cannot be measured or
+            enforced here.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   return (
     <Card>

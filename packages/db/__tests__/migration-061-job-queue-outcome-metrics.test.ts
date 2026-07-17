@@ -99,4 +99,53 @@ describe('migration 061: job queue outcome metrics columns', () => {
     expect(columnNames).not.toContain('failed_total');
     expect(columnNames).not.toContain('canceled_total');
   });
+
+  it('backfills lifetime counters from pre-existing terminal rows', {
+    timeout: 60_000,
+  }, async () => {
+    // Terminal rows written BEFORE the counters existed must seed the lifetime
+    // totals, or the next maintenance prune erases that history (review #1696).
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state)
+       VALUES
+        ('bf-1', 'embedding', 'embed-chunk', '{}'::jsonb, 'failed'),
+        ('bf-2', 'embedding', 'embed-chunk', '{}'::jsonb, 'failed'),
+        ('bf-3', 'embedding', 'embed-chunk', '{}'::jsonb, 'canceled'),
+        ('bf-4', 'maintenance', 'vacuum', '{}'::jsonb, 'canceled'),
+        ('bf-5', 'embedding', 'embed-chunk', '{}'::jsonb, 'succeeded')`
+    );
+
+    await runner.runMigration(getMigration061());
+
+    const seeded = await db.query<{
+      queue: string;
+      failed_total: number | string;
+      canceled_total: number | string;
+    }>('SELECT queue, failed_total, canceled_total FROM job_queue_metrics ORDER BY queue');
+    expect(
+      seeded.rows.map((row) => ({
+        canceled: Number(row.canceled_total),
+        failed: Number(row.failed_total),
+        queue: row.queue,
+      }))
+    ).toEqual([
+      { canceled: 1, failed: 2, queue: 'embedding' },
+      { canceled: 1, failed: 0, queue: 'maintenance' },
+    ]);
+
+    // Idempotent-by-guard: a re-run after rows were pruned must not shrink
+    // or double-count the already-seeded totals.
+    await db.query("DELETE FROM job_queue WHERE state IN ('failed', 'canceled')");
+    const up = getMigration061().up;
+    if (typeof up !== 'string') {
+      throw new Error('Migration 061 up must be SQL');
+    }
+    for (const statement of up.split('--> statement-breakpoint')) {
+      await db.query(statement);
+    }
+    const rerun = await db.query<{ failed_total: number | string }>(
+      "SELECT failed_total FROM job_queue_metrics WHERE queue = 'embedding'"
+    );
+    expect(Number(rerun.rows[0]?.failed_total ?? -1)).toBe(2);
+  });
 });

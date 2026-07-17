@@ -16,6 +16,8 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
     completedAt: new Date('2026-07-15T12:00:05Z'),
     durationMs: 5000,
     editCount: 0,
+    estimatedInputTokens: 0,
+    estimatedOutputTokens: 0,
     failedToolCallCount: 0,
     inputTokens: 1000,
     model: 'gpt-5.2',
@@ -94,6 +96,27 @@ function renderPanel(options: {
 }
 
 describe('TaskLedgerPanelView', () => {
+  it('surfaces the priced remainder next to a partial exact cost (mixed run)', () => {
+    // Review #1698 (codex P2): billedCostUsd covers only reported rows; the
+    // unreported remainder must be priced and shown, never silently folded
+    // into an "exact" total.
+    renderPanel({
+      ledger: {
+        rows: [
+          makeRun({
+            billedCostUsd: 0.5,
+            estimatedInputTokens: 400,
+            estimatedOutputTokens: 100,
+            runId: 'run-mixed',
+          }),
+        ],
+      },
+    });
+    const cost = screen.getByTestId('task-ledger-run-cost');
+    expect(cost.textContent).toContain('+ est.');
+    expect(cost.textContent).toContain('$0.50');
+  });
+
   it('renders an honest desktop-only state on web, never zeros', () => {
     renderPanel({ ledger: { available: false } });
 

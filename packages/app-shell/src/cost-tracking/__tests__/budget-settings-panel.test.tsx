@@ -8,6 +8,19 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BudgetGuardrailSettingsPanel, parseCapInput } from '../budget-settings-panel';
 
+// The panel gates on the desktop assistant bridge (same signal as the cost
+// panels): stub it so the input tests exercise the capable state, and remove
+// it to cover the honest web/unavailable state.
+function stubDurableUsageCapability(): void {
+  (window as unknown as { assistant?: { url: string } }).assistant = {
+    url: 'http://127.0.0.1:5175',
+  };
+}
+
+function removeDurableUsageCapability(): void {
+  Reflect.deleteProperty(window, 'assistant');
+}
+
 describe('parseCapInput', () => {
   it('treats blank as "cap off" (null)', () => {
     expect(parseCapInput('')).toEqual({ ok: true, value: null });
@@ -33,10 +46,23 @@ describe('parseCapInput', () => {
 describe('BudgetGuardrailSettingsPanel', () => {
   beforeEach(() => {
     __resetAssistantBudgetPreferencesStoreForTests();
+    stubDurableUsageCapability();
   });
 
   afterEach(() => {
     __resetAssistantBudgetPreferencesStoreForTests();
+    removeDurableUsageCapability();
+  });
+
+  it('shows the honest unavailable state (no inputs) without durable usage', () => {
+    // Review #1714 (codex P2): on web the guardrail binding is null, so active
+    // cap inputs would be a silent promise — the panel must say so instead.
+    removeDurableUsageCapability();
+    render(<BudgetGuardrailSettingsPanel />);
+
+    expect(screen.getByTestId('budget-guardrail-unavailable')).toBeInTheDocument();
+    expect(screen.queryByTestId('budget-daily-cap')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('budget-per-run-cap')).not.toBeInTheDocument();
   });
 
   it('writes a valid daily cap to the preferences store', async () => {

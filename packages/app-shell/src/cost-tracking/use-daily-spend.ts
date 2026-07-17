@@ -1,5 +1,5 @@
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 import { resolveAssistantMemoryResourceId } from '../assistant-memory-resource';
 import {
@@ -32,6 +32,9 @@ export interface DailySpendState {
   readonly spend: DailySpendSummary | null;
 }
 
+/** Clock-tick re-evaluation cadence for the rolling 24h window (see below). */
+export const DAILY_SPEND_WINDOW_REFRESH_MS = 5 * 60 * 1000;
+
 interface MappedSpend {
   readonly error: Error | null;
   readonly spend: DailySpendSummary | null;
@@ -55,6 +58,22 @@ export function useDailySpend(resourceIdOverride?: string | null): DailySpendSta
     params,
     query: DAILY_SPEND_AGGREGATION_SQL,
   });
+
+  // The rolling NOW() - 24h window ages out silently: live queries only
+  // re-run on table changes, so an over-cap verdict would otherwise stay
+  // stale until the next write (review #1714). A bounded 5-minute clock tick
+  // re-evaluates the window; the gate can therefore reopen at most 5 minutes
+  // after the oldest usage row leaves the window.
+  const refresh = liveQuery.refresh;
+  useEffect(() => {
+    if (!available) {
+      return;
+    }
+    const interval = setInterval(() => {
+      void refresh();
+    }, DAILY_SPEND_WINDOW_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [available, refresh]);
 
   const mapped = useMemo<MappedSpend>(() => {
     if (!available || liveQuery.loading) {

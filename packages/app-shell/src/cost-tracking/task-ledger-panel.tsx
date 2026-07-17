@@ -116,7 +116,20 @@ function formatTokensCompact(count: number): string {
  */
 function runCostLabel(row: RunLedgerRow): string {
   if (row.billedCostUsd !== undefined) {
-    return formatUsdCost(row.billedCostUsd);
+    // Honest partial-cost rule (review #1698): billedCostUsd covers only the
+    // provider-reported usage rows. A mixed run's unreported remainder is
+    // priced and shown alongside — never silently folded into an "exact" figure.
+    const estimatedTokens = row.estimatedInputTokens + row.estimatedOutputTokens;
+    if (estimatedTokens === 0) {
+      return formatUsdCost(row.billedCostUsd);
+    }
+    const remainder = computeCost(
+      { inputTokens: row.estimatedInputTokens, outputTokens: row.estimatedOutputTokens },
+      resolveModelPricing(row.provider, row.model)
+    );
+    return remainder.available
+      ? `${formatUsdCost(row.billedCostUsd)} + est. ${formatUsdCost(remainder.usdAmount)}`
+      : `${formatUsdCost(row.billedCostUsd)} + unpriced remainder`;
   }
   if (row.inputTokens + row.outputTokens === 0) {
     return 'no usage recorded';
@@ -137,7 +150,18 @@ function runCostLabel(row: RunLedgerRow): string {
  */
 export function isRunOverCap(row: RunLedgerRow, perRunCapUsd: number): boolean {
   if (row.billedCostUsd !== undefined) {
-    return row.billedCostUsd > perRunCapUsd;
+    // Include the priced unreported remainder (mixed runs); an unpriced
+    // remainder is never fabricated, so only the exact portion is compared.
+    const remainder =
+      row.estimatedInputTokens + row.estimatedOutputTokens > 0
+        ? computeCost(
+            { inputTokens: row.estimatedInputTokens, outputTokens: row.estimatedOutputTokens },
+            resolveModelPricing(row.provider, row.model)
+          )
+        : null;
+    const total =
+      remainder?.available === true ? row.billedCostUsd + remainder.usdAmount : row.billedCostUsd;
+    return total > perRunCapUsd;
   }
   if (row.inputTokens + row.outputTokens === 0) {
     return false;
