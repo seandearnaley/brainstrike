@@ -649,6 +649,18 @@ describe('entry management actions', () => {
     expect(state.selectedNoteId).toBe('root-1:work/plan.md');
   });
 
+  it('publishes the rename remap so open editors can rebind instead of flushing stale handles', async () => {
+    const h = await mountedVault();
+    expect(h.store.getState().lastRename).toBeNull();
+
+    await h.store.getState().renameEntry('root-1:projects', 'work');
+
+    expect(h.store.getState().lastRename).toEqual({
+      from: 'root-1:projects',
+      to: 'root-1:work',
+    });
+  });
+
   it('deletes an entry, pruning selection under it', async () => {
     const h = await mountedVault();
     h.store.getState().selectNote('root-1:projects/plan.md');

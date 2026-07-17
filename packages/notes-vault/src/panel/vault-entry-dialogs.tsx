@@ -80,17 +80,18 @@ function VaultNameDialogBody({
     if (trimmed === '' || busy) {
       return;
     }
+    // No try/finally: store actions never throw (failures land in the alert
+    // banner via globalError) and React Compiler cannot compile a
+    // TryStatement without a catch clause. A hypothetical throw skips
+    // onClose, and the key-remount per open resets `busy`.
     setBusy(true);
-    try {
-      if (request.kind === 'new-folder' && request.containerId) {
-        await store.getState().createFolder(request.containerId, trimmed);
-      } else if (request.kind === 'rename' && request.entryId) {
-        await store.getState().renameEntry(request.entryId, `${trimmed}${split.extension}`);
-      }
-    } finally {
-      setBusy(false);
-      onClose();
+    if (request.kind === 'new-folder' && request.containerId) {
+      await store.getState().createFolder(request.containerId, trimmed);
+    } else if (request.kind === 'rename' && request.entryId) {
+      await store.getState().renameEntry(request.entryId, `${trimmed}${split.extension}`);
     }
+    setBusy(false);
+    onClose();
   }, [value, busy, request, split.extension, store, onClose]);
 
   return (
@@ -148,49 +149,73 @@ export function VaultDeleteDialog({
   onClose: () => void;
   store: NotesVaultStore;
 }): React.ReactNode {
-  const [busy, setBusy] = useState(false);
-  const confirm = useCallback(async () => {
-    if (!request || busy) {
-      return;
-    }
-    setBusy(true);
-    try {
-      await store.getState().deleteEntry(request.entryId);
-    } finally {
-      setBusy(false);
-      onClose();
-    }
-  }, [request, busy, store, onClose]);
-
   return (
     <Dialog onOpenChange={(next) => !next && onClose()} open={request !== null}>
       <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader>
-          <DialogTitle>Delete {request?.entryKind}</DialogTitle>
-          <DialogDescription>
-            {request?.entryKind === 'folder'
-              ? `"${request?.name}" and every note inside it will be deleted.`
-              : `"${request?.name}" will be deleted.`}{' '}
-            On desktop this moves to the system Trash; in the browser it cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button onClick={onClose} type="button" variant="outline">
-            Cancel
-          </Button>
-          <Button
-            data-testid="vault-delete-confirm"
-            disabled={busy}
-            onClick={() => {
-              void confirm();
-            }}
-            type="button"
-            variant="destructive"
-          >
-            Delete
-          </Button>
-        </DialogFooter>
+        {/* Remount per open so `busy` resets even after an aborted confirm. */}
+        {request ? (
+          <VaultDeleteDialogBody
+            key={request.entryId}
+            onClose={onClose}
+            request={request}
+            store={store}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function VaultDeleteDialogBody({
+  request,
+  onClose,
+  store,
+}: {
+  request: VaultDeleteDialogRequest;
+  onClose: () => void;
+  store: NotesVaultStore;
+}): React.ReactNode {
+  const [busy, setBusy] = useState(false);
+  const confirm = useCallback(async () => {
+    if (busy) {
+      return;
+    }
+    // No try/finally (React Compiler cannot compile TryStatement without a
+    // catch clause); deleteEntry never throws — failures surface via the
+    // store's alert banner — and the key-remount per open resets `busy`.
+    setBusy(true);
+    await store.getState().deleteEntry(request.entryId);
+    setBusy(false);
+    onClose();
+  }, [request, busy, store, onClose]);
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Delete {request.entryKind}</DialogTitle>
+        <DialogDescription>
+          {request.entryKind === 'folder'
+            ? `"${request.name}" and every note inside it will be deleted.`
+            : `"${request.name}" will be deleted.`}{' '}
+          On desktop this moves to the system Trash; in the browser it cannot be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button onClick={onClose} type="button" variant="outline">
+          Cancel
+        </Button>
+        <Button
+          data-testid="vault-delete-confirm"
+          disabled={busy}
+          onClick={() => {
+            void confirm();
+          }}
+          type="button"
+          variant="destructive"
+        >
+          Delete
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

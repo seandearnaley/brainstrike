@@ -57,6 +57,12 @@ export interface NotesVaultState {
 
   initialize: () => Promise<void>;
   initialized: boolean;
+  /**
+   * The most recent rename's id remap (exact id or `/`-descendant prefix).
+   * Consumed by the note editor to REBIND an open buffer to the renamed
+   * note instead of detach-flushing through its pre-rename handle.
+   */
+  lastRename: { readonly from: string; readonly to: string } | null;
   reconnectRoot: (rootId: VaultRootId) => Promise<void>;
   refreshRoot: (rootId: VaultRootId) => Promise<void>;
   removeRoot: (rootId: VaultRootId) => Promise<void>;
@@ -533,6 +539,8 @@ export function createNotesVaultStore(services: NotesVaultServices) {
 
       initialized: false,
 
+      lastRename: null,
+
       reconnectRoot: async (rootId) => {
         const root = get().roots.find((candidate) => candidate.rootId === rootId);
         if (!root) {
@@ -606,11 +614,15 @@ export function createNotesVaultStore(services: NotesVaultServices) {
         try {
           await renameVaultEntry(context.parentHandle, context.node.handle, newName);
           const newId = makeVaultNodeId(context.root.rootId, [...context.parentSegments, newName]);
+          // lastRename ships in the SAME update as the id remaps so the
+          // editor sees the remap signal on the very render whose note id
+          // changed — one render later and it would flush the old buffer.
           set((state) => ({
             editRequestNoteId: remapId(state.editRequestNoteId, entryId, newId),
             expandedIds: new Set(
               [...state.expandedIds].map((id) => remapId(id, entryId, newId) ?? id)
             ),
+            lastRename: { from: entryId, to: newId },
             selectedNoteId: remapId(state.selectedNoteId, entryId, newId),
           }));
           await scanRoot(context.root.rootId, context.root.handle);
@@ -631,6 +643,7 @@ export function createNotesVaultStore(services: NotesVaultServices) {
           expandedIds: new Set<string>(),
           globalError: null,
           initialized: false,
+          lastRename: null,
           roots: [],
           selectedNoteId: null,
           sortMode: 'name-asc',
