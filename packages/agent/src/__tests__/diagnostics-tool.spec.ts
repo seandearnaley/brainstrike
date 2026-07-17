@@ -217,10 +217,9 @@ describe('System Diagnostics Tool', () => {
     });
 
     it('handles missing dependency gracefully', async () => {
-      deps.getDatabaseHealth = undefined;
-      deps.getWorkerHealth = undefined;
+      const { getDatabaseHealth: _db, getWorkerHealth: _worker, ...partialDeps } = deps;
 
-      const tool = createSystemDiagnosticsTool(deps);
+      const tool = createSystemDiagnosticsTool(partialDeps);
       const result = await tool.execute({ context: {} });
 
       expect(result.categoriesChecked).not.toContain('database');

@@ -84,8 +84,8 @@ describe('applyToolGuards', () => {
   it('guards every executable tool in the map', async () => {
     vi.useFakeTimers();
     const tools = {
-      a: { description: 'd', execute: () => new Promise(() => {}), id: 'a' },
-      b: { description: 'd', execute: async () => ({ ok: true }), id: 'b' },
+      a: { description: 'd', execute: (..._args: unknown[]) => new Promise(() => {}), id: 'a' },
+      b: { description: 'd', execute: async (..._args: unknown[]) => ({ ok: true }), id: 'b' },
     };
     const guarded = applyToolGuards(tools, { timeoutMs: 20 });
     const aPromise = guarded.a.execute({ context: {} });
