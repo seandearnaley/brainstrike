@@ -389,7 +389,7 @@ describe('QueueStatusTool', () => {
       const tools = buildToolsWithQueueStatus(deps);
 
       expect(tools[QUEUE_STATUS_TOOL_ID]).toBeDefined();
-      expect(tools[QUEUE_STATUS_TOOL_ID].id).toBe(QUEUE_STATUS_TOOL_ID);
+      expect(tools[QUEUE_STATUS_TOOL_ID]?.id).toBe(QUEUE_STATUS_TOOL_ID);
     });
 
     it('merges with existing tools', () => {

@@ -87,6 +87,10 @@
       "types": "./dist/assistant-ui-panel/context-usage-store.d.ts",
       "import": "./dist/assistant-ui-panel/context-usage-store.js"
     },
+    "./assistant-ui-panel/follow-up-queue-store": {
+      "types": "./dist/assistant-ui-panel/follow-up-queue-store.d.ts",
+      "import": "./dist/assistant-ui-panel/follow-up-queue-store.js"
+    },
     "./markdown-surface": {
       "types": "./dist/markdown-surface/index.d.ts",
       "import": "./dist/markdown-surface/index.js"

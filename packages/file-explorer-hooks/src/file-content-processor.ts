@@ -2,7 +2,7 @@ import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { FileContentError } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import {
@@ -187,18 +187,18 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     const extension = fileExplorer.getFileExtension(fileNode.path);
 
     if (fileContent.isBinaryExtension(extension)) {
-      throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
     }
 
     if (fileContent.isTextExtension(extension)) {
       if (!fileContent.isTextContent(content)) {
-        throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+        throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
       }
       return content;
     }
 
     if (!fileContent.isTextContent(content)) {
-      throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
     }
     return content;
   }

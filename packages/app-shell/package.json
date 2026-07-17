@@ -15,6 +15,7 @@
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",

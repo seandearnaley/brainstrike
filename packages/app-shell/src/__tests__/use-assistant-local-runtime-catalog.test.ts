@@ -28,7 +28,7 @@ const ollamaModelCatalog: LocalRuntimeModelCatalogMap = {
     freshness: 'live',
     models: [
       {
-        capabilities: { embeddings: 'unsupported', llm: true },
+        capabilities: { embeddings: 'unsupported', llm: true, vision: 'unknown' },
         capabilitySource: 'inferred',
         dimensionsKnown: { state: 'not_applicable' },
         displayName: 'Llama 3.2',

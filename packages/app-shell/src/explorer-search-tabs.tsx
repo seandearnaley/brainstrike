@@ -1,6 +1,13 @@
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
 import type { ExplorerActiveTab } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
+import {
+  PANEL_TAB_TRIGGER_CLASS_NAME,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useState } from 'react';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 
@@ -14,15 +21,9 @@ const LazyWorkspaceSearchPanel = lazy(async () => {
   return { default: mod.WorkspaceSearchPanel };
 });
 
-const TABS = [
-  { id: 'explorer', label: 'Explorer' },
-  { id: 'search', label: 'Search' },
-] as const;
-
-const TAB_BASE_CLASS =
-  'h-full flex-1 border-transparent border-b-2 px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring motion-reduce:transition-none';
-const TAB_ACTIVE_CLASS = 'border-primary font-medium text-foreground';
-const TAB_INACTIVE_CLASS = 'text-muted-foreground hover:text-foreground';
+function isExplorerActiveTab(value: string): value is ExplorerActiveTab {
+  return value === 'explorer' || value === 'search';
+}
 
 /**
  * The Search tab's live content. Instantiating the controller (which resolves
@@ -45,9 +46,10 @@ function WorkspaceSearchTabContent(): ReactElement {
 }
 
 /**
- * The left workspace panel: an Explorer|Search tab strip. The Explorer
+ * The left workspace panel: an Explorer|Search tab strip built on the shared
+ * segmented Tabs primitive (same idiom as the Library tabs). The Explorer
  * (file tree) STAYS MOUNTED when Search is active so its tree state survives
- * tab switches (only toggled hidden — mirrors RootLayoutContent's mountedTabs
+ * tab switches (only toggled hidden — mirrors AgentSidebarPanel's forceMount
  * pattern). The Search panel lazy-mounts on first activation and then stays
  * mounted too, preserving its query/results.
  */
@@ -57,67 +59,78 @@ export function ExplorerSearchTabs(): ReactElement {
 
   // Mounted-once latch: the Search panel mounts the first time it becomes active
   // and never unmounts afterwards. `explorerActiveTab` is only ever changed by
-  // this component's tabs, so latching in the click handler (plus the lazy init
+  // this component's tabs, so latching in the change handler (plus the lazy init
   // for a persisted `search`) covers every path — no sync effect needed.
   const [searchEverActivated, setSearchEverActivated] = useState(activeTab === 'search');
-  const handleSelectTab = useCallback(
-    (tab: ExplorerActiveTab): void => {
-      if (tab === 'search') {
+  const handleValueChange = useCallback(
+    (value: string): void => {
+      if (!isExplorerActiveTab(value)) {
+        return;
+      }
+      if (value === 'search') {
         setSearchEverActivated(true);
       }
-      setExplorerActiveTab(tab);
+      setExplorerActiveTab(value);
     },
     [setExplorerActiveTab]
   );
 
+  const searchTabMountProps = searchEverActivated
+    ? ({
+        forceMount: true,
+      } as const)
+    : {};
+
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+    <Tabs
+      // Manual activation: arrow keys move focus without activating, so
+      // keyboard roving never latches (and lazily downloads) the Search panel.
+      activationMode="manual"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+      onValueChange={handleValueChange}
+      value={activeTab}
+    >
       <div
-        aria-label="Explorer and search"
-        className="flex h-12 min-w-0 shrink-0 border-border border-b"
+        className="flex h-12 min-w-0 shrink-0 items-center border-border border-b px-2"
         data-testid="explorer-search-tab-strip"
-        role="tablist"
       >
-        {TABS.map((tab) => {
-          const selected = activeTab === tab.id;
-          return (
-            <button
-              aria-controls={`explorer-search-panel-${tab.id}`}
-              aria-selected={selected}
-              className={`${TAB_BASE_CLASS} ${selected ? TAB_ACTIVE_CLASS : TAB_INACTIVE_CLASS}`}
-              id={`explorer-search-tab-${tab.id}`}
-              key={tab.id}
-              onClick={() => handleSelectTab(tab.id)}
-              role="tab"
-              type="button"
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+        <TabsList aria-label="Explorer and search" className="grid h-8 w-full grid-cols-2">
+          <TabsTrigger
+            className={PANEL_TAB_TRIGGER_CLASS_NAME}
+            data-testid="explorer-tab-trigger"
+            value="explorer"
+          >
+            <span className="truncate">Explorer</span>
+          </TabsTrigger>
+          <TabsTrigger
+            className={PANEL_TAB_TRIGGER_CLASS_NAME}
+            data-testid="search-tab-trigger"
+            value="search"
+          >
+            <span className="truncate">Search</span>
+          </TabsTrigger>
+        </TabsList>
       </div>
 
-      <div
-        aria-hidden={activeTab !== 'explorer'}
-        aria-labelledby="explorer-search-tab-explorer"
-        className={activeTab === 'explorer' ? 'min-h-0 flex-1' : 'hidden'}
+      <TabsContent
+        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
         data-testid="explorer-search-panel-explorer"
-        id="explorer-search-panel-explorer"
-        role="tabpanel"
+        forceMount
+        hidden={activeTab !== 'explorer'}
+        value="explorer"
       >
         <FileExplorerPanel />
-      </div>
+      </TabsContent>
 
-      <div
-        aria-hidden={activeTab !== 'search'}
-        aria-labelledby="explorer-search-tab-search"
-        className={activeTab === 'search' ? 'min-h-0 flex-1' : 'hidden'}
+      <TabsContent
+        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
         data-testid="explorer-search-panel-search"
-        id="explorer-search-panel-search"
-        role="tabpanel"
+        hidden={activeTab !== 'search'}
+        {...searchTabMountProps}
+        value="search"
       >
         {searchEverActivated ? <WorkspaceSearchTabContent /> : null}
-      </div>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }

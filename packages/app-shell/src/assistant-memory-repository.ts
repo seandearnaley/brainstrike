@@ -677,7 +677,7 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
 -- Per-run outcome labels (Task Ledger, Phase 1). At most one verdict per run
 -- (upsert on run_id); 'source' preserves label provenance (user verdict,
 -- edit-checkpoint revert derivation, or lifecycle-hook report). Bootstrapped
--- here AND created by migration 060 — keep the shape byte-identical to 060.
+-- here AND created by migration 062 — keep the shape byte-identical to 062.
 -- NO FK to thread_runs (migration runners execute on a bare PGlite without the
 -- parent); like run_usage, outcome rows are analytic facts that outlive thread
 -- deletion. Factory reset purges the table (db-ipc.ts OptionalRelationTable).
@@ -1700,19 +1700,78 @@ function resolveAssistantGroupParentId(
   return resolvedParentId === undefined ? legacyParentId : resolvedParentId;
 }
 
+type AssistantHistoryUserMessage = Extract<
+  AssistantHistoryRepositoryMessages[number]['message'],
+  { role: 'user' }
+>;
+type AssistantHistoryUserAttachment = AssistantHistoryUserMessage['attachments'][number];
+
+/**
+ * Rebuild composer image attachments from the persisted Mastra v2 FILE
+ * dialect: `{ type: 'file', data: <base64 data URL>, mimeType: 'image/…' }`
+ * parts (the shape pinned by the packages/agent persistence spec — note
+ * `mimeType`, not `mediaType`). Hydrated attachments render through the same
+ * `MessagePrimitive.Attachments` strip as live sends, and their content is
+ * re-merged into the outbound message on later turns so the model keeps
+ * seeing the image after a reload.
+ */
+function toUserHistoryAttachments(
+  messageId: string,
+  value: unknown
+): AssistantHistoryUserAttachment[] {
+  const rawParts = readContentPartArray(value);
+  if (!rawParts) {
+    return [];
+  }
+  const attachments: AssistantHistoryUserAttachment[] = [];
+  for (const raw of rawParts) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      continue;
+    }
+    const record = raw as Record<string, unknown>;
+    if (record['type'] !== 'file') {
+      continue;
+    }
+    const data = record['data'];
+    const mimeType = record['mimeType'];
+    if (typeof data !== 'string' || typeof mimeType !== 'string') {
+      continue;
+    }
+    // v1 attachments are images only; a non-image file part is not renderable
+    // attachment state (and never produced by the composer adapter).
+    const normalizedMimeType = mimeType.toLowerCase();
+    if (!normalizedMimeType.startsWith('image/')) {
+      continue;
+    }
+    const index = attachments.length + 1;
+    const subtype = normalizedMimeType.slice('image/'.length) || 'png';
+    attachments.push({
+      content: [{ image: data, type: 'image' }],
+      contentType: mimeType,
+      id: `${messageId}-attachment-${index}`,
+      name: `image-${index}.${subtype}`,
+      status: { type: 'complete' },
+      type: 'image',
+    });
+  }
+  return attachments;
+}
+
 function appendUserHistoryMessage(args: {
   message: AssistantHistoryMessage;
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
   const content = toTextHistoryContentParts(args.message.content);
-  if (content.length === 0) {
+  const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
+  // An image-only user message has no text part but must survive hydration.
+  if (content.length === 0 && attachments.length === 0) {
     return false;
   }
 
   args.repositoryMessages.push({
     message: {
-      attachments: [],
+      attachments,
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,

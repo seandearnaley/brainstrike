@@ -36,7 +36,7 @@ test.describe('Desktop workspace search', () => {
     await searchTab.click();
     await expect(searchTab).toHaveAttribute('aria-selected', 'true');
 
-    const searchPanel = window.locator('#explorer-search-panel-search');
+    const searchPanel = window.getByTestId('explorer-search-panel-search');
     await expect(searchPanel).toBeVisible({ timeout: 15_000 });
 
     // The lazy panel's controls render (mode toggle + query input).
@@ -61,7 +61,7 @@ test.describe('Desktop workspace search', () => {
     await explorerTab.click();
     await expect(explorerTab).toHaveAttribute('aria-selected', 'true');
     await expect(searchTab).toHaveAttribute('aria-selected', 'false');
-    await expect(window.locator('#explorer-search-panel-explorer')).toBeVisible({
+    await expect(window.getByTestId('explorer-search-panel-explorer')).toBeVisible({
       timeout: 15_000,
     });
   });

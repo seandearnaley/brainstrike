@@ -1,6 +1,7 @@
-import { ComposerPrimitive, ThreadPrimitive } from '@assistant-ui/react';
-import { ArrowUpIcon, ClipboardListIcon, SquareIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ComposerPrimitive, ThreadPrimitive, useComposerRuntime } from '@assistant-ui/react';
+import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
+import type { ClipboardEvent, ReactNode } from 'react';
+import { collectImageFilesFromClipboard } from './attachment-adapter';
 
 /**
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
@@ -13,6 +14,20 @@ export interface PlanModeComposerControls {
   onExit?: () => void;
   onToggle: () => void;
 }
+
+/**
+ * Composer image-attachment availability, resolved by the app-shell wrapper.
+ * Absent means the affordance is not offered at all (provider gate: the
+ * text-only built-in local provider) and no adapter is registered. 'disabled'
+ * renders the attach button visibly disabled with `reason` (per-model vision
+ * gate) — never a silent hide — and blocks NEW adds (disabled button, no
+ * paste frame) while keeping the adapter and preview strip alive so an
+ * attachment staged before a model switch stays removable instead of being
+ * wiped by an adapter-less send.
+ */
+export type ComposerAttachmentsAvailability =
+  | { readonly state: 'enabled' }
+  | { readonly reason: string; readonly state: 'disabled' };
 
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
@@ -30,66 +45,145 @@ export interface PlanModeComposerControls {
  * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow = ({
+  attachmentsAvailability,
   isComposerDisabled,
   mentionPopover,
   planMode,
+  queueControl,
   slashPopover,
 }: {
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
+   * be queued for after the run — see follow-up-queue.tsx. */
+  queueControl?: ReactNode;
   slashPopover?: ReactNode;
-}) => (
-  <div className="bs-composer-input-frame">
-    <ComposerPrimitive.Input
-      aria-label="Message input"
-      className="aui-composer-input"
-      disabled={isComposerDisabled}
-      id="assistant-input"
-      placeholder="Ask BrainStrike anything..."
-      rows={1}
-    />
-    {slashPopover}
-    {mentionPopover}
-    <div className="bs-composer-primary-actions">
-      {planMode ? (
-        <button
-          aria-label="Toggle plan mode"
-          aria-pressed={planMode.enabled}
-          className="aui-button aui-button-ghost"
-          data-testid="assistant-plan-mode-toggle"
-          onClick={planMode.onToggle}
-          title="Plan mode: investigate read-only and propose a plan for approval before any changes."
-          type="button"
-        >
-          <ClipboardListIcon
-            className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
-          />
-        </button>
-      ) : null}
-      <ThreadPrimitive.If running={false}>
-        <ComposerPrimitive.Send
-          aria-label="Send"
-          className="aui-button aui-button-primary aui-composer-send"
-          disabled={isComposerDisabled}
-          title="Send"
-        >
-          <ArrowUpIcon className="size-4" />
-        </ComposerPrimitive.Send>
-      </ThreadPrimitive.If>
-      <ThreadPrimitive.If running>
-        <ComposerPrimitive.Cancel
-          aria-label="Stop"
-          className="aui-button aui-button-primary aui-composer-cancel"
-          disabled={isComposerDisabled}
-          title="Stop"
-        >
-          <SquareIcon className="size-3.5 fill-current" />
-        </ComposerPrimitive.Cancel>
-      </ThreadPrimitive.If>
-    </div>
-  </div>
+}) => {
+  const InputFrame =
+    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled
+      ? AttachmentPasteFrame
+      : PlainInputFrame;
+
+  return (
+    <InputFrame>
+      <ComposerPrimitive.Input
+        aria-label="Message input"
+        className="aui-composer-input"
+        disabled={isComposerDisabled}
+        id="assistant-input"
+        placeholder="Ask BrainStrike anything..."
+        rows={1}
+      />
+      {slashPopover}
+      {mentionPopover}
+      <div className="bs-composer-primary-actions">
+        {attachmentsAvailability?.state === 'enabled' ? (
+          <ComposerPrimitive.AddAttachment
+            aria-label="Attach image"
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-attach-image"
+            disabled={isComposerDisabled}
+            multiple
+            title="Attach an image (you can also paste one)"
+          >
+            <ImageIcon className="size-4" />
+          </ComposerPrimitive.AddAttachment>
+        ) : null}
+        {attachmentsAvailability?.state === 'disabled' ? (
+          // A plain disabled button (not the AddAttachment primitive): adds
+          // are blocked in this state while the adapter stays registered for
+          // already-staged attachments, and the reason must stay visible
+          // rather than the affordance silently vanishing.
+          <button
+            aria-label="Attach image (unavailable)"
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-attach-image"
+            disabled
+            title={attachmentsAvailability.reason}
+            type="button"
+          >
+            <ImageIcon className="size-4" />
+          </button>
+        ) : null}
+        {planMode ? (
+          <button
+            aria-label="Toggle plan mode"
+            aria-pressed={planMode.enabled}
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-plan-mode-toggle"
+            onClick={planMode.onToggle}
+            title="Plan mode: investigate read-only and propose a plan for approval before any changes."
+            type="button"
+          >
+            <ClipboardListIcon
+              className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
+            />
+          </button>
+        ) : null}
+        <ThreadPrimitive.If running={false}>
+          <ComposerPrimitive.Send
+            aria-label="Send"
+            className="aui-button aui-button-primary aui-composer-send"
+            disabled={isComposerDisabled}
+            title="Send"
+          >
+            <ArrowUpIcon className="size-4" />
+          </ComposerPrimitive.Send>
+        </ThreadPrimitive.If>
+        <ThreadPrimitive.If running>
+          {queueControl}
+          <ComposerPrimitive.Cancel
+            aria-label="Stop"
+            className="aui-button aui-button-primary aui-composer-cancel"
+            disabled={isComposerDisabled}
+            title="Stop"
+          >
+            <SquareIcon className="size-3.5 fill-current" />
+          </ComposerPrimitive.Cancel>
+        </ThreadPrimitive.If>
+      </div>
+    </InputFrame>
+  );
+};
+
+const PlainInputFrame = ({ children }: { children: ReactNode }) => (
+  <div className="bs-composer-input-frame">{children}</div>
 );
+
+/**
+ * The composer frame variant with image-paste support. A SEPARATE component
+ * (mounted only when attachments are enabled) so `useComposerRuntime` is not
+ * pulled in on the attachment-less path. Pasted images become composer
+ * attachments (validated by the attachment adapter); non-image clipboard
+ * content keeps the default paste behavior. Rejections are surfaced by the
+ * `composer.attachmentAddError` event (the error note in
+ * ComposerAttachmentsBar); the catch only prevents an unhandled-rejection
+ * duplicate report.
+ */
+const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
+  const composerRuntime = useComposerRuntime();
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const files = collectImageFilesFromClipboard(Array.from(event.clipboardData?.files ?? []));
+    if (files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    for (const file of files) {
+      composerRuntime.addAttachment(file).catch(() => {
+        /* reported via composer.attachmentAddError */
+      });
+    }
+  };
+
+  return (
+    <div className="bs-composer-input-frame" onPaste={handlePaste}>
+      {children}
+    </div>
+  );
+};
 
 /**
  * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at
@@ -107,22 +201,28 @@ const ComposerInputRow = ({
  * empty menu).
  */
 export const ComposerInputWithTriggers = ({
+  attachmentsAvailability,
   isComposerDisabled,
   slashPopover,
   mentionPopover,
   planMode,
+  queueControl,
 }: {
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  queueControl?: ReactNode;
 }) => {
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
+      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}
+      {...(queueControl ? { queueControl } : {})}
     />
   );
   if (!(slashPopover || mentionPopover)) {

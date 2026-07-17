@@ -109,9 +109,9 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     // and a remote `baseUrl` configured for Ollama would, prior to this fix,
     // implicitly forward their OpenAI key as a `Bearer` header to the remote
     // host. The dummy `apiKey: 'ollama'` substitution prevents the SDK from
-    // ever consulting `process.env.OPENAI_API_KEY`.
-    const previousKey = process.env.OPENAI_API_KEY;
-    process.env.OPENAI_API_KEY = 'sk-real-secret-do-not-leak';
+    // ever consulting `process.env['OPENAI_API_KEY']`.
+    const previousKey = process.env['OPENAI_API_KEY'];
+    process.env['OPENAI_API_KEY'] = 'sk-real-secret-do-not-leak';
     try {
       const { createProvider } = await import('../providers/provider-factory');
       const model = createProvider('ollama', undefined, 'qwen3:latest', {
@@ -123,10 +123,13 @@ describe('provider-factory local-runtime endpoint overrides', () => {
         url: 'https://gpu.lan:11434/v1',
       });
     } finally {
-      // Restore prior env state. Assigning `undefined` is preferred over
-      // `delete` (lint rule `noDelete`); it produces an equivalent
-      // `process.env.OPENAI_API_KEY === undefined` for downstream lookups.
-      process.env.OPENAI_API_KEY = previousKey;
+      // Restore prior env state. Assigning `undefined` to `process.env` would
+      // coerce to the string "undefined", so delete the key when it was unset.
+      if (previousKey === undefined) {
+        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      } else {
+        process.env['OPENAI_API_KEY'] = previousKey;
+      }
     }
   });
 

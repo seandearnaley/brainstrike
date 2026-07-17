@@ -42,6 +42,7 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",

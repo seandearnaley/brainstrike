@@ -528,7 +528,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(
       activeWindow
         .getByTestId('database-tab-trigger')
-        .or(activeWindow.getByRole('tab', { name: 'Database' }))
+        .or(activeWindow.getByRole('tab', { name: 'Collections' }))
     ).toBeVisible({ timeout: 10_000 });
 
     activeWindow = await showDatabaseDemoPanel(activeWindow);
