@@ -85,6 +85,7 @@ import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from './
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
+import { RunVerdictControl } from './run-verdict-control';
 import { ShellOutputProvider } from './shell-output-context';
 import {
   buildSlashCommandIconMap,
@@ -1569,6 +1570,9 @@ const AssistantMessage = () => {
         {/* Turn-level "Revert all edits" footer — renders only on desktop turns
             that made ≥1 still-revertible file edit; null everywhere else. */}
         <CheckpointTurnRevert />
+        {/* Per-run 👍/👎 verdict (Task Ledger) — renders once per finished run
+            on its terminal message leg; null without a verdict provider. */}
+        <RunVerdictControl />
       </div>
 
       <AssistantActionBar />

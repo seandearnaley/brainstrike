@@ -54,7 +54,11 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1525 → 1540 for per-model vision attachment gating: the shared
     // selected-model definition memo (feeds both the token budget and the
     // composer attachment gate) plus the attachments-availability memo.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1540);
+    // Bumped 1540 → 1550 for the Task Ledger run-verdict binding: the wrapper
+    // only calls useRunVerdictBinding and mounts <RunVerdictProvider>; the
+    // phase machine and runId detection live in packages/ui
+    // (run-verdict-control.tsx / run-verdict-context.tsx).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1550);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

@@ -352,6 +352,22 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   `edit_revert` label. `edit_revert` labels are derived in
   `use-edit-checkpoints.ts` after a successful revert (see
   workspace-context.md § Edit Checkpoint Journal).
+- **User verdicts (👍/👎):** `RunVerdictControl` (packages/ui
+  `run-verdict-control.tsx`) mounts on every assistant message and renders once
+  per run — on the message leg carrying the terminal `run.finished` run-event
+  data part (works for edit-less runs; `run.failed` legs are deliberately
+  excluded in v1, and web local-runtime events without a runId are skipped).
+  The capability seam is `RunVerdictProvider`/`useRunVerdictContext`
+  (`run-verdict-context.tsx`) — PARALLEL to EditCheckpointContext by design:
+  verdicts gate on the repository's optional `recordRunOutcome` (present
+  wherever the PGlite repo exists, including web), not the desktop checkpoint
+  bridge. App-shell binds it via `useRunVerdictBinding`
+  (`hooks/use-run-verdict.ts`, source `'user'`, upserts over derived labels);
+  a rejected save shows a visible retry, never a silent drop. Write-only in
+  v1 (no read-back of a stored label after reload — the ledger remains the
+  authoritative view). The wrapper line-budget bump and the panel
+  owned-module assertions live in `assistant-contract-boundary.test.ts` and
+  `assistant-ui-panel-architecture.test.ts`.
 - **Ledger read model:** `getRunLedger(resourceId, {limitLatest})` aggregates
   each `thread_runs` row with SUM'd run_usage tokens + exact billed cost
   (absent — never a fabricated 0 — when unreported), top-level
