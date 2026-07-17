@@ -1,3 +1,4 @@
+import { withIndexBuildMaintenanceWorkMem } from '@brainstrike/db';
 import { createLogger, getErrorMessage } from '@brainstrike/utils';
 import type {
   CreateIndexParams,
@@ -74,7 +75,8 @@ const VECTOR_OPERATORS = {
 // vector), and hosted embedders in the registry emit up to 3072 — so the fp16
 // path is mandatory for large models, not just a size optimization. Mirrors
 // packages/db/src/migrations/dimension-index-helpers.ts (file_chunks), which is
-// hardwired to that table; mastra_vectors owns its own simpler variant here.
+// hardwired to that table; mastra_vectors owns its own simpler variant here,
+// but shares that module's withIndexBuildMaintenanceWorkMem build-memory tuning.
 const MAX_HNSW_DIMENSION = 4000;
 const HNSW_OPCLASSES = {
   cosine: 'halfvec_cosine_ops',
@@ -151,6 +153,30 @@ function parseMetadata(
       : undefined;
   }
   return value;
+}
+
+/**
+ * Best-effort row estimate for HNSW build-memory sizing (mirrors the
+ * file_chunks estimator in @brainstrike/db, which is hardwired to that table).
+ * Counts every row rather than filtering by vector_dims(): over-counting
+ * across dimensions/metrics only nudges the capped memory ceiling upward. A
+ * failed count degrades to default sizing with a visible warning — sizing must
+ * never block the build itself.
+ */
+async function estimateMastraVectorRowCount(database: PgliteDatabase): Promise<number> {
+  try {
+    const result = await database.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM ${MASTRA_VECTOR_TABLE}`
+    );
+    const count = Number(result.rows[0]?.count ?? 0);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  } catch (error) {
+    logger.warn(
+      'Failed to estimate mastra_vectors row count for HNSW build memory sizing; using default maintenance_work_mem',
+      { code: 'mastra_vector_row_count_estimate_failed', error: getErrorMessage(error) }
+    );
+    return 0;
+  }
 }
 
 function assertIndexName(indexName: string): void {
@@ -253,6 +279,14 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   private readonly runId: string | undefined;
   private initPromise: Promise<void> | null = null;
   private readonly dimensionIndexPromises = new Map<string, Promise<void>>();
+  // Builds SERIALIZE across (dimension, metric) keys: maintenance_work_mem is
+  // session-global on PGlite's single shared connection, so with concurrent
+  // per-key builds one build's RESET could land between another's SET and its
+  // CREATE INDEX, silently dropping that build back to the slow 64MB default.
+  // Mirrors the file_chunks deferred builder's chain in @brainstrike/db; the
+  // connection can only execute one CREATE INDEX at a time anyway, so chaining
+  // costs nothing. The chain never rejects (failures surface via `created`).
+  private dimensionIndexBuildChain: Promise<void> = Promise.resolve();
 
   constructor(options: PgliteVectorStoreOptions) {
     super({ id: options.id ?? 'brainstrike-pglite-vector' });
@@ -581,7 +615,9 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       await pending;
       return;
     }
+    const previousBuild = this.dimensionIndexBuildChain;
     const created = (async () => {
+      await previousBuild;
       if (dimension > MAX_HNSW_DIMENSION) {
         logger.warn('Skipping HNSW index for dimension above halfvec ceiling', {
           code: 'mastra_vector_dimension_index_skipped',
@@ -591,16 +627,24 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
         });
         return;
       }
-      await this.database.query(
-        `CREATE INDEX IF NOT EXISTS ${dimensionIndexName(dimension, metric)}
-           ON ${MASTRA_VECTOR_TABLE}
-           USING hnsw ((embedding::halfvec(${dimension})) ${HNSW_OPCLASSES[metric]})
-           WHERE vector_dims(embedding) = ${dimension}`
-      );
+      // A graph larger than maintenance_work_mem forces pgvector's slow
+      // disk-based build phase (benchmarked 5x slower at 100k rows x 1024 dims
+      // on file_chunks); the shared helper raises the setting for the build
+      // only and resets it loudly afterwards.
+      const rowCount = await estimateMastraVectorRowCount(this.database);
+      await withIndexBuildMaintenanceWorkMem(this.database, { dimension, rowCount }, async () => {
+        await this.database.query(
+          `CREATE INDEX IF NOT EXISTS ${dimensionIndexName(dimension, metric)}
+             ON ${MASTRA_VECTOR_TABLE}
+             USING hnsw ((embedding::halfvec(${dimension})) ${HNSW_OPCLASSES[metric]})
+             WHERE vector_dims(embedding) = ${dimension}`
+        );
+      });
     })().catch((error: unknown) => {
       this.dimensionIndexPromises.delete(key);
       throw error;
     });
+    this.dimensionIndexBuildChain = created.catch(() => undefined);
     this.dimensionIndexPromises.set(key, created);
     await created;
   }

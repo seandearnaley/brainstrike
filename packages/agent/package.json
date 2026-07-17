@@ -7,6 +7,7 @@
     "@ai-sdk/openai": "^4.0.8",
     "@ai-sdk/provider": "4.0.2",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",

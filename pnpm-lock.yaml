@@ -743,6 +743,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter

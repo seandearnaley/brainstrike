@@ -49,6 +49,7 @@ export * from './migrations/bootstrap.js';
 export {
   createDimensionIndex,
   dropDimensionIndex,
+  estimateEmbeddedRowCount,
   hnswParams,
   resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
