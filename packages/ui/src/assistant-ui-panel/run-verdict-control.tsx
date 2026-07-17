@@ -15,9 +15,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * run event lands exactly once, on the run's final assistant message leg, so
  * its presence is the "render once per run" discriminant — independent of the
  * checkpoint journal, so edit-less runs get a verdict control too. `run.failed`
- * legs are deliberately excluded in v1: the transport failure is already an
- * honest ledger status, and a quality verdict on aborted work would conflate
- * the two signals. Web local-runtime events carry no runId and are skipped.
+ * AND `run.cancelled` legs are deliberately excluded in v1 (review #1697):
+ * the transport failure / user abort is already an honest ledger status, and
+ * a quality verdict on aborted work would conflate the two signals. Web
+ * local-runtime events carry no runId and are skipped.
  */
 export function selectFinishedRunId(parts: readonly unknown[]): string | null {
   for (const part of parts) {
