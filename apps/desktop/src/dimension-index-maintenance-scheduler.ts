@@ -1,6 +1,7 @@
 import {
   type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
+  type DimensionIndexMaintenanceStrategy,
   hnswParams,
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
@@ -158,7 +159,7 @@ async function createDimensionIndexWithMaintenanceExec(
   db: DimensionIndexMaintenanceDb,
   request: {
     readonly dimension: number;
-    readonly strategy: string;
+    readonly strategy: DimensionIndexMaintenanceStrategy;
   }
 ): Promise<void> {
   if (request.strategy !== 'regular') {
