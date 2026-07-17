@@ -203,23 +203,43 @@ export async function withIndexBuildMaintenanceWorkMem(
     );
   }
   const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
+  let buildFailed = false;
+  let buildError: unknown;
 
   try {
     if (tuneBuildMemory) {
       await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
     }
     await build();
-  } finally {
-    if (tuneBuildMemory) {
-      try {
-        await db.exec('RESET maintenance_work_mem');
-      } catch (resetError) {
-        logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
-          dimension,
-          error: resetError instanceof Error ? resetError.message : String(resetError),
-        });
+  } catch (error) {
+    buildFailed = true;
+    buildError = error;
+  }
+
+  if (tuneBuildMemory) {
+    try {
+      await db.exec('RESET maintenance_work_mem');
+    } catch (resetError) {
+      const resetMessage = resetError instanceof Error ? resetError.message : String(resetError);
+      logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
+        dimension,
+        error: resetMessage,
+      });
+      // A successful build with a failed RESET must NOT resolve: the raised
+      // limit would silently ride along in every subsequent query's session
+      // while the caller records a healthy rebuild. When the build itself
+      // failed, the original build error propagates below (the reset failure
+      // is logged here) — masking the root cause would misdirect retries.
+      if (!buildFailed) {
+        throw new Error(
+          `Failed to reset maintenance_work_mem after HNSW index build for ${dimension}D: ${resetMessage}`
+        );
       }
     }
+  }
+
+  if (buildFailed) {
+    throw buildError;
   }
 }
 

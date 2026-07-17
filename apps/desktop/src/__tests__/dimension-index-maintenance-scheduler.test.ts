@@ -276,6 +276,62 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       expect(resetIndex).toBeGreaterThan(createIndex);
     });
 
+    it('surfaces a RESET failure after a successful build instead of recording a healthy rebuild', async () => {
+      // maintenance_work_mem is session-global on PGlite's single connection:
+      // a swallowed RESET failure would leave the raised limit applied to every
+      // subsequent query while the scheduler logs a completed rebuild.
+      const maintenanceExec = vi.fn(async (sql: string) => {
+        if (sql.includes('RESET maintenance_work_mem')) {
+          throw new Error('simulated reset failure');
+        }
+        return;
+      });
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await expect(options.createIndex({ dimension: 1024, strategy: 'regular' })).rejects.toThrow(
+          /reset maintenance_work_mem/i
+        );
+        return {
+          dimension: 1024,
+          error: 'reset failed',
+          status: 'failed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'failed' });
+      expect(runDimensionMaintenance).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates the build error (not the reset error) when both the build and the RESET fail', async () => {
+      const maintenanceExec = vi.fn(async (sql: string) => {
+        if (sql.includes('CREATE INDEX')) {
+          throw new Error('hnsw build exploded');
+        }
+        if (sql.includes('RESET maintenance_work_mem')) {
+          throw new Error('simulated reset failure');
+        }
+        return;
+      });
+      const query = createCountingQuery('100000');
+      const runDimensionMaintenance = vi.fn(async (_db, options) => {
+        await expect(options.createIndex({ dimension: 1024, strategy: 'regular' })).rejects.toThrow(
+          'hnsw build exploded'
+        );
+        return {
+          dimension: 1024,
+          error: 'hnsw build exploded',
+          status: 'failed',
+          strategy: 'regular',
+        } satisfies RunDimensionIndexMaintenanceResult;
+      });
+      const scheduler = createSchedulerWithDb({ maintenanceExec, query, runDimensionMaintenance });
+
+      await expect(scheduler.runOnce()).resolves.toMatchObject({ status: 'failed' });
+      expect(runDimensionMaintenance).toHaveBeenCalledTimes(1);
+    });
+
     it('skips the SET/RESET pair when the estimated build fits the default maintenance_work_mem', async () => {
       const maintenanceExec = vi.fn(async () => undefined);
       const query = createCountingQuery('10');
