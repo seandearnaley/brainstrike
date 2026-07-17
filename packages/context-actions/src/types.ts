@@ -71,7 +71,11 @@ export type ContextTarget =
   | { kind: 'collection'; id: string; name: string }
   | { kind: 'collection-file'; id: string; name: string; path: string | null }
   | { kind: 'chunk'; id: string; content: string }
-  | { kind: 'embedding'; id: string; vectorId: string };
+  | { kind: 'embedding'; id: string; vectorId: string }
+  /** Notes-vault tree rows (surface-local actions only; id = `${rootId}:${path}`). */
+  | { kind: 'vault-note'; id: string; name: string }
+  | { kind: 'vault-folder'; id: string; name: string }
+  | { kind: 'vault-root'; id: string; name: string; builtIn: boolean };
 
 export type ContextTargetKind = ContextTarget['kind'];
 

@@ -1,6 +1,7 @@
 export * from './create-note';
 export * from './default-vault';
 export * from './drop';
+export * from './entry-ops';
 export * from './handle-store';
 export * from './links';
 export * from './permissions';

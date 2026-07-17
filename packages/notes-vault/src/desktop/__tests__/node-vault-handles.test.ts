@@ -20,11 +20,17 @@ function ok<T>(value: T): NotesVaultResult<T> {
 
 /** Path-keyed in-memory bridge; keys are absolute POSIX-ish paths. */
 function fakeBridge(entries: Record<string, FakeFsEntry>): NotesVaultBridge & {
+  createdDirectories: string[];
+  deleted: { path: string; recursive: boolean }[];
   fs: Map<string, FakeFsEntry>;
   readFileCalls: string[];
+  renames: { from: string; to: string }[];
 } {
   const fs = new Map(Object.entries(entries));
   const readFileCalls: string[] = [];
+  const createdDirectories: string[] = [];
+  const deleted: { path: string; recursive: boolean }[] = [];
+  const renames: { from: string; to: string }[] = [];
   const entryFor = (path: string): NotesVaultBridgeEntry | null => {
     const entry = fs.get(path);
     if (!entry) {
@@ -36,6 +42,18 @@ function fakeBridge(entries: Record<string, FakeFsEntry>): NotesVaultBridge & {
       : { kind: 'directory', lastModified: 0, name, size: 0 };
   };
   return {
+    createDirectory: (path: string) => {
+      createdDirectories.push(path);
+      fs.set(path, { kind: 'directory' });
+      return Promise.resolve(ok(null));
+    },
+    createdDirectories,
+    deleted,
+    deleteEntry: (path: string, options: { recursive: boolean }) => {
+      deleted.push({ path, recursive: options.recursive });
+      fs.delete(path);
+      return Promise.resolve(ok(null));
+    },
     ensureDefaultVault: () => Promise.resolve(ok({ name: 'Brainstrike Notes', path: '/docs/n' })),
     fs,
     listDirectory: (path: string) => {
@@ -66,6 +84,16 @@ function fakeBridge(entries: Record<string, FakeFsEntry>): NotesVaultBridge & {
     readFileCalls,
     registerRoot: (path: string) =>
       Promise.resolve(ok({ name: path.split('/').at(-1) ?? path, path })),
+    rename: (fromPath: string, toPath: string) => {
+      renames.push({ from: fromPath, to: toPath });
+      const entry = fs.get(fromPath);
+      if (entry) {
+        fs.delete(fromPath);
+        fs.set(toPath, entry);
+      }
+      return Promise.resolve(ok(null));
+    },
+    renames,
     statEntry: (path: string) => Promise.resolve(ok(entryFor(path))),
     unwatch: () => Promise.resolve(ok(null)),
     watch: () => Promise.resolve(ok({ watchId: 'w1' })),
@@ -158,5 +186,72 @@ describe('createNodeVaultDirectoryHandle', () => {
 
     await expect(scanVaultDirectory(root, 'r1')).rejects.toThrow(/disk detached/);
     failing.mockRestore();
+  });
+});
+
+describe('entry management over the bridge', () => {
+  const VAULT2: Record<string, FakeFsEntry> = {
+    '/vault': { kind: 'directory' },
+    '/vault/inbox.md': { content: '# Inbox', kind: 'file', lastModified: 100 },
+    '/vault/projects': { kind: 'directory' },
+  };
+
+  it('creates folders through getDirectoryHandle(create)', async () => {
+    const bridge = fakeBridge(VAULT2);
+    const root = createNodeVaultDirectoryHandle(bridge, '/vault', 'vault');
+
+    const created = await root.getDirectoryHandle('new-folder', { create: true });
+
+    expect(created.kind).toBe('directory');
+    expect(bridge.createdDirectories).toContain('/vault/new-folder');
+  });
+
+  it('deletes entries through removeEntry', async () => {
+    const bridge = fakeBridge(VAULT2);
+    const root = createNodeVaultDirectoryHandle(bridge, '/vault', 'vault');
+
+    await root.removeEntry?.('inbox.md');
+    await root.removeEntry?.('projects', { recursive: true });
+
+    expect(bridge.deleted).toEqual([
+      { path: '/vault/inbox.md', recursive: false },
+      { path: '/vault/projects', recursive: true },
+    ]);
+  });
+
+  it('renames entries via move (same-directory)', async () => {
+    const bridge = fakeBridge(VAULT2);
+    const root = createNodeVaultDirectoryHandle(bridge, '/vault', 'vault');
+    const note = await root.getFileHandle('inbox.md');
+    const folder = await root.getDirectoryHandle('projects');
+
+    await note.move?.('renamed.md');
+    await folder.move?.('archive');
+
+    expect(bridge.renames).toEqual([
+      { from: '/vault/inbox.md', to: '/vault/renamed.md' },
+      { from: '/vault/projects', to: '/vault/archive' },
+    ]);
+  });
+
+  it('move updates the handle path so later writes hit the new location', async () => {
+    const bridge = fakeBridge(VAULT2);
+    const root = createNodeVaultDirectoryHandle(bridge, '/vault', 'vault');
+    const note = await root.getFileHandle('inbox.md');
+
+    await note.move?.('renamed.md');
+    await writeNoteFile(note, 'post-rename write');
+
+    expect((bridge.fs.get('/vault/renamed.md') as FakeFsFile).content).toBe('post-rename write');
+    expect(bridge.fs.has('/vault/inbox.md')).toBe(false);
+    expect(note.name).toBe('renamed.md');
+  });
+
+  it('surfaces bridge refusals as thrown errors', async () => {
+    const bridge = fakeBridge(VAULT2);
+    bridge.deleteEntry = () => Promise.resolve({ error: 'outside approved root', ok: false });
+    const root = createNodeVaultDirectoryHandle(bridge, '/vault', 'vault');
+
+    await expect(root.removeEntry?.('inbox.md')).rejects.toThrow(/outside approved root/);
   });
 });

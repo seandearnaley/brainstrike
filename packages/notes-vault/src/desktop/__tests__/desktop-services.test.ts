@@ -18,6 +18,8 @@ function stubBridge(overrides: Partial<NotesVaultBridge> = {}): NotesVaultBridge
   const unwatched: string[] = [];
   return {
     changeListeners,
+    createDirectory: () => Promise.resolve(ok(null)),
+    deleteEntry: () => Promise.resolve(ok(null)),
     ensureDefaultVault: () =>
       Promise.resolve(ok({ name: 'Brainstrike Notes', path: '/docs/Brainstrike Notes' })),
     listDirectory: () => Promise.resolve(ok([])),
@@ -37,6 +39,7 @@ function stubBridge(overrides: Partial<NotesVaultBridge> = {}): NotesVaultBridge
       registeredRoots.push(path);
       return Promise.resolve(ok({ name: path.split('/').at(-1) ?? path, path }));
     },
+    rename: () => Promise.resolve(ok(null)),
     statEntry: () => Promise.resolve(ok(null)),
     unwatch: (watchId: string) => {
       unwatched.push(watchId);

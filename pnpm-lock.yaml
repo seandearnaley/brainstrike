@@ -1823,6 +1823,9 @@ importers:
 
   packages/notes-vault:
     dependencies:
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

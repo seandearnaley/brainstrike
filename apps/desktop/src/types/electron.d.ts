@@ -357,6 +357,12 @@ declare global {
      * `notes-vault:changed` pushes and returns an unsubscribe fn.
      */
     notesVault?: {
+      createDirectory: (path: string) => Promise<NotesVaultResult<null>>;
+      deleteEntry: (
+        path: string,
+        options: { recursive: boolean }
+      ) => Promise<NotesVaultResult<null>>;
+      rename: (fromPath: string, toPath: string) => Promise<NotesVaultResult<null>>;
       ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
       pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
       registerRoot: (path: string) => Promise<NotesVaultResult<NotesVaultRoot>>;
