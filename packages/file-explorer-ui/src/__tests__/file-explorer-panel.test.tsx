@@ -12,6 +12,7 @@ import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEventDetail,
 } from '../shell/file-explorer-refresh-event';
+import { useOptionalForestTreeActions } from '../shell/forest-tree-actions-context';
 import { useFileExplorer } from '../shell/use-file-explorer-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
 import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
@@ -88,6 +89,13 @@ vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(),
 }));
+// Keep the real provider (the panel mounts it) but stub the hook so forest
+// tests can hand the panel a controllable actions registry. Default null =
+// "no forest provider", the single-root path every existing test exercises.
+vi.mock('../shell/forest-tree-actions-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shell/forest-tree-actions-context')>();
+  return { ...actual, useOptionalForestTreeActions: vi.fn(() => null) };
+});
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
@@ -332,6 +340,9 @@ describe('FileExplorerPanel', () => {
 
     showToastMock = vi.fn<(options: unknown) => void>();
     handleDirectorySelectErrorMock = vi.fn();
+    // clearAllMocks keeps mockReturnValue overrides — reset the forest hook
+    // to its "no provider" default so forest tests can't leak into others.
+    vi.mocked(useOptionalForestTreeActions).mockReturnValue(null);
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
@@ -1236,6 +1247,123 @@ describe('FileExplorerPanel', () => {
 
     expect(expandAllProgressivelyMock).toHaveBeenCalled();
     expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+  });
+
+  describe('forest expand-all confirmation', () => {
+    const makeHandle = (name: string): DirectoryHandle => ({
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory',
+      name,
+      path: `/${name}`,
+      platform: 'web',
+    });
+
+    const makeForestActions = () => ({
+      cancelExpandAll: vi.fn(),
+      collectVisibleQuickFilterKeys: vi.fn(() => []),
+      expandAllProgress: null,
+      isExpandingAll: false,
+      register: vi.fn(() => () => {}),
+      reportExpandAllProgress: vi.fn(),
+      runExpandAll: vi.fn().mockResolvedValue(undefined),
+      runSelectAll: vi.fn().mockResolvedValue({ limitReached: false, sections: 0, selected: 0 }),
+    });
+
+    const dirNode = {
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      name: 'dir',
+      path: '/dir',
+      rootFolderId: 'root',
+      selectionState: 'unchecked' as const,
+      type: 'directory' as const,
+    };
+
+    function arrangeForest() {
+      const forestActions = makeForestActions();
+      vi.mocked(useOptionalForestTreeActions).mockReturnValue(forestActions);
+      vi.mocked(useFileExplorer).mockReturnValue({
+        ...fileExplorerReturnValue,
+        fileTree: [dirNode],
+        rootDirectoryHandles: [makeHandle('a'), makeHandle('b')],
+      });
+      return forestActions;
+    }
+
+    it('stages the multi-root sweep behind a confirmation naming the root count', async () => {
+      const user = userEvent.setup();
+      const forestActions = arrangeForest();
+
+      renderWithProviders(<FileExplorerPanel />);
+      await user.click(screen.getByTestId('expand-all-button-small'));
+
+      // The I/O-heavy sweep must NOT start until the user confirms.
+      expect(forestActions.runExpandAll).not.toHaveBeenCalled();
+      const dialog = await screen.findByTestId('expand-all-confirm-dialog');
+      expect(dialog).toHaveTextContent('2');
+
+      await user.click(screen.getByTestId('expand-all-confirm-run'));
+      expect(forestActions.runExpandAll).toHaveBeenCalledTimes(1);
+      await waitFor(() =>
+        expect(screen.queryByTestId('expand-all-confirm-dialog')).not.toBeInTheDocument()
+      );
+    });
+
+    it('does not run the sweep when the confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      const forestActions = arrangeForest();
+
+      renderWithProviders(<FileExplorerPanel />);
+      await user.click(screen.getByTestId('expand-all-button-small'));
+      await user.click(await screen.findByTestId('expand-all-confirm-cancel'));
+
+      expect(forestActions.runExpandAll).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(screen.queryByTestId('expand-all-confirm-dialog')).not.toBeInTheDocument()
+      );
+    });
+
+    it('shows aggregate forest progress with a cancel affordance while the sweep runs', async () => {
+      const user = userEvent.setup();
+      const forestActions = {
+        ...makeForestActions(),
+        expandAllProgress: { loaded: 3, total: 9 },
+        isExpandingAll: true,
+      };
+      vi.mocked(useOptionalForestTreeActions).mockReturnValue(forestActions);
+      vi.mocked(useFileExplorer).mockReturnValue({
+        ...fileExplorerReturnValue,
+        fileTree: [dirNode],
+        rootDirectoryHandles: [makeHandle('a'), makeHandle('b')],
+      });
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      // The toolbar indicator must read the FOREST aggregate — the focused
+      // provider's expandAllProgress stays null during a forest sweep.
+      expect(screen.getByTestId('inline-scanning-count')).toHaveTextContent('3/9');
+
+      // ...and the cancel X must stop the forest run, not the focused provider.
+      await user.click(screen.getByRole('button', { name: /cancel operation/i }));
+      expect(forestActions.cancelExpandAll).toHaveBeenCalled();
+    });
+
+    it('keeps single-root expand-all immediate — no confirmation dialog', async () => {
+      const user = userEvent.setup();
+      const expandAllProgressivelyMock = vi.fn();
+      vi.mocked(useFileExplorer).mockReturnValue({
+        ...fileExplorerReturnValue,
+        expandAllProgressively: expandAllProgressivelyMock,
+        fileTree: [dirNode],
+        rootDirectoryHandles: [makeHandle('a')],
+      });
+
+      renderWithProviders(<FileExplorerPanel />);
+      await user.click(screen.getByTestId('expand-all-button-small'));
+
+      expect(expandAllProgressivelyMock).toHaveBeenCalled();
+      expect(screen.queryByTestId('expand-all-confirm-dialog')).not.toBeInTheDocument();
+    });
   });
 
   it('filters the tree correctly with quick filter', async () => {

@@ -48,6 +48,11 @@ export interface ForestSelectAllSummary {
   selected: number;
 }
 
+export interface ExpandAllProgress {
+  loaded: number;
+  total: number;
+}
+
 export interface ForestTreeActionsValue {
   /** Cancel every section's in-flight progressive expansion. */
   cancelExpandAll: () => void;
@@ -57,10 +62,25 @@ export interface ForestTreeActionsValue {
    * quick-filter Select All.
    */
   collectVisibleQuickFilterKeys: () => string[];
+  /**
+   * Aggregate expand-all progress: the sum of every section's latest report
+   * for the CURRENT run (null before the first report). Values persist after
+   * a run completes — consumers gate display on isExpandingAll — and reset
+   * when the next run starts.
+   */
+  expandAllProgress: ExpandAllProgress | null;
   /** True while a forest-wide expand-all is running. */
   isExpandingAll: boolean;
   /** Register a section's actions; returns the unregister cleanup. */
   register: (rootId: string, actions: SectionTreeActions) => () => void;
+  /**
+   * Report a section's own expand progress. Sections push their tree
+   * context's expandAllProgress here because it lives in per-root providers
+   * the toolbar cannot see. Accepted at any time (section commits can trail
+   * the run) — each run clears the aggregate at start and consumers gate
+   * display on isExpandingAll.
+   */
+  reportExpandAllProgress: (rootId: string, progress: ExpandAllProgress) => void;
   /** Run expand-all across every registered section (sequentially). */
   runExpandAll: () => Promise<void>;
   /**
@@ -78,6 +98,8 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   const sectionsRef = useRef(new Map<string, SectionTreeActions>());
   const cancelledRef = useRef(false);
   const [runningCount, setRunningCount] = useState(0);
+  const progressByRootRef = useRef(new Map<string, ExpandAllProgress>());
+  const [expandAllProgress, setExpandAllProgress] = useState<ExpandAllProgress | null>(null);
 
   const register = useCallback((rootId: string, actions: SectionTreeActions) => {
     sectionsRef.current.set(rootId, actions);
@@ -88,8 +110,33 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     };
   }, []);
 
+  const reportExpandAllProgress = useCallback((rootId: string, progress: ExpandAllProgress) => {
+    // Deliberately ungated: section commits can trail the run's completion
+    // (React batches under load), so a run-active gate would drop the very
+    // reports it exists to collect. Staleness is handled elsewhere — each run
+    // clears the map at start, and consumers gate display on isExpandingAll.
+    progressByRootRef.current.set(rootId, progress);
+    let loaded = 0;
+    let total = 0;
+    for (const sectionProgress of progressByRootRef.current.values()) {
+      loaded += sectionProgress.loaded;
+      total += sectionProgress.total;
+    }
+    // Value-equal bailout: repeated reports of the same sums must not churn
+    // context consumers with fresh object identities.
+    setExpandAllProgress((previous) =>
+      previous && previous.loaded === loaded && previous.total === total
+        ? previous
+        : { loaded, total }
+    );
+  }, []);
+
   const runExpandAll = useCallback(async () => {
     cancelledRef.current = false;
+    // Fresh aggregate per run; completed runs keep their final counts only
+    // until the next run starts (display is gated on isExpandingAll).
+    progressByRootRef.current.clear();
+    setExpandAllProgress(null);
     setRunningCount((count) => count + 1);
     try {
       // Sequential: progressive expansion is I/O-heavy per root; one section
@@ -143,15 +190,19 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     () => ({
       cancelExpandAll,
       collectVisibleQuickFilterKeys,
+      expandAllProgress,
       isExpandingAll: runningCount > 0,
       register,
+      reportExpandAllProgress,
       runExpandAll,
       runSelectAll,
     }),
     [
       cancelExpandAll,
       collectVisibleQuickFilterKeys,
+      expandAllProgress,
       register,
+      reportExpandAllProgress,
       runExpandAll,
       runningCount,
       runSelectAll,

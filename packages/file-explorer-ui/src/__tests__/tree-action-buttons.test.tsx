@@ -1,5 +1,6 @@
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeActionButtons } from '../components/tree-action-buttons';
@@ -7,16 +8,56 @@ import { TreeActionButtons } from '../components/tree-action-buttons';
 const renderWithTooltips = (ui: ReactElement) =>
   render(ui, { wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider> });
 
+const NARROW_HIDDEN = '@max-[240px]/explorer-toolbar:hidden';
+const WIDE_HIDDEN = '@[240px]/explorer-toolbar:hidden';
+
 describe('TreeActionButtons', () => {
-  it('hides expand/collapse (but never refresh) below the narrow toolbar breakpoint', () => {
+  it('hides the inline expand/collapse buttons (but never refresh) below the narrow toolbar breakpoint', () => {
     renderWithTooltips(<TreeActionButtons {...defaultProps} />);
 
     // The Explorer panel's documented minimum width (~180px) cannot fit the
-    // whole right cluster; expand/collapse yield first, refresh stays.
-    const narrowHidden = '@max-[240px]/explorer-toolbar:hidden';
-    expect(screen.getByTestId('expand-all-button-small')).toHaveClass(narrowHidden);
-    expect(screen.getByTestId('collapse-all-button-small')).toHaveClass(narrowHidden);
-    expect(screen.getByTestId('refresh-button-small')).not.toHaveClass(narrowHidden);
+    // whole right cluster; the inline expand/collapse buttons yield first,
+    // refresh stays.
+    expect(screen.getByTestId('expand-all-button-small')).toHaveClass(NARROW_HIDDEN);
+    expect(screen.getByTestId('collapse-all-button-small')).toHaveClass(NARROW_HIDDEN);
+    expect(screen.getByTestId('refresh-button-small')).not.toHaveClass(NARROW_HIDDEN);
+  });
+
+  it('keeps expand/collapse reachable at narrow widths through the overflow menu', () => {
+    renderWithTooltips(<TreeActionButtons {...defaultProps} />);
+
+    // The overflow trigger is the narrow-width stand-in: it must be visible
+    // exactly where the inline buttons hide, and gone where they show —
+    // otherwise expand-all silently vanishes at default panel widths (the
+    // #1683 regression).
+    const overflowTrigger = screen.getByTestId('tree-actions-overflow-trigger');
+    expect(overflowTrigger).toHaveClass(WIDE_HIDDEN);
+    expect(overflowTrigger).not.toHaveClass(NARROW_HIDDEN);
+  });
+
+  it('runs expand-all and collapse-all from the overflow menu', async () => {
+    const user = userEvent.setup();
+    renderWithTooltips(<TreeActionButtons {...defaultProps} />);
+
+    await user.click(screen.getByTestId('tree-actions-overflow-trigger'));
+    await user.click(await screen.findByTestId('expand-all-menu-item'));
+    expect(defaultProps.onExpandAll).toHaveBeenCalledTimes(1);
+
+    // Selecting an item closes the menu; reopen for collapse.
+    await user.click(screen.getByTestId('tree-actions-overflow-trigger'));
+    await user.click(await screen.findByTestId('collapse-all-menu-item'));
+    expect(defaultProps.onCollapseAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('mirrors the inline disabled states in the overflow menu items', async () => {
+    const user = userEvent.setup();
+    renderWithTooltips(<TreeActionButtons {...defaultProps} isExpandingAll />);
+
+    await user.click(screen.getByTestId('tree-actions-overflow-trigger'));
+    // While expanding: expand is blocked (same as the inline button), collapse
+    // stays enabled — it doubles as the way to stop a running expand.
+    expect(await screen.findByTestId('expand-all-menu-item')).toHaveAttribute('data-disabled');
+    expect(screen.getByTestId('collapse-all-menu-item')).not.toHaveAttribute('data-disabled');
   });
 
   const defaultProps = {
