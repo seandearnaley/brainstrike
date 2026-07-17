@@ -327,6 +327,89 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.grepSearch',
   },
 
+  'brainstrike.hybridSearch': {
+    description:
+      'Hybrid workspace search: runs semantic (vector) and exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. Best default for code/doc retrieval mixing conceptual intent with distinctive terms; omit embeddingSetId to use the Workspace Index.',
+    parameters: [
+      {
+        description: 'Search query text; used for BOTH the semantic and the keyword arm',
+        maxLength: 2000,
+        minLength: 1,
+        name: 'query',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Optional embedding space ID returned by listEmbeddingSpaces; omit for Workspace Index searches',
+        minLength: 1,
+        name: 'embeddingSetId',
+        required: false,
+        type: 'string',
+      },
+      {
+        default: 20,
+        description: 'Maximum fused results to return',
+        max: 100,
+        min: 1,
+        name: 'limit',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 1,
+        description: 'Weight for the semantic (vector) arm in the fusion',
+        max: 2,
+        min: 0,
+        name: 'vectorWeight',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 1,
+        description: 'Weight for the exact-term (keyword) arm in the fusion',
+        max: 2,
+        min: 0,
+        name: 'ftsWeight',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 0.5,
+        description: 'Minimum similarity threshold for the semantic arm',
+        max: 1,
+        min: 0,
+        name: 'vectorThreshold',
+        required: false,
+        type: 'number',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Optional workspace-relative file paths to constrain the search',
+        max: 500,
+        name: 'filePaths',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Filter by chunk type',
+        enumValues: ['text', 'code', 'sentence', 'recursive'],
+        name: 'chunkType',
+        required: false,
+        type: 'enum',
+      },
+      {
+        description:
+          'Optional folder name or id to scope the search to one open folder (omit to search all)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Fused ranked chunks with rrfScore, sourceCount, per-arm scores (vectorSimilarity, ftsRank), file paths, and per-arm result counts',
+    toolId: 'brainstrike.hybridSearch',
+  },
   'brainstrike.listEmbeddingSpaces': {
     description:
       'List available embedding spaces and identify the configured workspace index. Use this when you need to inspect non-default embedding spaces or coverage.',

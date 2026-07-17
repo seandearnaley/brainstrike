@@ -856,19 +856,6 @@ export class PgliteMemoryStore extends MemoryStorage {
       return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
     });
 
-    await this.database.query(
-      `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
-        (id, thread_id, content, role, type, "createdAt", "resourceId")
-       VALUES ${insertRows.join(', ')}
-       ON CONFLICT (id) DO UPDATE SET
-        thread_id = EXCLUDED.thread_id,
-        content = EXCLUDED.content,
-        role = EXCLUDED.role,
-        type = EXCLUDED.type,
-        "resourceId" = EXCLUDED."resourceId"`,
-      insertValues
-    );
-
     const threadUpdates = new Map<string, Date>();
     for (const message of args.messages) {
       if (!message.threadId) {
@@ -879,21 +866,40 @@ export class PgliteMemoryStore extends MemoryStorage {
         threadUpdates.set(message.threadId, message.createdAt);
       }
     }
-    if (threadUpdates.size > 0) {
-      const updateValues: PgliteQueryValue[] = [];
-      const updateRows = [...threadUpdates.entries()].map(([threadId, updatedAt], index) => {
-        const base = index * 2;
-        updateValues.push(threadId, updatedAt);
-        return `($${base + 1}, $${base + 2}::timestamptz)`;
-      });
-      await this.database.query(
-        `UPDATE ${MASTRA_MEMORY_TABLES.threads} AS threads
-         SET "updatedAt" = GREATEST(threads."updatedAt", updates.updated_at)
-         FROM (VALUES ${updateRows.join(', ')}) AS updates(id, updated_at)
-         WHERE threads.id = updates.id`,
-        updateValues
+
+    // Single transaction: a crash between the message upsert and the thread
+    // "updatedAt" bump must not leave saved messages whose thread ordering
+    // timestamp lags behind them.
+    await runTransaction(this.database, async (tx) => {
+      await tx.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
+          (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ${insertRows.join(', ')}
+         ON CONFLICT (id) DO UPDATE SET
+          thread_id = EXCLUDED.thread_id,
+          content = EXCLUDED.content,
+          role = EXCLUDED.role,
+          type = EXCLUDED.type,
+          "resourceId" = EXCLUDED."resourceId"`,
+        insertValues
       );
-    }
+
+      if (threadUpdates.size > 0) {
+        const updateValues: PgliteQueryValue[] = [];
+        const updateRows = [...threadUpdates.entries()].map(([threadId, updatedAt], index) => {
+          const base = index * 2;
+          updateValues.push(threadId, updatedAt);
+          return `($${base + 1}, $${base + 2}::timestamptz)`;
+        });
+        await tx.query(
+          `UPDATE ${MASTRA_MEMORY_TABLES.threads} AS threads
+           SET "updatedAt" = GREATEST(threads."updatedAt", updates.updated_at)
+           FROM (VALUES ${updateRows.join(', ')}) AS updates(id, updated_at)
+           WHERE threads.id = updates.id`,
+          updateValues
+        );
+      }
+    });
 
     return { messages: args.messages };
   }
