@@ -8,6 +8,7 @@ import { createDesktopDatabaseMaintenanceScheduler } from '../database-maintenan
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
+  analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
   completedAt: '2026-05-01T12:00:00.100Z',
   durationMs: 100,
   prunedTerminalJobs: 2,
@@ -97,6 +98,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     expect(runMaintenance).toHaveBeenCalledWith(db, expect.any(Object));
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
+        analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
         prunedTerminalJobs: 2,
         vacuumedTables: ['job_queue'],
       }),
@@ -119,6 +121,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     };
     const partialResult: ScheduledDatabaseMaintenanceResult = {
       activeJobs: 496_198,
+      analyzedTables: [],
       completedAt: '2026-05-01T12:00:00.300Z',
       durationMs: 300,
       prunedTerminalJobs: 5000,

@@ -73,6 +73,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
   globWorkspace: 'brainstrike.globWorkspace',
   grepSearch: 'brainstrike.grepSearch',
+  hybridSearch: 'brainstrike.hybridSearch',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
   manageTaskList: 'brainstrike.manageTaskList',
@@ -96,6 +97,7 @@ interface ModelFacingToolNames {
   findWorkspaceSymbol: string | null;
   globWorkspace: string | null;
   grepSearch: string | null;
+  hybridSearch: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   manageTaskList: string | null;
@@ -103,6 +105,9 @@ interface ModelFacingToolNames {
   readWorkspaceContext: string | null;
   readWorkspaceFile: string | null;
   renameWorkspaceFile: string | null;
+  skill: string | null;
+  skillRead: string | null;
+  skillSearch: string | null;
   stringReplaceWorkspaceFile: string | null;
   submitPlan: string | null;
   updateWorkspaceContextSelection: string | null;
@@ -111,6 +116,16 @@ interface ModelFacingToolNames {
   webSearch: string | null;
   writeWorkspaceFile: string | null;
 }
+
+/**
+ * Canonical Mastra skill tool ids (registered unnamespaced — they are Mastra's
+ * own tools; see skills/skill-tools.ts).
+ */
+const SKILL_TOOL_ORIGINAL_IDS = {
+  skill: 'skill',
+  skillRead: 'skill_read',
+  skillSearch: 'skill_search',
+} as const;
 
 function buildOriginalToModelFacingToolNameMap(
   toolNameMap: ReadonlyMap<string, string>
@@ -156,6 +171,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.grepSearch
     ),
+    hybridSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.hybridSearch
+    ),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
@@ -183,6 +202,12 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     renameWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.renameWorkspaceFile
+    ),
+    skill: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skill),
+    skillRead: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skillRead),
+    skillSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      SKILL_TOOL_ORIGINAL_IDS.skillSearch
     ),
     stringReplaceWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
@@ -269,6 +294,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
     names.grepSearch,
     names.globWorkspace,
+    names.hybridSearch,
     names.queryEmbeddingSpace,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
@@ -438,6 +464,30 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
   return `When you need a decision or information only the user has (an ambiguous request, a choice between approaches), ask with ${names.askUser} instead of guessing — the run pauses for their answer.`;
 }
 
+/**
+ * Skills guidance — emitted ONLY when the `skill` tool is registered this run
+ * (the SkillsProcessor injects the actual `<available_skills>` metadata block
+ * per turn; this line teaches the workflow around it). Empty string otherwise
+ * so runs without skills never advertise the tools.
+ */
+function buildSkillsInstruction(names: ModelFacingToolNames): string {
+  if (!names.skill) {
+    return '';
+  }
+  const readClause = names.skillRead
+    ? ` Read a skill's bundled references/scripts/assets with ${names.skillRead} (paths are relative to the skill root)`
+    : '';
+  const searchClause = names.skillSearch
+    ? `${readClause ? ', and search' : ' Search'} across skill content with ${names.skillSearch}`
+    : '';
+  return (
+    'Agent Skills: the system context lists available skills (name + description) under <available_skills>. ' +
+    `When a task matches a skill's description, activate it PROACTIVELY with ${names.skill} — its full instructions arrive as the tool result; follow them for that task.` +
+    `${readClause}${searchClause}${readClause || searchClause ? '.' : ''} ` +
+    `Do not guess at a skill's contents without activating it first.`
+  );
+}
+
 function buildPlanModeBlock(names: ModelFacingToolNames): string {
   const submitPlanClause = names.submitPlan
     ? `When your investigation is complete, call ${names.submitPlan} with a structured plan (title, overview, ordered steps, and — where useful — risks and verification) and WAIT for the user to approve or reject it. If they reject with feedback, revise and submit again. Do NOT propose or perform any changes before the plan is approved.`
@@ -464,10 +514,13 @@ export function buildDefaultInstructions(
     : 'Workspace-selection inspection is unavailable in this run.';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
+  const hybridSearchClause = names.hybridSearch
+    ? ` When a lookup mixes conceptual intent WITH distinctive exact terms (identifiers, error fragments, domain jargon), prefer ${names.hybridSearch} — it fuses semantic and exact-term (BM25) rankings and usually beats either arm alone.`
+    : '';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
-      : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
+      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.${hybridSearchClause}`
+      : `Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.${hybridSearchClause}`;
   const readContextInstruction =
     names.readWorkspaceContext && names.readWorkspaceFile
       ? `Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond the retrieved source line ranges.`
@@ -530,6 +583,7 @@ export function buildDefaultInstructions(
     'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
     `Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.`,
     `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
+    buildSkillsInstruction(names),
     taskListInstruction,
     askUserInstruction,
     delegationInstruction,

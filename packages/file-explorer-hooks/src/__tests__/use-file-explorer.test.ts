@@ -101,6 +101,7 @@ describe('useFileExplorer', () => {
     mockSelectRootDirectory.mockResolvedValue(mockRootHandle);
 
     vi.mocked(useFileSystem).mockReturnValue({
+      addExternalRootHandle: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(mockRootHandle),
       clearRootDirectory: vi.fn(),
       isAccessLoading: false,
@@ -176,6 +177,7 @@ describe('useFileExplorer', () => {
 
   it('should throw when refreshing without root directory', async () => {
     vi.mocked(useFileSystem).mockReturnValue({
+      addExternalRootHandle: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(null),
       clearRootDirectory: vi.fn(),
       isAccessLoading: false,

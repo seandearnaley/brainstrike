@@ -1,5 +1,6 @@
 import type {
   AssistantPersonasListResult,
+  SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
@@ -357,6 +358,12 @@ declare global {
      * `notes-vault:changed` pushes and returns an unsubscribe fn.
      */
     notesVault?: {
+      createDirectory: (path: string) => Promise<NotesVaultResult<null>>;
+      deleteEntry: (
+        path: string,
+        options: { recursive: boolean }
+      ) => Promise<NotesVaultResult<null>>;
+      rename: (fromPath: string, toPath: string) => Promise<NotesVaultResult<null>>;
       ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
       pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
       registerRoot: (path: string) => Promise<NotesVaultResult<NotesVaultRoot>>;
@@ -399,6 +406,15 @@ declare global {
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * consumers MUST capability-check `window.skills`. The Settings → Skills
+     * panel and the composer's "/" menu call `scan` to list every skill
+     * discovered across `.brainstrike/skills` + `.claude/skills`.
+     */
+    skills?: {
+      scan: () => Promise<SkillsScanResultSummary>;
     };
     /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers

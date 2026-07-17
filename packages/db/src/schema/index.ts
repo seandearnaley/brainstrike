@@ -343,7 +343,7 @@ export const promptItemRevisions = pgTable(
     uniqueIndex('idx_prompt_item_revisions_unique').on(table.promptItemId, table.revision),
     // SNAPSHOT DRIFT (intentional): idx_prompt_item_revisions_item_revision
     // (same key as the UNIQUE above; B-tree scans run backwards, so the 051
-    // DESC ordering adds nothing) was dropped by migration 060 (PG18 skip-scan
+    // DESC ordering adds nothing) was dropped by migration 063 (PG18 skip-scan
     // audit). Do NOT `drizzle-kit generate` — see the content_tsvector note in
     // file_chunks.
   ]
@@ -450,9 +450,9 @@ export const fileTokenCache = pgTable(
     uniqueIndex('idx_file_token_cache_folder_path_unique').on(table.folderId, table.filePath),
     // SNAPSHOT DRIFT (intentional): idx_file_token_cache_lookup (exact duplicate
     // of the UNIQUE above) and idx_file_token_cache_folder (prefix of the UNIQUE
-    // and of the mode index) were dropped by migration 060 (PG18 skip-scan
+    // and of the mode index) were dropped by migration 063 (PG18 skip-scan
     // audit). The committed drizzle manifest/snapshots still create them;
-    // migration 060 runs after the manifest and drops them. Do NOT
+    // migration 063 runs after the manifest and drops them. Do NOT
     // `drizzle-kit generate` — see the content_tsvector note in file_chunks.
     index('idx_file_token_cache_hash').on(table.contentHash),
     index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
@@ -539,8 +539,8 @@ export const embeddingCache = pgTable(
     uniqueIndex('idx_embedding_cache_content_model').on(table.contentHash, table.modelKey),
     // SNAPSHOT DRIFT (intentional): idx_embedding_cache_content_hash (prefix of
     // the UNIQUE above; no hash-only query shape exists) was dropped by
-    // migration 060 (PG18 skip-scan audit). The committed drizzle
-    // manifest/snapshots still create it; migration 060 runs after the manifest
+    // migration 063 (PG18 skip-scan audit). The committed drizzle
+    // manifest/snapshots still create it; migration 063 runs after the manifest
     // and drops it. Do NOT `drizzle-kit generate` — see the content_tsvector
     // note in file_chunks.
     // Index for cache eviction queries (oldest accessed first)

@@ -1,26 +1,40 @@
-import type { LanguageModelV2 } from '@ai-sdk/provider';
 import {
   type AssistantPersonaDefinition,
   PersonaToolRiskViolationError,
 } from '@brainstrike/assistant-contract/personas';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
+import type { Agent, ToolsInput } from '@mastra/core/agent';
+import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
 
+// Mastra vendors its own AI SDK v5 provider types (the workspace
+// `@ai-sdk/provider` is a different major and is NOT assignable), so extract
+// the v2 language-model member straight from the config union the factory
+// accepts.
+type LanguageModelV2 = Extract<MastraModelConfig, { specificationVersion: 'v2' }>;
+
 const noopLogger: PermissionToolGateLogger = {
   info: () => undefined,
   warn: () => undefined,
 };
 
+function assertDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
+}
+
 // A minimal valid LanguageModelV2 so the child Agent can resolve its model
 // config when we inspect its tools; buildPersonaSubAgents never invokes it.
 const fakeModel: LanguageModelV2 = {
-  doGenerate: () => Promise.reject(new Error('unused in this test')),
-  doStream: () => Promise.reject(new Error('unused in this test')),
+  doGenerate: (): Promise<never> => Promise.reject(new Error('unused in this test')),
+  doStream: (): Promise<never> => Promise.reject(new Error('unused in this test')),
   modelId: 'fake',
   provider: 'fake',
   specificationVersion: 'v2',
@@ -41,7 +55,7 @@ function makeTool(id: string) {
  * tool ids, mirroring how sanitizeTools keys the parent map (dots → underscores).
  */
 function makeGuardedTools(originalIds: readonly string[]) {
-  const guardedTools: Record<string, unknown> = {};
+  const guardedTools: ToolsInput = {};
   const toolNameMap = new Map<string, string>();
   for (const originalId of originalIds) {
     const sanitizedId = originalId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -89,9 +103,7 @@ const readAskSnapshot: PermissionToolGateSnapshot = {
   yolo: false,
 };
 
-async function childToolKeys(agent: {
-  getToolsForExecution: (options: Record<string, unknown>) => Promise<Record<string, unknown>>;
-}): Promise<string[]> {
+async function childToolKeys(agent: Agent): Promise<string[]> {
   const tools = await agent.getToolsForExecution({});
   return Object.keys(tools).sort();
 }
@@ -108,8 +120,7 @@ describe('buildPersonaSubAgents', () => {
       toolNameMap,
     });
 
-    const child = result.subAgents.explore;
-    expect(child).toBeDefined();
+    const child = assertDefined(result.subAgents['explore'], 'Expected explore subagent');
     expect(result.delegationToolPersonas.get('agent-explore')).toBe('explore');
     expect(result.personasById.get('explore')).toBe(explorePersona);
     expect(child.hasOwnMemory()).toBe(false);
@@ -136,7 +147,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       toolNameMap,
     });
-    expect(result.subAgents.explore).toBeUndefined();
+    expect(result.subAgents['explore']).toBeUndefined();
     expect(result.delegationToolPersonas.size).toBe(0);
   });
 
@@ -173,7 +184,9 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       toolNameMap,
     });
-    const keys = await childToolKeys(result.subAgents.explore);
+    const keys = await childToolKeys(
+      assertDefined(result.subAgents['explore'], 'Expected explore subagent')
+    );
     expect(keys).toHaveLength(5);
   });
 
@@ -193,7 +206,9 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       toolNameMap,
     });
-    const keys = await childToolKeys(result.subAgents.explore);
+    const keys = await childToolKeys(
+      assertDefined(result.subAgents['explore'], 'Expected explore subagent')
+    );
     expect(keys).not.toContain('brainstrike_grepSearch');
     expect(keys).toHaveLength(4);
   });
@@ -220,8 +235,7 @@ describe('buildPersonaSubAgents', () => {
       toolNameMap,
     });
 
-    const child = result.subAgents['cheap-explore'];
-    expect(child).toBeDefined();
+    const child = assertDefined(result.subAgents['cheap-explore'], 'Expected pinned subagent');
     expect(resolvedPins).toEqual([{ modelId: 'claude-haiku-4-5', provider: 'anthropic' }]);
     const model = await child.getModel();
     expect(model.modelId).toBe('pinned-fake');
@@ -243,7 +257,10 @@ describe('buildPersonaSubAgents', () => {
       toolNameMap,
     });
     expect(resolverCalls).toBe(0);
-    const model = await result.subAgents.explore.getModel();
+    const model = await assertDefined(
+      result.subAgents['explore'],
+      'Expected explore subagent'
+    ).getModel();
     expect(model.modelId).toBe('fake');
   });
 
@@ -276,7 +293,7 @@ describe('buildPersonaSubAgents', () => {
     expect(result.delegationToolPersonas.has('agent-broken-pin')).toBe(false);
     expect(warns).toContain('subagent_persona_pin_unresolvable');
     // The failure is isolated: the healthy persona still registers.
-    expect(result.subAgents.explore).toBeDefined();
+    expect(result.subAgents['explore']).toBeDefined();
   });
 
   it('skips a pinned persona when no resolver is threaded (never runs on the parent model)', () => {

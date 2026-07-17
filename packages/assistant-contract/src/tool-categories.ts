@@ -202,6 +202,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: false,
   },
+  // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
+  'brainstrike.hybridSearch': {
+    category: 'retrieval',
+    estimatedTokens: 200,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
   'brainstrike.listEmbeddingSpaces': {
     category: 'analysis',
     estimatedTokens: 110,
@@ -329,6 +336,38 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
+  },
+  // Agent Skills tools (https://agentskills.io). These are Mastra's OWN
+  // canonical tool ids (`skill`/`skill_read`/`skill_search`, deliberately NOT
+  // `brainstrike.*`-namespaced) created via `createSkillTools` and folded into
+  // the runtime tool map BEFORE guards/hooks/plan-mode/permission — so they
+  // need registry risk entries like every native tool. All three are
+  // READ-ONLY: they load, search, and read skill content the user installed on
+  // disk; skill *scripts* still run through `brainstrike.executeCommand` and
+  // its 'execute' approval gate. Explicit 'read' keeps them free under the
+  // default policy and available in plan mode (investigation tools).
+  skill: {
+    category: 'retrieval',
+    estimatedTokens: 90,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read: {
+    category: 'retrieval',
+    estimatedTokens: 120,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search: {
+    category: 'retrieval',
+    estimatedTokens: 110,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
   },
 };
 

@@ -113,16 +113,57 @@ Image attachments (composer → model → persistence → reload):
   image-only user messages survive reload. Hydrated attachments render
   through the same user-bubble strip as live sends, and their content
   re-merges into later outbound turns so the model keeps seeing the image.
-- Availability gating lives in the app-shell wrapper: data-stream transport
-  only, never the text-only built-in local provider. Per-model vision
-  capability gating is a documented FOLLOW-UP (the model catalog has no
-  vision field yet); a non-vision hosted model rejects the image with a
-  visible provider error.
+- Resent image history is BOUNDED on the wire: non-memory-backed transports
+  resend full history, so `boundResentImageHistory` (packages/ui
+  data-stream-runtime) caps one request's total inline images at the SAME
+  combined cap — the current turn always ships, history image bodies spend
+  the remainder newest-first, and once one image no longer fits, it and every
+  older one is replaced by a visible text note (recency-monotonic; the model
+  never sees an older image while missing a newer one). Elision is wire-only
+  and loud (`data.transportImageElision` metadata + client warn log); the
+  thread state and persisted rows keep the image bytes, so reload hydration
+  is untouched. Memory-backed requests are already compacted to the current
+  turn and no-op through this bound. Measurement is strict for the CURRENT
+  turn (a non-data-URL part throws — the composer just made it, that is a
+  bug) but degrades for HISTORY parts: an unmeasurable old attachment is
+  always elided with its own note (`unmeasurableImageCount` in the metadata)
+  instead of aborting the send, so one malformed old row cannot block every
+  later turn in the thread.
+- Availability gating lives in the app-shell wrapper
+  (`resolveComposerAttachmentsAvailability`), layered: (1) provider gate —
+  every HOSTED provider is eligible (desktop assistant server AND the web
+  /api/assistant route share the same image-aware conversion; the local
+  transport must not gate hosted providers), only the text-only built-in
+  local provider is excluded; failing it HIDES the affordance entirely;
+  (2) per-model vision gate — the SELECTED MODEL's `vision` capability
+  (`ModelVisionSupport = 'supported' | 'unsupported' | 'unknown'`, declared on
+  every static registry LLM entry, mirrored into the DB catalog's
+  capabilities jsonb by migration 061, and carried through
+  `LocalRuntimeNormalizedModel.capabilities.vision` for Ollama /api/show +
+  LM Studio vlm/llm discovery). 'unsupported' renders a visibly DISABLED
+  attach button whose title names the model and the reason (never a silent
+  hide); NEW adds are blocked by the disabled button and the absent paste
+  frame, but the attachment ADAPTER stays registered and the preview strip
+  stays mounted — an attachment staged under a vision model must remain
+  visible/removable after a switch to a text-only model (assistant-ui's
+  composer wipes text + staged attachments and throws an unhandled
+  "Attachments are not supported" rejection if Send runs with no adapter;
+  a sent-anyway staged image surfaces the visible provider error instead).
+  Only ABSENT availability (provider gate) registers no adapter.
+  'unknown' (runtime-discovered model without a capability signal) and an
+  unresolved definition stay optimistic — a wrong guess surfaces as a visible
+  provider error, never a silently blocked composer.
 Paired tests: assistant-attachments.test.ts (contract),
+provider-registry-vision.test.ts (static vision declarations),
+local-runtime-model-catalog.spec.ts (runtime vision discovery),
+frontier-models-migration.test.ts (DB catalog vision backfill),
 assistant-messages.spec.ts + mastra-image-input.spec.ts (agent, incl. the
 live-loop prompt proof), mastra-memory-persistence.integration.spec.ts
 (persisted dialect pin), assistant-memory-repository.integration.test.ts
-(hydration), attachment-adapter.test.ts (composer adapter).
+(hydration), attachment-adapter.test.ts (composer adapter),
+assistant-ui-panel-wrapper-runtime.test.ts + assistant-ui-panel-wrapper.test.tsx
+(availability gate), assistant-ui-panel.test.tsx (composer render states),
+data-stream-runtime.test.ts `boundResentImageHistory` (wire history bound).
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,

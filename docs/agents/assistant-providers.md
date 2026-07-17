@@ -31,6 +31,14 @@
   A forced catalog refresh MUST also force every native `/api/show` lookup so
   `Probe now` cannot reuse stale per-model capabilities after a pull or model
   replacement.
+- Per-model vision: `LocalRuntimeNormalizedModel.capabilities.vision` is
+  tri-state ('supported' | 'unsupported' | 'unknown'). Ollama `/api/show`
+  capabilities and LM Studio's native `type` discriminant ('vlm' vs 'llm')
+  resolve it authoritatively; the name-inferred OpenAI-compat path stays
+  'unknown' — never coerce unknown to unsupported. It rides through
+  `toRuntimeProviderModels` into the picker metadata and the composer
+  attachment gate (see docs/agents/assistant-persistence.md, image
+  attachments).
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
@@ -65,6 +73,12 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenRouter reasoning controls are model-capability-aware when the Models API
+  publishes `reasoning.supported_efforts`. Declare those efforts on the static
+  model definition, filter the picker control to the declared set, and reject
+  incompatible settings at request construction. On an explicit model switch,
+  clear an incompatible provider-wide effort override so the newly selected
+  model uses its documented default; do not map it to a guessed nearest level.
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
@@ -147,7 +161,28 @@ real-protocol integration tests.
 The assistant's search verbs, in the order the default instructions present them:
 1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded scan surfaced via `scanLimited` (never silent). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts. Progressive disclosure: default `outputMode: 'files'` returns per-path match counts (cheap survey); `outputMode: 'content'` returns line matches with context; both support `offset` paging.
 2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
-3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths. The
+3. `brainstrike.hybridSearch` — vector + BM25 RRF fusion for the assistant, reusing the
+   SAME `HybridSearchService` as the UI (desktop wiring in
+   apps/desktop/src/assistant-server/hybrid-search-tool.ts, which reuses the retrieval
+   tool's exported embedding-set/embedding helpers so scoping — explicit
+   `embeddingSetId` or Workspace Index, optional `root` → `rootIds`, explicit input
+   `filePaths` (max 500, matching the repos' inline cap) — matches
+   `queryEmbeddingSpace`'s explicit-input semantics: like that tool, it does NOT
+   inherit the implicit UI selection (`omitImplicitContextRuntimeData` parity), and
+   it takes no selectionSnapshotId input. The keyword arm is embedding-set-scoped in
+   the repos (coverage-identity predicate: chunk set, or NULL chunk set + file-record
+   set), so fusion can never surface BM25-only chunks from another embedding space;
+   both source pools grow with the requested limit (min 50), mirroring the UI
+   executor). Best default when a query mixes conceptual
+   intent with distinctive exact terms. NO SILENT FALLBACK: a failing keyword arm
+   (e.g. missing BM25 index) fails the call visibly, never degrades to vector-only.
+   Gated by the hybrid RRF eval (packages/db/src/evaluation/hybrid-eval-runner.ts +
+   hybrid-golden.ts, wired into `pnpm eval:retrieval` and
+   packages/db/__tests__/search-hybrid-eval.test.ts): the golden set is designed so
+   NEITHER pure arm ranks every target first but the fusion does (precision@1 = 1,
+   MRR = 1 strict), and the runner fails if either pure arm reaches precision@1 = 1
+   (the set would no longer separate the arms).
+4. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths. The
    lexical arm is MATCH-PRESERVING BM25 (migration 053): matching stays tsvector
    (`content_tsvector @@ tsqueryFunc(...)`, so plain/websearch/phrase semantics are
    unchanged) while ORDERING is `-(content <@> to_bm25query(q, 'idx_file_chunks_content_bm25'))`
@@ -155,7 +190,7 @@ The assistant's search verbs, in the order the default instructions present them
    corpus-dependent; ts_rank-era fixed thresholds do not transfer). `, id` tiebreaks
    keep ordering deterministic (BM25 ties are common). `rankNormalization` is inert.
    RRF fuses rank POSITIONS, so the fusion layer is unchanged.
-4. Web retrieval pair (external service — Tavily via the shared `'tavily'`
+5. Web retrieval pair (external service — Tavily via the shared `'tavily'`
    secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):
    `brainstrike.webSearch` (snippets; provider-native search swapped in on
    Anthropic/OpenAI) and `brainstrike.webExtract` (report R5 — reads up to 5
@@ -172,8 +207,25 @@ The assistant's search verbs, in the order the default instructions present them
    and overall via `fitItemsToCharBudget`. Hermetic tests:
    apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
 
+Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
+in ALL THREE chunk repositories — `FileChunkRepository`,
+`ElectronFileChunkRepository`, and `DrizzleFileChunkRepository` (the web/
+DbProvider path) — routes NARROWED
+searches (any filter beyond `embedding_set_id` — rootId/rootIds, filePaths,
+selectionSnapshotId, fileRecordId, chunkType) via bounded selectivity counts
+(`resolveFilteredVectorSearchRoute` in packages/db/src/repositories/_shared.ts):
+a filter matching ≤20k rows AND ≤15% of its set bypasses the partial halfvec
+HNSW index with an exact full-precision `embedding <=> $1::vector(N)` scan
+(the expression cannot match the index, so the planner exact-scans — 100%
+recall). Benchmarked: the ANN path returns 39.8% recall@10 at 100k chunks with
+a ~10% filter AT THE SAME latency as the exact scan; `hnsw.max_scan_tuples`
+and per-root partial indexes were measured and rejected
+(docs/binary-quantization-two-stage-benchmark-2026-07-11.md). Un-narrowed
+whole-set searches never run the counts. Do not "optimize" selective filtered
+searches back onto the ANN index without re-running that benchmark.
+
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
-Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.
 
 ---

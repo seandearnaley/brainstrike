@@ -10,6 +10,7 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
+import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
@@ -192,6 +193,16 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Do NOT move this to assistant-contract.
    */
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * Server-injected Agent Skills engine (desktop). When present (and the
+   * provider is not the built-in local model), the runtime folds Mastra's
+   * `skill`/`skill_read`/`skill_search` tools into the local tool map BEFORE
+   * guards/hooks/plan-mode/permission, and composes a `SkillsProcessor` into
+   * the per-call input processors so available-skills metadata reaches the
+   * system context. Never serialized over IPC/HTTP (an in-process object over
+   * the main-process skills scan). Agent-only — mirrors `hookRunner`.
+   */
+  workspaceSkills?: WorkspaceSkills;
 }
 
 export interface RuntimeMemoryContext {

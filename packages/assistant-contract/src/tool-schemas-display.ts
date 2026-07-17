@@ -327,6 +327,89 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.grepSearch',
   },
 
+  'brainstrike.hybridSearch': {
+    description:
+      'Hybrid workspace search: runs semantic (vector) and exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. Best default for code/doc retrieval mixing conceptual intent with distinctive terms; omit embeddingSetId to use the Workspace Index.',
+    parameters: [
+      {
+        description: 'Search query text; used for BOTH the semantic and the keyword arm',
+        maxLength: 2000,
+        minLength: 1,
+        name: 'query',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Optional embedding space ID returned by listEmbeddingSpaces; omit for Workspace Index searches',
+        minLength: 1,
+        name: 'embeddingSetId',
+        required: false,
+        type: 'string',
+      },
+      {
+        default: 20,
+        description: 'Maximum fused results to return',
+        max: 100,
+        min: 1,
+        name: 'limit',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 1,
+        description: 'Weight for the semantic (vector) arm in the fusion',
+        max: 2,
+        min: 0,
+        name: 'vectorWeight',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 1,
+        description: 'Weight for the exact-term (keyword) arm in the fusion',
+        max: 2,
+        min: 0,
+        name: 'ftsWeight',
+        required: false,
+        type: 'number',
+      },
+      {
+        default: 0.5,
+        description: 'Minimum similarity threshold for the semantic arm',
+        max: 1,
+        min: 0,
+        name: 'vectorThreshold',
+        required: false,
+        type: 'number',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Optional workspace-relative file paths to constrain the search',
+        max: 500,
+        name: 'filePaths',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Filter by chunk type',
+        enumValues: ['text', 'code', 'sentence', 'recursive'],
+        name: 'chunkType',
+        required: false,
+        type: 'enum',
+      },
+      {
+        description:
+          'Optional folder name or id to scope the search to one open folder (omit to search all)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Fused ranked chunks with rrfScore, sourceCount, per-arm scores (vectorSimilarity, ftsRank), file paths, and per-arm result counts',
+    toolId: 'brainstrike.hybridSearch',
+  },
   'brainstrike.listEmbeddingSpaces': {
     description:
       'List available embedding spaces and identify the configured workspace index. Use this when you need to inspect non-default embedding spaces or coverage.',
@@ -920,6 +1003,86 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
     toolId: 'brainstrike.writeWorkspaceFile',
+  },
+  skill: {
+    description:
+      "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled reference/script/asset files. Read-only.",
+    parameters: [
+      {
+        description:
+          'The skill name from the available-skills list (or its directory path when two skills share a name).',
+        name: 'name',
+        required: true,
+        type: 'string',
+      },
+    ],
+    returns:
+      'The skill instructions (SKILL.md body) followed by listings of its references/, scripts/, and assets/ files; oversized instructions are truncated with an honest note.',
+    toolId: 'skill',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read: {
+    description:
+      'Read a bundled file from a skill directory (references/, scripts/, or assets/), optionally sliced by line range. Read-only and containment-checked to the skill directory.',
+    parameters: [
+      {
+        description: 'The skill name (or directory path when two skills share a name).',
+        name: 'skillName',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Path relative to the skill root, e.g. "references/forms.md" or "scripts/fill.py".',
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Starting line number (1-indexed); omit to read from the beginning.',
+        name: 'startLine',
+        required: false,
+        type: 'number',
+      },
+      {
+        description: 'Ending line number (1-indexed, inclusive); omit to read to the end.',
+        name: 'endLine',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'The file content (or the requested line slice); binary files report their size instead of raw bytes; oversized output is truncated with a line-range hint.',
+    toolId: 'skill_read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search: {
+    description:
+      'Search across installed skill instructions and reference files by keyword. Read-only.',
+    parameters: [
+      {
+        description: 'The search query.',
+        name: 'query',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Optional list of skill names to search within.',
+        name: 'skillNames',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Maximum number of results to return (default 5).',
+        name: 'topK',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'Matching snippets labeled with their skill, source file, line range, and relevance score.',
+    toolId: 'skill_search',
   },
 };
 

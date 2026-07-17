@@ -1,4 +1,5 @@
 import { GEMMA4_E2B_MODEL_ID } from './local-llm.js';
+import type { OpenAiReasoningEffort } from './runtime-data.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
@@ -11,6 +12,16 @@ export interface ProviderCapabilities {
   llm: boolean;
   streaming: boolean;
 }
+
+/**
+ * Whether a model accepts image (vision) input parts. Drives the composer
+ * attachment gate and the picker model metadata. 'unknown' is RESERVED for
+ * dynamically discovered local-runtime models whose endpoint reports no
+ * capability signal — statically registered models must commit to
+ * 'supported' or 'unsupported' (pinned by provider-registry-vision.test.ts)
+ * so the attachment gate never guesses.
+ */
+export type ModelVisionSupport = 'supported' | 'unsupported' | 'unknown';
 
 interface BaseModelDefinition {
   /**
@@ -47,10 +58,27 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   pricing?: { inputPerMTok: number; outputPerMTok: number };
   /**
+   * Authoritative per-model reasoning controls when the provider publishes
+   * them. The UI and request boundary both enforce these values so a
+   * provider-wide saved setting cannot become an invalid model request.
+   */
+  reasoning?: {
+    defaultEffort?: OpenAiReasoningEffort;
+    mandatory: boolean;
+    supportedEfforts: readonly OpenAiReasoningEffort[];
+  };
+  /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
   type: 'llm';
+  /**
+   * Image-input support. REQUIRED: adding a model without it is a compile
+   * error — this gates the composer attachment affordance per selected model.
+   * Declare the capability of the route actually used (e.g. a gateway route
+   * mirrors its underlying model).
+   */
+  vision: ModelVisionSupport;
 }
 
 export interface EmbeddingModelDefinition extends BaseModelDefinition {
@@ -135,6 +163,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 5, outputPerMTok: 30 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_050_000,
@@ -145,6 +174,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_050_000,
@@ -154,6 +184,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1, outputPerMTok: 6 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -163,6 +194,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -172,6 +204,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -181,6 +214,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -190,6 +224,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -199,6 +234,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -208,6 +244,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.05, outputPerMTok: 0.4 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -217,6 +254,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -226,6 +264,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -235,6 +274,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         default: true,
@@ -278,6 +318,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 10, outputPerMTok: 50 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -287,6 +328,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 5, outputPerMTok: 25 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_000_000,
@@ -298,6 +340,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -307,6 +350,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -316,6 +360,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1, outputPerMTok: 5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
     ],
     runtime: 'hosted',
@@ -342,6 +387,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -351,6 +397,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2, outputPerMTok: 12 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -360,6 +407,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -369,6 +417,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -378,6 +427,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -387,6 +437,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         default: true,
@@ -426,6 +477,34 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        contextWindow: 1_048_576,
+        id: 'meta/muse-spark-1.1',
+        label: 'Muse Spark 1.1 (OpenRouter)',
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        reasoning: {
+          defaultEffort: 'medium',
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'moonshotai/kimi-k3',
+        label: 'Kimi K3 (OpenRouter)',
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        reasoning: {
+          defaultEffort: 'max',
+          mandatory: true,
+          supportedEfforts: ['max'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         contextWindow: 1_050_000,
         id: 'openai/gpt-5.6-sol',
         label: 'GPT-5.6 Sol (OpenRouter)',
@@ -433,6 +512,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 5, outputPerMTok: 30 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_050_000,
@@ -443,6 +523,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_050_000,
@@ -452,6 +533,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1, outputPerMTok: 6 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_000_000,
@@ -461,6 +543,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 10, outputPerMTok: 50 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_000_000,
@@ -471,6 +554,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -480,6 +564,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.9282, outputPerMTok: 2.9172 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_048_576,
@@ -489,6 +574,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_048_576,
@@ -498,6 +584,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.435, outputPerMTok: 0.87 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_048_576,
@@ -507,6 +594,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.09, outputPerMTok: 0.18 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_000_000,
@@ -516,6 +604,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 3.75 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_000_000,
@@ -525,6 +614,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.32, outputPerMTok: 1.28 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 1_000_000,
@@ -534,6 +624,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.1875, outputPerMTok: 1.125 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 262_144,
@@ -542,6 +633,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.11, outputPerMTok: 0.8 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 262_144,
@@ -550,6 +642,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.66, outputPerMTok: 3.41 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 262_144,
@@ -558,6 +651,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.719, outputPerMTok: 3.49 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'unsupported',
       },
       {
         contextWindow: 400_000,
@@ -567,6 +661,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -576,6 +671,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -585,6 +681,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -594,6 +691,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 400_000,
@@ -603,6 +701,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -612,6 +711,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 5, outputPerMTok: 25 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -621,6 +721,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 200_000,
@@ -630,6 +731,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 1, outputPerMTok: 5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -639,6 +741,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -648,6 +751,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2, outputPerMTok: 12 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,
@@ -657,6 +761,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
         supportsStreaming: true,
         type: 'llm',
+        vision: 'supported',
       },
     ],
     runtime: 'gateway',
@@ -755,6 +860,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 2048,
         supportsStreaming: false,
         type: 'llm',
+        vision: 'unsupported',
       },
     ],
     runtime: 'browser',

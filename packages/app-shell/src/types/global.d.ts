@@ -1,6 +1,7 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
+  SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type {
@@ -84,6 +85,13 @@ declare global {
           >
         ) => void
       ) => (() => void) | undefined;
+    };
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * capability-check `window.skills` rather than `isElectron()`.
+     */
+    skills?: {
+      scan?: () => Promise<SkillsScanResultSummary>;
     };
     tools?: {
       execute?: (

@@ -76,6 +76,7 @@ describe('scheduled database maintenance', () => {
 
     expect(result).toMatchObject({
       activeJobs: 1,
+      analyzedTables: [],
       prunedTerminalJobs: 3,
       reason: 'active-job-queue',
       status: 'partial',
@@ -120,7 +121,7 @@ describe('scheduled database maintenance', () => {
     ).rejects.toThrow('activePruneLimit must be a positive integer');
   });
 
-  it('prunes old terminal jobs and vacuums job_queue when the queue is idle', async () => {
+  it('prunes old terminal jobs, vacuums job_queue, and analyzes stats tables when the queue is idle', async () => {
     const queue = new JobQueue(db);
     await createJobWithState(db, queue, 'succeeded', OLD_ISO);
     await createJobWithState(db, queue, 'failed', OLD_ISO);
@@ -134,11 +135,139 @@ describe('scheduled database maintenance', () => {
 
     expect(result).toMatchObject({
       activeJobs: 0,
+      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
       prunedTerminalJobs: 3,
       status: 'completed',
       vacuumedTables: ['job_queue'],
     });
     expect(await countJobs(db)).toBe(1);
+  });
+
+  it('runs VACUUM (ANALYZE) on vacuum tables and plain ANALYZE on analyze tables when idle', async () => {
+    // PGlite runs as one standalone backend with no autovacuum launcher, so
+    // nothing ever collects column statistics unless maintenance runs ANALYZE
+    // explicitly. Plain VACUUM does not build histograms; the planner would
+    // keep empty-table stats against 100k+ row tables.
+    const statements: string[] = [];
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async (sql: string) => {
+      statements.push(sql);
+      return [];
+    });
+
+    const result = await runScheduledDatabaseMaintenance(
+      { exec, query },
+      {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      }
+    );
+
+    expect(statements).toEqual([
+      'VACUUM (ANALYZE) job_queue',
+      'ANALYZE file_chunks',
+      'ANALYZE file_records',
+      'ANALYZE embedding_cache',
+    ]);
+    expect(result).toMatchObject({
+      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+      status: 'completed',
+      vacuumedTables: ['job_queue'],
+    });
+  });
+
+  it('does not run ANALYZE while job queue work is active', async () => {
+    const statements: string[] = [];
+    const queue = new JobQueue(db);
+    await createJobWithState(db, queue, 'queued', RECENT_ISO);
+    const trackingDb = {
+      exec: async (sql: string) => {
+        statements.push(sql);
+        return await db.exec(sql);
+      },
+      query: db.query.bind(db),
+    };
+
+    const result = await runScheduledDatabaseMaintenance(trackingDb, {
+      now: () => new Date(NOW_ISO),
+      terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+    });
+
+    expect(result).toMatchObject({ analyzedTables: [], status: 'partial' });
+    expect(statements).toEqual([]);
+  });
+
+  it('rejects a malformed analyzeTables entry even when the queue is active', async () => {
+    const queue = new JobQueue(db);
+    await createJobWithState(db, queue, 'queued', RECENT_ISO);
+
+    await expect(
+      runScheduledDatabaseMaintenance(db, {
+        analyzeTables: ['file_chunks; DROP TABLE file_chunks'],
+        now: () => new Date(NOW_ISO),
+      })
+    ).rejects.toThrow('Invalid database maintenance ANALYZE table');
+  });
+
+  it('surfaces ANALYZE failures so the next idle pass retries', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async (sql: string) => {
+      if (sql.startsWith('ANALYZE')) {
+        throw new Error('analyze exploded');
+      }
+      return [];
+    });
+
+    await expect(
+      runScheduledDatabaseMaintenance(
+        { exec, query },
+        {
+          now: () => new Date(NOW_ISO),
+          terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+        }
+      )
+    ).rejects.toThrow('analyze exploded');
+    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
+  });
+
+  it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async () => []);
+    const maintenanceExec = vi.fn(async () => []);
+
+    const result = await runScheduledDatabaseMaintenance(
+      { exec, maintenance: { exec: maintenanceExec }, query },
+      {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      }
+    );
+
+    // Desktop's RemoteDbClient gives maintenance.exec the long-running timeout;
+    // ordinary exec/query use the short request timeout and can abandon a large
+    // VACUUM/ANALYZE mid-flight, so every maintenance statement must prefer it.
+    expect(maintenanceExec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
+    expect(exec).not.toHaveBeenCalled();
+    expect(result.vacuumedTables).toEqual(['job_queue']);
+    expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
   });
 
   it('surfaces vacuum failures instead of reporting a completed maintenance pass', async () => {

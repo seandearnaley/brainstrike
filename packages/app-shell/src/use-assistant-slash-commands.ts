@@ -15,6 +15,7 @@ import {
   selectSlashCommandSource,
 } from './slash-command-source';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
+import { useSkillSlashCommands } from './use-skill-slash-commands';
 import { useUserDefinedSlashCommands } from './use-user-defined-slash-commands';
 
 const logger = createLogger('AssistantSlashCommands');
@@ -90,16 +91,23 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
   );
 
   const userCommands = useUserDefinedSlashCommands(threadId);
+  // User-invocable Agent Skills (desktop-only): a third entry kind whose
+  // execute stages a `:skill[name]` directive into the composer. Namespaced
+  // `skill:<name>` ids make app/user collisions impossible in practice, but the
+  // same warn-once drop applies on principle.
+  const skillCommands = useSkillSlashCommands(threadId);
 
-  // App-lifetime warn-once set for app-vs-user id collisions (F4).
+  // App-lifetime warn-once set for app-vs-user/skill id collisions (F4).
   const warnedCollisionIds = useRef<Set<string>>(new Set());
 
-  return useMemo<readonly SlashCommand[]>(
-    () =>
-      mergeSlashCommands(appCommands, userCommands, {
-        logger,
-        warnedCollisionIds: warnedCollisionIds.current,
-      }),
-    [appCommands, userCommands]
-  );
+  return useMemo<readonly SlashCommand[]>(() => {
+    const withUserCommands = mergeSlashCommands(appCommands, userCommands, {
+      logger,
+      warnedCollisionIds: warnedCollisionIds.current,
+    });
+    return mergeSlashCommands(withUserCommands, skillCommands, {
+      logger,
+      warnedCollisionIds: warnedCollisionIds.current,
+    });
+  }, [appCommands, skillCommands, userCommands]);
 }

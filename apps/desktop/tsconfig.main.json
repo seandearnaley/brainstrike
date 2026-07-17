@@ -74,6 +74,9 @@
       "@brainstrike/utils/collator": [
         "../../packages/utils/dist/collator.d.ts"
       ],
+      "@brainstrike/utils/string-utils": [
+        "../../packages/utils/dist/string-utils.d.ts"
+      ],
       "@brainstrike/utils/crypto": [
         "../../packages/utils/dist/crypto.d.ts"
       ],

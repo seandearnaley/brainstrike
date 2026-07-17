@@ -36,11 +36,15 @@ describe('model pricing metadata', () => {
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
   });
 
-  it('tracks current OpenRouter base rates for Sonnet 5 and GLM-5.2', () => {
+  it('tracks current OpenRouter base rates for Sonnet 5, GLM-5.2, Spark, and Kimi K3', () => {
     const models = listProviderLlmModels('openrouter');
     const sonnet = models.find((model) => model.id === 'anthropic/claude-sonnet-5');
     const glm = models.find((model) => model.id === 'z-ai/glm-5.2');
+    const spark = models.find((model) => model.id === 'meta/muse-spark-1.1');
+    const kimi = models.find((model) => model.id === 'moonshotai/kimi-k3');
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
     expect(glm?.pricing).toEqual({ inputPerMTok: 0.9282, outputPerMTok: 2.9172 });
+    expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
+    expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
   });
 });

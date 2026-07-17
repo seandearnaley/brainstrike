@@ -159,8 +159,28 @@ export async function writeContainedFileBytes(args: {
   resolved: { absolutePath: string; canonicalRootPath: string };
   buffer: Buffer;
   requestedPath: string;
+  /**
+   * Refuse (instead of recreating) a missing parent directory. Overwrite-style
+   * writers (notes-vault autosave) must set this: their parent vanishing means
+   * the entry was renamed or deleted concurrently, and recreating it would
+   * silently resurrect the old directory with stale content.
+   */
+  requireParentDirectory?: boolean;
 }): Promise<{ created: boolean }> {
-  const { resolved, buffer, requestedPath } = args;
+  const { resolved, buffer, requestedPath, requireParentDirectory } = args;
+
+  if (requireParentDirectory) {
+    try {
+      await fsPromises.lstat(path.dirname(resolved.absolutePath));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      throw new Error(
+        `Parent directory of "${requestedPath}" no longer exists; it may have been renamed or deleted.`
+      );
+    }
+  }
 
   // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
   // dangling) passes the canonical-ancestor containment check yet writeFile would

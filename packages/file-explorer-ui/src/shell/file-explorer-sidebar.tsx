@@ -434,6 +434,11 @@ const PerRootTreePane = ({
   const forestActions = useOptionalForestTreeActions();
   const sectionExpandAllProgressively = treeContext.expandAllProgressively;
   const sectionCancelExpandAll = treeContext.cancelExpandAll;
+  // Registration depends on these STABLE registry callbacks, never on the
+  // whole context value — that value changes on every aggregate progress
+  // update, which would churn register/unregister mid-run.
+  const forestRegister = forestActions?.register;
+  const forestReportExpandAllProgress = forestActions?.reportExpandAllProgress;
   const sectionSelectAll = treeContext.selectAllRecursively;
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
@@ -446,10 +451,10 @@ const PerRootTreePane = ({
   const displayedTreeRef = useRef(filteredTree);
   displayedTreeRef.current = filteredTree;
   useEffect(() => {
-    if (!forestActions) {
+    if (!(forestRegister && forestReportExpandAllProgress)) {
       return;
     }
-    return forestActions.register(folderId, {
+    return forestRegister(folderId, {
       cancelExpandAll: sectionCancelExpandAll,
       expandAll: async () => {
         const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
@@ -461,7 +466,10 @@ const PerRootTreePane = ({
         };
         await sectionExpandAllProgressively(
           setExpandedPathsUpdater,
-          store.getState().expandedDirectoryPaths
+          store.getState().expandedDirectoryPaths,
+          // Push progress at the event source: this section's counts live in
+          // ITS tree provider, which the panel toolbar cannot see.
+          (loaded, total) => forestReportExpandAllProgress(folderId, { loaded, total })
         );
       },
       getVisibleQuickFilterKeys: () => {
@@ -492,7 +500,8 @@ const PerRootTreePane = ({
   }, [
     addMultipleSelectedFiles,
     addMultipleSelectedFilesChunked,
-    forestActions,
+    forestRegister,
+    forestReportExpandAllProgress,
     folderId,
     sectionExpandAllProgressively,
     sectionCancelExpandAll,

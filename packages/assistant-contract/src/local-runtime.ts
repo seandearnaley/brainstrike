@@ -9,6 +9,9 @@ export {
   type LocalRuntimeDiscoveryServiceOptions,
   type LocalRuntimeId,
   type LocalRuntimeIncompatibleState,
+  // LocalRuntimeLogger is re-exported below from its defining module
+  // (local-runtime-utils) — exporting it from both blocks is a duplicate
+  // identifier (TS2300).
   type LocalRuntimeStaleState,
   type LocalRuntimeSurface,
   type LocalRuntimeUnavailableState,
