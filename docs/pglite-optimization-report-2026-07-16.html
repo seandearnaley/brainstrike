@@ -1,3 +1,8 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PGlite Optimization Report — brainstrike</title>
 <style>
   :root {
@@ -138,7 +143,8 @@
            font-size: 13.5px; color: var(--ink-2); }
   footer p { margin: 6px 0; }
 </style>
-
+</head>
+<body>
 <main>
 <header class="masthead">
   <p class="eyebrow">Engineering report · Database</p>
@@ -151,7 +157,7 @@
   <div class="tiles">
     <div class="tile">
       <div class="k">39.8% <span class="dim">→</span> <span class="up">100%</span></div>
-      <div class="l">filtered vector-search recall — fix already written &amp; benchmarked, <strong>not merged to main</strong> (#1)</div>
+      <div class="l">filtered vector-search recall — fix now open as <a href="https://github.com/seandearnaley/brainstrike/pull/1706">PR #1706</a> (#1)</div>
     </div>
     <div class="tile">
       <div class="k">41.6 <span class="dim">→</span> <span class="up">8.4 min</span></div>
@@ -200,14 +206,14 @@
   <div class="finding" id="f1">
     <h3><span class="n">1</span>Merge the filtered-search exact-scan routing fix</h3>
     <div class="chips"><span class="chip area">Performance</span><span class="chip high">High — measured</span><span class="chip eff">Effort S</span></div>
-    <p>The single biggest search-quality problem at scale is already solved — on a branch. Commit <code>a21745a51</code> (“route selective filtered vector searches to exact scans”, 2026-07-11, branch <code>claude/silly-montalcini-cdbd12</code>) is <strong>not an ancestor of main</strong>; verified via <code>git merge-base</code>. Today's main has no <code>resolveFilteredVectorSearchRoute</code>: every filtered vector search (any filter beyond <code>embedding_set_id</code>) goes through HNSW, whose post-filter recall collapses on narrow subsets.</p>
+    <p>The single biggest search-quality problem at scale is already solved — but at audit time the fix lived only on an unmerged local branch (verified via <code>git merge-base</code>: not an ancestor of main). Main has no <code>resolveFilteredVectorSearchRoute</code>: every filtered vector search (any filter beyond <code>embedding_set_id</code>) goes through HNSW, whose post-filter recall collapses on narrow subsets. <strong>Status: now open as <a href="https://github.com/seandearnaley/brainstrike/pull/1706">PR #1706</a></strong> (the 2026-07-11 fix cherry-picked onto current main, full db suite green).</p>
     <div class="barchart">
       <div class="barrow"><div class="blabel">HNSW post-filter (today)</div><div class="bartrack"><div class="bar before" style="width:39.8%"></div><span class="bval">39.8% recall@10 · 84.8ms p50</span></div></div>
       <div class="barrow"><div class="blabel">adaptive exact routing</div><div class="bartrack"><div class="bar after" style="width:100%"></div><span class="bval">100% recall@10 · ~80–94ms p50</span></div></div>
       <p class="chartcap">Benchmarked 2026-07-11 at 100k chunks × 1024 dims, production query shape. Alternatives (hnsw.max_scan_tuples, per-root partial indexes) were measured and rejected.</p>
     </div>
     <span class="label">Action</span>
-    <p>Rebase the branch and open a PR. The fix ships adaptive routing in both <code>FileChunkRepository</code> and <code>ElectronFileChunkRepository</code>: bounded selectivity counts route narrow searches (≤20k matched AND ≤15% of set) to an exact fp32 scan. Count overhead measured at ~4–14ms; whole-set searches never pay it.</p>
+    <p>Done — <a href="https://github.com/seandearnaley/brainstrike/pull/1706">PR #1706</a>. The fix ships adaptive routing in both <code>FileChunkRepository</code> and <code>ElectronFileChunkRepository</code>: bounded selectivity counts route narrow searches (≤20k matched AND ≤15% of set) to an exact fp32 scan. Count overhead measured at ~4–14ms; whole-set searches never pay it.</p>
   </div>
 
   <div class="finding" id="f2">
@@ -224,6 +230,7 @@
       <li>Route the scheduler through <code>createDimensionIndex</code> (which already sizes, sets, and — critically — <code>RESET</code>s the GUC in a <code>finally</code>), or wrap its exec with the same SET/RESET pair on the maintenance channel.</li>
       <li>While there: the <code>'concurrent'</code> strategy emits <code>CREATE INDEX CONCURRENTLY</code>. On a single-connection engine nothing can run concurrently anyway — the statement still occupies the only connection while doing extra table scans. Verify and likely remove that branch.</li>
     </ul>
+    <p><strong>Status: <a href="https://github.com/seandearnaley/brainstrike/pull/1707">PR #1707</a></strong> (verified: the <code>'concurrent'</code> strategy is unreachable in production wiring — removal is a separate follow-up).</p>
   </div>
 
   <div class="finding" id="f3">
@@ -302,7 +309,7 @@
     <div class="chips"><span class="chip area">Memory</span><span class="chip low">Low–Med</span><span class="chip eff">Effort S</span></div>
     <p>The skip-scan audit's three DROP verdicts (<code>idx_embedding_cache_content_hash</code>, <code>idx_file_token_cache_lookup</code>, <code>idx_file_token_cache_folder</code> — ~2.6MiB at seed scale, growing linearly, plus write amplification on two hot cache tables) are still sitting in an <strong>unregistered draft</strong>: <code>docs/pg18-index-consolidation.draft.ts</code>, marked “Do not import.” This audit also found a fourth: the live schema defines <strong>both</strong> <code>idx_prompt_item_revisions_unique</code> (UNIQUE) and <code>idx_prompt_item_revisions_item_revision</code> on the same <code>(prompt_item_id, revision)</code> columns (<code>schema/index.ts:342–345</code>) — a straight duplicate pair.</p>
     <span class="label">Action</span>
-    <p>Promote the draft to a real migration (registered in <em>both</em> runners, per the database contract), add the <code>prompt_item_revisions</code> drop, and remove the definitions from <code>schema/index.ts</code>. At 500k cached embeddings the content_hash drop alone is ~25MB.</p>
+    <p>Done — <a href="https://github.com/seandearnaley/brainstrike/pull/1709">PR #1709</a> (migration 060, all four drops, dual-registered). At 500k cached embeddings the content_hash drop alone is ~25MB.</p>
   </div>
 
   <div class="finding" id="f10">
@@ -325,7 +332,7 @@
   <div class="finding" id="f12">
     <h3><span class="n">12</span>Transaction-wrap assistant message persistence</h3>
     <div class="chips"><span class="chip area">Integrity</span><span class="chip low">Low</span><span class="chip eff">Effort S</span></div>
-    <p><code>PgliteMemoryStore.saveMessages</code> issues two autocommit statements — the message upsert, then the thread <code>updatedAt</code> bump (<code>memory-store.ts:859,889</code>). A crash between them leaves messages whose thread ordering timestamp lags. Wrapping both in one transaction closes the window and halves the scheduler dispatches per save. Small, but it's the chat hot path.</p>
+    <p><code>PgliteMemoryStore.saveMessages</code> issues two autocommit statements — the message upsert, then the thread <code>updatedAt</code> bump (<code>memory-store.ts:859,889</code>). A crash between them leaves messages whose thread ordering timestamp lags. Wrapping both in one transaction closes the window and halves the scheduler dispatches per save. Small, but it's the chat hot path. <strong>Status: <a href="https://github.com/seandearnaley/brainstrike/pull/1708">PR #1708</a>.</strong></p>
   </div>
 
   <div class="finding" id="f13">
@@ -380,3 +387,5 @@
   <p>Items marked <em>hypothesis</em> or <em>benchmark-gated</em> should not ship without measurement — the repo's evidence bar (quantified, verified claims) applies to this report's follow-ups too.</p>
 </footer>
 </main>
+</body>
+</html>
