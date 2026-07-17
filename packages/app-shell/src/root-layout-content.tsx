@@ -152,6 +152,13 @@ export interface RootLayoutContentProps {
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
+  /**
+   * Optional markdown notes vault surface. Supplied by app wrappers when the
+   * File System Access directory picker capability exists (Chromium web,
+   * Electron renderers); Safari/Firefox never construct it (capability
+   * gating, not UA sniffing). When absent, no Notes nav item is rendered.
+   */
+  readonly notesPageContent?: ReactNode;
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly settingsPageContent: ReactNode;
   /**
@@ -165,6 +172,7 @@ export interface RootLayoutContentProps {
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/git': 'git',
+  '/notes': 'notes',
   '/settings': 'settings',
   '/terminal': 'terminal',
 };
@@ -379,6 +387,7 @@ export function RootLayoutContent({
   contextExplorerPanelContent,
   settingsPageContent,
   gitPageContent,
+  notesPageContent,
   terminalPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
@@ -528,6 +537,17 @@ export function RootLayoutContent({
                   data-testid="terminal-route"
                 >
                   {terminalPageContent}
+                </div>
+              ) : null}
+              {/* Stays mounted once opened so vault watchers, scan state, and
+                the viewer's scroll position survive tab switches. */}
+              {notesPageContent && mountedTabs.has('notes') ? (
+                <div
+                  aria-hidden={shellTab !== 'notes'}
+                  className={shellTab === 'notes' ? 'h-full' : 'hidden h-full'}
+                  data-testid="notes-route"
+                >
+                  {notesPageContent}
                 </div>
               ) : null}
             </SearchEmbedderProvider>

@@ -5,7 +5,7 @@
  * These are simplified representations of the Zod schemas for UI display.
  */
 
-import { WEB_SEARCH_TOOL_ID } from './tool-categories.js';
+import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 
 /**
  * Parameter type for display purposes.
@@ -849,6 +849,22 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.updateWorkspaceTapestrySelections',
   },
 
+  [WEB_EXTRACT_TOOL_ID]: {
+    description:
+      'Fetch the readable content of up to 5 public web pages as markdown — the natural follow-up to webSearch results, or for a user-pasted URL. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass internal or private URLs. Non-http(s), credentialed, and private/loopback/link-local URLs are refused server-side before anything is sent, and each refusal is reported per-URL in the result. When no Tavily API key is configured the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+    parameters: [
+      {
+        description: 'Absolute http(s) URLs of public pages to extract (1-5)',
+        name: 'urls',
+        required: true,
+        type: 'array',
+      },
+    ],
+    returns:
+      'Per-URL extracted markdown content (bounded per page and self-bound overall to the tool output budget, with a truncation flag and hint), plus a per-URL failed list (refused/unreachable URLs with reasons). When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+    toolId: WEB_EXTRACT_TOOL_ID,
+  },
+
   [WEB_SEARCH_TOOL_ID]: {
     description:
       'Search the web for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE: never include secrets or private workspace contents. Uses the model provider\'s built-in web search when available (Anthropic/OpenAI), otherwise Tavily; when neither a provider-native search nor a Tavily API key is configured the tool returns a clear "unavailable, add a key" message instead of failing the run.',
@@ -904,6 +920,86 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
     toolId: 'brainstrike.writeWorkspaceFile',
+  },
+  skill: {
+    description:
+      "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled reference/script/asset files. Read-only.",
+    parameters: [
+      {
+        description:
+          'The skill name from the available-skills list (or its directory path when two skills share a name).',
+        name: 'name',
+        required: true,
+        type: 'string',
+      },
+    ],
+    returns:
+      'The skill instructions (SKILL.md body) followed by listings of its references/, scripts/, and assets/ files; oversized instructions are truncated with an honest note.',
+    toolId: 'skill',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read: {
+    description:
+      'Read a bundled file from a skill directory (references/, scripts/, or assets/), optionally sliced by line range. Read-only and containment-checked to the skill directory.',
+    parameters: [
+      {
+        description: 'The skill name (or directory path when two skills share a name).',
+        name: 'skillName',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Path relative to the skill root, e.g. "references/forms.md" or "scripts/fill.py".',
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Starting line number (1-indexed); omit to read from the beginning.',
+        name: 'startLine',
+        required: false,
+        type: 'number',
+      },
+      {
+        description: 'Ending line number (1-indexed, inclusive); omit to read to the end.',
+        name: 'endLine',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'The file content (or the requested line slice); binary files report their size instead of raw bytes; oversized output is truncated with a line-range hint.',
+    toolId: 'skill_read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search: {
+    description:
+      'Search across installed skill instructions and reference files by keyword. Read-only.',
+    parameters: [
+      {
+        description: 'The search query.',
+        name: 'query',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Optional list of skill names to search within.',
+        name: 'skillNames',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Maximum number of results to return (default 5).',
+        name: 'topK',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'Matching snippets labeled with their skill, source file, line range, and relevance score.',
+    toolId: 'skill_search',
   },
 };
 

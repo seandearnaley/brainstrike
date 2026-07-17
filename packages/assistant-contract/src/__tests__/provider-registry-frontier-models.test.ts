@@ -120,6 +120,8 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3.7-plus',
           'qwen/qwen3.6-flash',
           'qwen/qwen3-coder-next',
+          'meta/muse-spark-1.1',
+          'moonshotai/kimi-k3',
           'moonshotai/kimi-k2.6',
           'moonshotai/kimi-k2.7-code',
           'openai/gpt-5.5',
@@ -141,6 +143,26 @@ describe('frontier model refresh (2026-07)', () => {
 
     it('defaults to openai/gpt-5.6-terra', () => {
       expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
+    });
+
+    it("declares the new models' authoritative OpenRouter reasoning options", () => {
+      const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.1');
+      const kimi = getLlmModelDefinition('openrouter', 'moonshotai/kimi-k3');
+
+      expect(spark.contextWindow).toBe(1_048_576);
+      expect(spark.maxOutputTokens).toBeUndefined();
+      expect(spark.reasoning).toEqual({
+        defaultEffort: 'medium',
+        mandatory: true,
+        supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+      });
+      expect(kimi.contextWindow).toBe(1_048_576);
+      expect(kimi.maxOutputTokens).toBeUndefined();
+      expect(kimi.reasoning).toEqual({
+        defaultEffort: 'max',
+        mandatory: true,
+        supportedEfforts: ['max'],
+      });
     });
   });
 });

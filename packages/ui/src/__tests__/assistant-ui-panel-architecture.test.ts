@@ -66,7 +66,11 @@ describe('assistant UI panel architecture', () => {
     // checkpoint-turn-revert.tsx) after AssistantMessageError. The control's
     // phase machine, part-scanning, and per-run revert wiring all live in that
     // module; this file only imports + renders it.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1792);
+    // Bumped 1792 → 1800 for the attachments-availability adapter contract
+    // comments (PR #1690 review fix): the adapter memo documents WHY it is
+    // keyed on availability presence — tearing it down on an enabled→disabled
+    // model switch would wipe staged attachments via an adapter-less send.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1800);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

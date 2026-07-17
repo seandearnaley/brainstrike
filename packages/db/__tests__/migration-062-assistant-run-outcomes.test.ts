@@ -12,7 +12,7 @@ interface IndexRow {
   indexname: string;
 }
 
-describe('migration 060: assistant run outcomes table', () => {
+describe('migration 062: assistant run outcomes table', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -21,7 +21,7 @@ describe('migration 060: assistant run outcomes table', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 60));
+    await runner.up(migrations.filter((migration) => migration.version < 62));
   });
 
   afterEach(async () => {
@@ -29,9 +29,9 @@ describe('migration 060: assistant run outcomes table', () => {
   });
 
   function getMigration060() {
-    const migration = migrations.find((candidate) => candidate.version === 60);
+    const migration = migrations.find((candidate) => candidate.version === 62);
     if (!migration) {
-      throw new Error('Migration 060 is missing');
+      throw new Error('Migration 062 is missing');
     }
     return migration;
   }

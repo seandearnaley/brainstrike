@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPgliteMastraMemory } from '../memory-factory';
+import type { PgliteDatabase } from '../types';
 
 const memoryConstructorCalls: unknown[] = [];
 
@@ -21,9 +22,11 @@ vi.mock('@mastra/memory', () => ({
 
 describe('createPgliteMastraMemory', () => {
   let db: PGlite;
+  let database: PgliteDatabase;
 
   beforeEach(() => {
     db = new PGlite();
+    database = db as unknown as PgliteDatabase;
     memoryConstructorCalls.length = 0;
   });
 
@@ -33,7 +36,7 @@ describe('createPgliteMastraMemory', () => {
 
   it('passes explicit observational memory settings into Mastra Memory', async () => {
     await createPgliteMastraMemory({
-      database: db,
+      database,
       memorySettings: {
         observationalMemory: {
           enabled: true,
@@ -70,7 +73,7 @@ describe('createPgliteMastraMemory', () => {
 
   it('opts into observer thread-title extraction whenever observational memory is enabled', async () => {
     await createPgliteMastraMemory({
-      database: db,
+      database,
       memorySettings: {
         observationalMemory: {
           enabled: true,
@@ -99,7 +102,7 @@ describe('createPgliteMastraMemory', () => {
 
   it('does not construct an observational memory option (or its thread-title flag) when disabled', async () => {
     await createPgliteMastraMemory({
-      database: db,
+      database,
       memorySettings: {
         observationalMemory: {
           enabled: false,
@@ -127,7 +130,7 @@ describe('createPgliteMastraMemory', () => {
   it('throws instead of silently disabling semantic recall when no embedder is configured', async () => {
     await expect(
       createPgliteMastraMemory({
-        database: db,
+        database,
         memorySettings: {
           observationalMemory: {
             enabled: true,
@@ -150,7 +153,7 @@ describe('createPgliteMastraMemory', () => {
   });
 
   it('registers PGlite workflow snapshots on the Mastra composite store', async () => {
-    const result = await createPgliteMastraMemory({ database: db });
+    const result = await createPgliteMastraMemory({ database });
     const workflowStore = await result.storage.getStore('workflows');
 
     expect(workflowStore).toBe(result.workflows);
@@ -164,7 +167,7 @@ describe('createPgliteMastraMemory', () => {
     } as unknown as MastraModelConfig;
 
     await createPgliteMastraMemory({
-      database: db,
+      database,
       memoryOptions: {
         lastMessages: 8,
         workingMemory: { enabled: false },
@@ -201,7 +204,7 @@ describe('createPgliteMastraMemory', () => {
   });
 
   it('defaults lastMessages to DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES when no memoryOptions supplied', async () => {
-    await createPgliteMastraMemory({ database: db });
+    await createPgliteMastraMemory({ database });
 
     expect(memoryConstructorCalls).toHaveLength(1);
     expect(memoryConstructorCalls[0]).toMatchObject({
@@ -216,7 +219,7 @@ describe('createPgliteMastraMemory', () => {
 
     try {
       await createPgliteMastraMemory({
-        database: db,
+        database,
         memorySettings: {
           observationalMemory: {
             enabled: true,

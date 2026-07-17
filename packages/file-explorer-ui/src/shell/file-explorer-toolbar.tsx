@@ -5,17 +5,27 @@ import * as React from 'react';
 
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
+  /** Filter visibility toggle rendered at the toolbar's right edge, next to the bulk selection control. */
+  filtersControl?: React.ReactNode;
   isLoading: boolean;
   onDirectorySelect: () => Promise<void>;
   selectionStatusControl?: React.ReactNode;
+  /**
+   * Tree operations (refresh / expand / collapse) rendered in the right
+   * cluster. They live on the toolbar — not inside the collapsible filter
+   * block — so they stay reachable while view filters are collapsed.
+   */
+  treeActionsControl?: React.ReactNode;
 }
 
 const FileExplorerToolbar = React.memo(
   ({
     bulkSelectionControl,
+    filtersControl,
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
+    treeActionsControl,
   }: FileExplorerToolbarProps) => {
     // Multi-root: the add-folder action stays mathematically centered between the
     // selection controls. The label no longer flips on focus, and the focused-root
@@ -50,8 +60,10 @@ const FileExplorerToolbar = React.memo(
             </span>
           </Button>
           <div className="@container/explorer-bulk flex min-w-0 items-center justify-end">
-            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:gap-1 gap-0.5 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+              {treeActionsControl}
               {bulkSelectionControl}
+              {filtersControl}
             </div>
           </div>
         </div>

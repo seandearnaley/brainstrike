@@ -104,9 +104,10 @@ describe('createRetrievalTool', () => {
     const deps = createMockDependencies();
     const tool = createRetrievalTool(undefined, deps);
 
-    expect(tool.id).toBe(RETRIEVAL_TOOL_ID);
-    expect(tool.description).toContain('Retrieve');
-    expect(tool.inputSchema).toBeDefined();
+    const metadata = tool as { description?: string; id?: string; inputSchema?: unknown };
+    expect(metadata.id).toBe(RETRIEVAL_TOOL_ID);
+    expect(metadata.description).toContain('Retrieve');
+    expect(metadata.inputSchema).toBeDefined();
     expect(typeof tool.execute).toBe('function');
   });
 
@@ -473,7 +474,13 @@ describe('createRetrievalTool', () => {
     const deps = createMockDependencies({
       searchSimilarChunks: vi.fn().mockResolvedValue([
         createMockChunkResult({
-          chunk: { content: 'Too large for the requested budget', tokenCount: 10 },
+          chunk: {
+            chunkIndex: 0,
+            content: 'Too large for the requested budget',
+            fileRecordId: 'file-001',
+            id: 'chunk-001',
+            tokenCount: 10,
+          },
         }),
       ]),
     });
@@ -599,8 +606,8 @@ describe('createRetrievalTool', () => {
   });
 
   it('does not expose raw retrieval errors in development mode', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    const originalNodeEnv = process.env['NODE_ENV'];
+    process.env['NODE_ENV'] = 'development';
     const deps = createMockDependencies({
       searchSimilarChunks: vi
         .fn()
@@ -614,7 +621,7 @@ describe('createRetrievalTool', () => {
       );
       await expect(runTool(tool, { query: 'test' })).rejects.not.toThrow('/private/workspace');
     } finally {
-      process.env.NODE_ENV = originalNodeEnv;
+      process.env['NODE_ENV'] = originalNodeEnv;
     }
   });
 

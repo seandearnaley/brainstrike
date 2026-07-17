@@ -21,7 +21,7 @@ describe('askUser tool', () => {
 
   it('suspends with question only for a free-text question', async () => {
     const tool = createAskUserTool();
-    const suspend = vi.fn(() => Promise.resolve());
+    const suspend = vi.fn((_payload: unknown) => Promise.resolve());
     await runExecute(tool, { question: 'What city?' }, { agent: { suspend } });
     expect(suspend).toHaveBeenCalledTimes(1);
     expect(suspend.mock.calls[0]?.[0]).toEqual({ question: 'What city?' });
@@ -29,7 +29,7 @@ describe('askUser tool', () => {
 
   it('defaults selectionMode to single_select when options are present', async () => {
     const tool = createAskUserTool();
-    const suspend = vi.fn(() => Promise.resolve());
+    const suspend = vi.fn((_payload: unknown) => Promise.resolve());
     await runExecute(
       tool,
       { options: [{ label: 'A' }, { label: 'B' }], question: 'Pick' },

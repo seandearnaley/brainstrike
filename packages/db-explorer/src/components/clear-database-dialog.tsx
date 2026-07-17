@@ -35,7 +35,7 @@ export function ClearDatabaseDialog({
     <Dialog onOpenChange={setShowClearDialog} open={showClearDialog}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Clear Database</DialogTitle>
+          <DialogTitle>Clear All Collections</DialogTitle>
           <DialogDescription>
             {countsPending
               ? 'Collection counts are still loading. Wait for fresh counts before clearing data.'
@@ -47,7 +47,7 @@ export function ClearDatabaseDialog({
             Cancel
           </Button>
           <Button disabled={clearing || countsPending} onClick={onClear} variant="destructive">
-            {clearing ? 'Clearing...' : 'Clear Database'}
+            {clearing ? 'Clearing...' : 'Clear All Collections'}
           </Button>
         </DialogFooter>
       </DialogContent>

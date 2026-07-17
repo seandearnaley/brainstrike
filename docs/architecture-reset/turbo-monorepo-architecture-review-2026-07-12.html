@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainstrike Architecture Review — July 2026</title>
+<style>
+  /* Tokens */
+  :root {
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-3:       #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --ring:        rgba(11,11,11,0.10);
+    --accent:      #2a78d6;
+    --accent-ink:  #1c5cab;
+    --accent-wash: #cde2fb;
+    --seq-250:     #86b6ef;
+    --seq-400:     #3987e5;
+    --seq-550:     #1c5cab;
+    --good:        #0ca30c;
+    --good-text:   #006300;
+    --warning:     #fab219;
+    --serious:     #ec835a;
+    --critical:    #d03b3b;
+    --code-bg:     #f1f0ec;
+    --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page:        #0d0d0d;
+      --surface:     #1a1a19;
+      --ink:         #ffffff;
+      --ink-2:       #c3c2b7;
+      --ink-3:       #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --ring:        rgba(255,255,255,0.10);
+      --accent:      #3987e5;
+      --accent-ink:  #86b6ef;
+      --accent-wash: #10315b;
+      --good-text:   #0ca30c;
+      --code-bg:     #242422;
+    }
+  }
+  :root[data-theme="light"] {
+    --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+    --grid:#e1e0d9; --baseline:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --accent-ink:#1c5cab; --accent-wash:#cde2fb; --good-text:#006300; --code-bg:#f1f0ec;
+  }
+  :root[data-theme="dark"] {
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --ring:rgba(255,255,255,0.10);
+    --accent:#3987e5; --accent-ink:#86b6ef; --accent-wash:#10315b; --good-text:#0ca30c; --code-bg:#242422;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: var(--serif); font-size: 17px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 72ch; }
+
+  /* Header */
+  header.masthead { border-bottom: 1px solid var(--grid); padding: 44px 0 28px; margin-bottom: 8px; }
+  .eyebrow { font-family: var(--sans); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}
+  h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.12; margin: 0 0 14px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+  .standfirst { font-size: 19px; color: var(--ink-2); max-width: 64ch; margin: 0 0 22px; }
+  .meta-row { font-family: var(--sans); font-size: 13px; color: var(--ink-3); display: flex; gap: 20px; flex-wrap: wrap; }
+  .meta-row b { color: var(--ink-2); font-weight: 600; }
+  #themeToggle {
+    font-family: var(--sans); font-size: 12px; letter-spacing: .05em;
+    background: var(--surface); color: var(--ink-2); border: 1px solid var(--grid);
+    border-radius: 999px; padding: 5px 14px; cursor: pointer;
+  }
+  #themeToggle:hover { border-color: var(--baseline); }
+  #themeToggle:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Structure */
+  section { margin-top: 64px; }
+  h2 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+  h2 .no { color: var(--accent-ink); font-family: var(--sans); font-weight: 700; font-size: 15px; vertical-align: 0.35em; margin-right: 10px; letter-spacing: .06em;}
+  h3 { font-size: 19px; margin: 34px 0 8px; }
+  h4 { font-family: var(--sans); font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); margin: 28px 0 10px; font-weight: 600; }
+  .kicker { font-family: var(--sans); font-size: 13px; color: var(--ink-3); margin: 0 0 20px; max-width: 72ch; }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent-ink); text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }
+  code { font-family: var(--mono); font-size: 0.83em; background: var(--code-bg); border-radius: 4px; padding: 1px 5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--grid); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 16px; }
+  li { margin-bottom: 6px; }
+  hr.sep { border: 0; border-top: 1px solid var(--grid); margin: 56px 0 0; }
+
+  /* TOC */
+  nav.toc { margin: 34px 0 10px; border: 1px solid var(--grid); background: var(--surface); border-radius: 10px; padding: 20px 24px; }
+  nav.toc ol { columns: 2; column-gap: 40px; margin: 0; padding-left: 1.2em; font-family: var(--sans); font-size: 14.5px; }
+  nav.toc li { margin-bottom: 8px; break-inside: avoid; }
+  nav.toc a { text-decoration: none; color: var(--ink-2); }
+  nav.toc a:hover { color: var(--accent-ink); }
+  @media (max-width: 680px) { nav.toc ol { columns: 1; } }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 30px 0 6px; }
+  .tile { background: var(--surface); border: 1px solid var(--grid); border-radius: 10px; padding: 18px 20px 16px; }
+  .tile .v { font-family: var(--sans); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+  .tile .v small { font-size: 17px; font-weight: 600; color: var(--ink-2); }
+  .tile .l { font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); margin-top: 7px; line-height: 1.45; }
+  .tile.alert .v { color: var(--critical); }
+
+  /* Chips */
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--sans); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; border-radius: 999px; padding: 2.5px 10px; border: 1px solid var(--grid); background: var(--surface); color: var(--ink-2); white-space: nowrap; vertical-align: 0.15em;}
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; }
+  .chip.critical::before { background: var(--critical); }
+  .chip.serious::before  { background: var(--serious); }
+  .chip.warning::before  { background: var(--warning); }
+  .chip.good::before     { background: var(--good); }
+  .chip.info::before     { background: var(--accent); }
+
+  /* Tables */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--grid); border-radius: 10px; background: var(--surface); margin: 18px 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 13.5px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 600; padding: 12px 14px 9px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--grid); vertical-align: top; color: var(--ink-2); }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td strong, td b { color: var(--ink); }
+  tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+  .cellbar { display:inline-block; height: 9px; border-radius: 3px; background: var(--accent); vertical-align: baseline; margin-right: 8px;}
+
+  /* Figures / charts */
+  figure.viz { margin: 26px 0 10px; background: var(--surface); border: 1px solid var(--grid); border-radius: 10px; padding: 20px 22px 16px; }
+  figure.viz figcaption { font-family: var(--sans); margin-bottom: 16px; }
+  figure.viz figcaption .t { font-size: 14.5px; font-weight: 650; color: var(--ink); }
+  figure.viz figcaption .s { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+  .fignote { font-family: var(--sans); font-size: 12px; color: var(--ink-3); margin-top: 12px; border-top: 1px solid var(--grid); padding-top: 9px; }
+
+  /* horizontal bars */
+  .hbars { display: grid; grid-template-columns: minmax(120px, max-content) 1fr max-content; gap: 7px 12px; align-items: center; font-family: var(--sans); font-size: 13px; }
+  .hbars .lab { color: var(--ink-2); white-space: nowrap; }
+  .hbars .track { background: color-mix(in srgb, var(--grid) 55%, transparent); border-radius: 4px; height: 18px; position: relative; }
+  .hbars .bar { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 4px 4px 4px 4px; min-width: 3px; }
+  .hbars .bar.dim { background: var(--seq-250); }
+  .hbars .bar.deep { background: var(--seq-550); }
+  .hbars .bar.crit { background: var(--critical); }
+  .hbars .val { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; white-space: nowrap; }
+  .hbars .val small { color: var(--ink-3); font-weight: 400; }
+  .hbars .track:hover .bar { filter: brightness(1.12); }
+
+  /* vertical bars */
+  .vbars { display: flex; align-items: flex-end; gap: 10px; height: 190px; border-bottom: 1px solid var(--baseline); padding: 0 4px; }
+  .vbars .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; min-width: 0; }
+  .vbars .col .v { font-family: var(--sans); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .vbars .col .b { width: 100%; max-width: 74px; background: var(--accent); border-radius: 4px 4px 0 0; }
+  .vbars .col .b.partial { background: repeating-linear-gradient(45deg, var(--accent), var(--accent) 5px, color-mix(in srgb, var(--accent) 45%, var(--surface)) 5px, color-mix(in srgb, var(--accent) 45%, var(--surface)) 9px); }
+  .vbars .col:hover .b { filter: brightness(1.12); }
+  .vxlabels { display: flex; gap: 10px; padding: 7px 4px 0; font-family: var(--sans); font-size: 12px; color: var(--ink-3); }
+  .vxlabels span { flex: 1; text-align: center; }
+
+  /* paired before/after */
+  .pair-group { margin-bottom: 14px; }
+  .pair-group .g-lab { font-family: var(--sans); font-size: 12.5px; font-weight: 650; color: var(--ink); margin-bottom: 6px; }
+
+  /* layer diagram */
+  .layers { display: flex; flex-direction: column; gap: 8px; font-family: var(--sans); }
+  .layer { border: 1px solid var(--grid); border-radius: 8px; padding: 10px 14px; background: var(--page); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;}
+  .layer .lname { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--accent-ink); min-width: 172px; }
+  .layer .pkgs { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); line-height: 1.9; }
+  .layer .pkgs em { font-style: normal; color: var(--critical); font-weight: 600; }
+
+  /* recommendation cards */
+  .rec { border: 1px solid var(--grid); border-radius: 8px; background: var(--surface); padding: 20px 24px 14px; margin: 18px 0; }
+  .rec h3 { margin: 0 0 4px; font-size: 18px; }
+  .rec .rid { font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--ink-3); letter-spacing: .06em; margin-right: 8px;}
+  .rec .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
+  .rec p, .rec li { font-size: 15.5px; }
+  .rec .why { font-family: var(--sans); font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--grid); margin-top: 12px; padding-top: 10px; }
+  .rec .why b { color: var(--ink-2); }
+
+  .callout { border: 1px solid var(--grid); border-radius: 10px; padding: 18px 22px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); margin: 22px 0; }
+  .callout.warn { background: color-mix(in srgb, var(--warning) 7%, var(--surface)); }
+  .callout .ct { font-family: var(--sans); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-3); margin-bottom: 6px;}
+  .callout p:last-child { margin-bottom: 0; }
+
+  .srcs { font-family: var(--sans); font-size: 13.5px; }
+  .srcs li { margin-bottom: 7px; }
+  footer { margin-top: 72px; border-top: 1px solid var(--grid); padding-top: 20px; font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow"><span>Architecture review · Turborepo monorepo</span><button id="themeToggle" type="button" aria-label="Toggle color theme">Theme: auto</button></p>
+  <h1>Brainstrike: build for agent throughput</h1>
+  <p class="standfirst">The package graph is healthy: acyclic, contract-enforced, zero grandfathered exceptions. The debt is concentrated in build mechanics and CI economics: the repo merges ~17 PRs a day, and the pipeline re-does work it has already proven. This review grounds every proposal in measured repo data and current (July 2026) official documentation.</p>
+  <div class="meta-row">
+    <span><b>Repo</b> seandearnaley/brainstrike</span>
+    <span><b>Date</b> 2026-07-12</span>
+    <span><b>Scope</b> 41 workspace packages at measurement time (packages/ + apps/) · 10 workflows · 6 months of history · 906 merged PRs</span>
+    <span><b>Stack</b> Turborepo 2.10.4 · pnpm 11.10 · Vite 8 · Vitest 4 · Biome 2.5 · React 19 · Electron</span>
+  </div>
+</header>
+
+<div class="callout">
+  <div class="ct">Status — 2026-07-15</div>
+  <p>This review has been fully executed across three PR series (#1608–#1670). See the paired short-form doc's "Implementation status (as of 2026-07-15)" section for the PR-by-PR ledger. Six factual premises below were measured during execution and found false; each is marked in place with a <strong>Correction — 2026-07-15</strong> callout beside the original claim, which is left unedited. R5 and R10 (structural extraction/splits) are deferred to a planned Series D; R12b (Turbo 3.0 prep) and R12c (boundaries-advisory) remain deferred.</p>
+</div>
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#verdict">Verdict &amp; headline numbers</a></li>
+    <li><a href="#history">How this codebase actually evolves</a></li>
+    <li><a href="#graph">Package architecture: what's healthy, what's drifting</a></li>
+    <li><a href="#build">Build mechanics: the hidden tax</a></li>
+    <li><a href="#ci">CI lanes: measured reality</a></li>
+    <li><a href="#recs">Recommendations, ranked</a></li>
+    <li><a href="#keep">What not to change</a></li>
+    <li><a href="#roadmap">Sequencing</a></li>
+    <li><a href="#method">Method, confidence &amp; sources</a></li>
+  </ol>
+</nav>
+
+<!-- ==================== 1. VERDICT ==================== -->
+<section id="verdict">
+  <h2><span class="no">§1</span>Verdict &amp; headline numbers</h2>
+  <div class="prose">
+    <p>This is an unusual codebase: one maintainer orchestrating AI agents at industrial cadence (262 PRs merged in June alone, 1.8% revert/follow-up rate). That reframes what "developer experience" means here. The scarce resources are <strong>verification latency</strong>, <strong>affected-graph precision</strong>, and <strong>machine-readable conventions</strong>, not human onboarding ergonomics. Every recommendation below is scored against those three.</p>
+    <p>Three facts dominate everything else in this report:</p>
+    <ol>
+      <li><strong>Tests are the only expensive thing in CI, and they are the only thing not cached.</strong> Turborepo remote caching is live and working for builds, but test selection was moved off Turbo onto raw <code>pnpm --filter</code>, so every test executes from scratch on every run, including a full 42-minute uncached re-test of the entire repo on every push to main.</li>
+      <li><strong>A one-line edit to <code>packages/types</code> invalidates the build of 33 of the other 40 packages</strong> before a single test runs, because <code>test</code> depends on <code>^build</code> even though the config's own comment admits tests import source directly.</li>
+      <li><strong>The entire nightly regression tier has been silently red for 10+ days.</strong> Web E2E, desktop E2E, and performance nightlies: 10 of 10 most recent scheduled runs failed, with no failure notification. The "smoke on PR, full regression nightly" strategy is currently fictional on the regression side.</li>
+    </ol>
+  </div>
+  <div class="tiles">
+    <div class="tile"><div class="v">906</div><div class="l">PRs merged in 6 months; 16.7/day in July, peak 31/day</div></div>
+    <div class="tile"><div class="v">~55 <small>job-min</small></div><div class="l">billable CI job-minutes per green PR sync (measured, run 29178469954)</div></div>
+    <div class="tile"><div class="v">33<small>/40</small></div><div class="l">packages whose build is invalidated by editing <code>packages/types</code></div></div>
+    <div class="tile alert"><div class="v">10<small>/10</small></div><div class="l">most recent scheduled runs failed in each of 3 nightly E2E/perf lanes, silently</div></div>
+    <div class="tile"><div class="v">1.8%</div><div class="l">revert/follow-up rate across 906 PRs; hardening happens before merge; protect that</div></div>
+    <div class="tile"><div class="v">130 <small>KB</small></div><div class="l">AGENTS.md today (~32K tokens), up 10.6× in two months</div></div>
+  </div>
+</section>
+
+<!-- ==================== 2. HISTORY ==================== -->
+<section id="history">
+  <h2><span class="no">§2</span>How this codebase actually evolves</h2>
+  <p class="kicker">Evidence base: <code>git log origin/main --since=2026-01-12 --numstat</code> (726 commits, 13,913 file-changes, 1.13M lines ±) and 906 merged PRs via <code>gh pr list</code>. Full method in §9.</p>
+
+  <div class="prose">
+    <p>The work mix is infrastructure-heavy: db/search/indexing appears in ~39% of PR titles, assistant/agent in ~21%, CI/infra/tests in 14%. Median PR is small and disciplined (345 lines, 6 files, 2 packages), which means affected-based CI filtering is well matched to the modal change. Big work ships as long-lived feature branches carrying stacked PRs (the Turso migration alone: 172 PRs on a side branch), then squash-collapses to main.</p>
+  </div>
+
+  <figure class="viz">
+    <figcaption><div class="t">Merged PRs per month</div><div class="s">Velocity tripled in Q2. July (hatched) covers only 12 days; on pace for ~520.</div></figcaption>
+    <div class="vbars" role="img" aria-label="Bar chart of merged PRs per month: January 26, February 74, March 97, April 81, May 157, June 262, July partial 209 in 12 days">
+      <div class="col"><span class="v">26</span><div class="b" style="height:10%"></div></div>
+      <div class="col"><span class="v">74</span><div class="b" style="height:28%"></div></div>
+      <div class="col"><span class="v">97</span><div class="b" style="height:37%"></div></div>
+      <div class="col"><span class="v">81</span><div class="b" style="height:31%"></div></div>
+      <div class="col"><span class="v">157</span><div class="b" style="height:60%"></div></div>
+      <div class="col"><span class="v">262</span><div class="b" style="height:100%"></div></div>
+      <div class="col"><span class="v">209</span><div class="b partial" style="height:80%"></div></div>
+    </div>
+    <div class="vxlabels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul 1–12</span></div>
+    <div class="fignote">Source: gh pr list, merged into any base, 2026-01-12 → 2026-07-12. 26% of PRs merged into a base other than main (stacked work on feature branches).</div>
+  </figure>
+
+  <h3>The coupling signal: the assistant vertical is welded to <code>apps/desktop</code></h3>
+  <div class="prose">
+    <p>Package co-change analysis (which packages appear in the same commit) is the strongest architectural signal in the history. Filtered to commits touching ≤8 packages (so migration mega-commits don't distort it), the desktop app co-changes with the whole assistant vertical at rates that defeat affected-graph filtering:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Package pair</th><th class="num">Co-commits</th><th>Coupling (share of smaller package's commits)</th></tr></thead>
+    <tbody>
+      <tr><td><strong>agent ↔ assistant-contract</strong></td><td class="num">39</td><td><span class="cellbar" style="width:81px"></span><b>81%</b> of assistant-contract commits</td></tr>
+      <tr><td><strong>desktop ↔ vector-management</strong></td><td class="num">48</td><td><span class="cellbar" style="width:79px"></span><b>79%</b> of vector-management commits (all commits)</td></tr>
+      <tr><td><strong>desktop ↔ preferences</strong></td><td class="num">78</td><td><span class="cellbar" style="width:70px"></span><b>70%</b> of preferences commits (all commits)</td></tr>
+      <tr><td><strong>desktop ↔ agent</strong></td><td class="num">52</td><td><span class="cellbar" style="width:60px"></span><b>60%</b> of agent commits</td></tr>
+      <tr><td><strong>desktop ↔ app-shell</strong></td><td class="num">65</td><td><span class="cellbar" style="width:58px"></span><b>58%</b> of app-shell commits</td></tr>
+      <tr><td><strong>desktop ↔ web</strong></td><td class="num">54</td><td><span class="cellbar" style="width:54px"></span><b>54%</b> of web commits (dual-platform echo wiring)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>Two readings. First: the assistant server (tool registry, hook manager, route handlers, both hidden renderer hosts) lives in <em>app</em> code (<code>apps/desktop/src/assistant-server*</code>), so roughly a fifth of all work dirties the entire desktop app in any affected computation. Second: <code>assistant-contract</code> successfully serializes the process boundary but does not decouple change: 81% of its commits ship in lockstep with both implementer and consumer. Contract packages here buy type safety across IPC/HTTP, not independent evolution. That's fine, but it means <strong>more contract packages are not a decoupling strategy</strong> for this repo.</p>
+    <p>The hottest churn chain confirms it. Eight of the sixteen most-committed files are one assistant path: <code>assistant-ui-panel-wrapper.tsx</code> (60 commits) → <code>assistant-ui-panel.tsx</code> (48) → <code>preload.ts</code> (47) → <code>main.ts</code> (45) → <code>assistant-tools.ts</code> (44) → <code>agent/src/index.ts</code> (40) → <code>agent-runtime.ts</code> (38) → <code>assistant-server.ts</code> (31). AGENTS.md itself documents that each new run-lifecycle signal "threads the SAME 5 layers." Every assistant feature pays this wiring tax, twice over once you count the paired test files (another 61 commits).</p>
+    <p>Two more history facts shape the recommendations: <strong>test code is 40% of all line churn</strong> (452K of 1.13M lines; live-loop, no-mock proofs are maintained continuously and are the quality backbone behind the 1.8% revert rate), and <strong><code>.github/workflows/test.yml</code> has more commits (61) than any source file in the repo</strong>. CI meta-engineering is a recurring first-class work category that already went through one full build-then-delete cycle (the bespoke proof/planner system, 26 commits of <code>.ci/proof/latest.json</code> churn, removed within the window).</p>
+  </div>
+
+  <figure class="viz">
+    <figcaption><div class="t">AGENTS.md size over time</div><div class="s">The agents' institutional memory is growing super-linearly: 29 edits in the last 12 days alone.</div></figcaption>
+    <div class="hbars" role="img" aria-label="AGENTS.md size: 12.3 kilobytes in April, 41 in mid June, 130 today">
+      <span class="lab">Apr–May 2026</span><div class="track"><div class="bar dim" style="width:9.5%"></div></div><span class="val">12.3 KB</span>
+      <span class="lab">Jun 15</span><div class="track"><div class="bar dim" style="width:31.5%"></div></div><span class="val">41 KB</span>
+      <span class="lab">Jul 12 (today)</span><div class="track"><div class="bar" style="width:100%"></div></div><span class="val">130 KB <small>≈ 32K tokens</small></span>
+    </div>
+    <div class="fignote">Measured via git show &lt;rev&gt;:AGENTS.md at checkpoints. At +89 KB in 27 days it exceeds practical single-context scale within weeks, and it is already 10× the product's own 12,000-char per-file injection budget for workspace instruction files.</div>
+  </figure>
+</section>
+
+<!-- ==================== 3. PACKAGE GRAPH ==================== -->
+<section id="graph">
+  <h2><span class="no">§3</span>Package architecture: what's healthy, what's drifting</h2>
+  <p class="kicker">Evidence base: dependency extraction from all 41 workspace package.json files; DFS cycle check; export-surface and src-file counts; the domain contract in <code>architecture/domain-map.json</code> and its two enforcement scripts.</p>
+
+  <div class="prose">
+    <p><span class="chip good">healthy</span>&nbsp; The internal graph is a <strong>clean DAG with zero cycles</strong>, checked across prod, dev, and peer edges. The homegrown domain-boundary system (<code>scripts/architecture-domain-boundaries.mjs</code>, 376 lines: real TS-compiler-API import parsing, per-domain <code>mayDependOn</code>, a ratchet that fails on stale exceptions) currently enforces seven layered domains with <code>boundaryExceptions: []</code>. That is a genuinely rare state of grace and it should be treated as an asset, not replaced (§7).</p>
+  </div>
+
+  <figure class="viz">
+    <figcaption><div class="t">Enforced domain layering (architecture/domain-map.json)</div><div class="s">Arrows flow downward only. Packages in red are the conceptual misfits discussed below: legal under the contract's coarse domains, wrong by intent.</div></figcaption>
+    <div class="layers">
+      <div class="layer"><span class="lname">applications</span><span class="pkgs">web · desktop · landing</span></div>
+      <div class="layer"><span class="lname">experience (workspace · assistant)</span><span class="pkgs">app-shell · db-explorer · file-explorer-ui · file-explorer-hooks · workspace-search · vector-management · agent</span></div>
+      <div class="layer"><span class="lname">indexing</span><span class="pkgs">embeddings · embedding-worker · file-import<em>→ui</em> · chunking-worker · pipeline · queue · text-splitter</span></div>
+      <div class="layer"><span class="lname">data-platform</span><span class="pkgs">db · storage · file-system · preferences<em>→ui (settings feature inside a data package)</em></span></div>
+      <div class="layer"><span class="lname">shared-foundation</span><span class="pkgs">ui<em>→assistant-contract, commands</em> · utils · types · hooks · context-actions · assistant-contract · indexing-contract · platform-utils · worker-runtime</span></div>
+      <div class="layer"><span class="lname">tooling</span><span class="pkgs">config · tailwind-config · build-utils · test-utils</span></div>
+    </div>
+    <div class="fignote">Simplified: domain names condensed; the actual map has 7 domains. The contract passes today because its domains are coarse enough to permit the red edges; they are conceptual violations, not contract violations.</div>
+  </figure>
+
+  <h3>God packages: the blast-radius problem</h3>
+  <div class="prose">
+    <p>Fan-in concentrates in a few leaf packages, and because <code>test</code> and <code>type-check</code> chain through <code>^build</code>/<code>build</code>, their <em>transitive</em> blast radius is what every edit pays:</p>
+  </div>
+
+  <figure class="viz">
+    <figcaption><div class="t">Transitive blast radius: packages invalidated per edit</div><div class="s">Dependents (incl. devDependencies) out of the 40 <em>other</em> workspace packages (41 analyzed, minus the one being edited).</div></figcaption>
+    <div class="hbars" role="img" aria-label="Blast radius: types 33, test-utils 31, utils 29, indexing-contract 15, assistant-contract 14, ui 10, db 10">
+      <span class="lab">types</span><div class="track"><div class="bar crit" style="width:82.5%"></div></div><span class="val">33 <small>/ 40</small></span>
+      <span class="lab">test-utils</span><div class="track"><div class="bar crit" style="width:77.5%"></div></div><span class="val">31 <small>/ 40 (all dev)</small></span>
+      <span class="lab">utils</span><div class="track"><div class="bar crit" style="width:72.5%"></div></div><span class="val">29 <small>/ 40</small></span>
+      <span class="lab">indexing-contract</span><div class="track"><div class="bar" style="width:37.5%"></div></div><span class="val">15 <small>/ 40</small></span>
+      <span class="lab">assistant-contract</span><div class="track"><div class="bar" style="width:35%"></div></div><span class="val">14 <small>/ 40</small></span>
+      <span class="lab">ui</span><div class="track"><div class="bar dim" style="width:25%"></div></div><span class="val">10 <small>/ 40</small></span>
+      <span class="lab">db</span><div class="track"><div class="bar dim" style="width:25%"></div></div><span class="val">10 <small>/ 40</small></span>
+    </div>
+    <div class="fignote">Red bars: the three packages where a one-line edit forces a near-full rebuild before tests run. Both are misnamed grab-bags (see below), so they attract edits they shouldn't.</div>
+  </figure>
+
+  <div class="prose">
+    <ul>
+      <li><strong><code>utils</code></strong> <span class="chip serious">serious</span>&nbsp; 28 direct dependents, <strong>37 export entries</strong>, 114 src files. It is not "utils": it contains <code>report-generator</code> (Tapestry product logic per AGENTS.md), <code>workspace-indexing-qos</code>, tree operations, four token-counting entries, the entire pino logging stack, and file-explorer-specific helpers. Domain logic hiding in the highest-fan-in package means product edits invalidate 29 packages.</li>
+      <li><strong><code>types</code></strong> <span class="chip serious">serious</span>&nbsp; the inverse: 13 files, mostly file-explorer constants and <code>electron-api.ts</code>, named as the universal leaf. A misnamed <code>file-explorer-contract</code> + platform typings grab-bag with a 33-package blast radius.</li>
+      <li><strong><code>ui</code></strong> <span class="chip warning">warning</span>&nbsp; 359 src files mixing a generic component library (tree-table, context-menu) with the entire assistant chat surface (<code>assistant-ui-panel</code>, markdown-surface, shiki). The panel is why <code>ui → assistant-contract, commands</code>: every <code>ui</code> consumer (e.g. <code>file-import</code>, which likely needs toasts) drags the chat stack into its graph.</li>
+      <li><strong><code>preferences</code></strong> <span class="chip warning">warning</span>&nbsp; two packages fused: persistence stores (data-platform) plus the whole settings <em>feature</em> (<code>src/settings/</code>, <code>settings-page-content.tsx</code>, React components) — the reason a data-platform package depends on <code>ui</code>, and a contributor to its 70% co-change with desktop.</li>
+      <li><strong><code>app-shell</code></strong> <span class="chip info">watch</span>&nbsp; 20 internal deps, 200 files. Acceptable as the composition root, but it also <em>owns</em> features (background-indexing sync, context-action registry, run notifications, checkpoint hooks) rather than only wiring them.</li>
+    </ul>
+    <p>Dead weight found along the way: <code>tsconfig.solution.json</code> is stale and referenced by nothing; <code>knip.jsonc</code> still configures a nonexistent <code>packages/fonts</code>; <code>queue-telemetry-collector</code> has zero importers (standalone bin only); <code>server-config</code>'s single consumer is <code>apps/web/playwright.config.ts</code>, misfiled as a prod dependency; <code>selection-rules</code> (5 importing files, all in file-explorer-ui) and <code>commands</code> (single export) are merge candidates into their sole consumers.</p>
+  </div>
+</section>
+
+<!-- ==================== 4. BUILD MECHANICS ==================== -->
+<section id="build">
+  <h2><span class="no">§4</span>Build mechanics: the hidden tax</h2>
+  <p class="kicker">Evidence base: per-package build/type-check scripts, both app Vite configs, all 41 vitest configs, turbo.jsonc task graph.</p>
+
+  <div class="prose">
+    <p>The single most consequential finding of the whole review: <strong>the repo maintains a dual dist/src consumption model, and the dist half is mostly dead.</strong></p>
+    <ul>
+      <li>Both app bundlers alias <em>every</em> workspace package to source: 43 <code>packages/*/src</code> aliases in <code>apps/web/vite.config.mts</code>, 48 in the desktop one. Unit tests also import source (167 hand-maintained <code>replacement:</code> alias lines across 10+ vitest configs).</li>
+      <li>So for renderer-only packages (app-shell, db-explorer, file-explorer-ui, workspace-search, vector-management, preferences, ui, hooks, …) the built <code>dist/</code> JavaScript is <strong>never executed anywhere</strong>. It exists to satisfy Turbo's <code>^build</code> topology and to emit <code>.d.ts</code>. Only the desktop <em>main</em> process genuinely consumes dist at runtime (its esbuild config externalizes <code>@brainstrike/*</code> to prebuilt bundles), and only for the node-side subset: agent, db, queue, embeddings, utils, worker packages.</li>
+      <li><strong>18 packages double-compile</strong>: <code>tsc -b</code> <em>then</em> tsup over the same sources. Six distinct build patterns and four type-check patterns exist across the workspace (one package, <code>file-explorer</code>, has no type-check script at all).</li>
+      <li><code>turbo.jsonc</code>'s <code>test</code> task declares <code>dependsOn: ["^build"]</code> with its own comment admitting "Unit tests import package source directly." This is the mechanism that turns the §3 blast-radius chart into wall-clock: a <code>types</code> edit rebuilds 33 packages before one test runs.</li>
+      <li>The same knowledge ("which specifier maps to which src") is encoded in <strong>four parallel registries</strong>: root <code>tsconfig.json</code> paths, two Vite configs, and the vitest alias blocks. Adding one subpath export today touches up to ~14 files.</li>
+      <li>Cache-hygiene detail: <code>globalDependencies</code> includes <code>packages/*/tsconfig*.json</code>, so any of the 75 tsconfig files edits is a <em>global</em> cache bust for all 41 packages.</li>
+    </ul>
+    <p>None of this is exotic to fix, and the canonical shapes are documented (§6, R3/R7). The payoff compounds: smaller <code>^build</code> graphs make Turbo-cached tests (R2) hit more often, which makes CI cheaper, which makes the 17-PR/day loop faster.</p>
+  </div>
+</section>
+
+<!-- ==================== 5. CI ==================== -->
+<section id="ci">
+  <h2><span class="no">§5</span>CI lanes: measured reality</h2>
+  <p class="kicker">Evidence base: all 10 workflow files, ruleset 4797672 via gh API, and 1,000 workflow runs, which cover only ~38 hours of activity (~630 runs/day). Durations below are observed wall-clock medians from that window.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Lane</th><th>Trigger</th><th>What it does</th><th class="num">Observed</th><th>Gating</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Static</strong> (test.yml)</td><td>every PR sync + push</td><td>secret scan, script tests, db lane-registry guard, <code>lint:ci</code> (7 stacked lint systems), <code>type-check</code></td><td class="num">8–13 min</td><td><span class="chip info">required</span></td></tr>
+      <tr><td><strong>Unit</strong> (test.yml)</td><td>every PR sync + push</td><td>turbo build (remote-cached, ~3.6 min) then <b>uncached</b> pnpm-filtered tests; push runs full <code>test:fast</code></td><td class="num">PR 14–25 min<br>push <b>~42 min</b></td><td><span class="chip info">required</span></td></tr>
+      <tr><td><strong>Coverage</strong> (test.yml)</td><td>PR only</td><td>turbo build <em>again</em>, coverage on directly-changed packages, Codecov</td><td class="num">11–14 min</td><td><span class="chip">advisory</span></td></tr>
+      <tr><td><strong>Build</strong> (test.yml)</td><td>every PR sync + push</td><td>full turbo build, CSS guards, uploads 53 MB artifact</td><td class="num">5–7 min</td><td><span class="chip info">required</span></td></tr>
+      <tr><td><strong>Web E2E smoke</strong></td><td>needs: static, unit, build</td><td>Playwright container, <code>@web-smoke</code>, 2 workers</td><td class="num">2.4–3.6 min</td><td><span class="chip info">required</span></td></tr>
+      <tr><td><strong>Desktop E2E smoke</strong></td><td>needs: static, unit, build</td><td>Electron provisioning + 6 smoke specs</td><td class="num">3.4–3.6 min</td><td><span class="chip info">required</span></td></tr>
+      <tr><td>React Doctor</td><td>every PR sync + push</td><td>scope: changed, blocking: error</td><td class="num">0.5–2.1 min</td><td><span class="chip">advisory</span></td></tr>
+      <tr><td>Claude auto-review</td><td>PR opened/ready/reopened</td><td>Opus review, 60-min cap</td><td class="num">3.9 med / 8.8 p90</td><td><span class="chip">advisory</span></td></tr>
+      <tr><td>claude.yml</td><td>every comment/review event</td><td>@claude mention gate</td><td class="num"><b>584 runs / 38 h, 100% skipped</b></td><td><span class="chip">advisory</span></td></tr>
+      <tr><td>Nightlies ×4</td><td>cron</td><td>web + desktop full regression, performance, nightly coverage (7 serialized db lanes)</td><td class="num">10–42 min</td><td><span class="chip critical">3 of 4 dead</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <figure class="viz">
+    <figcaption><div class="t">Anatomy of one green PR sync: ~55 billable job-minutes</div><div class="s">Measured from run 29178469954. Coverage (hatched border in list) is advisory yet costs a quarter of the pipeline.</div></figcaption>
+    <div class="hbars" role="img" aria-label="Job minutes per lane: Unit 24.6, Coverage 11.0, Static 8.3, Build 5.1, Desktop E2E 3.4, Web E2E 2.4">
+      <span class="lab">Unit</span><div class="track"><div class="bar crit" style="width:100%"></div></div><span class="val">24.6 <small>min · uncached tests</small></span>
+      <span class="lab">Coverage</span><div class="track"><div class="bar dim" style="width:44.7%"></div></div><span class="val">11.0 <small>min · advisory</small></span>
+      <span class="lab">Static</span><div class="track"><div class="bar" style="width:33.7%"></div></div><span class="val">8.3 <small>min</small></span>
+      <span class="lab">Build</span><div class="track"><div class="bar" style="width:20.7%"></div></div><span class="val">5.1 <small>min</small></span>
+      <span class="lab">Desktop E2E</span><div class="track"><div class="bar" style="width:13.8%"></div></div><span class="val">3.4 <small>min</small></span>
+      <span class="lab">Web E2E</span><div class="track"><div class="bar" style="width:9.8%"></div></div><span class="val">2.4 <small>min</small></span>
+    </div>
+    <div class="fignote">At ~86 PR Test runs + ~27 push runs/day this extrapolates to roughly 4,500–5,500 job-minutes/day (~140–170K/month), order $1,000+/month at list price on a private repo, &gt;90% of it in test.yml. Estimate, not a bill: covered plans/included minutes may absorb part of it.</div>
+  </figure>
+
+  <h3>What the measurements say is wrong</h3>
+  <div class="prose">
+    <ul>
+      <li><span class="chip critical">critical</span>&nbsp; <strong>Dead nightly tier.</strong> desktop-e2e, web-e2e, performance: 10/10 recent scheduled runs failed; nightly-coverage 7/10. Only nightly-coverage opens a tracking issue on failure; the other three fail into the void. ~58 min/day of runner time producing zero signal, and the merge gate runs <em>smoke only</em>, so full-regression coverage has been absent for 10+ days.</li>
+      <li><span class="chip critical">critical</span>&nbsp; <strong>Zero test caching.</strong> Test selection deliberately moved off Turbo (a workflow comment cites <code>--affected</code> over-selecting on merge commits) onto <code>pnpm --filter "...[origin/BASE]"</code>. Selection semantics were preserved; caching was lost. The remote cache is verified live for builds in the same jobs.</li>
+      <li><span class="chip serious">serious</span>&nbsp; <strong>The repo builds up to 4× per PR sync</strong> (Static's type-check → build, Unit, Coverage, Build): mostly remote-cache replays, but still ~10–14 min of redundant replay plus 4 installs/checkouts. And directly-changed packages' tests run <em>twice</em> (plain in Unit, instrumented in Coverage).</li>
+      <li><span class="chip serious">serious</span>&nbsp; <strong>Smoke E2E is gated on Unit</strong> (<code>needs: [static, unit, build]</code>) but only consumes Build's artifact. A 3.5-minute signal waits 25–54 minutes for a job it doesn't use.</li>
+      <li><span class="chip warning">warning</span>&nbsp; <strong>Per-job <code>actions/cache</code> turbo silos are near-vestigial</strong> next to the live remote cache: keyed per-job-per-sha, they never exact-hit on first run, add save/restore time, and pin cache storage at the 10 GB ceiling (10.26 GB observed, the reason the cleanup workflow exists).</li>
+      <li><span class="chip warning">warning</span>&nbsp; <strong>Noise and drift:</strong> 584 all-skipped claude.yml runs in 38 h (58% of all workflow runs); the checkout→pnpm→node setup block copy-pasted into every job (no composite action: <code>.github/actions/</code> doesn't exist, and a turbo.jsonc comment references a "shared Playwright runtime setup action" that no longer exists); the same 24-line Electron provisioning block pasted 3× across workflows.</li>
+      <li><span class="chip warning">warning</span>&nbsp; <strong>Branch protection:</strong> required checks are the five test.yml jobs, but <code>strict_required_status_checks_policy: false</code> and 0 required approvals, so stale branches can merge on green-at-old-base. Today's mitigation is the push-time full test run; see R2 and the merge-queue note at the end of §6 for how to keep that safety net while making it cheap.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ==================== 6. RECOMMENDATIONS ==================== -->
+<section id="recs">
+  <h2><span class="no">§6</span>Recommendations, ranked</h2>
+  <p class="kicker">Ranked by payoff per unit of risk. Each cites the canonical mechanism (official docs, July 2026) rather than bespoke machinery, per your preference, and flags residual risk explicitly. The first chip on each card is its suggested horizon.</p>
+
+  <div class="rec tier-now">
+    <h3><span class="rid">R1</span>Resurrect or explicitly retire the nightly regression tier</h3>
+    <div class="chips"><span class="chip info">this week</span><span class="chip critical">impact: signal integrity</span><span class="chip good">effort: small</span><span class="chip good">risk: none</span></div>
+    <p>Three lanes have failed 10/10 consecutive scheduled runs with no notification. Whatever else this review says, this comes first: either fix the regressions (they are your only full-regression coverage; the merge gate is smoke-only) or stop scheduling them until fixed. At minimum, clone <code>nightly-coverage.yml</code>'s auto-issue-on-failure block into <code>web-e2e.yml</code>, <code>desktop-e2e.yml</code>, and <code>performance.yml</code> so silent-red is structurally impossible to recur.</p>
+    <div class="why"><b>Why canonical:</b> this isn't tooling; it's the precondition for trusting every other lane change. A CI tier that can go red for 10 days unnoticed will eat any optimization you build on top of it.</div>
+  </div>
+
+  <div class="rec tier-now">
+    <h3><span class="rid">R2</span>Route test execution through Turbo so the remote cache covers it</h3>
+    <div class="chips"><span class="chip info">this week</span><span class="chip critical">impact: highest (latency + cost)</span><span class="chip good">effort: small</span><span class="chip warning">risk: managed</span></div>
+    <p>Replace <code>pnpm --filter "...[origin/$BASE_REF]" run test</code> with <code>turbo run test --filter="...[origin/$BASE_REF]"</code>: the explicit filter keeps your exact selection semantics and sidesteps the merge-commit base-detection issue that pushed you off <code>--affected</code> (alternatively pin <code>TURBO_SCM_BASE</code>). On push, replace <code>test:fast</code> with plain <code>turbo run test</code>: post-merge, nearly every package is a remote-cache hit from the PR that just ran the same content, collapsing the 42-minute push Unit step to minutes <em>while keeping the full-repo safety net</em> that currently justifies merging without strict status checks.</p>
+    <ul>
+      <li>The <code>test</code> task is already cache-configured (env-keyed on <code>NODE_ENV</code>/<code>TURBO_TEST_MODE</code>); the remote cache is verified working in the same jobs. You already trust this exact machinery for <code>build</code>.</li>
+      <li>Start with <code>@brainstrike/db</code> pinned <code>"cache": false</code> (known env-sensitive, serialized PGlite lanes) and widen from there. Consider <code>"remoteCache": {"signature": true}</code> + <code>TURBO_REMOTE_CACHE_SIGNATURE_KEY</code> since cached test results now gate merges.</li>
+      <li>Longer term, evaluate <code>--affected</code> with 2.10 semantics (composable with <code>--filter</code>; fails <em>safe</em> by running everything on shallow clones) and <code>turbo query affected</code> for job-level skip decisions, the documented replacements for hand-rolled changed-path detection.</li>
+    </ul>
+    <div class="why"><b>Grounding:</b> Turborepo "Constructing CI" + GitHub Actions guide; 2.10 release notes (composable --affected); remote-caching docs (free on all Vercel plans; self-host seam via <code>turbo login --manual</code> + API v8, e.g. ducktors/turborepo-remote-cache). <b>Residual risk:</b> a test that passes on hidden state could replay a stale green; bounded by input hashing, the db carve-out, and signature verification.</div>
+  </div>
+
+  <div class="rec tier-now">
+    <h3><span class="rid">R3</span>Cut the <code>^build</code> tax: declaration-only builds and no double-compiles</h3>
+    <div class="chips"><span class="chip info">this week</span><span class="chip critical">impact: high (the 33/40 problem)</span><span class="chip warning">effort: medium</span><span class="chip good">risk: low</span></div>
+    <p>Three moves, in order of safety:</p>
+    <ol>
+      <li><strong>Kill the 18 double-compiles.</strong> Each of those packages runs <code>tsc -b</code> <em>and</em> tsup over the same sources. Pick one emitter per package class: tsc-emit for the type-graph, tsup/esbuild only where a real bundle is consumed (desktop main's node-side subset: agent, db, queue, embeddings, utils; and the worker-bundle packages).</li>
+      <li><strong>Declaration-only builds for renderer-only packages.</strong> Their dist JS is never executed (both apps alias to src), so emit <code>.d.ts</code> only. Builds get dramatically cheaper, and the <code>^build</code> graph that R2's cached tests hash against shrinks.</li>
+      <li><strong>Narrow <code>test.dependsOn</code>.</strong> Tests import source; only worker-bundle consumers (token-cache, chunking-worker, embedding-worker) genuinely need built artifacts. Scope <code>dependsOn</code> accordingly; Turborepo 2.7+ composable config (<code>extends</code> from any workspace package + <code>$TURBO_EXTENDS$</code>) lets you express the exception per-package instead of globally.</li>
+    </ol>
+    <p>Also: standardize the 6 build × 4 type-check × 3 clean script variants behind shared presets in <code>packages/config</code> (it already ships tsconfig presets), give <code>file-explorer</code> its missing type-check script, and stop listing <code>packages/*/tsconfig*.json</code> in <code>globalDependencies</code> once per-package task inputs cover them; today any of 75 tsconfig edits busts every cache in the repo.</p>
+    <div class="why"><b>Grounding:</b> Turborepo's official TypeScript guide recommends per-package <code>tsc --noEmit</code> check tasks under turbo (explicitly <em>not</em> project references); your shape already matches; this makes the build side match too. <b>Payoff compounds with R2:</b> smaller build graphs → more cache hits → faster lanes.</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>Series B's build-mechanics audit (#1650, #1649, #1651, #1652, #1658) found the "18 packages double-compile" premise above overstated: it was double <em>parse</em>, not double <em>compile</em> — every package already set <code>emitDeclarationOnly</code>, and tsup was always the sole JS emitter. Because desktop main executes <code>dist</code> at runtime by design, declaration-only builds were dropped as a goal rather than pursued. Separately, "tests import source directly" (the premise behind narrowing <code>test.dependsOn</code>) was false for 13 of 18 packages until #1651 made it true via a src-alias registry and execution guard. The series still landed real wins — script hygiene, <code>globalDependencies</code> narrowing, a Unit phase split, and a topo transit node that collapsed the whole-repo test graph from 39 build tasks to 3 — just not the ones this recommendation predicted.</p>
+  </div>
+
+  <div class="rec tier-now">
+    <h3><span class="rid">R4</span>Ungate smoke E2E from Unit</h3>
+    <div class="chips"><span class="chip info">this week</span><span class="chip serious">impact: PR latency</span><span class="chip good">effort: one line</span><span class="chip good">risk: trivial</span></div>
+    <p>Change both smoke jobs from <code>needs: [static, unit, build]</code> to <code>needs: [build]</code> (or <code>[static, build]</code> if you want a cheap sanity gate). The e2e pair consumes only Build's artifact; today a 3.5-minute signal waits behind Unit's 25–54 minutes. Combined with R2, merge-readiness becomes max(Static, Unit) rather than a serial chain.</p>
+    <div class="why"><b>Cost of being wrong:</b> ~2–3 wasted e2e minutes on PRs whose Unit fails anyway (~9 fails + 40 cancels per 136 runs), trivial against Unit's cost.</div>
+  </div>
+
+  <div class="rec tier-month">
+    <h3><span class="rid">R5</span>Extract <code>packages/assistant-server</code> out of <code>apps/desktop</code></h3>
+    <div class="chips"><span class="chip info">this month</span><span class="chip serious">impact: high (affected-graph precision)</span><span class="chip warning">effort: medium-large</span><span class="chip warning">risk: churn during move</span></div>
+    <p>The single highest-payoff <em>structural</em> move. 60–70% of all <code>agent</code> and <code>preferences</code> commits also touch <code>apps/desktop</code>, and the hottest churn chain (assistant-tools.ts, assistant-server.ts, the IPC domain handlers, both hidden host managers) lives in app code. Moving the assistant server (tool registry, hook manager, route handlers) into a package:</p>
+    <ul>
+      <li>shrinks the affected graph for ~21% of all work (assistant changes stop dirtying the whole desktop app, so R2's caching and any affected filtering actually bite);</li>
+      <li>makes the server testable without desktop scaffolding (today's paired tests live in <code>apps/desktop/__tests__</code>);</li>
+      <li>creates the natural home to collapse the "adding a native tool is a 7-registry checklist" (schemas, contract registries ×4, live registry, default-instructions) into fewer, co-located registration points; every "register in BOTH places" instruction in AGENTS.md is a defect attractor at 17 PRs/day (the dual lane-registry incident #1101 is the same pattern).</li>
+    </ul>
+    <p>While in there, flatten the panel-prop pipeline: <code>assistant-ui-panel-wrapper.tsx</code> (60 commits) threads each new run-lifecycle signal through the same 5 layers. A context/event-bus seam for run-lifecycle signals would cut the hottest non-config churn site in the repo.</p>
+    <div class="why"><b>Grounding:</b> your own history data; this is the review's clearest case of "structure should follow measured change patterns," not ecosystem fashion.</div>
+  </div>
+
+  <div class="rec tier-month">
+    <h3><span class="rid">R6</span>One module-resolution registry instead of four</h3>
+    <div class="chips"><span class="chip info">this month</span><span class="chip serious">impact: DX + drift elimination</span><span class="chip good">effort: small-medium</span><span class="chip good">risk: low</span></div>
+    <p>Root <code>tsconfig.json</code> paths, two Vite configs (43 + 48 aliases), and ~167 vitest alias lines all encode the same mapping. Make the tsconfig the single source: <code>vite-tsconfig-paths</code> in both apps, and vitest configs consuming the same plugin or a single generated alias module from <code>test-utils</code>. Adding a subpath export becomes a one-file change instead of ~14. Delete <code>tsconfig.solution.json</code> (stale, unreferenced) and the <code>knip.jsonc</code> <code>packages/fonts</code> entry while you're there.</p>
+    <div class="why"><b>Why canonical:</b> tsconfig <code>paths</code> is the ecosystem's shared source of truth; every bundler/test-runner has a first-party or de-facto standard adapter for it. Hand-synced alias blocks are the bespoke thing.</div>
+  </div>
+
+  <div class="rec tier-month">
+    <h3><span class="rid">R7</span>Demote the Coverage lane from every-sync to on-demand</h3>
+    <div class="chips"><span class="chip info">this month</span><span class="chip serious">impact: ~25% of PR pipeline cost</span><span class="chip good">effort: small</span><span class="chip warning">risk: feedback loss</span></div>
+    <p>Coverage is advisory (not in the ruleset), re-executes changed packages' tests in instrumented form, and costs 11–14 min per sync. Move it to <code>ready_for_review</code> + a label, or nightly (nightly-coverage already exists and enforces thresholds). If per-PR patch coverage matters for review, run it once per PR lifecycle rather than per sync.</p>
+    <div class="why"><b>Trade-off stated honestly:</b> you lose per-push Codecov patch deltas. Given a 1.8% revert rate and an enforced nightly threshold gate, per-sync instrumentation is paying for signal you rarely consume.</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>The "11–14 min per sync" figure above was overstated: measured Coverage runs are 5–9.5 min. The mechanism (per-sync waste on an advisory lane) was right; the magnitude wasn't. #1664 moved Coverage to its own once-per-lifecycle workflow; measured across 5 sample PRs, that collapsed 21 coverage runs to 5.</p>
+  </div>
+
+  <div class="rec tier-month">
+    <h3><span class="rid">R8</span>Adopt pnpm catalogs; retire syncpack</h3>
+    <div class="chips"><span class="chip info">this month</span><span class="chip warning">impact: dependency hygiene</span><span class="chip good">effort: small</span><span class="chip good">risk: low</span></div>
+    <p>Catalogs (<code>catalog:</code> protocol in <code>pnpm-workspace.yaml</code>) are the canonical single-source for dependency versions, with <code>catalogMode: strict</code> to reject drift and <code>cleanupUnusedCatalogs</code>. Turborepo's lockfile analysis understands catalogs, so a catalog bump only cache-misses affected packages. This replaces syncpack's job with a native mechanism, and Renovate has first-class catalog support. Also audit pnpm 11's on-by-default supply-chain settings (<code>minimumReleaseAge: 1440</code>, <code>blockExoticSubdeps</code>, <code>trustPolicy</code>): your workspace file already carries a documented <code>minimumReleaseAgeExclude</code>, which is exactly the right pattern; confirm the umbrella settings weren't disabled during the v11 migration.</p>
+    <div class="why"><b>Grounding:</b> pnpm catalogs + settings docs; pnpm 11.0 release post; Turborepo 2.7 notes (catalog-aware hashing).</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>"<code>catalogMode: strict</code> to reject drift" doesn't do what the name implies: pnpm's strict mode does not reject a hand-edited literal version for a catalogued dependency. <code>pnpm install</code> exits 0 and silently resolves a second, parallel version. Only <code>pnpm add &lt;pkg&gt;@&lt;off-catalog-version&gt;</code> is rejected. #1669 ships the real enforcement, <code>scripts/verify-catalog-references.mjs</code> in the Static job, a check syncpack never had since it was never wired into CI.</p>
+  </div>
+
+  <div class="rec tier-month">
+    <h3><span class="rid">R9</span>Workflow hygiene: composite setup action, cache re-key, event pruning, ARM runners</h3>
+    <div class="chips"><span class="chip info">this month</span><span class="chip warning">impact: cost + drift</span><span class="chip good">effort: small</span><span class="chip good">risk: low</span></div>
+    <ul>
+      <li><strong>One composite action</strong> for checkout→pnpm→node→(optional turbo cache): 6 copies in test.yml alone, 3 more nightly copies of the 24-line Electron provisioning block; the Playwright image pin is manually synced across 3 files today.</li>
+      <li><strong>Drop or re-key the <code>actions/cache</code> .turbo layer</strong>: with remote cache live it's near-vestigial; if kept as an outage hedge, key on lockfile+turbo.jsonc hash (performance.yml already does this) instead of per-job-per-sha, which is what pins storage at the 10 GB ceiling.</li>
+      <li><strong>Prune claude.yml trigger events</strong> to the ones actually used for @claude mentions; 584 skipped runs in 38 h is 58% of all workflow runs (API/UI noise, near-zero billable cost).</li>
+      <li><strong>Move lint/type/unit lanes to <code>ubuntu-24.04-arm</code></strong>: 37% cheaper, available on private repos since Jan 2026. Keep Electron/Playwright lanes on x64 unless binaries are verified (node-pty, Electron downloads).</li>
+      <li>Make <code>lint</code> cacheable per-package (Biome is file-local and deterministic on inputs; the eslint invocation targets 4 fixed dirs, so key on them), keeping only genuinely repo-global checks (secret scan, contracts) uncached. This attacks Static's fixed 8–13 min floor.</li>
+    </ul>
+    <div class="why"><b>Grounding:</b> GitHub "Avoiding duplication" (composite actions for repeated setup); arm64-in-private-repos changelog (2026-01-29) + runner pricing docs.</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p><strong>Lint-cache prize.</strong> "Static's fixed 8–13 min floor" was overstated: measured Static total is ~197s on typical pushes, and Lint itself is ~91s of that. The 8m+ figures were cold whole-repo-invalidation runs, not the steady state. 6 of <code>lint:ci</code>'s 8 chained commands are inherently whole-repo scanners, so lint caching was deferred; the realistic prize is ~40–60s on a cache hit, not minutes.</p>
+    <p><strong>ARM runners.</strong> #1670 measured Static at 2.7–3.0 min on <code>ubuntu-24.04-arm</code> vs. 2.9–3.1 min on x64: parity, not a speedup. The win is purely the 37% cheaper per-minute rate. Also, turbo's cache key is architecture-agnostic (the hash omits CPU arch; <code>runner.os</code> reports <code>"Linux"</code> on both), and the remote cache replays x64-produced results on ARM runners, so ARM buys the rate discount, not independent per-arch validation. Recorded in <code>docs/agents/ci-quality.md</code>.</p>
+  </div>
+
+  <div class="rec tier-quarter">
+    <h3><span class="rid">R10</span>Split the god packages along their measured seams</h3>
+    <div class="chips"><span class="chip info">this quarter</span><span class="chip warning">impact: blast radius + graph honesty</span><span class="chip warning">effort: medium, incremental</span><span class="chip good">risk: low (mechanical)</span></div>
+    <ul>
+      <li><strong><code>utils</code></strong> → keep true utilities; extract <code>report-generator</code> + <code>workspace-indexing-*</code> (domain logic), the logging stack, and token counting. Foundation edits stop invalidating 29 packages.</li>
+      <li><strong><code>types</code></strong> → rename to what it is (file-explorer contract + platform typings) or fold into the contract packages; stop using it as the universal leaf.</li>
+      <li><strong><code>preferences</code></strong> → stores (data-platform) vs settings UI (experience layer). Fixes the data-platform→ui edge and part of the desktop coupling.</li>
+      <li><strong><code>ui</code></strong> → <code>ui-core</code> vs the assistant panel. Sheds <code>assistant-contract</code>/<code>commands</code> from every generic-UI consumer.</li>
+    </ul>
+    <p>Do these as single-purpose PRs (the repo's stacked-branch muscle makes this cheap), and tighten <code>architecture/domain-map.json</code> after each split so the contract ratchets the new boundary, and the red edges in §3's diagram become contract violations instead of judgment calls.</p>
+    <div class="why"><b>Sequencing note:</b> R3 (declaration-only builds) first: splits are much cheaper when a package move doesn't ripple through bundler configs.</div>
+  </div>
+
+  <div class="rec tier-quarter">
+    <h3><span class="rid">R11</span>Restructure AGENTS.md before it outgrows its readers</h3>
+    <div class="chips"><span class="chip info">this quarter</span><span class="chip warning">impact: agent effectiveness</span><span class="chip good">effort: small-medium</span><span class="chip good">risk: low</span></div>
+    <p>130 KB / ~32K tokens, +89 KB in 27 days, mandatory per-feature updates. It is the team's institutional memory and it is approaching context-window scale, and it is also 10× the 12,000-char per-file budget your own product enforces for workspace instruction files. The churn data shows sections map cleanly to packages: keep a ≤15 KB root core (entry protocol, invariants, cross-cutting rules) and move each subsystem section to an instructions file co-located with the code it governs (<code>packages/agent/AGENTS.md</code>, <code>apps/desktop/src/assistant-server/AGENTS.md</code>, …), loaded on demand. R5's extraction is the natural moment to do the assistant sections.</p>
+    <div class="why"><b>Why now:</b> at current growth it exceeds practical single-context injection by August; a doc agents can't fully load stops being a contract and becomes a liability.</div>
+  </div>
+
+  <div class="rec tier-quarter">
+    <h3><span class="rid">R12</span>Modernization audit: TS7 lane, Turbo 3.0 deprecations, boundaries-advisory</h3>
+    <div class="chips"><span class="chip info">this quarter</span><span class="chip warning">impact: future-proofing + speed</span><span class="chip good">effort: small to evaluate</span><span class="chip warning">risk: ecosystem timing</span></div>
+    <ul>
+      <li><strong>TypeScript 7 (Go-native) went GA 2026-07-08</strong> with 8–12× type-check speedups and structurally identical semantics. Your type-check lanes are pure CLI <code>tsc --noEmit</code>: the ideal early adopter surface. Caveat: 7.0 ships no programmatic API until 7.1, so anything consuming the TS API (typescript-eslint et al.) stays on 6.x; per-lane adoption, not a repo-wide switch. Static's 5.5-minute type-check step is the prize.</li>
+      <li><strong>Turbo 3.0 prep:</strong> audit for deprecated idioms now (<code>--parallel</code>, <code>TURBO_REMOTE_ONLY</code>, <code>turbo-ignore</code>, <code>--no-cache</code>), and note 2.10's native <code>cacheMaxAge</code>/<code>cacheMaxSize</code> local-cache eviction, which can replace the 25 GB LRU pruning half of <code>scripts/run-turbo-command.mjs</code>.</li>
+      <li><strong><code>turbo boundaries</code> is still experimental</strong> (RFC open since 2.4). Adopt it in advisory mode for its two native checks (out-of-package imports, undeclared dependencies; the latter is a check nothing else in your stack does) and a first tag taxonomy. Do <em>not</em> retire the homegrown domain script for it (§7).</li>
+    </ul>
+    <div class="why"><b>Grounding:</b> TS 7.0 GA announcement; Turborepo 2.9/2.10 release notes; boundaries reference (marked experimental). All fetched July 2026.</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>#1666's parity check found TS7 adoption blocked, not merely "an early-adopter surface": 64 of 67 type-check invocations match byte-for-byte, but <code>apps/desktop/tsconfig.main.json</code>'s <code>moduleResolution: "node"</code> is a removed option under TS7, and the paired fix (<code>module</code>/<code>moduleResolution: Node16</code>) produces 88 errors under <em>both</em> compilers. Adoption is blocked on a full CJS→ESM migration of the Electron main process, not a TS7-side gap. Findings plus a re-runnable parity guard are in <code>docs/series-c-ts7-parity-findings.md</code>.</p>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Considered and deliberately deferred: merge queue</div>
+    <p>With <code>strict_required_status_checks_policy: false</code> and ~27 pushes/day, stale-base merges land semantically untested: the textbook merge-queue case (<code>merge_group</code> trigger + required checks is the canonical protection for busy repos). But a queue multiplies CI runs at exactly the volume where you're trying to cut spend, and R2 makes the existing mitigation (full post-merge test run + fast revert culture) nearly free. <strong>Defer, with a tripwire:</strong> if red-main incidents recur after R1/R2 land, adopt the queue and let the cached lanes absorb the extra runs.</p>
+  </div>
+
+  <div class="callout">
+    <div class="ct">Update — 2026-07-15</div>
+    <p>The tripwire above (red-main incidents) was not hit, so the deferral stands. But Series C did hit a real cross-PR integration failure: C2's Playwright-pin guard read <code>@playwright/test</code>'s version, and C6 catalogued that dependency, so the guard crashed on the literal string <code>'catalog:'</code>. PR CI caught it on the integrated tree; fixed in #1669.</p>
+  </div>
+</section>
+
+<!-- ==================== 7. KEEP ==================== -->
+<section id="keep">
+  <h2><span class="no">§7</span>What not to change</h2>
+  <div class="prose">
+    <p>A defensible review names what's working, because an independent reviewer should push back if these get "modernized" away:</p>
+    <ul>
+      <li><strong>The homegrown domain-boundary system.</strong> Real compiler-API import analysis, a ratchet on stale exceptions, and a current state of zero violations. The canonical alternatives don't beat it: <code>turbo boundaries</code> is experimental with a coarser rule vocabulary; eslint-plugin-boundaries would reintroduce an ESLint toolchain into a Biome-first repo. If the script ever outgrows itself, the canonical landing spot is dependency-cruiser: declarative, maintained, testable. Until then: keep, and tighten the domain map as R10 splits land.</li>
+      <li><strong>Per-package Vitest under Turbo.</strong> Vitest 4 removed workspace files in favor of root <code>projects</code>, but Turborepo's own Vitest guide explicitly favors per-package test tasks for caching; a root-projects config makes any change a global cache miss. Your shape is the documented canonical one; R2 is what makes it pay.</li>
+      <li><strong>The db lane registries.</strong> Serialized PGlite lanes do something Turbo can't (intra-package test partitioning), and the Static-job guard on both registries is a good defect trap. The improvement is generation, not removal: derive <code>coverage-lanes.mjs</code> from <code>test-lanes.mjs</code> so the "register in BOTH" footgun (#1101) becomes structurally impossible.</li>
+      <li><strong>The stacked-branch delivery pattern.</strong> 172-PR migrations with a 1.8% revert rate is a working system. R2's cheap push-runs and R1's restored nightlies protect it; nothing here should add per-PR ceremony.</li>
+      <li><strong>Capability-injection over <code>isElectron()</code>.</strong> The pattern is sound; the §2 web↔desktop coupling is about duplicated composition roots, not the gating idiom. A shared platform-composition seam is worth exploring <em>after</em> R5, not before.</li>
+      <li><strong>Contract packages, at current count.</strong> They serialize process boundaries well. Just don't add more expecting decoupling; the history data (81% lockstep) says that's not what they buy here.</li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <div class="ct">Status — 2026-07-15</div>
+    <p>#1663 verified the "db lane registries" recommendation above was already implemented: both <code>coverage-lanes.mjs</code> and <code>test-lanes.mjs</code> import one shared <code>db-test-lane-manifest.mjs</code>, so coverage lane assignment is automatic and the "register in BOTH" footgun this bullet worried about no longer exists. The PR's job became verification plus a doc correction, not new code.</p>
+  </div>
+</section>
+
+<!-- ==================== 8. ROADMAP ==================== -->
+<section id="roadmap">
+  <h2><span class="no">§8</span>Sequencing</h2>
+
+  <figure class="viz">
+    <figcaption><div class="t">Projected feedback-loop improvement</div><div class="s">Median wall-clock to full required-check green. Right-hand bars are estimates from measured cache behavior, not guarantees.</div></figcaption>
+    <div class="pair-group">
+      <div class="g-lab">PR pipeline (median 25.9 min today)</div>
+      <div class="hbars">
+        <span class="lab">Today</span><div class="track"><div class="bar deep" style="width:100%"></div></div><span class="val">25.9 min <small>measured</small></span>
+        <span class="lab">After R2+R4+R7</span><div class="track"><div class="bar" style="width:46%"></div></div><span class="val">~10–15 min <small>estimate</small></span>
+      </div>
+    </div>
+    <div class="pair-group">
+      <div class="g-lab">Push-to-main (median 58.3 min today)</div>
+      <div class="hbars">
+        <span class="lab">Today</span><div class="track"><div class="bar deep" style="width:100%"></div></div><span class="val">58.3 min <small>measured</small></span>
+        <span class="lab">After R2</span><div class="track"><div class="bar" style="width:26%"></div></div><span class="val">~15 min <small>estimate</small></span>
+      </div>
+    </div>
+    <div class="fignote">Cost projection for R1+R2+R4+R7+R9: roughly 40–60% of Actions spend, without reducing what is actually tested. Estimates assume remote-cache hit rates comparable to the build task's observed behavior.</div>
+  </figure>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Horizon</th><th>Items</th><th>Theme</th></tr></thead>
+    <tbody>
+      <tr><td><strong>This week</strong></td><td>R1 (nightly signal) · R2 (turbo-cached tests) · R4 (ungate smoke) · R9 claude.yml pruning</td><td>Restore signal, stop paying for repeated work. All are workflow-file-only changes, individually revertible.</td></tr>
+      <tr><td><strong>This month</strong></td><td>R3 (declaration-only builds, narrowed dependsOn) · R6 (one alias registry) · R7 (coverage demotion) · R8 (catalogs) · R9 remainder</td><td>Shrink the graphs everything else hashes against; delete parallel registries.</td></tr>
+      <tr><td><strong>This quarter</strong></td><td>R5 (assistant-server extraction) · R10 (god-package splits) · R11 (AGENTS.md restructure) · R12 (TS7 lane, turbo 3.0 audit, boundaries-advisory)</td><td>Structural moves, sequenced behind the build-mechanics cleanup that makes them cheap. Each lands as a stacked-PR series, the delivery pattern the repo is already good at.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <div class="ct">The compounding argument</div>
+    <p>These aren't twelve independent chores. R3 shrinks the build graph → R2's cache hits more often → PR and push lanes get faster → the 17-PR/day agent loop tightens → R5/R10's structural splits make the affected graph more precise → cache hits improve again. The order above is chosen so each step lowers the cost of the next.</p>
+  </div>
+</section>
+
+<!-- ==================== 9. METHOD ==================== -->
+<section id="method">
+  <h2><span class="no">§9</span>Method, confidence &amp; sources</h2>
+  <div class="prose">
+    <h3>What was measured vs. estimated</h3>
+    <ul>
+      <li><strong>Measured:</strong> dependency graph and cycle check (all 41 package.json files); build/type-check script inventory; alias-line counts; churn and coupling (726 main commits, numstat, rename-resolved, package = first two path segments); PR statistics (906 merged PRs via gh, #564–#1604); CI durations and failure rates (1,000 runs ≈ 38 h window); ruleset 4797672; job-minute anatomy from named runs (29178469954, 29176448480); cache storage (10.26 GB / 20 caches); remote-cache liveness (observed hits in Build job logs).</li>
+      <li><strong>Estimated (marked as such in place):</strong> post-change lane durations, monthly job-minute extrapolation and dollar figures, coupling-to-affected-savings mapping for R5. The 38-hour observation window is high-volume but short; durations are medians of that window, not long-run averages.</li>
+      <li><strong>Known limits:</strong> title-keyword PR classification is overlapping and approximate; co-change coupling was computed both raw and filtered (≤8-package commits) with stable rankings; nightly failure count is "last 10 scheduled runs" per lane as of 2026-07-12.</li>
+    </ul>
+    <h3>Sources (fetched 2026-07-12)</h3>
+    <ol class="srcs">
+      <li>Turborepo — <a href="https://turborepo.dev/docs/reference/run">run reference (--affected, --continue, --summarize)</a> · <a href="https://turborepo.dev/blog/2-10">2.10 release</a> · <a href="https://turborepo.dev/blog/2-9">2.9 release (3.0 deprecations, turbo query affected)</a> · <a href="https://turborepo.dev/blog/turbo-2-7">2.7 release (composable config, catalogs-aware hashing)</a> · <a href="https://turborepo.dev/docs/crafting-your-repository/constructing-ci">Constructing CI</a> · <a href="https://turborepo.dev/docs/guides/ci-vendors/github-actions">GitHub Actions guide</a> · <a href="https://turborepo.dev/docs/core-concepts/remote-caching">Remote caching</a> · <a href="https://turborepo.dev/docs/reference/boundaries">boundaries (experimental)</a> · <a href="https://turborepo.dev/docs/guides/tools/typescript">TypeScript guide</a> · <a href="https://turborepo.dev/docs/guides/tools/vitest">Vitest guide</a></li>
+      <li>pnpm — <a href="https://pnpm.io/catalogs">Catalogs</a> · <a href="https://pnpm.io/blog/releases/11.0">11.0 release</a> · <a href="https://pnpm.io/settings">Settings</a> · <a href="https://pnpm.io/cli/deploy">deploy</a></li>
+      <li>GitHub — <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue">Merge queue</a> · <a href="https://docs.github.com/en/actions/sharing-automations/avoiding-duplication">Avoiding duplication</a> · <a href="https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs">Concurrency</a> · <a href="https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/">arm64 runners in private repos</a> · <a href="https://docs.github.com/en/billing/reference/actions-runner-pricing">Runner pricing</a></li>
+      <li>TypeScript — <a href="https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/">Announcing TypeScript 7.0</a> · <a href="https://devblogs.microsoft.com/typescript/typescript-native-port/">Native port announcement</a></li>
+      <li>Vitest — <a href="https://vitest.dev/guide/projects">Projects guide</a></li>
+      <li>Ecosystem — <a href="https://github.com/ducktors/turborepo-remote-cache">ducktors/turborepo-remote-cache</a> · <a href="https://github.com/vercel/turborepo/discussions/9435">turbo boundaries RFC</a> · <a href="https://github.com/changesets/changesets">Changesets</a></li>
+    </ol>
+  </div>
+  <footer>
+    Prepared 2026-07-12 · Analysis performed on worktree <code>slash-commands-context-files-d2d309</code> (byte-identical test.yml to main) · Four independent analysis streams: package graph, CI lanes, git/PR history mining, and web-grounded idioms research, synthesized and cross-checked. Estimates are labeled in place; everything else is measured.
+  </footer>
+</section>
+
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('themeToggle');
+  var modes = ['auto', 'light', 'dark'];
+  var i = 0;
+  btn.addEventListener('click', function () {
+    i = (i + 1) % modes.length;
+    var m = modes[i];
+    if (m === 'auto') { document.documentElement.removeAttribute('data-theme'); }
+    else { document.documentElement.setAttribute('data-theme', m); }
+    btn.textContent = 'Theme: ' + m;
+  });
+})();
+</script>
+</body>
+</html>

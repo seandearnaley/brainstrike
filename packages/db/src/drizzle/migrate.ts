@@ -49,8 +49,10 @@ import { migration056AssistantThreadGroupPresentation } from '../migrations/056-
 import { migration057UpdateProviderModels202607 } from '../migrations/057-update-provider-models-2026-07.js';
 import { migration058ProviderBilledCost } from '../migrations/058-provider-billed-cost.js';
 import { migration059AssistantThreadGroupIcons } from '../migrations/059-assistant-thread-group-icons.js';
-import { migration060AssistantRunOutcomes } from '../migrations/060-assistant-run-outcomes.js';
-import { migration061JobQueueOutcomeMetrics } from '../migrations/061-job-queue-outcome-metrics.js';
+import { migration060OpenRouterSparkKimiK3 } from '../migrations/060-openrouter-spark-kimi-k3.js';
+import { migration061ModelVisionCapability } from '../migrations/061-model-vision-capability.js';
+import { migration062AssistantRunOutcomes } from '../migrations/062-assistant-run-outcomes.js';
+import { migration063JobQueueOutcomeMetrics } from '../migrations/063-job-queue-outcome-metrics.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -208,8 +210,10 @@ const customMigrations: Migration[] = [
   ),
   customMigration('custom-058-provider-billed-cost', migration058ProviderBilledCost),
   customMigration('custom-059-assistant-thread-group-icons', migration059AssistantThreadGroupIcons),
-  customMigration('custom-060-assistant-run-outcomes', migration060AssistantRunOutcomes),
-  customMigration('custom-061-job-queue-outcome-metrics', migration061JobQueueOutcomeMetrics),
+  customMigration('custom-060-openrouter-spark-kimi-k3', migration060OpenRouterSparkKimiK3),
+  customMigration('custom-061-model-vision-capability', migration061ModelVisionCapability),
+  customMigration('custom-062-assistant-run-outcomes', migration062AssistantRunOutcomes),
+  customMigration('custom-063-job-queue-outcome-metrics', migration063JobQueueOutcomeMetrics),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
