@@ -91,19 +91,33 @@ function computeElapsedMs(startIso: string, endIso: string): number | null {
 }
 
 /**
- * Builds a data-modifying CTE that increments the durable per-queue lifetime
- * succeeded count from a source CTE of just-completed job rows. Folded into the
- * same statement as the completion UPDATE so a job can never be marked
- * succeeded without being counted (atomic on the single-statement engine). The
- * counter is monotonic — pruning/clearing the succeeded rows never touches it.
- * `sourceCte` must expose a `queue` column and contain only newly-succeeded rows.
+ * Durable per-queue lifetime outcome counters in job_queue_metrics. A strict
+ * union so the column name folded into SQL can never be untrusted input.
  */
-function incrementSucceededMetricsCte(sourceCte: string): string {
+type OutcomeMetricsColumn = 'succeeded_total' | 'failed_total' | 'canceled_total';
+
+/**
+ * Builds a data-modifying CTE that increments a durable per-queue lifetime
+ * outcome counter from a source CTE of just-transitioned job rows. Folded into
+ * the same statement as the transition UPDATE so a job can never reach a
+ * terminal state without being counted (atomic on the single-statement
+ * engine). The counters are monotonic — pruning/clearing the terminal rows
+ * never touches them (aggregate-then-prune). `sourceCte` must expose a `queue`
+ * column and contain only rows that transitioned in this statement.
+ *
+ * Exported for raw-SQL sites outside JobQueue that transition jobs terminally
+ * (e.g. managed-cache chunk invalidation) so they fold in the same counter
+ * instead of silently skipping it.
+ */
+export function incrementOutcomeMetricsCte(
+  sourceCte: string,
+  column: OutcomeMetricsColumn
+): string {
   return `metrics AS (
-       INSERT INTO job_queue_metrics (queue, succeeded_total)
+       INSERT INTO job_queue_metrics (queue, ${column})
        SELECT queue, COUNT(*) FROM ${sourceCte} GROUP BY queue
        ON CONFLICT (queue) DO UPDATE
-         SET succeeded_total = job_queue_metrics.succeeded_total + EXCLUDED.succeeded_total
+         SET ${column} = job_queue_metrics.${column} + EXCLUDED.${column}
      )`;
 }
 
@@ -723,7 +737,7 @@ export class JobQueue {
         WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
         RETURNING j.*
      ),
-     ${incrementSucceededMetricsCte('completed')}
+     ${incrementOutcomeMetricsCte('completed', 'succeeded_total')}
      SELECT * FROM completed`;
 
     const res = await this.db.query<JobRow>(sql, [updatedAt, ids, leaseTokens]);
@@ -832,7 +846,7 @@ export class JobQueue {
           WHERE j.id = o.job_id
           RETURNING j.*
        ),
-       ${incrementSucceededMetricsCte('completed_jobs')}
+       ${incrementOutcomeMetricsCte('completed_jobs', 'succeeded_total')}
        SELECT * FROM completed_jobs`,
       [updatedAt, ids, leaseTokens, chunkIds, embeddings, embeddingSetIds, embeddingHashes]
     );
@@ -869,7 +883,7 @@ export class JobQueue {
           WHERE id = $2 AND lease_token = $3 AND state = 'running'
           RETURNING *
        ),
-       ${incrementSucceededMetricsCte('completed')}
+       ${incrementOutcomeMetricsCte('completed', 'succeeded_total')}
        SELECT * FROM completed`,
       [updatedAt, params.id, params.leaseToken]
     );
@@ -910,11 +924,17 @@ export class JobQueue {
     const maxAttempts = row.max_attempts ?? 5;
 
     if (params.terminal || attempts >= maxAttempts) {
-      // Poison pill — mark as failed
+      // Poison pill — mark as failed. The state = 'running' guard makes the
+      // transition (and the lifetime counter increment) exactly-once: a
+      // repeated fail() with the same lease token finds no running row.
       const res = await this.db.query<JobRow>(
-        `UPDATE job_queue SET state = 'failed', attempts = $1, error = $2, updated_at = $3
-         WHERE id = $4 AND lease_token = $5
-         RETURNING *`,
+        `WITH failed AS (
+           UPDATE job_queue SET state = 'failed', attempts = $1, error = $2, updated_at = $3
+            WHERE id = $4 AND lease_token = $5 AND state = 'running'
+            RETURNING *
+         ),
+         ${incrementOutcomeMetricsCte('failed', 'failed_total')}
+         SELECT * FROM failed`,
         [attempts, params.error, updatedAt, params.id, params.leaseToken]
       );
       if (!res.rows[0]) {
@@ -1004,11 +1024,15 @@ export class JobQueue {
   }
 
   private failBatchTerminalSql(idCast: string): string {
-    return `UPDATE job_queue AS j
-       SET state = 'failed', error = $1, updated_at = $2
-       FROM unnest($3::${idCast}[], $4::text[]) AS t(id, lease_token)
-       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
-       RETURNING j.*`;
+    return `WITH failed AS (
+         UPDATE job_queue AS j
+         SET state = 'failed', error = $1, updated_at = $2
+         FROM unnest($3::${idCast}[], $4::text[]) AS t(id, lease_token)
+         WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+         RETURNING j.*
+       ),
+       ${incrementOutcomeMetricsCte('failed', 'failed_total')}
+       SELECT * FROM failed`;
   }
 
   private classifyBatchJobs(
@@ -1162,9 +1186,13 @@ export class JobQueue {
       : [updatedAt, params.id];
 
     const res = await this.db.query<JobRow>(
-      `UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
-       WHERE id = $2 AND state IN ('queued', 'running') ${leaseCondition}
-       RETURNING *`,
+      `WITH canceled AS (
+         UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
+          WHERE id = $2 AND state IN ('queued', 'running') ${leaseCondition}
+          RETURNING *
+       ),
+       ${incrementOutcomeMetricsCte('canceled', 'canceled_total')}
+       SELECT * FROM canceled`,
       queryParams
     );
 
@@ -1200,11 +1228,16 @@ export class JobQueue {
 
     // Single-statement cancel: telemetry is emitted from the RETURNING rows, so
     // the reported set is exactly what this statement transitioned (no window
-    // between a telemetry snapshot read and the cancel write).
+    // between a telemetry snapshot read and the cancel write). The lifetime
+    // canceled counter is folded in, counting every transitioned row.
     const res = await this.db.query<JobRow>(
-      `UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
-       WHERE queue = $2 AND state IN ('queued', 'running')
-       RETURNING *`,
+      `WITH canceled AS (
+         UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
+          WHERE queue = $2 AND state IN ('queued', 'running')
+          RETURNING *
+       ),
+       ${incrementOutcomeMetricsCte('canceled', 'canceled_total')}
+       SELECT * FROM canceled`,
       [updatedAt, queue]
     );
 
@@ -1301,6 +1334,13 @@ export class JobQueue {
       failed: number;
       succeeded: number;
       succeededLifetime: number;
+      /**
+       * Durable lifetime outcome totals (migration 064). Optional in the type
+       * so pre-existing JobQueue mocks/stubs stay assignable; the real
+       * implementation always returns them.
+       */
+      failedLifetime?: number;
+      canceledLifetime?: number;
       nextRunnableAt?: string | null;
     }[]
   > {
@@ -1334,16 +1374,26 @@ export class JobQueue {
       }
     }
 
-    // Durable lifetime succeeded totals. A queue whose live rows were all pruned
+    // Durable lifetime outcome totals. A queue whose live rows were all pruned
     // still has a metrics row, so surface it even with zero live counts —
-    // otherwise the HUD's cumulative "Success" would vanish after a prune.
-    const metricsRes = await this.db.query<{ queue: string; succeeded_total: string | number }>(
-      `SELECT queue, succeeded_total FROM job_queue_metrics ${queue ? 'WHERE queue = $1' : ''}`,
+    // otherwise the HUD's cumulative totals would vanish after a prune.
+    const metricsRes = await this.db.query<{
+      queue: string;
+      succeeded_total: string | number;
+      failed_total: string | number;
+      canceled_total: string | number;
+    }>(
+      `SELECT queue, succeeded_total, failed_total, canceled_total
+       FROM job_queue_metrics ${queue ? 'WHERE queue = $1' : ''}`,
       queue ? [queue] : []
     );
     const succeededLifetime = new Map<string, number>();
+    const failedLifetime = new Map<string, number>();
+    const canceledLifetime = new Map<string, number>();
     for (const row of metricsRes.rows) {
       succeededLifetime.set(row.queue, Number(row.succeeded_total ?? 0));
+      failedLifetime.set(row.queue, Number(row.failed_total ?? 0));
+      canceledLifetime.set(row.queue, Number(row.canceled_total ?? 0));
       ensureEntry(row.queue);
     }
 
@@ -1360,7 +1410,9 @@ export class JobQueue {
     }
 
     return Array.from(queues.entries()).map(([q, stats]) => ({
+      canceledLifetime: canceledLifetime.get(q) ?? 0,
       failed: stats.failed,
+      failedLifetime: failedLifetime.get(q) ?? 0,
       nextRunnableAt: minRunAt.get(q) ?? null,
       queue: q,
       queued: stats.queued,

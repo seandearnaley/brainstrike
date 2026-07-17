@@ -62,6 +62,7 @@ import { migration060OpenRouterSparkKimiK3 } from './060-openrouter-spark-kimi-k
 import { migration061ModelVisionCapability } from './061-model-vision-capability.js';
 import { migration062AssistantRunOutcomes } from './062-assistant-run-outcomes.js';
 import { migration063IndexConsolidation } from './063-index-consolidation.js';
+import { migration064JobQueueOutcomeMetrics } from './064-job-queue-outcome-metrics.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -130,6 +131,7 @@ export const migrations: Migration[] = [
   migration061ModelVisionCapability,
   migration062AssistantRunOutcomes,
   migration063IndexConsolidation,
+  migration064JobQueueOutcomeMetrics,
 ];
 
 // Export base migrations (without chunks table) for test environments

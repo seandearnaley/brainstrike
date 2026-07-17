@@ -70,6 +70,141 @@ describe('JobQueue stats', () => {
     expect(afterMore[0].succeededLifetime).toBe(4);
   });
 
+  it('counts a terminal failure exactly once and never counts a retryable failure', async () => {
+    const jq = new JobQueue(db);
+
+    // Retryable failure: job goes back to 'queued', so nothing terminal happened yet.
+    await jq.enqueue({
+      jobType: 'embed_chunk',
+      maxAttempts: 3,
+      payload: { id: 1 },
+      queue: 'embeddings',
+    });
+    const first = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
+    const retried = await jq.fail({
+      error: 'transient',
+      id: first!.id,
+      leaseToken: first!.lease_token!,
+    });
+    expect(retried?.state).toBe('queued');
+
+    const afterRetry = await jq.getQueueStats('embeddings');
+    expect(afterRetry[0].failedLifetime).toBe(0);
+
+    // Terminal failure: counted exactly once.
+    const second = await jq.claim({
+      leaseMs: 1000,
+      now: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      queue: 'embeddings',
+    });
+    const failed = await jq.fail({
+      error: 'poison pill',
+      id: second!.id,
+      leaseToken: second!.lease_token!,
+      terminal: true,
+    });
+    expect(failed?.state).toBe('failed');
+
+    const afterTerminal = await jq.getQueueStats('embeddings');
+    expect(afterTerminal[0].failedLifetime).toBe(1);
+
+    // A duplicate terminal fail with the same lease must not double count.
+    const duplicate = await jq.fail({
+      error: 'poison pill again',
+      id: second!.id,
+      leaseToken: second!.lease_token!,
+      terminal: true,
+    });
+    expect(duplicate).toBeNull();
+    const afterDuplicate = await jq.getQueueStats('embeddings');
+    expect(afterDuplicate[0].failedLifetime).toBe(1);
+  });
+
+  it('counts attempts-exhausted failures from failBatch', async () => {
+    const jq = new JobQueue(db);
+    await jq.enqueue({
+      jobType: 'embed_chunk',
+      maxAttempts: 1,
+      payload: { id: 1 },
+      queue: 'embeddings',
+    });
+    await jq.enqueue({
+      jobType: 'embed_chunk',
+      maxAttempts: 1,
+      payload: { id: 2 },
+      queue: 'embeddings',
+    });
+
+    const claimed = await jq.claimMany({ leaseMs: 1000, limit: 2, queue: 'embeddings' });
+    expect(claimed).toHaveLength(2);
+    const failedJobs = await jq.failBatch({
+      error: 'exhausted',
+      jobs: claimed.map((job) => ({ id: job.id, leaseToken: job.lease_token! })),
+    });
+    expect(failedJobs.map((job) => job.state)).toEqual(['failed', 'failed']);
+
+    const stats = await jq.getQueueStats('embeddings');
+    expect(stats[0].failedLifetime).toBe(2);
+  });
+
+  it('counts single and bulk cancellations in the lifetime canceled total', async () => {
+    const jq = new JobQueue(db);
+    for (const id of [1, 2, 3]) {
+      await jq.enqueue({ jobType: 'embed_chunk', payload: { id }, queue: 'embeddings' });
+    }
+
+    const first = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
+    const canceled = await jq.cancel({ id: first!.id, reason: 'user request' });
+    expect(canceled?.state).toBe('canceled');
+
+    const afterSingle = await jq.getQueueStats('embeddings');
+    expect(afterSingle[0].canceledLifetime).toBe(1);
+
+    // Cancel of an already-canceled job is a no-op and must not double count.
+    const duplicate = await jq.cancel({ id: first!.id });
+    expect(duplicate).toBeNull();
+    const afterDuplicate = await jq.getQueueStats('embeddings');
+    expect(afterDuplicate[0].canceledLifetime).toBe(1);
+
+    // Bulk cancel counts every canceled row.
+    const bulkCount = await jq.cancelMany('embeddings', 'shutdown');
+    expect(bulkCount).toBe(2);
+    const afterBulk = await jq.getQueueStats('embeddings');
+    expect(afterBulk[0].canceledLifetime).toBe(3);
+  });
+
+  it('keeps lifetime failed/canceled totals after terminal rows are pruned', async () => {
+    const jq = new JobQueue(db);
+    await jq.enqueue({
+      jobType: 'embed_chunk',
+      maxAttempts: 1,
+      payload: { id: 1 },
+      queue: 'embeddings',
+    });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 2 }, queue: 'embeddings' });
+
+    const claimed = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
+    await jq.fail({
+      error: 'poison pill',
+      id: claimed!.id,
+      leaseToken: claimed!.lease_token!,
+      terminal: true,
+    });
+    await jq.cancelMany('embeddings', 'shutdown');
+
+    // Simulate scheduled-maintenance pruning of terminal job rows.
+    const pruned = await jq.prune(
+      ['succeeded', 'failed', 'canceled'],
+      new Date(Date.now() + 60_000).toISOString()
+    );
+    expect(pruned).toBe(2);
+
+    const stats = await jq.getQueueStats('embeddings');
+    expect(stats[0]?.failed ?? 0).toBe(0);
+    expect(stats[0].failedLifetime).toBe(1);
+    expect(stats[0].canceledLifetime).toBe(1);
+  });
+
   it('keeps the lifetime succeeded count per queue', async () => {
     const jq = new JobQueue(db);
     await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 1 }, queue: 'embeddings' });

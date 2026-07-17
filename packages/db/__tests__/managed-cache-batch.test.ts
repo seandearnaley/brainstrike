@@ -170,6 +170,15 @@ describe('applyManagedCacheBatch', () => {
     return result.rows;
   }
 
+  async function readCanceledTotal(queue: string): Promise<number | null> {
+    const result = await db.query<{ canceled_total: string | number }>(
+      'SELECT canceled_total FROM job_queue_metrics WHERE queue = $1',
+      [queue]
+    );
+    const value = result.rows[0]?.canceled_total;
+    return value === undefined ? null : Number(value);
+  }
+
   it('parses and validates managed-cache batch payloads from a single source of truth', () => {
     expect(
       parseManagedCacheBatchArgs({
@@ -496,6 +505,9 @@ describe('applyManagedCacheBatch', () => {
       deletedChunkIds: [],
       deletedFileRecordIds: ['exact-root-fixture-file'],
     });
+    // No cancellations → the counter INSERT selects zero rows and must not
+    // create a spurious job_queue_metrics row.
+    expect(await readCanceledTotal('embeddings')).toBeNull();
     await expect(fileRecordRepository.findById('exact-root-fixture-file')).resolves.toBeNull();
     await expect(fileRecordRepository.findById('exact-root-other-file')).resolves.toEqual(
       expect.objectContaining({
@@ -1032,6 +1044,11 @@ describe('applyManagedCacheBatch', () => {
         worker_id: null,
       },
     ]);
+
+    // Lifetime canceled counter is folded into the same statement as the
+    // cancel transition (aggregate-then-prune): both canceled jobs count,
+    // the untouched job does not.
+    expect(await readCanceledTotal('embeddings')).toBe(2);
   });
 
   it('replacement cancels queued and running embed jobs for old chunks before deleting chunks', async () => {
@@ -1133,6 +1150,10 @@ describe('applyManagedCacheBatch', () => {
         worker_id: null,
       },
     ]);
+
+    // Both replaced-chunk jobs increment the lifetime canceled counter; the
+    // unrelated queued job does not.
+    expect(await readCanceledTotal('embeddings')).toBe(2);
   });
 
   it('cancels managed-cache replacement jobs through indexed chunk_id instead of JSON payload scans', async () => {
