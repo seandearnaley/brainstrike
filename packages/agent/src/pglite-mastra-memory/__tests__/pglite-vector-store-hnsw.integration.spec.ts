@@ -126,6 +126,82 @@ describe('PgliteVectorStore per-dimension HNSW indexes', () => {
     expect(results[1]?.score).toBeGreaterThan(results[2]?.score ?? Number.NaN);
   });
 
+  it('applies filtered-HNSW tuning inside the search transaction', async () => {
+    await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
+    await store.upsert({
+      ids: ['message-a'],
+      indexName: 'memory_messages',
+      vectors: [[1, 0, 0]],
+    });
+
+    // Instrument a real-PGlite-backed handle: the tuning must run through the
+    // TRANSACTION'S executor (SET LOCAL is a silent no-op in autocommit),
+    // before the SELECT.
+    const transactionStatements: string[] = [];
+    const instrumented = {
+      exec: db.exec.bind(db),
+      query: db.query.bind(db),
+      transaction: <T>(fn: (tx: unknown) => Promise<T>) =>
+        db.transaction((tx) =>
+          fn({
+            query: (sql: string, params?: unknown[]) => {
+              transactionStatements.push(sql);
+              return tx.query(sql, params);
+            },
+          })
+        ),
+    };
+    const tunedStore = new PgliteVectorStore({
+      database: instrumented as unknown as ConstructorParameters<
+        typeof PgliteVectorStore
+      >[0]['database'],
+    });
+
+    const results = await tunedStore.query({
+      indexName: 'memory_messages',
+      queryVector: [1, 0, 0],
+      topK: 1,
+    });
+
+    expect(results.map((result) => result.id)).toEqual(['message-a']);
+    expect(transactionStatements[0]).toContain('SET LOCAL hnsw.ef_search = 100');
+    expect(transactionStatements[1]).toContain("SET LOCAL hnsw.iterative_scan = 'strict_order'");
+    expect(transactionStatements[2]).toContain('ORDER BY');
+  });
+
+  it('keeps metadata-only queries (no vector) out of the tuning transaction', async () => {
+    await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
+    await store.upsert({
+      ids: ['message-a'],
+      indexName: 'memory_messages',
+      metadata: [{ thread_id: 'thread-1' }],
+      vectors: [[1, 0, 0]],
+    });
+
+    const transactionCalls: string[] = [];
+    const instrumented = {
+      exec: db.exec.bind(db),
+      query: db.query.bind(db),
+      transaction: <T>(fn: (tx: unknown) => Promise<T>) => {
+        transactionCalls.push('transaction');
+        return db.transaction((tx) => fn(tx));
+      },
+    };
+    const tunedStore = new PgliteVectorStore({
+      database: instrumented as unknown as ConstructorParameters<
+        typeof PgliteVectorStore
+      >[0]['database'],
+    });
+
+    const results = await tunedStore.query({
+      filter: { thread_id: 'thread-1' },
+      indexName: 'memory_messages',
+      topK: 5,
+    });
+    expect(results.map((result) => result.id)).toEqual(['message-a']);
+    expect(transactionCalls).toEqual([]);
+  });
+
   it('skips index creation beyond the halfvec HNSW ceiling but keeps queries working', async () => {
     const dimension = 4001;
     const baseVector = new Array<number>(dimension).fill(0);
