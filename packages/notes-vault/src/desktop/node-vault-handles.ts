@@ -27,10 +27,17 @@ function joinPath(parent: string, name: string): string {
   return parent.endsWith(separator) ? `${parent}${name}` : `${parent}${separator}${name}`;
 }
 
+/** The sibling path for a same-directory rename. */
+function siblingPath(path: string, newName: string): string {
+  const separator = path.includes('\\') ? '\\' : '/';
+  const cut = path.lastIndexOf(separator);
+  return `${path.slice(0, cut + 1)}${newName}`;
+}
+
 class NodeVaultFileHandle implements VaultFileHandleLike {
   readonly kind = 'file' as const;
-  readonly name: string;
-  readonly path: string;
+  name: string;
+  path: string;
   readonly #bridge: NotesVaultBridge;
   readonly #meta: { lastModified: number; size: number } | null;
 
@@ -90,6 +97,15 @@ class NodeVaultFileHandle implements VaultFileHandleLike {
     });
   }
 
+  async move(newName: string): Promise<void> {
+    const destination = siblingPath(this.path, newName);
+    unwrap(await this.#bridge.rename(this.path, destination));
+    // Keep this handle live (FSA handles survive move(); path handles must
+    // follow too, or an editor flush after a rename resurrects the old file).
+    this.path = destination;
+    this.name = newName;
+  }
+
   isSameEntry(other: VaultHandleLike): Promise<boolean> {
     return Promise.resolve(other instanceof NodeVaultFileHandle && other.path === this.path);
   }
@@ -97,8 +113,8 @@ class NodeVaultFileHandle implements VaultFileHandleLike {
 
 class NodeVaultDirectoryHandle implements VaultDirectoryHandleLike {
   readonly kind = 'directory' as const;
-  readonly name: string;
-  readonly path: string;
+  name: string;
+  path: string;
   readonly #bridge: NotesVaultBridge;
 
   constructor(bridge: NotesVaultBridge, path: string, name: string) {
@@ -129,12 +145,13 @@ class NodeVaultDirectoryHandle implements VaultDirectoryHandleLike {
     name: string,
     options?: { create?: boolean }
   ): Promise<VaultDirectoryHandleLike> {
-    if (options?.create) {
-      throw new Error('Creating folders is not supported through the notes vault bridge yet');
-    }
     const childPath = joinPath(this.path, name);
     const entry = unwrap(await this.#bridge.statEntry(childPath));
     if (!entry) {
+      if (options?.create) {
+        unwrap(await this.#bridge.createDirectory(childPath));
+        return new NodeVaultDirectoryHandle(this.#bridge, childPath, name);
+      }
       throw new DOMException(`${name} not found`, 'NotFoundError');
     }
     if (entry.kind !== 'directory') {
@@ -160,6 +177,21 @@ class NodeVaultDirectoryHandle implements VaultDirectoryHandleLike {
       return new NodeVaultFileHandle(this.#bridge, childPath, name, null);
     }
     throw new DOMException(`${name} not found`, 'NotFoundError');
+  }
+
+  async move(newName: string): Promise<void> {
+    const destination = siblingPath(this.path, newName);
+    unwrap(await this.#bridge.rename(this.path, destination));
+    this.path = destination;
+    this.name = newName;
+  }
+
+  async removeEntry(name: string, options?: { recursive?: boolean }): Promise<void> {
+    unwrap(
+      await this.#bridge.deleteEntry(joinPath(this.path, name), {
+        recursive: options?.recursive ?? false,
+      })
+    );
   }
 
   isSameEntry(other: VaultHandleLike): Promise<boolean> {

@@ -33,6 +33,10 @@ export interface NotesVaultChangeEvent {
 }
 
 export interface NotesVaultBridge {
+  /** Contained mkdir under an approved root. */
+  createDirectory(path: string): Promise<NotesVaultResult<null>>;
+  /** Moves the entry to the OS trash (recoverable) — never a hard unlink. */
+  deleteEntry(path: string, options: { recursive: boolean }): Promise<NotesVaultResult<null>>;
   /** Creates ~/Documents/Brainstrike Notes (seeding Welcome.md once) and
    * registers it as an approved vault root. */
   ensureDefaultVault(): Promise<NotesVaultResult<NotesVaultBridgeRoot>>;
@@ -48,6 +52,8 @@ export interface NotesVaultBridge {
   /** Re-approves a persisted root path after restart (validated in main:
    * must exist, be a directory, and pass sensitive-path checks). */
   registerRoot(path: string): Promise<NotesVaultResult<NotesVaultBridgeRoot>>;
+  /** Same-directory rename; refuses to overwrite an existing entry. */
+  rename(fromPath: string, toPath: string): Promise<NotesVaultResult<null>>;
   /** null = entry does not exist. */
   statEntry(path: string): Promise<NotesVaultResult<NotesVaultBridgeEntry | null>>;
   unwatch(watchId: string): Promise<NotesVaultResult<null>>;
@@ -59,6 +65,9 @@ export interface NotesVaultBridge {
 }
 
 const REQUIRED_METHODS: readonly (keyof NotesVaultBridge)[] = [
+  'createDirectory',
+  'deleteEntry',
+  'rename',
   'ensureDefaultVault',
   'pickDirectory',
   'registerRoot',

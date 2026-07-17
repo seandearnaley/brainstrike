@@ -27,7 +27,7 @@ When changing the model catalog:
    'unknown' in the static registry — pinned by provider-registry-vision.test.ts). It gates the
    composer image-attachment affordance per selected model. Unlike `contextWindow`, this one IS
    mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities
-   jsonb (migration 060 backfilled existing rows), and frontier-models-migration.test.ts fails
+   jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails
    if any LLM row is left without a vision value.
 
 ---

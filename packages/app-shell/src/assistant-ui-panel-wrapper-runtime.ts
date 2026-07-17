@@ -2,6 +2,7 @@ import {
   type AnthropicProviderOptions,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
+  getLlmModelDefinition,
   type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
@@ -23,6 +24,7 @@ import {
 import {
   getProviderDefaultModel,
   getProviderDefinition,
+  isSupportedProvider,
   type ModelVisionSupport,
   type ProviderModelDefinition,
   type SupportedProvider,
@@ -63,6 +65,17 @@ export function resolveModelNameFromComposite(
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
+}
+
+export function resolveProviderFromComposite(
+  composite: string | null | undefined
+): SupportedProvider | null {
+  if (!composite) {
+    return null;
+  }
+  const parts = composite.split('::');
+  const candidate = parts.length === 2 ? parts[0] : null;
+  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function createThreadRunId(): string {
@@ -937,10 +950,25 @@ function buildOpenAiOptions(
 }
 
 function buildOpenRouterOptions(
+  modelName: string | undefined,
   settings: AssistantProviderSettings
 ): OpenRouterProviderOptions | undefined {
+  const reasoningEffort = settings.reasoningEffort;
+  if (modelName && reasoningEffort) {
+    const model = getLlmModelDefinition('openrouter', modelName);
+    if (!model.reasoning) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+      );
+    }
+    if (!model.reasoning.supportedEfforts.includes(reasoningEffort)) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${model.reasoning.supportedEfforts.join(', ')}.`
+      );
+    }
+  }
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
-    ['effort', settings.reasoningEffort || undefined],
+    ['effort', reasoningEffort || undefined],
     ['summary', settings.reasoningSummary || undefined],
   ]);
   return reasoning ? { reasoning } : undefined;
@@ -1020,7 +1048,7 @@ export function buildProviderOptions(
       return openai ? { openai } : undefined;
     }
     case 'openrouter': {
-      const openrouter = buildOpenRouterOptions(settings);
+      const openrouter = buildOpenRouterOptions(modelName, settings);
       return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
@@ -1050,6 +1078,29 @@ export function buildProviderOptions(
     default:
       return;
   }
+}
+
+/**
+ * Clear a provider-wide effort override when the user explicitly switches to
+ * an OpenRouter model that rejects it or has no declared effort support. The
+ * model's documented default then remains visible as "Auto" in the settings
+ * control; request construction still throws if incompatible state reaches it
+ * by any other path.
+ */
+export function reconcileProviderSettingsForModel(
+  providerId: SupportedProvider,
+  modelName: string,
+  settings: AssistantProviderSettings | undefined
+): AssistantProviderSettings | undefined {
+  if (!(providerId === 'openrouter' && settings?.reasoningEffort)) {
+    return settings;
+  }
+  const model = getLlmModelDefinition('openrouter', modelName);
+  if (model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)) {
+    return settings;
+  }
+  const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
 }
 
 export function copyProviderSettingsMap(

@@ -216,11 +216,13 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
     },
     [reportGlobalError]
   );
+  const lastRename = useStore(store, (state) => state.lastRename);
   const editor = useNoteEditor({
     diskContent: content.status === 'ready' ? content.content : null,
     note,
     onDetachedSaveError: handleDetachedSaveError,
     onSaved: handleSaved,
+    renameRemap: lastRename,
   });
   const { beginEdit } = editor;
 

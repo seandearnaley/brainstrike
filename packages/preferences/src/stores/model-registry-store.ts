@@ -27,7 +27,7 @@ export interface DbModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
-    /** Image-input support (LLM rows only; backfilled by migration 060). */
+    /** Image-input support (LLM rows only; backfilled by migration 061). */
     vision?: boolean;
   };
   description: string | null;

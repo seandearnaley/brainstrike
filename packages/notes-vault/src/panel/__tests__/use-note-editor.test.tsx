@@ -5,6 +5,11 @@ import type { VaultNoteNode, VaultWritableLike } from '../../core/types';
 import { ensureNoteContent, getNoteContentSnapshot } from '../note-content-store';
 import { useNoteEditor } from '../use-note-editor';
 
+interface RenameHarnessProps {
+  note: VaultNoteNode | null;
+  renameRemap: { from: string; to: string } | null;
+}
+
 function noteFor(handle: FakeFileHandle, id = `r1:${handle.name}`): VaultNoteNode {
   return {
     handle,
@@ -108,6 +113,74 @@ describe('useNoteEditor', () => {
 
     await waitFor(() => {
       expect(first.state.content).toBe('a1 with unsaved edits');
+    });
+    expect(result.current.editing).toBe(false);
+  });
+
+  it('preserves a dirty draft across a rename remap (same note, new id) and rebinds the handle', async () => {
+    const oldHandle = fakeNote('a.md', { content: 'v1' });
+    const initialProps: RenameHarnessProps = {
+      note: noteFor(oldHandle, 'r1:folder/a.md'),
+      renameRemap: null,
+    };
+    const { rerender, result } = renderHook(
+      ({ note, renameRemap }: RenameHarnessProps) =>
+        useNoteEditor({
+          autosaveMs: 60_000,
+          diskContent: 'v1',
+          note,
+          onSaved: vi.fn(),
+          renameRemap,
+        }),
+      { initialProps }
+    );
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('unsaved draft'));
+
+    // The rename lands: selection is remapped BEFORE the rescan replaces the
+    // tree, so the note is transiently missing. The buffer must survive —
+    // never a detached flush through the pre-rename handle.
+    rerender({ note: null, renameRemap: { from: 'r1:folder', to: 'r1:renamed' } });
+    expect(result.current.editing).toBe(true);
+    expect(result.current.draft).toBe('unsaved draft');
+    expect(oldHandle.state.content).toBe('v1');
+
+    // Rescan done: the same note reappears under its new id with a FRESH
+    // handle (desktop rebuilds path-baked handles). Saving writes the new one.
+    const newHandle = fakeNote('a.md', { content: 'v1' });
+    const renamedNote = { ...noteFor(newHandle), id: 'r1:renamed/a.md' };
+    rerender({ note: renamedNote, renameRemap: { from: 'r1:folder', to: 'r1:renamed' } });
+    expect(result.current.editing).toBe(true);
+
+    await act(() => result.current.save());
+    expect(newHandle.state.content).toBe('unsaved draft');
+    expect(oldHandle.state.content).toBe('v1');
+  });
+
+  it('still flushes when the selection moves to a genuinely different note during a rename', async () => {
+    const edited = fakeNote('a.md', { content: 'v1' });
+    const other = fakeNote('z.md', { content: 'z1' });
+    const initialProps: RenameHarnessProps = { note: noteFor(edited), renameRemap: null };
+    const { rerender, result } = renderHook(
+      ({ note, renameRemap }: RenameHarnessProps) =>
+        useNoteEditor({
+          autosaveMs: 60_000,
+          diskContent: 'v1',
+          note,
+          onSaved: vi.fn(),
+          renameRemap,
+        }),
+      { initialProps }
+    );
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('flush me'));
+
+    // A rename elsewhere in the vault does not involve this note's id; the
+    // user then selects a different note — the normal flush path applies.
+    rerender({ note: noteFor(other), renameRemap: { from: 'r1:unrelated', to: 'r1:moved' } });
+
+    await waitFor(() => {
+      expect(edited.state.content).toBe('flush me');
     });
     expect(result.current.editing).toBe(false);
   });

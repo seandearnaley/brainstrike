@@ -107,6 +107,9 @@ const NOTES_VAULT_LIST_DIRECTORY_CHANNEL = 'notes-vault:list-directory' as const
 const NOTES_VAULT_STAT_ENTRY_CHANNEL = 'notes-vault:stat-entry' as const;
 const NOTES_VAULT_READ_FILE_CHANNEL = 'notes-vault:read-file' as const;
 const NOTES_VAULT_WRITE_FILE_CHANNEL = 'notes-vault:write-file' as const;
+const NOTES_VAULT_CREATE_DIRECTORY_CHANNEL = 'notes-vault:create-directory' as const;
+const NOTES_VAULT_DELETE_ENTRY_CHANNEL = 'notes-vault:delete-entry' as const;
+const NOTES_VAULT_RENAME_CHANNEL = 'notes-vault:rename' as const;
 const NOTES_VAULT_WATCH_CHANNEL = 'notes-vault:watch' as const;
 const NOTES_VAULT_UNWATCH_CHANNEL = 'notes-vault:unwatch' as const;
 const NOTES_VAULT_CHANGED_EVENT = 'notes-vault:changed' as const;
@@ -1251,6 +1254,10 @@ if (shouldExposeBridge('terminal')) {
 // must capability-check `window.notesVault` rather than `isElectron()`.
 if (shouldExposeBridge('notesVault')) {
   contextBridge.exposeInMainWorld('notesVault', {
+    createDirectory: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_CREATE_DIRECTORY_CHANNEL, absolutePath),
+    deleteEntry: (absolutePath: string, options: { recursive: boolean }) =>
+      ipcRenderer.invoke(NOTES_VAULT_DELETE_ENTRY_CHANNEL, absolutePath, options),
     ensureDefaultVault: () => ipcRenderer.invoke(NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL),
     listDirectory: (absolutePath: string) =>
       ipcRenderer.invoke(NOTES_VAULT_LIST_DIRECTORY_CHANNEL, absolutePath),
@@ -1266,6 +1273,8 @@ if (shouldExposeBridge('notesVault')) {
       ipcRenderer.invoke(NOTES_VAULT_READ_FILE_CHANNEL, absolutePath),
     registerRoot: (absolutePath: string) =>
       ipcRenderer.invoke(NOTES_VAULT_REGISTER_ROOT_CHANNEL, absolutePath),
+    rename: (fromPath: string, toPath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_RENAME_CHANNEL, fromPath, toPath),
     statEntry: (absolutePath: string) =>
       ipcRenderer.invoke(NOTES_VAULT_STAT_ENTRY_CHANNEL, absolutePath),
     unwatch: (watchId: string) => ipcRenderer.invoke(NOTES_VAULT_UNWATCH_CHANNEL, watchId),

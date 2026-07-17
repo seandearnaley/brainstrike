@@ -5,10 +5,12 @@ import type { Migration } from './migration-runner';
  * Mirrors the static registry's `vision` declarations
  * (packages/assistant-contract/src/provider-registry.ts) — the two lists must
  * stay in sync; frontier-models-migration.test.ts asserts no LLM row is left
- * without a vision value. Embedding rows are untouched (vision is an
- * LLM-only capability).
+ * without a vision value, and the value-agreement test pins every row to
+ * the registry declaration. Runs AFTER 060 (openrouter_spark_kimi_k3) so the
+ * July 16 OpenRouter launches are patched too. Embedding rows are untouched
+ * (vision is an LLM-only capability).
  */
-export const migration060ModelVisionCapability: Migration = {
+export const migration061ModelVisionCapability: Migration = {
   down: `
     UPDATE models SET capabilities = capabilities - 'vision' WHERE capabilities ? 'vision';
   `,
@@ -25,6 +27,7 @@ export const migration060ModelVisionCapability: Migration = {
       'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite',
       'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
       'openai/gpt-5.6-sol', 'openai/gpt-5.6-terra', 'openai/gpt-5.6-luna',
+      'meta/muse-spark-1.1', 'moonshotai/kimi-k3',
       'anthropic/claude-fable-5', 'anthropic/claude-sonnet-5',
       'openai/gpt-5.5', 'openai/gpt-5.4', 'openai/gpt-5.4-mini',
       'openai/gpt-5.3-codex', 'openai/gpt-5.2',
@@ -43,5 +46,5 @@ export const migration060ModelVisionCapability: Migration = {
       'onnx-community/gemma-4-E2B-it-ONNX'
     );
   `,
-  version: 60,
+  version: 61,
 };

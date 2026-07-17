@@ -17,6 +17,7 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
+  reconcileProviderSettingsForModel,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
@@ -638,13 +639,50 @@ describe('assistant runtime helpers', () => {
       anthropic: { effort: 'high', thinking: { budgetTokens: 1024, type: 'enabled' } },
     });
     expect(
-      buildProviderOptions('openrouter', 'openai/gpt-5.6-terra', {
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'high',
         reasoningSummary: 'detailed',
       })
     ).toEqual({
       openrouter: { reasoning: { effort: 'high', summary: 'detailed' } },
     });
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+      })
+    ).toThrow(/Kimi K3.*does not support.*high/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
+        reasoningEffort: 'none',
+      })
+    ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k2.6', {
+        reasoningEffort: 'max',
+      })
+    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/i);
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'high',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ reasoningEffort: 'max' });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k2.6', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',

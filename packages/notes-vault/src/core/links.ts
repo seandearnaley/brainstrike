@@ -51,6 +51,31 @@ function findNoteInNodes(nodes: readonly VaultTreeNode[], noteId: string): Vault
   return null;
 }
 
+function findEntryInNodes(nodes: readonly VaultTreeNode[], entryId: string): VaultTreeNode | null {
+  for (const node of nodes) {
+    if (node.id === entryId) {
+      return node;
+    }
+    if (node.type === 'folder' && entryId.startsWith(`${node.id}/`)) {
+      return findEntryInNodes(node.children, entryId);
+    }
+  }
+  return null;
+}
+
+/** Finds any tree entry (note or folder) by id across roots. */
+export function findVaultEntry(
+  roots: readonly VaultRootState[],
+  entryId: string
+): VaultTreeNode | null {
+  for (const root of roots) {
+    if (entryId.startsWith(`${root.rootId}:`)) {
+      return findEntryInNodes(root.nodes, entryId);
+    }
+  }
+  return null;
+}
+
 export function findVaultNote(
   roots: readonly VaultRootState[],
   noteId: string

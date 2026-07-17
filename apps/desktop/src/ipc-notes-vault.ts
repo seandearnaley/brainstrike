@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { createLogger } from '@brainstrike/utils/logger';
-import { app, dialog } from 'electron';
+import { app, dialog, shell } from 'electron';
 import {
   createNotesVaultIpcHandlers,
   type NotesVaultIpcHandlers,
@@ -48,8 +48,9 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * Approved-roots security model + handler behavior live in
  * `notes-vault-ipc-handlers.ts`; this registrar wires the production
  * dependencies: `app.getPath` for the default vault location, the native
- * directory picker, the shared `ElectronStorageAdapter` (passed by main.ts)
- * for the persisted approved-roots list, and the shared chokidar-backed
+ * directory picker, `shell.trashItem` for recoverable deletes (deleteEntry
+ * never hard-unlinks), the shared `ElectronStorageAdapter` (passed by
+ * main.ts) for the persisted approved-roots list, and the shared chokidar-backed
  * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
  * — batched at 150 ms, `ignoreInitial`, symlinks not followed; falls back to
  * native `fs.watch` only if chokidar cannot load, logging the failure). The
@@ -78,6 +79,7 @@ export function registerNotesVaultIpc(
           () => onChange()
         ),
       storage,
+      trashItem: (absolutePath) => shell.trashItem(absolutePath),
     })
   );
 }

@@ -3,6 +3,7 @@
   "description": "Markdown notes vault: File System Access-backed note tree and viewer",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "lucide-react": "^1.23.0",

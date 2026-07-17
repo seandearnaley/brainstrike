@@ -63,6 +63,8 @@ describe('frontier models migrations', () => {
       'qwen/qwen3.7-plus',
       'qwen/qwen3.6-flash',
       'qwen/qwen3-coder-next',
+      'meta/muse-spark-1.1',
+      'moonshotai/kimi-k3',
       'moonshotai/kimi-k2.6',
       'moonshotai/kimi-k2.7-code',
       'openai/gpt-5.5',
@@ -204,7 +206,7 @@ describe('frontier models migrations', () => {
   it('mirrors the static registry vision declarations VALUE-for-value', {
     timeout: 60_000,
   }, async () => {
-    // Migration 060's id lists "must stay in sync" with the registry (its own
+    // Migration 061's id lists "must stay in sync" with the registry (its own
     // header comment). The blanket no-NULL check catches a FORGOTTEN id but
     // not a FLIPPED value: without this test, moving one model between the
     // true/false lists (or flipping its registry declaration) ships green
@@ -251,5 +253,28 @@ describe('frontier models migrations', () => {
     await expect(
       db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
     ).rejects.toThrow();
+  });
+
+  it('adds the July 16 OpenRouter models disabled without changing existing toggles', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 59));
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'moonshotai/kimi-k2.6'");
+
+    await runner.up(migrations);
+
+    const rows = await db.query<{ id: string; is_enabled: boolean; sort_order: number }>(`
+      SELECT id, is_enabled, sort_order
+      FROM models
+      WHERE provider_id = 'openrouter'
+        AND id IN ('meta/muse-spark-1.1', 'moonshotai/kimi-k3', 'moonshotai/kimi-k2.6')
+      ORDER BY sort_order
+    `);
+    expect(rows.rows).toEqual([
+      { id: 'meta/muse-spark-1.1', is_enabled: false, sort_order: 1 },
+      { id: 'moonshotai/kimi-k3', is_enabled: false, sort_order: 2 },
+      { id: 'moonshotai/kimi-k2.6', is_enabled: true, sort_order: 16 },
+    ]);
   });
 });

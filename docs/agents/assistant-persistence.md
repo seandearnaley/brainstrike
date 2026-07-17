@@ -122,7 +122,7 @@ Image attachments (composer → model → persistence → reload):
   (2) per-model vision gate — the SELECTED MODEL's `vision` capability
   (`ModelVisionSupport = 'supported' | 'unsupported' | 'unknown'`, declared on
   every static registry LLM entry, mirrored into the DB catalog's
-  capabilities jsonb by migration 060, and carried through
+  capabilities jsonb by migration 061, and carried through
   `LocalRuntimeNormalizedModel.capabilities.vision` for Ollama /api/show +
   LM Studio vlm/llm discovery). 'unsupported' renders a visibly DISABLED
   attach button whose title names the model and the reason (never a silent
