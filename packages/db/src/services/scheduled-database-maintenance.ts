@@ -3,6 +3,16 @@ import type { JobState } from '../queue/job-queue.js';
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = ['job_queue'] as const;
+// PGlite runs a single standalone backend with no autovacuum launcher, so
+// column statistics are never collected unless maintenance runs ANALYZE
+// explicitly (plain VACUUM does not build histograms). These tables grow to
+// 100k+ rows and drive grep JOIN ordering, tsvector/BM25 estimates, and the
+// dedupe CTE plans.
+export const DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES = [
+  'file_chunks',
+  'file_records',
+  'embedding_cache',
+] as const;
 export const DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT = 5000;
 
 const ACTIVE_JOB_STATES = ['queued', 'running'] as const satisfies readonly JobState[];
@@ -22,6 +32,7 @@ export type ScheduledDatabaseMaintenanceSkipReason = 'active-job-queue';
 
 export interface ScheduledDatabaseMaintenanceOptions {
   readonly activePruneLimit?: number;
+  readonly analyzeTables?: readonly string[];
   readonly now?: () => Date;
   readonly terminalJobRetentionMs?: number;
   readonly vacuumTables?: readonly string[];
@@ -29,6 +40,7 @@ export interface ScheduledDatabaseMaintenanceOptions {
 
 export interface ScheduledDatabaseMaintenanceResult {
   readonly activeJobs: number;
+  readonly analyzedTables: readonly string[];
   readonly completedAt: string;
   readonly durationMs: number;
   readonly prunedTerminalJobs: number;
@@ -102,6 +114,16 @@ function resolveVacuumTables(options: ScheduledDatabaseMaintenanceOptions): read
   return tables;
 }
 
+function resolveAnalyzeTables(options: ScheduledDatabaseMaintenanceOptions): readonly string[] {
+  const tables = options.analyzeTables ?? DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES;
+  for (const table of tables) {
+    if (!VACUUM_TABLE_NAME_PATTERN.test(table)) {
+      throw new Error(`Invalid database maintenance ANALYZE table: ${table}`);
+    }
+  }
+  return tables;
+}
+
 async function readActiveJobCount(db: ScheduledDatabaseMaintenanceDb): Promise<number> {
   const result = await db.query<JobStateCountRow>(
     `SELECT state, COUNT(*)::text AS count
@@ -158,6 +180,17 @@ async function pruneFinishedJobsBounded(
   return normalizeCount(result.rows[0]?.count);
 }
 
+async function runMaintenanceStatement(
+  db: ScheduledDatabaseMaintenanceDb,
+  sql: string
+): Promise<void> {
+  if (typeof db.exec === 'function') {
+    await db.exec(sql);
+  } else {
+    await db.query(sql);
+  }
+}
+
 async function vacuumTables(
   db: ScheduledDatabaseMaintenanceDb,
   tables: readonly string[]
@@ -166,11 +199,22 @@ async function vacuumTables(
     if (!VACUUM_TABLE_NAME_PATTERN.test(table)) {
       throw new Error(`Invalid database maintenance VACUUM table: ${table}`);
     }
-    if (typeof db.exec === 'function') {
-      await db.exec(`VACUUM ${table}`);
-    } else {
-      await db.query(`VACUUM ${table}`);
+    // ANALYZE piggybacks on the vacuum pass so the planner gets fresh column
+    // statistics for these tables too (no autovacuum launcher in PGlite).
+    await runMaintenanceStatement(db, `VACUUM (ANALYZE) ${table}`);
+  }
+  return tables;
+}
+
+async function analyzeTables(
+  db: ScheduledDatabaseMaintenanceDb,
+  tables: readonly string[]
+): Promise<readonly string[]> {
+  for (const table of tables) {
+    if (!VACUUM_TABLE_NAME_PATTERN.test(table)) {
+      throw new Error(`Invalid database maintenance ANALYZE table: ${table}`);
     }
+    await runMaintenanceStatement(db, `ANALYZE ${table}`);
   }
   return tables;
 }
@@ -183,6 +227,9 @@ export async function runScheduledDatabaseMaintenance(
   const startedAtMs = startedAtDate.getTime();
   const retentionMs = resolveTerminalJobRetentionMs(options);
   const vacuumTableNames = resolveVacuumTables(options);
+  // Validated on every pass (not just idle ones) so a malformed option
+  // throws immediately instead of lying dormant until the queue goes idle.
+  const analyzeTableNames = resolveAnalyzeTables(options);
   // Validated on every pass (not just active ones) so a malformed option
   // throws immediately instead of lying dormant until the queue gets busy.
   const activePruneLimit = resolveActivePruneLimit(options);
@@ -204,6 +251,7 @@ export async function runScheduledDatabaseMaintenance(
     const partialCompletedAtDate = resolveNow(options);
     return {
       activeJobs,
+      analyzedTables: [],
       completedAt: partialCompletedAtDate.toISOString(),
       durationMs: Math.max(0, partialCompletedAtDate.getTime() - startedAtMs),
       prunedTerminalJobs,
@@ -215,14 +263,17 @@ export async function runScheduledDatabaseMaintenance(
   }
 
   const olderThanIso = new Date(startedAtMs - retentionMs).toISOString();
-  // VACUUM cannot be wrapped in a normal transaction. If VACUUM fails after pruning,
-  // the next idle maintenance pass retries VACUUM; deleted terminal rows stay deleted.
+  // VACUUM/ANALYZE cannot be wrapped in a normal transaction. If VACUUM or
+  // ANALYZE fails after pruning, the next idle maintenance pass retries them;
+  // deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
   const vacuumedTables = await vacuumTables(db, vacuumTableNames);
+  const analyzedTables = await analyzeTables(db, analyzeTableNames);
   const completedAtDate = resolveNow(options);
 
   return {
     activeJobs,
+    analyzedTables,
     completedAt: completedAtDate.toISOString(),
     durationMs: Math.max(0, completedAtDate.getTime() - startedAtMs),
     prunedTerminalJobs,
