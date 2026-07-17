@@ -35,9 +35,8 @@ import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics'
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
-  type DimensionIndexStrategySelection,
+  type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
-  selectDimensionIndexStrategy,
 } from './dimension-index-maintenance-capabilities';
 import {
   createDesktopDimensionIndexMaintenanceScheduler,
@@ -66,10 +65,12 @@ import {
 import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
+import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -625,27 +626,19 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   try {
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
       db: await getDatabase(),
-      foregroundHealthProbe: async () => {
-        throw new Error('Startup capability probe must not run foreground health measurement.');
-      },
       initialMemoryBytes: null,
       now: () => new Date(),
       scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
     });
-    desktopDimensionIndexStrategySelection = selectDimensionIndexStrategy({
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
-      foregroundHealthThresholdMs: 5000,
-    });
+    desktopDimensionIndexStrategy = 'regular';
     logger.info('Dimension index maintenance capability probe completed', {
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
       hnswIndexBuild: capabilities.hnswIndexBuild,
       maintenanceSettings: capabilities.maintenanceSettings,
       progressReporting: capabilities.progressReporting,
-      strategy: desktopDimensionIndexStrategySelection.strategy,
-      strategyReason: desktopDimensionIndexStrategySelection.reason,
+      strategy: desktopDimensionIndexStrategy,
     });
   } catch (error) {
-    desktopDimensionIndexStrategySelection = null;
+    desktopDimensionIndexStrategy = null;
     // The probe runs concurrently with the app lifecycle (it no longer gates
     // window creation), so a short-lived session can tear the DB down while
     // the probe is mid-flight. That rejection is an EXPECTED teardown (see
@@ -674,13 +667,15 @@ let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
+let unregisterSkillsIpcHandlers: null | (() => void) = null;
 let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
+let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
-let desktopDimensionIndexStrategySelection: DimensionIndexStrategySelection | null = null;
+let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -907,7 +902,7 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
 });
 desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,
-  getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
+  getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
@@ -937,8 +932,7 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
-  getDimensionIndexMaintenanceStrategy: () =>
-    desktopDimensionIndexStrategySelection?.strategy ?? null,
+  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
@@ -990,9 +984,11 @@ unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandler
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
+unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
 unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
 unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
+unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1615,6 +1611,10 @@ app.on('will-quit', () => {
     unregisterContextFilesIpcHandlers();
     unregisterContextFilesIpcHandlers = null;
   }
+  if (unregisterSkillsIpcHandlers) {
+    unregisterSkillsIpcHandlers();
+    unregisterSkillsIpcHandlers = null;
+  }
   if (unregisterUserCommandsIpcHandlers) {
     unregisterUserCommandsIpcHandlers();
     unregisterUserCommandsIpcHandlers = null;
@@ -1627,6 +1627,11 @@ app.on('will-quit', () => {
     // Disposer also reaps every live pty (no orphaned shell survives quit).
     unregisterTerminalIpcHandlers();
     unregisterTerminalIpcHandlers = null;
+  }
+  if (unregisterNotesVaultIpcHandlers) {
+    // Disposer also stops every live notes vault watcher.
+    unregisterNotesVaultIpcHandlers();
+    unregisterNotesVaultIpcHandlers = null;
   }
   removeLogBufferListener();
 });

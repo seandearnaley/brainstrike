@@ -27,7 +27,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
       timeout: 10_000,
     });
 
-    const databaseTab = page.getByRole('tab', { name: 'Database' });
+    const databaseTab = page.getByRole('tab', { name: 'Collections' });
     await databaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 

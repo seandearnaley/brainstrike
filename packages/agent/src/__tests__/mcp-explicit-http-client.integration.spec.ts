@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -148,15 +149,18 @@ async function startStreamableServer(options: {
       return;
     }
 
+    // Stateless mode: `sessionIdGenerator` stays unset (exactOptionalPropertyTypes
+    // forbids an explicit `undefined`).
     const transport = new StreamableHTTPServerTransport({
       enableJsonResponse: true,
-      sessionIdGenerator: undefined,
     });
     const mcpServer = createEchoServer();
     transports.add(transport);
     mcpServers.add(mcpServer);
     try {
-      await mcpServer.connect(transport);
+      // The SDK's accessor-based `onclose`/`onerror` declarations are not
+      // exactOptionalPropertyTypes-compatible with its own `Transport` interface.
+      await mcpServer.connect(transport as Transport);
       await transport.handleRequest(request, response, body);
     } catch (error) {
       if (!response.headersSent) {
@@ -222,7 +226,8 @@ async function startStatefulStreamableServer(options: {
     sessionIdGenerator: () => 'explicit-http-test-session',
   });
   const mcpServer = createEchoServer();
-  await mcpServer.connect(transport);
+  // See the stateless server above: SDK accessor declarations vs `Transport`.
+  await mcpServer.connect(transport as Transport);
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');

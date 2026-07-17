@@ -13,7 +13,8 @@ import {
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
-import { TokenLimiter } from '@mastra/core/processors';
+import { SkillsProcessor, TokenLimiter } from '@mastra/core/processors';
+import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { IdGeneratorContext } from '@mastra/core/types';
 import {
@@ -29,6 +30,7 @@ import type {
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
+import { createAssistantSkillTools } from '../skills/skill-tools';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import { applyToolGuards } from '../tools/guard-tool-execution';
@@ -183,17 +185,37 @@ function instantiateLanguageModel(
   }
 }
 
+/** AI-SDK v5 user-content parts Mastra's MessageList accepts directly. */
+interface MastraContentTextPart {
+  text: string;
+  type: 'text';
+}
+interface MastraContentImagePart {
+  image: string;
+  mediaType: string;
+  type: 'image';
+}
+type MastraMessageContent = string | Array<MastraContentImagePart | MastraContentTextPart>;
+
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }> {
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: MastraMessageContent }> {
   const result: Array<{
-    content: string;
+    content: MastraMessageContent;
     id: string;
     role: 'user' | 'assistant' | 'system';
   }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
+    const imageParts: MastraContentImagePart[] = [];
     for (const part of message.parts) {
+      if (part.type === 'file') {
+        // Validated image attachment (message-utils enforces the shared
+        // allowlist/caps). Emitted as the canonical AI-SDK user-message
+        // ImagePart — the shape every provider adapter converts for vision.
+        imageParts.push({ image: part.data, mediaType: part.mediaType, type: 'image' });
+        continue;
+      }
       if (part.type !== 'text') {
         continue;
       }
@@ -201,6 +223,16 @@ export function convertMessagesToMastra(
       if (trimmed.length > 0) {
         textParts.push(trimmed);
       }
+    }
+    if (imageParts.length > 0) {
+      // Content ARRAY only when an image is present; text-only messages keep
+      // the exact legacy string join for prompt stability.
+      result.push({
+        content: [...textParts.map((text) => ({ text, type: 'text' as const })), ...imageParts],
+        id: message.id,
+        role: message.role,
+      });
+      continue;
     }
     if (textParts.length > 0) {
       result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });
@@ -440,6 +472,29 @@ function registerAgentWithMastra(
   };
 }
 
+/**
+ * Fold the skill tools into the local tool map (skills engine present) — a
+ * caller-supplied tool with a colliding id wins, loudly. Returns the original
+ * map untouched when no engine is attached.
+ */
+function mergeSkillToolsIntoLocalTools(
+  localTools: MastraAgentRuntimeOptions['tools'],
+  workspaceSkills: WorkspaceSkills | undefined
+): MastraAgentRuntimeOptions['tools'] {
+  if (!workspaceSkills) {
+    return localTools;
+  }
+  const skillTools = createAssistantSkillTools(workspaceSkills);
+  for (const skillToolId of Object.keys(skillTools)) {
+    if (localTools && skillToolId in localTools) {
+      logger.error('Local tool id collides with a reserved skill tool id; keeping the local tool', {
+        toolId: skillToolId,
+      });
+    }
+  }
+  return { ...skillTools, ...localTools } as MastraAgentRuntimeOptions['tools'];
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -478,8 +533,21 @@ export async function createMastraAgentRuntime(
     id: `mcp-client-${Date.now()}-${generateUUID()}`,
   });
 
+  // Agent Skills (desktop-injected engine): fold Mastra's canonical
+  // skill/skill_read/skill_search tools into the LOCAL tool map BEFORE
+  // sanitize/guards/hooks/plan-mode/permission — never via the Agent-level
+  // `skills` option, whose auto-added tools would bypass that whole pipeline
+  // (the adoption blocker recorded in docs/agents/workspace-context.md).
+  // Excluded for the built-in local provider (mirrors the task-list/plan-mode
+  // local gating: the 2B on-device model's context budget cannot afford skill
+  // payloads).
+  const localToolsWithSkills = mergeSkillToolsIntoLocalTools(
+    localTools,
+    normalizedProvider === 'local' ? undefined : sanitizedRuntime.workspaceSkills
+  );
+
   const toolNameMap = new Map<string, string>();
-  const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
+  const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const combinedTools = await collectCombinedTools({
     mcpClient,
     mcpConfig: resolvedMcpConfig,
@@ -1933,7 +2001,18 @@ function buildToolLoopOptions(
   const tokenLimiter = inputTokenLimit
     ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
     : undefined;
-  const inputProcessors: unknown[] = [tokenLimiter, historyCompat].filter(
+  // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
+  // own SkillsProcessor puts the <available_skills> block into the system
+  // message each input step. It rides the SAME per-call inputProcessors array
+  // as the TokenLimiter (per-call options REPLACE the Agent-config array, so it
+  // cannot live on the Agent config) and runs FIRST so the limiter counts the
+  // injected block. Excluded for the built-in local provider — mirrors the
+  // tool-map gate in createMastraAgentRuntime.
+  const skillsProcessor =
+    runtimeData?.workspaceSkills && runtimeData.provider !== 'local'
+      ? new SkillsProcessor({ skills: runtimeData.workspaceSkills })
+      : undefined;
+  const inputProcessors: unknown[] = [skillsProcessor, tokenLimiter, historyCompat].filter(
     (processor): processor is NonNullable<typeof processor> => processor !== undefined
   );
 

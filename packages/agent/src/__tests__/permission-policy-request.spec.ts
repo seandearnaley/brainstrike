@@ -14,7 +14,6 @@
  *    two edit-risk native tools, while an `enforce:false` request leaves every
  *    tool callable. This mirrors the harness in `mastra-tool-execution.spec.ts`.
  */
-import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -124,9 +123,9 @@ function createScriptedToolCallModel(args: {
 }
 
 function makeNativeTools(executors: {
-  editA: ReturnType<typeof vi.fn>;
-  editB: ReturnType<typeof vi.fn>;
-  read: ReturnType<typeof vi.fn>;
+  editA: () => Promise<{ ok: boolean }>;
+  editB: () => Promise<{ ok: boolean }>;
+  read: () => Promise<{ ok: boolean }>;
 }): Record<string, ReturnType<typeof createTool>> {
   const inputSchema = z.object({ value: z.string() });
   const outputSchema = z.object({ ok: z.boolean() });

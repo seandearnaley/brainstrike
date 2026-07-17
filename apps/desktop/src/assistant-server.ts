@@ -98,6 +98,9 @@ import {
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { prepareRequestSkills } from './assistant-server/request-skills';
+import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
+import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
@@ -1294,21 +1297,50 @@ async function resolveInitialAgentStream(args: {
   if (toolResumeAction) {
     return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
   }
-  // Prepend the turn's `@file` references (referenced-files), then the mounted
-  // roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md). Instructions
-  // are applied LAST so they land at the FRONT of the message array — the
-  // general workspace conventions precede the turn-specific referenced files and
-  // the conversation. Both are no-ops (same array identity) when nothing applies.
+  // Prepend the turn's `@file` references (referenced-files), then any explicit
+  // `:skill[name]` activations, then the mounted roots' workspace instructions
+  // (AGENTS.md/AGENT.md/CLAUDE.md). Instructions are applied LAST so they land
+  // at the FRONT of the message array — general workspace conventions precede
+  // the turn's skill activations, which precede the turn-specific referenced
+  // files and the conversation. All are no-ops (same array identity) when
+  // nothing applies.
   const withReferencedFiles = await injectReferencedFilesContext(
     messages,
     runtime,
     readWorkspaceTextFile
   );
+  const withSkillActivations = await injectActivatedSkillsContext(
+    withReferencedFiles,
+    runtime.workspaceSkills
+  );
   return toAiSdkStyleStream(
-    await injectWorkspaceInstructionsContext(withReferencedFiles, runtime, readWorkspaceTextFile),
+    await injectWorkspaceInstructionsContext(withSkillActivations, runtime, readWorkspaceTextFile),
     runtime,
     memoryOptions
   );
+}
+
+/**
+ * Build the TRUSTED per-request Agent Skills engine over a SecureRoot fs
+ * surface spanning the request's resolved workspace roots + the home dir.
+ * Extracted from initializeAgentStream for the cognitive-complexity budget.
+ */
+function prepareRequestSkillsFromDisk(runtimeData: RuntimeData | undefined): {
+  workspaceSkills?: NonNullable<RuntimeData['workspaceSkills']>;
+} {
+  const { workspaceSkills } = prepareRequestSkills({
+    fs: createSecureSkillsFs([
+      ...(runtimeData?.workspaceRoots ?? [])
+        .map((root) => root.path)
+        .filter((rootPath): rootPath is string => Boolean(rootPath)),
+      homedir(),
+    ]),
+    homedir,
+    runtimeData,
+  });
+  // Shaped as a runtime-field fragment (like resolvePersonaRuntimeFields) so
+  // the caller spreads it unconditionally.
+  return workspaceSkills ? { workspaceSkills } : {};
 }
 
 /**
@@ -1413,6 +1445,11 @@ async function initializeAgentStream(
     // are server-resolved from the secrets bridge below — a client must never
     // inject credentials into the runtime.
     personaProviderApiKeys: _ignoredClientPersonaKeys,
+    // Strip any client-supplied `workspaceSkills`: the skills engine is the
+    // TRUSTED, server-built object over the SecureRoot scan (below). The
+    // renderer only sends the `skillsPreference` wire field, which can only
+    // REDUCE the skill set.
+    workspaceSkills: _ignoredClientWorkspaceSkills,
     // The renderer's persona availability preference; resolved (with the
     // user-persona disk scan) into `runtime.personas` below.
     subagentPersonasRequest,
@@ -1449,6 +1486,11 @@ async function initializeAgentStream(
       runId,
       runtimeData,
     });
+    // Agent Skills: TRUSTED server-built engine over the SecureRoot scan of the
+    // four skills tiers (mounted roots + home dir), with the renderer's
+    // preference applied (master toggle / per-skill disables — reduce-only).
+    // Undefined when skills are off or the provider is the built-in local model.
+    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData);
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       // The execute-risk shell tool is registered like every other native tool;
@@ -1466,6 +1508,8 @@ async function initializeAgentStream(
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
+      // TRUSTED server-built skills engine (or nothing when skills are off).
+      ...skillsRuntimeFields,
       // Resolved subagent personas (built-in + user-defined, availability
       // preference applied) + pinned-provider keys — see resolvePersonaRuntimeFields.
       ...personaRuntimeFields,

@@ -331,8 +331,8 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
 
     await page.keyboard.press('Escape');
     await ensureRightPanelVisible(page);
-    await page.getByRole('tab', { name: /database/i }).click();
-    const databasePanel = page.getByRole('tabpanel', { name: /database/i });
+    await page.getByRole('tab', { name: /collections/i }).click();
+    const databasePanel = page.getByRole('tabpanel', { name: /collections/i });
     await expect(databasePanel.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
     await expect(databasePanel.getByText('Workspace Index', { exact: true })).toHaveCount(0);
   });

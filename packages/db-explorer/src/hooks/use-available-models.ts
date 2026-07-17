@@ -9,7 +9,13 @@ import { formatProviderModelKey } from '@brainstrike/utils';
 import { useMemo } from 'react';
 
 interface AvailableModel {
-  capabilities: DbModel['capabilities'];
+  // Picker-dialect capabilities: the DB catalog stores `vision` as a boolean
+  // jsonb flag while ModelPickerModel expects the tri-state; translated in
+  // useAvailableModels (moot for the embedding-only rows this hook surfaces,
+  // but keeps the shapes honest instead of casting).
+  capabilities: Omit<DbModel['capabilities'], 'vision'> & {
+    vision?: 'supported' | 'unsupported' | 'unknown';
+  };
   description: string;
   id: string;
   modelId: string;
@@ -45,6 +51,18 @@ function resolveKnownDimension(
     return null;
   }
   return candidate;
+}
+
+function toPickerCapabilities(
+  capabilities: DbModel['capabilities']
+): AvailableModel['capabilities'] {
+  const { vision, ...rest } = capabilities;
+  return {
+    ...rest,
+    ...(vision === undefined
+      ? {}
+      : { vision: vision ? ('supported' as const) : ('unsupported' as const) }),
+  };
 }
 
 function toRuntimeEmbeddingModels(catalog: LocalRuntimeModelCatalogMap | null): AvailableModel[] {
@@ -116,7 +134,7 @@ export function useAvailableModels(
     const registryModels = models
       .filter((m) => m.isEnabled && m.capabilities.type === 'embedding')
       .map((m) => ({
-        capabilities: m.capabilities,
+        capabilities: toPickerCapabilities(m.capabilities),
         description: m.description ?? '',
         id: formatProviderModelKey(m.providerId, m.id),
         modelId: m.id,

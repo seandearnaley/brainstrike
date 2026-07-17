@@ -1,6 +1,8 @@
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
+import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
+import { resetFollowUpQueueStore } from '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
@@ -34,6 +36,11 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
+  // Queued-but-unsent follow-up messages must never survive a reset.
+  resetFollowUpQueueStore();
+});
+
+registerFactoryResetSessionStore(() => {
   useWorkspaceContextCurationStore.getState().reset();
 });
 
@@ -46,4 +53,11 @@ registerFactoryResetSessionStore(() => {
   // clears the in-memory mirror plus the persisted view prefs slice so a
   // reset-without-reload doesn't resurrect stale groups.
   useAssistantThreadGroupsStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Session state only (mounted roots, watchers, selection); the persisted
+  // handle database (brainstrike-notes-vault) is wiped via the IndexedDB
+  // fallback list in factory-reset-helpers.ts.
+  resetNotesVaultSessionState();
 });

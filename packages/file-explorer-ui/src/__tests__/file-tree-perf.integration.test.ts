@@ -4,6 +4,11 @@
  * Tests the flattenTree operation against performance budgets.
  * Uses large tree fixtures to validate O(n) scaling behavior.
  *
+ * INTEGRATION LANE: this suite asserts wall-clock averages against budgets,
+ * so it runs via `test:integration` (root uncached turbo task) — never in the
+ * cached parallel `test` lane, where full-machine CPU contention makes the
+ * budgets flake (passes standalone, fails under a whole-repo turbo run).
+ *
  * ## Baseline Numbers (recorded 2026-01-04 on M1 Mac)
  *
  * | Preset    | Nodes  | flattenTree Time | Budget        |

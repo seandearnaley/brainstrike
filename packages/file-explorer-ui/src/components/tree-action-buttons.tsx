@@ -1,13 +1,15 @@
 /**
  * Tree Action Buttons - inline expand/collapse/refresh controls.
  *
- * Rendered in the file-explorer quick-filter row (via FileFilterBar's `trailing`
- * slot), next to the info button -- not as a floating overlay. Includes an
- * optional inline scanning status indicator placed *before* the fixed-width
- * buttons: it mounts immediately after the row's `flex-1 min-w-0` search input,
- * which absorbs the indicator's width (on mount and on digit growth), so the
- * action buttons keep their position rather than shifting. The only exception
- * is at the minimum panel width, where the input can no longer shrink.
+ * Rendered in the file-explorer toolbar's right cluster (not inside the
+ * collapsible view-filters block) so tree operations stay reachable while
+ * filters are collapsed. Button sizes follow the toolbar's container-query
+ * steps to match their siblings; outside that container the base size
+ * applies. Includes an optional inline scanning status indicator placed
+ * ahead of the fixed-width buttons: the cluster is right-justified with a
+ * flexible column to its left, which absorbs the indicator's width (on mount
+ * and on digit growth), so the action buttons keep their position rather
+ * than shifting.
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
@@ -150,8 +152,8 @@ export const TreeActionButtons = React.memo(
     return (
       <div className="flex shrink-0 items-center gap-1">
         {/* Inline scanning indicator - shown to the left of action buttons.
-            Placed before the (fixed-width) buttons so the filter row's flexible
-            search input absorbs its width, keeping the buttons from shifting.
+            Placed before the (fixed-width) buttons so the right cluster's
+            flexible column absorbs its width, keeping the buttons from shifting.
             Hide ONLY the indicator's spinner when an adjacent button is already
             spinning (Refresh while isRefreshing, Expand-all while
             isExpandingAll) -- two spinning circles in one row is the redundancy
@@ -171,7 +173,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="h-8 w-8"
+              className="@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
@@ -189,7 +191,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label={expandLabel}
-              className="h-8 w-8"
+              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="expand-all-button-small"
               disabled={expandDisabled}
               onClick={onExpandAll}
@@ -211,7 +213,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Collapse All"
-              className="h-8 w-8"
+              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="collapse-all-button-small"
               disabled={collapseDisabled}
               onClick={onCollapseAll}

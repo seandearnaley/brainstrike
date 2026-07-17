@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PgliteDatabase } from '../types';
 import { PgliteVectorStore } from '../vector-store';
 
 function createDeferred<T>(): {
@@ -16,11 +17,13 @@ function createDeferred<T>(): {
 
 describe('PgliteVectorStore', () => {
   let db: PGlite;
+  let database: PgliteDatabase;
   let store: PgliteVectorStore;
 
   beforeEach(async () => {
     db = await PGlite.create({ extensions: { vector } });
-    store = new PgliteVectorStore({ database: db });
+    database = db as unknown as PgliteDatabase;
+    store = new PgliteVectorStore({ database });
   });
 
   afterEach(async () => {
@@ -147,7 +150,7 @@ describe('PgliteVectorStore', () => {
   it('emits compact run events from real semantic upsert and query hooks', async () => {
     const events: string[] = [];
     const observedStore = new PgliteVectorStore({
-      database: db,
+      database,
       eventSink: (event) => {
         events.push(`${event.kind}:${event.label}:${event.runId}`);
       },
@@ -174,7 +177,7 @@ describe('PgliteVectorStore', () => {
 
   it('does not fail vector operations when run-event emission fails', async () => {
     const observedStore = new PgliteVectorStore({
-      database: db,
+      database,
       eventSink: () => {
         throw new Error('run event sink unavailable');
       },
@@ -194,7 +197,7 @@ describe('PgliteVectorStore', () => {
   it('does not await slow run-event emission on vector upsert paths', async () => {
     const releaseSink = createDeferred<void>();
     const observedStore = new PgliteVectorStore({
-      database: db,
+      database,
       eventSink: () => releaseSink.promise,
       runId: 'run-1',
     });

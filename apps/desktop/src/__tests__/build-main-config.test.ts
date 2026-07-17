@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   MAIN_PROCESS_BUILD_OPTIONS,
@@ -46,5 +47,20 @@ describe('main-process bundle config', () => {
     // is not a dependency of @brainstrike/desktop — it crashed app launch).
     // An empty tsconfigRaw disables paths resolution for the bundle.
     expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
+  });
+
+  it('inlines @brainstrike/notes-vault/core from source (sole packages-external exception)', () => {
+    // The notes-vault dist is bundler-target ESM with extensionless relative
+    // imports — Node's runtime resolver cannot require() it from the CJS main
+    // bundle, so this ONE subpath is aliased to source and bundled. Dropping
+    // the alias would crash app launch on the welcome-note constants import
+    // in notes-vault-ipc-handlers.ts.
+    const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
+    expect(Object.keys(aliases)).toEqual(['@brainstrike/notes-vault/core']);
+    expect(
+      aliases['@brainstrike/notes-vault/core']?.endsWith(
+        path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')
+      )
+    ).toBe(true);
   });
 });

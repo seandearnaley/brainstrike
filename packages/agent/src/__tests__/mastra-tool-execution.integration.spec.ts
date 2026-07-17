@@ -16,7 +16,6 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -32,6 +31,7 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { createTool } from '@mastra/core/tools';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { AgentHookRunner, HookToolGateResult } from '../tools/hook-runner';
@@ -197,11 +197,16 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
         };
       }
     );
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    // Stateless mode: omit sessionIdGenerator entirely (exactOptionalPropertyTypes
+    // forbids passing an explicit `undefined` for the optional property).
+    const transport = new StreamableHTTPServerTransport({});
     activeServers.add(mcpServer);
     activeTransports.add(transport);
     try {
-      await mcpServer.connect(transport);
+      // The SDK class declares `sessionId: string | undefined` via an accessor,
+      // which exactOptionalPropertyTypes rejects against Transport's optional
+      // `sessionId?: string` — a library-level mismatch, so cast explicitly.
+      await mcpServer.connect(transport as unknown as Transport);
       await transport.handleRequest(request, response, body);
     } finally {
       await Promise.allSettled([transport.close(), mcpServer.close()]);
@@ -549,11 +554,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   });
 
   it('terminates the real agent loop when a tool execute never resolves', async () => {
-    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
-    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     const abortController = new AbortController();
-    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
-    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '200';
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
     try {
       const executeSpy = vi.fn(() => new Promise(() => {}));
       const hangingTool = createTool({
@@ -607,26 +612,26 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     } finally {
       abortController.abort();
       if (previousToolTimeout === undefined) {
-        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
-        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
       }
       if (previousStreamInactivity === undefined) {
-        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
-        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
       }
     }
   });
 
   it('surfaces guarded timeouts for tools with output schemas', async () => {
-    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
-    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     const abortController = new AbortController();
-    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
-    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '200';
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
     try {
-      const executeSpy = vi.fn(() => new Promise(() => {}));
+      const executeSpy = vi.fn(() => new Promise<never>(() => {}));
       const hangingTool = createTool({
         description: 'Never returns, but declares the normal success shape.',
         execute: executeSpy,
@@ -679,14 +684,14 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     } finally {
       abortController.abort();
       if (previousToolTimeout === undefined) {
-        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
-        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
       }
       if (previousStreamInactivity === undefined) {
-        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
-        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
       }
     }
   });
@@ -818,11 +823,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   });
 
   it('terminates gracefully when the model stream stalls after starting', async () => {
-    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
-    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     const abortController = new AbortController();
-    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
-    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '30';
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
     try {
@@ -924,14 +929,14 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       removeLogListener();
       abortController.abort();
       if (previousToolTimeout === undefined) {
-        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
-        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
       }
       if (previousStreamInactivity === undefined) {
-        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
-        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
       }
     }
   });
@@ -1376,7 +1381,9 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     modelHolder.current = undefined;
   });
 
-  function makeWeatherTool(execute: (input: { city: string }) => Promise<unknown>) {
+  function makeWeatherTool(
+    execute: (input: { city: string }) => Promise<{ city: string; temperatureC: number }>
+  ) {
     return createTool({
       description: 'Get the current weather for a city.',
       execute,
