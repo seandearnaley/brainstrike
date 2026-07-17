@@ -9,8 +9,9 @@ import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
+import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { DrizzleEmbeddingSetsRepository } from '../src/repositories/drizzle/embedding-sets-repository.js';
 import {
   DrizzleFileChunkRepository,
@@ -452,6 +453,194 @@ describe('DrizzleFileChunkRepository', () => {
       expect(snapshotScoped.map((r) => r.chunk.id)).toEqual([
         '00000000-0000-0000-0000-000000000021',
       ]);
+    });
+  });
+
+  // Selective narrowed searches must bypass the ANN index via an exact
+  // full-precision scan (the partial halfvec HNSW index returns as little as
+  // 39.5% recall@10 on ~10%-selective filters at 100k chunks — see
+  // docs/binary-quantization-two-stage-benchmark-2026-07-11.md). The web/Drizzle
+  // repository routes exactly like FileChunkRepository / ElectronFileChunkRepository:
+  // bounded selectivity counts per narrowed search, none for whole-set searches.
+  describe('searchSimilar adaptive routing (selective filters)', () => {
+    const dim = 3;
+    const broadRootId = 'root-broad';
+    const narrowRootId = 'root-narrow';
+    const queryVector = [1.0, 0.0, 0.0];
+
+    // 40 chunks in root-broad + 5 in root-narrow (45 total in the set):
+    //  - root-narrow matched=5 -> total cap ceil(5/0.15)=34 <= 45 -> EXACT
+    //  - root-broad matched=40 -> total cap ceil(40/0.15)=267 > 45 -> ANN
+    // Cosine similarity to the axis-0 query decreases with the chunk index.
+    const seedRoutingCorpus = async (): Promise<void> => {
+      const now = new Date().toISOString();
+      await client.query(
+        `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+         VALUES ($1, 'path', $2, $3, 'live', $4), ($5, 'path', $6, $7, 'live', $8)`,
+        [broadRootId, 'Broad', '/work/broad', now, narrowRootId, 'Narrow', '/work/narrow', now]
+      );
+      await client.query(
+        `INSERT INTO file_records (id, name, path, root_id, size, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
+        [
+          'f-broad',
+          'a.md',
+          'broad/a.md',
+          broadRootId,
+          1,
+          now,
+          now,
+          'f-narrow',
+          'b.md',
+          'narrow/b.md',
+          narrowRootId,
+          1,
+          now,
+          now,
+        ]
+      );
+      const chunks: FileChunkInsert[] = [];
+      const addChunk = (id: string, fileRecordId: string, index: number): void => {
+        chunks.push({
+          chunkIndex: index,
+          chunkSize: 1,
+          chunkType: 'text' as const,
+          content: id,
+          contentHash: `h-${id}`,
+          createdAt: now,
+          embedding: [1, index * 0.05, 0],
+          embeddingSetId: testEmbeddingSetId,
+          fileRecordId,
+          id,
+          tokenCount: 1,
+          updatedAt: now,
+        });
+      };
+      for (let i = 0; i < 40; i++) {
+        addChunk(`broad-${i}`, 'f-broad', i);
+      }
+      for (let i = 0; i < 5; i++) {
+        addChunk(`narrow-${i}`, 'f-narrow', i);
+      }
+      await repository.insertMany(chunks);
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('scopes results to a single workspace root via the rootId option', async () => {
+      await seedRoutingCorpus();
+
+      const results = await repository.searchSimilar(queryVector, {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 50,
+        rootId: narrowRootId,
+        threshold: 0,
+      });
+
+      expect(results.map((r) => r.chunk.id)).toEqual([
+        'narrow-0',
+        'narrow-1',
+        'narrow-2',
+        'narrow-3',
+        'narrow-4',
+      ]);
+    });
+
+    it('routes a selective root scope to an exact full-precision scan (no ANN tuning)', async () => {
+      await seedRoutingCorpus();
+      const querySpy = vi.spyOn(client, 'query');
+      const txSpy = vi.spyOn(client, 'transaction');
+
+      const results = await repository.searchSimilar(queryVector, {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 10,
+        rootIds: [narrowRootId],
+        threshold: 0,
+      });
+
+      // Exact scan: full recall of the narrow root's chunks, ranked by cosine.
+      expect(results.map((r) => r.chunk.id)).toEqual([
+        'narrow-0',
+        'narrow-1',
+        'narrow-2',
+        'narrow-3',
+        'narrow-4',
+      ]);
+
+      const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+      // Bounded selectivity counts ran...
+      expect(sqls.some((s) => s.includes('COUNT(*)'))).toBe(true);
+      // ...and the search ran OUTSIDE the tuned ANN transaction, ordered by the
+      // full-precision vector op (which cannot match the halfvec HNSW index).
+      expect(txSpy).not.toHaveBeenCalled();
+      const searchSql = sqls.find((s) => s.includes('ROW_NUMBER() OVER'));
+      expect(searchSql).toBeDefined();
+      expect(searchSql).toContain(`::vector(${dim})`);
+      expect(searchSql).not.toContain('halfvec');
+    });
+
+    it('keeps a broad root scope on the tuned ANN path', async () => {
+      await seedRoutingCorpus();
+      const querySpy = vi.spyOn(client, 'query');
+      const txSpy = vi.spyOn(client, 'transaction');
+
+      const results = await repository.searchSimilar(queryVector, {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 5,
+        rootIds: [broadRootId],
+        threshold: 0,
+      });
+
+      expect(results.map((r) => r.chunk.id)).toEqual([
+        'broad-0',
+        'broad-1',
+        'broad-2',
+        'broad-3',
+        'broad-4',
+      ]);
+      // Counts ran (narrowed search), but the ratio is not selective -> ANN path
+      // with its transaction-scoped HNSW tuning.
+      const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+      expect(sqls.some((s) => s.includes('COUNT(*)'))).toBe(true);
+      expect(txSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('short-circuits a zero-match narrowed search to [] without searching', async () => {
+      await seedRoutingCorpus();
+      const querySpy = vi.spyOn(client, 'query');
+      const txSpy = vi.spyOn(client, 'transaction');
+
+      const results = await repository.searchSimilar(queryVector, {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 10,
+        rootIds: ['root-that-does-not-exist'],
+        threshold: 0,
+      });
+
+      expect(results).toEqual([]);
+      const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+      expect(sqls.some((s) => s.includes('ROW_NUMBER() OVER'))).toBe(false);
+      expect(txSpy).not.toHaveBeenCalled();
+    });
+
+    it('never runs selectivity counts for un-narrowed whole-set searches', async () => {
+      await seedRoutingCorpus();
+      const querySpy = vi.spyOn(client, 'query');
+      const txSpy = vi.spyOn(client, 'transaction');
+
+      const results = await repository.searchSimilar(queryVector, {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 3,
+        threshold: 0,
+      });
+
+      expect(results).toHaveLength(3);
+      // The dominant whole-set path pays ZERO selectivity-count overhead.
+      const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+      expect(sqls.some((s) => s.includes('COUNT(*)'))).toBe(false);
+      expect(txSpy).toHaveBeenCalledTimes(1); // tuned ANN transaction as before
     });
   });
 

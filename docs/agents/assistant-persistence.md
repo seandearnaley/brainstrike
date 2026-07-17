@@ -342,7 +342,7 @@ Runtime invariants:
 
 Per-run cost/outcome analytics over tables the assistant already writes.
 
-- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 060 +
+- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062 +
   byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
   on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per
   run (`verdict` succeeded/failed/mixed, upserted on run_id) with provenance

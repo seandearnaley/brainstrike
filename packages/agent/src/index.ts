@@ -496,6 +496,8 @@ export {
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
+  type HybridSearchInput,
+  HybridSearchInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,

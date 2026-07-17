@@ -993,35 +993,49 @@ describe('FileExplorerSidebar', () => {
       handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
       loadState: 'unloaded',
     } as unknown as IFileNode;
+    // Two unloaded levels on purpose: the traversal then spans two batches
+    // with a yield between them, so an intermediate progress commit reaches
+    // the forest registry (single-batch expands finish before the completion
+    // reset and legitimately never surface a count).
+    const subDir2B: IFileNode = {
+      ...createDirectoryNode({
+        children: [],
+        name: 'sub2',
+        path: '/project-b/sub/sub2',
+        rootFolderId: ROOT_ID_B,
+      }),
+      handle: { kind: 'directory', name: 'sub2', path: '/project-b/sub/sub2' },
+      loadState: 'unloaded',
+    } as unknown as IFileNode;
+
+    const childrenByPath = (path: string): IFileNode[] => {
+      if (path === '/project-b') {
+        return [subDirB];
+      }
+      if (path === '/project-b/sub') {
+        return [subDir2B];
+      }
+      if (path === '/project-b/sub/sub2') {
+        return [
+          createFileNode({
+            name: 'inner.ts',
+            path: '/project-b/sub/sub2/inner.ts',
+            rootFolderId: ROOT_ID_B,
+          }),
+        ];
+      }
+      return [];
+    };
 
     const adapter = new MockFileSystemAdapter();
     vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
       async (handle, onBatch, _opts) => {
-        const nodes =
-          handle.path === '/project-b'
-            ? [subDirB]
-            : handle.path === '/project-b/sub'
-              ? [
-                  createFileNode({
-                    name: 'inner.ts',
-                    path: '/project-b/sub/inner.ts',
-                    rootFolderId: ROOT_ID_B,
-                  }),
-                ]
-              : [];
+        const nodes = childrenByPath(handle.path);
         onBatch(nodes, { done: true, total: nodes.length });
       }
     );
     vi.spyOn(adapter, 'readDirectory').mockImplementation(async (handle) =>
-      handle.path === '/project-b/sub'
-        ? [
-            createFileNode({
-              name: 'inner.ts',
-              path: '/project-b/sub/inner.ts',
-              rootFolderId: ROOT_ID_B,
-            }),
-          ]
-        : []
+      childrenByPath(handle.path)
     );
 
     const forestActionsRef: { current: ForestTreeActionsValue | null } = { current: null };
@@ -1067,6 +1081,13 @@ describe('FileExplorerSidebar', () => {
       },
       { timeout: 5000 }
     );
+
+    // Progress pipe: section B's traversal reported into the registry, so the
+    // toolbar has an aggregate count to show during forest sweeps (the focused
+    // provider's own expandAllProgress stays null in forest mode).
+    await waitFor(() => {
+      expect(forestActionsRef.current?.expandAllProgress).not.toBeNull();
+    });
   });
 
   // Toolbar Select All must sweep EVERY root section through its own tree

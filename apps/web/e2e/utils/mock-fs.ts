@@ -97,3 +97,30 @@ export async function mockBrowserApis(
   };
   await page.addInitScript(buildMockBrowserApisScript(payload));
 }
+
+/**
+ * Multi-root harness: add an ADDITIONAL mock root to the workspace after the
+ * primary fixture is active (i.e. after selectRoot()). Routes through
+ * __BRAINSTRIKE_ADD_FIXTURE_ROOT__, which appends both the adapter fixture
+ * state and the workspace root (never persisted) — the seam that finally
+ * lets web e2e exercise forest (multi-root) flows.
+ */
+export async function addMockRoot(page: Page, rootName: string, tree: FileTree): Promise<void> {
+  await page.evaluate(
+    async ({ rootName: name, tree: fixtureTree }) => {
+      const addFixtureRootKey = '__BRAINSTRIKE_ADD_FIXTURE_ROOT__';
+      const browserWindow = window as Window & {
+        [addFixtureRootKey]?: (fixture: {
+          name: string;
+          tree: FileTree;
+        }) => Promise<unknown> | unknown;
+      };
+      const addFixtureRoot = browserWindow[addFixtureRootKey];
+      if (typeof addFixtureRoot !== 'function') {
+        throw new Error('Multi-root fixture API was not exposed — load the primary fixture first');
+      }
+      await addFixtureRoot({ name, tree: fixtureTree });
+    },
+    { rootName, tree }
+  );
+}

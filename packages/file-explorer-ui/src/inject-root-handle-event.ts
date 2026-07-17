@@ -17,14 +17,23 @@ export const INJECT_ROOT_HANDLE_EVENT = 'brainstrike:inject-root-handle' as cons
 export interface InjectRootHandleDetail {
   /** The handle to focus, or null to clear the workspace. */
   handle: DirectoryHandle | null;
+  /**
+   * 'replace' (default) routes through set-root (drops other roots);
+   * 'add' appends the handle as an additional workspace root — the
+   * multi-root fixture harness path (never persisted).
+   */
+  mode?: 'add' | 'replace';
 }
 
 /** Dispatch a root-handle injection request. No-op outside a browser. */
-export function dispatchInjectRootHandle(handle: DirectoryHandle | null): void {
+export function dispatchInjectRootHandle(
+  handle: DirectoryHandle | null,
+  mode: 'add' | 'replace' = 'replace'
+): void {
   if (typeof window === 'undefined') {
     return;
   }
   window.dispatchEvent(
-    new CustomEvent<InjectRootHandleDetail>(INJECT_ROOT_HANDLE_EVENT, { detail: { handle } })
+    new CustomEvent<InjectRootHandleDetail>(INJECT_ROOT_HANDLE_EVENT, { detail: { handle, mode } })
   );
 }

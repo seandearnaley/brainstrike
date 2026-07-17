@@ -2260,11 +2260,11 @@ describe('embedding-backfill', () => {
 
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql === 'VACUUM file_chunks') {
+        if (sql === 'VACUUM (ANALYZE) file_chunks') {
           queryEvents.push('vacuum-file-chunks');
           return { rows: [] };
         }
-        if (sql === 'VACUUM job_queue') {
+        if (sql === 'VACUUM (ANALYZE) job_queue') {
           queryEvents.push('vacuum-job-queue');
           return { rows: [] };
         }
@@ -2371,11 +2371,11 @@ describe('embedding-backfill', () => {
 
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql === 'VACUUM file_chunks') {
+        if (sql === 'VACUUM (ANALYZE) file_chunks') {
           vacuumFileChunksCount += 1;
           return { rows: [] };
         }
-        if (sql === 'VACUUM job_queue') {
+        if (sql === 'VACUUM (ANALYZE) job_queue') {
           return { rows: [] };
         }
         if (sql.includes('FROM embedding_sets')) {

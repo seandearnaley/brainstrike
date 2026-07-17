@@ -117,6 +117,15 @@ export type FTSQueryMode = 'plain' | 'websearch' | 'phrase';
 export interface FTSSearchOptions {
   /** Filter by chunk type */
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
+  /**
+   * Optional embedding-set scope, using the same set-membership identity as
+   * coverage accounting (see `getCoverageForSet`): a chunk matches when its own
+   * `embedding_set_id` equals the given set, OR its `embedding_set_id` is NULL
+   * (pending embedding) and its file record carries the set. Match semantics
+   * (tsquery) are unaffected — this is purely an additional filter. Omit for
+   * the historical unscoped behavior.
+   */
+  embeddingSetId?: string;
   /** Optional allowlist of file paths to scope results */
   filePaths?: readonly string[];
   /** Filter by specific file record ID */

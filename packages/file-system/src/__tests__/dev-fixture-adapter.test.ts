@@ -421,4 +421,104 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(adapter.getHandleCache?.()).toBe('cache');
     expect(getHandleCache).toHaveBeenCalledTimes(1);
   });
+
+  describe('addInlineFixtureRoot (multi-root harness)', () => {
+    const SECOND_FIXTURE: FixtureDefinition = {
+      name: 'second-root',
+      tree: {
+        docs: {
+          'guide.md': '# guide',
+        },
+        'top.ts': 'export const t = 1;',
+      },
+    };
+
+    it('serves reads for every active fixture root', async () => {
+      const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+      const first = await adapter.loadInlineFixture(FIXTURE);
+      const second = await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+
+      expect(second.path).toBe('second-root');
+      expect(second.rootId).toBeTruthy();
+      expect(second.rootId).not.toBe(first.rootId);
+
+      const firstNodes = await adapter.readDirectory(first);
+      expect(firstNodes.map((node) => node.name)).toContain('src');
+
+      const secondNodes = await adapter.readDirectory(second);
+      expect(secondNodes.map((node) => node.name)).toEqual(['docs', 'top.ts']);
+
+      const docsChildren = await adapter.readDirectory({
+        kind: 'directory',
+        name: 'docs',
+        path: 'second-root/docs',
+        platform: 'web',
+      });
+      expect(docsChildren.map((node) => node.name)).toEqual(['guide.md']);
+
+      await expect(
+        adapter.readFile({
+          kind: 'file',
+          name: 'guide.md',
+          path: 'second-root/docs/guide.md',
+          platform: 'web',
+          size: 7,
+        })
+      ).resolves.toBe('# guide');
+      await expect(adapter.exists('second-root/docs')).resolves.toBe(true);
+    });
+
+    it('streams the added root through readDirectoryStreaming', async () => {
+      const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+      await adapter.loadInlineFixture(FIXTURE);
+      const second = await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+
+      const batches: IFileNode[][] = [];
+      const onBatch: DirectoryStreamCallback = (nodes) => {
+        batches.push(nodes);
+      };
+      await adapter.readDirectoryStreaming?.(second, onBatch);
+      expect(batches.flat().map((node) => node.name)).toEqual(['docs', 'top.ts']);
+    });
+
+    it('throws without an active primary fixture — the harness must not half-activate', async () => {
+      const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+      await expect(adapter.addInlineFixtureRoot(SECOND_FIXTURE)).rejects.toThrow(
+        /requires an active inline fixture/
+      );
+    });
+
+    it('throws on a duplicate fixture root name', async () => {
+      const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+      await adapter.loadInlineFixture(FIXTURE);
+      await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+      await expect(adapter.addInlineFixtureRoot(SECOND_FIXTURE)).rejects.toThrow(/already active/);
+    });
+
+    it('keeps the added root id durable across re-adds after a clear', async () => {
+      const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+      await adapter.loadInlineFixture(FIXTURE);
+      const second = await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+      await adapter.clearInlineFixture();
+      await adapter.loadInlineFixture(FIXTURE);
+      const readded = await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+      // Same durable rootId → the reducer reconciles instead of duplicating
+      // (the #1200 "two treegrids" class).
+      expect(readded.rootId).toBe(second.rootId);
+    });
+
+    it('clearInlineFixture deactivates every root', async () => {
+      const base = createBaseAdapter();
+      // Decoration mutates the base adapter in place — capture the spy first.
+      const baseReadDirectory = base.readDirectory;
+      const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
+      await adapter.loadInlineFixture(FIXTURE);
+      const second = await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
+      await adapter.clearInlineFixture();
+
+      expect(adapter.isInlineFixtureActive()).toBe(false);
+      await adapter.readDirectory(second);
+      expect(baseReadDirectory).toHaveBeenCalled();
+    });
+  });
 });
