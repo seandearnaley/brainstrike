@@ -71,6 +71,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -675,6 +676,7 @@ let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
+let unregisterSkillsIpcHandlers: null | (() => void) = null;
 let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
@@ -992,6 +994,7 @@ unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandler
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
+unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
 unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
 unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
@@ -1617,6 +1620,10 @@ app.on('will-quit', () => {
   if (unregisterContextFilesIpcHandlers) {
     unregisterContextFilesIpcHandlers();
     unregisterContextFilesIpcHandlers = null;
+  }
+  if (unregisterSkillsIpcHandlers) {
+    unregisterSkillsIpcHandlers();
+    unregisterSkillsIpcHandlers = null;
   }
   if (unregisterUserCommandsIpcHandlers) {
     unregisterUserCommandsIpcHandlers();

@@ -393,6 +393,17 @@ describe('assistant runtime helpers', () => {
         'workspaceInstructionsPreference'
       ]
     ).toEqual(preference);
+
+    // Agent Skills preference rides the same opt-in gate: absent → nothing
+    // attached; present → the exact snapshot.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('skillsPreference');
+    const skillsPreference = {
+      disabledSkillKeys: ['root:root-a:pdf-processing'],
+      masterEnabled: true,
+    };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, skillsPreference })['skillsPreference']
+    ).toEqual(skillsPreference);
   });
 
   it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {

@@ -19,6 +19,7 @@ export type DesktopIpcDomain =
   | 'preferences'
   | 'runtime'
   | 'shell'
+  | 'skills'
   | 'storage'
   | 'terminal'
   | 'tools'

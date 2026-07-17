@@ -1,5 +1,6 @@
 import type {
   AssistantPersonasListResult,
+  SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
@@ -405,6 +406,15 @@ declare global {
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * consumers MUST capability-check `window.skills`. The Settings → Skills
+     * panel and the composer's "/" menu call `scan` to list every skill
+     * discovered across `.brainstrike/skills` + `.claude/skills`.
+     */
+    skills?: {
+      scan: () => Promise<SkillsScanResultSummary>;
     };
     /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers

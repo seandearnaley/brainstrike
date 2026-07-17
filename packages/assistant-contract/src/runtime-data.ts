@@ -1,5 +1,6 @@
 import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
+import type { SkillsContextRequest } from './skills.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 
@@ -225,6 +226,15 @@ export interface RuntimeData {
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
+  /**
+   * Renderer-supplied Agent Skills preference (from the skills preferences
+   * store). A preference, not a security boundary — it can only REDUCE the
+   * skill set (master off / per-skill disable), never inject skills. Absent =>
+   * master enabled, nothing disabled. The desktop server resolves it into the
+   * TRUSTED `workspaceSkills` engine (agent-side field); a client-supplied
+   * engine is stripped.
+   */
+  skillsPreference?: SkillsContextRequest;
   /**
    * Renderer-supplied subagent persona availability (from the subagent-personas
    * preferences store). A preference, not a security boundary — it can only

@@ -41,4 +41,12 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily). Returns a clear "unavailable" message (not an error) when no provider-native search and no Tavily key are configured',
   'brainstrike.writeWorkspaceFile':
     'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
+  skill:
+    "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled references/scripts/assets. Read-only; activate proactively when a task matches a skill's description",
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read:
+    'Read a bundled file from an activated skill directory (references/, scripts/, or assets/), optionally sliced by startLine/endLine. Read-only and containment-checked to the skill directory',
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search:
+    'Search across installed skill instructions and reference files by keyword; returns matching skills, sources, and line-scoped snippets. Read-only',
 };
