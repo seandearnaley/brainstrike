@@ -735,14 +735,24 @@ export function useExpandSelectedFileParentDirectories(
     const sortedParents = missingParents.sort(
       (left, right) => getPathDepth(left) - getPathDepth(right)
     );
+    const boundedParents = sortedParents.slice(0, MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS);
+    const omittedParentCount = sortedParents.length - boundedParents.length;
+    if (omittedParentCount > 0) {
+      logger.warn('Selected-file parent expansion was bounded to keep the UI responsive', {
+        folderId: currentRootFolderId,
+        omittedParentCount,
+        requestedParentCount: sortedParents.length,
+        restoredParentCount: boundedParents.length,
+      });
+    }
 
-    void loadSpecificPaths(sortedParents)
+    void loadSpecificPaths(boundedParents)
       .then(() => {
         if (latestExpansionRequestRef.current !== expansionRequestId) {
           return;
         }
         const latestExpanded = store.getState().expandedDirectoryPaths;
-        setExpandedPaths(new Set([...latestExpanded, ...parentDirectories]));
+        setExpandedPaths(new Set([...latestExpanded, ...boundedParents]));
       })
       .catch((error: unknown) => {
         logger.warn('Failed to expand parent directories for selected files', { error });

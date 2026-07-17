@@ -599,6 +599,66 @@ describe('useExpandSelectedFileParentDirectories', () => {
     });
   });
 
+  it('bounds post-restoration selection expansion without marking omitted parents expanded', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const coveredDirectoryPaths = Array.from(
+      { length: MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS + 25 },
+      (_, index) => `directory-${index.toString().padStart(4, '0')}`
+    );
+    const boundedDirectoryPaths = coveredDirectoryPaths.slice(
+      0,
+      MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS
+    );
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set<string>(),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'query',
+            queryDescriptor: {
+              coveredDirectoryPaths,
+              excludedPaths: [],
+              excludeFilters: [],
+              folderId: '/workspace',
+              includedPaths: [],
+              includeFilters: [],
+              kind: 'recursive-select-all',
+              manifestFingerprint: 'query-fingerprint',
+              manifestSnapshotId: 'snapshot-1',
+              rootPath: null,
+              totalSelectedCount: coveredDirectoryPaths.length,
+              useRegex: false,
+            },
+            ruleSetJson: null,
+          },
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandSelectedFileParentDirectories({
+        currentRootFolderId: '/workspace',
+        isRestorationSettled: true,
+        loadSpecificPaths,
+        selectionVersion: 2,
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(boundedDirectoryPaths);
+    });
+
+    await waitFor(() => {
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(boundedDirectoryPaths));
+    });
+  });
+
   it('does not apply stale expansion work from an earlier selection version', async () => {
     let resolveFirstLoad: (() => void) | undefined;
     const loadSpecificPaths = vi
