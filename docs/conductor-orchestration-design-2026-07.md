@@ -61,7 +61,7 @@ export interface WorkItem {
   title: string;
   description: string | null; // markdown-normalized
   state: WorkItemState;
-  priority: number | null;    // normalized 0 (none) … 4; adapter-mapped
+  priority: number | null;    // canonical urgency: 4 (urgent) … 1 (low); null = unprioritized
   labels: readonly string[];  // trimmed, lowercased (spec rule)
   blockedBy: readonly BlockerRef[];
   branchName: string | null;  // provider hint (Linear native) or derived
@@ -70,6 +70,8 @@ export interface WorkItem {
   updatedAt: string;
 }
 ```
+
+**Priority is canonicalized, not passed through.** Providers disagree about numbers — Linear's native scale is `0 = none, 1 = Urgent … 4 = Low` (lower non-zero = more urgent), Jira uses named priorities, GitHub/GitLab derive from labels. Adapters map *into* one canonical internal scale: **higher = more urgent** (`4 = urgent … 1 = low`), `null` = unprioritized. The dispatch sort (§5) is **descending** on canonical priority with `null` last, so unprioritized issues never dispatch ahead of urgent ones — a naive pass-through of Linear's numbers would invert this.
 
 The two-level state is the key multi-provider move. `WORKFLOW.md` keeps matching on raw **state names** (spec-conformant), while `category` gives cross-provider semantics where the spec hard-codes Linear conventions (e.g. its "`Todo` issues with non-terminal blockers are ineligible" rule generalizes to "states whose category is `todo`/`triage`", overridable via config).
 
@@ -92,7 +94,7 @@ Provider reality check (verify exact API shapes at implementation time):
 
 | | states | blockedBy | priority | notes |
 | --- | --- | --- | --- | --- |
-| **Linear** | native (state `type`: triage/backlog/unstarted/started/completed/canceled) | native (inverse "blocks" relations) | native 0–4 | GraphQL, cursor pagination; the spec's reference target |
+| **Linear** | native (state `type`: triage/backlog/unstarted/started/completed/canceled) | native (inverse "blocks" relations) | native 0–4 (`1 = Urgent`; remapped to canonical scale) | GraphQL, cursor pagination; the spec's reference target |
 | **Jira** | native (`statusCategory`: new/indeterminate/done + named statuses) | native ("Blocks" issue links) | native | REST v3; use the current `/rest/api/3/search/jql` endpoint (`nextPageToken` pagination — the legacy `/search` was deprecated in 2025); JQL is the candidate filter |
 | **GitHub** | **mapped** (open/closed + config-declared mapping via labels or Projects-v2 single-select status field, GraphQL) | native (issue dependencies blocked-by/blocking, shipped 2025) | labelDerived or Projects field | GraphQL preferred; honor rate-limit headers |
 | **GitLab** | **mapped** (open/closed + scoped-label convention, e.g. `workflow::in progress`) | native on Premium ("blocks/is blocked by" links) — surface 403 visibly on Free, never degrade quietly | labelDerived | REST with keyset pagination; support self-managed `host` |
@@ -136,7 +138,7 @@ export interface AgentRunner {
 }
 ```
 
-- **Primary adapter: ACP over stdio.** Since Symphony shipped, the Agent Client Protocol became the cross-vendor standard (JetBrains, Zed, Neovim, Microsoft Intelligent Terminal; 25+ agents including Claude Code and Codex CLI). Speaking ACP makes Conductor agent-agnostic the same way `TrackerAdapter` makes it tracker-agnostic — and Codex CLI itself speaks ACP, so spec-parity with the Codex reference is preserved through the same adapter. Session identity maps to the spec's `session_id = "<thread_id>-<turn_id>"` from ACP session/turn ids.
+- **Primary adapter: ACP over stdio.** Since Symphony shipped, the Agent Client Protocol became the cross-vendor standard (JetBrains, Zed, Neovim, Microsoft Intelligent Terminal; 25+ agents including Claude Code and Codex CLI). Speaking ACP makes Conductor agent-agnostic the same way `TrackerAdapter` makes it tracker-agnostic. Codex parity note: Codex's native surface is the app-server/SDK JSON-RPC protocol — its ACP support comes through adapter binaries (e.g. `codex-acp`, Zed's adapter), so a Codex-backed workflow's `agent.command` must name the adapter executable, not `codex` directly; the design keeps spec parity through the same ACP runner but the workflow config is explicit about the adapter command (no implicit wrapping). Session identity maps to the spec's `session_id = "<thread_id>-<turn_id>"` from ACP session/turn ids.
 - **Later adapter: the bespoke brainstrike coding agent** (ADR-0001). Once the in-app agent loop lands, an issue-driven dispatch of it shares the permission engine, run-usage accounting, and personas. This is v2 — it must not block v1.
 - **Timeouts** exactly per spec: `read_timeout_ms` (5 s), `turn_timeout_ms` (1 h), `stall_timeout_ms` (5 min, ≤0 disables) enforced by the orchestrator from event inactivity.
 - **Approval posture** (spec: implementation-defined, MUST document): default is autonomous with the workflow's declared sandbox/approval config passed through ACP. Where the reference impl fails `turn_input_required` turns, Conductor **routes them to the app's run-notification surface** as actionable items with a configurable timeout-to-fail. Unsupported tool calls return protocol-level failure and continue (no stall), per spec.
@@ -147,11 +149,11 @@ Implemented in `conductor-core` as a reducer over:
 
 - **Claim states:** Unclaimed → Claimed (Running | RetryQueued) → Released.
 - **Run-attempt phases:** PreparingWorkspace → BuildingPrompt → LaunchingAgentProcess → InitializingSession → StreamingTurn → Finishing → {Succeeded, Failed, TimedOut, Stalled, CanceledByReconciliation}.
-- **Tick:** reconcile running (stall check + state refresh) → validate dispatch config (invalid: skip dispatch, keep reconciling, keep last-known-good) → fetch candidates → sort (priority, createdAt, identifier) → dispatch while global and per-state slots free → notify observers.
+- **Tick:** reconcile running (stall check + state refresh) → validate dispatch config (invalid: skip dispatch, keep reconciling, keep last-known-good) → fetch candidates → sort (canonical priority **descending**, `null` last; then createdAt ascending; then identifier) → dispatch while global and per-state slots free → notify observers.
 - **Eligibility:** active ∧ ¬terminal ∧ all required_labels ∧ ¬running ∧ ¬claimed ∧ slots free ∧ (category todo/triage ⇒ no non-terminal blockers).
 - **Retry:** continuation 1 s fixed after normal exit; failures `min(10_000 · 2^(attempt−1), max_retry_backoff_ms)`; on retry-due re-fetch candidates, release claim if missing/inactive, requeue with "no available slots" if saturated.
 - **Continuation semantics:** after each successful turn, re-check tracker state; still active → next turn on the same live session (≤ `max_turns`), first turn full rendered prompt, continuation turns guidance-only.
-- **Startup:** validate dispatch config or fail startup; terminal-workspace sweep (warn-and-continue on fetch failure); schedule tick 0.
+- **Startup:** validate dispatch config or fail startup; terminal-workspace sweep (warn-and-continue on fetch failure), extended with the orphan reaper (§8); schedule tick 0.
 
 ## 6. Workspaces
 
@@ -180,7 +182,7 @@ tracker:
 
    Config validation cross-checks the workflow against the adapter's `TrackerCapabilities` and **fails loudly** (per-field diagnostics) when e.g. `state_mapping` is missing for a mapped-state tracker or `required_labels` reference an unsupported feature. Invalid hot-reload keeps last-known-good + surfaces an operator-visible error event (spec rule), rendered in the Conductor panel — not just a log line.
 
-2. **`$secret:<name>` indirection** alongside the spec's `$VAR` env resolution. Desktop resolves through the existing `SecretsService` (Electron `safeStorage` → OS keychain, `encryption_unavailable` throws — no plaintext fallback). Tokens are resolved host-side, never logged, never surfaced to the model. `$VAR` stays supported for spec conformance and CI.
+2. **`$secret:<name>` indirection** alongside the spec's `$VAR` env resolution. This is a **new** resolution convention (no `$secret:` syntax exists in the codebase today) layered on the existing `SecretsService` (Electron `safeStorage` → OS keychain); building the parser/resolver is in PR3's scope, and implementation should first weigh reusing the existing encrypted-config path (`withDecryptedSecrets()` in `apps/desktop/src/mcp-loader.ts`) before adding a second secret-reference syntax. Fail-loud caveat on the read path: `SecretsService.getKey` returns `null` both for a missing secret *and* when `safeStorage` is unavailable — only `saveKey` throws `encryption_unavailable`. The Conductor resolver therefore MUST check `safeStorage` availability explicitly before resolving and emit distinct config-validation errors for "keychain unavailable" vs "secret not set" — both hard errors, never a silent skip. Tokens are resolved host-side, never logged, never surfaced to the model. `$VAR` stays supported for spec conformance and CI.
 
 3. **Hot reload** via file watch: re-parse, re-validate, atomically swap; applies to future dispatch/retry/reconciliation decisions; in-flight sessions untouched (spec contract).
 
@@ -188,13 +190,15 @@ tracker:
 
 The spec mandates **no persistent orchestrator state**, and Conductor honors that for *authority*: claims, retry timers, and running maps are in-memory; restart recovery is terminal sweep + fresh poll.
 
-Separately, Conductor appends every run attempt and session-usage sample to a **run ledger** — `brainstrike_conductor_runs` (+ optionally `brainstrike_conductor_events`) — which is **never read by dispatch logic**. This is the ledger-native strategy (cost/outcome per task, Context Observatory) landing in its natural home: issue id/identifier, tracker kind, attempt, phase outcome, error class, wall time, token counters, session ids.
+In-memory claims have one failure mode the spec's model doesn't name: a hard crash orphans the **side effects** — live ACP subprocesses and populated git worktrees have no surviving owner, and fresh polling re-derives claims but won't reap them. The startup sweep is therefore extended into an **orphan reaper**: it reads the run ledger's open attempt rows (agent pids, session ids, workspace paths) to kill dangling agent processes and remove stale worktrees before the first tick. This does not breach the ledger-authority rule — reaping is cleanup of dead side effects, not a dispatch input; the ledger still never influences *what gets claimed*.
+
+Separately, Conductor appends every run attempt and session-usage sample to a **run ledger** — `brainstrike_conductor_runs` (+ optionally `brainstrike_conductor_events`) — which is **never read by dispatch logic**. This is the ledger-native strategy (cost/outcome per task, Context Observatory) landing in its natural home: issue id/identifier, tracker kind, attempt, phase outcome, error class, wall time, token counters, session ids, agent subprocess pid, and workspace path (the last two are what the orphan reaper consumes).
 
 Wiring per contracts:
 - Dual migration registration (numbered `packages/db/src/migrations/NNN-conductor-runs.ts` **and** drizzle `customMigrations`), `CREATE TABLE IF NOT EXISTS`, `brainstrike_*` prefix.
 - New `packages/db` tests registered in `dbUnitLaneDefinitions` (test-lane manifest).
-- Factory reset: purge tables in the desktop reset pipeline (`factory-reset-helpers.ts` path).
-- Dashboard reads it through PGlite **live queries** (the `live` extension is already loaded at every construction site) — the panel updates in real time with zero new IPC polling.
+- Factory reset: purge tables in the desktop reset pipeline (`apps/desktop/src/desktop-factory-reset.ts`; UI-state clearing lives in `packages/preferences/src/settings/system/factory-reset-helpers.ts`), and stop the Conductor service + reap its subprocesses/worktrees before the purge step.
+- Dashboard reads it through PGlite **live queries** — the `live` extension is loaded at every construction site except the two live-less worker hosts, and the main-process client site the dashboard uses does load it — so the panel updates in real time with zero new IPC polling.
 
 ## 9. Observability & UI
 
@@ -205,7 +209,15 @@ Wiring per contracts:
 
 ## 10. Assistant tool integration (five-registry checklist)
 
-Two native tools, registered across all five registries (`schemas.ts`, `tool-categories.ts` (+ explicit `riskCategory` for actions), `tool-descriptions.ts`, `tool-schemas-display.ts`, live registry in `assistant-tools.ts`, plus `default-instructions.ts` guidance):
+Two native tools, registered across all five registries. Exact paths matter — several of these filenames exist in **two** packages, and `packages/assistant-contract/src/` is the authoritative one for metadata (the same-named files under `packages/agent/src/registry/` are not):
+
+1. `packages/agent/src/tools/schemas.ts` (Zod input schema + schemaMap)
+2. `packages/assistant-contract/src/tool-categories.ts` (+ explicit `riskCategory` for actions — this file, **not** `packages/agent/src/registry/tool-categories.ts`)
+3. `packages/assistant-contract/src/tool-descriptions.ts`
+4. `packages/assistant-contract/src/tool-schemas-display.ts`
+5. Live registration in `buildDesktopAssistantTools()` — `apps/desktop/src/assistant-server/assistant-tools.ts`
+
+plus model guidance in `packages/agent/src/mastra/default-instructions.ts`:
 
 - `brainstrike.conductorStatus` — read; snapshot of running/retrying/totals (self-bounded to the 2 750-token native budget with `truncated + hint`).
 - `brainstrike.trackerRequest` — action, `execute` risk, permission-engine approval; normalized `postComment` / `transitionState` through Conductor's configured adapter+auth.
@@ -235,6 +247,8 @@ This lets the in-app assistant *supervise* Conductor ("what's running? nudge ABC
 5. **`turn_input_required` routes to in-app notifications** instead of immediate failure (timeout-to-fail preserves liveness).
 6. **Run ledger** persisted for observability only — dispatch authority remains stateless per spec.
 7. **In-app panel** is the primary status surface; the HTTP server is optional conformance parity.
+8. **Startup sweep extended to an orphan reaper** — beyond the spec's terminal-workspace cleanup, startup reaps orphaned agent subprocesses and worktrees identified from run-ledger rows (cleanup only, never a dispatch input).
+9. **Priority canonicalization** — the spec sorts by Linear's raw priority; Conductor sorts on a canonical cross-provider urgency scale (higher = more urgent, `null` last).
 
 ## 14. Package layout & PR sequencing
 
@@ -250,7 +264,7 @@ Stacked PR chain (matching the repo's usual style):
 
 1. **PR1** — `tracker-adapters` contract + normalized model + **Linear** adapter (spec parity) + contract-test kit.
 2. **PR2** — `conductor-core`: workflow loader, typed config, prompt rendering, orchestration reducer (full conformance suite).
-3. **PR3** — desktop host: workspace manager + hooks + ACP runner + IPC/bridge + run-ledger migrations + factory reset.
+3. **PR3** — desktop host: workspace manager + hooks + ACP runner + `$secret:` resolver (explicit keychain-availability check, distinct unavailable-vs-missing diagnostics) + orphan reaper + IPC/bridge + run-ledger migrations + factory reset.
 4. **PR4** — GitHub, GitLab, Jira adapters behind the capability matrix (one PR each if diffs get large).
 5. **PR5** — Conductor panel (live queries), notifications, native tools (five registries).
 6. **PR6** — bespoke-agent runner adapter once ADR-0001's loop lands.
@@ -260,4 +274,4 @@ Stacked PR chain (matching the repo's usual style):
 1. **GitHub/GitLab state mapping default** — labels (`status: *` / `workflow::*`) vs GitHub Projects-v2 status field. Recommendation: config-declared mapping with both sources supported; no implicit default (no silent fallback).
 2. **Input-required posture default** — notify-with-timeout (recommended) vs spec-literal fail-fast; per-workflow override either way.
 3. **v1 write scope** — comment + transition only (recommended), or also assignee/labels.
-4. **Instance model** — one Conductor per `WORKFLOW.md` (spec-shaped; recommended) with multiple instances for multi-root workspaces, vs a single multi-workflow scheduler.
+4. **Instance model** — one Conductor per `WORKFLOW.md` (spec-shaped; recommended) vs a single multi-workflow scheduler. Either way, v1 must enforce a **non-overlap invariant**: claims are per-instance and in-memory, so two instances whose candidate filters overlap (same tracker identity + intersecting `active_states`/`required_labels`) can double-dispatch the same issue — quietly reintroducing the race the single-authority design exists to prevent. Recommendation: single authority per tracker configuration in v1 — at startup/reload, refuse to run two workflows whose (tracker identity × candidate filter) sets intersect, with a validation diagnostic naming the conflicting workflows.
