@@ -7,6 +7,8 @@
  * unions, provenance-tagged loaded hooks for multi-root + trust).
  */
 
+import type { HookRunVerdict } from './run-verdict';
+
 export type HookEventName =
   | 'PreToolUse'
   | 'PostToolUse'
@@ -141,6 +143,14 @@ export interface HookResult {
   readonly durationMs: number;
   readonly exitCode: number;
   readonly hook: HookDefinition;
+  /**
+   * Hook-reported run verdict (Task Ledger source 'hook'), strictly parsed
+   * from raw stdout. Only populated when the phase opted in via
+   * `RunHooksOptions.captureRunVerdict` (the run-scoped Stop phase).
+   */
+  readonly runVerdict?: HookRunVerdict;
+  /** Content-free warnings for malformed verdict lines (visible, never a throw). */
+  readonly runVerdictWarnings?: readonly string[];
   readonly stderr?: string;
   readonly stdout?: HookStdout;
   readonly timedOut: boolean;
@@ -151,6 +161,12 @@ export interface HookEventResult {
   readonly allowed: boolean;
   readonly blockReason?: string;
   readonly results: readonly HookResult[];
+  /**
+   * The phase's effective run verdict: the LAST hook (in execution order) with
+   * a valid verdict line wins, mirroring the ledger's later-write-upserts rule.
+   * Present even on a blocked phase — the verdict is an independent report.
+   */
+  readonly runVerdict?: HookRunVerdict;
   readonly warnings: readonly string[];
 }
 

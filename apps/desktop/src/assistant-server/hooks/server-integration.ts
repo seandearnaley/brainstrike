@@ -21,6 +21,7 @@ import { getWorkspaceRoots } from '../workspace-roots';
 import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';
 import { HookManager, type HookRunEventInput } from './manager';
+import type { HookRunVerdict } from './run-verdict';
 
 /** Convert a manager run-event input into a full (unstamped) AssistantRunEvent. */
 export function hookRunEventToAssistant(input: HookRunEventInput): AssistantRunEvent {
@@ -216,7 +217,8 @@ export async function* withStopHook(
   stream: AsyncIterable<StreamChunk>,
   manager: HookManager,
   signal: AbortSignal,
-  logger: ScopedLogger
+  logger: ScopedLogger,
+  onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>
 ): AsyncIterable<StreamChunk> {
   let sawError = false;
   let stopRan = false;
@@ -231,7 +233,22 @@ export async function* withStopHook(
     // would replace the clean finish with an error part, eating the finish. A
     // Stop-hook failure must degrade to a lost notice, never a lost finish.
     try {
-      await manager.runStop(signal.aborted ? 'aborted' : sawError ? 'error' : 'complete');
+      const result = await manager.runStop(
+        signal.aborted ? 'aborted' : sawError ? 'error' : 'complete'
+      );
+      // Task Ledger source 'hook': a Stop hook reported a verdict for this run.
+      // AWAITED here, still in front of the finish yield, so the label lands
+      // before the caller's post-stream terminal bookkeeping can run — a
+      // finishing run can never lose it to teardown. Allow-on-fault like the
+      // phase itself: a failed write is a loudly logged lost label, never a
+      // lost finish or a failed run.
+      if (result.runVerdict && onRunVerdict) {
+        try {
+          await onRunVerdict(result.runVerdict);
+        } catch (error) {
+          logger.error('Failed to record hook-reported run verdict', { error });
+        }
+      }
     } catch (error) {
       logger.error('Stop hook phase failed', { error });
     }
@@ -266,11 +283,15 @@ export function finalizeHookedStream(
   opts: {
     readonly logger: ScopedLogger;
     readonly manager: HookManager;
+    /** Records a Stop-hook-reported run verdict (Task Ledger source 'hook'). */
+    readonly onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>;
     readonly runner: AgentHookRunner | undefined;
     readonly signal: AbortSignal;
     readonly observe: (source: AsyncIterable<StreamChunk>) => AsyncIterable<StreamChunk>;
   }
 ): AsyncIterable<StreamChunk> {
-  const gated = opts.runner ? withStopHook(stream, opts.manager, opts.signal, opts.logger) : stream;
+  const gated = opts.runner
+    ? withStopHook(stream, opts.manager, opts.signal, opts.logger, opts.onRunVerdict)
+    : stream;
   return opts.observe(gated);
 }

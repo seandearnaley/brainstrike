@@ -228,9 +228,21 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,
   oversized THROWS — never silently truncated). Writer: `recordRunOutcome`
   (app-shell repository). A later user verdict deliberately replaces a derived
-  `edit_revert` label. `edit_revert` labels are derived in
+  `edit_revert` or `hook` label. `edit_revert` labels are derived in
   `use-edit-checkpoints.ts` after a successful revert (see
-  workspace-context.md § Edit Checkpoint Journal).
+  workspace-context.md § Edit Checkpoint Journal). `hook` labels come from the
+  Stop-hook run-verdict protocol (a Stop hook prints one strict
+  `{"brainstrikeRunVerdict":…}` JSON line; see assistant-runtime.md
+  § TOOL-LIFECYCLE HOOKS), recorded MAIN-PROCESS-side by
+  `recordDesktopAssistantHookRunOutcome` (apps/desktop assistant-server.ts) —
+  an upsert byte-consistent with `recordRunOutcome` (documented duplication,
+  same precedent as the bootstrap SQL) that derives thread/resource ids from
+  the runs row and carries the SQL precedence guard `source <> 'user'`: a hook
+  label never overwrites an explicit user verdict (both writers enforce it —
+  the repository applies the same guard for `source: 'hook'`), while a later
+  user verdict still upserts over a hook label. The write is awaited in front
+  of the stream's `message-finish` yield so a finishing run cannot lose it to
+  terminal bookkeeping.
 - **User verdicts (👍/👎):** `RunVerdictControl` (packages/ui
   `run-verdict-control.tsx`) mounts on every assistant message and renders once
   per run — on the message leg carrying the terminal `run.finished` run-event
@@ -277,8 +289,13 @@ Per-run cost/outcome analytics over tables the assistant already writes.
 When changing this flow, update this section and the paired tests
 (`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
 `packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
-run-ledger cases in `assistant-memory-repository.integration.test.ts`, the
-outcome-labeling suite in `use-edit-checkpoints.test.ts`, and the panel suites
+run-ledger cases in `assistant-memory-repository.integration.test.ts`
+(including the hook-over-user precedence case), the
+outcome-labeling suite in `use-edit-checkpoints.test.ts`, the hook-verdict
+suites in `apps/desktop/src/__tests__/assistant-server/`
+(`hooks/run-verdict.test.ts`, the verdict cases in
+`hooks/server-composition.integration.test.ts`,
+`hook-run-outcome.integration.test.ts`), and the panel suites
 in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
 `use-run-ledger`, `use-ledger-analytics`).
 

@@ -13,6 +13,7 @@ import { buildHookTrustRequest } from '@brainstrike/preferences/stores/hook-trus
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
 import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';
+import type { HookRunVerdict } from '../../../assistant-server/hooks/run-verdict';
 import {
   buildHookManager,
   deriveLastUserText,
@@ -349,6 +350,242 @@ describe('withStopHook', () => {
 
     const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as { stop_reason: string };
     expect(stopPayload.stop_reason).toBe('error');
+  });
+
+  it('records a hook-reported run verdict BEFORE the finish chunk is yielded', async () => {
+    // The verdict write must not race the run's terminal bookkeeping: awaiting
+    // the recorder in FRONT of the `message-finish` yield guarantees the label
+    // lands before the caller's post-stream status write can run.
+    const config = JSON.stringify({
+      Stop: [
+        {
+          command: `echo 'test output line'; echo '{"brainstrikeRunVerdict":{"verdict":"failed","detail":"3 tests failing"}}'`,
+          type: 'command',
+        },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'hi' };
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const recorded: HookRunVerdict[] = [];
+    let recordedBeforeFinish = false;
+    const onRunVerdict = async (verdict: HookRunVerdict): Promise<void> => {
+      // Resolve on a later tick so an un-awaited (fire-and-forget) recorder
+      // could not fake the ordering assertion below.
+      await new Promise((resolve) => setImmediate(resolve));
+      recorded.push(verdict);
+    };
+
+    const controller = new AbortController();
+    for await (const chunk of withStopHook(
+      source(),
+      manager,
+      controller.signal,
+      logger,
+      onRunVerdict
+    )) {
+      if (chunk.type === 'message-finish') {
+        recordedBeforeFinish = recorded.length === 1;
+      }
+    }
+
+    expect(recorded).toEqual([{ detail: '3 tests failing', verdict: 'failed' }]);
+    expect(recordedBeforeFinish).toBe(true);
+  });
+
+  it('records the verdict when the stream ends without a finish chunk (finally path)', async () => {
+    const config = JSON.stringify({
+      Stop: [
+        {
+          command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`,
+          type: 'command',
+        },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'hi' };
+    }
+
+    const recorded: HookRunVerdict[] = [];
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger, (v) => {
+      recorded.push(v);
+      return Promise.resolve();
+    })) {
+      // drain
+    }
+
+    expect(recorded).toEqual([{ verdict: 'succeeded' }]);
+  });
+
+  it('surfaces a malformed verdict line as a visible notice and never fails the run', async () => {
+    const config = JSON.stringify({
+      Stop: [
+        {
+          command: `echo '{"brainstrikeRunVerdict":{"verdict":"passed"}}'`,
+          type: 'command',
+        },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const events: HookRunEventInput[] = [];
+    const manager = buildHookManager({
+      emitRunEvent: (e) => events.push(e),
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const recorded: HookRunVerdict[] = [];
+    const controller = new AbortController();
+    const seen: StreamChunk[] = [];
+    for await (const chunk of withStopHook(source(), manager, controller.signal, logger, (v) => {
+      recorded.push(v);
+      return Promise.resolve();
+    })) {
+      seen.push(chunk);
+    }
+
+    expect(recorded).toEqual([]);
+    expect(seen.some((c) => c.type === 'message-finish' && c.finishReason === 'stop')).toBe(true);
+    expect(
+      events.some(
+        (e) => e.kind === 'hook.notice' && (e.detail ?? '').includes('brainstrikeRunVerdict')
+      )
+    ).toBe(true);
+  });
+
+  it('yields the finish chunk even when the verdict recorder rejects (allow-on-fault)', async () => {
+    const config = JSON.stringify({
+      Stop: [
+        {
+          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          type: 'command',
+        },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const controller = new AbortController();
+    const seen: StreamChunk[] = [];
+    for await (const chunk of withStopHook(source(), manager, controller.signal, logger, () =>
+      Promise.reject(new Error('db write exploded'))
+    )) {
+      seen.push(chunk);
+    }
+
+    expect(seen.some((c) => c.type === 'message-finish')).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to record hook-reported run verdict',
+      expect.anything()
+    );
+  });
+
+  it('does NOT capture verdict lines from non-Stop hook phases', async () => {
+    // Only the run-scoped Stop phase may label the run: a PostToolUse hook that
+    // prints the verdict line must not produce a run verdict.
+    const config = JSON.stringify({
+      PostToolUse: [
+        {
+          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          type: 'command',
+        },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    const result = await manager.runPostToolUse({
+      toolError: false,
+      toolInput: {},
+      toolName: 'readWorkspaceFile',
+      toolOutput: 'ok',
+    });
+    expect(result.runVerdict).toBeUndefined();
+  });
+
+  it('lets the LAST Stop hook with a valid verdict win across multiple hooks', async () => {
+    const config = JSON.stringify({
+      Stop: [
+        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`, type: 'command' },
+        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"mixed"}}'`, type: 'command' },
+      ],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    const result = await manager.runStop('complete');
+    expect(result.runVerdict).toEqual({ verdict: 'mixed' });
   });
 
   it('yields the finish chunk even when the Stop runner throws (allow-on-fault)', async () => {

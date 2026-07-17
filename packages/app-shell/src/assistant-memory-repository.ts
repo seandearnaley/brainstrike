@@ -2694,7 +2694,13 @@ export function createPgliteAssistantThreadRepository(
       }
       await initialize();
       // One label per run: a later verdict replaces the earlier one (a user
-      // verdict overriding a derived edit_revert label is the intended flow).
+      // verdict overriding a derived edit_revert or hook label is the intended
+      // flow). EXCEPTION: a 'hook' write never overwrites an explicit 'user'
+      // label — the conflict clause carries the precedence rule so it holds in
+      // SQL, byte-consistent with the main-process writer
+      // (apps/desktop assistant-server.ts recordDesktopAssistantHookRunOutcome).
+      const conflictGuard =
+        input.source === 'hook' ? ` WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'` : '';
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
           (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)
@@ -2706,7 +2712,7 @@ export function createPgliteAssistantThreadRepository(
           source = EXCLUDED.source,
           detail = EXCLUDED.detail,
           labeled_at = EXCLUDED.labeled_at,
-          updated_at = NOW()`,
+          updated_at = NOW()${conflictGuard}`,
         [
           input.runId,
           input.threadId,

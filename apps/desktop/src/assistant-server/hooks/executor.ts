@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process';
 import type { ScopedLogger } from '@brainstrike/utils';
+import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
   type HookEventResult,
@@ -98,13 +99,19 @@ function killHookTree(child: ReturnType<typeof spawn>): void {
   }
 }
 
+interface ExecuteHookOptions {
+  /** Scan raw stdout for a `brainstrikeRunVerdict` line (Stop phase only). */
+  readonly captureRunVerdict?: boolean;
+  readonly timeoutOverrideMs?: number;
+}
+
 function executeHook(
   hook: LoadedHook,
   stdin: HookStdin,
   logger: HookLogger,
-  timeoutOverrideMs?: number
+  options: ExecuteHookOptions = {}
 ): Promise<HookResult> {
-  const timeout = timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
+  const timeout = options.timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
   const startTime = Date.now();
   const shell = isWindows ? 'cmd' : '/bin/sh';
   const shellArgs = isWindows ? ['/c', hook.definition.command] : ['-c', hook.definition.command];
@@ -148,10 +155,18 @@ function executeHook(
       }
       settled = true;
       const parsedStdout = parseStdout(stdout);
+      // Verdict lines are scanned from the RAW stdout (the decision protocol
+      // above parses the whole trimmed stdout as one JSON object, which a test
+      // runner's mixed output never is). Bounded + strict — see run-verdict.ts.
+      const verdictScan = options.captureRunVerdict ? scanStdoutForRunVerdict(stdout) : undefined;
       resolve({
         exitCode: exitCode ?? 1,
         hook: hook.definition,
         ...(parsedStdout ? { stdout: parsedStdout } : {}),
+        ...(verdictScan?.verdict ? { runVerdict: verdictScan.verdict } : {}),
+        ...(verdictScan && verdictScan.warnings.length > 0
+          ? { runVerdictWarnings: verdictScan.warnings }
+          : {}),
         ...(stderr.trim() ? { stderr: stderr.trim() } : {}),
         durationMs: Date.now() - startTime,
         timedOut,
@@ -216,6 +231,13 @@ export interface RunHooksOptions {
    */
   readonly aggregateTimeoutMs?: number;
   readonly blocking: boolean;
+  /**
+   * Scan each hook's raw stdout for a strict `brainstrikeRunVerdict` line and
+   * surface the phase's effective verdict on the event result (last valid hook
+   * wins). Only the run-scoped Stop phase sets this — a tool-scoped phase must
+   * never label the run.
+   */
+  readonly captureRunVerdict?: boolean;
   readonly logger: HookLogger;
 }
 
@@ -293,9 +315,7 @@ export async function runHooksForEvent(
     return { allowed: true, results: [], warnings: [] };
   }
 
-  const results: HookResult[] = [];
-  const warnings: string[] = [];
-  let additionalContext: string | undefined;
+  const acc: PhaseAccumulator = { results: [], warnings: [] };
   const phaseStart = Date.now();
 
   for (const hook of hooks) {
@@ -304,38 +324,63 @@ export async function runHooksForEvent(
       opts.logger.warn('hook phase exceeded aggregate budget', {
         aggregateTimeoutMs: opts.aggregateTimeoutMs,
       });
-      warnings.push(
+      acc.warnings.push(
         `Hooks exceeded the ${opts.aggregateTimeoutMs}ms aggregate budget; remaining hooks were skipped`
       );
       break;
     }
-    const result = await executeHook(hook, buildStdin(hook), opts.logger, budget.timeoutOverrideMs);
-    results.push(result);
-
-    const extra = result.stdout?.additionalContext;
-    if (extra) {
-      additionalContext = additionalContext ? `${additionalContext}\n${extra}` : extra;
-    }
+    const result = await executeHook(hook, buildStdin(hook), opts.logger, {
+      captureRunVerdict: opts.captureRunVerdict === true,
+      ...(budget.timeoutOverrideMs === undefined
+        ? {}
+        : { timeoutOverrideMs: budget.timeoutOverrideMs }),
+    });
+    absorbHookResult(acc, result);
 
     const outcome = classifyResult(hook, result, opts);
     if (outcome.kind === 'block') {
-      return {
-        allowed: false,
-        blockReason: outcome.reason,
-        ...(additionalContext ? { additionalContext } : {}),
-        results,
-        warnings,
-      };
+      return phaseEventResult(acc, outcome.reason);
     }
     if (outcome.warning) {
-      warnings.push(outcome.warning);
+      acc.warnings.push(outcome.warning);
     }
   }
 
+  return phaseEventResult(acc);
+}
+
+/** Mutable per-phase aggregation over the executed hooks' results. */
+interface PhaseAccumulator {
+  additionalContext?: string;
+  readonly results: HookResult[];
+  runVerdict?: HookRunVerdict;
+  readonly warnings: string[];
+}
+
+/** Fold one hook result into the phase accumulator (context, verdict, warnings). */
+function absorbHookResult(acc: PhaseAccumulator, result: HookResult): void {
+  acc.results.push(result);
+  const extra = result.stdout?.additionalContext;
+  if (extra) {
+    acc.additionalContext = acc.additionalContext ? `${acc.additionalContext}\n${extra}` : extra;
+  }
+  if (result.runVerdictWarnings) {
+    acc.warnings.push(...result.runVerdictWarnings);
+  }
+  if (result.runVerdict) {
+    // Last valid verdict across the phase's hooks wins (documented).
+    acc.runVerdict = result.runVerdict;
+  }
+}
+
+/** Shape the accumulator as the phase result (blocked when a reason is given). */
+function phaseEventResult(acc: PhaseAccumulator, blockReason?: string): HookEventResult {
   return {
-    allowed: true,
-    ...(additionalContext ? { additionalContext } : {}),
-    results,
-    warnings,
+    allowed: blockReason === undefined,
+    ...(blockReason === undefined ? {} : { blockReason }),
+    ...(acc.additionalContext ? { additionalContext: acc.additionalContext } : {}),
+    results: acc.results,
+    ...(acc.runVerdict ? { runVerdict: acc.runVerdict } : {}),
+    warnings: acc.warnings,
   };
 }

@@ -3341,6 +3341,60 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ]);
   });
 
+  it('never lets a hook-source outcome overwrite an existing user label in real PGlite', async () => {
+    // Precedence contract (Task Ledger source 'hook'): a hook label upserts
+    // over nothing/hook/edit_revert but NEVER over an explicit user verdict —
+    // enforced in the upsert SQL itself, in EVERY write path (this repository
+    // AND the byte-consistent main-process writer in apps/desktop
+    // assistant-server.ts recordDesktopAssistantHookRunOutcome).
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-hook-precedence');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await repository.recordRunOutcome({
+      detail: 'user verdict',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      source: 'user',
+      threadId: 'thread-1',
+      verdict: 'succeeded',
+    });
+    // A later hook write is SKIPPED, not an error and never an overwrite.
+    await repository.recordRunOutcome({
+      detail: '3 tests failing',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      source: 'hook',
+      threadId: 'thread-1',
+      verdict: 'failed',
+    });
+
+    const rows = await db.query<{ verdict: string; source: string; detail: string | null }>(
+      `SELECT verdict, source, detail FROM brainstrike_assistant_run_outcomes WHERE run_id = 'run-1'`
+    );
+    expect(rows.rows).toEqual([{ detail: 'user verdict', source: 'user', verdict: 'succeeded' }]);
+
+    // A hook label still replaces a derived edit_revert label on another run.
+    await repository.recordRunOutcome({
+      resourceId: 'workspace-a',
+      runId: 'run-2',
+      source: 'edit_revert',
+      threadId: 'thread-1',
+      verdict: 'failed',
+    });
+    await repository.recordRunOutcome({
+      resourceId: 'workspace-a',
+      runId: 'run-2',
+      source: 'hook',
+      threadId: 'thread-1',
+      verdict: 'succeeded',
+    });
+    const derived = await db.query<{ verdict: string; source: string }>(
+      `SELECT verdict, source FROM brainstrike_assistant_run_outcomes WHERE run_id = 'run-2'`
+    );
+    expect(derived.rows).toEqual([{ source: 'hook', verdict: 'succeeded' }]);
+  });
+
   it('aggregates the run ledger across usage, tool events, checkpoints, and outcomes in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
