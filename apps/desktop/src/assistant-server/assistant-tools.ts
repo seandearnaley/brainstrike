@@ -1,4 +1,3 @@
-import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -13,10 +12,12 @@ import {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
+  forgetKnownFile,
   type GlobWorkspaceInput,
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
+  getKnownFileMtime,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
@@ -38,6 +39,7 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  recordKnownFileMtime,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
@@ -46,6 +48,8 @@ import {
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WebExtractInput,
+  WebExtractInputSchema,
   type WebSearchInput,
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,
@@ -71,6 +75,11 @@ import type { z } from 'zod';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import {
+  ensureContainedDirectory,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from '../secure-file-write';
 import { getWindowRole } from '../window-role';
 import {
   beforeStateToCapture,
@@ -90,6 +99,11 @@ import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
+  runWebExtract,
+  WEB_EXTRACT_TOOL_ID,
+  type WebExtractToolDependencies,
+} from './web-extract-tool';
+import {
   runWebSearch,
   WEB_SEARCH_TOOL_ID,
   type WebSearchToolDependencies,
@@ -104,6 +118,15 @@ import {
 } from './workspace-path';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
+// The audited write path moved to `../secure-file-write` so other IPC domains
+// (e.g. the notes vault) can share it; re-exported here so existing importers
+// (edit-checkpoint-revert, integration tests) keep their import site.
+export {
+  ensureContainedDirectory,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from '../secure-file-write';
+
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
@@ -114,6 +137,8 @@ export interface DesktopAssistantToolDependencies {
    * hermetically. In production this is omitted and runWebSearch resolves the
    * real keychain key and uses the real fetch.
    */
+  /** Same injection seam as `webSearch`, for the webExtract tool. */
+  webExtract?: WebExtractToolDependencies | undefined;
   webSearch?: WebSearchToolDependencies | undefined;
 }
 
@@ -329,83 +354,6 @@ async function resolveWorkspaceAbsolutePath(
 }
 
 /**
- * Find the canonical (symlink-resolved) path of the nearest existing ancestor of
- * `absolutePath`. The target file may not exist yet (the common write case), so
- * `fs.realpath` on it would throw ENOENT. We walk up until a directory exists,
- * `realpath` THAT, then re-append the not-yet-created tail. This canonicalizes
- * every existing symlink on the path so a symlinked parent that points outside
- * the root is still caught by the containment check below.
- */
-async function resolveCanonicalWritablePath(absolutePath: string): Promise<string> {
-  const segments: string[] = [];
-  let current = absolutePath;
-  // Walk up to the nearest existing ancestor. `path.dirname` is a fixpoint at the
-  // filesystem root, so the loop always terminates.
-  for (;;) {
-    try {
-      const canonicalExisting = await fsPromises.realpath(current);
-      return segments.length > 0
-        ? path.join(canonicalExisting, ...segments.reverse())
-        : canonicalExisting;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') {
-        throw error;
-      }
-      const parent = path.dirname(current);
-      if (parent === current) {
-        // Reached the filesystem root without finding an existing ancestor; return
-        // the path unchanged (containment is still checked by the caller).
-        return absolutePath;
-      }
-      segments.push(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-/**
- * Resolve a virtual workspace path to a containment-checked absolute path for a
- * WRITE, where the target file (and possibly some parent directories) may not yet
- * exist. Mirrors {@link resolveWorkspaceAbsolutePath}'s guarantees: ".." is
- * clamped in `normalizeWorkspacePath`, and the canonical existing-ancestor path
- * is containment-checked against the canonical root so a symlinked directory
- * cannot redirect the write outside the workspace.
- */
-export async function resolveWorkspaceWritePath(
-  rootPath: string,
-  workspacePath: string
-): Promise<{
-  canonicalRootPath: string;
-  workspacePath: string;
-  absolutePath: string;
-  requestedAbsolutePath: string;
-}> {
-  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
-  const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
-  if (relativePath.length === 0) {
-    throw new Error(`Path "${workspacePath}" is the workspace root, not a writable file.`);
-  }
-  const absolutePath = path.resolve(rootPath, relativePath);
-  const canonicalRootPath = await fsPromises.realpath(rootPath);
-  const canonicalAbsolutePath = await resolveCanonicalWritablePath(absolutePath);
-  if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
-    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
-  }
-  return {
-    // Canonical (symlink-resolved) target — correct for WRITE tools, which write
-    // THROUGH a symlink to its target. `requestedAbsolutePath` is the raw
-    // (pre-realpath) requested path — delete/rename need it to act on the LINK
-    // itself rather than the resolved target (see resolveWorkspaceLeafMutationPath).
-    absolutePath: canonicalAbsolutePath,
-    canonicalRootPath,
-    requestedAbsolutePath: absolutePath,
-    workspacePath: normalizedWorkspacePath,
-  };
-}
-
-/**
  * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
  * tools — which correctly resolve THROUGH a symlink to write its target — a
  * delete/rename must act on the symlink itself: unlinking removes the pointer
@@ -439,58 +387,6 @@ export async function resolveWorkspaceLeafMutationPath(
   return path.join(canonicalParent, path.basename(requestedAbsolutePath));
 }
 
-/**
- * Create every missing directory between `canonicalRootPath` (which must already
- * exist) and `targetDir`, ONE component at a time, rejecting any existing
- * component that is a symlink. A plain `mkdir -p` would happily traverse a
- * symlinked intermediate directory (including a dangling one, by creating its
- * target), which is a containment-escape vector. Walking component-by-component
- * with an `lstat` guard keeps every created/traversed segment a real directory
- * inside the root.
- */
-export async function ensureContainedDirectory(
-  canonicalRootPath: string,
-  targetDir: string
-): Promise<void> {
-  if (targetDir === canonicalRootPath) {
-    return;
-  }
-  const relative = path.relative(canonicalRootPath, targetDir);
-  // Defence in depth: resolveWorkspaceWritePath already guarantees containment.
-  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Path "${targetDir}" is outside the selected workspace root.`);
-  }
-  const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
-  let current = canonicalRootPath;
-  for (const segment of segments) {
-    current = path.join(current, segment);
-    let stats: import('node:fs').Stats | undefined;
-    try {
-      stats = await fsPromises.lstat(current);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-    if (stats) {
-      // An existing component that is a symlink (live OR dangling) could redirect
-      // the write outside the root — reject it rather than traverse it.
-      if (stats.isSymbolicLink()) {
-        throw new Error(
-          `Path component "${current}" is a symlink, which is outside the selected workspace root.`
-        );
-      }
-      if (!stats.isDirectory()) {
-        throw new Error(`Path component "${current}" is not a directory.`);
-      }
-      continue;
-    }
-    // Component does not exist: mkdir creates a REAL directory (it never follows
-    // into a symlink it did not create).
-    await fsPromises.mkdir(current);
-  }
-}
-
 function sliceContentByLineRange(
   content: string,
   startLine: number | undefined,
@@ -522,7 +418,9 @@ export async function readWorkspaceTextFile(args: {
   requestedPath: string;
   rootPath: string;
 }): Promise<{
+  absolutePath: string;
   content: string;
+  mtimeMs: number;
   path: string;
   size: number;
 }> {
@@ -547,10 +445,105 @@ export async function readWorkspaceTextFile(args: {
   }
 
   return {
+    absolutePath: resolved.absolutePath,
     content: fileBuffer.toString('utf8'),
+    mtimeMs: stat.mtimeMs,
     path: resolved.workspacePath,
     size: Number(stat.size),
   };
+}
+
+/**
+ * Scope key for the read-before-write staleness tracker: one thread's
+ * observations never vouch for another's (a subagent thread must read a file
+ * itself before its knowledge of it counts as fresh). The DB-less unit tests
+ * and any pre-memory call sites fall back to a single shared sentinel scope.
+ */
+function readStateScope(runtimeData: RuntimeData | undefined): string {
+  return runtimeData?.memory?.threadId ?? '__no-thread__';
+}
+
+/**
+ * Read-before-write staleness compare (report R8), inside the per-file lock.
+ * When `scope` previously observed this file (content-bearing read or its own
+ * successful write) and disk now carries a DIFFERENT mtime, someone else
+ * changed the file since — refuse with an actionable error instead of
+ * overwriting their work (lost-update guard). Never guards a file this scope
+ * has no observation for (compare-only contract), and an observed file that
+ * has since VANISHED is treated as new — recreating it loses nothing, so the
+ * stale observation is dropped and the write proceeds.
+ */
+async function assertNoExternalEditSinceObserved(args: {
+  scope: string;
+  absolutePath: string;
+  requestedPath: string;
+}): Promise<void> {
+  const known = getKnownFileMtime(args.scope, args.absolutePath);
+  if (known === undefined) {
+    return;
+  }
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fsPromises.stat(args.absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      forgetKnownFile(args.scope, args.absolutePath);
+      return;
+    }
+    throw error;
+  }
+  if (stat.mtimeMs !== known) {
+    throw buildStaleFileError(args.requestedPath);
+  }
+}
+
+/** The single actionable staleness refusal every edit tool throws (the model's
+ * recovery path is always the same: re-read, then retry with fresh content). */
+function buildStaleFileError(requestedPath: string): Error {
+  return new Error(
+    `File "${requestedPath}" changed on disk since you last read it (someone else edited it). ` +
+      'Re-read the file and retry the edit against its current content.'
+  );
+}
+
+/** Record the post-mutation mtime as this scope's fresh observation, inside the
+ * same lock as the write so no concurrent edit can slip between write and stat. */
+async function recordOwnWriteObservation(scope: string, absolutePath: string): Promise<void> {
+  const stat = await fsPromises.stat(absolutePath);
+  recordKnownFileMtime(scope, absolutePath, stat.mtimeMs);
+}
+
+/**
+ * Rename-source staleness compare (report R8), inside the rename's two-lock
+ * critical section. IDENTITY MATTERS: reads record under the realpath'd
+ * TARGET, so a symlink source compares the target's key + stat (the link's
+ * own path is never recorded); a regular file compares its own lstat. A
+ * DANGLING link has no target to compare — nothing observed, nothing guarded.
+ */
+async function assertRenameSourceUnchangedSinceObserved(args: {
+  fromMutationPath: string;
+  fromStats: import('node:fs').Stats;
+  requestedFromPath: string;
+  runtimeData: RuntimeData | undefined;
+  targetAbsolutePath: string;
+}): Promise<void> {
+  let compareKey = args.fromMutationPath;
+  let sourceMtimeMs: number | undefined = args.fromStats.mtimeMs;
+  if (args.fromStats.isSymbolicLink()) {
+    compareKey = args.targetAbsolutePath;
+    try {
+      sourceMtimeMs = (await fsPromises.stat(args.targetAbsolutePath)).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      sourceMtimeMs = undefined;
+    }
+  }
+  const known = getKnownFileMtime(readStateScope(args.runtimeData), compareKey);
+  if (known !== undefined && sourceMtimeMs !== undefined && known !== sourceMtimeMs) {
+    throw buildStaleFileError(args.requestedFromPath);
+  }
 }
 
 async function runFindWorkspaceSymbol(
@@ -594,7 +587,20 @@ async function runReadWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+  // Resolve first so the read + tracker record can run INSIDE the same
+  // per-file lock the write tools use. An unlocked read could stat the OLD
+  // mtime, lose the race to a concurrent locked write (which records the
+  // fresh post-write mtime), then clobber the tracker back to the stale value
+  // — making the next legitimate write falsely refuse. Never nested inside
+  // another holder of this key, so no deadlock.
+  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
+  const file = await withFileLock(resolvedForLock.absolutePath, async () => {
+    const read = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+    // A content-bearing read is this scope's fresh observation of the file —
+    // the baseline the edit tools' staleness compare refuses against (R8).
+    recordKnownFileMtime(readStateScope(runtimeData), read.absolutePath, read.mtimeMs);
+    return read;
+  });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
@@ -612,69 +618,6 @@ async function runReadWorkspaceFile(
     totalLines: ranged.totalLines,
     truncated: truncated.truncated,
   };
-}
-
-/**
- * Symlink-safe, containment-checked write of `buffer` to the already-resolved
- * workspace write path. This is the SINGLE audited write path shared by
- * `writeWorkspaceFile` and `stringReplaceWorkspaceFile` — do not fork a weaker
- * copy. It enforces every PR-2.1 guarantee:
- *  - leaf lstat rejects a symlink leaf (live OR dangling) and a directory target,
- *  - parents are created one component at a time, rejecting symlinked intermediates,
- *  - the final open uses O_NOFOLLOW to close the lstat→open TOCTOU window.
- *
- * Caller must have resolved the path through {@link resolveWorkspaceWritePath}
- * (so ".." is clamped and the canonical existing-ancestor is contained) and must
- * pass `requestedPath` only for error messages. Returns whether the file was
- * newly created.
- */
-export async function writeContainedFileBytes(args: {
-  resolved: { absolutePath: string; canonicalRootPath: string };
-  buffer: Buffer;
-  requestedPath: string;
-}): Promise<{ created: boolean }> {
-  const { resolved, buffer, requestedPath } = args;
-
-  // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
-  // dangling) passes the canonical-ancestor containment check yet writeFile would
-  // follow it OUTSIDE the root — reject it as a containment escape. lstat also
-  // distinguishes a directory target, which cannot be overwritten with content.
-  let created = true;
-  try {
-    const leafStats = await fsPromises.lstat(resolved.absolutePath);
-    if (leafStats.isSymbolicLink()) {
-      throw new Error(`Path "${requestedPath}" is outside the selected workspace root.`);
-    }
-    if (leafStats.isDirectory()) {
-      throw new Error(
-        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
-      );
-    }
-    created = false;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  // Create missing parents one component at a time, rejecting symlinked
-  // intermediates (a plain mkdir -p would traverse them).
-  await ensureContainedDirectory(resolved.canonicalRootPath, path.dirname(resolved.absolutePath));
-
-  // O_NOFOLLOW closes the lstat→open TOCTOU window: if the leaf is (or becomes) a
-  // symlink, the open syscall itself fails with ELOOP rather than following it.
-  // (Falls back to 0 on platforms without O_NOFOLLOW, e.g. Windows; the lstat
-  // guard above is the portable backstop.)
-  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
-  const writeFlags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | noFollow;
-  const fileHandle = await fsPromises.open(resolved.absolutePath, writeFlags);
-  try {
-    await fileHandle.writeFile(buffer);
-  } finally {
-    await fileHandle.close();
-  }
-  return { created };
 }
 
 /**
@@ -777,7 +720,17 @@ async function runWriteWorkspaceFile(
   // RAG row stale relative to disk. `triggerEditedFileReindex` is already
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
+  const scope = readStateScope(runtimeData);
   const { created } = await withFileLock(resolved.absolutePath, async () => {
+    // Staleness compare INSIDE the lock (report R8): if this scope observed the
+    // file at a different mtime than disk carries now, someone else edited it
+    // since — refuse instead of overwriting their work. New/unobserved files
+    // pass untouched.
+    await assertNoExternalEditSinceObserved({
+      absolutePath: resolved.absolutePath,
+      requestedPath: input.path,
+      scope,
+    });
     // Snapshot the before-state for the undo journal INSIDE the lock so no
     // concurrent same-file edit can slip newer bytes between capture and write.
     const beforeState = await captureBeforeState(
@@ -789,6 +742,9 @@ async function runWriteWorkspaceFile(
       requestedPath: input.path,
       resolved,
     });
+    // Our own write is the scope's freshest observation — consecutive writes
+    // must never trip the guard on themselves.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
     await triggerEditedFileReindex({
       absolutePath: resolved.absolutePath,
       content: input.content,
@@ -840,6 +796,7 @@ async function runStringReplaceWorkspaceFile(
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
+  const scope = readStateScope(runtimeData);
   const result = await withFileLock(resolved.absolutePath, async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
@@ -848,6 +805,15 @@ async function runStringReplaceWorkspaceFile(
       requestedPath: input.path,
       rootPath: root.path,
     });
+
+    // Staleness compare (report R8): oldStr/newStr were crafted from what this
+    // scope last observed. If disk moved past that observation, applying the
+    // replacement risks semantically clobbering someone else's edit — refuse
+    // and make the model re-read. Unobserved files pass (compare-only).
+    const known = getKnownFileMtime(scope, resolved.absolutePath);
+    if (known !== undefined && known !== file.mtimeMs) {
+      throw buildStaleFileError(input.path);
+    }
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
@@ -865,6 +831,9 @@ async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    // Our own write is the scope's freshest observation — a follow-up edit in
+    // the same thread must never trip the guard on it.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
 
     // Journal the undo: the before-content was just read as `file.content` (the
     // checked reader guarantees text — binary/oversized already threw), so this
@@ -1100,6 +1069,9 @@ async function runDeleteWorkspaceFile(
     // delete can be reverted by recreating the file with its prior content.
     const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
     await fsPromises.unlink(mutationPath);
+    // Drop the staleness observation with the file so a later re-creation at
+    // this path is treated as new, not compared against a ghost.
+    forgetKnownFile(readStateScope(runtimeData), mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
@@ -1186,6 +1158,18 @@ async function runRenameWorkspaceFile(
       );
     }
 
+    // Staleness compare (report R8): a rename decided against a stale view of
+    // the source (someone rewrote it since this scope read it) is refused the
+    // same way an edit is. Unobserved sources pass (compare-only).
+    const sourceIsSymlink = fromStats.isSymbolicLink();
+    await assertRenameSourceUnchangedSinceObserved({
+      fromMutationPath,
+      fromStats,
+      requestedFromPath: input.fromPath,
+      runtimeData,
+      targetAbsolutePath: fromResolved.absolutePath,
+    });
+
     // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
     // at the destination also counts as "exists".
     let destinationExists = true;
@@ -1211,6 +1195,17 @@ async function runRenameWorkspaceFile(
     );
 
     await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+
+    // Move the observation with the file. Regular file: the source path is
+    // gone; the destination (content unchanged — rename preserves mtime) is
+    // this scope's freshest view of it. Symlink: only the LINK moved — the
+    // target file and its (realpath-keyed) observation stay valid, and the
+    // destination stat would follow the link (or throw on a dangling one), so
+    // no destination record is made.
+    forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
+    if (!sourceIsSymlink) {
+      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+    }
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator
     // vs a shell mv). `indexInvalidated` reflects that source removal. The
@@ -2528,6 +2523,23 @@ export function buildDesktopAssistantTools(
       },
       id: WEB_SEARCH_TOOL_ID,
       inputSchema: WebSearchInputSchema,
+    },
+    [WEB_EXTRACT_TOOL_ID]: {
+      description:
+        'Fetch the readable content of up to 5 PUBLIC web pages as markdown — the natural follow-up to webSearch results, or for a URL the user pasted. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass URLs carrying secrets or pointing at private/internal hosts; non-http(s), credentialed, and private/loopback URLs are refused before anything is sent and reported per-URL. When no Tavily API key is configured (Settings → API Keys), returns a non-fatal "unavailable, add a key" result rather than failing. Content is bounded per page and to a fixed overall budget.',
+      // The Tavily key is resolved server-side inside runWebExtract and never
+      // returned to the model. No injected deps here → real fetch + keychain.
+      execute: async (input: ToolExecuteInput<WebExtractInput>) => {
+        const resolvedInput = parseToolExecuteInput(WebExtractInputSchema, input);
+        try {
+          return await runWebExtract(resolvedInput, dependencies.webExtract);
+        } catch (error) {
+          logToolFailure('webExtract failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: WEB_EXTRACT_TOOL_ID,
+      inputSchema: WebExtractInputSchema,
     },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       description:

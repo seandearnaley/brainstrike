@@ -15,7 +15,6 @@
  * tests in that file, which mutate `BRAINSTRIKE_*` env vars and add log
  * listeners — interleaving them in one module made the Mastra resume stall.
  */
-import { ReadableStream } from 'node:stream/web';
 import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
 import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
@@ -218,7 +217,7 @@ const ASK_POLICY = {
   yolo: false,
 } as const;
 
-function makeAskTool(execute: ReturnType<typeof vi.fn>) {
+function makeAskTool(execute: (inputData: { command: string }) => Promise<{ ran: string }>) {
   return createTool({
     description: 'An execute-risk tool gated to ask.',
     execute,

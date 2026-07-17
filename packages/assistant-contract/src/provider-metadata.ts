@@ -6,6 +6,7 @@ import {
   listProviderLlmModels,
   listProviderModels,
   listProviders,
+  type ModelVisionSupport,
   type ProviderCapabilities,
   type ProviderDefinition,
   type ProviderId,
@@ -19,6 +20,7 @@ import {
 
 export type SupportedProvider = ProviderId;
 export type {
+  ModelVisionSupport,
   ProviderCapabilities,
   ProviderDefinition,
   ProviderModelDefinition,

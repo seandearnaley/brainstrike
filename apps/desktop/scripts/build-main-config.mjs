@@ -23,6 +23,19 @@ export const MAIN_PROCESS_ENTRY_POINTS = [
 
 export const MAIN_PROCESS_BUILD_OPTIONS = {
   absWorkingDir: appRoot,
+  // EXCEPTION to packages:'external' (alias is applied before external
+  // classification): @brainstrike/notes-vault ships a bundler-target ESM dist
+  // with EXTENSIONLESS relative imports, which Node's runtime resolver cannot
+  // load from this CJS bundle. The one runtime subpath main uses (welcome-note
+  // constants in notes-vault-ipc-handlers.ts) is therefore inlined from
+  // SOURCE. Its only bare import, @brainstrike/utils, is a real dependency of
+  // this app and stays an external require like every other package.
+  alias: {
+    '@brainstrike/notes-vault/core': path.resolve(
+      appRoot,
+      '../../packages/notes-vault/src/core/index.ts'
+    ),
+  },
   bundle: true,
   entryPoints: MAIN_PROCESS_ENTRY_POINTS,
   format: 'cjs',

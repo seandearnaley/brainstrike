@@ -4,7 +4,7 @@ import {
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
-import type { FileExplorerState } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, type FileExplorerState } from '@brainstrike/types';
 import {
   ActionContextMenu,
   Button,
@@ -44,6 +44,7 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { BinaryFilePreview } from '../components/binary-file-preview';
 import { fileTabToTarget } from '../context-actions/file-surface-target';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu';
@@ -1183,6 +1184,10 @@ function FileTabBody({
         <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
       </div>
     );
+  } else if (content === BINARY_CONTENT_MESSAGE) {
+    // The worker stores the BINARY sentinel as the tab's content; render the
+    // dedicated screen instead of dumping the sentinel into a code surface.
+    body = <BinaryFilePreview rootPath={rootPath} tab={tab} />;
   } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
     // Short-circuit before truncation: the inaccessible branch renders the full `content`
     // verbatim, so running getDisplayContent first would do throwaway work and (for a very

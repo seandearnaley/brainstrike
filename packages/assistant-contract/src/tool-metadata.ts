@@ -27,6 +27,7 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
+  WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from './tool-categories.js';
 export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';

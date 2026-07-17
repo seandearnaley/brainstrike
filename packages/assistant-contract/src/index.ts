@@ -1,3 +1,4 @@
+export * from './assistant-attachments.js';
 export * from './assistant-task-list.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
@@ -18,6 +19,7 @@ export * from './provider-registry.js';
 export * from './run-events.js';
 export * from './runtime-data.js';
 export * from './shell-output.js';
+export * from './skills.js';
 export * from './tool-approval.js';
 export * from './tool-metadata.js';
 export * from './tool-suspend.js';

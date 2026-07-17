@@ -328,11 +328,6 @@ vi.mock('../../db-host-manager', () => ({
 
 vi.mock('../../dimension-index-maintenance-capabilities', () => ({
   probeDimensionIndexRuntimeCapabilities: vi.fn(async () => ({
-    concurrentIndexBuild: {
-      error: null,
-      foregroundProbeP95Ms: null,
-      supported: true,
-    },
     hnswIndexBuild: {
       error: null,
       supported: true,
@@ -346,10 +341,6 @@ vi.mock('../../dimension-index-maintenance-capabilities', () => ({
       error: null,
       supported: false,
     },
-  })),
-  selectDimensionIndexStrategy: vi.fn(() => ({
-    reason: 'concurrent-index-build-unmeasured',
-    strategy: 'regular',
   })),
 }));
 

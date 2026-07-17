@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MASTRA_WORKFLOW_TABLE } from '../sql';
+import type { PgliteDatabase } from '../types';
 import { PgliteWorkflowsStore } from '../workflows-store';
 
 type ApprovalStepResult = StepResult<
@@ -11,15 +12,20 @@ type ApprovalStepResult = StepResult<
   Record<string, unknown>,
   Record<string, unknown>
 >;
+type ApprovalStepSuccess = Extract<ApprovalStepResult, { status: 'success' }>;
 type UnknownStepResult = StepResult<unknown, unknown, unknown, unknown>;
+type UnknownStepSuccess = Extract<UnknownStepResult, { status: 'success' }>;
 
 function createSnapshot(overrides: Partial<WorkflowRunState> = {}): WorkflowRunState {
   return {
     activePaths: [],
     activeStepsPath: {},
+    // The `input` key does not satisfy the SerializedStepResult index
+    // signature on WorkflowRunState['context'], so a well-formed context
+    // literal still needs a cast.
     context: {
       input: { requestId: 'request-1' },
-    },
+    } as unknown as WorkflowRunState['context'],
     resumeLabels: {},
     runId: 'run-1',
     serializedStepGraph: [],
@@ -34,11 +40,13 @@ function createSnapshot(overrides: Partial<WorkflowRunState> = {}): WorkflowRunS
 
 describe('PgliteWorkflowsStore', () => {
   let db: PGlite;
+  let database: PgliteDatabase;
   let store: PgliteWorkflowsStore;
 
   beforeEach(async () => {
     db = new PGlite();
-    store = new PgliteWorkflowsStore({ database: db });
+    database = db as unknown as PgliteDatabase;
+    store = new PgliteWorkflowsStore({ database });
     await store.initialize();
   });
 
@@ -74,7 +82,9 @@ describe('PgliteWorkflowsStore', () => {
 
   it('clears workflow snapshots before explicit schema initialization', async () => {
     const freshDb = new PGlite();
-    const freshStore = new PgliteWorkflowsStore({ database: freshDb });
+    const freshStore = new PgliteWorkflowsStore({
+      database: freshDb as unknown as PgliteDatabase,
+    });
 
     try {
       await expect(freshStore.dangerouslyClearAll()).resolves.toBeUndefined();
@@ -99,7 +109,7 @@ describe('PgliteWorkflowsStore', () => {
           suspendPayload: { reason: 'approval required' },
         },
         input: { requestId: 'approval-1' },
-      },
+      } as unknown as WorkflowRunState['context'],
       runId: 'approval-run-1',
       status: 'suspended',
       suspendedPaths: { 'approval-step': [0] },
@@ -140,7 +150,7 @@ describe('PgliteWorkflowsStore', () => {
       workflowName: 'approval-workflow',
     });
 
-    const approvalResult: ApprovalStepResult = {
+    const approvalResult: ApprovalStepSuccess = {
       endedAt: Date.parse('2026-05-29T10:01:00Z'),
       output: { approved: true, nested: { token: 'original' } },
       payload: { requestId: 'request-1' },
@@ -149,13 +159,14 @@ describe('PgliteWorkflowsStore', () => {
     };
 
     const context = await store.updateWorkflowResults({
+      requestContext: {},
       result: approvalResult,
       runId: 'clone-run-1',
       stepId: 'approval-step',
       workflowName: 'approval-workflow',
     });
 
-    const step = context['approval-step'] as ApprovalStepResult;
+    const step = context['approval-step'] as ApprovalStepSuccess;
     expect(step).not.toBe(approvalResult);
     expect(step.output).not.toBe(approvalResult.output);
     (step.output as { nested: { token: string } }).nested.token = 'mutated';
@@ -225,11 +236,17 @@ describe('PgliteWorkflowsStore', () => {
     });
 
     const initialResult: UnknownStepResult = {
+      endedAt: Date.parse('2026-05-29T10:00:30Z'),
       output: ['kept', 'replace-me'],
+      payload: {},
+      startedAt: Date.parse('2026-05-29T10:00:00Z'),
       status: 'success',
     };
     const resumedResult: UnknownStepResult = {
+      endedAt: Date.parse('2026-05-29T10:01:30Z'),
       output: [null, { __mastra_pending__: true }, 'new-value'],
+      payload: {},
+      startedAt: Date.parse('2026-05-29T10:01:00Z'),
       status: 'success',
     };
 
@@ -252,8 +269,16 @@ describe('PgliteWorkflowsStore', () => {
       workflowName: 'approval-workflow',
     });
 
-    expect(context['approval-step']?.output).toEqual(['kept', null, 'new-value']);
-    expect(loaded?.context['approval-step']?.output).toEqual(['kept', null, 'new-value']);
+    expect((context['approval-step'] as UnknownStepSuccess | undefined)?.output).toEqual([
+      'kept',
+      null,
+      'new-value',
+    ]);
+    expect((loaded?.context['approval-step'] as UnknownStepSuccess | undefined)?.output).toEqual([
+      'kept',
+      null,
+      'new-value',
+    ]);
   });
 
   it('reports stored workflow snapshots with missing context as malformed data', async () => {
