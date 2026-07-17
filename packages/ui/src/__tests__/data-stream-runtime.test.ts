@@ -349,10 +349,51 @@ describe('boundResentImageHistory', () => {
     expect(firstNote?.text).not.toEqual(secondNote?.text);
   });
 
-  it('throws loudly on an unmeasurable history file part instead of guessing', () => {
+  it('elides an unmeasurable history file part with a visible note instead of failing the turn', () => {
     const messages = [
       wireUser('old-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
       wireUser('current-user', [{ text: 'hello' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 0,
+      elidedImageCount: 1,
+      keptImageBytes: 0,
+      strategy: 'newest-first-combined-image-budget',
+      unmeasurableImageCount: 1,
+    });
+    const note = (result.messages[0] as { content: { text?: string }[] }).content[0];
+    expect(note?.text).toContain('omitted');
+    expect(note?.text).toContain('not an inline base64 data URL');
+  });
+
+  it('does not let an unmeasurable history part consume budget or trigger the cutoff', () => {
+    const messages = [
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('newer-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
+      wireUser('current-user', [{ text: 'no image this turn' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 0,
+      elidedImageCount: 1,
+      keptImageBytes: 4 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+      unmeasurableImageCount: 1,
+    });
+    // The measurable older image still fits and ships.
+    expect(JSON.stringify(result.messages[0])).toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).not.toContain('example.test');
+  });
+
+  it('throws loudly on an unmeasurable current-turn file part instead of guessing', () => {
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }]),
+      wireUser('current-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
     ];
 
     expect(() => boundResentImageHistory(messages)).toThrow(AssistantAttachmentValidationError);

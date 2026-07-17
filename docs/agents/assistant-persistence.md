@@ -123,7 +123,12 @@ Image attachments (composer → model → persistence → reload):
   and loud (`data.transportImageElision` metadata + client warn log); the
   thread state and persisted rows keep the image bytes, so reload hydration
   is untouched. Memory-backed requests are already compacted to the current
-  turn and no-op through this bound.
+  turn and no-op through this bound. Measurement is strict for the CURRENT
+  turn (a non-data-URL part throws — the composer just made it, that is a
+  bug) but degrades for HISTORY parts: an unmeasurable old attachment is
+  always elided with its own note (`unmeasurableImageCount` in the metadata)
+  instead of aborting the send, so one malformed old row cannot block every
+  later turn in the thread.
 - Availability gating lives in the app-shell wrapper
   (`resolveComposerAttachmentsAvailability`), layered: (1) provider gate —
   every HOSTED provider is eligible (desktop assistant server AND the web

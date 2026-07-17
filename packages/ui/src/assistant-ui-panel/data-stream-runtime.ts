@@ -7,6 +7,7 @@ import type {
 import { useLocalRuntime } from '@assistant-ui/react';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  AssistantAttachmentValidationError,
   dataUrlByteLength,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -353,6 +354,8 @@ export interface TransportImageElision {
   readonly elidedImageCount: number;
   readonly keptImageBytes: number;
   readonly strategy: 'newest-first-combined-image-budget';
+  /** Present only when history parts could not be measured (counted in elidedImageCount, excluded from elidedImageBytes). */
+  readonly unmeasurableImageCount?: number;
 }
 
 interface WireImagePartRef {
@@ -362,6 +365,7 @@ interface WireImagePartRef {
   readonly messageIndex: number;
   readonly ordinal: number;
   readonly partIndex: number;
+  readonly unmeasurable: boolean;
 }
 
 function wireContentOf(wireMessage: unknown): readonly unknown[] {
@@ -389,12 +393,36 @@ function isWireUserMessage(wireMessage: unknown): boolean {
 }
 
 /**
- * Measure every inline image (file) part carried by user wire messages. The
- * decoded byte length comes from the shared attachment contract, which THROWS
- * on a payload that is not an inline base64 data URL — an unmeasurable
- * attachment is invalid by contract, never silently skipped.
+ * Decoded byte length of one wire image part, from the shared attachment
+ * contract. CURRENT-turn parts measure strictly — the composer just produced
+ * them, so an unmeasurable payload is a real bug and THROWS. HISTORY parts
+ * degrade instead of aborting the send: one malformed old attachment must not
+ * lock the user out of every later turn in the thread, so it returns
+ * `undefined` and the caller elides the part with a visible note.
  */
-function collectWireImagePartRefs(wireMessages: readonly unknown[]): WireImagePartRef[] {
+function measureWireImagePartBytes(data: string, isCurrentTurn: boolean): number | undefined {
+  if (isCurrentTurn) {
+    return dataUrlByteLength(data);
+  }
+  try {
+    return dataUrlByteLength(data);
+  } catch (error) {
+    if (error instanceof AssistantAttachmentValidationError) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Measure every inline image (file) part carried by user wire messages.
+ * See {@link measureWireImagePartBytes} for the strict-current-turn /
+ * degrade-history measurement contract.
+ */
+function collectWireImagePartRefs(
+  wireMessages: readonly unknown[],
+  lastUserIndex: number
+): WireImagePartRef[] {
   const refs: WireImagePartRef[] = [];
   for (let messageIndex = 0; messageIndex < wireMessages.length; messageIndex += 1) {
     if (!isWireUserMessage(wireMessages[messageIndex])) {
@@ -410,13 +438,15 @@ function collectWireImagePartRefs(wireMessages: readonly unknown[]): WireImagePa
     for (let ordinalIndex = 0; ordinalIndex < filePartIndices.length; ordinalIndex += 1) {
       const partIndex = filePartIndices[ordinalIndex] as number;
       const part = content[partIndex] as Record<string, unknown> & { data: string };
+      const bytes = measureWireImagePartBytes(part.data, messageIndex >= lastUserIndex);
       refs.push({
-        bytes: dataUrlByteLength(part.data),
+        bytes: bytes ?? 0,
         fileCount: filePartIndices.length,
         mediaType: typeof part['mediaType'] === 'string' ? part['mediaType'] : undefined,
         messageIndex,
         ordinal: ordinalIndex + 1,
         partIndex,
+        unmeasurable: bytes === undefined,
       });
     }
   }
@@ -436,7 +466,9 @@ function findLastWireUserIndex(wireMessages: readonly unknown[]): number {
  * Newest-first, recency-monotonic selection: history images spend whatever
  * budget the current turn leaves, and once one image does not fit, every
  * OLDER image is elided with it — the model never sees an older image while
- * missing a newer one.
+ * missing a newer one. Unmeasurable history parts are always elided but stay
+ * outside the budget walk: an invalid old payload neither ships nor forces
+ * valid neighbors off the wire.
  */
 function selectElidedHistoryImageRefs(
   refs: readonly WireImagePartRef[],
@@ -452,6 +484,10 @@ function selectElidedHistoryImageRefs(
   const elided: WireImagePartRef[] = [];
   let cutoff = false;
   for (const ref of history) {
+    if (ref.unmeasurable) {
+      elided.push(ref);
+      continue;
+    }
     if (!cutoff && ref.bytes <= remainingBytes) {
       remainingBytes -= ref.bytes;
       continue;
@@ -475,6 +511,9 @@ function formatImageByteSize(bytes: number): string {
 }
 
 function buildImageElisionNote(ref: WireImagePartRef): string {
+  if (ref.unmeasurable) {
+    return `[Image attachment ${ref.ordinal} of ${ref.fileCount} (${ref.mediaType ?? 'image'}) from this earlier message is not an inline base64 data URL, so it could not be measured for resending and was omitted from the request. Ask the user to re-attach it if it is needed again.]`;
+  }
   const described = `${ref.mediaType ?? 'image'}, ${formatImageByteSize(ref.bytes)}`;
   return `[Image attachment ${ref.ordinal} of ${ref.fileCount} (${described}) from this earlier message was omitted from the request to keep it within the transport size limit. The image is unchanged in the conversation; ask the user to re-attach it if it is needed again.]`;
 }
@@ -511,7 +550,10 @@ function replaceElidedWireImageParts(
  * image bodies until the body limit rejects the request.
  *
  * The current turn's attachments always ship (the server validates them
- * against the same cap); history images spend the remainder newest-first.
+ * against the same cap); history images spend the remainder newest-first. A
+ * history part that cannot be measured (not an inline base64 data URL) is
+ * always elided with its own note rather than failing the send — one
+ * malformed old attachment must not block every later turn in the thread.
  * Elision is WIRE-ONLY and LOUD: the thread state and persisted record keep
  * the image, and each elided part is replaced with a visible text note so the
  * model knows exactly what it can no longer see. Callers must surface the
@@ -521,19 +563,22 @@ export function boundResentImageHistory(wireMessages: readonly unknown[]): {
   readonly elision: TransportImageElision | undefined;
   readonly messages: readonly unknown[];
 } {
-  const refs = collectWireImagePartRefs(wireMessages);
-  const elided = selectElidedHistoryImageRefs(refs, findLastWireUserIndex(wireMessages));
+  const lastUserIndex = findLastWireUserIndex(wireMessages);
+  const refs = collectWireImagePartRefs(wireMessages, lastUserIndex);
+  const elided = selectElidedHistoryImageRefs(refs, lastUserIndex);
   if (elided.length === 0) {
     return { elision: undefined, messages: wireMessages };
   }
   const elidedImageBytes = elided.reduce((total, ref) => total + ref.bytes, 0);
   const totalImageBytes = refs.reduce((total, ref) => total + ref.bytes, 0);
+  const unmeasurableImageCount = elided.filter((ref) => ref.unmeasurable).length;
   return {
     elision: {
       elidedImageBytes,
       elidedImageCount: elided.length,
       keptImageBytes: totalImageBytes - elidedImageBytes,
       strategy: 'newest-first-combined-image-budget',
+      ...(unmeasurableImageCount > 0 ? { unmeasurableImageCount } : {}),
     },
     messages: replaceElidedWireImageParts(wireMessages, elided),
   };
