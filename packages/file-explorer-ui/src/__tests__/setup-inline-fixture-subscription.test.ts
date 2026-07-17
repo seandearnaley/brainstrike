@@ -33,12 +33,15 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 
 function createFixtureCapableAdapter(
   overrides: Partial<FileSystemAdapter> & {
+    addInlineFixtureRoot?: () => Promise<FileSystemDirectoryHandle>;
     clearInlineFixture?: () => Promise<void>;
     isInlineFixtureActive?: () => boolean;
     loadInlineFixture?: () => Promise<FileSystemDirectoryHandle>;
   } = {}
 ): FileSystemAdapter {
   return {
+    addInlineFixtureRoot:
+      overrides.addInlineFixtureRoot ?? vi.fn(async () => ({}) as FileSystemDirectoryHandle),
     clearInlineFixture: overrides.clearInlineFixture ?? vi.fn(async () => undefined),
     exists: vi.fn(),
     isInlineFixtureActive: overrides.isInlineFixtureActive ?? vi.fn(() => false),
@@ -255,6 +258,51 @@ describe('setup-inline-fixture-subscription', () => {
     unsubscribe();
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
+  });
+
+  it('rejects adding a fixture root while a fixture load is in flight (no silent drop)', async () => {
+    // An in-flight loadInlineFixture reassigns the adapter's fixture list; an
+    // interleaved add would be silently dropped. The add API must share the
+    // load/clear re-entrancy guard and fail loudly instead.
+    let resolveLoad: ((handle: FileSystemDirectoryHandle) => void) | undefined;
+    const loadInlineFixture = vi.fn(
+      () =>
+        new Promise<FileSystemDirectoryHandle>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+    const addInlineFixtureRoot = vi.fn(
+      async () => ({ path: '/second-root' }) as unknown as FileSystemDirectoryHandle
+    );
+    const adapter = createFixtureCapableAdapter({
+      addInlineFixtureRoot,
+      isInlineFixtureActive: () => false,
+      loadInlineFixture,
+    });
+    const store = createFixtureStore(false);
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+
+    const loadPromise = window.__BRAINSTRIKE_LOAD_FIXTURE__?.({
+      name: 'primary',
+      tree: { 'a.txt': 'a' },
+    });
+
+    await expect(
+      window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__?.({ name: 'second-root', tree: { 'b.txt': 'b' } })
+    ).rejects.toThrow(/load or clear is in flight/);
+    expect(addInlineFixtureRoot).not.toHaveBeenCalled();
+
+    resolveLoad?.({ path: '/fixture' } as unknown as FileSystemDirectoryHandle);
+    await loadPromise;
+
+    // Once the load settles, adding works.
+    await expect(
+      window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__?.({ name: 'second-root', tree: { 'b.txt': 'b' } })
+    ).resolves.toMatchObject({ path: '/second-root' });
+    expect(addInlineFixtureRoot).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    expect(window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__).toBeUndefined();
   });
 
   it('exposes a read-only indexing debug snapshot through the global testing API', async () => {

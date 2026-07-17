@@ -868,10 +868,16 @@ export interface UseLazyFileTreeReturn {
   error: Error | null;
   /** Progress of expand-all operation */
   expandAllProgress: { loaded: number; total: number } | null;
-  /** Progressively expand all directories (loads everything) */
+  /**
+   * Progressively expand all directories (loads everything). The optional
+   * onProgress mirrors this run's expandAllProgress updates to the caller —
+   * forest sections use it to push progress into the registry at the event
+   * source instead of relaying committed state through effects.
+   */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-    currentExpandedPaths?: ReadonlySet<string>
+    currentExpandedPaths?: ReadonlySet<string>,
+    onProgress?: (loaded: number, total: number) => void
   ) => Promise<void>;
   /** Current file tree (lazily loaded) */
   fileTree: IFileNode[];
@@ -1051,6 +1057,13 @@ export function useLazyFileTree(
     []
   );
 
+  // Per-run listener mirroring expand-all progress to the caller (see
+  // expandAllProgressively's onProgress). A ref, not state: the value is only
+  // consumed inside handleProgress and must never re-wire the worker.
+  const expandAllProgressListenerRef = useRef<((loaded: number, total: number) => void) | null>(
+    null
+  );
+
   // Progress handler - defined before useFileTreeWorker so we can pass it
   const handleProgress = useCallback((loaded: number, total: number, currentPath: string) => {
     const specificPathProgress = specificPathProgressRef.current;
@@ -1059,6 +1072,7 @@ export function useLazyFileTree(
       return;
     }
     setExpandAllProgress({ loaded, total });
+    expandAllProgressListenerRef.current?.(loaded, total);
   }, []);
 
   // Abort controller management
@@ -1762,13 +1776,15 @@ export function useLazyFileTree(
   const expandAllProgressively = useCallback(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-      currentExpandedPaths?: ReadonlySet<string>
+      currentExpandedPaths?: ReadonlySet<string>,
+      onProgress?: (loaded: number, total: number) => void
     ): Promise<void> => {
       if (!fileSystemAdapter) {
         logger.warn('expandAllProgressively: missing file system adapter');
         return;
       }
 
+      expandAllProgressListenerRef.current = onProgress ?? null;
       try {
         await expandAllFromHook(setExpandedPaths, currentExpandedPaths);
       } catch (err) {
@@ -1777,6 +1793,7 @@ export function useLazyFileTree(
         });
         throw err;
       } finally {
+        expandAllProgressListenerRef.current = null;
         // Clear progress after operation completes (success or failure)
         setExpandAllProgress(null);
       }

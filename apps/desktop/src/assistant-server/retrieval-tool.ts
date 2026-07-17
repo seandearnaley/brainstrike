@@ -99,7 +99,8 @@ const ERROR_MESSAGES = {
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
 } as const;
 
-const SAFE_ERROR_MESSAGES = new Set<string>([
+/** Exported for the hybrid search tool, which reuses the same embedding path. */
+export const RETRIEVAL_SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
   ERROR_MESSAGES.missingQueryEmbeddingSpace,
   ERROR_MESSAGES.invalidEmbeddingSet,
@@ -115,7 +116,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingSourceRange,
 ]);
 
-interface EmbeddingSetRow {
+export interface EmbeddingSetRow {
   dimensions: number;
   distance: string | null;
   modelId: string;
@@ -128,7 +129,7 @@ type HostedEmbeddingProvider =
   | CohereEmbeddingProvider
   | VoyageEmbeddingProvider;
 
-interface FileRecordRow {
+export interface FileRecordRow {
   id: string;
   name: string;
   path: string;
@@ -229,7 +230,7 @@ interface QueryResult<T> {
   rows: T[];
 }
 
-async function resolveEmbeddingSet(
+export async function resolveEmbeddingSet(
   db: DesktopDatabase,
   embeddingSetId: string
 ): Promise<EmbeddingSetRow> {
@@ -530,7 +531,7 @@ async function loadRootLabels(
   );
 }
 
-async function buildFileRecordMap(
+export async function buildFileRecordMap(
   repository: FileRecordRepository,
   db: DesktopDatabase,
   ids: readonly string[]
@@ -583,7 +584,7 @@ function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProvider
   return parsed.provider;
 }
 
-async function generateQueryEmbeddingForSet(
+export async function generateQueryEmbeddingForSet(
   embeddingSet: EmbeddingSetRow,
   query: string,
   dependencies: RetrievalToolDependencies
@@ -615,7 +616,7 @@ function normalizeQuery(query: string): string {
   return normalized;
 }
 
-function assertEmbeddingDimensions(expected: number, actual: number): void {
+export function assertEmbeddingDimensions(expected: number, actual: number): void {
   if (expected === actual) {
     return;
   }
@@ -796,7 +797,7 @@ async function runRetrieval(
 
 function handleRetrievalError(error: unknown): never {
   const message = error instanceof Error ? error.message : ERROR_MESSAGES.retrievalFailed;
-  if (SAFE_ERROR_MESSAGES.has(message)) {
+  if (RETRIEVAL_SAFE_ERROR_MESSAGES.has(message)) {
     throw new Error(message);
   }
   logger.error('Retrieval tool failed', { error: redactErrorForLog(error) });
