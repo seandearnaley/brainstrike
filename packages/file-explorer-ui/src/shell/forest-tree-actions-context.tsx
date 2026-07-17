@@ -98,7 +98,9 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   const sectionsRef = useRef(new Map<string, SectionTreeActions>());
   const cancelledRef = useRef(false);
   const [runningCount, setRunningCount] = useState(0);
-  const progressByRootRef = useRef(new Map<string, ExpandAllProgress>());
+  // Lazily initialized (react-doctor rerender-lazy-ref-init): a useRef(new
+  // Map()) initializer would allocate and discard a Map on every render.
+  const progressByRootRef = useRef<Map<string, ExpandAllProgress> | null>(null);
   const [expandAllProgress, setExpandAllProgress] = useState<ExpandAllProgress | null>(null);
 
   const register = useCallback((rootId: string, actions: SectionTreeActions) => {
@@ -115,10 +117,14 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     // (React batches under load), so a run-active gate would drop the very
     // reports it exists to collect. Staleness is handled elsewhere — each run
     // clears the map at start, and consumers gate display on isExpandingAll.
-    progressByRootRef.current.set(rootId, progress);
+    if (progressByRootRef.current === null) {
+      progressByRootRef.current = new Map<string, ExpandAllProgress>();
+    }
+    const progressByRoot = progressByRootRef.current;
+    progressByRoot.set(rootId, progress);
     let loaded = 0;
     let total = 0;
-    for (const sectionProgress of progressByRootRef.current.values()) {
+    for (const sectionProgress of progressByRoot.values()) {
       loaded += sectionProgress.loaded;
       total += sectionProgress.total;
     }
@@ -135,7 +141,7 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     cancelledRef.current = false;
     // Fresh aggregate per run; completed runs keep their final counts only
     // until the next run starts (display is gated on isExpandingAll).
-    progressByRootRef.current.clear();
+    progressByRootRef.current?.clear();
     setExpandAllProgress(null);
     setRunningCount((count) => count + 1);
     try {

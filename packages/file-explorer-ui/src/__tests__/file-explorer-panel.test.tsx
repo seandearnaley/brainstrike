@@ -1323,6 +1323,24 @@ describe('FileExplorerPanel', () => {
       );
     });
 
+    it('dismissing the dialog with Escape cancels without running the sweep', async () => {
+      const user = userEvent.setup();
+      const forestActions = arrangeForest();
+
+      renderWithProviders(<FileExplorerPanel />);
+      await user.click(screen.getByTestId('expand-all-button-small'));
+      await screen.findByTestId('expand-all-confirm-dialog');
+
+      // Radix close paths (Escape / overlay / X) go through onOpenChange —
+      // they must behave exactly like the Cancel button.
+      await user.keyboard('{Escape}');
+
+      expect(forestActions.runExpandAll).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(screen.queryByTestId('expand-all-confirm-dialog')).not.toBeInTheDocument()
+      );
+    });
+
     it('shows aggregate forest progress with a cancel affordance while the sweep runs', async () => {
       const user = userEvent.setup();
       const forestActions = {

@@ -249,12 +249,16 @@ export const TreeActionButtons = React.memo(
         {/* Narrow-width overflow: below the 240px breakpoint the inline
             expand/collapse buttons hide (the right cluster cannot fit them),
             so the same actions move into this menu instead of vanishing —
-            expand-all must stay reachable at the panel's minimum width. */}
+            expand-all must stay reachable at the panel's minimum width.
+            Visibility is the EXACT complement of the inline buttons' (same
+            @max-[240px] predicate, hidden-by-default + flex-at-narrow): a
+            min-width mirror like @[240px]:hidden leaves both hidden at a
+            container width of exactly 240px. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               aria-label="More tree actions"
-              className="@[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:flex hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="tree-actions-overflow-trigger"
               size="icon"
               variant="ghost"

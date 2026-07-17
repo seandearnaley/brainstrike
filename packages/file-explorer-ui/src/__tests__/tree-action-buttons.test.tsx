@@ -9,7 +9,7 @@ const renderWithTooltips = (ui: ReactElement) =>
   render(ui, { wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider> });
 
 const NARROW_HIDDEN = '@max-[240px]/explorer-toolbar:hidden';
-const WIDE_HIDDEN = '@[240px]/explorer-toolbar:hidden';
+const NARROW_SHOWN = '@max-[240px]/explorer-toolbar:flex';
 
 describe('TreeActionButtons', () => {
   it('hides the inline expand/collapse buttons (but never refresh) below the narrow toolbar breakpoint', () => {
@@ -29,9 +29,13 @@ describe('TreeActionButtons', () => {
     // The overflow trigger is the narrow-width stand-in: it must be visible
     // exactly where the inline buttons hide, and gone where they show —
     // otherwise expand-all silently vanishes at default panel widths (the
-    // #1683 regression).
+    // #1683 regression). Its visibility must be the EXACT complement of the
+    // inline buttons' — the same @max-[240px] predicate flipped (hidden base
+    // + flex at narrow). A min-width mirror (@[240px]:hidden) hides BOTH
+    // controls at a container width of exactly 240px.
     const overflowTrigger = screen.getByTestId('tree-actions-overflow-trigger');
-    expect(overflowTrigger).toHaveClass(WIDE_HIDDEN);
+    expect(overflowTrigger).toHaveClass('hidden');
+    expect(overflowTrigger).toHaveClass(NARROW_SHOWN);
     expect(overflowTrigger).not.toHaveClass(NARROW_HIDDEN);
   });
 

@@ -98,6 +98,23 @@ describe('ForestTreeActionsProvider expand-all progress aggregation', () => {
     expect(ref.current?.expandAllProgress).toEqual({ loaded: 1, total: 2 });
   });
 
+  it('keeps the same aggregate object when a report does not change the sums', () => {
+    const ref = setup();
+
+    act(() => {
+      ref.current?.reportExpandAllProgress('root-a', { loaded: 2, total: 5 });
+    });
+    const first = ref.current?.expandAllProgress;
+    expect(first).toEqual({ loaded: 2, total: 5 });
+
+    // Value-equal bailout: identical sums must not mint a new object, or
+    // every repeated report would churn context consumers.
+    act(() => {
+      ref.current?.reportExpandAllProgress('root-a', { loaded: 2, total: 5 });
+    });
+    expect(ref.current?.expandAllProgress).toBe(first);
+  });
+
   it('accepts trailing reports after a run (commits can lag) — display stays gated on isExpandingAll', async () => {
     const ref = setup();
 
