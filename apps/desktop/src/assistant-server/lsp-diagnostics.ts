@@ -274,6 +274,18 @@ class LspServerConnection {
     return this.child.pid ?? -1;
   }
 
+  /**
+   * Fire-and-forget a notification, SWALLOWING its promise rejection. Writing
+   * to a server killed mid-flight (dispose, crash) rejects with EPIPE; without
+   * this the rejection is unhandled (CI-visible, timing-dependent). The
+   * diagnostics call already degrades to an honest note on failure.
+   */
+  private notify(method: string, params?: unknown): void {
+    this.connection.sendNotification(method, params).catch(() => {
+      /* server gone / pipe closed — handled as a timeout upstream */
+    });
+  }
+
   private ensureInitialized(): Promise<void> {
     if (!this.initialized) {
       const rootUri = pathToFileURL(this.rootPath).href;
@@ -291,7 +303,7 @@ class LspServerConnection {
       };
       this.initialized = Promise.race([
         this.connection.sendRequest<InitializeResult>(LSP.initialize, initializeParams).then(() => {
-          void this.connection.sendNotification(LSP.initialized, {});
+          this.notify(LSP.initialized, {});
         }),
         new Promise<void>((_, reject) => {
           setTimeout(() => reject(new Error('LSP initialize timed out')), INIT_TIMEOUT_MS);
@@ -318,7 +330,7 @@ class LspServerConnection {
       const openParams: DidOpenTextDocumentParams = {
         textDocument: { languageId, text: content, uri, version: 1 },
       };
-      void this.connection.sendNotification(LSP.didOpen, openParams);
+      this.notify(LSP.didOpen, openParams);
     } else {
       const nextVersion = previousVersion + 1;
       this.versions.set(key, nextVersion);
@@ -326,7 +338,7 @@ class LspServerConnection {
         contentChanges: [{ text: content }],
         textDocument: { uri, version: nextVersion },
       };
-      void this.connection.sendNotification(LSP.didChange, changeParams);
+      this.notify(LSP.didChange, changeParams);
     }
     return this.waitForDiagnostics(key);
   }
@@ -372,7 +384,7 @@ class LspServerConnection {
       try {
         await Promise.race([
           this.connection.sendRequest(LSP.shutdown).then(() => {
-            void this.connection.sendNotification(LSP.exit);
+            this.notify(LSP.exit);
           }),
           new Promise((resolve) => setTimeout(resolve, 500)),
         ]);
