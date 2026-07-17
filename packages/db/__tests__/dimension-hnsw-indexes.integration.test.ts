@@ -418,35 +418,52 @@ describe('HNSW build maintenance_work_mem tuning', () => {
     expect(statements.at(-1)).toBe('RESET maintenance_work_mem');
   });
 
-  it('surfaces a RESET failure after a successful tuned build instead of resolving', async () => {
-    // A resolved promise here would report a healthy build while the raised
-    // maintenance_work_mem leaks into every subsequent query on PGlite's
-    // single shared session — the exact leak this helper exists to prevent.
-    const { db, statements } = createCapturingDb({
-      embeddedRowCount: 100_000,
-      failReset: true,
+  describe('withIndexBuildMaintenanceWorkMem contract', () => {
+    it('runs the build without any tuning statements when sizing resolves to the default', async () => {
+      const statements: string[] = [];
+      const db = {
+        exec: async (sql: string): Promise<void> => {
+          statements.push(sql);
+        },
+      };
+      const build = vi.fn(async (): Promise<void> => undefined);
+
+      await withIndexBuildMaintenanceWorkMem(db, { dimension: 1024, rowCount: 0 }, build);
+
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(statements).toEqual([]);
     });
 
-    await expect(
-      withIndexBuildMaintenanceWorkMem(db, 1024, async () => {
-        await db.exec('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_1024 ON file_chunks');
-      })
-    ).rejects.toThrow(/reset maintenance_work_mem/i);
-    expect(statements.at(-1)).toBe('RESET maintenance_work_mem');
-  });
+    it('surfaces a RESET failure after a successful tuned build instead of resolving', async () => {
+      // A resolved promise here would report a healthy build while the raised
+      // maintenance_work_mem leaks into every subsequent query on PGlite's
+      // single shared session — the exact leak this helper exists to prevent.
+      const { db, statements } = createCapturingDb({
+        embeddedRowCount: 100_000,
+        failReset: true,
+      });
 
-  it('propagates the build error (not the reset error) when both the build and the RESET fail', async () => {
-    const { db } = createCapturingDb({
-      embeddedRowCount: 100_000,
-      failCreateIndex: true,
-      failReset: true,
+      await expect(
+        withIndexBuildMaintenanceWorkMem(db, { dimension: 1024, rowCount: 100_000 }, async () => {
+          await db.exec('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_1024 ON file_chunks');
+        })
+      ).rejects.toThrow(/reset maintenance_work_mem/i);
+      expect(statements.at(-1)).toBe('RESET maintenance_work_mem');
     });
 
-    await expect(
-      withIndexBuildMaintenanceWorkMem(db, 1024, async () => {
-        await db.exec('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_1024 ON file_chunks');
-      })
-    ).rejects.toThrow('simulated build failure');
+    it('propagates the build error (not the reset error) when both the build and the RESET fail', async () => {
+      const { db } = createCapturingDb({
+        embeddedRowCount: 100_000,
+        failCreateIndex: true,
+        failReset: true,
+      });
+
+      await expect(
+        withIndexBuildMaintenanceWorkMem(db, { dimension: 1024, rowCount: 100_000 }, async () => {
+          await db.exec('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_1024 ON file_chunks');
+        })
+      ).rejects.toThrow('simulated build failure');
+    });
   });
 
   it('applies the tuned setting for the build only — no leak into subsequent queries (real PGlite)', async () => {

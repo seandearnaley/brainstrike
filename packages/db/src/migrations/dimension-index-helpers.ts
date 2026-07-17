@@ -155,8 +155,15 @@ export function resolveIndexBuildMaintenanceWorkMemMb(rowCount: number, dimensio
  * vectors, and over-counting across dimensions only nudges the (capped) memory
  * ceiling upward. A failed count degrades to the default setting with a
  * visible warning — sizing must never block the build itself.
+ *
+ * FILE_CHUNKS-SPECIFIC: exported so file_chunks build sites (this module's
+ * createDimensionIndex, the desktop maintenance scheduler) can size
+ * withIndexBuildMaintenanceWorkMem; other tables (e.g. mastra_vectors) supply
+ * their own count.
  */
-async function estimateEmbeddedRowCount(db: Pick<DimensionIndexDb, 'query'>): Promise<number> {
+export async function estimateEmbeddedRowCount(
+  db: Pick<DimensionIndexDb, 'query'>
+): Promise<number> {
   try {
     const result = await db.query<{ count: string }>(
       'SELECT COUNT(*)::text AS count FROM file_chunks WHERE embedding IS NOT NULL'
@@ -174,23 +181,23 @@ async function estimateEmbeddedRowCount(db: Pick<DimensionIndexDb, 'query'>): Pr
 
 /**
  * Run an HNSW index build with maintenance_work_mem sized for the estimated
- * graph (embedded row count x dimension, see
- * resolveIndexBuildMaintenanceWorkMemMb). The SET only fires when the resolved
- * value exceeds the 64MB default, and the RESET always runs in a finally:
- * PGlite is one shared connection, so a leaked setting would ride along in
- * every subsequent query's session. `db.exec` MUST be the same channel/session
- * that executes the build itself (see the desktop maintenance scheduler and
- * embedding backfill), or the session-scoped SET silently would not apply.
+ * graph (row count x dimension, see resolveIndexBuildMaintenanceWorkMemMb).
+ * Callers supply the target table's row count — estimateEmbeddedRowCount above
+ * is file_chunks-specific; mastra_vectors (packages/agent) passes its own.
+ * The SET only fires when the resolved value exceeds the 64MB default, and the
+ * RESET always runs in a finally: PGlite is one shared connection, so a leaked
+ * setting would ride along in every subsequent query's session. `db.exec` MUST
+ * be the same channel/session that executes the build itself (see the desktop
+ * maintenance scheduler and embedding backfill), or the session-scoped SET
+ * silently would not apply.
  */
 export async function withIndexBuildMaintenanceWorkMem(
-  db: DimensionIndexDb,
-  dimension: number,
+  db: Pick<DimensionIndexDb, 'exec'>,
+  sizing: { dimension: number; rowCount: number },
   build: () => Promise<void>
 ): Promise<void> {
-  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
-    await estimateEmbeddedRowCount(db),
-    dimension
-  );
+  const { dimension, rowCount } = sizing;
+  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(rowCount, dimension);
   // Defense-in-depth before SQL interpolation: the resolver clamps to
   // [default, cap], so anything else is a bug.
   if (
@@ -331,8 +338,9 @@ export async function createDimensionIndex(
   // build phase (benchmarked 5x slower at 100k chunks x 1024 dims — see
   // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). withIndexBuildMaintenanceWorkMem
   // raises the setting for the build only and always resets it afterwards.
+  const rowCount = await estimateEmbeddedRowCount(db);
   try {
-    await withIndexBuildMaintenanceWorkMem(db, dimension, async () => {
+    await withIndexBuildMaintenanceWorkMem(db, { dimension, rowCount }, async () => {
       await db.exec(sqlStatement);
     });
   } catch (error) {

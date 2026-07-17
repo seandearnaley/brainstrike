@@ -2,6 +2,7 @@ import {
   type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
   type DimensionIndexMaintenanceStrategy,
+  estimateEmbeddedRowCount,
   hnswParams,
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
@@ -176,16 +177,18 @@ async function createDimensionIndexWithMaintenanceExec(
   // split routing would silently leave the build untuned at the 64MB default
   // (benchmarked 5x slower at 100k chunks x 1024 dims — see
   // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB in @brainstrike/db).
+  const rowCount = await estimateEmbeddedRowCount({
+    query: async <TRecord = unknown>(sqlStatement: string): Promise<{ rows: TRecord[] }> => {
+      const result = await db.query<TRecord>(sqlStatement);
+      return { rows: [...result.rows] };
+    },
+  });
   await withIndexBuildMaintenanceWorkMem(
     {
       exec: async (sqlStatement: string): Promise<unknown> =>
         await maintenanceExec(sqlStatement, []),
-      query: async <TRecord = unknown>(sqlStatement: string): Promise<{ rows: TRecord[] }> => {
-        const result = await db.query<TRecord>(sqlStatement);
-        return { rows: [...result.rows] };
-      },
     },
-    request.dimension,
+    { dimension: request.dimension, rowCount },
     async () => {
       await maintenanceExec(sql, []);
     }
