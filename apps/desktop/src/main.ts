@@ -62,7 +62,9 @@ import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
+  quiesceDesktopDatabaseWorkForRecovery,
   registerIpcHandlers,
+  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
@@ -880,43 +882,61 @@ async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
     logger.warn('Runtime database recovery started; active indexing work is being canceled', {
       context,
     });
-    cancelAllDesktopEmbeddingBackfills();
-    await cleanupDesktopLiveSubscriptionsForShutdown();
-    await replaceCorruptedDatabase(context);
+    quiesceDesktopDatabaseWorkForRecovery();
+    let reloadScheduled = false;
+    try {
+      cancelAllDesktopEmbeddingBackfills();
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+      await replaceCorruptedDatabase(context);
 
-    const visibleWindows = BrowserWindow.getAllWindows().filter(
-      (window) =>
-        !(
-          chunkingHostManager.isHostWindow(window) ||
-          embeddingHostManager.isHostWindow(window) ||
-          llmHostManager.isHostWindow(window)
-        )
-    );
-    if (visibleWindows.length === 0) {
-      logger.warn('Runtime database recovery completed without a visible window to reload', {
+      const visibleWindows = BrowserWindow.getAllWindows().filter(
+        (window) =>
+          !(
+            chunkingHostManager.isHostWindow(window) ||
+            embeddingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+          )
+      );
+      if (visibleWindows.length === 0) {
+        logger.warn('Runtime database recovery completed without a visible window to reload', {
+          context,
+        });
+        resumeDesktopDatabaseWorkAfterRecoveryReload();
+        return;
+      }
+
+      for (const window of visibleWindows) {
+        noteNextWindowReload(window, {
+          reason: 'runtime-database-corruption-recovery',
+          source: 'main',
+        });
+      }
+      logger.info('Runtime database recovery completed; visible windows will reload', {
         context,
+        visibleWindowCount: visibleWindows.length,
       });
-      return;
-    }
 
-    for (const window of visibleWindows) {
-      noteNextWindowReload(window, {
-        reason: 'runtime-database-corruption-recovery',
-        source: 'main',
-      });
-      // Let the failed IPC invocation unwind first. The replacement database is
-      // already initialized, so this reload enters the existing bounded startup
-      // progress flow instead of leaving stale renderer stores mounted.
+      // Let the failed IPC invocation unwind first. Until this timer runs,
+      // scheduler quiescence rejects both old queued closures and new work from
+      // the stale renderer. The replacement database cannot receive either.
+      reloadScheduled = true;
       setTimeout(() => {
-        if (!window.isDestroyed()) {
-          window.webContents.reloadIgnoringCache();
+        try {
+          for (const window of visibleWindows) {
+            if (!window.isDestroyed()) {
+              window.webContents.reloadIgnoringCache();
+            }
+          }
+        } finally {
+          resumeDesktopDatabaseWorkAfterRecoveryReload();
         }
       }, 0);
+    } catch (error) {
+      if (!reloadScheduled) {
+        resumeDesktopDatabaseWorkAfterRecoveryReload();
+      }
+      throw error;
     }
-    logger.info('Runtime database recovery completed; visible windows will reload', {
-      context,
-      visibleWindowCount: visibleWindows.length,
-    });
   })();
 
   runtimeDatabaseRecoveryPromise = recovery;

@@ -86,11 +86,14 @@ visible renderer. The failing operation belongs to the old database snapshot
 and MUST NOT be retried against the empty replacement.
 
 Desktop order:
-1. Cancel active embedding backfills.
-2. Unsubscribe renderer live queries.
-3. Terminate the DB utility process so all queued requests fail.
-4. Back up and replace the active database profile, then initialize migrations.
-5. Reload visible windows into the existing bounded startup progress flow.
+1. Invalidate the desktop scheduler generation and reject new DB work until
+   renderer reload begins; queued closures from the old snapshot must never call
+   `getDatabase()` after replacement.
+2. Cancel active embedding backfills.
+3. Unsubscribe renderer live queries.
+4. Terminate the DB utility process so all queued requests fail.
+5. Back up and replace the active database profile, then initialize migrations.
+6. Reload visible windows into the existing bounded startup progress flow.
 
 Recovery is single-flight at the desktop composition root. Hidden renderer
 hosts are excluded from visible-window reload routing. Do not replace this with

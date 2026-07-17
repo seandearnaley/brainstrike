@@ -206,6 +206,125 @@ describe('useExpandedPathRestoration', () => {
       resolveRestoration?.();
     });
   });
+
+  it('deduplicates priority paths before reporting folders kept collapsed', async () => {
+    let resolveRestoration: (() => void) | undefined;
+    const loadSpecificPaths = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRestoration = resolve;
+        })
+    );
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          selectedFilePaths: new Set(['root-a|@|/workspace/src/file.ts']),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'query',
+            queryDescriptor: {
+              coveredDirectoryPaths: ['/workspace/src'],
+              excludedPaths: [],
+              excludeFilters: [],
+              folderId: 'root-a',
+              includedPaths: [],
+              includeFilters: [],
+              kind: 'recursive-select-all',
+              manifestFingerprint: 'query-fingerprint',
+              manifestSnapshotId: 'snapshot-1',
+              rootPath: '/workspace',
+              totalSelectedCount: 1,
+              useRegex: false,
+            },
+            ruleSetJson: null,
+          },
+        })
+      ),
+    };
+
+    const { result } = renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'root-a',
+        currentRootPath: '/workspace',
+        fileTree: [createDirectoryNode('/workspace/src')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'root-a',
+        setExpandedPaths: vi.fn(),
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(
+        ['/workspace', '/workspace/src'],
+        expect.any(Function)
+      );
+      expect(result.current.restorationProgress).toMatchObject({
+        loaded: 0,
+        omitted: 0,
+        total: 2,
+      });
+    });
+
+    await act(async () => {
+      resolveRestoration?.();
+    });
+  });
+
+  it('loads the bounded plan shallowest-first when a query path is not ancestor-closed', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['/workspace/src']),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'query',
+            queryDescriptor: {
+              coveredDirectoryPaths: ['/workspace/src/generated'],
+              excludedPaths: [],
+              excludeFilters: [],
+              folderId: 'root-a',
+              includedPaths: [],
+              includeFilters: [],
+              kind: 'recursive-select-all',
+              manifestFingerprint: 'query-fingerprint',
+              manifestSnapshotId: 'snapshot-1',
+              rootPath: '/workspace',
+              totalSelectedCount: 1,
+              useRegex: false,
+            },
+            ruleSetJson: null,
+          },
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'root-a',
+        currentRootPath: '/workspace',
+        fileTree: [createDirectoryNode('/workspace/src')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'root-a',
+        setExpandedPaths: vi.fn(),
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(
+        ['/workspace/src', '/workspace/src/generated'],
+        expect.any(Function)
+      );
+    });
+  });
 });
 
 describe('useExpandSelectedFileParentDirectories', () => {

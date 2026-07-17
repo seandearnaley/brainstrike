@@ -21,10 +21,46 @@ interface ResolveDatabaseWorkOptionsHostManagers {
 }
 
 const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
+export const DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE =
+  'Database work was canceled because runtime corruption recovery is replacing the active local database.';
 
 let desktopDatabaseWorkScheduler: DatabaseWorkScheduler = createDatabaseWorkScheduler();
 let desktopDatabaseResetBarrier: Promise<void> | null = null;
+let desktopDatabaseWorkEpoch = 0;
+let desktopDatabaseWorkQuiesced = false;
 const resetBarrierOperationScope = new AsyncLocalStorage<boolean>();
+
+function createDatabaseWorkInvalidatedError(): Error {
+  const error = new Error(DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE);
+  error.name = 'DatabaseWorkInvalidatedError';
+  return error;
+}
+
+function assertDesktopDatabaseWorkIsCurrent(submissionEpoch: number): void {
+  if (desktopDatabaseWorkQuiesced || submissionEpoch !== desktopDatabaseWorkEpoch) {
+    throw createDatabaseWorkInvalidatedError();
+  }
+}
+
+function runCurrentDesktopDatabaseWork<T>(
+  operation: () => Promise<T>,
+  options: DatabaseWorkRunOptions
+): Promise<T> {
+  const submissionEpoch = desktopDatabaseWorkEpoch;
+  try {
+    assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+
+  return waitForDesktopDatabaseResetBarrier().then(() => {
+    assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
+    return desktopDatabaseWorkScheduler.run(async () => {
+      assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
+      return await operation();
+    }, options);
+  });
+}
 
 function isDatabaseWorkPriority(value: unknown): value is DatabaseWorkPriority {
   return value === 'foreground' || value === 'normal' || value === 'background';
@@ -160,18 +196,30 @@ export function runScheduledDatabaseWork<T>(
     explicitOptions,
     fallbackLabel
   );
-  return waitForDesktopDatabaseResetBarrier().then(() =>
-    desktopDatabaseWorkScheduler.run(operation, workOptions)
-  );
+  return runCurrentDesktopDatabaseWork(operation, workOptions);
 }
 
 export function runDesktopScheduledDatabaseWork<T>(
   options: DatabaseWorkRunOptions,
   operation: () => Promise<T>
 ): Promise<T> {
-  return waitForDesktopDatabaseResetBarrier().then(() =>
-    desktopDatabaseWorkScheduler.run(operation, options)
-  );
+  return runCurrentDesktopDatabaseWork(operation, options);
+}
+
+/**
+ * Invalidates every queued operation from the old database snapshot and blocks
+ * new submissions until the visible renderer reload has been initiated.
+ */
+export function quiesceDesktopDatabaseWorkForRecovery(): void {
+  if (desktopDatabaseWorkQuiesced) {
+    throw new Error('Desktop database work is already quiesced for runtime recovery.');
+  }
+  desktopDatabaseWorkEpoch += 1;
+  desktopDatabaseWorkQuiesced = true;
+}
+
+export function resumeDesktopDatabaseWorkAfterRecoveryReload(): void {
+  desktopDatabaseWorkQuiesced = false;
 }
 
 async function waitForDesktopDatabaseResetBarrier(): Promise<void> {
@@ -267,4 +315,6 @@ export function resetDesktopDatabaseWorkSchedulerForTests(
 ): void {
   desktopDatabaseWorkScheduler = createDatabaseWorkScheduler(options);
   desktopDatabaseResetBarrier = null;
+  desktopDatabaseWorkEpoch = 0;
+  desktopDatabaseWorkQuiesced = false;
 }

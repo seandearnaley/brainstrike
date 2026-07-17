@@ -20,7 +20,9 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 
 export {
   getDesktopDatabaseWorkSchedulerSnapshot,
+  quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
+  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   waitForDesktopDatabaseWorkSchedulerIdle,

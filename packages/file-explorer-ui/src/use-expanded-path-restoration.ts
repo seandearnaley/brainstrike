@@ -196,6 +196,7 @@ interface FileExplorerStoreAccessor {
 
 interface PathsToRestorePlan {
   allPathsToRestore: Set<string>;
+  omittedPathCount: number;
   omittedPersistedPaths: Set<string>;
   parentDirectoriesOfSelectedFiles: Set<string>;
   queryCoveredDirectories: Set<string>;
@@ -320,10 +321,9 @@ function buildPathsToRestorePlan(
   const persistedPaths = new Set(
     [...storeState.expandedDirectoryPaths].filter((path) => isPathWithinRoot(path, currentRootPath))
   );
-  const priorityPaths = sortRestorationPaths([
-    ...scopedParentDirectories,
-    ...queryCoveredDirectories,
-  ]);
+  const priorityPaths = sortRestorationPaths(
+    new Set([...scopedParentDirectories, ...queryCoveredDirectories])
+  );
   const remainingPersistedPaths = sortRestorationPaths(
     [...persistedPaths].filter(
       (path) => !(scopedParentDirectories.has(path) || queryCoveredDirectories.has(path))
@@ -336,6 +336,7 @@ function buildPathsToRestorePlan(
 
   return {
     allPathsToRestore: new Set(restoredPaths),
+    omittedPathCount: omittedPaths.length,
     omittedPersistedPaths,
     parentDirectoriesOfSelectedFiles: scopedParentDirectories,
     queryCoveredDirectories,
@@ -351,7 +352,7 @@ function logPathsToRestore(
   logger.debug('[Restoration Effect] Paths to restore', {
     expandedPathCount: storeState.expandedDirectoryPaths.size,
     folderId: currentRootFolderId,
-    omittedPathCount: plan.requestedPathCount - plan.allPathsToRestore.size,
+    omittedPathCount: plan.omittedPathCount,
     parentDirsOfSelectedFiles: plan.parentDirectoriesOfSelectedFiles.size,
     queryCoveredDirectoryCount: plan.queryCoveredDirectories.size,
     requestedPathCount: plan.requestedPathCount,
@@ -403,7 +404,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       setRestorationProgress({
         currentPath,
         loaded,
-        omitted: plan.requestedPathCount - plan.allPathsToRestore.size,
+        omitted: plan.omittedPathCount,
         total: progressTotal,
       });
     });
@@ -585,7 +586,7 @@ export function useExpandedPathRestoration(
       setExpandedPaths(boundedExpandedPaths);
       logger.warn('Automatic directory restoration was bounded to keep the UI responsive', {
         folderId: currentRootFolderId,
-        omittedPathCount: plan.requestedPathCount - plan.allPathsToRestore.size,
+        omittedPathCount: plan.omittedPathCount,
         requestedPathCount: plan.requestedPathCount,
         restoredPathCount: plan.allPathsToRestore.size,
       });
@@ -598,12 +599,12 @@ export function useExpandedPathRestoration(
       totalPathCount: plan.allPathsToRestore.size,
     });
 
-    const sortedPaths = [...plan.allPathsToRestore];
+    const sortedPaths = sortRestorationPaths(plan.allPathsToRestore);
     const total = sortedPaths.length;
     setRestorationProgress({
       currentPath: null,
       loaded: 0,
-      omitted: plan.requestedPathCount - plan.allPathsToRestore.size,
+      omitted: plan.omittedPathCount,
       total,
     });
 
