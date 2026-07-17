@@ -56,6 +56,13 @@ interface QueryResult<TRecord> {
 
 interface ScheduledDatabaseMaintenanceDb {
   readonly exec?: (sql: string) => Promise<unknown>;
+  // Desktop's RemoteDbClient exposes a dedicated maintenance channel with a
+  // long-running timeout (db-host-manager maintenanceRequestTimeoutMs); the
+  // ordinary query/exec path uses the short request timeout and can abandon a
+  // large VACUUM/ANALYZE in the main process while the DB host keeps running it.
+  readonly maintenance?: {
+    readonly exec?: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  };
   readonly query: <TRecord = unknown>(
     sql: string,
     params?: readonly unknown[]
@@ -184,7 +191,9 @@ async function runMaintenanceStatement(
   db: ScheduledDatabaseMaintenanceDb,
   sql: string
 ): Promise<void> {
-  if (typeof db.exec === 'function') {
+  if (typeof db.maintenance?.exec === 'function') {
+    await db.maintenance.exec(sql);
+  } else if (typeof db.exec === 'function') {
     await db.exec(sql);
   } else {
     await db.query(sql);

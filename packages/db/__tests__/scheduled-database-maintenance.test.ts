@@ -240,6 +240,36 @@ describe('scheduled database maintenance', () => {
     expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
   });
 
+  it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async () => []);
+    const maintenanceExec = vi.fn(async () => []);
+
+    const result = await runScheduledDatabaseMaintenance(
+      { exec, maintenance: { exec: maintenanceExec }, query },
+      {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      }
+    );
+
+    // Desktop's RemoteDbClient gives maintenance.exec the long-running timeout;
+    // ordinary exec/query use the short request timeout and can abandon a large
+    // VACUUM/ANALYZE mid-flight, so every maintenance statement must prefer it.
+    expect(maintenanceExec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
+    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
+    expect(exec).not.toHaveBeenCalled();
+    expect(result.vacuumedTables).toEqual(['job_queue']);
+    expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
+  });
+
   it('surfaces vacuum failures instead of reporting a completed maintenance pass', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('GROUP BY state')) {
