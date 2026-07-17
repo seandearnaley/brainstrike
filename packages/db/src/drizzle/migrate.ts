@@ -52,7 +52,8 @@ import { migration059AssistantThreadGroupIcons } from '../migrations/059-assista
 import { migration060OpenRouterSparkKimiK3 } from '../migrations/060-openrouter-spark-kimi-k3.js';
 import { migration061ModelVisionCapability } from '../migrations/061-model-vision-capability.js';
 import { migration062AssistantRunOutcomes } from '../migrations/062-assistant-run-outcomes.js';
-import { migration063JobQueueOutcomeMetrics } from '../migrations/063-job-queue-outcome-metrics.js';
+import { migration063IndexConsolidation } from '../migrations/063-index-consolidation.js';
+import { migration064JobQueueOutcomeMetrics } from '../migrations/064-job-queue-outcome-metrics.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -213,7 +214,8 @@ const customMigrations: Migration[] = [
   customMigration('custom-060-openrouter-spark-kimi-k3', migration060OpenRouterSparkKimiK3),
   customMigration('custom-061-model-vision-capability', migration061ModelVisionCapability),
   customMigration('custom-062-assistant-run-outcomes', migration062AssistantRunOutcomes),
-  customMigration('custom-063-job-queue-outcome-metrics', migration063JobQueueOutcomeMetrics),
+  customMigration('custom-063-index-consolidation', migration063IndexConsolidation),
+  customMigration('custom-064-job-queue-outcome-metrics', migration064JobQueueOutcomeMetrics),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
