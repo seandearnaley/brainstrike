@@ -53,6 +53,23 @@ function CapInput({
   const [text, setText] = useState(value === null ? '' : String(value));
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
+  // External store mutations (factory reset while Settings is open, another
+  // panel instance) must be reflected here, not just the mount-time seed
+  // (review #1714). Render-time adjustment per the React "derived state"
+  // pattern: when the committed value changes out from under the draft, the
+  // draft re-seeds from the store — UNLESS the draft already parses to the
+  // new value (typing "5." commits 5 and echoes back; re-seeding then would
+  // eat the trailing dot mid-keystroke).
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    const draft = parseCapInput(text);
+    if (!(draft.ok && draft.value === value)) {
+      setText(value === null ? '' : String(value));
+      setValidationMessage(null);
+    }
+  }
+
   const handleChange = (raw: string): void => {
     setText(raw);
     const parsed = parseCapInput(raw);

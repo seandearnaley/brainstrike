@@ -3,7 +3,7 @@ import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
 } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BudgetGuardrailSettingsPanel, parseCapInput } from '../budget-settings-panel';
@@ -107,5 +107,33 @@ describe('BudgetGuardrailSettingsPanel', () => {
     await user.clear(screen.getByTestId('budget-daily-cap-input'));
 
     expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBeNull();
+  });
+
+  it('re-seeds the draft when the store changes externally (factory reset)', async () => {
+    // Review #1714: the draft was seeded only at mount, so a factory reset
+    // with Settings open left stale text in the input while the store said
+    // "cap off".
+    useAssistantBudgetPreferencesStore.getState().setDailyCapUsd(10);
+    render(<BudgetGuardrailSettingsPanel />);
+    expect(screen.getByTestId('budget-daily-cap-input')).toHaveValue('10');
+
+    act(() => {
+      useAssistantBudgetPreferencesStore.getState().setDailyCapUsd(null);
+    });
+
+    expect(screen.getByTestId('budget-daily-cap-input')).toHaveValue('');
+    expect(screen.queryByTestId('budget-daily-cap-error')).not.toBeInTheDocument();
+  });
+
+  it('does not clobber an in-progress draft that parses to the committed value', async () => {
+    // Typing "2." commits 2 and the store echoes it back; the re-seed must
+    // not eat the trailing dot mid-keystroke.
+    const user = userEvent.setup();
+    render(<BudgetGuardrailSettingsPanel />);
+
+    await user.type(screen.getByTestId('budget-daily-cap-input'), '2.');
+
+    expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBe(2);
+    expect(screen.getByTestId('budget-daily-cap-input')).toHaveValue('2.');
   });
 });

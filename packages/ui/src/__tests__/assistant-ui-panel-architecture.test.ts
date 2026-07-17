@@ -76,7 +76,10 @@ describe('assistant UI panel architecture', () => {
     // must not bypass the cap). The chip, the over-cap notice, and the gate
     // derivation all live in their own module (budget-guardrail-control.tsx /
     // budget-guardrail-context.tsx).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1816);
+    // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
+    // EditComposer's Input is disabled alongside the Send button while the
+    // budget cap blocks sends — Enter in the input is a submit path too.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1818);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -154,6 +157,9 @@ describe('assistant UI panel architecture', () => {
     const assistantMessageStart = source.indexOf('const AssistantMessage =');
     const editComposerSource = source.slice(editComposerStart, assistantMessageStart);
     expect(editComposerSource).toContain('useBudgetSendGate()');
+    // The gate must reach the Input too, not just the Send button — Enter in
+    // the edit input is a submit path (review #1714).
+    expect(editComposerSource.match(/disabled=\{budgetSendBlocked\}/g)?.length).toBe(2);
 
     const composerInputSource = readSource('assistant-ui-panel/composer-input.tsx');
     expect(composerInputSource).toContain('useBudgetSendGate()');

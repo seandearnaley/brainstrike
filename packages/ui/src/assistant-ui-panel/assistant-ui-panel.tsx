@@ -1546,7 +1546,12 @@ const EditComposer = () => {
   const budgetSendBlocked = useBudgetSendGate();
   return (
     <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
-      <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
+      {/* disabled mirrors ComposerInputRow: the Input submits on Enter, so a
+          gate on the Send button alone leaves a keyboard bypass (review #1714). */}
+      <ComposerPrimitive.Input
+        className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none"
+        disabled={budgetSendBlocked}
+      />
 
       <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
         <ComposerPrimitive.Cancel asChild>
