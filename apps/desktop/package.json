@@ -15,7 +15,13 @@
     "npmRebuild": true,
     "asarUnpack": [
       "**/node_modules/node-pty/prebuilds/**",
-      "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node"
+      "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node",
+      "**/node_modules/typescript-language-server/**",
+      "**/node_modules/typescript/**",
+      "**/node_modules/vscode-jsonrpc/**",
+      "**/node_modules/vscode-languageserver-protocol/**",
+      "**/node_modules/vscode-languageserver/**",
+      "**/node_modules/vscode-languageserver-textdocument/**"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -68,6 +74,10 @@
     "react-dom": "^19.2.7",
     "strip-ansi": "7.2.0",
     "tree-kill": "1.2.2",
+    "typescript": "catalog:",
+    "typescript-language-server": "^5.3.0",
+    "vscode-jsonrpc": "^9.0.1",
+    "vscode-languageserver-protocol": "^3.18.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -123,7 +133,6 @@
     "shiki": "^4.3.1",
     "tailwindcss": "^4.3.2",
     "tiktoken": "^1.0.22",
-    "typescript": "catalog:",
     "vite": "^8.1.3",
     "vite-plugin-static-copy": "^4.1.1",
     "vite-plugin-top-level-await": "^1.6.0",

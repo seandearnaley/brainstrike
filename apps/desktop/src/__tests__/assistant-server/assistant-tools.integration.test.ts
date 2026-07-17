@@ -9,8 +9,9 @@ import {
   withFileLock,
 } from '@brainstrike/agent';
 import type { BrowserWindow } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -3164,5 +3165,75 @@ describe('assistant-tools multi-root read tools', () => {
       expect(tools['brainstrike.askUser']).toBeDefined();
       expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
     });
+  });
+
+  describe('post-edit LSP diagnostics (report R2)', () => {
+    // Real typescript-language-server subprocess — dispose after each so no
+    // pooled server orphans across tests.
+    afterEach(async () => {
+      await disposeLspServers();
+    });
+
+    async function createLspWorkspace(): Promise<string> {
+      const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-lsp-edit-'));
+      await fsPromises.mkdir(path.join(root, 'src'), { recursive: true });
+      await fsPromises.writeFile(path.join(root, 'package.json'), '{"name":"fixture"}', 'utf8');
+      return realpathSync(root);
+    }
+
+    it('attaches diagnostics to a stringReplace that introduces a type error', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'typed.ts'),
+          'export const value: number = 1;\n',
+          'utf8'
+        );
+
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread' },
+          workspaceRootPath,
+        } as RuntimeData);
+        // Read first so the R8 staleness guard has a fresh observation.
+        await tools['brainstrike.readWorkspaceFile'].execute({
+          context: { path: '/src/typed.ts' },
+        });
+
+        const result = await tools['brainstrike.stringReplaceWorkspaceFile'].execute({
+          context: {
+            newStr: 'export const value: number = "not a number";',
+            oldStr: 'export const value: number = 1;',
+            path: '/src/typed.ts',
+          },
+        });
+
+        expect(result.replaced).toBe(true);
+        expect(result.lsp?.available).toBe(true);
+        expect(result.lsp?.language).toBe('typescript');
+        expect(result.lsp?.diagnostics?.length ?? 0).toBeGreaterThan(0);
+        expect(result.lsp?.diagnostics?.[0]?.message).toMatch(/not assignable/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('omits the lsp field entirely for a non-code (markdown) write', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread-2' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        const result = await tools['brainstrike.writeWorkspaceFile'].execute({
+          context: { content: '# Notes\n', path: '/notes.md' },
+        });
+
+        expect(result.created).toBe(true);
+        expect(result.lsp).toBeUndefined();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
   });
 });

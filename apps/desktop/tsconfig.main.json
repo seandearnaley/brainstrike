@@ -23,6 +23,12 @@
       "electron"
     ],
     "paths": {
+      "vscode-jsonrpc/node": [
+        "./node_modules/vscode-jsonrpc/lib/node/main.d.ts"
+      ],
+      "vscode-languageserver-protocol/node": [
+        "./node_modules/vscode-languageserver-protocol/lib/node/main.d.ts"
+      ],
       "@brainstrike/utils": [
         "../../packages/utils/dist/index.d.ts"
       ],
