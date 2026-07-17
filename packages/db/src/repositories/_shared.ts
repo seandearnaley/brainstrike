@@ -480,6 +480,66 @@ export function hnswSearchTuningStatements(efSearch?: number): string[] {
 }
 
 /**
+ * Filtered vector searches: when a similarity search carries narrowing filters
+ * beyond `embedding_set_id` (root scope, file paths, snapshot, chunk type, file
+ * record), the partial HNSW index collapses on selective filters — measured
+ * 39.5% recall@10 at 100k chunks with a ~10% filter, at the SAME latency as an
+ * exact scan of the filtered subset (docs/binary-quantization-two-stage-
+ * benchmark-2026-07-11.md). Raising ef_search or hnsw.max_scan_tuples does not
+ * rescue it. The fix: cheap bounded counts estimate the filter's selectivity
+ * per query and route selective searches to an exact full-precision scan of
+ * the filtered subset (100% recall at equal-or-better latency), keeping ANN
+ * for everything else.
+ */
+export const EXACT_FILTERED_SCAN_MAX_ROWS = 20_000;
+
+/**
+ * A filter is "selective" when it matches at most this fraction of its
+ * embedding set. Above it, ANN recall holds up (measured 94-99.8% at ~90%
+ * match rate) and the exact scan would only add latency.
+ */
+export const EXACT_FILTERED_SCAN_MAX_RATIO = 0.15;
+
+export type FilteredVectorSearchRoute = 'ann' | 'empty' | 'exact';
+
+/**
+ * Decide how a NARROWED vector search should execute, from two bounded counts
+ * the caller runs on demand (each count may stop scanning at its `cap` — the
+ * decision never needs exact totals):
+ *
+ * 1. `countMatched(cap)` — rows matching the full narrowed filter, capped at
+ *    `maxRows + 1`. Zero matches -> `'empty'` (skip the search entirely); more
+ *    than `maxRows` -> `'ann'` (an exact scan over that many vectors is not
+ *    affordable, and a filter that large is not the recall-collapse case).
+ * 2. `countSetTotal(cap)` — rows in the whole embedding set, capped at
+ *    `ceil(matched / maxRatio)`. Reaching the cap proves the ratio
+ *    `matched / total <= maxRatio` -> `'exact'`; falling short means the
+ *    filter covers most of the set -> `'ann'` keeps its speed (measured
+ *    99.8% recall at a ~90% match rate).
+ *
+ * Counts must use cheap predicates only (`embedding IS NOT NULL`, never
+ * `vector_dims(embedding)` — that detoasts every vector).
+ */
+export async function resolveFilteredVectorSearchRoute(
+  countMatched: (cap: number) => Promise<number>,
+  countSetTotal: (cap: number) => Promise<number>,
+  options: { maxRatio?: number; maxRows?: number } = {}
+): Promise<FilteredVectorSearchRoute> {
+  const maxRows = options.maxRows ?? EXACT_FILTERED_SCAN_MAX_ROWS;
+  const maxRatio = options.maxRatio ?? EXACT_FILTERED_SCAN_MAX_RATIO;
+  const matched = await countMatched(maxRows + 1);
+  if (matched <= 0) {
+    return 'empty';
+  }
+  if (matched > maxRows) {
+    return 'ann';
+  }
+  const totalCap = Math.ceil(matched / maxRatio);
+  const total = await countSetTotal(totalCap);
+  return total >= totalCap ? 'exact' : 'ann';
+}
+
+/**
  * Resolve a chunk's embedding dimension count from whichever the row carried.
  *
  * Prefers the loaded vector's length; falls back to the projected

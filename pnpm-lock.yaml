@@ -773,6 +773,9 @@ importers:
       minimatch:
         specifier: ^10.2.5
         version: 10.2.5
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -1823,6 +1826,9 @@ importers:
 
   packages/notes-vault:
     dependencies:
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

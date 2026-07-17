@@ -43,6 +43,25 @@ export interface UseNoteEditorArgs {
   onDetachedSaveError?: (noteName: string, message: string) => void;
   /** Fired after every successful write (e.g. refresh the tree's mtimes). */
   onSaved?: () => void;
+  /**
+   * The store's last rename remap (old id/prefix → new). Lets the editor
+   * recognize "same note, new identity" — after a rename of the note or an
+   * ancestor folder, the buffer is REBOUND (draft preserved) instead of
+   * detach-flushed through the pre-rename handle, whose desktop path is
+   * stale and now refused by the write layer.
+   */
+  renameRemap?: { readonly from: string; readonly to: string } | null;
+}
+
+/** Remaps a node id after a rename: exact match and descendants (`/`-aware). */
+function remapNoteId(id: string, from: string, to: string): string {
+  if (id === from) {
+    return to;
+  }
+  if (id.startsWith(`${from}/`)) {
+    return `${to}${id.slice(from.length)}`;
+  }
+  return id;
 }
 
 export interface NoteEditorApi {
@@ -81,6 +100,7 @@ export function useNoteEditor({
   autosaveMs = 1000,
   onDetachedSaveError,
   onSaved,
+  renameRemap = null,
 }: UseNoteEditorArgs): NoteEditorApi {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -194,27 +214,48 @@ export function useNoteEditor({
   }, [clearAutosaveTimer]);
 
   // Note switch: flush the previous note's dirty buffer (detached — its
-  // handle/draft are captured) and drop out of edit mode.
+  // handle/draft are captured) and drop out of edit mode. Exception: a RENAME
+  // remap means the buffer's note still exists under a new id — rebind it
+  // (draft preserved) instead of flushing through the pre-rename handle.
   const noteId = note?.id ?? null;
-  // biome-ignore lint/plugin: lifecycle reconciliation (flush-on-note-switch), not derived state
   useEffect(() => {
     const buffer = bufferRef.current;
-    if (buffer && buffer.noteId !== noteId) {
-      clearAutosaveTimer();
-      bufferRef.current = null;
-      setEditing(false);
-      setSaveState('idle');
-      setExternallyChanged(false);
-      if (buffer.draft !== buffer.baseline) {
-        void writeBuffer(buffer).then((failure) => {
-          if (failure !== null) {
-            // The editor UI for this note is gone — surface through the host.
-            onDetachedSaveErrorRef.current?.(buffer.noteName, failure);
-          }
-        });
+    if (!buffer) {
+      return;
+    }
+    if (renameRemap) {
+      const remapped = remapNoteId(buffer.noteId, renameRemap.from, renameRemap.to);
+      if (remapped !== buffer.noteId) {
+        // Same note, renamed (itself or an ancestor). The tree may still be
+        // mid-rescan (note transiently null) — keep the buffer alive and let
+        // a later pass rebind the fresh handle below.
+        buffer.noteId = remapped;
+        return;
       }
     }
-  }, [noteId, clearAutosaveTimer, writeBuffer]);
+    if (buffer.noteId === noteId) {
+      if (note && buffer.handle !== note.handle) {
+        // Post-rescan node: rebind the fresh handle so later saves target the
+        // note's CURRENT path (desktop handles bake paths at scan time).
+        buffer.handle = note.handle;
+        buffer.noteName = note.name;
+      }
+      return;
+    }
+    clearAutosaveTimer();
+    bufferRef.current = null;
+    setEditing(false);
+    setSaveState('idle');
+    setExternallyChanged(false);
+    if (buffer.draft !== buffer.baseline) {
+      void writeBuffer(buffer).then((failure) => {
+        if (failure !== null) {
+          // The editor UI for this note is gone — surface through the host.
+          onDetachedSaveErrorRef.current?.(buffer.noteName, failure);
+        }
+      });
+    }
+  }, [noteId, note, renameRemap, clearAutosaveTimer, writeBuffer]);
 
   // External disk change while editing: adopt when clean, flag when dirty.
   useEffect(() => {

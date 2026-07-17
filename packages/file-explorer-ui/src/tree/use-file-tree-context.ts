@@ -63,7 +63,8 @@ export interface CancellableFileTreeHook {
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-    currentExpandedPaths?: ReadonlySet<string>
+    currentExpandedPaths?: ReadonlySet<string>,
+    onProgress?: (loaded: number, total: number) => void
   ) => Promise<void>;
   fileTree: IFileNode[];
   /** Whether the operation is currently being cancelled */

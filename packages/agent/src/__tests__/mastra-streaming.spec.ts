@@ -612,10 +612,11 @@ describe('mastra streaming integration', () => {
       );
 
       const chunks: unknown[] = [];
-      chunks.push((await iterator.next()).value);
-      chunks.push((await iterator.next()).value);
+      const stream = iterator[Symbol.asyncIterator]();
+      chunks.push((await stream.next()).value);
+      chunks.push((await stream.next()).value);
       vi.setSystemTime(new Date('2026-05-30T08:00:05.000Z'));
-      chunks.push((await iterator.next()).value);
+      chunks.push((await stream.next()).value);
       vi.setSystemTime(new Date('2026-05-30T08:00:30.000Z'));
       for await (const chunk of iterator) {
         chunks.push(chunk);
@@ -1453,9 +1454,9 @@ describe('mastra streaming integration', () => {
     // This fixture has no permission-policy ask set, so the approval was
     // explicitly global. The resumed leg must keep gating every non-internal
     // follow-up tool while exempting Mastra's memory bookkeeping.
-    const approveGate = agent?.approveToolCallCalls[0]?.requireToolApproval as (ctx: {
-      toolName: string;
-    }) => boolean;
+    const approveGate = (
+      agent?.approveToolCallCalls[0] as { requireToolApproval?: unknown } | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
     expect(typeof approveGate).toBe('function');
     expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
@@ -1555,9 +1556,9 @@ describe('mastra streaming integration', () => {
       toolCallId: 'tool-call-2',
     });
     // The decline resume leg preserves the same explicit global gate.
-    const declineGate = agent?.declineToolCallCalls[0]?.requireToolApproval as (ctx: {
-      toolName: string;
-    }) => boolean;
+    const declineGate = (
+      agent?.declineToolCallCalls[0] as { requireToolApproval?: unknown } | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
     expect(typeof declineGate).toBe('function');
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(declineGate({ toolName: 'shell_tool' })).toBe(true);

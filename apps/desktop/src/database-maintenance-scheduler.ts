@@ -38,6 +38,7 @@ export type DesktopDatabaseMaintenanceRunResult =
   | ScheduledDatabaseMaintenanceResult
   | {
       readonly activeJobs: 0;
+      readonly analyzedTables: readonly [];
       readonly completedAt: string;
       readonly durationMs: 0;
       readonly prunedTerminalJobs: 0;
@@ -99,6 +100,7 @@ function createSkippedResult(
   const timestamp = now().toISOString();
   return {
     activeJobs: 0,
+    analyzedTables: [],
     completedAt: timestamp,
     durationMs: 0,
     prunedTerminalJobs: 0,
@@ -160,6 +162,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
           options.logger.info(
             {
               activeJobs: result.activeJobs,
+              analyzedTables: result.analyzedTables,
               durationMs: result.durationMs,
               prunedTerminalJobs: result.prunedTerminalJobs,
               status: result.status,

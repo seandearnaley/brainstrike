@@ -309,14 +309,10 @@ describe('toAiSdkStyleStream', () => {
         id: '4',
         parts: [
           {
-            toolInvocation: {
-              args: {},
-              result: 'done',
-              state: 'result',
-              toolCallId: 'tc-1',
-              toolName: 'search',
-            },
-            type: 'tool-invocation',
+            input: {},
+            output: 'done',
+            state: 'output-available',
+            type: 'tool-search',
           },
         ],
         role: 'assistant',

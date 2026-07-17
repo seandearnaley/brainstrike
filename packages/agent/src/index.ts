@@ -73,6 +73,8 @@ export {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
   type ToolResumeRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-suspend';
+export type { WorkspaceSkills } from '@mastra/core/skills';
+export { formatSkillActivation } from '@mastra/core/workspace';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -307,6 +309,39 @@ export {
   createAssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
 } from './run-events';
+// Agent Skills: the scan + WorkspaceSkills engine + tools (desktop wires these
+// over its SecureRoot fs adapter; web never constructs them). The Mastra
+// activation formatter and engine interface are re-exported so the desktop app
+// needs no direct @mastra/core dependency.
+export {
+  createScannedWorkspaceSkills,
+  MAX_SKILL_ASSET_BYTES,
+  MAX_SKILL_CONTENT_FILE_CHARS,
+  type ScannedWorkspaceSkillsConfig,
+  type SkillContentDeps,
+} from './skills/scanned-workspace-skills';
+export {
+  __resetSkillScanWarningsForTests,
+  MAX_SKILL_DIR_ENTRIES,
+  MAX_SKILL_FILE_BYTES,
+  MAX_SKILL_FILE_CHARS,
+  MAX_SKILLS,
+  type ScannedSkill,
+  type SkillDirEntry,
+  type SkillReadResult,
+  type SkillScanDeps,
+  type SkillScanEntry,
+  type SkillScanInput,
+  type SkillScanResult,
+  type SkillScanRoot,
+  scanSkills,
+} from './skills/skill-scan';
+export {
+  createAssistantSkillTools,
+  SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+  SKILL_TOOL_IDS,
+} from './skills/skill-tools';
+export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
@@ -461,6 +496,8 @@ export {
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
+  type HybridSearchInput,
+  HybridSearchInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,

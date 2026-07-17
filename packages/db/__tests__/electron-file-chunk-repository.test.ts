@@ -361,6 +361,153 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   });
 });
 
+// Selective narrowed searches must bypass the ANN index via an exact
+// full-precision scan (the partial halfvec HNSW index returns as little as
+// 39.5% recall@10 on ~10%-selective filters at 100k chunks — see
+// docs/binary-quantization-two-stage-benchmark-2026-07-11.md). Bounded
+// selectivity counts route each narrowed search; whole-set searches never count.
+describe('ElectronFileChunkRepository.searchSimilar adaptive routing', () => {
+  const dimension = 4;
+  const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
+
+  // Sequenced mock: embedding_sets lookup, then bounded COUNT queries in call
+  // order (matched first, set total second), then the search SELECT.
+  const setupQueryMock = (query: QueryMock, counts: number[]) => {
+    let countCall = 0;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ dimensions: dimension, distance: 'cosine' }] };
+      }
+      if (sql.includes('SELECT COUNT(*)')) {
+        const c = counts[countCall] ?? 0;
+        countCall += 1;
+        return { rows: [{ c }] };
+      }
+      return { rows: [] };
+    });
+  };
+
+  it('routes a selective narrowed search to an exact scan (no ANN transaction)', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    // matched=10 <= 20k cap; total cap ceil(10/0.15)=67 reached -> exact.
+    setupQueryMock(query as QueryMock, [10, 67]);
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootIds: ['root-a'],
+    });
+
+    expect(transaction).not.toHaveBeenCalled();
+    const searchSql = query.mock.calls
+      .map((c) => c[0])
+      .find((sql) => sql.includes('ROW_NUMBER() OVER'));
+    expect(searchSql).toBeDefined();
+    // Full-precision order/score expressions cannot match the halfvec HNSW
+    // index -> the planner exact-scans the filtered subset.
+    expect(searchSql).toContain(`$1::vector(${dimension})`);
+    expect(searchSql).not.toContain('halfvec');
+    expect(query.mock.calls.map((c) => c[0])).not.toContain('BEGIN');
+  });
+
+  // The single-root `rootId` option (ChunkSearchOptions) must scope the Electron
+  // path exactly like the direct FileChunkRepository: the root predicate has to
+  // reach BOTH the selectivity counts (so routing sees the narrowed subset) and
+  // the search SQL itself. Dropping it silently widens desktop results to every
+  // root in the embedding set.
+  it('carries the single-root rootId scope through the counts and the search SQL', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    // matched=10 <= 20k cap; total cap ceil(10/0.15)=67 reached -> exact.
+    setupQueryMock(query as QueryMock, [10, 67]);
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootId: 'root-a',
+    });
+
+    // rootId alone narrows the search -> the selectivity counts run and carry
+    // the root predicate.
+    const countSql = query.mock.calls
+      .map((c) => c[0] as string)
+      .find((sql) => sql.includes('SELECT COUNT(*)'));
+    expect(countSql).toBeDefined();
+    expect(countSql).toContain('file_record_id IN (SELECT id FROM file_records WHERE root_id = $');
+
+    // The search SQL carries the same predicate with the rootId value bound.
+    const searchCall = query.mock.calls.find((c) => (c[0] as string).includes('ROW_NUMBER() OVER'));
+    expect(searchCall).toBeDefined();
+    expect(searchCall?.[0]).toContain(
+      'file_record_id IN (SELECT id FROM file_records WHERE root_id = $'
+    );
+    expect(searchCall?.[1]).toContain('root-a');
+    // Selective single-root scope -> exact route (no tuned ANN transaction).
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps a large narrowed subset on the tuned ANN path (single count)', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    // matched cap is 20_001; a full cap count means "too many for exact".
+    setupQueryMock(query as QueryMock, [20_001]);
+    transaction.mockResolvedValue({ rows: [] });
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootIds: ['root-a'],
+    });
+
+    const countCalls = query.mock.calls.filter((c) => (c[0] as string).includes('SELECT COUNT(*)'));
+    expect(countCalls).toHaveLength(1);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    const [statements] = transaction.mock.calls[0] as [{ sql: string }[]];
+    expect(statements.at(-1)?.sql).toContain(`halfvec(${dimension})`);
+  });
+
+  it('keeps a non-selective narrowed search on the ANN path (ratio check fails)', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    // matched=10 -> total cap 67, but the set only has 30 rows -> ratio too high.
+    setupQueryMock(query as QueryMock, [10, 30]);
+    transaction.mockResolvedValue({ rows: [] });
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootIds: ['root-a'],
+    });
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('short-circuits a zero-match narrowed search to [] without searching', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    setupQueryMock(query as QueryMock, [0]);
+
+    const results = await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootIds: ['root-a'],
+    });
+
+    expect(results).toEqual([]);
+    expect(transaction).not.toHaveBeenCalled();
+    const sqls = query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((sql) => sql.includes('ROW_NUMBER() OVER'))).toBe(false);
+  });
+
+  it('never runs selectivity counts for un-narrowed whole-set searches', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    setupQueryMock(query as QueryMock, []);
+    transaction.mockResolvedValue({ rows: [] });
+
+    await repo.searchSimilar(queryEmbedding, { embeddingSetId: 'set-1', limit: 5 });
+
+    const sqls = query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((sql) => sql.includes('SELECT COUNT(*)'))).toBe(false);
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('ElectronFileChunkRepository.findGrepCandidates', () => {
   it('builds the trigram prefilter with rootIds and maps candidates', async () => {
     const { repo, query } = createRepo();

@@ -102,11 +102,14 @@ export const DESKTOP_IPC_CHANNELS = {
     // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
     // so it is never registered on the registry (see notes-vault-ipc-handlers.ts).
     changed: 'notes-vault:changed',
+    createDirectory: 'notes-vault:create-directory',
+    deleteEntry: 'notes-vault:delete-entry',
     ensureDefaultVault: 'notes-vault:ensure-default-vault',
     listDirectory: 'notes-vault:list-directory',
     pickDirectory: 'notes-vault:pick-directory',
     readFile: 'notes-vault:read-file',
     registerRoot: 'notes-vault:register-root',
+    rename: 'notes-vault:rename',
     statEntry: 'notes-vault:stat-entry',
     unwatch: 'notes-vault:unwatch',
     watch: 'notes-vault:watch',
@@ -143,6 +146,9 @@ export const DESKTOP_IPC_CHANNELS = {
     openExternal: 'shell:open-external',
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
+  },
+  skills: {
+    scan: 'skills:scan',
   },
   storage: {
     clear: 'storage:clear',

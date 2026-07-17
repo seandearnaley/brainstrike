@@ -1,11 +1,25 @@
-import { Badge, Button, type TreeNode, TreeTable } from '@brainstrike/ui';
+import {
+  ActionContextMenu,
+  Badge,
+  Button,
+  type TreeNode,
+  TreeTable,
+  useContextMenuTarget,
+} from '@brainstrike/ui';
 import { AlertTriangle, FileText, Folder, Loader2, NotebookText, RefreshCw, X } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { buildVaultTreeRows, type VaultRootState, type VaultRowData } from '../core/rows';
 import type { NotesVaultStore } from '../store/notes-vault-store';
 import { noteDisplayName } from './note-display-name';
+import {
+  buildVaultLocalActions,
+  type VaultDeleteDialogRequest,
+  type VaultNameDialogRequest,
+  vaultRowToTarget,
+} from './vault-context-actions';
+import { VaultDeleteDialog, VaultNameDialog } from './vault-entry-dialogs';
 
 function RootRow({
   root,
@@ -98,6 +112,30 @@ export function VaultTree({ store }: VaultTreeProps): React.ReactNode {
 
   const nodes = useMemo(() => buildVaultTreeRows(roots, sortMode), [roots, sortMode]);
 
+  // Right-click menu: shared context-action system (ui-conventions CONTEXT
+  // ACTION SYSTEM) — targets claimed synchronously on contextmenu, actions
+  // are surface-local closures over the vault store, and named/destructive
+  // flows stage into dialogs whose confirm performs the mutation.
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const [nameDialog, setNameDialog] = useState<VaultNameDialogRequest | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<VaultDeleteDialogRequest | null>(null);
+  const localActions = useMemo(
+    () =>
+      buildVaultLocalActions({
+        openDeleteDialog: setDeleteDialog,
+        openNameDialog: setNameDialog,
+        store,
+      }),
+    [store]
+  );
+  const handleRowContextMenu = useCallback(
+    (_nodeId: string, node: TreeNode<VaultRowData>) => {
+      setContextMenuTarget(vaultRowToTarget(node.data));
+    },
+    [setContextMenuTarget]
+  );
+
   const handleReconnect = useCallback(
     (rootId: string) => {
       void reconnectRoot(rootId);
@@ -173,25 +211,38 @@ export function VaultTree({ store }: VaultTreeProps): React.ReactNode {
   );
 
   return (
-    <TreeTable<VaultRowData>
-      ariaLabel="Notes vault tree"
-      ariaRole="treegrid"
-      columns={columns}
-      emptyState={
-        <p className="flex items-center gap-2 p-3 text-muted-foreground text-sm">
-          <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-          No vaults mounted
-        </p>
-      }
-      expandedIds={expandedIds}
-      maxHeight="100%"
-      nodes={nodes}
-      onSelect={handleSelect}
-      onToggleExpand={toggleExpanded}
-      selectedId={selectedNoteId}
-      selectionMode="single"
-      showHeader={false}
-      windowingStrategy="auto"
-    />
+    <>
+      <ActionContextMenu controller={contextMenuController} localActions={localActions}>
+        <div className="h-full min-h-0" onContextMenuCapture={() => setContextMenuTarget(null)}>
+          <TreeTable<VaultRowData>
+            ariaLabel="Notes vault tree"
+            ariaRole="treegrid"
+            columns={columns}
+            emptyState={
+              <p className="flex items-center gap-2 p-3 text-muted-foreground text-sm">
+                <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                No vaults mounted
+              </p>
+            }
+            expandedIds={expandedIds}
+            maxHeight="100%"
+            nodes={nodes}
+            onRowContextMenu={handleRowContextMenu}
+            onSelect={handleSelect}
+            onToggleExpand={toggleExpanded}
+            selectedId={selectedNoteId}
+            selectionMode="single"
+            showHeader={false}
+            windowingStrategy="auto"
+          />
+        </div>
+      </ActionContextMenu>
+      <VaultNameDialog onClose={() => setNameDialog(null)} request={nameDialog} store={store} />
+      <VaultDeleteDialog
+        onClose={() => setDeleteDialog(null)}
+        request={deleteDialog}
+        store={store}
+      />
+    </>
   );
 }

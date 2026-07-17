@@ -1,6 +1,7 @@
 import {
   type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
+  type DimensionIndexMaintenanceStrategy,
   hnswParams,
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
@@ -8,7 +9,7 @@ import {
   withIndexBuildMaintenanceWorkMem,
 } from '@brainstrike/db';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/utils/workspace-indexing-power-snapshot';
-import type { DimensionIndexStrategySelection } from './dimension-index-maintenance-capabilities';
+import type { DimensionIndexBuildStrategy } from './dimension-index-maintenance-capabilities';
 
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INITIAL_DELAY_MS = 45_000;
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
@@ -69,7 +70,7 @@ export interface DesktopDimensionIndexMaintenanceScheduler {
 
 export interface DesktopDimensionIndexMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<DimensionIndexMaintenanceDb>;
-  readonly getDimensionIndexStrategy: () => DimensionIndexStrategySelection | null;
+  readonly getDimensionIndexStrategy: () => DimensionIndexBuildStrategy | null;
   readonly getPowerSnapshot: () => WorkspaceIndexingPowerSnapshot;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
   readonly initialDelayMs?: number;
@@ -139,23 +140,16 @@ function validateDimension(dimension: number): void {
   }
 }
 
-function createDimensionIndexSql(
-  dimension: number,
-  strategy: DimensionIndexStrategySelection['strategy']
-): string {
+function createDimensionIndexSql(dimension: number): string {
   validateDimension(dimension);
   const indexName = `idx_file_chunks_emb_hnsw_${dimension}`;
   if (!/^idx_file_chunks_emb_hnsw_\d+$/.test(indexName)) {
     throw new Error(`Invalid dimension index name: ${indexName}`);
   }
   const params = hnswParams();
-  const createPrefix =
-    strategy === 'concurrent'
-      ? 'CREATE INDEX CONCURRENTLY IF NOT EXISTS'
-      : 'CREATE INDEX IF NOT EXISTS';
 
   return `
-    ${createPrefix} ${indexName} ON file_chunks
+    CREATE INDEX IF NOT EXISTS ${indexName} ON file_chunks
     USING hnsw ((embedding::halfvec(${dimension})) halfvec_cosine_ops)
     WITH (m=${params.m}, ef_construction=${params.ef})
     WHERE vector_dims(embedding) = ${dimension}
@@ -166,14 +160,17 @@ async function createDimensionIndexWithMaintenanceExec(
   db: DimensionIndexMaintenanceDb,
   request: {
     readonly dimension: number;
-    readonly strategy: DimensionIndexStrategySelection['strategy'];
+    readonly strategy: DimensionIndexMaintenanceStrategy;
   }
 ): Promise<void> {
+  if (request.strategy !== 'regular') {
+    throw new Error('Dimension index maintenance no longer supports the concurrent strategy.');
+  }
   const maintenanceExec = db.maintenance?.exec;
   if (!maintenanceExec) {
     throw new Error('Dimension index maintenance requires DB maintenance exec support.');
   }
-  const sql = createDimensionIndexSql(request.dimension, request.strategy);
+  const sql = createDimensionIndexSql(request.dimension);
   // The maintenance_work_mem SET/RESET around the build MUST ride the SAME
   // maintenance channel as the CREATE INDEX: the setting is session-local, so
   // split routing would silently leave the build untuned at the 64MB default
@@ -237,8 +234,8 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
       return createSkippedResult(powerSkipReason);
     }
 
-    const strategySelection = options.getDimensionIndexStrategy();
-    if (!strategySelection) {
+    const strategy = options.getDimensionIndexStrategy();
+    if (!strategy) {
       options.logger.warn?.(
         { reason: 'dimension-index-strategy-unavailable' },
         'Skipped dimension index maintenance because capability probe is unavailable'
@@ -253,7 +250,7 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
           createIndex: async (request) =>
             await createDimensionIndexWithMaintenanceExec(db, request),
           now,
-          strategy: strategySelection.strategy,
+          strategy,
         });
       })
       .then((result) => {
@@ -263,15 +260,11 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
               dimension: result.dimension,
               durationMs: result.durationMs,
               strategy: result.strategy,
-              strategyReason: strategySelection.reason,
             },
             'Dimension index maintenance completed'
           );
         } else {
-          options.logger.debug(
-            { result, strategyReason: strategySelection.reason },
-            'Dimension index maintenance did not complete'
-          );
+          options.logger.debug({ result }, 'Dimension index maintenance did not complete');
         }
         return result;
       })

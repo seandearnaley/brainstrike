@@ -320,20 +320,27 @@ export function useFileSystemInstance() {
   // Non-React fixture-injection bridge: the inline-fixture subscription runs
   // outside React and dispatches brainstrike:inject-root-handle (it cannot reach
   // the React-only reducer). Route it through the same reducer path a real
-  // set-root uses. Refs keep the listener subscribed ONCE — setRootHandle and
-  // clearRootDirectory are recreated every render.
+  // set-root uses; mode 'add' appends an additional root instead (multi-root
+  // fixture harness — never persisted). Refs keep the listener subscribed ONCE —
+  // the handlers are recreated every render.
   const setRootHandleRef = useRef(setRootHandle);
   setRootHandleRef.current = setRootHandle;
   const clearRootDirectoryRef = useRef(clearRootDirectory);
   clearRootDirectoryRef.current = clearRootDirectory;
+  const addExternalRootHandleRef = useRef(coreApi.addExternalRootHandle);
+  addExternalRootHandleRef.current = coreApi.addExternalRootHandle;
   useEffect(() => {
     const onInject = (event: Event): void => {
       const detail = (event as CustomEvent<InjectRootHandleDetail>).detail;
-      if (detail?.handle) {
-        setRootHandleRef.current(detail.handle);
-      } else {
+      if (!detail?.handle) {
         clearRootDirectoryRef.current();
+        return;
       }
+      if (detail.mode === 'add') {
+        addExternalRootHandleRef.current(detail.handle);
+        return;
+      }
+      setRootHandleRef.current(detail.handle);
     };
     window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
     return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);

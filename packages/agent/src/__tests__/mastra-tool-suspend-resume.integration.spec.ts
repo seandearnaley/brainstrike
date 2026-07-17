@@ -16,7 +16,6 @@
  * heavy real-PGlite suspend/resume runs are isolated from the env-mutating stall
  * tests there — see the header of mastra-tool-approval-suspend.spec.ts.
  */
-import { ReadableStream } from 'node:stream/web';
 import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
 import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
