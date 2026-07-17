@@ -85,6 +85,7 @@ import {
   buildDesktopAssistantTools,
   readWorkspaceTextFile,
 } from './assistant-server/assistant-tools';
+import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
   hookRunEventToAssistant,
@@ -150,6 +151,7 @@ const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
+const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 
 interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
@@ -523,6 +525,71 @@ async function completeDesktopAssistantThreadRun(
      WHERE id = $1`,
     [runId, status, error, now, now]
   );
+}
+
+/**
+ * Minimal structural DB surface for the hook-run-outcome writer, so the paired
+ * integration test can drive a real PGlite handle without the remote client.
+ */
+interface HookRunOutcomeDatabase {
+  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * Task Ledger source 'hook': persist a Stop-hook-reported verdict for a run.
+ *
+ * DUPLICATION NOTE (same precedent as the repository's bootstrap-SQL mirror of
+ * migration 060): this upsert's column set + SET list are kept byte-consistent
+ * with `recordRunOutcome` in packages/app-shell/src/assistant-memory-repository.ts.
+ * Two deliberate differences: thread/resource ids are derived from the runs row
+ * (mirrors recordDesktopAssistantRunEvent — the main process trusts its own
+ * bookkeeping, not hook-adjacent input), and the conflict clause carries the
+ * precedence rule `source <> 'user'` — a hook label must NEVER overwrite an
+ * explicit user verdict, while a later user verdict (plain repository upsert)
+ * still replaces a hook label. Keep the three writers' semantics in sync.
+ *
+ * Zero affected rows is disambiguated loudly: a missing runs row THROWS (a
+ * verdict for an unknown run is a caller bug, never a silent no-op); an
+ * existing user label logs the skip (expected precedence).
+ */
+export async function recordDesktopAssistantHookRunOutcome(
+  database: HookRunOutcomeDatabase,
+  runId: string,
+  verdict: HookRunVerdict
+): Promise<void> {
+  const result = await database.query(
+    `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
+      (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)
+     SELECT runs.id, runs.thread_id, runs.resource_id, $2, 'hook', $3, NOW(), NOW(), NOW()
+     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+     WHERE runs.id = $1
+     ON CONFLICT (run_id) DO UPDATE SET
+      thread_id = EXCLUDED.thread_id,
+      resource_id = EXCLUDED.resource_id,
+      verdict = EXCLUDED.verdict,
+      source = EXCLUDED.source,
+      detail = EXCLUDED.detail,
+      labeled_at = EXCLUDED.labeled_at,
+      updated_at = NOW()
+     WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'
+     RETURNING run_id`,
+    [runId, verdict.verdict, verdict.detail ?? null]
+  );
+  if (result.rows.length === 1) {
+    return;
+  }
+  const run = await database.query(`SELECT 1 FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE id = $1`, [
+    runId,
+  ]);
+  if (run.rows.length === 0) {
+    throw new Error(
+      `Cannot record hook run verdict: assistant run ${runId} has no thread-run row.`
+    );
+  }
+  logger.info('Hook run verdict skipped: an existing user label takes precedence', {
+    runId,
+    verdict: verdict.verdict,
+  });
 }
 
 async function recordDesktopAssistantRunEvent(
@@ -1391,6 +1458,26 @@ async function resolvePersonaRuntimeFields(
   };
 }
 
+/**
+ * The Stop-hook verdict recorder threaded into `finalizeHookedStream`: records
+ * a hook-reported Task Ledger verdict for THIS run via the main-process DB
+ * handle. Without a runId there is no run to label, so no recorder is threaded
+ * (hooks themselves still run).
+ */
+function buildHookRunVerdictRecorder(runId: string | undefined): {
+  onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>;
+} {
+  if (!runId) {
+    return {};
+  }
+  return {
+    onRunVerdict: async (verdict: HookRunVerdict): Promise<void> => {
+      const database = await getDatabase();
+      await recordDesktopAssistantHookRunOutcome(database, runId, verdict);
+    },
+  };
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1600,13 +1687,18 @@ async function initializeAgentStream(
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the
-    // observer drains.
+    // observer drains. A Stop hook may additionally report a Task Ledger
+    // verdict for the run (source 'hook'): recorded here via the main-process
+    // DB handle, awaited in FRONT of the finish yield so it lands before the
+    // post-stream terminal bookkeeping. Without a runId there is no run to
+    // label, so no recorder is threaded (hooks themselves still run).
     return {
       ok: true,
       stream: finalizeHookedStream(stream, {
         logger,
         manager: hookManager,
         observe,
+        ...buildHookRunVerdictRecorder(runId),
         runner: hookRunner,
         signal,
       }),

@@ -195,6 +195,11 @@ export class HookManager {
       {
         aggregateTimeoutMs: this.ctx.aggregateTimeoutMs,
         blocking: true,
+        // Stop is the run-scoped completion phase, so ONLY here may a hook
+        // report a Task Ledger verdict for the run (strict stdout scan; see
+        // run-verdict.ts). Malformed verdict lines surface as warnings →
+        // hook.notice run events via surfaceOutcome below.
+        captureRunVerdict: true,
         logger: this.ctx.logger,
       }
     );
