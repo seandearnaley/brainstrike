@@ -28,7 +28,7 @@ describe('migration 062: assistant run outcomes table', () => {
     await db.close();
   });
 
-  function getMigration060() {
+  function getMigration062() {
     const migration = migrations.find((candidate) => candidate.version === 62);
     if (!migration) {
       throw new Error('Migration 062 is missing');
@@ -37,7 +37,7 @@ describe('migration 062: assistant run outcomes table', () => {
   }
 
   it('creates the run-outcomes table and indexes', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration060());
+    await runner.runMigration(getMigration062());
 
     const table = await db.query<CountRow>(
       `SELECT COUNT(*)::int AS count FROM information_schema.tables
@@ -54,7 +54,7 @@ describe('migration 062: assistant run outcomes table', () => {
   });
 
   it('holds exactly one label per run with upsert semantics', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration060());
+    await runner.runMigration(getMigration062());
 
     await db.query(
       `INSERT INTO brainstrike_assistant_run_outcomes
@@ -84,7 +84,7 @@ describe('migration 062: assistant run outcomes table', () => {
   it('rejects unknown verdicts and sources via CHECK constraints', {
     timeout: 60_000,
   }, async () => {
-    await runner.runMigration(getMigration060());
+    await runner.runMigration(getMigration062());
 
     await expect(
       db.query(
@@ -104,7 +104,7 @@ describe('migration 062: assistant run outcomes table', () => {
   });
 
   it('rollback drops the table', { timeout: 60_000 }, async () => {
-    const migration = getMigration060();
+    const migration = getMigration062();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 

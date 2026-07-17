@@ -246,7 +246,11 @@ export class HybridSearchService {
       vectorSearchOptions.rootIds = rootIds;
     }
 
+    // The keyword arm is scoped to the SAME embedding set as the vector arm
+    // (coverage-identity semantics in the repos), so fusion can never surface
+    // BM25-only chunks from another embedding space.
     const ftsSearchOptions: FTSSearchOptions = {
+      embeddingSetId,
       includeEmbedding,
       includeHeadline,
       language: ftsLanguage,
