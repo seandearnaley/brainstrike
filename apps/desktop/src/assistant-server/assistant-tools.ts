@@ -18,6 +18,8 @@ import {
   type GrepSearchInput,
   GrepSearchInputSchema,
   getKnownFileMtime,
+  type HybridSearchInput,
+  HybridSearchInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
@@ -95,6 +97,7 @@ import {
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { HYBRID_SEARCH_TOOL_ID, runHybridSearch } from './hybrid-search-tool';
 import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
@@ -2772,6 +2775,23 @@ export function buildDesktopAssistantTools(
       },
       id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       inputSchema: QueryEmbeddingSpaceInputSchema,
+    },
+    [HYBRID_SEARCH_TOOL_ID]: {
+      description:
+        'Hybrid workspace search over the embedding index: runs semantic (vector) AND exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. BEST DEFAULT for code/doc retrieval when the query mixes conceptual intent with distinctive terms (identifiers, error fragments, domain jargon). Use queryEmbeddingSpace instead for purely conceptual queries with unknown wording, and grepSearch for exact strings/regex needing path:line matches. Omit embeddingSetId to use the Workspace Index. Fails visibly if the keyword index is unavailable — it never silently degrades to vector-only results.',
+      execute: async (input: ToolExecuteInput<HybridSearchInput>) => {
+        const resolvedInput = parseToolExecuteInput(HybridSearchInputSchema, input);
+        try {
+          return await runHybridSearch(resolvedInput, runtimeData, {
+            embeddingHostManager: dependencies.embeddingHostManager,
+          });
+        } catch (error) {
+          logToolFailure('hybridSearch failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: HYBRID_SEARCH_TOOL_ID,
+      inputSchema: HybridSearchInputSchema,
     },
   };
 

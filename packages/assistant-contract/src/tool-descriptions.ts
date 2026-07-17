@@ -11,6 +11,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). Excludes .git/node_modules/build output by default; read-only',
   'brainstrike.grepSearch':
     "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
+  'brainstrike.hybridSearch':
+    'Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
   'brainstrike.listEmbeddingSpaces':
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   'brainstrike.listWorkspaceContext':

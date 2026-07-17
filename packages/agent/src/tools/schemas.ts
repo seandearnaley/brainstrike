@@ -15,7 +15,11 @@ export const HybridSearchInputSchema = z
       .enum(['text', 'code', 'sentence', 'recursive'])
       .optional()
       .describe('Filter by chunk type'),
-    embeddingSetId: z.string().min(1).describe('Embedding set ID for vector search'),
+    embeddingSetId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Embedding set ID for vector search; omit to use the Workspace Index'),
     filePaths: z
       .array(z.string().min(1))
       .max(1000)
@@ -29,6 +33,13 @@ export const HybridSearchInputSchema = z
       .describe('Weight for full-text search (default 1.0)'),
     limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
     query: z.string().min(1).max(2000).describe('Search query text'),
+    root: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Optional folder name or id to scope the search to one open folder (omit to search all)'
+      ),
     vectorThreshold: z.number().min(0).max(1).optional().describe('Minimum similarity threshold'),
     vectorWeight: z
       .number()
@@ -816,6 +827,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
   'brainstrike.grepSearch': GrepSearchInputSchema,
+  'brainstrike.hybridSearch': HybridSearchInputSchema,
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.manageTaskList': ManageTaskListInputSchema,

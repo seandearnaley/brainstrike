@@ -73,6 +73,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
   globWorkspace: 'brainstrike.globWorkspace',
   grepSearch: 'brainstrike.grepSearch',
+  hybridSearch: 'brainstrike.hybridSearch',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
   manageTaskList: 'brainstrike.manageTaskList',
@@ -96,6 +97,7 @@ interface ModelFacingToolNames {
   findWorkspaceSymbol: string | null;
   globWorkspace: string | null;
   grepSearch: string | null;
+  hybridSearch: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   manageTaskList: string | null;
@@ -155,6 +157,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     grepSearch: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.grepSearch
+    ),
+    hybridSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.hybridSearch
     ),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
@@ -269,6 +275,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
     names.grepSearch,
     names.globWorkspace,
+    names.hybridSearch,
     names.queryEmbeddingSpace,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
@@ -464,10 +471,13 @@ export function buildDefaultInstructions(
     : 'Workspace-selection inspection is unavailable in this run.';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
+  const hybridSearchClause = names.hybridSearch
+    ? ` When a lookup mixes conceptual intent WITH distinctive exact terms (identifiers, error fragments, domain jargon), prefer ${names.hybridSearch} — it fuses semantic and exact-term (BM25) rankings and usually beats either arm alone.`
+    : '';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
-      : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
+      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.${hybridSearchClause}`
+      : `Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.${hybridSearchClause}`;
   const readContextInstruction =
     names.readWorkspaceContext && names.readWorkspaceFile
       ? `Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond the retrieved source line ranges.`
