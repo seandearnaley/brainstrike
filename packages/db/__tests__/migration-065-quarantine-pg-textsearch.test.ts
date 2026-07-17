@@ -2,11 +2,11 @@ import { PGlite } from '@electric-sql/pglite';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations';
-import { migration064QuarantinePgTextsearch } from '../src/migrations/064-quarantine-pg-textsearch';
+import { migration065QuarantinePgTextsearch } from '../src/migrations/065-quarantine-pg-textsearch';
 import { wasmLoader } from '../src/wasm-loader';
 import { createPGliteTestDataDir } from './test-data-dir';
 
-describe('migration 064: quarantine pg_textsearch', () => {
+describe('migration 065: quarantine pg_textsearch', () => {
   let db: PGlite | null = null;
 
   afterEach(async () => {
@@ -33,7 +33,7 @@ describe('migration 064: quarantine pg_textsearch', () => {
       VALUES ('chunk-1', 'database recovery indexing');
     `);
 
-    await db.exec(migration064QuarantinePgTextsearch.up as string);
+    await db.exec(migration065QuarantinePgTextsearch.up as string);
 
     const extensions = await db.query<{ extname: string }>(
       "SELECT extname FROM pg_extension WHERE extname = 'pg_textsearch'"
@@ -62,7 +62,7 @@ describe('migration 064: quarantine pg_textsearch', () => {
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch } });
     await db.exec('CREATE TABLE file_chunks (id text PRIMARY KEY, content text NOT NULL)');
 
-    await expect(db.exec(migration064QuarantinePgTextsearch.up as string)).resolves.toBeDefined();
+    await expect(db.exec(migration065QuarantinePgTextsearch.up as string)).resolves.toBeDefined();
   });
 
   it('keeps repeated chunk updates readable after a durable close and reopen', async () => {

@@ -1,3 +1,4 @@
+import { incrementOutcomeMetricsCte } from '../queue/job-queue.js';
 import type { IDatabase } from '../repositories/interfaces.js';
 import {
   markCollectionIndexingStatsDirty,
@@ -520,8 +521,9 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
           WHERE job_type = 'embed_chunk'
             AND state IN ('queued', 'running')
             AND chunk_id = ANY($2::text[])
-          RETURNING 1
-       )
+          RETURNING queue
+       ),
+       ${incrementOutcomeMetricsCte('canceled', 'canceled_total')}
        SELECT COUNT(*)::text AS count
          FROM canceled`,
       [updatedAt, chunkIdBatch]

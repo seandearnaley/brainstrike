@@ -243,3 +243,228 @@ describe('useEditCheckpoints', () => {
     expect(result.current.checkpoints?.entriesByToolCallId.has('call-stale')).toBe(false);
   });
 });
+
+describe('useEditCheckpoints outcome labeling', () => {
+  function repositoryWithOutcomes(
+    listThreadCheckpoints: ReturnType<typeof vi.fn>,
+    recordRunOutcome?: ReturnType<typeof vi.fn>
+  ): AssistantThreadRepository {
+    return {
+      listThreadCheckpoints,
+      ...(recordRunOutcome ? { recordRunOutcome } : {}),
+    } as unknown as AssistantThreadRepository;
+  }
+
+  it('labels the run failed via edit_revert when a run revert reverts every revertible edit', async () => {
+    const initial = [
+      makeEntry({ id: 'e1', toolCallId: 'call-a' }),
+      makeEntry({ id: 'e2', toolCallId: 'call-b' }),
+    ];
+    const revertedA = makeEntry({
+      id: 'e1',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-a',
+    });
+    const revertedB = makeEntry({
+      id: 'e2',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-b',
+    });
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValue([revertedA, revertedB]);
+    const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
+    const revertRun = vi.fn().mockResolvedValue({
+      outcomes: [
+        { entry: revertedA, ok: true },
+        { entry: revertedB, ok: true },
+      ],
+      runId: 'run-1',
+    } satisfies AssistantCheckpointRevertRunResult);
+    stubBridge({ revertEntry: vi.fn(), revertRun });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints, recordRunOutcome);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.checkpoints?.revertRun('run-1', undefined);
+    });
+
+    expect(recordRunOutcome).toHaveBeenCalledTimes(1);
+    expect(recordRunOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: '2/2 edits reverted',
+        resourceId: 'resource-1',
+        runId: 'run-1',
+        source: 'edit_revert',
+        threadId: 'thread-1',
+        verdict: 'failed',
+      })
+    );
+  });
+
+  it('labels the run mixed when some revertible edits remain applied after the revert', async () => {
+    const revertedA = makeEntry({
+      id: 'e1',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-a',
+    });
+    const stillAppliedB = makeEntry({ id: 'e2', toolCallId: 'call-b' });
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValueOnce([
+        makeEntry({ id: 'e1', toolCallId: 'call-a' }),
+        makeEntry({ id: 'e2', toolCallId: 'call-b' }),
+      ])
+      .mockResolvedValue([revertedA, stillAppliedB]);
+    const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
+    const revertRun = vi.fn().mockResolvedValue({
+      outcomes: [
+        { entry: revertedA, ok: true },
+        { code: 'conflict', id: 'e2', message: 'changed on disk', ok: false },
+      ],
+      runId: 'run-1',
+    } satisfies AssistantCheckpointRevertRunResult);
+    stubBridge({ revertEntry: vi.fn(), revertRun });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints, recordRunOutcome);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.checkpoints?.revertRun('run-1', undefined);
+    });
+
+    expect(recordRunOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: '1/2 edits reverted',
+        runId: 'run-1',
+        source: 'edit_revert',
+        verdict: 'mixed',
+      })
+    );
+  });
+
+  it('labels via a single-entry revert once the whole run is reverted', async () => {
+    const reverted = makeEntry({
+      id: 'e1',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-a',
+    });
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValueOnce([makeEntry({ id: 'e1', toolCallId: 'call-a' })])
+      .mockResolvedValue([reverted]);
+    const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
+    const revertEntry = vi.fn().mockResolvedValue({
+      entry: reverted,
+      ok: true,
+    } satisfies AssistantCheckpointRevertResult);
+    stubBridge({ revertEntry, revertRun: vi.fn() });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints, recordRunOutcome);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.checkpoints?.revertEntry('e1', undefined);
+    });
+
+    expect(recordRunOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: '1/1 edits reverted',
+        runId: 'run-1',
+        source: 'edit_revert',
+        verdict: 'failed',
+      })
+    );
+  });
+
+  it('does not label when the revert changed nothing (all conflicts)', async () => {
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValue([makeEntry({ id: 'e1', toolCallId: 'call-a' })]);
+    const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
+    const revertRun = vi.fn().mockResolvedValue({
+      outcomes: [{ code: 'conflict', id: 'e1', message: 'changed on disk', ok: false }],
+      runId: 'run-1',
+    } satisfies AssistantCheckpointRevertRunResult);
+    stubBridge({ revertEntry: vi.fn(), revertRun });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints, recordRunOutcome);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    await act(async () => {
+      await result.current.checkpoints?.revertRun('run-1', undefined);
+    });
+
+    expect(recordRunOutcome).not.toHaveBeenCalled();
+  });
+
+  it('keeps the revert result when outcome labeling fails (secondary, logged, non-fatal)', async () => {
+    const reverted = makeEntry({
+      id: 'e1',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-a',
+    });
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValueOnce([makeEntry({ id: 'e1', toolCallId: 'call-a' })])
+      .mockResolvedValue([reverted]);
+    const recordRunOutcome = vi.fn().mockRejectedValue(new Error('db unavailable'));
+    const revertRun = vi.fn().mockResolvedValue({
+      outcomes: [{ entry: reverted, ok: true }],
+      runId: 'run-1',
+    } satisfies AssistantCheckpointRevertRunResult);
+    stubBridge({ revertEntry: vi.fn(), revertRun });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints, recordRunOutcome);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    let outcome: AssistantCheckpointRevertRunResult | undefined;
+    await act(async () => {
+      outcome = await result.current.checkpoints?.revertRun('run-1', undefined);
+    });
+
+    expect(recordRunOutcome).toHaveBeenCalledTimes(1);
+    expect(outcome?.outcomes[0]?.ok).toBe(true);
+  });
+
+  it('skips labeling gracefully when the repository has no recordRunOutcome capability', async () => {
+    const reverted = makeEntry({
+      id: 'e1',
+      revertedAt: '2026-07-16T12:00:00.000Z',
+      toolCallId: 'call-a',
+    });
+    const listThreadCheckpoints = vi
+      .fn()
+      .mockResolvedValueOnce([makeEntry({ id: 'e1', toolCallId: 'call-a' })])
+      .mockResolvedValue([reverted]);
+    const revertRun = vi.fn().mockResolvedValue({
+      outcomes: [{ entry: reverted, ok: true }],
+      runId: 'run-1',
+    } satisfies AssistantCheckpointRevertRunResult);
+    stubBridge({ revertEntry: vi.fn(), revertRun });
+    const repo = repositoryWithOutcomes(listThreadCheckpoints);
+
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+    await waitFor(() => {
+      expect(result.current.checkpoints).not.toBeNull();
+    });
+    let outcome: AssistantCheckpointRevertRunResult | undefined;
+    await act(async () => {
+      outcome = await result.current.checkpoints?.revertRun('run-1', undefined);
+    });
+
+    expect(outcome?.outcomes[0]?.ok).toBe(true);
+  });
+});

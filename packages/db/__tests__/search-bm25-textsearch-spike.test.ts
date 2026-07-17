@@ -64,7 +64,7 @@ interface RankedRow {
   score: number;
 }
 
-describe.skip('pg_textsearch BM25 spike (quarantined by migration 064)', () => {
+describe.skip('pg_textsearch BM25 spike (quarantined by migration 065)', () => {
   let db: PGlite;
   let migrationResult: Awaited<ReturnType<typeof runMigrations>>;
 

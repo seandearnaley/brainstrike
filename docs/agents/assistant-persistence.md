@@ -338,6 +338,73 @@ Runtime invariants:
 
 ---
 
+## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
+
+Per-run cost/outcome analytics over tables the assistant already writes.
+
+- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062 +
+  byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
+  on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per
+  run (`verdict` succeeded/failed/mixed, upserted on run_id) with provenance
+  `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,
+  oversized THROWS — never silently truncated). Writer: `recordRunOutcome`
+  (app-shell repository). A later user verdict deliberately replaces a derived
+  `edit_revert` label. `edit_revert` labels are derived in
+  `use-edit-checkpoints.ts` after a successful revert (see
+  workspace-context.md § Edit Checkpoint Journal).
+- **User verdicts (👍/👎):** `RunVerdictControl` (packages/ui
+  `run-verdict-control.tsx`) mounts on every assistant message and renders once
+  per run — on the message leg carrying the terminal `run.finished` run-event
+  data part (works for edit-less runs; `run.failed` legs are deliberately
+  excluded in v1, and web local-runtime events without a runId are skipped).
+  The capability seam is `RunVerdictProvider`/`useRunVerdictContext`
+  (`run-verdict-context.tsx`) — PARALLEL to EditCheckpointContext by design:
+  verdicts gate on the repository's optional `recordRunOutcome` (present
+  wherever the PGlite repo exists, including web), not the desktop checkpoint
+  bridge. App-shell binds it via `useRunVerdictBinding`
+  (`hooks/use-run-verdict.ts`, source `'user'`, upserts over derived labels);
+  a rejected save shows a visible retry, never a silent drop. Write-only in
+  v1 (no read-back of a stored label after reload — the ledger remains the
+  authoritative view). The wrapper line-budget bump and the panel
+  owned-module assertions live in `assistant-contract-boundary.test.ts` and
+  `assistant-ui-panel-architecture.test.ts`.
+- **Ledger read model:** `getRunLedger(resourceId, {limitLatest})` aggregates
+  each `thread_runs` row with SUM'd run_usage tokens + exact billed cost
+  (absent — never a fabricated 0 — when unreported), top-level
+  `tool.completed`/`tool.failed` counts (subagent.tool.* excluded in v1),
+  edit-checkpoint totals + reverted counts, computed `durationMs`, and the
+  outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the
+  exported single source of truth (same convention as
+  `CROSS_ROOT_USAGE_AGGREGATION_SQL`); the strict mapper THROWS on malformed
+  aggregates. Both are optional on `AssistantThreadRepository` (read-only/test
+  repositories) and required on `BulkAssistantThreadRepository`.
+
+- **Ledger panel:** the Task Ledger renders inside the existing **Cost
+  Tracking settings category** (`createCostTrackingSettingsCategory` in
+  `packages/app-shell/src/cost-tracking/index.tsx`, consumed by both apps'
+  settings page-content), stacked below `CostAggregationPanel`. Data is
+  renderer-direct (Path A): `use-run-ledger.ts` is a PGlite live query over the
+  shared `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` pair (limit 50), and
+  `use-ledger-analytics.ts` fetches `getLedgerCostTrend` (day bucket) +
+  `getModelComparison` with a manual refresh. Both gate on
+  `hasDurableAssistantUsageCapability()` exactly like the sibling cost panel
+  (web renders an honest session-only state). Honest-cost rules: exact
+  provider-reported cost renders as-is; a registry-priced remainder is marked
+  "est."; unpriced models read "cost unavailable" and zero-usage runs read
+  "no usage recorded" — NEVER a fabricated $0; malformed aggregates and query
+  failures surface as a visible error state with retry, never an
+  empty-but-fine panel.
+
+When changing this flow, update this section and the paired tests
+(`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
+`packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
+run-ledger cases in `assistant-memory-repository.integration.test.ts`, the
+outcome-labeling suite in `use-edit-checkpoints.test.ts`, and the panel suites
+in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
+`use-run-ledger`, `use-ledger-analytics`).
+
+---
+
 
 ## THREAD GROUPS (FOLDERS) IN THE THREADS PANEL
 

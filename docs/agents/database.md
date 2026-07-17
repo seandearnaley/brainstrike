@@ -52,7 +52,7 @@ extension control file" error on that path only:
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
 - `pg_textsearch` (from `@electric-sql/pglite-pg_textsearch`) is loaded only for
   historical migration compatibility: migration 053 creates its BM25 index and
-  migration 064 immediately drops the index and extension before application
+  migration 065 immediately drops the index and extension before application
   writes begin. pg_textsearch 1.3.1 produced persisted invalid memtable page
   chains during real `file_chunks` updates, so runtime use is quarantined.
   Lexical ranking uses built-in `ts_rank` over migration 034's generated

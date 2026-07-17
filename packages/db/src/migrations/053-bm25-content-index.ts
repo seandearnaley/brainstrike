@@ -3,7 +3,7 @@ import type { Migration } from './migration-runner';
 /**
  * Historical migration 053: enable pg_textsearch and add a BM25 content index.
  *
- * Migration 064 quarantines and removes both objects after pg_textsearch 1.3.1
+ * Migration 065 quarantines and removes both objects after pg_textsearch 1.3.1
  * produced persisted BM25 memtable corruption during file_chunks updates.
  * This migration remains append-only so existing ledgers and greenfield
  * bootstrap history stay valid; no runtime repository references the index.

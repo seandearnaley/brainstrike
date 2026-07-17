@@ -186,7 +186,7 @@ The assistant's search verbs, in the order the default instructions present them
    lexical arm matches and ranks with built-in PostgreSQL FTS over migration 034's
    generated tsvector + GIN index. Ordering uses `ts_rank` plus an `id` tiebreaker;
    the caller's language, query mode, and `rankNormalization` remain authoritative.
-   Migration 064 quarantines pg_textsearch after observed persisted BM25-index
+   Migration 065 quarantines pg_textsearch after observed persisted BM25-index
    corruption. RRF fuses rank positions, so the fusion layer is unchanged.
 5. Web retrieval pair (external service — Tavily via the shared `'tavily'`
    secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):

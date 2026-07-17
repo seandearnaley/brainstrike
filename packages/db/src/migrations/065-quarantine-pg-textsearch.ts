@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 064: quarantine pg_textsearch after observed on-disk index corruption.
+ * Migration 065: quarantine pg_textsearch after observed on-disk index corruption.
  *
  * pg_textsearch 1.3.1 can persist invalid BM25 memtable page chains while
  * file_chunks rows are updated. PostgreSQL then raises XX001 from unrelated
@@ -14,7 +14,7 @@ import type { Migration } from './migration-runner';
  * until the migration history is squashed: a greenfield database still runs
  * 053 before this migration immediately removes the unsafe objects.
  */
-export const migration064QuarantinePgTextsearch: Migration = {
+export const migration065QuarantinePgTextsearch: Migration = {
   down: `
     CREATE EXTENSION IF NOT EXISTS pg_textsearch;
 
@@ -27,5 +27,5 @@ export const migration064QuarantinePgTextsearch: Migration = {
 
     DROP EXTENSION IF EXISTS pg_textsearch;
   `,
-  version: 64,
+  version: 65,
 };
