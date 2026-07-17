@@ -28,6 +28,8 @@ export interface VaultFileHandleLike {
   getFile(): Promise<File>;
   isSameEntry(other: VaultHandleLike): Promise<boolean>;
   readonly kind: 'file';
+  /** Rename within the same directory (Chromium FSA move(); desktop bridge rename). */
+  move?(newName: string): Promise<void>;
   readonly name: string;
   /** Cheap metadata probe. Backends where getFile() is expensive (desktop
    * IPC reads full content) provide this; scans prefer it when present. */
@@ -42,8 +44,12 @@ export interface VaultDirectoryHandleLike {
   getFileHandle(name: string, options?: { create?: boolean }): Promise<VaultFileHandleLike>;
   isSameEntry(other: VaultHandleLike): Promise<boolean>;
   readonly kind: 'directory';
+  /** Rename within the same directory (desktop bridge only; web FSA cannot move directories). */
+  move?(newName: string): Promise<void>;
   readonly name: string;
   queryPermission?(descriptor: VaultPermissionDescriptor): Promise<VaultPermissionState>;
+  /** Remove a child entry; recursive required for non-empty folders. */
+  removeEntry?(name: string, options?: { recursive?: boolean }): Promise<void>;
   requestPermission?(descriptor: VaultPermissionDescriptor): Promise<VaultPermissionState>;
   values(): AsyncIterableIterator<VaultHandleLike>;
 }

@@ -23,6 +23,12 @@ When changing the model catalog:
    packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
    (no DB migration). It drives the thread context meter and the auto-derived
    `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
+7. Every LLM model entry MUST also declare `vision` ('supported' | 'unsupported'; never
+   'unknown' in the static registry — pinned by provider-registry-vision.test.ts). It gates the
+   composer image-attachment affordance per selected model. Unlike `contextWindow`, this one IS
+   mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities
+   jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails
+   if any LLM row is left without a vision value.
 
 ---
 

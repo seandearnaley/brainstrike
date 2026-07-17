@@ -167,10 +167,13 @@ function seedPersistedRoot(storage: FakeRootsStorage, rootPath: string): void {
 function createHandlers(overrides: Partial<NotesVaultIpcHandlersOptions> = {}): {
   handlers: NotesVaultIpcHandlers;
   storage: FakeRootsStorage;
+  /** Fake OS-trash sink: records paths, never touches the filesystem. */
+  trashItem: ReturnType<typeof vi.fn>;
   watchHarness: WatchHarness;
 } {
   const watchHarness = createWatchHarness();
   const storage = createFakeRootsStorage();
+  const trashItem = vi.fn((_absolutePath: string) => Promise.resolve());
   const handlers = createNotesVaultIpcHandlers({
     getDefaultVaultParentPath: () => {
       throw new Error('getDefaultVaultParentPath not configured for this test');
@@ -178,9 +181,15 @@ function createHandlers(overrides: Partial<NotesVaultIpcHandlersOptions> = {}): 
     pickDirectoryPath: () => Promise.resolve(null),
     startWatch: watchHarness.startWatch,
     storage,
+    trashItem,
     ...overrides,
   });
-  return { handlers, storage: (overrides.storage as FakeRootsStorage) ?? storage, watchHarness };
+  return {
+    handlers,
+    storage: (overrides.storage as FakeRootsStorage) ?? storage,
+    trashItem,
+    watchHarness,
+  };
 }
 
 /**
@@ -422,9 +431,10 @@ describe('notes vault IPC handlers', () => {
       });
     });
 
-    it('writes a contained file (creating parents) and returns its lastModified', async () => {
+    it('writes a contained file into an existing folder and returns its lastModified', async () => {
       const { handlers, storage } = createHandlers();
       const approved = await makeDir();
+      await fsPromises.mkdir(path.join(approved, 'folder'));
       await approveRoot(handlers, storage, approved);
 
       const target = path.join(approved, 'folder', 'note.md');
@@ -441,6 +451,24 @@ describe('notes vault IPC handlers', () => {
       expect(await fsPromises.readFile(target, 'utf8')).toBe('# body v2');
     });
 
+    it('refuses a write whose parent folder is gone — never recreates a renamed/deleted directory', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const folder = path.join(approved, 'folder');
+      await fsPromises.mkdir(folder);
+      await approveRoot(handlers, storage, approved);
+      const target = path.join(folder, 'note.md');
+      expect(await handlers.writeFile(target, 'draft')).toMatchObject({ ok: true });
+
+      // Simulate a folder rename/delete racing a stale-path editor autosave:
+      // the write must FAIL LOUDLY, not silently mkdir the old folder back.
+      await fsPromises.rm(folder, { force: true, recursive: true });
+      const stale = await handlers.writeFile(target, 'stale draft');
+      expect(stale).toMatchObject({ ok: false });
+      expect((stale as { error: string }).error).toContain('no longer exists');
+      await expect(fsPromises.access(folder)).rejects.toThrow();
+    });
+
     it('refuses to write through a symlink leaf', async () => {
       const { handlers, storage } = createHandlers();
       const approved = await makeDir();
@@ -454,6 +482,250 @@ describe('notes vault IPC handlers', () => {
         ok: false,
       });
       expect(await fsPromises.readFile(outsideFile, 'utf8')).toBe('original');
+    });
+  });
+
+  describe('createDirectory', () => {
+    it('creates a contained directory (including missing parents) under an approved root', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+
+      const target = path.join(approved, 'projects', 'ideas');
+      expect(await handlers.createDirectory(target)).toEqual({ ok: true, value: null });
+      expect((await fsPromises.lstat(target)).isDirectory()).toBe(true);
+    });
+
+    it('refuses when an entry already exists at the path (directory OR file)', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+      await fsPromises.mkdir(path.join(approved, 'existing-dir'));
+      await fsPromises.writeFile(path.join(approved, 'existing.md'), 'x', 'utf8');
+
+      const dirResult = await handlers.createDirectory(path.join(approved, 'existing-dir'));
+      expect(dirResult).toMatchObject({ ok: false });
+      expect((dirResult as { error: string }).error).toContain('already exists');
+      expect(await handlers.createDirectory(path.join(approved, 'existing.md'))).toMatchObject({
+        ok: false,
+      });
+      // The root itself is an "already exists" refusal too, never an mkdir.
+      expect(await handlers.createDirectory(approved)).toMatchObject({ ok: false });
+    });
+
+    it('refuses a directory outside every approved root', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const outside = await makeDir();
+      await approveRoot(handlers, storage, approved);
+
+      const target = path.join(outside, 'sneaky');
+      const result = await handlers.createDirectory(target);
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('not inside an approved');
+      await expect(fsPromises.access(target)).rejects.toThrow();
+      // A traversal that lexically escapes the approved root is refused too.
+      expect(
+        await handlers.createDirectory(path.join(approved, '..', path.basename(outside), 'sneaky'))
+      ).toMatchObject({ ok: false });
+    });
+  });
+
+  describe('deleteEntry', () => {
+    it('moves a contained entry to the OS trash via the injected trashItem (never fs unlink)', async () => {
+      const { handlers, storage, trashItem } = createHandlers();
+      const approved = await makeDir();
+      const filePath = path.join(approved, 'note.md');
+      await fsPromises.writeFile(filePath, '# bye', 'utf8');
+      await approveRoot(handlers, storage, approved);
+
+      expect(await handlers.deleteEntry(filePath, { recursive: false })).toEqual({
+        ok: true,
+        value: null,
+      });
+      expect(trashItem).toHaveBeenCalledTimes(1);
+      expect(trashItem).toHaveBeenCalledWith(filePath);
+      // The handler itself never touches fs: with the trash faked, the file
+      // is still on disk (deletion is the OS trash's job, not fs.rm's).
+      expect(await fsPromises.readFile(filePath, 'utf8')).toBe('# bye');
+    });
+
+    it('refuses to trash an approved vault root itself', async () => {
+      const { handlers, storage, trashItem } = createHandlers();
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+
+      const result = await handlers.deleteEntry(approved, { recursive: true });
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('root');
+      expect(trashItem).not.toHaveBeenCalled();
+    });
+
+    it('refuses paths outside every approved root', async () => {
+      const { handlers, storage, trashItem } = createHandlers();
+      const approved = await makeDir();
+      const outside = await makeDir();
+      const outsideFile = path.join(outside, 'keep.md');
+      await fsPromises.writeFile(outsideFile, 'keep', 'utf8');
+      await approveRoot(handlers, storage, approved);
+
+      const result = await handlers.deleteEntry(outsideFile, { recursive: false });
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('not inside an approved');
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(await fsPromises.readFile(outsideFile, 'utf8')).toBe('keep');
+    });
+
+    it('refuses a symlink leaf — never trashes the symlink TARGET', async () => {
+      const { handlers, storage, trashItem } = createHandlers();
+      const approved = await makeDir();
+      const outside = await makeDir();
+      const outsideFile = path.join(outside, 'precious.md');
+      const insideFile = path.join(approved, 'real.md');
+      await fsPromises.writeFile(outsideFile, 'precious', 'utf8');
+      await fsPromises.writeFile(insideFile, 'real', 'utf8');
+      await fsPromises.symlink(outsideFile, path.join(approved, 'link-out.md'));
+      await fsPromises.symlink(insideFile, path.join(approved, 'link-in.md'));
+      await approveRoot(handlers, storage, approved);
+
+      // A symlink pointing OUTSIDE the root: realpath-based resolution would
+      // dereference it and trash the target — must refuse instead.
+      const outLink = await handlers.deleteEntry(path.join(approved, 'link-out.md'), {
+        recursive: false,
+      });
+      expect(outLink).toMatchObject({ ok: false });
+      expect((outLink as { error: string }).error).toContain('symlink');
+      // A symlink pointing at another contained note is refused too.
+      const inLink = await handlers.deleteEntry(path.join(approved, 'link-in.md'), {
+        recursive: false,
+      });
+      expect(inLink).toMatchObject({ ok: false });
+      expect((inLink as { error: string }).error).toContain('symlink');
+      expect(trashItem).not.toHaveBeenCalled();
+      expect(await fsPromises.readFile(outsideFile, 'utf8')).toBe('precious');
+      expect(await fsPromises.readFile(insideFile, 'utf8')).toBe('real');
+      expect((await fsPromises.lstat(path.join(approved, 'link-out.md'))).isSymbolicLink()).toBe(
+        true
+      );
+    });
+
+    it('refuses a missing entry and a malformed recursive flag', async () => {
+      const { handlers, storage, trashItem } = createHandlers();
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+
+      const missing = await handlers.deleteEntry(path.join(approved, 'nope.md'), {
+        recursive: false,
+      });
+      expect(missing).toMatchObject({ ok: false });
+      expect((missing as { error: string }).error).toContain('does not exist');
+      expect(
+        await handlers.deleteEntry(path.join(approved, 'nope.md'), { recursive: 'yes' })
+      ).toMatchObject({ ok: false });
+      expect(await handlers.deleteEntry(path.join(approved, 'nope.md'), undefined)).toMatchObject({
+        ok: false,
+      });
+      expect(trashItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rename', () => {
+    it('renames a contained entry within its directory (file AND directory)', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const fromFile = path.join(approved, 'draft.md');
+      await fsPromises.writeFile(fromFile, '# draft', 'utf8');
+      await fsPromises.mkdir(path.join(approved, 'old-folder'));
+      await approveRoot(handlers, storage, approved);
+
+      const toFile = path.join(approved, 'final.md');
+      expect(await handlers.rename(fromFile, toFile)).toEqual({ ok: true, value: null });
+      expect(await fsPromises.readFile(toFile, 'utf8')).toBe('# draft');
+      await expect(fsPromises.access(fromFile)).rejects.toThrow();
+
+      expect(
+        await handlers.rename(path.join(approved, 'old-folder'), path.join(approved, 'new-folder'))
+      ).toEqual({ ok: true, value: null });
+      expect((await fsPromises.lstat(path.join(approved, 'new-folder'))).isDirectory()).toBe(true);
+    });
+
+    it('allows a case-only rename of the same entry (case-insensitive filesystems)', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const fromFile = path.join(approved, 'Note.md');
+      await fsPromises.writeFile(fromFile, '# body', 'utf8');
+      await approveRoot(handlers, storage, approved);
+
+      // On a case-insensitive/case-preserving fs (default macOS), the
+      // destination lstat resolves to the SOURCE inode — that must not be
+      // treated as an existing-destination collision.
+      expect(await handlers.rename(fromFile, path.join(approved, 'note.md'))).toEqual({
+        ok: true,
+        value: null,
+      });
+      const names = await fsPromises.readdir(approved);
+      expect(names).toContain('note.md');
+      expect(names).not.toContain('Note.md');
+      expect(await fsPromises.readFile(path.join(approved, 'note.md'), 'utf8')).toBe('# body');
+    });
+
+    it('refuses to overwrite an existing destination', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const fromFile = path.join(approved, 'a.md');
+      const toFile = path.join(approved, 'b.md');
+      await fsPromises.writeFile(fromFile, 'A', 'utf8');
+      await fsPromises.writeFile(toFile, 'B', 'utf8');
+      await approveRoot(handlers, storage, approved);
+
+      const result = await handlers.rename(fromFile, toFile);
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('already exists');
+      // Neither side was touched.
+      expect(await fsPromises.readFile(fromFile, 'utf8')).toBe('A');
+      expect(await fsPromises.readFile(toFile, 'utf8')).toBe('B');
+    });
+
+    it('refuses a cross-directory move (same-directory rename only)', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const fromFile = path.join(approved, 'a.md');
+      await fsPromises.writeFile(fromFile, 'A', 'utf8');
+      await fsPromises.mkdir(path.join(approved, 'sub'));
+      await approveRoot(handlers, storage, approved);
+
+      const result = await handlers.rename(fromFile, path.join(approved, 'sub', 'a.md'));
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('same-directory');
+      expect(await fsPromises.readFile(fromFile, 'utf8')).toBe('A');
+    });
+
+    it('refuses paths outside every approved root (either side) and a symlink source', async () => {
+      const { handlers, storage } = createHandlers();
+      const approved = await makeDir();
+      const outside = await makeDir();
+      const outsideFile = path.join(outside, 'a.md');
+      await fsPromises.writeFile(outsideFile, 'A', 'utf8');
+      await fsPromises.writeFile(path.join(approved, 'in.md'), 'in', 'utf8');
+      await fsPromises.symlink(outsideFile, path.join(approved, 'link.md'));
+      await approveRoot(handlers, storage, approved);
+
+      const fromOutside = await handlers.rename(outsideFile, path.join(outside, 'b.md'));
+      expect(fromOutside).toMatchObject({ ok: false });
+      expect((fromOutside as { error: string }).error).toContain('not inside an approved');
+      // A missing source inside the root is a refusal, not a throw.
+      expect(
+        await handlers.rename(path.join(approved, 'nope.md'), path.join(approved, 'yep.md'))
+      ).toMatchObject({ ok: false });
+      // A symlink source leaf is refused, and the link stays put.
+      const symlinkResult = await handlers.rename(
+        path.join(approved, 'link.md'),
+        path.join(approved, 'renamed-link.md')
+      );
+      expect(symlinkResult).toMatchObject({ ok: false });
+      expect((symlinkResult as { error: string }).error).toContain('symlink');
+      expect((await fsPromises.lstat(path.join(approved, 'link.md'))).isSymbolicLink()).toBe(true);
+      expect(await fsPromises.readFile(outsideFile, 'utf8')).toBe('A');
     });
   });
 
@@ -587,7 +859,7 @@ describe('notes vault IPC handlers', () => {
   });
 
   describe('registration', () => {
-    it('registers the nine invoke channels (NOT the changed push) and the disposer reaps state', async () => {
+    it('registers the twelve invoke channels (NOT the changed push) and the disposer reaps state', async () => {
       const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       await approveRoot(handlers, storage, approved);
@@ -597,7 +869,7 @@ describe('notes vault IPC handlers', () => {
       const dispose = registerNotesVaultIpcHandlers(handlers);
       const { changed, ...invokeChannels } = DESKTOP_IPC_CHANNELS.notesVault;
       const expectedChannels = Object.values(invokeChannels);
-      expect(expectedChannels).toHaveLength(9);
+      expect(expectedChannels).toHaveLength(12);
       for (const channel of expectedChannels) {
         expect(registeredHandlers.has(channel)).toBe(true);
       }

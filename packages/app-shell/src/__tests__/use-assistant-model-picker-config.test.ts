@@ -10,6 +10,7 @@ const openAiDefaultModel: LlmProviderModelDefinition = {
   label: 'Hosted Default',
   supportsStreaming: true,
   type: 'llm',
+  vision: 'supported',
 };
 
 const openAiDisabledModel: LlmProviderModelDefinition = {
@@ -18,6 +19,7 @@ const openAiDisabledModel: LlmProviderModelDefinition = {
   label: 'Hosted Disabled',
   supportsStreaming: true,
   type: 'llm',
+  vision: 'unsupported',
 };
 
 const ollamaModel: LlmProviderModelDefinition = {
@@ -26,6 +28,7 @@ const ollamaModel: LlmProviderModelDefinition = {
   label: 'Llama 3.2',
   supportsStreaming: true,
   type: 'llm',
+  vision: 'unknown',
 };
 
 describe('useAssistantModelPickerConfig', () => {
@@ -110,7 +113,7 @@ describe('useAssistantModelPickerConfig', () => {
     ]);
     expect(result.current.pickerModels).toEqual([
       {
-        capabilities: { streaming: true, type: 'llm' },
+        capabilities: { streaming: true, type: 'llm', vision: 'supported' },
         contextWindow: 200_000,
         description: null,
         id: 'hosted-default',
@@ -118,7 +121,7 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'openai',
       },
       {
-        capabilities: { streaming: true, type: 'llm' },
+        capabilities: { streaming: true, type: 'llm', vision: 'unknown' },
         contextWindow: 200_000,
         description: null,
         id: 'llama3.2',

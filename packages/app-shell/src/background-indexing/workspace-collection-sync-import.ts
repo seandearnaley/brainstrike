@@ -26,6 +26,7 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
@@ -151,10 +152,7 @@ interface DiscoveredPreparedFile {
 }
 
 const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
-const INACCESSIBLE_CONTENT_VALUES = new Set([
-  'Binary file - preview not available',
-  'Error accessing file',
-]);
+const INACCESSIBLE_CONTENT_VALUES = new Set([BINARY_CONTENT_MESSAGE, 'Error accessing file']);
 const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
 
 export function getContentIndexingError(content: string): string | null {

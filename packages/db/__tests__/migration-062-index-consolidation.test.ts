@@ -34,7 +34,7 @@ async function queryIndexNames(db: PGlite, names: readonly string[]): Promise<st
   return result.rows.map((row) => row.indexname);
 }
 
-describe('migration 060: index consolidation (numbered runner)', () => {
+describe('migration 062: index consolidation (numbered runner)', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -48,10 +48,10 @@ describe('migration 060: index consolidation (numbered runner)', () => {
     await db.close();
   });
 
-  function getMigration060() {
-    const migration = migrations.find((candidate) => candidate.version === 60);
+  function getMigration062() {
+    const migration = migrations.find((candidate) => candidate.version === 62);
     if (!migration) {
-      throw new Error('Migration 060 is missing');
+      throw new Error('Migration 062 is missing');
     }
     return migration;
   }
@@ -84,7 +84,7 @@ describe('migration 060: index consolidation (numbered runner)', () => {
     'rollback restores the dropped indexes on tables that exist on this path',
     async () => {
       await runner.up(migrations);
-      await runner.rollback(getMigration060());
+      await runner.rollback(getMigration062());
 
       // embedding_cache does not exist on the numbered path; its guarded
       // recreate must no-op instead of failing the whole rollback.
@@ -99,7 +99,7 @@ describe('migration 060: index consolidation (numbered runner)', () => {
   );
 });
 
-describe('migration 060: index consolidation (drizzle runner)', () => {
+describe('migration 062: index consolidation (drizzle runner)', () => {
   let db: PGlite;
 
   beforeEach(() => {

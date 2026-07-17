@@ -571,3 +571,112 @@ describe('error classification and surfacing', () => {
     expect(store.getState().initialized).toBe(true);
   });
 });
+
+describe('entry management actions', () => {
+  it('createNote creates in the container and arms the editor', async () => {
+    const h = harness();
+    h.setNextPick(fakeDir('vault', [fakeDir('projects')]));
+    await h.store.getState().addVaultFromPicker();
+
+    await h.store.getState().createNote('root-1:projects');
+
+    const state = h.store.getState();
+    expect(state.editRequestNoteId).toBe('root-1:projects/Untitled.md');
+    expect(state.selectedNoteId).toBe('root-1:projects/Untitled.md');
+    const projects = state.roots[0]?.nodes.find((n) => n.name === 'projects');
+    expect(
+      projects?.type === 'folder' && projects.children.some((c) => c.name === 'Untitled.md')
+    ).toBe(true);
+  });
+
+  async function mountedVault() {
+    const h = harness();
+    h.setNextPick(
+      fakeDir('vault', [
+        fakeDir('projects', [fakeNote('plan.md', { content: 'plan body' })]),
+        fakeNote('inbox.md'),
+      ])
+    );
+    await h.store.getState().addVaultFromPicker();
+    return h;
+  }
+
+  it('creates a folder under a folder node and expands it', async () => {
+    const h = await mountedVault();
+
+    await h.store.getState().createFolder('root-1:projects', 'ideas');
+
+    const root = h.store.getState().roots[0];
+    const projects = root?.nodes.find((n) => n.name === 'projects');
+    expect(projects?.type === 'folder' && projects.children.some((c) => c.name === 'ideas')).toBe(
+      true
+    );
+    expect(h.store.getState().expandedIds.has('root-1:projects')).toBe(true);
+  });
+
+  it('creates a folder at the root level when given the root id', async () => {
+    const h = await mountedVault();
+
+    await h.store.getState().createFolder('root-1', 'top-level');
+
+    expect(h.store.getState().roots[0]?.nodes.some((n) => n.name === 'top-level')).toBe(true);
+  });
+
+  it('renames a note and remaps the selection to the new id', async () => {
+    const h = await mountedVault();
+    h.store.getState().selectNote('root-1:projects/plan.md');
+
+    await h.store.getState().renameEntry('root-1:projects/plan.md', 'roadmap.md');
+
+    const state = h.store.getState();
+    expect(state.selectedNoteId).toBe('root-1:projects/roadmap.md');
+    const projects = state.roots[0]?.nodes.find((n) => n.name === 'projects');
+    expect(
+      projects?.type === 'folder' && projects.children.some((c) => c.name === 'roadmap.md')
+    ).toBe(true);
+  });
+
+  it('renames a folder and remaps expansion + selection prefixes', async () => {
+    const h = await mountedVault();
+    h.store.getState().toggleExpanded('root-1:projects');
+    h.store.getState().selectNote('root-1:projects/plan.md');
+
+    await h.store.getState().renameEntry('root-1:projects', 'work');
+
+    const state = h.store.getState();
+    expect(state.expandedIds.has('root-1:work')).toBe(true);
+    expect(state.expandedIds.has('root-1:projects')).toBe(false);
+    expect(state.selectedNoteId).toBe('root-1:work/plan.md');
+  });
+
+  it('publishes the rename remap so open editors can rebind instead of flushing stale handles', async () => {
+    const h = await mountedVault();
+    expect(h.store.getState().lastRename).toBeNull();
+
+    await h.store.getState().renameEntry('root-1:projects', 'work');
+
+    expect(h.store.getState().lastRename).toEqual({
+      from: 'root-1:projects',
+      to: 'root-1:work',
+    });
+  });
+
+  it('deletes an entry, pruning selection under it', async () => {
+    const h = await mountedVault();
+    h.store.getState().selectNote('root-1:projects/plan.md');
+
+    await h.store.getState().deleteEntry('root-1:projects');
+
+    const state = h.store.getState();
+    expect(state.roots[0]?.nodes.some((n) => n.name === 'projects')).toBe(false);
+    expect(state.selectedNoteId).toBeNull();
+  });
+
+  it('surfaces operation failures in the alert banner', async () => {
+    const h = await mountedVault();
+
+    await h.store.getState().createFolder('root-1', 'inbox.md');
+
+    expect(h.store.getState().globalError).toMatch(/already exists/i);
+  });
+});

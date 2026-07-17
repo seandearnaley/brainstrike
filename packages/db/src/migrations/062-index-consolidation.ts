@@ -37,7 +37,7 @@ import type { Migration } from './migration-runner';
  * constraint / prompt_item_revisions_unique — they are the
  * correctness-bearing survivors.
  */
-export const migration060IndexConsolidation: Migration = {
+export const migration062IndexConsolidation: Migration = {
   down: `
     -- Table-existence guards: embedding_cache exists only on the drizzle
     -- (real-app) path, so the numbered (test) path must be able to roll back
@@ -82,5 +82,5 @@ export const migration060IndexConsolidation: Migration = {
     -- Same key as the UNIQUE prompt_item_revisions_unique constraint (051)
     DROP INDEX IF EXISTS idx_prompt_item_revisions_item_revision;
   `,
-  version: 60,
+  version: 62,
 };

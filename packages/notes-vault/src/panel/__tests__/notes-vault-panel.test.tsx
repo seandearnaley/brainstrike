@@ -1,5 +1,8 @@
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { ActionRegistryProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 // CodeMirror cannot mount in happy-dom (sibling precedent:
@@ -48,8 +51,18 @@ function setup(options: { pick?: FakeDirectoryHandle } = {}) {
     rescanDebounceMs: 0,
   };
   const store = createNotesVaultStore(services);
-  render(<NotesVaultPanel store={store} />);
+  renderWithRegistry(<NotesVaultPanel store={store} />);
   return { store };
+}
+
+/** ActionContextMenu (vault tree right-click) requires the app-wide registry
+ * provider; tests mount a minimal one like the shell does. */
+function renderWithRegistry(ui: ReactElement) {
+  return render(
+    <ActionRegistryProvider registry={createTestActionRegistry().registry}>
+      {ui}
+    </ActionRegistryProvider>
+  );
 }
 
 describe('NotesVaultPanel', () => {
@@ -136,7 +149,7 @@ describe('NotesVaultPanel', () => {
       pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),
       rescanDebounceMs: 0,
     };
-    render(<NotesVaultPanel store={createNotesVaultStore(services)} />);
+    renderWithRegistry(<NotesVaultPanel store={createNotesVaultStore(services)} />);
 
     await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
@@ -215,7 +228,7 @@ describe('review findings: error surfacing', () => {
       pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),
       rescanDebounceMs: 0,
     };
-    render(<NotesVaultPanel store={createNotesVaultStore(services)} />);
+    renderWithRegistry(<NotesVaultPanel store={createNotesVaultStore(services)} />);
 
     await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
@@ -287,7 +300,7 @@ describe('default vault', () => {
       pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),
       rescanDebounceMs: 0,
     };
-    render(<NotesVaultPanel store={createNotesVaultStore(services)} />);
+    renderWithRegistry(<NotesVaultPanel store={createNotesVaultStore(services)} />);
 
     expect(await screen.findByText('My Notes')).toBeInTheDocument();
     expect(await screen.findByText('Welcome')).toBeInTheDocument();
@@ -334,5 +347,77 @@ describe('editing', () => {
     await user.click(screen.getByRole('button', { name: /new note/i }));
 
     expect(await screen.findByTestId('note-editor')).toBeInTheDocument();
+  });
+});
+
+describe('context menu file management', () => {
+  it('renames a note via right-click → Rename → dialog', async () => {
+    const user = userEvent.setup();
+    const vault = fakeDir('vault', [fakeNote('old.md', { content: 'body' })]);
+    setup({ pick: vault });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    const row = await screen.findByText('old');
+
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
+
+    const input = await screen.findByTestId('vault-entry-name-input');
+    expect(input).toHaveValue('old');
+    await user.clear(input);
+    await user.type(input, 'renamed note');
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() => {
+      expect(vault.entries.has('renamed note.md')).toBe(true);
+    });
+    expect(await screen.findByText('renamed note')).toBeInTheDocument();
+  });
+
+  it('creates a folder via right-click on the root row', async () => {
+    const user = userEvent.setup();
+    const vault = fakeDir('vault', [fakeNote('a.md')]);
+    setup({ pick: vault });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    const rootRow = await screen.findByText('vault');
+
+    fireEvent.contextMenu(rootRow);
+    await user.click(await screen.findByRole('menuitem', { name: /new folder/i }));
+    await user.type(await screen.findByTestId('vault-entry-name-input'), 'ideas');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(vault.entries.has('ideas')).toBe(true);
+    });
+    expect(await screen.findByText('ideas')).toBeInTheDocument();
+  });
+
+  it('deletes a note via right-click → Delete → confirm, clearing its selection', async () => {
+    const user = userEvent.setup();
+    const vault = fakeDir('vault', [fakeNote('doomed.md')]);
+    const { store } = setup({ pick: vault });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    const row = await screen.findByText('doomed');
+    await user.click(row);
+
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
+    await user.click(await screen.findByTestId('vault-delete-confirm'));
+
+    await waitFor(() => {
+      expect(vault.entries.has('doomed.md')).toBe(false);
+    });
+    expect(store.getState().selectedNoteId).toBeNull();
+    expect(screen.queryByText('doomed')).not.toBeInTheDocument();
+  });
+
+  it('shows no menu for empty-space right-clicks (unclaimed target)', async () => {
+    const user = userEvent.setup();
+    setup({ pick: fakeDir('vault', [fakeNote('a.md')]) });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    await screen.findByText('a');
+
+    fireEvent.contextMenu(screen.getByTestId('notes-vault-panel'));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });

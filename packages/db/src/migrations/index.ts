@@ -58,7 +58,9 @@ import { migration056AssistantThreadGroupPresentation } from './056-assistant-th
 import { migration057UpdateProviderModels202607 } from './057-update-provider-models-2026-07.js';
 import { migration058ProviderBilledCost } from './058-provider-billed-cost.js';
 import { migration059AssistantThreadGroupIcons } from './059-assistant-thread-group-icons.js';
-import { migration060IndexConsolidation } from './060-index-consolidation.js';
+import { migration060OpenRouterSparkKimiK3 } from './060-openrouter-spark-kimi-k3.js';
+import { migration061ModelVisionCapability } from './061-model-vision-capability.js';
+import { migration062IndexConsolidation } from './062-index-consolidation.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -123,7 +125,9 @@ export const migrations: Migration[] = [
   migration057UpdateProviderModels202607,
   migration058ProviderBilledCost,
   migration059AssistantThreadGroupIcons,
-  migration060IndexConsolidation,
+  migration060OpenRouterSparkKimiK3,
+  migration061ModelVisionCapability,
+  migration062IndexConsolidation,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -9,6 +9,13 @@ export class PartialRefreshError extends Error {
   }
 }
 
+/**
+ * Sentinel message stored as a tab's `content` when a read resolves to binary
+ * data. UI surfaces (FileTabBody) and content-state guards match on it exactly,
+ * so every BINARY FileContentError must carry this message verbatim.
+ */
+export const BINARY_CONTENT_MESSAGE = 'Binary file - preview not available';
+
 export class FileContentError extends Error {
   constructor(
     message: string,
