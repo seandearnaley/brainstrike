@@ -414,7 +414,9 @@ function RunTableSection({ rows }: { readonly rows: readonly RunLedgerRow[] }) {
     <section className="space-y-2">
       <h3 className="font-medium text-sm">Latest runs</h3>
       <div className="overflow-x-auto">
-        <Table>
+        {/* Floor width so narrow dialogs scroll horizontally instead of
+            compressing columns until cost/outcome text clips. */}
+        <Table className="min-w-[56rem]">
           <TableHeader>
             <TableRow>
               <TableHead>Started</TableHead>
@@ -434,7 +436,7 @@ function RunTableSection({ rows }: { readonly rows: readonly RunLedgerRow[] }) {
                 <TableCell className="whitespace-nowrap">
                   {startedAtFormatter.format(row.startedAt)}
                 </TableCell>
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   <span className="font-medium">{row.model}</span>{' '}
                   <span className="text-muted-foreground text-xs">{row.provider}</span>
                 </TableCell>
