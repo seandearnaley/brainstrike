@@ -18,6 +18,7 @@ export {
   getNativeToolDefaults,
   getTierInfo,
   isNativeTool,
+  LSP_INSPECT_TOOL_ID,
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
   TOOL_CATEGORIES,

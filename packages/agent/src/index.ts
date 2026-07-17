@@ -55,6 +55,7 @@ export {
 } from '@brainstrike/assistant-contract/tool-approval';
 export {
   buildNativeToolRiskMap,
+  LSP_INSPECT_TOOL_ID,
   WEB_EXTRACT_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 export {
@@ -502,6 +503,8 @@ export {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type LspInspectInput,
+  LspInspectInputSchema,
   type ManageTaskListInput,
   ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,

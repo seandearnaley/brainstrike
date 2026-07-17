@@ -17,6 +17,7 @@ import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
  */
 export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
 export const WEB_EXTRACT_TOOL_ID = 'brainstrike.webExtract' as const;
+export const LSP_INSPECT_TOOL_ID = 'brainstrike.lspInspect' as const;
 
 /**
  * Source of a tool - either built into the application or from an MCP server.
@@ -220,6 +221,18 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 120,
     loadingTier: 'critical',
     requiresApproval: false,
+  },
+  // Semantic code inspection at a cursor (report R2 Phase B): hover type,
+  // line diagnostics, definition, and implementation via a bundled language
+  // server. Read-only (no mutation), so 'read' risk + no approval like the
+  // other workspace readers. Desktop-only (spawns a server child process);
+  // web omits it.
+  'brainstrike.lspInspect': {
+    category: 'retrieval',
+    estimatedTokens: 160,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
   },
   // Whole-list replace of the assistant's own per-thread plan. `category:'action'`
   // is the UI/load taxonomy, but the risk bucket is EXPLICITLY 'read': it mutates

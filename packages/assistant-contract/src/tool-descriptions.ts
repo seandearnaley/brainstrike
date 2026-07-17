@@ -17,6 +17,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   'brainstrike.listWorkspaceContext':
     'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
+  'brainstrike.lspInspect':
+    "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript): the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, the 1-based line, and a `match` string that is that line's text with a `<<<` marker inserted right before the symbol (exactly one `<<<`). Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
   'brainstrike.manageTaskList':
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   'brainstrike.queryEmbeddingSpace':

@@ -3235,5 +3235,59 @@ describe('assistant-tools multi-root read tools', () => {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
+
+    it('lspInspect returns hover + definition for a symbol via the <<< cursor (Phase B)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-inspect' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        const result = await tools['brainstrike.lspInspect'].execute({
+          context: {
+            line: 2,
+            match: 'export const echo = <<<greeting;',
+            path: '/src/sym.ts',
+          },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.hover).toMatch(/string/);
+        expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
+        expect(result.definition?.[0]?.line).toBe(1);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect refuses a malformed cursor marker with an actionable error', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'x.ts'),
+          'export const x = 1;\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-bad-cursor' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            // Two markers → invalid.
+            context: { line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' },
+          })
+        ).rejects.toThrow(/exactly one/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  LSP_INSPECT_TOOL_ID,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
@@ -679,6 +680,30 @@ export const WebExtractInputSchema = z
 
 export type WebExtractInput = z.infer<typeof WebExtractInputSchema>;
 
+// ============================================================================
+// LSP Inspect Tool Schema (report R2 Phase B)
+// ============================================================================
+
+export const LspInspectInputSchema = z
+  .object({
+    line: z.number().int().positive().describe('1-based line number of the symbol to inspect'),
+    match: z
+      .string()
+      .min(3)
+      .max(2000)
+      .describe(
+        "The target line's text with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`."
+      ),
+    path: z.string().min(1).describe('Workspace-relative file path to inspect'),
+    root: z
+      .string()
+      .optional()
+      .describe('Which open folder the path is in (required only when multiple are open)'),
+  })
+  .strict();
+
+export type LspInspectInput = z.infer<typeof LspInspectInputSchema>;
+
 export const ExecuteCommandInputSchema = z
   .object({
     command: z
@@ -842,6 +867,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.submitPlan': SubmitPlanInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
+  [LSP_INSPECT_TOOL_ID]: LspInspectInputSchema,
   [WEB_EXTRACT_TOOL_ID]: WebExtractInputSchema,
   [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
   'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,

@@ -24,6 +24,7 @@
  * thrown error that would fail the underlying (already-successful) edit.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -34,10 +35,14 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
 import type {
+  DefinitionParams,
   DidChangeTextDocumentParams,
   DidOpenTextDocumentParams,
+  HoverParams,
+  ImplementationParams,
   InitializeParams,
   InitializeResult,
+  Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
 
@@ -45,9 +50,12 @@ import type {
 // identity mismatch between vscode-jsonrpc and -protocol under the main
 // process's classic module resolution; the wire contract is the same).
 const LSP = {
+  definition: 'textDocument/definition',
   didChange: 'textDocument/didChange',
   didOpen: 'textDocument/didOpen',
   exit: 'exit',
+  hover: 'textDocument/hover',
+  implementation: 'textDocument/implementation',
   initialize: 'initialize',
   initialized: 'initialized',
   publishDiagnostics: 'textDocument/publishDiagnostics',
@@ -60,6 +68,8 @@ const logger = createLogger('AssistantLspDiagnostics');
 const INIT_TIMEOUT_MS = 15_000;
 /** Overall budget for diagnostics to arrive after opening/updating a file. */
 const DIAGNOSTIC_TIMEOUT_MS = 6000;
+/** Per-request budget for a hover/definition/implementation query (Phase B). */
+const QUERY_TIMEOUT_MS = 4000;
 /** Servers publish `[]` first while still analysing, then the real set — so an
  * empty result is not trusted immediately: poll this much longer for a
  * non-empty publish before returning empty (mirrors core's settle window). */
@@ -198,6 +208,54 @@ interface RawDiagnostic {
   source?: unknown;
 }
 
+/** Raw LSP hover response (contents in any of the allowed shapes). */
+interface RawHover {
+  contents?: unknown;
+}
+/** Raw LSP Location or LocationLink (definition/implementation result). */
+interface RawLocation {
+  range?: { start?: { line?: number; character?: number } };
+  targetRange?: { start?: { line?: number; character?: number } };
+  targetSelectionRange?: { start?: { line?: number; character?: number } };
+  targetUri?: string;
+  uri?: string;
+}
+
+/** Resolve a value or a fallback after `ms`, whichever is first. */
+function timeout<T>(ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(fallback), ms));
+}
+
+/** Flatten an LSP hover response (MarkupContent | MarkedString | array) to text. */
+function extractHoverText(hover: RawHover): string | undefined {
+  const { contents } = hover;
+  const flatten = (value: unknown): string => {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(flatten).filter(Boolean).join('\n');
+    }
+    if (value && typeof value === 'object' && 'value' in value) {
+      const inner = (value as { value?: unknown }).value;
+      return typeof inner === 'string' ? inner : '';
+    }
+    return '';
+  };
+  const text = flatten(contents).trim();
+  return text.length > 0 ? text : undefined;
+}
+
+/** Normalize a definition/implementation result (Location | Location[] |
+ * LocationLink[] | null) to a flat list of raw locations. */
+function normalizeLocations(result: unknown): RawLocation[] {
+  if (!result) {
+    return [];
+  }
+  const list = Array.isArray(result) ? result : [result];
+  return list.filter((entry): entry is RawLocation => Boolean(entry) && typeof entry === 'object');
+}
+
 /** Map raw LSP diagnostics to the bounded, model-facing shape. */
 function boundDiagnostics(raw: RawDiagnostic[]): {
   diagnostics: EditDiagnostic[];
@@ -289,7 +347,7 @@ class LspServerConnection {
    * Fire-and-forget a notification, SWALLOWING its promise rejection. Writing
    * to a server killed mid-flight (dispose, crash) rejects with EPIPE; without
    * this the rejection is unhandled (CI-visible, timing-dependent). The
-   * diagnostics call already degrades to an honest note on failure.
+   * diagnostics/inspect calls already degrade to an honest note on failure.
    */
   private notify(method: string, params?: unknown): void {
     this.connection.sendNotification(method, params).catch(() => {
@@ -303,6 +361,9 @@ class LspServerConnection {
       const initializeParams: InitializeParams = {
         capabilities: {
           textDocument: {
+            definition: { dynamicRegistration: false },
+            hover: { contentFormat: ['markdown', 'plaintext'], dynamicRegistration: false },
+            implementation: { dynamicRegistration: false },
             publishDiagnostics: { relatedInformation: false },
             synchronization: { didSave: false, dynamicRegistration: false },
           },
@@ -324,16 +385,12 @@ class LspServerConnection {
     return this.initialized;
   }
 
-  /** Open (or re-sync) a document and wait for its diagnostics to settle. */
-  async diagnose(
-    absolutePath: string,
-    content: string,
-    languageId: string
-  ): Promise<RawDiagnostic[]> {
-    await this.ensureInitialized();
+  /** Open (or re-sync) a document with the given content, bumping its version.
+   * Returns the file URI. Clears the prior publish so a subsequent
+   * waitForDiagnostics observes THIS content's result. */
+  private syncDocument(absolutePath: string, content: string, languageId: string): string {
     const uri = pathToFileURL(absolutePath).href;
     const key = diagnosticsKey(absolutePath);
-    // Clear the prior publish so the settle loop waits for THIS edit's result.
     this.diagnostics.delete(key);
     const previousVersion = this.versions.get(key);
     if (previousVersion === undefined) {
@@ -351,7 +408,90 @@ class LspServerConnection {
       };
       this.notify(LSP.didChange, changeParams);
     }
-    return this.waitForDiagnostics(key);
+    return uri;
+  }
+
+  /** Open (or re-sync) a document and wait for its diagnostics to settle. */
+  async diagnose(
+    absolutePath: string,
+    content: string,
+    languageId: string
+  ): Promise<RawDiagnostic[]> {
+    await this.ensureInitialized();
+    this.syncDocument(absolutePath, content, languageId);
+    return this.waitForDiagnostics(diagnosticsKey(absolutePath));
+  }
+
+  /**
+   * Semantic inspection at a position (report R2 Phase B): open the file, let
+   * the server index (settle-window), then query hover + definition +
+   * implementation in parallel and pull the line-scoped diagnostics. Each query
+   * is independently bounded and degrades to undefined on timeout/absence —
+   * never throws.
+   */
+  async inspect(
+    absolutePath: string,
+    content: string,
+    languageId: string,
+    position: Position
+  ): Promise<{
+    hover?: string;
+    diagnostics: RawDiagnostic[];
+    definition: RawLocation[];
+    implementation: RawLocation[];
+  }> {
+    await this.ensureInitialized();
+    const uri = this.syncDocument(absolutePath, content, languageId);
+    // Let the server analyse the freshly-opened document before querying
+    // (the same settle rationale as diagnostics — queries on an un-indexed
+    // file return empty).
+    const lineDiagnostics = await this.waitForDiagnostics(diagnosticsKey(absolutePath));
+    const [hover, definition, implementation] = await Promise.all([
+      this.queryHover(uri, position),
+      this.queryLocations(LSP.definition, uri, position),
+      this.queryLocations(LSP.implementation, uri, position),
+    ]);
+    return {
+      definition,
+      diagnostics: lineDiagnostics.filter(
+        (entry) => (entry.range?.start?.line ?? -1) === position.line
+      ),
+      implementation,
+      ...(hover ? { hover } : {}),
+    };
+  }
+
+  private async queryHover(uri: string, position: Position): Promise<string | undefined> {
+    try {
+      const params: HoverParams = { position, textDocument: { uri } };
+      const result = (await Promise.race([
+        this.connection.sendRequest<RawHover | null>(LSP.hover, params),
+        timeout<null>(QUERY_TIMEOUT_MS, null),
+      ])) as RawHover | null;
+      return result ? extractHoverText(result) : undefined;
+    } catch {
+      return;
+    }
+  }
+
+  private async queryLocations(
+    method: string,
+    uri: string,
+    position: Position
+  ): Promise<RawLocation[]> {
+    try {
+      const params: DefinitionParams | ImplementationParams = {
+        position,
+        textDocument: { uri },
+      };
+      const result = await Promise.race([
+        this.connection.sendRequest<unknown>(method, params),
+        timeout<null>(QUERY_TIMEOUT_MS, null),
+      ]);
+      return normalizeLocations(result);
+    } catch {
+      return [];
+    }
   }
 
   private async waitForDiagnostics(key: string): Promise<RawDiagnostic[]> {
@@ -538,6 +678,172 @@ export async function getEditDiagnostics(
       available: false,
       language,
       message: 'Diagnostics could not be collected for this edit.',
+      reason: 'server-unavailable',
+    };
+  }
+}
+
+/** One definition/implementation location in model-facing shape. */
+export interface InspectLocation {
+  /** 1-based line of the target. */
+  line: number;
+  /** Workspace-relative path when under the root, else absolute. */
+  path: string;
+  /** Bounded one-line preview of the target line, when readable. */
+  preview?: string;
+}
+
+/**
+ * Result of an `lspInspect` call (report R2 Phase B). Mirrors core's tool
+ * contract: hover / line diagnostics / definition / implementation groups.
+ * `available:false` carries an honest reason exactly like the diagnostics path.
+ */
+export interface LspInspectionResult {
+  available: boolean;
+  definition?: InspectLocation[];
+  diagnostics?: EditDiagnostic[];
+  hover?: string;
+  implementation?: InspectLocation[];
+  language?: string;
+  message?: string;
+  reason?: LspUnavailableReason;
+}
+
+/** file:// URI → fs path. */
+function uriToPath(uri: string): string {
+  return uri.startsWith('file://') ? decodeURIComponent(new URL(uri).pathname) : uri;
+}
+
+const MAX_INSPECT_LOCATIONS = 10;
+const MAX_HOVER_CHARS = 1200;
+const MAX_PREVIEW_CHARS = 200;
+
+/** Workspace-relative "/path" when under root, else the absolute path. */
+function toDisplayPath(absolutePath: string, rootPath: string): string {
+  const relative = path.relative(rootPath, absolutePath);
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return `/${relative.split(path.sep).join('/')}`;
+  }
+  return absolutePath;
+}
+
+/** Best-effort bounded preview of a 1-based line (undefined on read error). */
+async function readLinePreview(absolutePath: string, line: number): Promise<string | undefined> {
+  try {
+    const fileText = await fsPromises.readFile(absolutePath, 'utf8');
+    const target = fileText.split('\n')[line - 1]?.trim();
+    if (!target) {
+      return;
+    }
+    return target.length > MAX_PREVIEW_CHARS ? `${target.slice(0, MAX_PREVIEW_CHARS)}…` : target;
+  } catch {
+    return;
+  }
+}
+
+async function toInspectLocations(
+  raw: RawLocation[],
+  rootPath: string
+): Promise<InspectLocation[]> {
+  const seen = new Set<string>();
+  const locations: InspectLocation[] = [];
+  for (const entry of raw.slice(0, MAX_INSPECT_LOCATIONS * 2)) {
+    const uri = entry.uri ?? entry.targetUri;
+    if (!uri) {
+      continue;
+    }
+    const range = entry.range ?? entry.targetRange ?? entry.targetSelectionRange;
+    const absolutePath = uriToPath(uri);
+    const line = (range?.start?.line ?? 0) + 1;
+    const dedupeKey = `${absolutePath}:${line}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    const preview = await readLinePreview(absolutePath, line);
+    locations.push({
+      line,
+      path: toDisplayPath(absolutePath, rootPath),
+      ...(preview ? { preview } : {}),
+    });
+    if (locations.length >= MAX_INSPECT_LOCATIONS) {
+      break;
+    }
+  }
+  return locations;
+}
+
+export interface GetLspInspectionArgs {
+  absolutePath: string;
+  content: string;
+  /** 0-based cursor position (the tool converts the 1-based line + `<<<`). */
+  position: Position;
+  resolveServerForTest?: () => ResolvedServer | null;
+  rootId: string;
+  rootPath: string;
+}
+
+/**
+ * Semantic inspection at a cursor (report R2 Phase B). Never throws: an
+ * unsupported language, an unresolvable server, or query timeouts all resolve
+ * to an honest result. Serialized per file (shared connection state).
+ */
+export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspInspectionResult> {
+  const language = languageIdForPath(args.absolutePath);
+  if (!language) {
+    return {
+      available: false,
+      message: `LSP inspection is not available for this file type (no ${path.extname(args.absolutePath) || 'unknown'} language server).`,
+      reason: 'unsupported-language',
+    };
+  }
+  const server = (args.resolveServerForTest ?? resolveTypescriptServer)();
+  if (!server) {
+    return {
+      available: false,
+      language,
+      message: 'The TypeScript/JavaScript language server is unavailable.',
+      reason: 'server-unavailable',
+    };
+  }
+
+  try {
+    return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
+      let connection = pool.get(args.rootId);
+      if (!connection) {
+        connection = new LspServerConnection(server, args.rootPath);
+        pool.set(args.rootId, connection);
+      }
+      const raw = await connection.inspect(
+        args.absolutePath,
+        args.content,
+        language,
+        args.position
+      );
+      const hover =
+        raw.hover && raw.hover.length > MAX_HOVER_CHARS
+          ? `${raw.hover.slice(0, MAX_HOVER_CHARS)}…`
+          : raw.hover;
+      const [definition, implementation] = await Promise.all([
+        toInspectLocations(raw.definition, args.rootPath),
+        toInspectLocations(raw.implementation, args.rootPath),
+      ]);
+      const diagnostics = boundDiagnostics(raw.diagnostics).diagnostics;
+      return {
+        available: true,
+        language,
+        ...(hover ? { hover } : {}),
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+        ...(definition.length > 0 ? { definition } : {}),
+        ...(implementation.length > 0 ? { implementation } : {}),
+      };
+    });
+  } catch (error) {
+    logger.error('LSP inspection failed', { error });
+    return {
+      available: false,
+      language,
+      message: 'Inspection could not be collected.',
       reason: 'server-unavailable',
     };
   }

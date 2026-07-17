@@ -24,6 +24,9 @@ import {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  LSP_INSPECT_TOOL_ID,
+  type LspInspectInput,
+  LspInspectInputSchema,
   type ManageTaskListInput,
   ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
@@ -98,7 +101,12 @@ import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
 import { HYBRID_SEARCH_TOOL_ID, runHybridSearch } from './hybrid-search-tool';
-import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
+import {
+  type EditDiagnosticsResult,
+  getEditDiagnostics,
+  getLspInspection,
+  type LspInspectionResult,
+} from './lsp-diagnostics';
 import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
@@ -571,6 +579,47 @@ async function runFindWorkspaceSymbol(
     maxMatches: input.maxMatches ?? 5,
   });
   return { matches, path: file.path, rootName: root.displayName, totalMatches, truncated };
+}
+
+/** The cursor marker the model inserts into `match` to point at a symbol. */
+const LSP_CURSOR_MARKER = '<<<';
+
+/**
+ * Semantic code inspection (report R2 Phase B). Reads the file through the same
+ * checked reader as the read tools (containment/size/binary guards), resolves
+ * the `<<<` cursor from `match` to a column on the 1-based `line`, and asks the
+ * language server for hover/definition/implementation + line diagnostics.
+ * Never spawns for an out-of-range line or a malformed marker — those are
+ * actionable input errors thrown for the model to correct.
+ */
+async function runLspInspect(
+  input: LspInspectInput,
+  runtimeData: RuntimeData | undefined
+): Promise<LspInspectionResult & { rootName: string; path: string }> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const markerCount = input.match.split(LSP_CURSOR_MARKER).length - 1;
+  if (markerCount !== 1) {
+    throw new Error(
+      `The "match" field must contain exactly one "${LSP_CURSOR_MARKER}" cursor marker (found ${markerCount}).`
+    );
+  }
+  const file = await readWorkspaceTextFile({ requestedPath: input.path, rootPath: root.path });
+  const lines = file.content.split('\n');
+  if (input.line > lines.length) {
+    throw new Error(
+      `Line ${input.line} is past the end of "${input.path}" (${lines.length} lines).`
+    );
+  }
+  const character = input.match.indexOf(LSP_CURSOR_MARKER);
+  const result = await getLspInspection({
+    absolutePath: file.absolutePath,
+    content: file.content,
+    // LSP positions are 0-based; the tool takes a 1-based line + the cursor col.
+    position: { character, line: input.line - 1 },
+    rootId: root.rootId,
+    rootPath: root.path,
+  });
+  return { ...result, path: file.path, rootName: root.displayName };
 }
 
 async function runReadWorkspaceFile(
@@ -2536,6 +2585,21 @@ export function buildDesktopAssistantTools(
       },
       id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
       inputSchema: FindWorkspaceSymbolInputSchema,
+    },
+    [LSP_INSPECT_TOOL_ID]: {
+      description:
+        "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript): the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, the 1-based line, and a `match` string that is that line's text with a `<<<` marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`. Read-only. Returns a clear available:false note (not an error) for unsupported file types or when no server is available — relay it rather than retrying.",
+      execute: async (input: ToolExecuteInput<LspInspectInput>) => {
+        const resolvedInput = parseToolExecuteInput(LspInspectInputSchema, input);
+        try {
+          return await runLspInspect(resolvedInput, runtimeData);
+        } catch (error) {
+          logToolFailure('lspInspect failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: LSP_INSPECT_TOOL_ID,
+      inputSchema: LspInspectInputSchema,
     },
     [GREP_SEARCH_TOOL_ID]: {
       description:
