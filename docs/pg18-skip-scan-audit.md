@@ -212,7 +212,7 @@ The live schema has **only single-column btrees** on file_chunks (`file_record_i
 | `idx_job_queue_embed_set_state`, `idx_job_queue_active_embed_chunk_id` | job_queue | KEEP | Partial, purpose-built (Q9 / chunk-cancel) |
 | `idx_file_chunks_file_record_id`, `idx_file_chunks_embedding_set_id`, `idx_file_chunks_content_hash` | file_chunks | KEEP | No multicolumn index exists to consolidate onto |
 
-**Prospective persisted-size savings from the three DROPs: 2,711,552 bytes (~2.6 MiB) at the seeded volume**, scaling linearly with cache growth (e.g. ~25 MB of `content_hash` index at 500k cached embeddings), plus three fewer btrees maintained on the embedding-cache and token-cache write paths. The proposed migration is drafted (unregistered) at `docs/pg18-index-consolidation.draft.ts`.
+**Prospective persisted-size savings from the three DROPs: 2,711,552 bytes (~2.6 MiB) at the seeded volume**, scaling linearly with cache growth (e.g. ~25 MB of `content_hash` index at 500k cached embeddings), plus three fewer btrees maintained on the embedding-cache and token-cache write paths. The migration shipped as dual-registered migration 063 (`packages/db/src/migrations/063-index-consolidation.ts`), which also drops `idx_prompt_item_revisions_item_revision` (same key as the UNIQUE `prompt_item_revisions_unique`).
 
 ## Skip-scan bottom line
 
