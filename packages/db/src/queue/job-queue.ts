@@ -104,8 +104,15 @@ type OutcomeMetricsColumn = 'succeeded_total' | 'failed_total' | 'canceled_total
  * engine). The counters are monotonic — pruning/clearing the terminal rows
  * never touches them (aggregate-then-prune). `sourceCte` must expose a `queue`
  * column and contain only rows that transitioned in this statement.
+ *
+ * Exported for raw-SQL sites outside JobQueue that transition jobs terminally
+ * (e.g. managed-cache chunk invalidation) so they fold in the same counter
+ * instead of silently skipping it.
  */
-function incrementOutcomeMetricsCte(sourceCte: string, column: OutcomeMetricsColumn): string {
+export function incrementOutcomeMetricsCte(
+  sourceCte: string,
+  column: OutcomeMetricsColumn
+): string {
   return `metrics AS (
        INSERT INTO job_queue_metrics (queue, ${column})
        SELECT queue, COUNT(*) FROM ${sourceCte} GROUP BY queue
