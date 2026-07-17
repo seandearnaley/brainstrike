@@ -41,6 +41,7 @@ import {
   useState,
 } from 'react';
 import ActionButtons from '../action-buttons-array-facade';
+import { ExpandAllConfirmDialog } from '../components/expand-all-confirm-dialog';
 import { RestoreAccessModal } from '../components/restore-access-modal';
 import { TreeActionButtons } from '../components/tree-action-buttons';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -67,6 +68,7 @@ import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
 import {
   ForestTreeActionsProvider,
+  type ForestTreeActionsValue,
   useOptionalForestTreeActions,
 } from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -156,6 +158,62 @@ function ViewFiltersToggleButton({
 /** Forest mode = more than one active root (sections render per root). */
 function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined): boolean {
   return (rootDirectoryHandles?.length ?? 0) > 1;
+}
+
+/**
+ * Toolbar scanning-indicator source for expand-all: during a forest sweep the
+ * focused provider's isExpandingAll/expandAllProgress stay idle (each section
+ * expands inside its OWN provider), so progress and cancel must come from the
+ * forest registry's aggregate instead.
+ */
+function resolveExpandAllScanningSource(args: {
+  cancelExpandAll: () => void;
+  expandAllProgress: { loaded: number; total: number } | null;
+  forestActions: ForestTreeActionsValue | null;
+  isExpandingAll: boolean;
+  isForestExpandingAll: boolean;
+}): {
+  cancel: () => void;
+  isExpanding: boolean;
+  progress: { loaded: number; total: number } | null;
+} {
+  const {
+    cancelExpandAll,
+    expandAllProgress,
+    forestActions,
+    isExpandingAll,
+    isForestExpandingAll,
+  } = args;
+  if (isForestExpandingAll && forestActions) {
+    return {
+      cancel: forestActions.cancelExpandAll,
+      isExpanding: true,
+      progress: forestActions.expandAllProgress,
+    };
+  }
+  return { cancel: cancelExpandAll, isExpanding: isExpandingAll, progress: expandAllProgress };
+}
+
+/**
+ * Staged forest expand-all: sweeping every root's full subtree is I/O-heavy
+ * and easy to trigger by accident, so the toolbar click only opens a confirm
+ * dialog; the sweep starts on confirm. Single-root expand stays immediate.
+ */
+function useForestExpandConfirm(forestActions: ForestTreeActionsValue | null): {
+  confirm: () => void;
+  dismiss: () => void;
+  isOpen: boolean;
+  stage: () => void;
+} {
+  const [isOpen, setIsOpen] = useState(false);
+  const stage = useCallback(() => setIsOpen(true), []);
+  const dismiss = useCallback(() => setIsOpen(false), []);
+  const confirm = useCallback(() => {
+    setIsOpen(false);
+    void forestActions?.runExpandAll();
+  }, [forestActions]);
+  // Memoized: this object feeds the toolbar's memoized expand-all callback.
+  return useMemo(() => ({ confirm, dismiss, isOpen, stage }), [confirm, dismiss, isOpen, stage]);
 }
 
 /**
@@ -835,6 +893,9 @@ const FileExplorerPanelInner = React.memo(() => {
   const isForestMode = isForestModeActive(rootDirectoryHandles);
   const isForestExpandingAll = Boolean(forestActions?.isExpandingAll);
 
+  const forestExpandConfirm = useForestExpandConfirm(forestActions);
+  const stageForestExpandConfirm = forestExpandConfirm.stage;
+
   const expandAll = useCallback(() => {
     logger.info('expandAll clicked', {
       fileTreeLength: fileTree?.length ?? 0,
@@ -850,7 +911,7 @@ const FileExplorerPanelInner = React.memo(() => {
     }
 
     if (isForestMode && forestActions) {
-      void forestActions.runExpandAll();
+      stageForestExpandConfirm();
       return;
     }
 
@@ -860,6 +921,7 @@ const FileExplorerPanelInner = React.memo(() => {
     forestActions,
     isForestExpandingAll,
     isForestMode,
+    stageForestExpandConfirm,
     store,
     expandAllProgressively,
     isExpandingAll,
@@ -910,28 +972,37 @@ const FileExplorerPanelInner = React.memo(() => {
     });
   }, [cancelOperation, showToast]);
 
-  // Compute scanning status props - extracted to reduce complexity
-  const scanningStatusProps = useMemo(
-    () =>
-      computeScanningStatusProps({
-        cancelExpandAll,
-        cancellable,
-        expandAllProgress,
-        handleCancelOperation,
-        isCancelling,
-        isExpandingAll,
-        loadingProgress,
-      }),
-    [
-      loadingProgress,
-      isExpandingAll,
-      expandAllProgress,
-      cancellable,
-      isCancelling,
+  // Compute scanning status props - extracted to reduce complexity. During a
+  // forest sweep the indicator reads the registry's aggregate progress and
+  // cancels the forest run; otherwise the focused provider's expand state.
+  const scanningStatusProps = useMemo(() => {
+    const source = resolveExpandAllScanningSource({
       cancelExpandAll,
+      expandAllProgress,
+      forestActions,
+      isExpandingAll,
+      isForestExpandingAll,
+    });
+    return computeScanningStatusProps({
+      cancelExpandAll: source.cancel,
+      cancellable,
+      expandAllProgress: source.progress,
       handleCancelOperation,
-    ]
-  );
+      isCancelling,
+      isExpandingAll: source.isExpanding,
+      loadingProgress,
+    });
+  }, [
+    loadingProgress,
+    isExpandingAll,
+    isForestExpandingAll,
+    expandAllProgress,
+    forestActions,
+    cancellable,
+    isCancelling,
+    cancelExpandAll,
+    handleCancelOperation,
+  ]);
 
   return (
     <FileExplorerErrorBoundary>
@@ -1120,6 +1191,14 @@ const FileExplorerPanelInner = React.memo(() => {
           folderId={getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? ''}
           isOpen={isRulesEditorOpen}
           onOpenChange={setIsRulesEditorOpen}
+        />
+
+        {/* Forest Expand All confirmation - multi-root sweeps are staged */}
+        <ExpandAllConfirmDialog
+          onCancel={forestExpandConfirm.dismiss}
+          onConfirm={forestExpandConfirm.confirm}
+          open={forestExpandConfirm.isOpen}
+          rootCount={rootDirectoryHandles.length}
         />
 
         {/* Restore Access Modal - shown when stored handles exist but need permission */}

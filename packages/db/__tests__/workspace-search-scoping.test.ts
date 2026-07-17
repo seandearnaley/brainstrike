@@ -28,6 +28,13 @@ const FILE_LEGACY = '00000000-0000-0000-0000-0000000000f3';
 const CHUNK_A = '00000000-0000-0000-0000-0000000000c1';
 const CHUNK_B = '00000000-0000-0000-0000-0000000000c2';
 const CHUNK_LEGACY = '00000000-0000-0000-0000-0000000000c3';
+// Embedding-set scoping fixtures: a chunk in ANOTHER set, and a chunk with a
+// NULL set whose file record carries the set (the pending-embedding state —
+// coverage-identity semantics, see getCoverageForSet).
+const SET_OTHER = '00000000-0000-0000-0000-0000000000e2';
+const FILE_OTHER_SET = '00000000-0000-0000-0000-0000000000f4';
+const CHUNK_OTHER_SET = '00000000-0000-0000-0000-0000000000c4';
+const CHUNK_NULL_SET = '00000000-0000-0000-0000-0000000000c5';
 
 let db: PGlite;
 
@@ -46,21 +53,25 @@ beforeAll(async () => {
 
   await db.query(`
     INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name) VALUES
-      ('${SET_ID}', 'local:test', 'local:test', 4, 'cosine', 'T')
+      ('${SET_ID}', 'local:test', 'local:test', 4, 'cosine', 'T'),
+      ('${SET_OTHER}', 'local:other', 'local:other', 4, 'cosine', 'O')
   `);
 
   await db.query(`
     INSERT INTO file_records (id, root_id, name, path, size, embedding_set_id) VALUES
       ('${FILE_A}', '${ROOT_A}', 'alpha.ts', 'src/alpha.ts', 100, '${SET_ID}'),
       ('${FILE_B}', '${ROOT_B}', 'beta.ts', 'src/beta.ts', 100, '${SET_ID}'),
-      ('${FILE_LEGACY}', NULL, 'legacy.ts', 'legacy.ts', 100, '${SET_ID}')
+      ('${FILE_LEGACY}', NULL, 'legacy.ts', 'legacy.ts', 100, '${SET_ID}'),
+      ('${FILE_OTHER_SET}', '${ROOT_A}', 'other-set.ts', 'src/other-set.ts', 100, '${SET_OTHER}')
   `);
 
   await db.query(`
     INSERT INTO file_chunks (id, file_record_id, chunk_index, content, start_line, end_line, embedding_set_id, embedding) VALUES
       ('${CHUNK_A}', '${FILE_A}', 0, 'const needleToken = 1;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]'),
       ('${CHUNK_B}', '${FILE_B}', 0, 'const needleToken = 2;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]'),
-      ('${CHUNK_LEGACY}', '${FILE_LEGACY}', 0, 'const needleToken = 3;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]')
+      ('${CHUNK_LEGACY}', '${FILE_LEGACY}', 0, 'const needleToken = 3;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]'),
+      ('${CHUNK_OTHER_SET}', '${FILE_OTHER_SET}', 0, 'const setScopeToken = 4;', 10, 14, '${SET_OTHER}', '[0.1,0.2,0.3,0.4]'),
+      ('${CHUNK_NULL_SET}', '${FILE_A}', 1, 'const setScopeToken = 5;', 20, 24, NULL, NULL)
   `);
 });
 
@@ -126,6 +137,64 @@ describe('fullTextSearch rootIds scoping', () => {
       rootIds: [],
     });
     expect(results).toHaveLength(0);
+  });
+});
+
+describe('fullTextSearch embeddingSetId scoping', () => {
+  // Coverage-identity semantics (see getCoverageForSet): a chunk belongs to a
+  // set when its own embedding_set_id matches, OR when its embedding_set_id is
+  // NULL (pending embedding) and its file record carries the set.
+  it('excludes chunks from other embedding sets and includes NULL-set chunks whose file carries the set', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.fullTextSearch('setScopeToken', {
+      embeddingSetId: SET_ID,
+      limit: 10,
+    });
+    expect(results.map((result) => result.chunk.id)).toEqual([CHUNK_NULL_SET]);
+  });
+
+  it('scopes to the other set symmetrically', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.fullTextSearch('setScopeToken', {
+      embeddingSetId: SET_OTHER,
+      limit: 10,
+    });
+    expect(results.map((result) => result.chunk.id)).toEqual([CHUNK_OTHER_SET]);
+  });
+
+  it('omitting embeddingSetId keeps the unscoped behavior', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.fullTextSearch('setScopeToken', { limit: 10 });
+    expect(results.map((result) => result.chunk.id).sort()).toEqual(
+      [CHUNK_OTHER_SET, CHUNK_NULL_SET].sort()
+    );
+  });
+
+  it('DrizzleFileChunkRepository (web path) applies the same set scoping', async () => {
+    const repo = new DrizzleFileChunkRepository(drizzle(db));
+    const inSet = await repo.fullTextSearch('setScopeToken', {
+      embeddingSetId: SET_ID,
+      limit: 10,
+    });
+    expect(inSet.map((result) => result.chunk.id)).toEqual([CHUNK_NULL_SET]);
+    const otherSet = await repo.fullTextSearch('setScopeToken', {
+      embeddingSetId: SET_OTHER,
+      limit: 10,
+    });
+    expect(otherSet.map((result) => result.chunk.id)).toEqual([CHUNK_OTHER_SET]);
+  });
+
+  it('hybrid search never fuses keyword-only chunks from another embedding set', async () => {
+    const repo = new FileChunkRepository(db);
+    const service = createHybridSearchService(repo);
+    const response = await service.search('setScopeToken', [0.1, 0.2, 0.3, 0.4], {
+      embeddingSetId: SET_ID,
+      includeHeadline: false,
+      limit: 10,
+    });
+    const ids = response.results.map((result) => result.chunk.id);
+    expect(ids).not.toContain(CHUNK_OTHER_SET);
+    expect(ids).toContain(CHUNK_NULL_SET);
   });
 });
 

@@ -7,10 +7,15 @@ import type { DbHandle } from '@brainstrike/db';
  * (Path A). Strict parsing throughout: a malformed aggregate THROWS rather
  * than fabricating zeros (no-silent-fallbacks contract).
  *
- * Estimated-vs-exact provenance mirrors CROSS_ROOT_USAGE_AGGREGATION_SQL:
- * `billedCostUsd` sums only provider-reported rows and the estimated token
- * columns cover exactly the rows WITHOUT a reported cost, so a consumer can
- * price the estimated remainder per model without double counting.
+ * Estimated-vs-exact provenance follows the same accounting RULE as
+ * CROSS_ROOT_USAGE_AGGREGATION_SQL — `billedCostUsd` sums only
+ * provider-reported rows and the estimated token columns cover exactly the
+ * rows WITHOUT a reported cost, so a consumer can price the estimated
+ * remainder per model without double counting. The result SHAPE deliberately
+ * diverges from `mapCrossRootUsageRow` (review #1695): there the estimated
+ * columns are emitted only when an unpriced remainder exists; here they are
+ * ALWAYS present (0 when every row was provider-priced) so chart consumers
+ * never branch on optional fields.
  */
 
 export type LedgerTrendBucket = 'day' | 'hour' | 'week';

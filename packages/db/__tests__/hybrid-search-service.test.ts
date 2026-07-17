@@ -336,11 +336,13 @@ describe('HybridSearchService', () => {
         })
       );
 
-      // Verify FTS received filters
+      // Verify FTS received filters — INCLUDING the embedding-set scope, so the
+      // keyword arm can never fuse in chunks from another embedding space.
       expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
         'test',
         expect.objectContaining({
           chunkType: 'code',
+          embeddingSetId: 'test-set',
           filePaths: ['/src/test.ts'],
           fileRecordId: 'file-123',
           selectionSnapshotId: 'snapshot-1',

@@ -494,7 +494,7 @@ rows). Capability-gated, not `isElectron()`.
   journal in `use-edit-checkpoints.ts` (`labelRunOutcomeFromJournal`): every
   revertible entry reverted → `verdict:'failed'`, partial → `'mixed'`, recorded
   via `repository.recordRunOutcome` with `source:'edit_revert'` into
-  `brainstrike_assistant_run_outcomes` (migration 060). Labeling is SECONDARY:
+  `brainstrike_assistant_run_outcomes` (migration 062). Labeling is SECONDARY:
   a failure is logged and never rejects the completed revert (mirrors the
   non-fatal capture contract), and a later explicit user verdict upserts over
   the derived label by design. Only `ok`/`created`/`rename` capture states
