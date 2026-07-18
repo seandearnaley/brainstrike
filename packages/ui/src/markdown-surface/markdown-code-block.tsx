@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { CodeBlock } from '../code-block/code-block';
+import { CodeBlock } from '../code-block';
 
 export interface MarkdownCodeBlockProps {
   readonly code: string;

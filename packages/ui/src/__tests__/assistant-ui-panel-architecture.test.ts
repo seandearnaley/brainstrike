@@ -79,7 +79,10 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1818);
+    // Bumped 1818 → 1828 for the user-message copy affordance: UserActionBar
+    // gains an ActionBarPrimitive.Copy mirroring AssistantActionBar's
+    // Check/Copy swap (see the "copy affordance alongside edit" test below).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1828);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -166,6 +169,21 @@ describe('assistant UI panel architecture', () => {
     expect(readSource('assistant-ui-panel/budget-guardrail-control.tsx')).toContain(
       'export function BudgetGuardrailControl'
     );
+  });
+
+  it('gives user messages a copy affordance alongside edit', () => {
+    // Mirrors AssistantActionBar: ActionBarPrimitive.Copy with the
+    // MessagePrimitive.If copied Check/Copy swap, so a user's own prompt can
+    // be copied without manual text selection.
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const userActionBarStart = source.indexOf('const UserActionBar =');
+    const editComposerStart = source.indexOf('const EditComposer =');
+    const userActionBarSource = source.slice(userActionBarStart, editComposerStart);
+
+    expect(userActionBarSource).toContain('ActionBarPrimitive.Copy');
+    expect(userActionBarSource).toContain('ActionBarPrimitive.Edit');
+    expect(userActionBarSource).toContain('<MessagePrimitive.If copied>');
+    expect(userActionBarSource).toContain('<MessagePrimitive.If copied={false}>');
   });
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {

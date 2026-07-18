@@ -1530,6 +1530,16 @@ const UserActionBar = () => (
     className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
     hideWhenRunning
   >
+    <ActionBarPrimitive.Copy asChild>
+      <TooltipIconButton aria-label="Copy message" tooltip="Copy">
+        <MessagePrimitive.If copied>
+          <CheckIcon className="size-4" />
+        </MessagePrimitive.If>
+        <MessagePrimitive.If copied={false}>
+          <CopyIcon className="size-4" />
+        </MessagePrimitive.If>
+      </TooltipIconButton>
+    </ActionBarPrimitive.Copy>
     <ActionBarPrimitive.Edit asChild>
       <TooltipIconButton aria-label="Edit message" tooltip="Edit">
         <PencilIcon className="size-4" />
