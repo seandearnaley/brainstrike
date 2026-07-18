@@ -154,4 +154,58 @@ describe('useLazyFileTree renderer-fallback expand-all batching', () => {
     );
     expect(loadingDuringExpandAll).toEqual([]);
   });
+
+  it('batches failed directory loads into the per-batch flush instead of committing per error', async () => {
+    mockAdapter.setMockFileSystem(createDeepMockFileSystem());
+    const handle = await mockAdapter.requestDirectoryAccess();
+
+    // Fail every sub-1/sub-2 directory read (8 of the 16 mid-level dirs).
+    const originalStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+    mockAdapter.readDirectoryStreaming = async (dirHandle, onBatch, options) => {
+      if (/\/(sub-1|sub-2)$/.test(dirHandle.path)) {
+        throw new Error(`permission denied: ${dirHandle.path}`);
+      }
+      return originalStreaming(dirHandle, onBatch, options);
+    };
+
+    const TestWrapper = ({ children }: { children: ReactNode }) =>
+      FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+    const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+    await waitFor(() => expect(result.current.fileTree.length).toBeGreaterThan(0));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const versionBefore = result.current.__internalNormalizedTreeVersion ?? 0;
+
+    let expandedPaths = new Set<string>();
+    const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>): void => {
+      expandedPaths = updater(expandedPaths);
+    };
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths, expandedPaths);
+    });
+
+    // 4 top + 16 mid + 8 leaf (only under the 8 non-failing mids) = 28 dirs.
+    expect(expandedPaths.size).toBe(28);
+
+    // Failed directories surface their error state...
+    const failedDirectory = findByNamePath(result.current.fileTree, ['dir-0', 'sub-1']);
+    expect(failedDirectory?.loadState).toBe('error');
+    // ...and healthy siblings still loaded fully.
+    const leafFile = findByNamePath(result.current.fileTree, [
+      'dir-0',
+      'sub-0',
+      'leaf',
+      'leaf.txt',
+    ]);
+    expect(leafFile?.type).toBe('file');
+
+    // Error commits ride the same per-batch flush — commit count stays at
+    // ~batch count, not batches + one O(tree) commit per failed directory.
+    const commitCount = (result.current.__internalNormalizedTreeVersion ?? 0) - versionBefore;
+    expect(commitCount).toBeGreaterThan(0);
+    expect(commitCount).toBeLessThanOrEqual(8);
+  });
 });
