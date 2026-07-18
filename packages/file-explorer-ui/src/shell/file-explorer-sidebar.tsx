@@ -9,7 +9,11 @@ import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
-import { collectVisibleFiles, useQuickFilteredTree } from '../utils/quick-filter-tree';
+import {
+  collectVisibleFiles,
+  resolveSectionDisplayFilterFlag,
+  useQuickFilteredTree,
+} from '../utils/quick-filter-tree';
 import { getSelectionCount } from '../utils/selection-projection';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
@@ -578,27 +582,6 @@ interface SectionDisplayTreeProps {
    * legacy path-set build in OptimizedFileTree).
    */
   isDisplayTreeFiltered: boolean | undefined;
-}
-
-/**
- * The `isDisplayTreeFiltered` flag for a forest section. Copy-on-write
- * filters return the INPUT identity when nothing was removed, so the
- * displayTree/deferredTree identity check is exact for "filtering removed
- * something". `false` (skip the path-set build) is only claimable once the
- * deferred tree has caught up to the canonical tree: during a deferral
- * window the normalized universe is already NEWER than the displayed tree,
- * and skipping the restriction set would render that newer universe
- * unrestricted — defeating the deferral. Undefined = conservative build.
- */
-export function resolveSectionDisplayFilterFlag(args: {
-  canonicalTree: IFileNode[];
-  deferredTree: IFileNode[];
-  displayTree: IFileNode[];
-}): boolean | undefined {
-  if (args.displayTree !== args.deferredTree) {
-    return true;
-  }
-  return args.deferredTree === args.canonicalTree ? false : undefined;
 }
 
 interface RootSectionInnerProps extends RootSectionProps {

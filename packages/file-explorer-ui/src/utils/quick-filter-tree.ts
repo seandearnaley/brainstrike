@@ -169,6 +169,27 @@ export function applyQuickFilterToTree(tree: IFileNode[], quickFilter: string): 
 }
 
 /**
+ * The `isDisplayTreeFiltered` flag for a forest section. Copy-on-write
+ * filters return the INPUT identity when nothing was removed, so the
+ * displayTree/deferredTree identity check is exact for "filtering removed
+ * something". `false` (skip the path-set build) is only claimable once the
+ * deferred tree has caught up to the canonical tree: during a deferral
+ * window the normalized universe is already NEWER than the displayed tree,
+ * and skipping the restriction set would render that newer universe
+ * unrestricted — defeating the deferral. Undefined = conservative build.
+ */
+export function resolveSectionDisplayFilterFlag(args: {
+  canonicalTree: IFileNode[];
+  deferredTree: IFileNode[];
+  displayTree: IFileNode[];
+}): boolean | undefined {
+  if (args.displayTree !== args.deferredTree) {
+    return true;
+  }
+  return args.deferredTree === args.canonicalTree ? false : undefined;
+}
+
+/**
  * The workspace quick filter applied to a tree, deferred behind keystrokes.
  * Every surface that DISPLAYS a tree must use this so the search box filters
  * what the user actually sees — panel and forest sections alike.

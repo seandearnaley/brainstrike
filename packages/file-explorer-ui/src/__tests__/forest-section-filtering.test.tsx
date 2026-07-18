@@ -53,10 +53,9 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
 });
 
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import FileExplorerSidebar, {
-  resolveSectionDisplayFilterFlag,
-} from '../shell/file-explorer-sidebar';
+import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-context';
+import { resolveSectionDisplayFilterFlag } from '../utils/quick-filter-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
