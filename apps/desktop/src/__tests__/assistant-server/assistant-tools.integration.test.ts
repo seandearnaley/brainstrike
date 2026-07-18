@@ -4,10 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   NATIVE_TOOL_DEFAULTS,
+  NATIVE_TOOL_INPUT_SCHEMAS,
   type RuntimeData,
   resetFileReadState,
   withFileLock,
 } from '@brainstrike/agent';
+import { DESKTOP_NATIVE_TOOL_IDS, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -2910,6 +2912,18 @@ describe('assistant-tools', () => {
     const tools = buildDesktopAssistantTools(undefined);
     const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
     expect(missing).toEqual([]);
+  });
+
+  it('keeps the live desktop registry identical to the canonical catalog', () => {
+    const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
+
+    expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
+    for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
+      const tool = tools[toolId];
+      expect(tool?.id).toBe(toolId);
+      expect(tool?.description).toBe(TOOL_DESCRIPTIONS[toolId]);
+      expect(tool?.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
+    }
   });
 
   it('findWorkspaceSymbol applies the workspace read guards (binary / non-file)', async () => {

@@ -64,7 +64,7 @@ export function buildCurrentTaskListNote(
 }
 
 const HARNESS_FRAMING =
-  'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
+  'You run inside the Brainstrike IDE. Context-tool selections update the visual Context Explorer beside this chat and the reusable LLM context. Prefer the specific relevant lines over whole files.';
 
 interface ModelFacingToolNames {
   askUser: string | null;
@@ -139,10 +139,7 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       originalToModelFacing,
       NATIVE_TOOL_ID.listWorkspaceContext
     ),
-    lspInspect: resolveModelFacingToolName(
-      originalToModelFacing,
-      NATIVE_TOOL_ID.lspInspect
-    ),
+    lspInspect: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.lspInspect),
     manageTaskList: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.manageTaskList
@@ -190,11 +187,6 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       NATIVE_TOOL_ID.writeWorkspaceFile
     ),
   };
-}
-
-function formatAvailableToolNames(names: ModelFacingToolNames): string {
-  const available = Object.values(names).filter((name): name is string => Boolean(name));
-  return available.length > 0 ? available.join(', ') : 'none';
 }
 
 /**
@@ -261,15 +253,19 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
     return '';
   }
-  const writeBackTools = [
-    names.updateWorkspaceContextSelection,
-    names.updateWorkspaceTapestrySelections,
+  const preferredExamples = [
+    names.grepSearch,
+    names.readWorkspaceDirectory,
+    names.readWorkspaceFile,
   ].filter((name): name is string => Boolean(name));
+  const examples =
+    preferredExamples.length > 0 ? preferredExamples : rootQualifiedToolNames.slice(0, 3);
+  const exampleNote = examples.length > 0 ? ` (for example ${examples.join(', ')})` : '';
   const writeBackNote =
-    writeBackTools.length > 0
-      ? ` Selection write-back (${writeBackTools.join(', ')}) accepts the same "root" argument to curate a specific folder; without it, selection targets the Focused root.`
+    names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
+      ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
       : '';
-  return `${names.listWorkspaceContext} distinguishes the Main root (workspaceRootPath, used for the assistant run) from the Focused root (whose selection it reports) and returns every open folder's name/id in workspaceRoots. Paths are root-relative; with several roots, pass "root" (a workspaceRoots name/id) to ${rootQualifiedToolNames.join(', ')} because bare paths are ambiguous—there is no implicit Main-root fallback. Results include rootName/rootId for follow-up calls.${writeBackNote}`;
+  return `${names.listWorkspaceContext} reports the Main root (assistant run), Focused root (reported selection), and workspaceRoots names/ids. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Results carry rootName/rootId.${writeBackNote}`;
 }
 
 /**
@@ -314,7 +310,7 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
  */
 function buildSearchInstruction(names: ModelFacingToolNames): string {
   const grepClause = names.grepSearch
-    ? `Use ${names.grepSearch} for exact strings, identifiers, and errors; it searches both indexed and live on-disk content. Start with its compact files mode, then request scoped content matches.`
+    ? `Use ${names.grepSearch} for exact strings, identifiers, and errors across both indexed and live on-disk content; survey with files mode, then scope content mode.`
     : '';
   const globClause = names.globWorkspace
     ? `Use ${names.globWorkspace} for file-name/path patterns such as **/*.test.ts.`
@@ -367,7 +363,7 @@ function buildTaskListInstruction(names: ModelFacingToolNames): string {
   if (!names.manageTaskList) {
     return '';
   }
-  return `For any multi-step or non-trivial task, call ${names.manageTaskList} to record a plan as a task list and keep it updated: pass the FULL list each call (whole-list replace), keep exactly one task in_progress, and mark tasks completed as you finish them. Statuses are pending/in_progress/completed. Your current list is shown back to you each turn, so update it as the work progresses.`;
+  return `For non-trivial multi-step work, maintain a plan with ${names.manageTaskList}. Every call replaces the FULL list; keep exactly one task in_progress and mark finished tasks completed. Statuses: pending/in_progress/completed.`;
 }
 
 /** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
@@ -429,10 +425,10 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
     ? `${readClause ? ', and search' : ' Search'} across skill content with ${names.skillSearch}`
     : '';
   return (
-    'Agent Skills: the system context lists available skills (name + description) under <available_skills>. ' +
-    `When a task matches a skill's description, activate it PROACTIVELY with ${names.skill} — its full instructions arrive as the tool result; follow them for that task.` +
+    'Agent Skills are listed under <available_skills>. ' +
+    `When a task matches one, activate it proactively with ${names.skill}, then follow its returned instructions.` +
     `${readClause}${searchClause}${readClause || searchClause ? '.' : ''} ` +
-    `Do not guess at a skill's contents without activating it first.`
+    'Never guess its contents before activation.'
   );
 }
 
@@ -445,7 +441,7 @@ function buildLspInspectInstruction(names: ModelFacingToolNames): string {
   if (!names.lspInspect) {
     return '';
   }
-  return `To understand a symbol semantically before editing — its inferred TYPE, where it is DEFINED, and its IMPLEMENTATIONS — use ${names.lspInspect} with the file path, the 1-based line, and a \`match\` string that is that line's text with a \`<<<\` marker right before the symbol (TypeScript/JavaScript). Prefer this over guessing a type or grepping for a definition.`;
+  return `Before editing TypeScript/JavaScript, use ${names.lspInspect} for a symbol's inferred type, definition, and implementations. Pass its path, 1-based line, and \`match\`: the line text or a fragment occurring exactly once, with exactly one \`<<<\` immediately before the symbol.`;
 }
 
 function buildPlanModeBlock(names: ModelFacingToolNames): string {
@@ -499,21 +495,21 @@ export function buildDefaultInstructions(
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
     names.updateWorkspaceTapestrySelections
-      ? `When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, then call ${names.updateWorkspaceContextSelection} to bulk select files and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Read files when surrounding lines are needed to refine the ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.`
+      ? `For ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, ${names.updateWorkspaceContextSelection} to select candidates, and ${names.updateWorkspaceTapestrySelections} to retain only relevant ranges. Stay token-aware.`
       : '';
 
   const selectionDefaultInstruction =
     names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
-      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, never the whole file. If the user names a specific symbol, function, type, section, or line range, you MUST select only that symbol's exact line span via ${names.updateWorkspaceTapestrySelections} and MUST NOT fall back to whole-file selection. Only use ${names.updateWorkspaceContextSelection} for whole-file selection when the user explicitly asks for the entire file or the whole file is genuinely needed. The line range you report to the user MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections} — never state a range you did not actually select.`
+      ? `For context selection or curation, default to precise ${names.updateWorkspaceTapestrySelections} ranges: only relevant lines, never the whole file. For a named symbol, function, type, section, or line range, select its exact span and MUST NOT fall back to whole-file selection. Use ${names.updateWorkspaceContextSelection} for an entire file only when explicit or genuinely required. What you report MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections}.`
       : '';
   const tapestryMechanicsInstruction = names.updateWorkspaceTapestrySelections
     ? [
-        `Tapestry ranges are 1-based and inclusive; pass them as ranges: [{ startLine, endLine }] to ${names.updateWorkspaceTapestrySelections}.`,
+        `${names.updateWorkspaceTapestrySelections} ranges are 1-based and inclusive: [{ startLine, endLine }].`,
         names.queryEmbeddingSpace
           ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
           : '',
         names.readWorkspaceFile
-          ? `When there is no embedding result for the target, ${names.readWorkspaceFile} returns the file content plus 1-based startLine/endLine/totalLines metadata (the content itself has no inline line numbers): read it and count from startLine to find the first and last line of the requested symbol, then pass those as the range.`
+          ? `When there is no embedding result, ${names.readWorkspaceFile} content has startLine/endLine/totalLines metadata but no inline line numbers: count from startLine to the first and last line of the requested symbol.`
           : '',
       ]
         .filter(Boolean)
@@ -557,9 +553,7 @@ export function buildDefaultInstructions(
   return [
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
-    'Use tools when they help you answer accurately.',
-    'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
-    `Registered native tools in this run: ${formatAvailableToolNames(names)}.`,
+    'Project files, Context Explorer state, token estimates, and embedding spaces are not preloaded; use registered tools when needed for accuracy.',
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
     taskListInstruction,
@@ -568,13 +562,12 @@ export function buildDefaultInstructions(
     multiRootInstruction,
     curationInstruction,
     selectionLine,
-    'Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.',
-    'Tool results are bounded: when a result has truncated: true, it is a valid partial result — use its hint (offset, filePaths, smaller limits, deeper paths) to fetch exactly what is missing instead of repeating or broadening the same call.',
-    'Independent read-only lookups (searches, directory listings, file reads with no dependency between them) execute in parallel — issue them together in one step instead of one per turn.',
-    'If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.',
-    'If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.',
+    'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
+    'Issue independent read-only lookups together in one step.',
+    'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
+    'When asked, list callable tool IDs with brief descriptions.',
     'Only run state-changing tools after the user confirms.',
-    'Provide concise answers after using tools.',
+    'Answer concisely.',
   ]
     .filter((line) => line.length > 0)
     .join('\n');

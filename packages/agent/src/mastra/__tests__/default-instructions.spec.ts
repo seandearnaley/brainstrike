@@ -100,6 +100,25 @@ describe('manageTaskList advertisement', () => {
   });
 });
 
+describe('lspInspect advertisement', () => {
+  it('teaches the cursor contract only when the tool is registered', () => {
+    const withTool = buildDefaultInstructions(
+      new Map<string, string>([['lspInspect', 'brainstrike.lspInspect']])
+    );
+    expect(withTool).toContain('lspInspect');
+    expect(withTool).toContain('<<<');
+    expect(withTool).toContain('fragment occurring exactly once');
+    expect(withTool).toMatch(/definition/i);
+    expect(withTool).toMatch(/implementations/i);
+
+    const withoutTool = buildDefaultInstructions(
+      new Map<string, string>([['grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(withoutTool).not.toContain('lspInspect');
+    expect(withoutTool).not.toContain('<<<');
+  });
+});
+
 describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
     const toolNameMap = new Map<string, string>([
@@ -189,9 +208,10 @@ describe('default assistant instructions', () => {
     expect(localInstructions).toContain('brainstrike_queryEmbeddingSpace');
     expect(localInstructions).toContain('brainstrike_readWorkspaceFile');
     expect(localInstructions).toContain('Only run state-changing tools after the user confirms.');
-    // A 2B on-device model must not get the hosted playbook: keep the local
-    // prompt a small fraction of it (also keeps the WebGPU prefill short).
-    expect(localInstructions.length).toBeLessThan(hostedInstructions.length / 3);
+    // Keep the 2B model's WebGPU prefill independently bounded. A relative
+    // fraction regresses when the hosted prompt itself becomes more efficient.
+    expect(localInstructions.length).toBeLessThanOrEqual(650);
+    expect(localInstructions.length).toBeLessThan(hostedInstructions.length);
 
     const withoutSearchTools = buildLocalDefaultInstructions(new Map());
     expect(withoutSearchTools).not.toContain('brainstrike_grepSearch');
@@ -226,11 +246,11 @@ const FULL_TOOL_MAP = new Map<string, string>([
 ]);
 
 describe('buildDefaultInstructions', () => {
-  it('includes harness/visual framing regardless of tools', () => {
+  it('includes harness framing without duplicating the provider tool inventory', () => {
     const prompt = buildDefaultInstructions(new Map());
     expect(prompt.length).toBeGreaterThan(0);
     expect(prompt).toMatch(/Context Explorer/);
-    expect(prompt).toMatch(/none/);
+    expect(prompt).not.toContain('Registered native tools');
   });
 
   it('makes precise Tapestry selection the default when selection tools are registered', () => {
