@@ -234,6 +234,46 @@ describe('directory-expansion-actions', () => {
     expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.has('b')).toBe(true);
   });
 
+  it('setExpandedPaths adopts the caller-provided set without cloning', () => {
+    // Every caller hands over a freshly built set (expand-all's updater,
+    // restoration, collapse) — cloning it again here doubled the per-commit
+    // Set allocation for large expansions (#1734 perf follow-up). Ownership
+    // transfers to the store; callers must not mutate the set afterwards.
+    const state = createMockState({
+      currentFolderId: 'myFolder',
+      folderStates: {
+        myFolder: {
+          excludeFilters: [],
+          expandedDirectoryPaths: new Set(),
+          folderSummaryThreshold: 100,
+          includeFilters: [],
+          includeProjectTree: true,
+          lastAccessed: Date.now(),
+          lastActiveTab: 'files',
+          maxSelectionCount: 100,
+          selectedFilePaths: new Set(),
+          selectionModel: createEmptySelectionModel(),
+          tokenBudget: 100,
+          useRegex: false,
+          viewFilterPresetId: null,
+        },
+      },
+    });
+    mockGet.mockReturnValue(state);
+    const actions = createDirectoryExpansionActions(mockSet, mockGet);
+
+    const adoptedPaths = new Set(['a', 'b']);
+    actions.setExpandedPaths(adoptedPaths);
+
+    const updateFn = mockSet.mock.calls[0]?.[0] as (
+      s: FileExplorerState
+    ) => Partial<FileExplorerState>;
+    const updated = updateFn(state);
+
+    expect(updated.expandedDirectoryPaths).toBe(adoptedPaths);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths).toBe(adoptedPaths);
+  });
+
   it('toggleDirectoryExpansion should update both global and folder state when folder exists', () => {
     const state = createMockState({
       currentFolderId: 'myFolder',

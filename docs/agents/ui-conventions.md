@@ -98,6 +98,23 @@ Windowing and performance:
   selection/highlight/focus change re-renders only affected rows. Do not pass
   per-render object/function identities into `TreeTableRow` — the row memo is
   the scroll/keyboard hot path for every tree surface.
+- The flatten-level reuse requires `a.node === b.node`, so ADAPTERS must feed
+  TreeTable identity-stable `TreeNode` objects. OptimizedFileTree pins this
+  (`optimized-file-tree-row-reuse.test.ts`): normalized nodes project through
+  `materializeNormalizedNodeStable` (WeakMap on the immutable normalized node)
+  and every row build runs through `reuseEqualFileTreeRows`, which reuses the
+  previous build's row objects — and the previous rows ARRAY when nothing
+  changed — so untouched rows keep identity across expansion/loading rebuilds.
+  Do not reintroduce per-build `{ ...node }` spreads in the row builders.
+- Expansion state is one workspace-global set across all forest roots. Each
+  tree section selects it THROUGH `scopeExpandedPathsToRoot` (settled
+  root-scoping semantics shared with persisted-expansion restoration, see
+  `root-scoped-paths.ts`) with content equality, so an expand/collapse in one
+  root rebuilds only that root's rows
+  (`optimized-file-tree-forest-invalidation.test.tsx`). Relative-path (web
+  FSA) roots still cross-match by design — the accepted phase-4 limitation.
+- The store's `setExpandedPaths` ADOPTS the caller's set (no defensive clone);
+  every caller hands over a freshly built set and must not mutate it after.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 - Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
 - Keyboard events from interactive cell descendants (buttons, links, form

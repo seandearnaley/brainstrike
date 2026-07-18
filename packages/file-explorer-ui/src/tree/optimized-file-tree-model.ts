@@ -7,6 +7,7 @@ import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-ex
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import {
   hasNormalizedIncompleteDescendants,
+  materializeNormalizedNodeStable,
   type NormalizedFileTreeState,
 } from '../utils/normalized-file-tree';
 import {
@@ -1024,7 +1025,7 @@ function pushNormalizedChildrenOntoStack(
     }
     stack.push({
       depth: depth + 1,
-      node: { ...childNode },
+      node: materializeNormalizedNodeStable(childNode),
       parentId: parentNode.path,
     });
   }
@@ -1045,7 +1046,7 @@ export function getNormalizedImmediateChildren(
     if (!childNode) {
       continue;
     }
-    children.push({ ...childNode });
+    children.push(materializeNormalizedNodeStable(childNode));
   }
   return children;
 }
@@ -1089,7 +1090,7 @@ export function buildRowsFromNormalizedTree(
     }
     stack.push({
       depth: 0,
-      node: { ...rootNode },
+      node: materializeNormalizedNodeStable(rootNode),
       parentId: null,
     });
   }
@@ -1160,6 +1161,105 @@ function createNormalizedRowData(
           hasNormalizedIncompleteDescendants(normalizedTree, entry.node.path))
       : false
   );
+}
+
+function immediateChildrenEqual(a: IFileNode[], b: IFileNode[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function fileTreeRowDataEqual(a: FileTreeRowData, b: FileTreeRowData): boolean {
+  return (
+    a.fileNode === b.fileNode &&
+    a.directoryTotalFiles === b.directoryTotalFiles &&
+    a.hasIncompleteDescendants === b.hasIncompleteDescendants &&
+    a.hasUnloadedDirectoryChildren === b.hasUnloadedDirectoryChildren &&
+    a.isChildrenLoading === b.isChildrenLoading &&
+    a.isFileLoading === b.isFileLoading &&
+    a.isLoadingForSelection === b.isLoadingForSelection &&
+    immediateChildrenEqual(a.immediateChildren, b.immediateChildren)
+  );
+}
+
+function fileTreeRowEqual(a: TreeNode<FileTreeRowData>, b: TreeNode<FileTreeRowData>): boolean {
+  return (
+    a.id === b.id &&
+    a.parentId === b.parentId &&
+    a.depth === b.depth &&
+    a.type === b.type &&
+    a.hasChildren === b.hasChildren &&
+    a.childCount === b.childCount &&
+    a.isLoading === b.isLoading &&
+    fileTreeRowDataEqual(a.data, b.data)
+  );
+}
+
+/**
+ * Structural sharing across row builds, mirroring TreeTable's
+ * reuseEqualFlattenedRows one layer up: reuse the previous build's
+ * TreeNode<FileTreeRowData> when a rebuilt row is value-equal. `fileNode` is
+ * compared by IDENTITY — sound because every build source projects stable
+ * node objects (normalized nodes are immutable and materialize through
+ * materializeNormalizedNodeStable; worker/main-thread builds reuse the
+ * IFileNode refs from the source tree). Without this pass, every rebuild
+ * mints fresh row objects for ALL rows, TreeTable's `a.node === b.node`
+ * flatten reuse never hits, and every visible row re-renders.
+ */
+export function reuseEqualFileTreeRows(
+  previousById: ReadonlyMap<string, TreeNode<FileTreeRowData>>,
+  rows: TreeNode<FileTreeRowData>[]
+): TreeNode<FileTreeRowData>[] {
+  return rows.map((row) => {
+    const previous = previousById.get(row.id);
+    return previous && fileTreeRowEqual(previous, row) ? previous : row;
+  });
+}
+
+export interface FileTreeRowReuseCache {
+  /**
+   * Run the structural-sharing pass against the previous build and remember
+   * the result. Returns the previous rows ARRAY (same identity) when every
+   * row was reused in order, so downstream memos skip entirely on
+   * content-equal rebuilds.
+   */
+  stabilize: (rows: TreeNode<FileTreeRowData>[]) => TreeNode<FileTreeRowData>[];
+}
+
+/**
+ * Create-once per tree instance (via a useState lazy initializer). The
+ * closure hides the cache mutation from React Compiler — mirroring
+ * createFileTreeSelectionStore — and the render-phase write is safe because
+ * reuse is by value-equality, so a discarded concurrent render cannot make a
+ * later result incorrect (same argument as TreeTable's previousRowsByIdRef).
+ */
+export function createFileTreeRowReuseCache(): FileTreeRowReuseCache {
+  let previousById: ReadonlyMap<string, TreeNode<FileTreeRowData>> = new Map();
+  let previousRows: TreeNode<FileTreeRowData>[] = [];
+  return {
+    stabilize: (rows) => {
+      const stabilized = reuseEqualFileTreeRows(previousById, rows);
+      const next =
+        stabilized.length === previousRows.length &&
+        stabilized.every((row, index) => row === previousRows[index])
+          ? previousRows
+          : stabilized;
+      if (next !== previousRows) {
+        previousById = new Map(next.map((row) => [row.id, row]));
+        previousRows = next;
+      }
+      return next;
+    },
+  };
 }
 
 export function buildFileTreeRows(

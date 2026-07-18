@@ -47,6 +47,7 @@ import {
   hasNormalizedIncompleteDescendants,
   type VisibleDirectoryAggregates,
 } from '../utils/normalized-file-tree';
+import { scopeExpandedPathsToRoot } from '../utils/root-scoped-paths';
 import { getSelectionCount } from '../utils/selection-projection';
 import {
   useOptionalFileTreeContext,
@@ -61,6 +62,7 @@ import {
   buildRowsFromNormalizedTree,
   buildRowsFromWorkerNodes,
   computeNodeSelectionState,
+  createFileTreeRowReuseCache,
   type DirectorySelectionTraversalContext,
   type DirectoryToggleState,
   type FileTreeRowBuildSource,
@@ -523,6 +525,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   }) => {
     const store = useFileExplorerStoreContext();
     const { showToast } = useToastManager();
+    // This tree's root path — identity scope for expansion selection below and
+    // the base for context-menu relative paths.
+    const rootPath = useFileExplorerStoreSelector((s) => s.rootDescriptors[folderId]?.path ?? null);
     // Keep a subscribed expansion snapshot for TreeTable render state.
     // Event handlers still use `store.getState()` to avoid stale async toggles.
     // Content equality (#1594b): a selection toggle triggers a secondary store
@@ -530,8 +535,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Comparing by content keeps the reference stable across that spurious churn
     // so tree rows do not rebuild on selection; a real expand/collapse changes
     // membership and still yields a fresh reference.
+    // Root scoping (#1734 follow-up): the store set is workspace-global across
+    // every forest root, so an expansion toggle in ONE root used to invalidate
+    // EVERY section. Scoping to this tree's root before the content compare
+    // confines row rebuilds to the section that actually changed. With no
+    // known root path the set passes through unscoped (single-root behavior).
     const expandedDirectoryPaths = useFileExplorerStoreSelector(
-      (s) => s.expandedDirectoryPaths,
+      (s) => scopeExpandedPathsToRoot(s.expandedDirectoryPaths, rootPath),
       stringSetsEqual
     );
     const toggleDirectoryExpansion = useFileExplorerStoreSelector(
@@ -573,9 +583,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       ? (foreignFolderModel ?? EMPTY_EXPLICIT_SELECTION_MODEL)
       : topLevelSelectionModel;
     const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
-    const contextMenuRootPath = useFileExplorerStoreSelector(
-      (s) => s.rootDescriptors[folderId]?.path ?? null
-    );
+    const contextMenuRootPath = rootPath;
     // The limit math (wouldExceedLimit) uses the WHOLE-FOREST union — the
     // cap is a workspace budget, not a per-tree budget. Per-tree display
     // counts come from selectedDirectoryCounts, not this number.
@@ -693,6 +701,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
+    // Structural-sharing cache across builds, created once via a useState lazy
+    // initializer (the create-once idiom used for selectionStore below). See
+    // createFileTreeRowReuseCache for the render-phase-write safety argument.
+    const [rowReuseCache] = useState(createFileTreeRowReuseCache);
     const treeRowsBuild = useMemo(() => {
       const measured = measureFileTreeOperation<FileTreeRowsBuildResult>(() => {
         const options: BuildFileTreeRowsOptions = {
@@ -731,12 +743,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         };
       });
 
+      // Structural sharing: reuse value-equal rows from the previous build so
+      // TreeTable's flatten-level reuse (`a.node === b.node`) hits for rows an
+      // expansion/loading change did not touch. When EVERY row is reused in
+      // order, keep the previous rows ARRAY identity too — downstream memos
+      // (fileNodeByPath, rowDataByPath, TreeTable's flatten) then skip
+      // entirely on content-equal rebuilds.
+      const rows = rowReuseCache.stabilize(measured.result.rows);
+
       return {
-        rows: measured.result.rows,
+        rows,
         telemetry: {
           durationMs: measured.durationMs,
           event: 'file-tree.row-build' as const,
-          rowCount: measured.result.rows.length,
+          rowCount: rows.length,
           source: measured.result.source,
         },
       };
@@ -754,6 +774,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       normalizedTreeContext,
       normalizedTreeContext?.version,
       visibleAggregates,
+      rowReuseCache,
     ]);
     const treeRows = treeRowsBuild.rows;
 

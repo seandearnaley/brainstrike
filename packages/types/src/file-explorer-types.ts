@@ -403,7 +403,8 @@ export interface FileExplorerState extends FileExplorerData {
   setDevInlineFixtureEnabled: (value: boolean) => void;
 
   // Directory expansion actions
-  setExpandedPaths: (paths: ReadonlySet<string>) => void;
+  /** ADOPTS the passed set (no clone) — callers must not mutate it afterwards. */
+  setExpandedPaths: (paths: Set<string>) => void;
 
   // File content actions
   setFileContent: (compositeKey: string, content: string) => void;
