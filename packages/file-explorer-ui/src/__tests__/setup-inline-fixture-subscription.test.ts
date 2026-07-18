@@ -145,15 +145,17 @@ describe('setup-inline-fixture-subscription', () => {
         throw new Error('fixture failed');
       }),
     });
-    const store = createFixtureStore(true);
+    const store = createFixtureStore(false);
 
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
     store.setState({
       setDevInlineFixtureEnabled: () => {
         throw new Error('rollback exploded');
       },
     });
 
-    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    // In-session enable (boot no longer auto-applies a persisted flag).
+    store.setState({ devInlineFixtureEnabled: true });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -181,9 +183,11 @@ describe('setup-inline-fixture-subscription', () => {
         throw new Error('fixture failed');
       }),
     });
-    const store = createFixtureStore(true);
+    const store = createFixtureStore(false);
 
     const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    // In-session enable (boot no longer auto-applies a persisted flag).
+    store.setState({ devInlineFixtureEnabled: true });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -582,6 +586,31 @@ describe('setup-inline-fixture-subscription', () => {
     await Promise.resolve();
 
     expect(loadInlineFixture).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it('resets a persisted enabled flag at startup instead of replacing the workspace', async () => {
+    // Fixture injection routes through mode 'replace' (drops other roots). A
+    // PERSISTED enable therefore silently swapped the user's restored
+    // workspace for the mock fixture on every boot — "my roots don't
+    // persist". The flag must reset at startup; enabling is per-session.
+    const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
+    const adapter = createFixtureCapableAdapter({
+      isInlineFixtureActive: () => false,
+      loadInlineFixture,
+    });
+    const store = createFixtureStore(true);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    await Promise.resolve();
+
+    expect(loadInlineFixture).not.toHaveBeenCalled();
+    expect(store.getState().devInlineFixtureEnabled).toBe(false);
+
+    // An explicit toggle THIS session still works.
+    store.getState().setDevInlineFixtureEnabled(true);
+    await Promise.resolve();
+    expect(loadInlineFixture).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 });

@@ -276,10 +276,25 @@ export function setupInlineFixtureSubscription(
   // Track previous state to detect actual changes
   let previousEnabled = store.getState().devInlineFixtureEnabled;
 
-  // If fixture was enabled before subscription started (e.g., persisted state),
-  // apply it immediately
+  // A PERSISTED enable must NOT resurrect at boot: fixture injection routes
+  // through mode 'replace' (drops other roots), so auto-applying it silently
+  // swapped the user's restored workspace for the mock fixture on every
+  // launch ("my roots don't persist"). Reset the flag instead — enabling the
+  // inline fixture is an explicit per-session action. (When the adapter is
+  // ALREADY active — e.g. HMR re-setup mid-session — the fixture stays; only
+  // the cold-boot resurrection is blocked.)
   if (previousEnabled && !adapter.isInlineFixtureActive()) {
-    safelyApplyFixtureState(true);
+    logger.warn(
+      'Inline fixture was enabled in persisted state — resetting to keep the restored workspace; re-enable it from settings for this session'
+    );
+    // Runs BEFORE the subscription below is registered, so no suppression is
+    // needed — the reset cannot bounce back into this handler.
+    try {
+      store.getState().setDevInlineFixtureEnabled(false);
+    } catch (error) {
+      logger.error('Failed to reset persisted inline fixture flag', { error });
+    }
+    previousEnabled = false;
   }
 
   const unsubscribe = store.subscribe((state) => {
