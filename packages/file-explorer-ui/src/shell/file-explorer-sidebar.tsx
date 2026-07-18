@@ -196,6 +196,13 @@ interface PerRootTreePaneProps {
    * `folderId` for OptimizedFileTree instead of the handle path.
    */
   rootId?: string | undefined;
+  /**
+   * The forest sections column (single scroll owner). Each section's tree
+   * virtualizes against it via TreeTable's shared-scroller mode — a
+   * per-section scrollbar inside the scrolling column stretches to content
+   * height and freezes the virtual window (blank rows on scroll).
+   */
+  scrollParentRef?: React.RefObject<HTMLElement | null> | undefined;
 }
 
 /**
@@ -400,6 +407,7 @@ const PerRootTreePane = ({
   isLoadingForSelectAll = false,
   isLoading: isLoadingProp,
   rootId,
+  scrollParentRef,
 }: PerRootTreePaneProps) => {
   // Reads the real file tree for THIS root from its enclosing FileTreeProvider,
   // then applies the GLOBAL workspace view filters for display — every section
@@ -524,6 +532,7 @@ const PerRootTreePane = ({
           onLoadChildren={sectionLoadChildren}
           onRender={onTreeRender || undefined}
           onSelectFolderRecursively={sectionRecursiveSelect.onSelectFolderRecursively}
+          scrollParentRef={scrollParentRef}
         />
       ) : (
         <ForestSectionEmptyState
@@ -669,6 +678,11 @@ const FileExplorerSidebar = memo(
     // This prevents "flash" during rapid tree updates (like expand-all)
     const deferredTree = useDeferredValue(quickFilteredTree);
 
+    // Forest mode single scroll owner: every section's TreeTable virtualizes
+    // against this column (shared-scroller mode). Unconditional hook — forest
+    // mode is a render-time branch below.
+    const forestScrollRef = useRef<HTMLDivElement | null>(null);
+
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
 
     // FOREST MODE: render one collapsible section per root when multiple roots are active.
@@ -691,12 +705,17 @@ const FileExplorerSidebar = memo(
         onLoadChildren,
         onSelectFolderRecursively,
         onTreeRender,
+        scrollParentRef: forestScrollRef,
       };
 
       return (
         <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
           {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            data-testid="forest-sections-scroll"
+            ref={forestScrollRef}
+          >
             {forestHandles.map((handle) => (
               <RootSection
                 // Prefer the stamped rootId — same-named web roots share a path,

@@ -81,6 +81,79 @@ test.describe('Forest expand-all (multi-root)', { tag: '@web-smoke' }, () => {
     await expect(page.getByText('b-top.ts')).toBeVisible();
   });
 
+  test('virtualizes against the shared sections scroller — no blank rows, bounded DOM', async ({
+    page,
+  }) => {
+    // Big enough that the expanded forest far exceeds the viewport: 2 roots
+    // × 8 dirs × 30 files ≈ 500+ rows. Regression under guard: each section's
+    // viewport used to stretch to full content height inside the scrolling
+    // sections column, freezing every virtualizer's window — scrolling showed
+    // blank space and the DOM held every row.
+    const bigTree = (prefix: string): FileTree => {
+      const tree: FileTree = {};
+      for (let d = 0; d < 8; d++) {
+        const dir: FileTree = {};
+        for (let f = 0; f < 30; f++) {
+          dir[`${prefix}-${d}-${f}.ts`] = null;
+        }
+        tree[`dir-${d}`] = dir;
+      }
+      return tree;
+    };
+
+    const explorer = await bootstrapFileExplorer(page, {
+      projectName: 'root-a',
+      tree: bigTree('a'),
+    });
+    await explorer.selectRoot();
+    await addMockRoot(page, 'root-b', bigTree('b'));
+    await expect(getFileTree(page)).toHaveCount(2);
+
+    await clickTreeAction(page, 'expand-all');
+    await page.getByTestId('expand-all-confirm-run').click();
+    // Expansion complete when a deep file from the LAST root is reachable.
+    const scroller = page.getByTestId('forest-sections-scroll');
+    await expect
+      .poll(
+        () =>
+          scroller.evaluate((el) => el.scrollHeight > el.clientHeight * 3, undefined, {
+            timeout: 1000,
+          }),
+        { timeout: 15_000 }
+      )
+      .toBe(true);
+
+    // Bounded DOM: virtualization must keep rendered rows far below the
+    // ~500-row total regardless of scroll position.
+    const renderedRowCount = () =>
+      scroller.evaluate((el) => el.querySelectorAll('[data-index]').length);
+    expect(await renderedRowCount()).toBeLessThan(150);
+
+    // Non-blank scroll: at middle and near-bottom positions, rendered rows
+    // must intersect the scroller's visible window.
+    const rowsInView = () =>
+      scroller.evaluate((el) => {
+        const viewportRect = el.getBoundingClientRect();
+        return Array.from(el.querySelectorAll('[data-index]')).filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+        }).length;
+      });
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = Math.floor(el.scrollHeight / 2);
+    });
+    await expect.poll(rowsInView, { timeout: 5000 }).toBeGreaterThan(0);
+    expect(await renderedRowCount()).toBeLessThan(150);
+
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect.poll(rowsInView, { timeout: 5000 }).toBeGreaterThan(0);
+    // The last root's deepest file is actually reachable by scrolling.
+    await expect(page.getByText('b-7-29.ts')).toBeVisible();
+  });
+
   test('cancelling the confirmation leaves every root untouched', async ({ page }) => {
     const explorer = await bootstrapFileExplorer(page, { projectName: 'root-a', tree: TREE_A });
     await explorer.selectRoot();
