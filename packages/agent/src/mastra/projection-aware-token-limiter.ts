@@ -16,21 +16,30 @@ interface ResultReplacement {
   readonly invocation: MutableToolInvocation;
 }
 
-const MODEL_OUTPUT_MEDIA_TYPES = new Set(['file-data', 'image-data', 'image-url', 'media']);
+const MODEL_OUTPUT_INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);
+const MODEL_OUTPUT_URL_MEDIA_TYPES = new Set(['file-url', 'image-url']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function buildMediaMarker(part: Record<string, unknown>): Record<string, string> {
-  const mediaType =
-    typeof part['mediaType'] === 'string' && part['mediaType'].length > 0
-      ? part['mediaType']
-      : 'unknown';
+  let mediaType = 'unknown';
+  if (typeof part['mediaType'] === 'string' && part['mediaType'].length > 0) {
+    mediaType = part['mediaType'];
+  } else if (typeof part['url'] === 'string' && part['url'].startsWith('data:')) {
+    const metadataEnd = part['url'].indexOf(',');
+    const metadata = metadataEnd >= 0 ? part['url'].slice(5, metadataEnd) : '';
+    mediaType = metadata.split(';', 1)[0] || 'text/plain';
+  }
   return {
     text: `[${String(part['type'])} payload omitted from token count; media type: ${mediaType}]`,
     type: 'text',
   };
+}
+
+function isInlineDataUrl(value: unknown): boolean {
+  return typeof value === 'string' && value.startsWith('data:') && value.indexOf(',') >= 5;
 }
 
 function compactMediaForTokenCounting(value: unknown): unknown {
@@ -40,7 +49,11 @@ function compactMediaForTokenCounting(value: unknown): unknown {
   if (!isRecord(value)) {
     return value;
   }
-  if (typeof value['type'] === 'string' && MODEL_OUTPUT_MEDIA_TYPES.has(value['type'])) {
+  if (
+    typeof value['type'] === 'string' &&
+    (MODEL_OUTPUT_INLINE_MEDIA_TYPES.has(value['type']) ||
+      (MODEL_OUTPUT_URL_MEDIA_TYPES.has(value['type']) && isInlineDataUrl(value['url'])))
+  ) {
     return buildMediaMarker(value);
   }
   return Object.fromEntries(

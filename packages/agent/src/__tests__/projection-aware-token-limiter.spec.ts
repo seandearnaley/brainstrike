@@ -86,6 +86,54 @@ describe('ProjectionAwareTokenLimiter', () => {
     expect(modelOutput.value[1]?.data).toBe(mediaData);
   });
 
+  it('compacts file data URLs without exempting remote URL text from token counting', async () => {
+    const rawResult = { content: 'r'.repeat(250_000), rawOnly: true };
+    const dataUrl = `data:application/pdf;base64,${'f'.repeat(250_000)}`;
+    const dataUrlMessage = createToolResultMessage({
+      modelOutput: {
+        type: 'content',
+        value: [{ type: 'file-url', url: dataUrl }],
+      },
+      rawResult,
+    });
+    const dataUrlMessageList = new MessageList();
+    dataUrlMessageList.add(dataUrlMessage, 'response');
+    const options = {
+      limit: 200,
+      strategy: 'truncate' as const,
+      trimMode: 'contiguous' as const,
+    };
+
+    await expect(
+      new ProjectionAwareTokenLimiter(options).processInputStep(
+        createProcessInputStepArgs(dataUrlMessageList)
+      )
+    ).resolves.toBe(undefined);
+    expect(dataUrlMessage.content.parts[0]).toMatchObject({
+      toolInvocation: { result: rawResult },
+    });
+
+    const remoteUrlRawResult = { remote: true };
+    const remoteUrlMessage = createToolResultMessage({
+      modelOutput: {
+        type: 'content',
+        value: [{ type: 'image-url', url: `https://example.com/${'x'.repeat(10_000)}` }],
+      },
+      rawResult: remoteUrlRawResult,
+    });
+    const remoteUrlMessageList = new MessageList();
+    remoteUrlMessageList.add(remoteUrlMessage, 'response');
+
+    await expect(
+      new ProjectionAwareTokenLimiter(options).processInputStep(
+        createProcessInputStepArgs(remoteUrlMessageList)
+      )
+    ).rejects.toThrow('No messages fit within the remaining token budget');
+    expect(remoteUrlMessage.content.parts[0]).toMatchObject({
+      toolInvocation: { result: remoteUrlRawResult },
+    });
+  });
+
   it('restores the raw result when the delegated limiter throws', async () => {
     const rawResult = { content: 'raw result must survive the tripwire' };
     const message = createToolResultMessage({
