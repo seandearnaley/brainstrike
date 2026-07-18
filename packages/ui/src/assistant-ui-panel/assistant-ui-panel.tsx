@@ -598,7 +598,7 @@ const LocalChainOfThought = () => {
   }
 
   return (
-    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
+    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-2xl">
       {taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
         <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
@@ -1502,8 +1502,9 @@ export const AssistantUiPanel = ({
 // ===== Message Components =====
 
 const UserMessage = () => {
+  // Bottom rhythm (margin) comes from overrides.css (.aui-user-message-root).
   return (
-    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
       <ExpandableMessageContent
@@ -1570,9 +1571,10 @@ const EditComposer = () => {
 };
 
 const AssistantMessage = () => {
+  // Bottom rhythm (padding/margin) comes from overrides.css (.aui-assistant-message-root).
   return (
-    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-4">
-      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-7">
+    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
+      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
         {/* ChainOfThought takes control of ALL reasoning and tool-call parts
             (the library forbids a separate `tools` mapping alongside it), so
             tool rendering lives inside LocalChainOfThought. */}
