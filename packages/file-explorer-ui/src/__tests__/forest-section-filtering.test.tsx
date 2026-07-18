@@ -53,7 +53,9 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
 });
 
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import FileExplorerSidebar from '../shell/file-explorer-sidebar';
+import FileExplorerSidebar, {
+  resolveSectionDisplayFilterFlag,
+} from '../shell/file-explorer-sidebar';
 import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -192,5 +194,45 @@ describe('forest section shared view-filter derivation', () => {
         'checked'
       );
     });
+  });
+});
+
+describe('resolveSectionDisplayFilterFlag (deferred-tree guard)', () => {
+  const treeA: IFileNode[] = [];
+  const treeB: IFileNode[] = [];
+  const treeC: IFileNode[] = [];
+
+  it('reports filtered when the display tree diverged from the deferred input', () => {
+    expect(
+      resolveSectionDisplayFilterFlag({
+        canonicalTree: treeA,
+        deferredTree: treeA,
+        displayTree: treeB,
+      })
+    ).toBe(true);
+  });
+
+  it('only claims unfiltered once the deferred tree caught up to the canonical tree', () => {
+    expect(
+      resolveSectionDisplayFilterFlag({
+        canonicalTree: treeA,
+        deferredTree: treeA,
+        displayTree: treeA,
+      })
+    ).toBe(false);
+  });
+
+  it('falls back to the conservative build while the deferred tree lags', () => {
+    // Codex review (PR #1740): during an expand-all/lazy-load burst the
+    // normalized universe is newer than the displayed (deferred) tree —
+    // `false` here would render that newer universe unrestricted and defeat
+    // the deferral. Undefined keeps the legacy path-set restriction.
+    expect(
+      resolveSectionDisplayFilterFlag({
+        canonicalTree: treeC,
+        deferredTree: treeA,
+        displayTree: treeA,
+      })
+    ).toBeUndefined();
   });
 });

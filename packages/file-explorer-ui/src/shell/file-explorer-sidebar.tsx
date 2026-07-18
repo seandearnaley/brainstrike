@@ -572,8 +572,33 @@ interface RootSectionProps extends PerRootTreePaneProps {
 interface SectionDisplayTreeProps {
   /** View filters + quick filter applied over the deferred canonical tree. */
   displayTree: IFileNode[];
-  /** True when filtering removed anything relative to the canonical tree. */
-  isDisplayTreeFiltered: boolean;
+  /**
+   * True when filtering removed anything relative to the canonical tree;
+   * undefined while the deferred tree lags the canonical tree (conservative
+   * legacy path-set build in OptimizedFileTree).
+   */
+  isDisplayTreeFiltered: boolean | undefined;
+}
+
+/**
+ * The `isDisplayTreeFiltered` flag for a forest section. Copy-on-write
+ * filters return the INPUT identity when nothing was removed, so the
+ * displayTree/deferredTree identity check is exact for "filtering removed
+ * something". `false` (skip the path-set build) is only claimable once the
+ * deferred tree has caught up to the canonical tree: during a deferral
+ * window the normalized universe is already NEWER than the displayed tree,
+ * and skipping the restriction set would render that newer universe
+ * unrestricted — defeating the deferral. Undefined = conservative build.
+ */
+export function resolveSectionDisplayFilterFlag(args: {
+  canonicalTree: IFileNode[];
+  deferredTree: IFileNode[];
+  displayTree: IFileNode[];
+}): boolean | undefined {
+  if (args.displayTree !== args.deferredTree) {
+    return true;
+  }
+  return args.deferredTree === args.canonicalTree ? false : undefined;
 }
 
 interface RootSectionInnerProps extends RootSectionProps {
@@ -612,10 +637,11 @@ const RootSectionInner = ({
   // Tristate totals count the VIEW-filtered tree (quick filter excluded, as
   // before): the checkbox reflects what select-all can select.
   const visibleFileTotals = useMemo(() => countTreeFiles(viewFilteredTree), [viewFilteredTree]);
-  // Copy-on-write filters return the INPUT identity when nothing was removed,
-  // so this identity check is exact for "display tree covers the canonical
-  // (deferred) tree".
-  const isDisplayTreeFiltered = displayTree !== deferredFileTree;
+  const isDisplayTreeFiltered = resolveSectionDisplayFilterFlag({
+    canonicalTree: treeContext.fileTree,
+    deferredTree: deferredFileTree,
+    displayTree,
+  });
 
   const handleToggle = useCallback(() => {
     // Header click: focus this root AND toggle collapse.
