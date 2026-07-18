@@ -47,6 +47,42 @@ function buildState(overrides: Partial<FileExplorerState> = {}): FileExplorerSta
 }
 
 describe('state-serialization', () => {
+  describe('explorerScrollTop (session scroll restore)', () => {
+    it('round-trips the persisted scroll offset', () => {
+      const state = buildState({ explorerScrollTop: 1234 });
+      const serialized = serializeState(state);
+      expect(serialized.explorerScrollTop).toBe(1234);
+
+      const merged = mergeState(serialized, buildState({ explorerScrollTop: 0 }), false);
+      expect(merged.explorerScrollTop).toBe(1234);
+    });
+
+    it('defaults to 0 when an older snapshot omits the field', () => {
+      const legacy = serializeState(buildState());
+      // biome-ignore lint/performance/noDelete: simulate a pre-field snapshot
+      delete (legacy as { explorerScrollTop?: number }).explorerScrollTop;
+
+      const merged = mergeState(legacy, buildState({ explorerScrollTop: 0 }), false);
+      expect(merged.explorerScrollTop).toBe(0);
+    });
+
+    it('coerces a corrupt or negative persisted offset to a safe number', () => {
+      const merged = mergeState(
+        { ...serializeState(buildState()), explorerScrollTop: -42 },
+        buildState(),
+        false
+      );
+      expect(merged.explorerScrollTop).toBe(0);
+
+      const corrupt = mergeState(
+        { ...serializeState(buildState()), explorerScrollTop: 'nope' as unknown as number },
+        buildState(),
+        false
+      );
+      expect(corrupt.explorerScrollTop).toBe(0);
+    });
+  });
+
   it('preserves the current folder fallback entry with expansion and filter state', () => {
     const state = buildState({
       currentFolderId: 'folder-1',
