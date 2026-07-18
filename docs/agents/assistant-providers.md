@@ -248,9 +248,10 @@ native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
 application consumers and Mastra persistence, while the provider receives a
 text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
 domain projections keep their semantics but pass through the same final text
-ceiling; malformed non-callable projections throw. MCP image/audio results use
-Mastra `content` output so base64 media remains model-native while companion
-text is bounded. Mastra 1.51 invokes projections with
+ceiling; a nullish conditional projection remains nullish so Mastra can use
+its native raw-result fallback, while malformed non-callable projections
+throw. MCP image/audio results use Mastra `content` output so base64 media
+remains model-native while companion text is bounded. Mastra 1.51 invokes projections with
 `{toolCallId,input,output}` even though its `createTool` contract gives custom
 projectors the raw execute result. Brainstrike therefore extracts the exact
 envelope's raw `output` before both custom and generated projections while
@@ -269,8 +270,10 @@ MCP does not yet have durable artifact settlement, so its persistence channel
 has a separate temporary inline ceiling: text/JSON is bounded to
 `MAX_TOOL_RESULT_TOKENS` (3000); multimodal output keeps raw media only up to
 the assistant aggregate encoded-media ceiling and 12000 non-media serialized
-characters. Exceeding either multimodal ceiling throws visibly—never drops
-media. The artifact-store PR must replace this temporary compromise.
+characters. Multimodal `content` arrays containing any non-object part are
+malformed and throw before persistence accounting. Exceeding either ceiling
+throws visibly—never drops media. The artifact-store PR must replace this
+temporary compromise.
 
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections

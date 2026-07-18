@@ -91,11 +91,12 @@ export function readMcpMultimodalOutput(output: unknown): McpMultimodalOutput | 
   if (!Array.isArray(content)) {
     return;
   }
-  const parts = content.filter((part): part is McpContentPart =>
-    Boolean(part && typeof part === 'object')
-  );
+  const parts = content.filter((part): part is McpContentPart => isRecord(part));
   if (!parts.some(isMcpMediaPart)) {
     return;
+  }
+  if (parts.length !== content.length) {
+    throw new TypeError('MCP multimodal content must contain only object parts');
   }
   return {
     content: parts,
@@ -352,17 +353,21 @@ function projectExistingModelOutput(
   receiver: ExecutableToolWithModelOutput,
   output: unknown
 ): unknown {
+  const boundResolvedProjection = (resolved: unknown): unknown => {
+    if (resolved === null || resolved === undefined) {
+      return resolved;
+    }
+    return boundProjectedModelOutput(toolName, resolved);
+  };
   const projected = Reflect.apply(projector, receiver, [output]);
   if (
     projected &&
     (typeof projected === 'object' || typeof projected === 'function') &&
     typeof (projected as { then?: unknown }).then === 'function'
   ) {
-    return Promise.resolve(projected).then((resolved) =>
-      boundProjectedModelOutput(toolName, resolved)
-    );
+    return Promise.resolve(projected).then(boundResolvedProjection);
   }
-  return boundProjectedModelOutput(toolName, projected);
+  return boundResolvedProjection(projected);
 }
 
 /**

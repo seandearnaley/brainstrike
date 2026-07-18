@@ -1328,5 +1328,43 @@ describe('mcp-tool-loader', () => {
         'MCP tool remote.oversized_caption returned 13089 non-media serialized characters'
       );
     });
+
+    it('fails visibly when malformed MCP content would escape persistence accounting', async () => {
+      const mockMcpClient = createMockMcpClient({
+        remote: {
+          malformed_content: {
+            description: 'return malformed media content',
+            execute: vi.fn(async () => ({
+              content: [
+                'x'.repeat(13_000),
+                { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+              ],
+            })),
+            id: 'malformed_content',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'remote',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['remote_malformed_content'] as { execute: () => Promise<unknown> };
+      await expect(tool.execute()).rejects.toThrow(
+        'MCP multimodal content must contain only object parts'
+      );
+    });
   });
 });

@@ -409,6 +409,55 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(JSON.stringify(rawSuccess?.payload)).toContain(rawOnlyTail);
   });
 
+  it('uses the raw result when a custom projection declines with undefined', async () => {
+    const rawOutput = { raw: 'fallback-result' };
+    const conditionalTool = createTool({
+      description: 'Return a raw result when conditional projection is unavailable.',
+      execute: () => Promise.resolve(rawOutput),
+      id: 'conditional_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ raw: z.string() }),
+    });
+    const toModelOutput = vi.fn(() => undefined);
+    Object.defineProperty(conditionalTool, 'toModelOutput', {
+      configurable: true,
+      value: toModelOutput,
+    });
+    let modelFacingToolOutput: unknown;
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The raw fallback reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-conditional-output-1',
+      toolName: 'conditional_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-conditional-output',
+          parts: [{ text: 'return the conditional output', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { conditional_output: conditionalTool },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // Consuming the stream drives the conditional projection and fallback.
+    }
+
+    expect(toModelOutput).toHaveBeenCalledOnce();
+    expect(modelFacingToolOutput).toEqual({ type: 'json', value: rawOutput });
+  });
+
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
     const server = await startStreamableMcpServer();
     modelHolder.current = createScriptedToolCallModel({

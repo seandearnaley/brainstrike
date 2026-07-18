@@ -85,6 +85,45 @@ describe('applyToolModelOutputProjections', () => {
     expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
   });
 
+  it.each([
+    null,
+    undefined,
+  ])('preserves a nullish custom projection so Mastra can use its native fallback (%s)', (customProjection) => {
+    const toModelOutput = vi.fn(() => customProjection);
+    const tool = asTool({
+      execute: () => ({ raw: 'result' }),
+      id: 'conditional-custom',
+      toModelOutput,
+    });
+
+    const projected = applyToolModelOutputProjections(
+      { conditional_custom: tool },
+      new Map([['conditional_custom', 'custom.conditional']])
+    );
+
+    expect((projected['conditional_custom'] as TestTool).toModelOutput?.({ raw: 'result' })).toBe(
+      customProjection
+    );
+  });
+
+  it('preserves an asynchronously resolved nullish custom projection', async () => {
+    const toModelOutput = vi.fn(async () => undefined);
+    const tool = asTool({
+      execute: () => ({ raw: 'result' }),
+      id: 'async-conditional-custom',
+      toModelOutput,
+    });
+
+    const projected = applyToolModelOutputProjections(
+      { async_conditional_custom: tool },
+      new Map([['async_conditional_custom', 'custom.async-conditional']])
+    );
+
+    await expect(
+      (projected['async_conditional_custom'] as TestTool).toModelOutput?.({ raw: 'result' })
+    ).resolves.toBeUndefined();
+  });
+
   it('bounds an oversized existing domain-specific text projection', () => {
     const rawOnlyTail = 'custom-raw-only-tail';
     const toModelOutput = vi.fn(() => ({
