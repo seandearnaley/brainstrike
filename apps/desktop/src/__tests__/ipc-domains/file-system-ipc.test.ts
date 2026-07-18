@@ -29,9 +29,18 @@ vi.mock('electron', () => ({
   },
 }));
 
+import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
+
+// Shared roots-DB seam for the fs:removeRoot status transition. Resolves an
+// empty result by default; individual tests override with mock*Once.
+const rootsDbQuery = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
+  rows: [] as unknown[],
+}));
+const rootsDatabase = { query: rootsDbQuery } as unknown as WorkspaceRootsQueryable;
+const getRootsDatabase = vi.fn(async () => rootsDatabase);
 
 function makeDirHandle(dirPath: string): DirectoryHandle {
   return {
@@ -78,7 +87,7 @@ describe('file system IPC domain', () => {
     delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
   });
 
   it('registers fixture-aware directory access and directory reads', async () => {
@@ -201,7 +210,7 @@ describe('file system IPC domain', () => {
     );
     expect(fileSystem.exists).toHaveBeenCalledWith(restoredPath);
 
-    const unregister = registerFileSystemIpcHandlers({ fileSystem, storage });
+    const unregister = registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
     unregister();
     expect(removeHandler).toHaveBeenCalledWith('fs:requestDirectoryAccess');
     expect(removeHandler).toHaveBeenCalledWith('fs:readFileByPath');
@@ -235,7 +244,7 @@ describe('fs:restoreRoots', () => {
     } as unknown as ElectronFileSystemAdapter;
 
     storage = createStorage({ rootsList });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
 
@@ -263,7 +272,7 @@ describe('fs:restoreRoots', () => {
     fileSystem = createFileSystem();
     // storage has no rootsList key but does have lastFolderPath (should be ignored)
     storage = createStorage({ lastFolderPath: '/some/old/path' });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
 
@@ -274,7 +283,7 @@ describe('fs:restoreRoots', () => {
   it('treats malformed rootsList JSON as empty domain data', async () => {
     fileSystem = createFileSystem();
     storage = createStorage({ rootsList: 'invalid json {]' });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).resolves.toEqual([]);
   });
@@ -283,7 +292,7 @@ describe('fs:restoreRoots', () => {
     fileSystem = createFileSystem();
     storage = createStorage();
     vi.mocked(storage.getItem).mockRejectedValueOnce(new Error('storage unavailable'));
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
       'storage unavailable'
@@ -304,7 +313,7 @@ describe('fs:restoreRoots', () => {
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
     storage = createStorage({ rootsList: JSON.stringify([mockEntry]) });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
 
@@ -353,7 +362,7 @@ describe('fs:addRoot', () => {
     const pickedPath = path.resolve('/users/test/new-project');
     fileSystem = createFileSystem(pickedPath);
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -390,7 +399,7 @@ describe('fs:addRoot', () => {
     const existingEntry = { addedAt: 1000, path: existingPath, rootId: existingRootId };
     storage = createStorage({ rootsList: JSON.stringify([existingEntry]) });
     fileSystem = createFileSystem(existingPath);
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -426,7 +435,7 @@ describe('fs:addRoot', () => {
         throw new Error('disk full');
       }
     });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -445,7 +454,7 @@ describe('fs:addRoot', () => {
         throw new Error('disk full');
       }
     });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     setLogLevel(LogLevel.WARN);
     const captured: LogRecord[] = [];
@@ -506,7 +515,7 @@ describe('fs:addRoot', () => {
 
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -529,7 +538,7 @@ describe('fs:addRoot', () => {
     vi.stubEnv('BRAINSTRIKE_E2E_REAL_ROOT_PATH', realRootPath);
     fileSystem = createFileSystem('/unused-picker');
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -581,7 +590,7 @@ describe('fs:addRoot', () => {
 
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -612,7 +621,7 @@ describe('fs:saveLastFolder (legacy shim)', () => {
     const resolvedPath = path.resolve(folderPath);
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath);
 
@@ -633,7 +642,7 @@ describe('fs:saveLastFolder (legacy shim)', () => {
         throw new Error('disk full');
       }
     });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await expect(
       handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath)
@@ -655,19 +664,82 @@ describe('fs:removeRoot', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    rootsDbQuery.mockClear();
+    getRootsDatabase.mockClear();
     fileSystem = createFileSystem();
   });
 
   it('removes the matching rootsList entry and leaves the others intact', async () => {
     storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
 
     expect(storage.setItem).toHaveBeenCalledWith('rootsList', JSON.stringify([entryB]));
-    // Disconnect ≠ delete: nothing DB-related is touched by this handler;
-    // the file system adapter is never consulted either.
+    // Disconnect ≠ delete: no rows are removed and the fs adapter is never
+    // consulted — the only DB write is the status transition below.
     expect(fileSystem.exists).not.toHaveBeenCalled();
+  });
+
+  it("transitions the DB roots row to status 'disconnected' by the removed root's path", async () => {
+    storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+    rootsDbQuery.mockResolvedValueOnce({ rows: [{ id: 'db-root-a' }] });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+    expect(rootsDbQuery).toHaveBeenCalledTimes(1);
+    const [sql, params] = rootsDbQuery.mock.calls[0] ?? [];
+    expect(sql).toMatch(/UPDATE roots/i);
+    expect(sql).toMatch(/status = 'disconnected'/);
+    expect(sql).toMatch(/WHERE path = \$1/i);
+    expect(sql).toMatch(/RETURNING id/i);
+    expect(params).toEqual([pathA]);
+  });
+
+  it('warns (no silent fallback) when the disconnect matches 0 rows, but still forgets the entry', async () => {
+    setLogLevel(LogLevel.WARN);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      captured.push(record);
+    });
+    try {
+      storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+      // Default rootsDbQuery resolves { rows: [] } → 0 rows matched.
+      registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+      await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+      expect(
+        captured.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.message ===
+              'removeRoot: no roots row matched the disconnected path; DB status unchanged'
+        )
+      ).toBe(true);
+      // The path-match anomaly is surfaced, not fatal — the rootsList entry is
+      // still forgotten so the UI and stored state stay coherent.
+      expect(storage.setItem).toHaveBeenCalledWith('rootsList', JSON.stringify([entryB]));
+    } finally {
+      removeListener();
+    }
+  });
+
+  it('fails closed: a status-transition failure rejects and leaves rootsList untouched', async () => {
+    storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+    rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+    await expect(
+      handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a')
+    ).rejects.toThrow('db unavailable');
+
+    // Coherent failure: the root stays fully mounted — no half-disconnected
+    // state where the UI forgot the root but the DB still serves it (or vice
+    // versa). The user retries the disconnect.
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
   it('clears lastFolderPath when it equals the removed root path', async () => {
@@ -675,7 +747,7 @@ describe('fs:removeRoot', () => {
       lastFolderPath: pathA,
       rootsList: JSON.stringify([entryA, entryB]),
     });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
 
@@ -687,7 +759,7 @@ describe('fs:removeRoot', () => {
       lastFolderPath: pathB,
       rootsList: JSON.stringify([entryA, entryB]),
     });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
 
@@ -695,13 +767,14 @@ describe('fs:removeRoot', () => {
     expect(await storage.getItem('lastFolderPath')).toBe(pathB);
   });
 
-  it('is a no-op (no write) when the rootId is not in rootsList', async () => {
+  it('is a no-op (no write, no DB call) when the rootId is not in rootsList', async () => {
     storage = createStorage({ rootsList: JSON.stringify([entryA]) });
-    registerFileSystemIpcHandlers({ fileSystem, storage });
+    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
 
     await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'unknown-root-id');
 
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(storage.removeItem).not.toHaveBeenCalled();
+    expect(getRootsDatabase).not.toHaveBeenCalled();
   });
 });

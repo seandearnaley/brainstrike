@@ -19,6 +19,7 @@ interface DbRootRow {
   id: string;
   kind?: string | null;
   path: string | null;
+  status?: string | null;
 }
 
 function isDbRootRow(row: unknown): row is DbRootRow {
@@ -84,9 +85,10 @@ async function resolvePathUniqueRace(args: {
   query: RootsQueryFn;
   root: RootDescriptor;
 }): Promise<DbRootRow & { path: string }> {
-  const existing = await args.query('SELECT id, kind, path FROM roots WHERE path = $1 LIMIT 1', [
-    args.root.handle.path,
-  ]);
+  const existing = await args.query(
+    'SELECT id, kind, path, status FROM roots WHERE path = $1 LIMIT 1',
+    [args.root.handle.path]
+  );
   const existingRow = existing.rows.filter(isDbRootRow)[0];
   if (!existingRow) {
     // Not the path race — surface the real failure.
@@ -96,7 +98,37 @@ async function resolvePathUniqueRace(args: {
     id: existingRow.id,
     kind: existingRow.kind ?? null,
     path: args.root.handle.path,
+    status: existingRow.status ?? null,
   };
+}
+
+/**
+ * Reverse the fs:removeRoot disconnect transition on a remounted row: a root
+ * that reconciliation just confirmed as mounted-and-granted is live again, so a
+ * DB row left `status = 'disconnected'` is flipped back to 'live' when the same
+ * folder is re-added (remount-by-path). The mapping is the load-bearing output
+ * of reconcileRoots (file_records.root_id stamping), so a failed flip is logged
+ * and swallowed rather than aborting reconciliation: the root stays excluded
+ * from the assistant server's live-roots query (visible degrade, never a wrong
+ * id) and the next boot's reconcile retries the flip.
+ *
+ * ONLY 'disconnected' is reversed. The other non-live statuses (needs-regrant,
+ * snapshot-stale — migration 039) encode conditions that a bare path remount
+ * does NOT clear; resurrecting them to 'live' here would skip the re-grant /
+ * re-verification they demand (NO SILENT FALLBACKS). A row whose status the
+ * caller's SELECT omitted is likewise left untouched.
+ */
+async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promise<void> {
+  if (row.status !== 'disconnected') {
+    return;
+  }
+  try {
+    await query(`UPDATE roots SET status = 'live', last_verified_at = NOW() WHERE id = $1`, [
+      row.id,
+    ]);
+  } catch (error) {
+    logger.error('Failed to restore live status on remounted root', { error, rootId: row.id });
+  }
 }
 
 /**
@@ -104,8 +136,12 @@ async function resolvePathUniqueRace(args: {
  * broad reconciliation — unique legacy FSA bridges keep their legacy row ids).
  * DB roots.id is canonical for file_records.root_id; new roots are inserted under the
  * adapter's RootId so the two identities coincide. Pre-existing rows are
- * matched by path only to respect the idx_roots_path unique index and are
- * never modified. Session-only roots (persisted:false) and dead handles
+ * matched by path only to respect the idx_roots_path unique index; identity
+ * columns (id/kind/path/display_name) are never modified, but a matched
+ * 'disconnected' row's status is restored to 'live' — reconciliation is the
+ * attestation that the root is mounted and granted again, reversing the
+ * fs:removeRoot disconnect transition (remount-by-path); other non-live
+ * statuses are left intact. Session-only roots (persisted:false) and dead handles
  * (permissionState 'unknown') are skipped — their ids never return from
  * restoreRoots(), so registering them would orphan DB rows.
  */
@@ -113,7 +149,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
   const { adapterRoots, platformKind, query } = args;
   const mapping = new Map<string, string>();
 
-  const result = await query('SELECT id, kind, path FROM roots');
+  const result = await query('SELECT id, kind, path, status FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
   const { adapterPathCounts, dbByPath, fsaBridgeDbByPath } = buildRootPathIndexes(
     adapterRoots,
@@ -141,6 +177,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       root,
     });
     if (matched) {
+      await restoreRootLiveStatus(query, matched);
       mapping.set(root.rootId, matched.id);
       continue;
     }
@@ -155,8 +192,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       // same-path row between our SELECT and this INSERT. Converge on the
       // existing row instead of aborting the remaining roots.
       const existingRow = await resolvePathUniqueRace({ error, query, root });
+      await restoreRootLiveStatus(query, existingRow);
       mapping.set(root.rootId, existingRow.id);
-      dbByPath.set(root.handle.path, existingRow);
+      dbByPath.set(root.handle.path, { ...existingRow, status: 'live' });
       logger.warn('Root path registered by a concurrent writer — converged on existing row', {
         dbRootId: existingRow.id,
         rootId: root.rootId,
@@ -164,7 +202,12 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       continue;
     }
     // Keep dbByPath current so a subsequent root with the same path maps to this id
-    dbByPath.set(root.handle.path, { id: root.rootId, kind: platformKind, path: root.handle.path });
+    dbByPath.set(root.handle.path, {
+      id: root.rootId,
+      kind: platformKind,
+      path: root.handle.path,
+      status: 'live',
+    });
     mapping.set(root.rootId, root.rootId);
     logger.info('Registered new root', { kind: platformKind, rootId: root.rootId });
   }

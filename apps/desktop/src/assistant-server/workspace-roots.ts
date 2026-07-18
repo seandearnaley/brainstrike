@@ -137,6 +137,31 @@ export async function loadWorkspaceRootsFromDatabase(
 }
 
 /**
+ * Transition the root at `rootPath` to status 'disconnected' so the assistant
+ * tools (which serve only `status = 'live'` rows) stop addressing it the moment
+ * the user disconnects the folder. Disconnect ≠ delete: the row and its
+ * file_records/file_chunks are deliberately kept, and `reconcileRoots`
+ * (app-shell) path-matches the row on re-add and restores `status = 'live'`,
+ * so a remount resumes without re-indexing.
+ *
+ * Returns the number of rows transitioned (via `RETURNING id`, since the DB
+ * host protocol surfaces only `rows`, not `affectedRows`). Zero is legitimate
+ * for a session-only root that never got a DB row, but for a persisted root it
+ * signals a path mismatch — the caller decides whether that is worth surfacing
+ * rather than swallowing it here.
+ */
+export async function markRootDisconnectedByPath(
+  db: WorkspaceRootsQueryable,
+  rootPath: string
+): Promise<number> {
+  const result = await db.query<{ id: string }>(
+    `UPDATE roots SET status = 'disconnected' WHERE path = $1 RETURNING id`,
+    [rootPath]
+  );
+  return result.rows.length;
+}
+
+/**
  * Reorder the enriched roots so the CLIENT-DECLARED MAIN root
  * (`runtimeData.mainRootId`, i.e. activeRootIds[0]) is FIRST. `roots[0]` is
  * the contract for "the assistant's operating root": hooks `primaryCwd` and

@@ -4,6 +4,7 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
   loadWorkspaceRootsFromDatabase,
+  markRootDisconnectedByPath,
   orderWorkspaceRoots,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
@@ -110,6 +111,37 @@ describe('loadWorkspaceRootsFromDatabase', () => {
       { displayName: 'web-root', id: 'web', path: null },
     ]);
     expect(await loadWorkspaceRootsFromDatabase(db)).toEqual([ROOT_A]);
+  });
+});
+
+describe('markRootDisconnectedByPath', () => {
+  it("updates status to 'disconnected' keyed by path (never DELETEs), returning the match count", async () => {
+    const db = mockDb([{ id: 'root-a' }]);
+    const count = await markRootDisconnectedByPath(db, '/Users/me/ProjectA');
+    expect(count).toBe(1);
+    const firstCall = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(firstCall?.[0]).toMatch(/UPDATE roots/i);
+    expect(firstCall?.[0]).toMatch(/status = 'disconnected'/);
+    expect(firstCall?.[0]).toMatch(/WHERE path = \$1/i);
+    // RETURNING lets the caller detect a 0-row (path-mismatch) disconnect, since
+    // the DB host protocol surfaces only rows — never affectedRows.
+    expect(firstCall?.[0]).toMatch(/RETURNING id/i);
+    expect(firstCall?.[0]).not.toMatch(/DELETE/i);
+    expect(firstCall?.[1]).toEqual(['/Users/me/ProjectA']);
+  });
+
+  it('returns 0 when no row matches the path (session-only root / path mismatch)', async () => {
+    const db = mockDb([]);
+    expect(await markRootDisconnectedByPath(db, '/Users/me/Ghost')).toBe(0);
+  });
+
+  it('propagates query failures (the disconnect IPC fails closed)', async () => {
+    const db: WorkspaceRootsQueryable = {
+      query: vi.fn(async () => {
+        throw new Error('db down');
+      }),
+    };
+    await expect(markRootDisconnectedByPath(db, '/Users/me/ProjectA')).rejects.toThrow('db down');
   });
 });
 

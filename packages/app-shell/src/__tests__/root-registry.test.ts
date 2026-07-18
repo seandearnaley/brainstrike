@@ -25,8 +25,8 @@ function pathRoot(rootId: string, name: string, path: string): RootDescriptor {
 }
 
 describe('reconcileRoots', () => {
-  it('maps desktop path roots onto an existing DB row by path without modifying it', async () => {
-    const dbRows = [{ id: 'db-1', path: '/workspace/my-project' }];
+  it('maps desktop path roots onto an existing live DB row by path without modifying it', async () => {
+    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'live' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -40,6 +40,68 @@ describe('reconcileRoots', () => {
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+  });
+
+  it("restores status='live' on a matched disconnected row (remount-by-path)", async () => {
+    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'disconnected' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
+      platformKind: 'path',
+      query,
+    });
+
+    // Same row id — file_records.root_id keeps pointing at the kept rows, so
+    // the remount resumes without re-indexing.
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    const update = query.mock.calls.find(([sql]) => (sql as string).includes('UPDATE roots'));
+    expect(update?.[0]).toMatch(/status = 'live'/);
+    expect(update?.[0]).toMatch(/last_verified_at = NOW\(\)/);
+    expect(update?.[1]).toEqual(['db-1']);
+  });
+
+  it.each([
+    'needs-regrant',
+    'snapshot-stale',
+  ])('does NOT resurrect a matched %s row to live (only disconnected is reversed)', async (status) => {
+    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
+      platformKind: 'path',
+      query,
+    });
+
+    // Still mapped (registration succeeds), but the stale/ungranted status is
+    // left intact — a bare path remount must not skip its re-verification.
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
+  });
+
+  it('keeps the mapping when the live-status flip fails (logged, not fatal)', async () => {
+    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'disconnected' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) => {
+      if (sql.includes('UPDATE roots')) {
+        throw new Error('update failed');
+      }
+      return sql.includes('SELECT') ? { rows: dbRows } : { rows: [] };
+    });
+
+    // The mapping is the load-bearing output (file_records.root_id stamping);
+    // a failed flip degrades visibly (root stays non-live for the assistant
+    // server) and retries next reconcile.
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
+      platformKind: 'path',
+      query,
+    });
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
   });
 
   it('does not path-match FSA roots because path is only the directory display name', async () => {

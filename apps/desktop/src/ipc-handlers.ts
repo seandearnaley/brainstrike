@@ -56,6 +56,11 @@ export function registerIpcHandlers(
   });
   const unregisterFileSystemIpcHandlers = registerFileSystemIpcHandlers({
     fileSystem,
+    // Dynamic import (matches db-ipc): keep db-main — and its native
+    // secure-fs-native dependency — OUT of this module's eager graph, so
+    // importing ipc-handlers (e.g. the main-boot tests) never eagerly loads
+    // the native addon. Resolved lazily, only when fs:removeRoot actually runs.
+    getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
     storage,
   });
   const unregisterDatabaseIpcHandlers = registerDatabaseIpcHandlers(options);

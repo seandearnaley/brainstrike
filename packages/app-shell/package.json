@@ -77,6 +77,10 @@
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js"
     },
+    "./roots/root-registry": {
+      "types": "./dist/roots/root-registry.d.ts",
+      "import": "./dist/roots/root-registry.js"
+    },
     "./terminal-panel": {
       "types": "./dist/terminal-panel/index.d.ts",
       "import": "./dist/terminal-panel/index.js"
