@@ -943,6 +943,9 @@ importers:
 
   packages/assistant-contract:
     dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils

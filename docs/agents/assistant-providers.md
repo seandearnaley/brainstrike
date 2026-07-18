@@ -75,10 +75,26 @@
   adapter ignores.
 - OpenRouter reasoning controls are model-capability-aware when the Models API
   publishes `reasoning.supported_efforts`. Declare those efforts on the static
-  model definition, filter the picker control to the declared set, and reject
-  incompatible settings at request construction. On an explicit model switch,
-  clear an incompatible provider-wide effort override so the newly selected
-  model uses its documented default; do not map it to a guessed nearest level.
+  model definition; `resolveReasoningControlsAvailability` in
+  packages/assistant-contract/src/model-reasoning.ts is the single resolver
+  that filters the UI controls (the composer model menu's Effort submenu) to
+  the declared set, and the request boundary rejects incompatible settings at
+  construction. Its sibling `resolveModelReasoningSupport` is deliberately
+  separate: an UNDECLARED OpenRouter model keeps the full effort list for the
+  controls (the request boundary accepts `openrouter.reasoning` for any model)
+  while its capability badge resolves to a visible `unknown` ("unverified") —
+  never a silent yes/no. On an explicit model switch, clear an incompatible
+  provider-wide effort override so the newly selected model uses its documented
+  default; do not map it to a guessed nearest level.
+- Reasoning-control placement: effort/level selection and the primary Thinking
+  toggle live in the composer model menu (packages/ui/src/assistant-ui-panel/
+  composer-model-menu.tsx, backed by reasoning-effort-controls.tsx). The
+  Controls menu's provider section is now "Output & Limits" (formerly
+  "Reasoning & Output") and keeps only agent runtime limits, max output,
+  OpenAI reasoning summary, the Anthropic numeric thinking budget, and the
+  Google include-thoughts debug toggle. Moved controls must emit
+  byte-identical settings updates to the old panel sections (pinned by
+  write-through tests in composer-model-menu.test.tsx).
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
@@ -90,7 +106,8 @@
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts
   - Assistant preferences persist the most recently selected model as the default for the next
-    new thread. The thread store persists each existing thread's model and provider settings so
+    new thread, plus a capped `recentModels` list (composite keys, newest first) that feeds the
+    composer model menu's top-level rows. The thread store persists each existing thread's model and provider settings so
     switching chats or restarting the app restores that thread-specific runtime.
 
 Assistant status endpoint resolution (in order):

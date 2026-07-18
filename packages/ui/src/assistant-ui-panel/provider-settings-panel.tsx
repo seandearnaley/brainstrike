@@ -1,18 +1,19 @@
-import { type LlmModelDefinition, listProviderLlmModels } from '@brainstrike/assistant-contract';
 import type {
-  AnthropicEffort,
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
-  GoogleThinkingLevel,
-  OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
-import { getGoogleThinkingLevels } from '@brainstrike/types';
 import { Input } from '../input';
 import { Label } from '../label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
 import { clampNumber, parseNumber } from './assistant-ui-panel-utils';
+import {
+  ANTHROPIC_THINKING_DEFAULT,
+  ANTHROPIC_THINKING_MAX,
+  ANTHROPIC_THINKING_MIN,
+  ANTHROPIC_THINKING_STEP,
+} from './reasoning-effort-controls';
 
 const settingsNumberFormatter = new Intl.NumberFormat();
 
@@ -31,35 +32,6 @@ const MEMORY_LAST_MESSAGES_DEFAULT = 40;
 const MEMORY_LAST_MESSAGES_MIN = 0;
 const MEMORY_LAST_MESSAGES_MAX = 200;
 
-const ANTHROPIC_THINKING_DEFAULT = 12_000;
-const ANTHROPIC_THINKING_MIN = 1024;
-const ANTHROPIC_THINKING_MAX = 20_000;
-const ANTHROPIC_THINKING_STEP = 256;
-
-const OPENAI_EFFORT_OPTIONS: Array<{ value: OpenAiReasoningEffort | 'auto'; label: string }> = [
-  { label: 'Auto (medium)', value: 'auto' },
-  { label: 'Max', value: 'max' },
-  { label: 'None', value: 'none' },
-  { label: 'Minimal', value: 'minimal' },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-  { label: 'X-High', value: 'xhigh' },
-];
-
-const DEFAULT_OPENAI_EFFORT_OPTIONS = OPENAI_EFFORT_OPTIONS.filter(
-  (option) => option.value !== 'max'
-);
-
-function getOpenRouterReasoningCapabilities(
-  modelName: string | undefined
-): LlmModelDefinition['reasoning'] {
-  if (!modelName) {
-    return;
-  }
-  return listProviderLlmModels('openrouter').find((model) => model.id === modelName)?.reasoning;
-}
-
 const OPENAI_SUMMARY_OPTIONS: Array<{
   value: OpenAiReasoningSummary | 'off';
   label: string;
@@ -67,13 +39,6 @@ const OPENAI_SUMMARY_OPTIONS: Array<{
   { label: 'Off', value: 'off' },
   { label: 'Auto', value: 'auto' },
   { label: 'Detailed', value: 'detailed' },
-];
-
-const ANTHROPIC_EFFORT_OPTIONS: Array<{ value: AnthropicEffort | 'auto'; label: string }> = [
-  { label: 'Auto (high)', value: 'auto' },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
 ];
 
 interface ProviderSettingsPanelProps {
@@ -310,89 +275,40 @@ const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSect
   );
 };
 
-const OpenAiReasoningSection = ({
-  settings,
-  onUpdate,
-  disabled,
-  reasoningCapabilities,
-}: ProviderSettingsSectionProps & {
-  reasoningCapabilities?: LlmModelDefinition['reasoning'];
-}) => {
-  const effortOptions = reasoningCapabilities
-    ? [
-        {
-          label: `Auto (${reasoningCapabilities.defaultEffort ?? 'model default'})`,
-          value: 'auto' as const,
-        },
-        ...OPENAI_EFFORT_OPTIONS.filter(
-          (option) =>
-            option.value !== 'auto' && reasoningCapabilities.supportedEfforts.includes(option.value)
-        ),
-      ]
-    : DEFAULT_OPENAI_EFFORT_OPTIONS;
-  const reasoningEffort = settings.reasoningEffort;
-  const selectedEffort =
-    reasoningEffort &&
-    (!reasoningCapabilities || reasoningCapabilities.supportedEfforts.includes(reasoningEffort))
-      ? reasoningEffort
-      : 'auto';
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        OpenAI reasoning
-      </Label>
-      <div className="grid gap-2">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Effort</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                reasoningEffort: value === 'auto' ? undefined : (value as OpenAiReasoningEffort),
-              })
-            }
-            value={selectedEffort}
-          >
-            <SelectTrigger aria-label="Reasoning effort" className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              {effortOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Reasoning summary</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                reasoningSummary: value === 'off' ? undefined : (value as OpenAiReasoningSummary),
-              })
-            }
-            value={settings.reasoningSummary ?? 'off'}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              {OPENAI_SUMMARY_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+// Reasoning EFFORT moved to the composer model menu (Effort submenu); this
+// section keeps only the OpenAI reasoning-summary control.
+const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
+  <div className="space-y-2 rounded-md bg-muted/30 p-2">
+    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+      OpenAI reasoning
+    </Label>
+    <div className="grid gap-2">
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Reasoning summary</span>
+        <Select
+          disabled={disabled}
+          onValueChange={(value) =>
+            onUpdate({
+              reasoningSummary: value === 'off' ? undefined : (value as OpenAiReasoningSummary),
+            })
+          }
+          value={settings.reasoningSummary ?? 'off'}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Auto" />
+          </SelectTrigger>
+          <SelectContent>
+            {OPENAI_SUMMARY_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
 const AnthropicReasoningSection = ({
   settings,
@@ -406,35 +322,14 @@ const AnthropicReasoningSection = ({
     ANTHROPIC_THINKING_MAX
   );
 
+  // Effort + the primary Thinking toggle moved to the composer model menu;
+  // the advanced numeric budget stays here.
   return (
     <div className="space-y-2 rounded-md bg-muted/30 p-2">
       <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
         Claude reasoning
       </Label>
       <div className="space-y-2">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Effort</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                anthropicEffort: value === 'auto' ? undefined : (value as AnthropicEffort),
-              })
-            }
-            value={settings.anthropicEffort ?? 'auto'}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              {ANTHROPIC_EFFORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
         <div className="space-y-2 rounded-md border border-border bg-background p-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -505,90 +400,36 @@ const AnthropicReasoningSection = ({
   );
 };
 
-interface GoogleThinkingSectionProps extends ProviderSettingsSectionProps {
-  modelName?: string | undefined;
-}
-
-const GoogleThinkingSection = ({
-  settings,
-  onUpdate,
-  disabled,
-  modelName,
-}: GoogleThinkingSectionProps) => {
-  const googleThinkingLevels = getGoogleThinkingLevels(modelName);
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Gemini thinking
-      </Label>
-      <div className="space-y-2">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Thinking level</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
-              })
-            }
-            value={settings.googleThinkingLevel ?? 'auto'}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Auto</SelectItem>
-              {googleThinkingLevels.map((level) => (
-                <SelectItem key={level} value={level}>
-                  {level}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Include thoughts
-            </p>
-            <p className="text-[10px] text-muted-foreground">Stream internal reasoning (debug).</p>
-          </div>
-          <Switch
-            checked={Boolean(settings.googleIncludeThoughts)}
-            disabled={disabled}
-            onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const LocalThinkingSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
+// The thinking LEVEL select moved to the composer model menu (Effort
+// submenu); this section keeps only the include-thoughts debug toggle.
+const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
   <div className="space-y-2 rounded-md bg-muted/30 p-2">
     <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      Gemma thinking
+      Gemini thinking
     </Label>
-    <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Enable thinking</p>
-        <p className="text-[10px] text-muted-foreground">
-          Include Gemma&apos;s internal reasoning phase before the final answer.
-        </p>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+            Include thoughts
+          </p>
+          <p className="text-[10px] text-muted-foreground">Stream internal reasoning (debug).</p>
+        </div>
+        <Switch
+          checked={Boolean(settings.googleIncludeThoughts)}
+          disabled={disabled}
+          onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
+        />
       </div>
-      <Switch
-        checked={settings.localThinkingEnabled ?? true}
-        disabled={disabled}
-        onCheckedChange={(checked) => onUpdate({ localThinkingEnabled: checked })}
-      />
     </div>
   </div>
 );
 
+// `modelName` stays on the props contract for callers, but no remaining
+// section is model-scoped (the model-constrained effort controls moved to the
+// composer model menu).
 export const ProviderSettingsPanel = ({
   providerId,
-  modelName,
   settings,
   onSettingsChange,
 }: ProviderSettingsPanelProps) => {
@@ -601,8 +442,6 @@ export const ProviderSettingsPanel = ({
   const isAnthropic = normalizedProvider === 'anthropic';
   const isGoogle = normalizedProvider === 'google';
   const isLocal = normalizedProvider === 'local';
-  const openRouterReasoningCapabilities =
-    normalizedProvider === 'openrouter' ? getOpenRouterReasoningCapabilities(modelName) : undefined;
 
   if (!(isOpenAiFamily || isAnthropic || isGoogle || isLocal)) {
     return null;
@@ -622,10 +461,11 @@ export const ProviderSettingsPanel = ({
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-            Reasoning & Output
+            Output & Limits
           </p>
           <p className="text-muted-foreground text-xs">
-            Per-provider controls for reasoning depth and token limits.
+            Per-provider agent runtime, output, and token limit controls. Reasoning effort and the
+            thinking toggle live in the model menu.
           </p>
         </div>
       </div>
@@ -645,7 +485,6 @@ export const ProviderSettingsPanel = ({
           <OpenAiReasoningSection
             disabled={!canUpdate}
             onUpdate={updateSettings}
-            reasoningCapabilities={openRouterReasoningCapabilities}
             settings={currentSettings}
           />
         ) : null}
@@ -658,14 +497,6 @@ export const ProviderSettingsPanel = ({
         ) : null}
         {isGoogle ? (
           <GoogleThinkingSection
-            disabled={!canUpdate}
-            modelName={modelName}
-            onUpdate={updateSettings}
-            settings={currentSettings}
-          />
-        ) : null}
-        {isLocal ? (
-          <LocalThinkingSection
             disabled={!canUpdate}
             onUpdate={updateSettings}
             settings={currentSettings}
