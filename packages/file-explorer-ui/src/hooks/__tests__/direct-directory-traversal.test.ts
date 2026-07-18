@@ -248,6 +248,52 @@ describe('traverseDirectoriesDirect', () => {
     expect(result.discoveredPaths).toEqual(new Set(['/root/src']));
   });
 
+  it('invokes onBatchLoadsSettled after each batch of loads and before discovery reads', async () => {
+    const events: string[] = [];
+    const nodes = new Map<string, IFileNode>([['/root/a', createDirectory('/root/a', 'unloaded')]]);
+    const childrenByPath: Record<string, IFileNode[]> = {
+      '/root/a': [createDirectory('/root/a/b', 'unloaded')],
+      '/root/a/b': [],
+    };
+
+    const session = createDirectDirectoryTraversalSession(['/root/a'], {
+      getDirectoryByPath: (path) => {
+        events.push(`read:${path}`);
+        return nodes.get(path);
+      },
+      isActive: () => true,
+      loadDirectoryPath: async (path) => {
+        events.push(`load:${path}`);
+        const children = childrenByPath[path] ?? [];
+        nodes.set(path, createDirectory(path, 'loaded', children));
+        for (const child of children) {
+          nodes.set(child.path, child);
+        }
+      },
+      onBatchLoadsSettled: () => {
+        events.push('settled');
+      },
+    });
+
+    const firstBatch = await session.processNextBatch();
+    expect(firstBatch.complete).toBe(false);
+    const secondBatch = await session.processNextBatch();
+    expect(secondBatch.complete).toBe(true);
+
+    // Each batch settles exactly once: after its loads finished, before the
+    // discovery reads that enqueue newly revealed child directories.
+    expect(events).toEqual([
+      'read:/root/a',
+      'load:/root/a',
+      'settled',
+      'read:/root/a',
+      'read:/root/a/b',
+      'load:/root/a/b',
+      'settled',
+      'read:/root/a/b',
+    ]);
+  });
+
   it('throws when discovered directories exceed the traversal safety limit', async () => {
     const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'loaded')]);
     const src = findDirectoryByPath(root, '/root/src');

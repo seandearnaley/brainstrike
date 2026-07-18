@@ -52,6 +52,7 @@ import {
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
   getNormalizedDescendantFileCount,
+  getNormalizedNode,
   getNormalizedRootDirectoryPaths,
   listNormalizedDescendantFilePaths,
   materializeNormalizedFileTree,
@@ -88,6 +89,11 @@ interface CountableTreeNode {
 }
 
 type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
+
+/** Deferred per-directory result buffered during renderer-fallback expand-all. */
+type PendingExpandAllUpdate =
+  | { children: IFileNode[]; kind: 'children'; path: string }
+  | { errorMsg: string; kind: 'error'; path: string };
 
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
 
@@ -1057,6 +1063,59 @@ export function useLazyFileTree(
     []
   );
 
+  // Renderer-fallback expand-all commit batching. Each commitNormalizedTree
+  // clones the normalized maps and rematerializes the tree (O(tree)), so
+  // committing per directory made expand-all O(tree × directories). While the
+  // RENDERER session runs (rendererExpandAllSessionRef — the worker fast path
+  // must keep committing per directory, or its deep patches could later be
+  // clobbered by a stale buffered flush), directory results — loaded children
+  // AND load errors — accumulate here and are published once per traversal
+  // batch via the session's onBatchLoadsSettled boundary (plus on
+  // cancellation and at session end for stragglers).
+  const rendererExpandAllSessionRef = useRef(false);
+  const pendingExpandAllUpdatesRef = useRef<PendingExpandAllUpdate[]>([]);
+
+  const flushPendingExpandAllUpdates = useCallback((): void => {
+    const pendingUpdates = pendingExpandAllUpdatesRef.current;
+    if (pendingUpdates.length === 0) {
+      return;
+    }
+    pendingExpandAllUpdatesRef.current = [];
+    const childrenUpdates: NormalizedDirectoryChildrenUpdate[] = [];
+    const errorUpdates: Extract<PendingExpandAllUpdate, { kind: 'error' }>[] = [];
+    for (const update of pendingUpdates) {
+      if (update.kind === 'children') {
+        childrenUpdates.push({ children: update.children, path: update.path });
+      } else {
+        errorUpdates.push(update);
+      }
+    }
+    const nextTree = commitNormalizedTree((currentTree) => {
+      let nextNormalized = applyNormalizedDirectoryChildrenUpdates(currentTree, childrenUpdates);
+      for (const update of errorUpdates) {
+        nextNormalized = setNormalizedNodeLoadState(
+          nextNormalized,
+          update.path,
+          'error',
+          update.errorMsg
+        );
+      }
+      return nextNormalized;
+    });
+    setState((s) => {
+      if (s.loadingPaths.size === 0) {
+        return { ...s, fileTree: nextTree };
+      }
+      // A load that began before expand-all started tracked its path in
+      // loadingPaths; its buffered result must clear that entry too.
+      const newLoadingPaths = new Set(s.loadingPaths);
+      for (const update of pendingUpdates) {
+        newLoadingPaths.delete(update.path);
+      }
+      return { ...s, fileTree: nextTree, loadingPaths: newLoadingPaths };
+    });
+  }, [commitNormalizedTree]);
+
   // Per-run listener mirroring expand-all progress to the caller (see
   // expandAllProgressively's onProgress). A ref, not state: the value is only
   // consumed inside handleProgress and must never re-wire the worker.
@@ -1110,6 +1169,8 @@ export function useLazyFileTree(
     ): Error | null => {
       fileTreeRef.current = [];
       normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
+      rendererExpandAllSessionRef.current = false;
+      pendingExpandAllUpdatesRef.current = [];
       handleMapRef.current.clear();
       initializedRootRef.current = null;
       lastAppliedRootLoadRef.current = null;
@@ -1403,18 +1464,25 @@ export function useLazyFileTree(
         portRef.current.updateTree(path, workerChildren);
       }
 
-      const nextTree = commitNormalizedTree((currentTree) =>
-        replaceNormalizedDirectoryChildren(currentTree, path, children, 'loaded')
-      );
-      setState((s) => {
-        const newLoadingPaths = new Set(s.loadingPaths);
-        newLoadingPaths.delete(path);
-        return {
-          ...s,
-          fileTree: nextTree,
-          loadingPaths: newLoadingPaths,
-        };
-      });
+      // During renderer-fallback expand-all, defer the O(tree) normalized
+      // commit to the per-batch flush; the handle map and worker (above) and
+      // the index callback (below) still ingest per directory.
+      if (rendererExpandAllSessionRef.current) {
+        pendingExpandAllUpdatesRef.current.push({ children, kind: 'children', path });
+      } else {
+        const nextTree = commitNormalizedTree((currentTree) =>
+          replaceNormalizedDirectoryChildren(currentTree, path, children, 'loaded')
+        );
+        setState((s) => {
+          const newLoadingPaths = new Set(s.loadingPaths);
+          newLoadingPaths.delete(path);
+          return {
+            ...s,
+            fileTree: nextTree,
+            loadingPaths: newLoadingPaths,
+          };
+        });
+      }
 
       // Notify indexing callback for child nodes
       if (onNodesIndexedRef.current && children.length > 0) {
@@ -1430,6 +1498,14 @@ export function useLazyFileTree(
   const handleLoadError = useCallback(
     (path: string, errorMsg: string, abortController: AbortController) => {
       if (!shouldApplyChildLoadResult(path, abortController)) {
+        return;
+      }
+
+      // Failed directories ride the same per-batch flush during the renderer
+      // expand-all session — a per-error commit is the same O(tree) cost the
+      // batching removes from the success path.
+      if (rendererExpandAllSessionRef.current) {
+        pendingExpandAllUpdatesRef.current.push({ errorMsg, kind: 'error', path });
         return;
       }
 
@@ -1452,6 +1528,13 @@ export function useLazyFileTree(
   const handleLoadAborted = useCallback(
     (path: string, abortController: AbortController) => {
       if (!shouldApplyChildLoadResult(path, abortController, true)) {
+        return;
+      }
+
+      // Expand-all suppresses the per-directory 'loading' commit, so an
+      // aborted load has nothing to reset — skip the O(tree) commit.
+      // (Batch cancellation resets are owned by cancelExpandAllLoads.)
+      if (getNormalizedNode(normalizedTreeRef.current, path)?.loadState !== 'loading') {
         return;
       }
 
@@ -1553,15 +1636,20 @@ export function useLazyFileTree(
       // Create abort controller for this path
       const abortController = createAbortController(path);
 
-      // Mark as loading
-      const nextTree = commitNormalizedTree((currentTree) =>
-        setNormalizedNodeLoadState(currentTree, path, 'loading')
-      );
-      setState((s) => ({
-        ...s,
-        fileTree: nextTree,
-        loadingPaths: new Set([...s.loadingPaths, path]),
-      }));
+      // Mark as loading. Suppressed during the renderer expand-all session:
+      // it publishes batched loaded results and reports progress through its
+      // own UI, and a per-directory 'loading' commit would reintroduce the
+      // O(tree) clone+materialize per directory the batching exists to avoid.
+      if (!rendererExpandAllSessionRef.current) {
+        const nextTree = commitNormalizedTree((currentTree) =>
+          setNormalizedNodeLoadState(currentTree, path, 'loading')
+        );
+        setState((s) => ({
+          ...s,
+          fileTree: nextTree,
+          loadingPaths: new Set([...s.loadingPaths, path]),
+        }));
+      }
 
       const loadPromise = (async () => {
         try {
@@ -1602,6 +1690,9 @@ export function useLazyFileTree(
   }, [cancelAllLoading]);
 
   const cancelExpandAllLoads = useCallback(() => {
+    // Publish already-loaded batch results before resetting: the worker and
+    // handle map ingested them, so dropping them would let the sinks drift.
+    flushPendingExpandAllUpdates();
     portRef.current?.abort();
     cancelAllChildLoading();
     const loadingPaths = Array.from(
@@ -1628,7 +1719,7 @@ export function useLazyFileTree(
       fileTree: nextTree,
       loadingPaths: new Set(),
     }));
-  }, [cancelAllChildLoading, commitNormalizedTree, portRef]);
+  }, [cancelAllChildLoading, commitNormalizedTree, flushPendingExpandAllUpdates, portRef]);
 
   const runWorkerExpandAll = useCallback(
     async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult | null> => {
@@ -1636,7 +1727,11 @@ export function useLazyFileTree(
       if (!port) {
         // Worker unavailable (failed to start, or test env) — signal the
         // caller to run the in-renderer session path instead of erroring.
+        // Arm batched commits for that session only; the worker path must
+        // keep per-directory commits so its deep patches can never be
+        // clobbered by a stale buffered flush.
         logger.warn('Expand-all worker unavailable — using in-renderer fallback');
+        rendererExpandAllSessionRef.current = true;
         return null;
       }
       // Storage v5: use durable RootId UUID when available.
@@ -1709,6 +1804,9 @@ export function useLazyFileTree(
         .filter((n): n is import('@brainstrike/types').IFileNode => n !== undefined);
     },
     loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
+    // Publish buffered directory results once per traversal batch, before the
+    // session's discovery phase reads the tree.
+    onBatchLoadsSettled: flushPendingExpandAllUpdates,
     onError: handleWorkerError,
     onProgress: (loaded: number, total: number) => {
       handleProgress(loaded, total, '');
@@ -1794,11 +1892,17 @@ export function useLazyFileTree(
         throw err;
       } finally {
         expandAllProgressListenerRef.current = null;
+        // Disarm batching BEFORE the final flush so any load resolving after
+        // teardown commits directly instead of parking in the buffer.
+        rendererExpandAllSessionRef.current = false;
+        // Publish any straggler batch results (e.g. a load that resolved
+        // between cancellation's flush and session teardown).
+        flushPendingExpandAllUpdates();
         // Clear progress after operation completes (success or failure)
         setExpandAllProgress(null);
       }
     },
-    [fileSystemAdapter, expandAllFromHook]
+    [fileSystemAdapter, expandAllFromHook, flushPendingExpandAllUpdates]
   );
 
   /**
