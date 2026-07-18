@@ -35,7 +35,7 @@ const FileExplorerToolbar = React.memo(
     // stays outside the grid. Edge padding lives inside each measured side slot
     // to preserve its disclosure breakpoints while keeping the gutters symmetric.
     return (
-      <div className="@container/explorer-toolbar h-12 w-full min-w-0 max-w-full shrink-0 overflow-hidden border-b">
+      <div className="@container/explorer-toolbar h-9 w-full min-w-0 max-w-full shrink-0 overflow-hidden border-b">
         <div
           className="grid h-full w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-0"
           data-testid="file-explorer-toolbar"
@@ -47,7 +47,7 @@ const FileExplorerToolbar = React.memo(
           </div>
           <Button
             aria-label={FileExplorerStrings.addFolderToWorkspace}
-            className="@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6 @[460px]/explorer-toolbar:w-auto border-primary/40 bg-primary/10 p-0 @[460px]/explorer-toolbar:px-3 text-primary shadow-sm hover:border-primary/60 hover:bg-primary/15 hover:shadow-md focus-visible:border-primary/70 focus-visible:ring-primary/30 motion-safe:transition-transform motion-safe:hover:-translate-y-px motion-reduce:transform-none motion-reduce:transition-none"
+            className="@[96px]/explorer-toolbar:size-7 size-6 @[460px]/explorer-toolbar:w-auto border-primary/40 bg-primary/10 p-0 @[460px]/explorer-toolbar:px-3 text-primary shadow-sm hover:border-primary/60 hover:bg-primary/15 hover:shadow-md focus-visible:border-primary/70 focus-visible:ring-primary/30 motion-safe:transition-transform motion-safe:hover:-translate-y-px motion-reduce:transform-none motion-reduce:transition-none"
             data-testid="select-root-button"
             disabled={isLoading}
             onClick={onDirectorySelect}
