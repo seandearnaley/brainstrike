@@ -262,6 +262,30 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return null;
   };
 
+  /**
+   * True when the path lives inside one of the active fixture roots (by root
+   * name or stamped rootId alias). Fixtures own ONLY their subtrees: a path
+   * outside every fixture root (e.g. a REAL workspace root added while the
+   * dev inline fixture is enabled) must delegate to the wrapped adapter.
+   * Claiming it here and returning empty data silently blanked real roots —
+   * the "No files in this folder" dev-fixture incident.
+   */
+  const isFixtureOwnedPath = (path: string): boolean => {
+    for (const state of fixtureStates) {
+      const { rootHandle } = state;
+      if (path === rootHandle.path || path.startsWith(`${rootHandle.path}/`)) {
+        return true;
+      }
+      if (
+        rootHandle.rootId &&
+        (path === rootHandle.rootId || path.startsWith(`${rootHandle.rootId}/`))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const originalRequestDirectoryAccess = adapter.requestDirectoryAccess.bind(adapter);
   const originalReadDirectory = adapter.readDirectory.bind(adapter);
   const originalReadFile = adapter.readFile.bind(adapter);
@@ -289,14 +313,14 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     handle: DirectoryHandle,
     optionsArg?: DirectoryReadOptions
   ): Promise<IFileNode[]> {
-    if (isFixtureActive()) {
+    if (isFixtureActive() && isFixtureOwnedPath(handle.path)) {
       await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
-      // When fixture is active, only serve data from the fixture roots
       const entry = findFixtureEntry(handle.path);
       if (entry?.state.directories.has(entry.lookupPath)) {
         return cloneNodes(entry.state.directories.get(entry.lookupPath) ?? []);
       }
-      // Path not found in fixture - this shouldn't happen if fixture is properly built
+      // Owned by a fixture root but absent from its tree — a fixture-authoring
+      // bug, kept fixture-served so tests fail on their own data, not the disk.
       logger.warn('Path not found in fixture', {
         availablePaths: fixtureStates.flatMap((state) => Array.from(state.directories.keys())),
         path: handle.path,
@@ -307,7 +331,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
 
   async function readFile(handle: FileHandle): Promise<string> {
-    if (isFixtureActive()) {
+    if (isFixtureActive() && isFixtureOwnedPath(handle.path)) {
       const entry = findFixtureEntry(handle.path);
       const record = entry?.state.fileContents.get(entry.lookupPath);
       if (record) {
@@ -327,7 +351,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
 
   async function readFileByPath(path: string): Promise<string> {
-    if (isFixtureActive()) {
+    if (isFixtureActive() && isFixtureOwnedPath(path)) {
       const entry = findFixtureEntry(path);
       const record = entry?.state.fileContents.get(entry.lookupPath);
       if (record) {
@@ -349,7 +373,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   // Returning pre-loaded bytes keeps the worker boundary serializable and
   // exercises the same FileToIndex.content code path that Electron uses.
   async function resolveFileForIndexing(path: string): Promise<FileForIndexingResolution> {
-    if (isFixtureActive()) {
+    if (isFixtureActive() && isFixtureOwnedPath(path)) {
       const entry = findFixtureEntry(path);
       const record = entry?.state.fileContents.get(entry.lookupPath);
       if (!record) {
@@ -368,7 +392,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     onBatch: DirectoryStreamCallback,
     optionsArg?: StreamingDirectoryReadOptions
   ): Promise<void> {
-    if (isFixtureActive()) {
+    if (isFixtureActive() && isFixtureOwnedPath(handle.path)) {
       optionsArg?.signal?.throwIfAborted();
       await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
       optionsArg?.signal?.throwIfAborted();

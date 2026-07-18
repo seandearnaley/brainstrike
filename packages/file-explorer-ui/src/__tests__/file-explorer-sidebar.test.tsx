@@ -239,6 +239,62 @@ describe('FileExplorerSidebar', () => {
     });
   });
 
+  it('surfaces a per-section load error instead of claiming an empty folder', async () => {
+    const handleA = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-a',
+      path: '/project-a',
+      platform: 'web' as const,
+    };
+    const handleB = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-b',
+      path: '/project-b',
+      platform: 'web' as const,
+    };
+
+    const nodesA: IFileNode[] = [
+      createFileNode({ name: 'a.ts', path: '/project-a/a.ts', rootFolderId: '/project-a' }),
+    ];
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        if (handle.path === '/project-b') {
+          // The dev-fixture incident shape: the scan itself fails.
+          throw new Error('operation not permitted');
+        }
+        onBatch(nodesA, { done: true, total: nodesA.length });
+      }
+    );
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+
+    act(() => {
+      renderWithPopulatedAdapter(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Couldn't read this folder/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/operation not permitted/i)).toBeInTheDocument();
+    // The misleading empty-state copy must NOT render for a failed scan.
+    expect(screen.queryByText('No files in this folder')).not.toBeInTheDocument();
+    // Root A is unaffected.
+    await waitFor(() => {
+      expect(screen.getByText('a.ts')).toBeInTheDocument();
+    });
+  });
+
   // Row-click in root B's tree calls setFocusedRoot with B's path
   it('calls setFocusedRoot with root B path when clicking inside root B tree area', async () => {
     const { default: userEvent } = await import('@testing-library/user-event');
