@@ -1234,6 +1234,11 @@ export const useAssistantPreferencesStore = create<Store>()(
         return {
           enabledModelsByProvider: migratedEnabled,
           modelsByProvider: migratedModelsByProvider,
+          // Preserve every partialize'd field the migrated snapshot may carry
+          // (e.g. a pre-v7 user's read-only planning guard) — the returned
+          // partial is merged over initial state, so anything omitted here
+          // silently resets to its default.
+          planModeEnabled: typeof base.planModeEnabled === 'boolean' ? base.planModeEnabled : false,
           providerSettings: {
             ...DEFAULT_PROVIDER_SETTINGS,
             ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),

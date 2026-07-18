@@ -90,15 +90,18 @@ function collectTopOptionKeys(args: {
 }): string[] {
   const { optionByCompositeKey, recentModels, selectedModel } = args;
   const keys: string[] = [];
+  const seenKeys = new Set<string>();
   if (selectedModel && optionByCompositeKey.has(selectedModel)) {
     keys.push(selectedModel);
+    seenKeys.add(selectedModel);
   }
   for (const key of recentModels) {
     if (keys.length >= 1 + MAX_RECENT_ROWS) {
       break;
     }
-    if (!keys.includes(key) && optionByCompositeKey.has(key)) {
+    if (!seenKeys.has(key) && optionByCompositeKey.has(key)) {
       keys.push(key);
+      seenKeys.add(key);
     }
   }
   if (keys.length === 0) {

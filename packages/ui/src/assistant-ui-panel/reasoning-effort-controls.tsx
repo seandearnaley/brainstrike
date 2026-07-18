@@ -80,19 +80,32 @@ export function buildEffortControlModel(
     case 'openrouter': {
       const current = settings.reasoningEffort;
       const isKnown = current !== undefined && availability.efforts.includes(current);
+      const options: EffortOption[] = availability.efforts.map((effort) => ({
+        isModelDefault: availability.defaultEffort === effort,
+        label: OPENAI_EFFORT_LABELS[effort],
+        value: effort,
+      }));
+      if (current !== undefined && !isKnown) {
+        // The persisted effort (e.g. legacy 'none') is no longer in the
+        // model's advertised list, but it's still what gets sent to the
+        // provider — surface it as its own option instead of silently
+        // falling back to "Auto", which would make the visible selection
+        // lie about the active request.
+        options.push({
+          isModelDefault: false,
+          label: OPENAI_EFFORT_LABELS[current],
+          value: current,
+        });
+      }
       return {
         // Parity with OpenAiReasoningSection: 'auto' clears the setting,
         // anything else writes the literal effort value.
         buildUpdate: (value) => ({
           reasoningEffort: value === 'auto' ? undefined : (value as OpenAiReasoningEffort),
         }),
-        currentLabel: isKnown ? OPENAI_EFFORT_LABELS[current] : 'Auto',
-        currentValue: isKnown ? current : 'auto',
-        options: availability.efforts.map((effort) => ({
-          isModelDefault: availability.defaultEffort === effort,
-          label: OPENAI_EFFORT_LABELS[effort],
-          value: effort,
-        })),
+        currentLabel: current === undefined ? 'Auto' : OPENAI_EFFORT_LABELS[current],
+        currentValue: current ?? 'auto',
+        options,
       };
     }
     case 'anthropic': {

@@ -1135,4 +1135,53 @@ describe('assistant-preferences-store', () => {
       expect(snapshot?.state?.recentModels).toEqual([compositeKey]);
     });
   });
+
+  describe('plan mode migration', () => {
+    it('preserves planModeEnabled: true from a pre-v7 snapshot across migration', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const priorState: StorageValue<unknown> = {
+        state: {
+          enabledModelsByProvider: {},
+          modelsByProvider: {},
+          planModeEnabled: true,
+          providerSettings: {},
+          selectedModel: `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        },
+        version: 6,
+      };
+
+      options.storage.setItem(options.name, priorState);
+      await persistApi.rehydrate?.();
+
+      expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(true);
+    });
+
+    it('defaults planModeEnabled to false when absent from a pre-v7 snapshot', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const priorState: StorageValue<unknown> = {
+        state: {
+          enabledModelsByProvider: {},
+          modelsByProvider: {},
+          providerSettings: {},
+          selectedModel: `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        },
+        version: 6,
+      };
+
+      options.storage.setItem(options.name, priorState);
+      await persistApi.rehydrate?.();
+
+      expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+    });
+  });
 });

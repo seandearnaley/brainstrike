@@ -283,6 +283,32 @@ describe('ComposerModelMenu', () => {
       });
     });
 
+    it('surfaces a persisted "none" effort instead of silently showing Auto', async () => {
+      const user = setup();
+      render(
+        <ComposerModelMenu
+          {...baseProps}
+          onModelChange={vi.fn()}
+          onProviderSettingsChange={vi.fn()}
+          providerSettings={{ openai: { reasoningEffort: 'none' } }}
+        />
+      );
+
+      const menu = await openMenu(user);
+      const effortTrigger = within(menu).getByTestId('composer-effort-trigger');
+      // The trigger annotation must reflect what's actually being sent
+      // (reasoningEffort: 'none'), not lie by falling back to "Auto".
+      expect(effortTrigger).toHaveTextContent('None');
+      expect(effortTrigger).not.toHaveTextContent('Auto');
+
+      effortTrigger.focus();
+      await user.keyboard('{ArrowRight}');
+      expect(await screen.findByRole('menuitemradio', { name: 'None' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+    });
+
     it('restricts kimi-k3 to its declared max-only efforts with a Default chip', async () => {
       const user = setup();
       render(
