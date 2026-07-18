@@ -488,7 +488,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       },
       {
         description:
-          "The target line's text with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`",
+          "The target line's text — or a fragment that occurs exactly once on that line — with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`",
         minLength: 3,
         name: 'match',
         required: true,

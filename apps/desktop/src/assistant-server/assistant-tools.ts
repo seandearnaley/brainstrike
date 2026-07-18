@@ -610,7 +610,30 @@ async function runLspInspect(
       `Line ${input.line} is past the end of "${input.path}" (${lines.length} lines).`
     );
   }
-  const character = input.match.indexOf(LSP_CURSOR_MARKER);
+  const markerOffset = input.match.indexOf(LSP_CURSOR_MARKER);
+  const strippedMatch = input.match.replace(LSP_CURSOR_MARKER, '');
+  if (strippedMatch.trim().length === 0) {
+    throw new Error(
+      `The "match" field must include the line's text around the "${LSP_CURSOR_MARKER}" marker, not the marker alone.`
+    );
+  }
+  // Anchor the match against the REAL line so a partial or stale quote can
+  // never silently inspect the wrong column (mirrors stringReplace's
+  // validate-before-position convention). CRLF: the split leaves a trailing
+  // \r; it can't precede the marker, so ignoring it never shifts the column.
+  const lineText = (lines[input.line - 1] ?? '').replace(/\r$/, '');
+  const fragmentStart = lineText.indexOf(strippedMatch);
+  if (fragmentStart === -1) {
+    throw new Error(
+      `The "match" text (marker removed) was not found on line ${input.line} of "${input.path}". That line is: ${JSON.stringify(lineText)}. Pass that line's text with a single "${LSP_CURSOR_MARKER}" right before the symbol.`
+    );
+  }
+  if (lineText.indexOf(strippedMatch, fragmentStart + 1) !== -1) {
+    throw new Error(
+      `The "match" text (marker removed) occurs more than once on line ${input.line} of "${input.path}" — include more surrounding text so the cursor position is unambiguous.`
+    );
+  }
+  const character = fragmentStart + markerOffset;
   const result = await getLspInspection({
     absolutePath: file.absolutePath,
     content: file.content,

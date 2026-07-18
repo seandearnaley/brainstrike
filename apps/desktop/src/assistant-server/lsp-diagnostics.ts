@@ -709,9 +709,19 @@ export interface LspInspectionResult {
   reason?: LspUnavailableReason;
 }
 
-/** file:// URI → fs path. */
+/** file:// URI → fs path. fileURLToPath (not URL.pathname) so Windows drive
+ * letters round-trip ("file:///C:/x" → "C:\x", not "/C:/x"). A malformed
+ * file URI from the server falls through to the raw URI, which stays visible
+ * in the location's display path rather than failing the whole inspection. */
 function uriToPath(uri: string): string {
-  return uri.startsWith('file://') ? decodeURIComponent(new URL(uri).pathname) : uri;
+  if (!uri.startsWith('file://')) {
+    return uri;
+  }
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    return uri;
+  }
 }
 
 const MAX_INSPECT_LOCATIONS = 10;

@@ -692,7 +692,7 @@ export const LspInspectInputSchema = z
       .min(3)
       .max(2000)
       .describe(
-        "The target line's text with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`."
+        "The target line's text — or a fragment that occurs exactly once on that line — with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`. Refused if the text (marker removed) is not found on that line."
       ),
     path: z.string().min(1).describe('Workspace-relative file path to inspect'),
     root: z
