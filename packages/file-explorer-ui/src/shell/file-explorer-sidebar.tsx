@@ -62,6 +62,12 @@ interface FileExplorerSidebarProps {
   loadingPathForSelection?: string | null | undefined;
   /** Set of paths currently loading their children (lazy loading) */
   loadingPaths?: Set<string> | undefined;
+  /**
+   * RootId of the MAIN root (`activeRootIds[0]` — the assistant's operating
+   * root). Forest mode renders a "Main" badge on the matching section header;
+   * single-root mode shows no badge (no prop consumers on that path).
+   */
+  mainRootId?: string | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /**
@@ -87,8 +93,13 @@ interface FileExplorerSidebarProps {
    * When absent the sidebar falls back to `getRootFolderId(handle)` (path).
    */
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
-  /** Switch focus to the root at the given path (forest mode). */
-  setFocusedRoot?: ((path: string) => void) | undefined;
+  /**
+   * Switch the FOCUSED root (forest mode). Receives the root's IDENTITY —
+   * the durable RootId when resolved, else the handle path for legacy
+   * single-root handles (matches removeRootDirectory's path-doubles-as-id
+   * resolution).
+   */
+  setFocusedRoot?: ((rootIdentity: string) => void) | undefined;
   treeError: Error | null;
 }
 
@@ -543,14 +554,18 @@ const PerRootTreePane = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
+  /** RootId of the MAIN root (activeRootIds[0]); drives the "Main" badge. */
+  mainRootId?: string | undefined;
   onRemoveRoot?:
     | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
     | undefined;
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
-  setFocusedRoot?: ((path: string) => void) | undefined;
+  /** Switch the FOCUSED root; receives the root IDENTITY (RootId, legacy path fallback). */
+  setFocusedRoot?: ((rootIdentity: string) => void) | undefined;
 }
 
 const RootSection = ({
+  mainRootId,
   onRemoveRoot,
   rootDirectoryHandle,
   setFocusedRoot,
@@ -610,8 +625,21 @@ const RootSection = ({
         <RootSectionHeader
           displayName={rootDirectoryHandle.name}
           isCollapsed={isCollapsed}
+          // Main = client-declared assistant operating root (activeRootIds[0]);
+          // Focused = selection state (currentFolderId). Both compare against
+          // the section's resolved root identity — never the raw path when a
+          // durable RootId exists.
+          isFocused={rest.currentFolderId !== null && rest.currentFolderId === rootIdentity}
+          isMain={mainRootId !== undefined && mainRootId === rootIdentity}
           onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
           onToggleCollapse={handleToggle}
+          // Web FSA handles carry no absolute path distinct from the name —
+          // suppress the tooltip when the path adds nothing.
+          path={
+            rootDirectoryHandle.path && rootDirectoryHandle.path !== rootDirectoryHandle.name
+              ? rootDirectoryHandle.path
+              : undefined
+          }
           selectionControl={
             <RootSelectAllCheckbox
               displayName={rootDirectoryHandle.name}
@@ -644,6 +672,7 @@ const RootSection = ({
 
 const FileExplorerSidebar = memo(
   ({
+    mainRootId,
     rootDirectoryHandle,
     rootDirectoryHandles,
     rootIdByPath,
@@ -703,6 +732,7 @@ const FileExplorerSidebar = memo(
                 // so a path-keyed key would collide and React would reconcile
                 // the two sections as one.
                 key={handle.rootId ?? rootIdByPath?.get(handle.path) ?? handle.path}
+                mainRootId={mainRootId}
                 onRemoveRoot={onRemoveRoot}
                 rootDirectoryHandle={handle}
                 rootIdByPath={rootIdByPath}
