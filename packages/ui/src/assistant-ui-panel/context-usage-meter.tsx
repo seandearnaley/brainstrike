@@ -124,6 +124,9 @@ export const ContextUsageMeter = ({
 }: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
+  // Run-start prompt breakdown (or the explicit invalid marker) recorded by the
+  // app-shell writer with the SAME thread key contract as recordUsage.
+  const breakdownState = useContextUsageStore((s) => s.breakdownByThread[key]);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -229,6 +232,7 @@ export const ContextUsageMeter = ({
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <ContextUsagePopoverContent
+            breakdownState={breakdownState}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             effectiveInputBudget={effectiveInputBudget}

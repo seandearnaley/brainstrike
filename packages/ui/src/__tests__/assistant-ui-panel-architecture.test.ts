@@ -79,7 +79,13 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1818);
+    // Bumped 1818 → 1835 for the context-breakdown seam (context-ring WS8):
+    // onContextBreakdown threads AssistantUiPanelProps → ChatThreadProps →
+    // DataStreamRuntimeChat ONLY (the local runtime path is capability-absent
+    // by design), matching the existing onUsage seam shape. The ring, popover,
+    // and breakdown-row logic all live in their own modules
+    // (context-ring.tsx, context-usage-popover.tsx, context-usage-meter.tsx).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1835);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

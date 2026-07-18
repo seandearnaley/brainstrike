@@ -1,4 +1,5 @@
 import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   getProviderModelDefinitions,
   isSupportedProvider,
@@ -1292,6 +1293,21 @@ export function AssistantUiPanelWrapper({
     }
   }, [assistantThreadRepository, resolveModelPricing, selectedMemoryThreadId]);
 
+  // Record the run-start prompt breakdown (transient context-breakdown data
+  // part). Parsed with the contract guard so a malformed wire payload is stored
+  // as the explicit { invalid: true } marker the popover surfaces — never
+  // coerced, never dropped. Keyed by the SAME thread key contract as
+  // recordUsage (writer and meter reader must agree).
+  const handleContextBreakdown = useCallback(
+    (data: unknown) => {
+      const threadId = selectedMemoryThreadId ?? 'active';
+      useContextUsageStore
+        .getState()
+        .recordBreakdown(threadId, parseAssistantContextBreakdown(data));
+    },
+    [selectedMemoryThreadId]
+  );
+
   // Record provider token usage. ONE usage derivation (the single tap) fans out
   // to two sinks:
   //   1. the session-lived zustand store (last-turn meter), keyed by the active
@@ -1497,6 +1513,7 @@ export function AssistantUiPanelWrapper({
                     onComposerTextChange: handleComposerTextChange,
                   }
                 : {})}
+              onContextBreakdown={handleContextBreakdown}
               onProviderSettingsChange={handleProviderSettingsChange}
               onRunFailed={handleRunFailed}
               onRunFinished={handleRunFinished}

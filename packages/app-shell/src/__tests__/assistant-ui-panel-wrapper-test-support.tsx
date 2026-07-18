@@ -970,7 +970,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     (selector: (state: { usageByThread: Record<string, unknown> }) => unknown) =>
       selector({ usageByThread: {} }),
     {
-      getState: () => ({ recordUsage: () => {} }),
+      getState: () => ({ recordBreakdown: () => {}, recordUsage: () => {} }),
     }
   ),
 }));

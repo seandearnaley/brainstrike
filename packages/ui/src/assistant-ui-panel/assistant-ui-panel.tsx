@@ -274,6 +274,15 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
   /**
+   * Called with the RAW payload of each run-start `brainstrike.context-breakdown`
+   * data part (transient prompt breakdown). Hosted/data-stream transport only —
+   * the in-renderer local runtime has no breakdown channel (capability-absent),
+   * so the callback is simply never wired there. The app parses the payload
+   * with the contract guard (malformed → { invalid: true }) and records it in
+   * the context usage store; same seam shape as onUsage.
+   */
+  onContextBreakdown?: (data: unknown) => void;
+  /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
    * runtime unlocks the mutation tools. Absent → approving a plan leaves plan
@@ -685,6 +694,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  /** Data-stream transport only; never passed to the local runtime path. */
+  onContextBreakdown?: ((data: unknown) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -869,6 +880,7 @@ const DataStreamRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onContextBreakdown,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -991,6 +1003,7 @@ const DataStreamRuntimeChat = ({
     onFinish: () => {
       void completeLatestPreparedRequest('completed');
     },
+    ...(onContextBreakdown ? { onContextBreakdown } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
 
@@ -1308,6 +1321,14 @@ const ChatThreadUI = ({
 };
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
+/** Initial API URL for the data stream runtime (hosted providers). */
+function resolveInitialAssistantApi(): string {
+  if (typeof window === 'undefined') {
+    return '/api/assistant';
+  }
+  return window.assistant?.url ? `${window.assistant.url}/assistant` : '/api/assistant';
+}
+
 export const AssistantUiPanel = ({
   className,
   composerDraftCommand,
@@ -1333,6 +1354,7 @@ export const AssistantUiPanel = ({
   onThreadRunStart,
   onTogglePlanMode,
   onToolApprovalRequired,
+  onContextBreakdown,
   onUsage,
   attachmentsAvailability,
   planModeEnabled,
@@ -1350,13 +1372,7 @@ export const AssistantUiPanel = ({
   threadKey,
 }: AssistantUiPanelProps) => {
   // API URL for data stream runtime (hosted providers)
-  const initialApi =
-    typeof window === 'undefined'
-      ? '/api/assistant'
-      : window.assistant?.url
-        ? `${window.assistant.url}/assistant`
-        : '/api/assistant';
-  const [api, setApi] = useState<string>(initialApi);
+  const [api, setApi] = useState<string>(resolveInitialAssistantApi);
 
   useEffect(() => {
     void preloadMarkdownText();
@@ -1467,6 +1483,7 @@ export const AssistantUiPanel = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
+            {...(onContextBreakdown ? { onContextBreakdown } : {})}
             {...(onUsage ? { onUsage } : {})}
             {...(onTogglePlanMode
               ? {

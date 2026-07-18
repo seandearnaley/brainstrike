@@ -7,6 +7,11 @@
  * warning must not hide inside a hover surface (it stays inline next to the
  * ring).
  */
+import type {
+  AssistantContextBreakdown,
+  AssistantContextBreakdownState,
+} from '@brainstrike/assistant-contract/context-breakdown';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   type CostEstimate,
   formatTokenCount,
@@ -15,6 +20,8 @@ import {
 import { cn } from '../lib/utils';
 import type { CumulativeUsageDisplay, OmMeterState } from './context-usage-meter';
 import type { ThreadTokenUsage } from './context-usage-store';
+
+const logger = createLogger('ContextUsagePopover');
 
 /** Strip the trailing " tokens" suffix from formatTokenCount output for compact display. */
 export function formatCompact(count: number): string {
@@ -118,22 +125,115 @@ interface BreakdownRow {
 }
 
 /**
- * Compose the segmented breakdown rows. Until the server-side prompt breakdown
- * lands (Phase B), the honest rows are the client-side conversation estimate
- * (present only before exact usage is recorded — the estimate walk is skipped
- * once exact usage exists) and the exact last-turn usage.
+ * The Conversation row: prefers the server-measured wire figure, else the
+ * client-side heuristic walk (present only before exact usage is recorded —
+ * the walk is skipped once exact usage exists). Returns the row plus the token
+ * value that participates in the Unattributed remainder, or null when neither
+ * figure exists (memory-backed thread after exact usage — the conversation
+ * lands in Unattributed rather than being zero-faked).
+ */
+function conversationRow(
+  breakdown: AssistantContextBreakdown | undefined,
+  estimatedTokens: number | undefined
+): { row: BreakdownRow; tokens: number } | null {
+  if (breakdown?.historyMessagesTokens !== undefined) {
+    return {
+      row: {
+        label: 'Conversation',
+        testId: 'context-usage-breakdown-conversation',
+        value: `~${formatCompact(breakdown.historyMessagesTokens)}`,
+      },
+      tokens: breakdown.historyMessagesTokens,
+    };
+  }
+  if (estimatedTokens !== undefined && estimatedTokens > 0) {
+    return {
+      row: {
+        label: 'Conversation (estimated)',
+        testId: 'context-usage-breakdown-conversation',
+        value: `~${formatCompact(estimatedTokens)}`,
+      },
+      tokens: estimatedTokens,
+    };
+  }
+  return null;
+}
+
+/**
+ * "Unattributed" = exact last-turn input tokens minus every token category the
+ * list displays (system instructions, task list, conversation). Shown ONLY once
+ * exact usage exists — before that there is no exact total to attribute
+ * against. Display math, not policy: a heuristic overshoot is clamped to 0
+ * with a debug log, never rendered negative.
+ */
+function unattributedRow(
+  breakdown: AssistantContextBreakdown,
+  conversationTokens: number,
+  usage: ThreadTokenUsage | undefined
+): BreakdownRow | null {
+  if (!usage) {
+    return null;
+  }
+  const attributed =
+    breakdown.systemInstructionsTokens + (breakdown.taskListTokens ?? 0) + conversationTokens;
+  const remainder = usage.inputTokens - attributed;
+  if (remainder < 0) {
+    logger.debug('Context breakdown attribution exceeds exact input tokens; clamping to 0', {
+      attributed,
+      exactInputTokens: usage.inputTokens,
+    });
+  }
+  return {
+    label: 'Unattributed',
+    testId: 'context-usage-breakdown-unattributed',
+    value: `~${formatCompact(Math.max(0, remainder))}`,
+  };
+}
+
+/**
+ * Compose the segmented breakdown rows. With a server prompt breakdown the
+ * categories are System instructions / Task list / Conversation / Attachments
+ * plus the explicit Unattributed remainder once exact usage lands. Without one
+ * (web local runtime, reload, pre-Phase-B server) the honest rows are the
+ * client conversation estimate and the exact last-turn usage.
  */
 function buildBreakdownRows(params: {
+  breakdown: AssistantContextBreakdown | undefined;
   estimatedTokens: number | undefined;
   usage: ThreadTokenUsage | undefined;
 }): BreakdownRow[] {
   const rows: BreakdownRow[] = [];
-  if (params.estimatedTokens !== undefined && params.estimatedTokens > 0) {
+  const conversation = conversationRow(params.breakdown, params.estimatedTokens);
+
+  if (params.breakdown) {
     rows.push({
-      label: 'Conversation (estimated)',
-      testId: 'context-usage-breakdown-conversation',
-      value: `~${formatCompact(params.estimatedTokens)}`,
+      label: 'System instructions',
+      testId: 'context-usage-breakdown-system',
+      value: `~${formatCompact(params.breakdown.systemInstructionsTokens)}`,
     });
+    if (params.breakdown.taskListTokens !== undefined) {
+      rows.push({
+        label: 'Task list',
+        testId: 'context-usage-breakdown-task-list',
+        value: `~${formatCompact(params.breakdown.taskListTokens)}`,
+      });
+    }
+  }
+  if (conversation) {
+    rows.push(conversation.row);
+  }
+  if (params.breakdown && params.breakdown.attachmentsCount > 0) {
+    rows.push({
+      label: 'Attachments',
+      testId: 'context-usage-breakdown-attachments',
+      value: `${params.breakdown.attachmentsCount} attached`,
+    });
+  }
+  if (params.breakdown) {
+    const unattributed = unattributedRow(params.breakdown, conversation?.tokens ?? 0, params.usage);
+    if (unattributed) {
+      rows.push(unattributed);
+    }
   }
   if (params.usage) {
     rows.push({
@@ -146,6 +246,13 @@ function buildBreakdownRows(params: {
 }
 
 export interface ContextUsagePopoverContentProps {
+  /**
+   * Parsed run-start prompt breakdown for this thread (session store), or the
+   * explicit invalid marker for a malformed wire part. Absent on the web local
+   * runtime (capability-absent), after a reload, and before the first hosted
+   * run — the popover then falls back to the client conversation estimate.
+   */
+  breakdownState?: AssistantContextBreakdownState | undefined;
   contextWindow: number;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget: number;
@@ -158,6 +265,7 @@ export interface ContextUsagePopoverContentProps {
 }
 
 export const ContextUsagePopoverContent = ({
+  breakdownState,
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
@@ -168,7 +276,12 @@ export const ContextUsagePopoverContent = ({
   usage,
   usedTokens,
 }: ContextUsagePopoverContentProps) => {
-  const rows = buildBreakdownRows({ estimatedTokens, usage });
+  const breakdownInvalid = breakdownState?.invalid === true;
+  const rows = buildBreakdownRows({
+    breakdown: breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined,
+    estimatedTokens,
+    usage,
+  });
 
   return (
     <div className="flex flex-col gap-1 text-xs">
@@ -185,6 +298,16 @@ export const ContextUsagePopoverContent = ({
       >
         model window {formatTokenCount(contextWindow)}
       </p>
+
+      {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
+      {breakdownInvalid && (
+        <p
+          className="mt-1 text-[11px] text-destructive/80"
+          data-testid="context-usage-breakdown-invalid"
+        >
+          Prompt breakdown unavailable (malformed data from the last run).
+        </p>
+      )}
 
       {rows.length > 0 && (
         <ul className="mt-1 flex flex-col gap-0.5" data-testid="context-usage-breakdown">

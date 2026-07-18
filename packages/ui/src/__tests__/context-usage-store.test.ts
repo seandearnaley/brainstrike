@@ -53,4 +53,53 @@ describe('context usage store', () => {
     expect(useContextUsageStore.getState().usageByThread['t1']).toBeUndefined();
     expect(useContextUsageStore.getState().usageByThread['t2']).toBeDefined();
   });
+
+  it('records the parsed run-start breakdown per thread (last run wins)', () => {
+    const { recordBreakdown } = useContextUsageStore.getState();
+    recordBreakdown('t1', {
+      breakdown: { attachmentsCount: 0, provenance: 'heuristic', systemInstructionsTokens: 100 },
+      invalid: false,
+    });
+    recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 1,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 120,
+        taskListTokens: 8,
+      },
+      invalid: false,
+    });
+    expect(useContextUsageStore.getState().breakdownByThread['t1']).toEqual({
+      breakdown: {
+        attachmentsCount: 1,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 120,
+        taskListTokens: 8,
+      },
+      invalid: false,
+    });
+  });
+
+  it('records the explicit invalid marker so a malformed part stays visible', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
+    expect(useContextUsageStore.getState().breakdownByThread['t1']).toEqual({ invalid: true });
+  });
+
+  it('clearThread clears the breakdown together with the usage', () => {
+    const { recordBreakdown, recordUsage, clearThread } = useContextUsageStore.getState();
+    recordUsage('t1', { inputTokens: 10, outputTokens: 10 });
+    recordBreakdown('t1', {
+      breakdown: { attachmentsCount: 0, provenance: 'heuristic', systemInstructionsTokens: 5 },
+      invalid: false,
+    });
+    clearThread('t1');
+    expect(useContextUsageStore.getState().usageByThread['t1']).toBeUndefined();
+    expect(useContextUsageStore.getState().breakdownByThread['t1']).toBeUndefined();
+  });
+
+  it('resetContextUsageStore clears breakdown records (session/factory reset)', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
+    resetContextUsageStore();
+    expect(useContextUsageStore.getState().breakdownByThread).toEqual({});
+  });
 });

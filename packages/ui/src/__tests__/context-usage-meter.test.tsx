@@ -193,6 +193,125 @@ describe('ContextUsageMeter', () => {
   });
 });
 
+describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
+  beforeEach(() => {
+    resetContextUsageStore();
+    mockMessages = [];
+  });
+
+  const props = {
+    contextWindow: 200_000,
+    effectiveInputBudget: 126_000,
+    threadKey: 't1',
+  };
+
+  it('renders the server category rows when a breakdown is recorded', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 2,
+        historyMessagesTokens: 900,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 1200,
+        taskListTokens: 40,
+      },
+      invalid: false,
+    });
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-system')).toHaveTextContent(
+      /System instructions/
+    );
+    expect(screen.getByTestId('context-usage-breakdown-system')).toHaveTextContent(/1\.2K/);
+    expect(screen.getByTestId('context-usage-breakdown-task-list')).toHaveTextContent(/40/);
+    // Server wire figure wins over the client estimate and is NOT labelled estimated.
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/900/);
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).not.toHaveTextContent(
+      /estimated/
+    );
+    expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
+      /2 attached/
+    );
+    // No exact usage yet → no Unattributed row (nothing exact to attribute against).
+    expect(screen.queryByTestId('context-usage-breakdown-unattributed')).not.toBeInTheDocument();
+  });
+
+  it('omits absent categories entirely (never zero-faked rows)', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 500,
+      },
+      invalid: false,
+    });
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-system')).toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-breakdown-task-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-breakdown-attachments')).not.toBeInTheDocument();
+    // Memory-backed breakdown without a client estimate → no conversation row.
+    expect(screen.queryByTestId('context-usage-breakdown-conversation')).not.toBeInTheDocument();
+  });
+
+  it('shows the explicit Unattributed remainder once exact usage lands', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        historyMessagesTokens: 900,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 1200,
+        taskListTokens: 100,
+      },
+      invalid: false,
+    });
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 10_000, outputTokens: 500 });
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    // 10_000 − (1200 + 100 + 900) = 7_800
+    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/7\.8K/);
+  });
+
+  it('clamps a negative Unattributed remainder to 0 (heuristic overshoot is display math)', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        historyMessagesTokens: 4000,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 2000,
+      },
+      invalid: false,
+    });
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 5000, outputTokens: 100 });
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    const row = screen.getByTestId('context-usage-breakdown-unattributed');
+    expect(row).toHaveTextContent(/~0/);
+    expect(row).not.toHaveTextContent('-');
+  });
+
+  it('surfaces a malformed breakdown part instead of rendering coerced rows', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
+    render(<ContextUsageMeter {...props} estimatedTokens={4000} />);
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-invalid')).toHaveTextContent(/malformed/i);
+    expect(screen.queryByTestId('context-usage-breakdown-system')).not.toBeInTheDocument();
+    // The client conversation estimate still renders honestly.
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
+      /estimated/
+    );
+  });
+
+  it('falls back to the conversation estimate when no breakdown was recorded (local runtime path)', () => {
+    render(<ContextUsageMeter {...props} estimatedTokens={4000} />);
+    openMeterPopover();
+    expect(screen.queryByTestId('context-usage-breakdown-system')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-breakdown-invalid')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
+      /Conversation \(estimated\)/
+    );
+  });
+});
+
 describe('ContextUsageMeter OM informational stats (inside the popover)', () => {
   beforeEach(() => {
     resetContextUsageStore();
