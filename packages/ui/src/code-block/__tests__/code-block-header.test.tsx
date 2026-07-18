@@ -70,6 +70,40 @@ describe('CodeBlockHeader', () => {
     expect(clipboardMocks.writeText).toHaveBeenCalledWith('const answer = 42;');
   });
 
+  it('visibly surfaces a failed copy: tooltip flips to "Copy failed" with a destructive tint', async () => {
+    clipboardMocks.writeText.mockResolvedValue({ error: 'bridge rejected', ok: false });
+
+    const { container } = render(<CodeBlockHeader code="const x = 1;" language="typescript" />);
+    const copyButton = screen.getByRole('button', { name: 'Copy code to clipboard' });
+
+    fireEvent.click(copyButton);
+
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    });
+    expect(container.querySelector('.text-destructive')).not.toBeNull();
+  });
+
+  it('allows an immediate retry after a failed copy', async () => {
+    clipboardMocks.writeText.mockResolvedValueOnce({ error: 'bridge rejected', ok: false });
+
+    render(<CodeBlockHeader code="const x = 1;" language="typescript" />);
+    const copyButton = screen.getByRole('button', { name: 'Copy code to clipboard' });
+
+    fireEvent.click(copyButton);
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    });
+
+    clipboardMocks.writeText.mockResolvedValue({ ok: true });
+    fireEvent.click(copyButton);
+
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copied!');
+    });
+    expect(clipboardMocks.writeText).toHaveBeenCalledTimes(2);
+  });
+
   it('does not copy when the code is empty', () => {
     render(<CodeBlockHeader code="" language="typescript" />);
 

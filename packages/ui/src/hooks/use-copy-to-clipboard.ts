@@ -1,37 +1,59 @@
 import { createClipboardService } from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 const logger = createLogger('UseCopyToClipboard');
 const clipboard = createClipboardService();
+
+export type CopyToClipboardStatus = 'copied' | 'failed' | 'idle';
 
 export interface UseCopyToClipboardOptions {
   copiedDuration?: number;
 }
 
 /**
- * Copy-to-clipboard with a transient "copied" flag. Routes through the shared
- * clipboard service so a present-but-broken Electron bridge is surfaced
- * (never silently falls back to navigator).
+ * Copy-to-clipboard with transient "copied" / "failed" flags. Routes through
+ * the shared clipboard service so a present-but-broken Electron bridge is
+ * surfaced (never silently falls back to navigator). Failure is exposed as
+ * state — consumers MUST render it visibly (repo rule: broken capabilities
+ * never degrade quietly); both outcomes auto-reset after `copiedDuration`.
  */
 export function useCopyToClipboard({ copiedDuration = 2000 }: UseCopyToClipboardOptions = {}) {
-  const [isCopied, setIsCopied] = useState(false);
+  const [status, setStatus] = useState<CopyToClipboardStatus>('idle');
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const copyToClipboard = (value: string) => {
     if (!value) {
       return;
     }
     const text = String(value);
-    const markCopied = () => {
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), copiedDuration);
-    };
-    void clipboard.writeText(text).then((outcome) => {
-      if (outcome.ok) {
-        markCopied();
-        return;
+    const settle = (outcome: Exclude<CopyToClipboardStatus, 'idle'>) => {
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
       }
-      logger.warn('Failed to copy text to clipboard', { error: outcome.error });
-    });
+      setStatus(outcome);
+      resetTimerRef.current = setTimeout(() => setStatus('idle'), copiedDuration);
+    };
+    void clipboard
+      .writeText(text)
+      .then((outcome) => {
+        if (outcome.ok) {
+          settle('copied');
+          return;
+        }
+        logger.warn('Failed to copy text to clipboard', { error: outcome.error });
+        settle('failed');
+      })
+      .catch((error: unknown) => {
+        logger.warn('Failed to copy text to clipboard', { error });
+        settle('failed');
+      });
   };
-  return { copyToClipboard, isCopied } as const;
+
+  return {
+    copyToClipboard,
+    isCopied: status === 'copied',
+    isFailed: status === 'failed',
+    status,
+  } as const;
 }

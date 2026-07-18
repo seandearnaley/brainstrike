@@ -33,7 +33,7 @@ export function CodeBlockHeader({
   code,
   language,
 }: CodeBlockHeaderProps): React.ReactNode {
-  const { copyToClipboard, isCopied } = useCopyToClipboard();
+  const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
 
   const onCopy = () => {
     if (isCopied || !code) {
@@ -41,6 +41,24 @@ export function CodeBlockHeader({
     }
     copyToClipboard(code);
   };
+
+  // Success strings are byte-pinned by existing chat tests; the failure
+  // branch is additive (visible per the repo no-silent-fallbacks rule).
+  let tooltip = 'Copy code';
+  if (isCopied) {
+    tooltip = 'Copied!';
+  } else if (isFailed) {
+    tooltip = 'Copy failed';
+  }
+
+  let copyIcon: React.ReactNode;
+  if (isCopied) {
+    copyIcon = <CheckIcon className="size-3.5" />;
+  } else if (isFailed) {
+    copyIcon = <CopyIcon className="size-3.5 text-destructive" />;
+  } else {
+    copyIcon = <CopyIcon className="size-3.5" />;
+  }
 
   return (
     <div
@@ -55,10 +73,10 @@ export function CodeBlockHeader({
         className="size-6"
         onClick={onCopy}
         size="icon"
-        tooltip={isCopied ? 'Copied!' : 'Copy code'}
+        tooltip={tooltip}
         variant="ghost"
       >
-        {isCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        {copyIcon}
       </TooltipIconButton>
     </div>
   );
