@@ -51,6 +51,18 @@ describe('RestorationStatus', () => {
       expect(screen.getByText('50%')).toBeInTheDocument();
     });
 
+    it('shows when excessive persisted folders were kept collapsed', () => {
+      render(
+        <RestorationStatus
+          isRestoring={true}
+          progress={{ currentPath: '/test/path', loaded: 5, omitted: 8500, total: 500 }}
+        />
+      );
+      expect(
+        screen.getByText('Restoring 5/500 folders · 8,500 kept collapsed')
+      ).toBeInTheDocument();
+    });
+
     it('should show 0% when total is 0', () => {
       render(
         <RestorationStatus isRestoring={true} progress={{ currentPath: '', loaded: 0, total: 0 }} />

@@ -118,6 +118,56 @@ describe('database IPC handlers', () => {
     expect(result).toBe(rows);
   });
 
+  it('resets on corruption without running queued stale work against the replacement database', async () => {
+    const handler = handlers.get('db:query');
+    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
+    const reloadIgnoringCache = vi.fn();
+    let rejectCorruptingQuery: ((error: Error) => void) | null = null;
+    let markCorruptingQueryStarted: (() => void) | null = null;
+    const corruptingQueryStarted = new Promise<void>((resolve) => {
+      markCorruptingQueryStarted = resolve;
+    });
+    browserWindowMock.getAllWindows.mockReturnValue([
+      {
+        id: 42,
+        isDestroyed: () => false,
+        webContents: { reloadIgnoringCache, send: vi.fn() },
+      },
+    ] as never);
+    mockDb.query.mockImplementationOnce(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectCorruptingQuery = reject;
+          markCorruptingQueryStarted?.();
+        })
+    );
+    isCorruptionErrorMock.mockReturnValueOnce(true);
+
+    const corruptingQuery = handler?.({} as unknown, 'SELECT * FROM file_chunks');
+    await corruptingQueryStarted;
+    const staleQueuedQuery = handler?.({} as unknown, 'SELECT * FROM stale_renderer_state');
+    const staleQueuedQueryAssertion = expect(staleQueuedQuery).rejects.toThrow(
+      'Database work was canceled because runtime corruption recovery is replacing the active local database.'
+    );
+    if (!rejectCorruptingQuery) {
+      throw new Error('Corrupting query did not expose its rejection callback.');
+    }
+    rejectCorruptingQuery(corruption);
+
+    await expect(corruptingQuery).rejects.toThrow(
+      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
+    );
+    await staleQueuedQueryAssertion;
+
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:query');
+    expect(browserWindowMock.getAllWindows).toHaveBeenCalled();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(reloadIgnoringCache).toHaveBeenCalledTimes(1);
+  });
+
   it('db:query accepts database work options as the second argument when params are omitted', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
@@ -706,14 +756,12 @@ describe('database IPC handlers', () => {
     liveHandle.refresh.mockRejectedValue(error);
     isCorruptionErrorMock.mockReturnValueOnce(true);
 
-    const refreshResult = await refreshHandler({} as unknown, { id: result.id });
+    await expect(refreshHandler({} as unknown, { id: result.id })).rejects.toThrow(
+      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
+    );
 
     expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
-    expect(refreshResult).toEqual({
-      corrupted: true,
-      message: 'Database was corrupted and has been reset. Please reload the application.',
-      success: false,
-    });
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('db:live-query:refresh returns error message for non-corruption errors', async () => {

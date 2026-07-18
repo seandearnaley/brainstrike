@@ -312,6 +312,7 @@ export async function runDesktopEmbeddingBackfill(params: {
   getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   isBackgrounded: () => boolean;
   normalizedEmbeddingSetId: string;
+  onDetachedFailure: (error: unknown) => Promise<void>;
   source: EmbeddingBackfillSource;
 }): Promise<{ requestId: string }> {
   const {
@@ -323,6 +324,7 @@ export async function runDesktopEmbeddingBackfill(params: {
     hostManager,
     isBackgrounded,
     normalizedEmbeddingSetId,
+    onDetachedFailure,
     source,
   } = params;
   const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
@@ -511,8 +513,20 @@ export async function runDesktopEmbeddingBackfill(params: {
   };
 
   if (source === 'background-indexing') {
-    void runBackfillWithLifecycle().catch(() => {
-      // runBackfillWithLifecycle logs the terminal error with request context.
+    void runBackfillWithLifecycle().catch(async (error: unknown) => {
+      // The IPC request has already resolved, so its corruption wrapper cannot
+      // observe this terminal failure. Route it back through the composition
+      // root after lifecycle cleanup has settled.
+      try {
+        await onDetachedFailure(error);
+      } catch (handlerError) {
+        logger.error('Failed to handle detached desktop embedding backfill failure', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+          requestId: backfillRequestId,
+          source,
+        });
+      }
     });
     return { requestId: backfillRequestId };
   }

@@ -42,7 +42,11 @@ export const RestorationStatus = React.memo(
         return 'Restoring folders...';
       }
 
-      return `Restoring ${progress.loaded}/${progress.total} folders`;
+      const boundedSuffix =
+        progress.omitted && progress.omitted > 0
+          ? ` · ${progress.omitted.toLocaleString()} kept collapsed`
+          : '';
+      return `Restoring ${progress.loaded}/${progress.total} folders${boundedSuffix}`;
     }, [progress]);
 
     const displayPath = useMemo(() => {
@@ -80,7 +84,10 @@ export const RestorationStatus = React.memo(
             reserves its height when empty) so progress ticks never resize the card. */}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-medium text-foreground text-sm tabular-nums">
+            <span
+              className="truncate font-medium text-foreground text-sm tabular-nums"
+              title={statusText}
+            >
               {statusText}
             </span>
             <span className="shrink-0 text-muted-foreground text-xs tabular-nums">

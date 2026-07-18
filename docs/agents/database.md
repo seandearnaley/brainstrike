@@ -50,7 +50,17 @@ extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
-- `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch` — CONSUMED by migration 053 (`idx_file_chunks_content_bm25`), which powers the BM25 lexical arm of hybrid search; the ranking expression references the index BY NAME via `to_bm25query`, so a construction site missing this module breaks BOTH the migration and every fullTextSearch call. Proofs: `search-bm25-textsearch-spike.test.ts` (BM25 1/12 vs ts_rank 12/12 on the IDF-discriminating corpus) + `search-bm25-empirical-gate.test.ts` (production-shape filtered plan, websearch fuzz, post-build index maintenance, default_limit ordering, 511 ms index build at 50k chunks))
+- `pg_textsearch` (from `@electric-sql/pglite-pg_textsearch`) is loaded only for
+  historical migration compatibility: migration 053 creates its BM25 index and
+  migration 065 immediately drops the index and extension before application
+  writes begin. pg_textsearch 1.3.1 produced persisted invalid memtable page
+  chains during real `file_chunks` updates, so runtime use is quarantined.
+  Lexical ranking uses built-in `ts_rank` over migration 034's generated
+  tsvector + GIN index. Its `rankNormalization` option is an integer PostgreSQL
+  bitmask from 0 through 63; every repository path validates it at runtime and
+  binds it as a query parameter. Do not restore the BM25 index until an upstream
+  fix is available and a sustained concurrent insert/update/VACUUM stress test
+  proves reopen-safe on-disk integrity.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):

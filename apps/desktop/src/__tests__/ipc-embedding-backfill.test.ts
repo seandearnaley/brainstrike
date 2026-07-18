@@ -87,6 +87,7 @@ function createRunParams(
     hostManager: createHostManager(),
     isBackgrounded: () => true,
     normalizedEmbeddingSetId: embeddingSetId,
+    onDetachedFailure: vi.fn(async () => undefined),
     source,
   };
 }
@@ -427,6 +428,26 @@ describe('desktop embedding backfill termination logging', () => {
           total: 0,
         })
       );
+    });
+  });
+
+  it('routes detached background-indexing failures to the owning recovery boundary', async () => {
+    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
+    const onDetachedFailure = vi.fn(async () => undefined);
+    enqueueEmbeddingBackfillMock.mockRejectedValueOnce(corruption);
+
+    await expect(
+      runDesktopEmbeddingBackfill({
+        ...createRunParams('set-background-corrupt', 'background-indexing'),
+        onDetachedFailure,
+      })
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+
+    await vi.waitFor(() => {
+      expect(onDetachedFailure).toHaveBeenCalledOnce();
+      expect(onDetachedFailure).toHaveBeenCalledWith(corruption);
     });
   });
 

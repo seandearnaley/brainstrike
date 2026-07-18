@@ -522,6 +522,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   const localRestorationState = useExpandedPathRestoration({
     currentRootFolderId,
+    currentRootPath: rootDirectoryHandle?.path ?? null,
     disabled: sharedTreeContext !== null,
     fileTree,
     isTreeLoading,

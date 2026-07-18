@@ -29,7 +29,12 @@ import {
   type DesktopDatabaseMaintenanceScheduler,
 } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import {
+  closeDatabase,
+  getDatabase,
+  handleRuntimeCorruption as replaceCorruptedDatabase,
+  resetLocalDatabase,
+} from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
@@ -52,12 +57,15 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
+  quiesceDesktopDatabaseWorkForRecovery,
   registerIpcHandlers,
+  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
@@ -866,6 +874,89 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+let runtimeDatabaseRecoveryPromise: Promise<void> | null = null;
+
+async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
+  if (runtimeDatabaseRecoveryPromise) {
+    await runtimeDatabaseRecoveryPromise;
+    return;
+  }
+
+  const recovery = (async (): Promise<void> => {
+    logger.warn('Runtime database recovery started; active indexing work is being canceled', {
+      context,
+    });
+    quiesceDesktopDatabaseWorkForRecovery();
+    let reloadScheduled = false;
+    try {
+      cancelAllDesktopEmbeddingBackfills();
+      // Recovery runs inside the scheduler operation whose database call just
+      // failed, so waiting for scheduler idle here would deadlock on itself.
+      // Backfills receive the recovery-aware scheduler; queued work cannot run
+      // until this operation unwinds and then rejects against the old epoch.
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+      await replaceCorruptedDatabase(context);
+
+      const visibleWindows = BrowserWindow.getAllWindows().filter(
+        (window) =>
+          !(
+            chunkingHostManager.isHostWindow(window) ||
+            embeddingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+          )
+      );
+      if (visibleWindows.length === 0) {
+        logger.warn('Runtime database recovery completed without a visible window to reload', {
+          context,
+        });
+        resumeDesktopDatabaseWorkAfterRecoveryReload();
+        return;
+      }
+
+      for (const window of visibleWindows) {
+        noteNextWindowReload(window, {
+          reason: 'runtime-database-corruption-recovery',
+          source: 'main',
+        });
+      }
+      logger.info('Runtime database recovery completed; visible windows will reload', {
+        context,
+        visibleWindowCount: visibleWindows.length,
+      });
+
+      // Let the failed IPC invocation unwind first. Until this timer runs,
+      // scheduler quiescence rejects both old queued closures and new work from
+      // the stale renderer. The replacement database cannot receive either.
+      reloadScheduled = true;
+      setTimeout(() => {
+        try {
+          for (const window of visibleWindows) {
+            if (!window.isDestroyed()) {
+              window.webContents.reloadIgnoringCache();
+            }
+          }
+        } finally {
+          resumeDesktopDatabaseWorkAfterRecoveryReload();
+        }
+      }, 0);
+    } catch (error) {
+      if (!reloadScheduled) {
+        resumeDesktopDatabaseWorkAfterRecoveryReload();
+      }
+      throw error;
+    }
+  })();
+
+  runtimeDatabaseRecoveryPromise = recovery;
+  try {
+    await recovery;
+  } finally {
+    if (runtimeDatabaseRecoveryPromise === recovery) {
+      runtimeDatabaseRecoveryPromise = null;
+    }
+  }
+}
+
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
   logger,
@@ -944,6 +1035,7 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   embeddingHostManager,
   getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
   onResetLocal: handleResetLocal,
+  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);

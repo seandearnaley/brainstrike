@@ -17,6 +17,20 @@ export interface Queryable {
 export const MAX_INLINE_FILE_PATHS = 500;
 
 /**
+ * PostgreSQL `ts_rank` accepts a bitmask composed from 1, 2, 4, 8, 16, and 32.
+ * Validate at the repository boundary because desktop IPC and plain JavaScript
+ * callers are not protected by the TypeScript option type.
+ */
+export function validateFtsRankNormalization(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 63) {
+    throw new Error(
+      `Invalid FTS rankNormalization (${String(value)}). Expected an integer bitmask from 0 to 63.`
+    );
+  }
+  return value;
+}
+
+/**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
  */
@@ -332,28 +346,6 @@ export const MAX_OVERFETCH_LIMIT = 10_000;
  */
 export function computeOverfetchLimit(limit: number): number {
   return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
-}
-
-/**
- * Name of the BM25 index on `file_chunks.content` (migration 053). The BM25
- * ranking expression references the index BY NAME via `to_bm25query(query,
- * index)` — pg_textsearch resolves corpus statistics through it, and the query
- * ERRORS if the index is absent, so the migration must always ship with (or
- * before) any code using this constant. Code-owned literal — safe to
- * interpolate into SQL.
- */
-export const BM25_CONTENT_INDEX_NAME = 'idx_file_chunks_content_bm25';
-
-/**
- * BM25 ranking expression for `file_chunks.content`, negated so the surfaced
- * rank is HIGHER-IS-BETTER (pg_textsearch's `<@>` returns negative BM25
- * scores, more negative = better). `queryParam` is the placeholder holding the
- * raw query text (e.g. `$2`). Matching stays tsvector-based in the WHERE
- * clause; BM25 only orders the matched set, always using the index's
- * `text_config` regardless of the caller's match language.
- */
-export function bm25RankExpression(queryParam: string): string {
-  return `(-(content <@> to_bm25query(${queryParam}, '${BM25_CONTENT_INDEX_NAME}')))::float8`;
 }
 
 /**

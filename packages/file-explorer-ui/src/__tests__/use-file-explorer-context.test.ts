@@ -68,6 +68,7 @@ describe('useFileExplorer (context)', () => {
     name: 'root',
     path: '/root',
     platform: 'web',
+    rootId: 'root',
   };
 
   /** Build a minimal useFileSystem mock with multi-root fields defaulted. */
@@ -719,12 +720,12 @@ describe('useFileExplorer (context)', () => {
 
       // Setup: selected files in various directories, but those directories are NOT expanded
       storeState.selectedFilePaths = new Set([
-        'root|@|src/components/Button.tsx',
-        'root|@|src/utils/helpers.ts',
-        'root|@|lib/api/client.ts',
-        'root|@|package.json', // root-level file - should not add empty parent dir
+        'root|@|/root/src/components/Button.tsx',
+        'root|@|/root/src/utils/helpers.ts',
+        'root|@|/root/lib/api/client.ts',
+        'root|@|/root/package.json',
       ]);
-      storeState.expandedDirectoryPaths = new Set(['src']); // Only 'src' is expanded
+      storeState.expandedDirectoryPaths = new Set(['/root/src']);
 
       const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
       vi.mocked(useFileTree).mockReturnValue({
@@ -763,20 +764,20 @@ describe('useFileExplorer (context)', () => {
       });
 
       // loadSpecificPaths should be called with merged paths:
-      // - 'src' (from expandedDirectoryPaths)
-      // - 'src/components' (parent of Button.tsx)
-      // - 'src/utils' (parent of helpers.ts)
-      // - 'lib/api' (parent of client.ts)
-      // - 'lib' is NOT needed because 'lib/api' implicitly requires 'lib' to be loaded first
-      // Note: package.json has no parent dir (root level), so nothing added for it
+      // - '/root/src' (from expandedDirectoryPaths)
+      // - '/root/src/components' (parent of Button.tsx)
+      // - '/root/src/utils' (parent of helpers.ts)
+      // - '/root/lib/api' (parent of client.ts)
+      // - '/root/lib' is NOT needed because '/root/lib/api' loads it first
+      // - '/root' is the common selected-file ancestor
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
 
       const calledPaths = loadSpecificPathsMock.mock.calls[0]?.[0] as string[];
-      expect(calledPaths).toContain('src');
-      expect(calledPaths).toContain('src/components');
-      expect(calledPaths).toContain('src/utils');
-      expect(calledPaths).toContain('lib/api');
-      // Should NOT contain empty string (for root-level files)
+      expect(calledPaths).toContain('/root');
+      expect(calledPaths).toContain('/root/src');
+      expect(calledPaths).toContain('/root/src/components');
+      expect(calledPaths).toContain('/root/src/utils');
+      expect(calledPaths).toContain('/root/lib/api');
       expect(calledPaths).not.toContain('');
     });
 
@@ -823,7 +824,7 @@ describe('useFileExplorer (context)', () => {
 
       expect(loadSpecificPathsMock).not.toHaveBeenCalled();
 
-      storeState.selectedFilePaths = new Set(['root|@|src/assistant/tools.ts']);
+      storeState.selectedFilePaths = new Set(['root|@|/root/src/assistant/tools.ts']);
       storeState.selectionVersion = 1;
 
       rerender();
@@ -833,13 +834,17 @@ describe('useFileExplorer (context)', () => {
       });
 
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
-      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual(['src', 'src/assistant']);
+      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual([
+        '/root',
+        '/root/src',
+        '/root/src/assistant',
+      ]);
     });
 
     it('retries restoration when selected files change while ancestor loading is in flight', async () => {
       vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
-      storeState.selectedFilePaths = new Set(['root|@|src/initial.ts']);
+      storeState.selectedFilePaths = new Set(['root|@|/root/src/initial.ts']);
       storeState.expandedDirectoryPaths = new Set<string>();
 
       let resolveLoad: () => void = () => {};
@@ -880,9 +885,9 @@ describe('useFileExplorer (context)', () => {
       const { rerender } = renderHook(() => useFileExplorer());
 
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
-      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual(['src']);
+      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual(['/root', '/root/src']);
 
-      storeState.selectedFilePaths = new Set(['root|@|packages/agent/runtime.ts']);
+      storeState.selectedFilePaths = new Set(['root|@|/root/packages/agent/runtime.ts']);
       storeState.selectionVersion = 1;
 
       act(() => {
@@ -896,7 +901,11 @@ describe('useFileExplorer (context)', () => {
       });
 
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(2);
-      expect(loadSpecificPathsMock.mock.calls[1]?.[0]).toEqual(['packages', 'packages/agent']);
+      expect(loadSpecificPathsMock.mock.calls[1]?.[0]).toEqual([
+        '/root',
+        '/root/packages',
+        '/root/packages/agent',
+      ]);
     });
 
     it('should not duplicate paths when parent dir is already in expanded paths', async () => {
@@ -906,8 +915,8 @@ describe('useFileExplorer (context)', () => {
       vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       // 'src/components' is both an expanded path AND parent of a selected file
-      storeState.selectedFilePaths = new Set(['root|@|src/components/Button.tsx']);
-      storeState.expandedDirectoryPaths = new Set(['src', 'src/components']);
+      storeState.selectedFilePaths = new Set(['root|@|/root/src/components/Button.tsx']);
+      storeState.expandedDirectoryPaths = new Set(['/root/src', '/root/src/components']);
 
       const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
       vi.mocked(useFileTree).mockReturnValue({
@@ -948,14 +957,14 @@ describe('useFileExplorer (context)', () => {
 
       const calledPaths = loadSpecificPathsMock.mock.calls[0]?.[0] as string[];
       // Using Set ensures no duplicates - 'src/components' should appear only once
-      expect(calledPaths.filter((p) => p === 'src/components').length).toBe(1);
+      expect(calledPaths.filter((p) => p === '/root/src/components').length).toBe(1);
     });
 
     it('re-commits restored expansion paths even without restored selected files', async () => {
       vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       storeState.selectedFilePaths = new Set();
-      storeState.expandedDirectoryPaths = new Set(['src', 'src/components']);
+      storeState.expandedDirectoryPaths = new Set(['/root/src', '/root/src/components']);
 
       const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
       vi.mocked(useFileTree).mockReturnValue({
@@ -993,7 +1002,9 @@ describe('useFileExplorer (context)', () => {
       });
 
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
-      expect(storeState.setExpandedPaths).toHaveBeenCalledWith(new Set(['src', 'src/components']));
+      expect(storeState.setExpandedPaths).toHaveBeenCalledWith(
+        new Set(['/root/src', '/root/src/components'])
+      );
     });
 
     it('does not commit restored expansion paths after the root changes mid-restore', async () => {
@@ -1012,7 +1023,7 @@ describe('useFileExplorer (context)', () => {
           })
       );
 
-      storeState.expandedDirectoryPaths = new Set(['src']);
+      storeState.expandedDirectoryPaths = new Set(['/root/src']);
       vi.mocked(useFileTree).mockReturnValue({
         cancelChildLoading: vi.fn(),
         cancelExpandAll: vi.fn(),

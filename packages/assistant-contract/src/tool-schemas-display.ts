@@ -329,7 +329,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
 
   'brainstrike.hybridSearch': {
     description:
-      'Hybrid workspace search: runs semantic (vector) and exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. Best default for code/doc retrieval mixing conceptual intent with distinctive terms; omit embeddingSetId to use the Workspace Index.',
+      'Hybrid workspace search: runs semantic (vector) and full-text keyword search in parallel and fuses the rankings with reciprocal rank fusion. Best default for code/doc retrieval mixing conceptual intent with distinctive terms; omit embeddingSetId to use the Workspace Index.',
     parameters: [
       {
         description: 'Search query text; used for BOTH the semantic and the keyword arm',

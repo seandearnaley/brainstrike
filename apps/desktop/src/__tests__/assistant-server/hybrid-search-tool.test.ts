@@ -183,7 +183,7 @@ describe('desktop hybrid search tool', () => {
     expect(fullTextSearchMock).toHaveBeenCalledTimes(1);
     expect(fullTextSearchMock.mock.calls[0]?.[0]).toBe('lease fencing scheduler');
     // The keyword arm is scoped to the SAME embedding set as the vector arm —
-    // hybrid must never fuse BM25-only chunks from another embedding space.
+    // hybrid must never fuse keyword-only chunks from another embedding space.
     expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({
       embeddingSetId: 'ws-set',
       rootIds: ['root-1'],
@@ -241,8 +241,8 @@ describe('desktop hybrid search tool', () => {
     expect(fullTextSearchMock).not.toHaveBeenCalled();
   });
 
-  it('surfaces a keyword-arm failure (e.g. missing BM25 index) as an error, never a degraded result', async () => {
-    fullTextSearchMock.mockRejectedValue(new Error('to_bm25query: index missing'));
+  it('surfaces a keyword-arm failure as an error, never a degraded result', async () => {
+    fullTextSearchMock.mockRejectedValue(new Error('full-text query failed'));
 
     await expect(
       runHybridSearch({ query: 'lease fencing scheduler' }, workspaceIndexRuntime)

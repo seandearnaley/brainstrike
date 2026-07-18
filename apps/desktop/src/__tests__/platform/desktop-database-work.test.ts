@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE,
+  getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
+  quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
   resolveSqlParamsAndWorkOptions,
+  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   waitForDesktopDatabaseWorkSchedulerIdle,
@@ -78,6 +82,89 @@ describe('desktop database work platform', () => {
     releaseWork();
     await idlePromise;
     expect(idleResolved).toBe(true);
+  });
+
+  it('invalidates queued work and rejects new submissions until recovery reload starts', async () => {
+    let releaseRunningWork: (() => void) | null = null;
+    const runningWorkStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork(
+        { label: 'corrupting-operation', priority: 'foreground' },
+        async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseRunningWork = release;
+          });
+        }
+      );
+    });
+    await runningWorkStarted;
+
+    const staleOperation = vi.fn(async () => 'stale-result');
+    const queuedWork = runDesktopScheduledDatabaseWork(
+      { label: 'queued-before-recovery', priority: 'foreground' },
+      staleOperation
+    );
+    const queuedWorkAssertion = expect(queuedWork).rejects.toThrow(
+      DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE
+    );
+
+    quiesceDesktopDatabaseWorkForRecovery();
+    if (!releaseRunningWork) {
+      throw new Error('Running work did not expose a release callback.');
+    }
+    releaseRunningWork();
+
+    await queuedWorkAssertion;
+    expect(staleOperation).not.toHaveBeenCalled();
+    await expect(
+      runDesktopScheduledDatabaseWork(
+        { label: 'submitted-during-recovery', priority: 'foreground' },
+        async () => 'blocked'
+      )
+    ).rejects.toThrow(DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE);
+
+    resumeDesktopDatabaseWorkAfterRecoveryReload();
+    await expect(
+      runDesktopScheduledDatabaseWork(
+        { label: 'fresh-renderer-operation', priority: 'foreground' },
+        async () => 'fresh-result'
+      )
+    ).resolves.toBe('fresh-result');
+  });
+
+  it('invalidates queued work submitted through the scheduler handed to backfills', async () => {
+    const backfillScheduler = getDesktopDatabaseWorkScheduler();
+    let releaseRunningWork: (() => void) | null = null;
+    const runningWorkStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork(
+        { label: 'corrupting-operation', priority: 'foreground' },
+        async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseRunningWork = release;
+          });
+        }
+      );
+    });
+    await runningWorkStarted;
+
+    const staleBackfillQuery = vi.fn(async () => 'stale-result');
+    const queuedBackfillWork = backfillScheduler.run(staleBackfillQuery, {
+      label: 'queued-backfill-query',
+      priority: 'background',
+    });
+    const queuedBackfillAssertion = expect(queuedBackfillWork).rejects.toThrow(
+      DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE
+    );
+
+    quiesceDesktopDatabaseWorkForRecovery();
+    if (!releaseRunningWork) {
+      throw new Error('Running work did not expose a release callback.');
+    }
+    releaseRunningWork();
+
+    await queuedBackfillAssertion;
+    expect(staleBackfillQuery).not.toHaveBeenCalled();
   });
 
   it('resolves SQL params separately from database work options', () => {

@@ -144,36 +144,30 @@ export interface FTSSearchOptions {
    * Default `true` (headline generated).
    */
   includeHeadline?: boolean;
-  /**
-   * Text search configuration/language for MATCHING (default: 'english').
-   * Ordering is BM25 (pg_textsearch) and always uses the bm25 index's own
-   * `text_config='english'` (migration 053) regardless of this option — a
-   * non-english match config can therefore see stemming-mismatch ties in the
-   * ordering. Match semantics are unaffected.
-   */
+  /** Text search configuration/language (default: 'english') */
   language?: string;
   /** Maximum number of results to return (default: 10) */
   limit?: number;
   /** Query parsing mode (default: 'websearch' for user-friendly syntax) */
   queryMode?: FTSQueryMode;
   /**
-   * @deprecated INERT since the BM25 ordering swap (migration 053): ranking is
-   * BM25 (which has its own length normalization via the index's `b`
-   * parameter), so ts_rank normalization flags no longer apply and this option
-   * is ignored. Kept only to avoid a type-surface break for existing callers.
+   * Ranking normalization flags (PostgreSQL ts_rank normalization)
+   * - 0: Default (no normalization)
+   * - 1: Divide by 1 + log(document length)
+   * - 2: Divide by document length
+   * - 4: Divide by mean harmonic distance between extents
+   * - 8: Divide by number of unique words
+   * - 16: Divide by 1 + log(unique words)
+   * - 32: Divide by itself + 1
+   * Can be combined with | (e.g., 1|2 for both normalizations). Runtime
+   * callers must supply an integer bitmask from 0 through 63.
    */
   rankNormalization?: number;
   /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
   rootIds?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist */
   selectionSnapshotId?: string;
-  /**
-   * Minimum FTS rank score threshold (default: 0, no threshold). The rank is a
-   * NEGATED BM25 score (higher = more relevant) and is UNBOUNDED and
-   * corpus-dependent — unlike the old ts_rank ~0–1 range — so fixed cutoffs
-   * from the ts_rank era do not transfer. Derive thresholds from observed
-   * ranks, or leave at 0.
-   */
+  /** Minimum FTS rank score threshold (default: 0, no threshold) */
   threshold?: number;
 }
 
@@ -187,9 +181,6 @@ export interface FTSSearchResult {
   headline?: string;
   /** Position in result set (1-indexed) */
   position: number;
-  /**
-   * FTS relevance rank score: negated BM25 (higher = more relevant, unbounded,
-   * corpus-dependent). Matching is tsvector-based; only ordering is BM25.
-   */
+  /** FTS relevance rank score (higher = more relevant) */
   rank: number;
 }

@@ -78,3 +78,34 @@ the assistant-ui carousel/branch topology companion store (migration 055).
 Add tests when changing reset behavior.
 
 ---
+
+## RUNTIME DATABASE CORRUPTION RECOVERY
+
+Runtime corruption recovery replaces the active local database and reloads the
+visible renderer. The failing operation belongs to the old database snapshot
+and MUST NOT be retried against the empty replacement.
+
+Desktop order:
+1. Invalidate the desktop scheduler generation and reject new DB work until
+   renderer reload begins. Every scheduler handed to backfills or other detached
+   work must route through the same generation check.
+2. Cancel active embedding backfills. Recovery runs inside the single scheduler
+   operation after its failing database call has settled. Do not wait for that
+   scheduler to become idle from inside recovery: the current operation owns the
+   lane. Queued closures can run only after recovery unwinds and must reject
+   against the invalidated generation. Background-indexing IPC resolves after
+   scheduling and finishes in a detached lifecycle; its terminal failure callback
+   MUST classify corruption and enter this same recovery path after lifecycle
+   cleanup settles.
+3. Unsubscribe renderer live queries.
+4. Terminate the DB utility process so all queued requests fail.
+5. Back up and replace the active database profile, then initialize migrations.
+6. Reload visible windows into the existing bounded startup progress flow.
+
+Recovery is single-flight at the desktop composition root. Hidden renderer
+hosts are excluded from visible-window reload routing. Do not replace this with
+an unbounded blocking dialog; a recovered IPC call rejects with
+`DatabaseCorruptionRecoveredError` and the already-scheduled reload remounts
+all renderer state.
+
+---
