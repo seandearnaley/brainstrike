@@ -32,13 +32,13 @@ describe('DatabaseTab', () => {
     const stableFrame = screen.getByTestId('database-tab-frame');
     expect(stableFrame).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByTestId('database-tab-loading')).toHaveClass('h-full');
-    expect(screen.getByTestId('database-tab-loading-toolbar')).toHaveClass('h-12');
+    expect(screen.getByTestId('database-tab-loading-toolbar')).toHaveClass('h-9');
     expect(screen.getByTestId('database-tab-loading-toolbar')).toHaveClass(
       '@container/database-toolbar'
     );
     expect(screen.getByTestId('database-tab-loading-settings')).toHaveClass('@[360px]:w-20', 'w-7');
     expect(screen.getByTestId('database-tab-loading-top-panel')).toHaveClass('flex-[38]');
-    expect(screen.getByTestId('database-tab-loading-actions')).toHaveClass('h-12');
+    expect(screen.getByTestId('database-tab-loading-actions')).toHaveClass('h-9');
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
     expect(screen.getByTestId('database-tab-frame')).toBe(stableFrame);
     expect(stableFrame).toHaveAttribute('aria-busy', 'false');

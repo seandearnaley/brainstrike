@@ -420,7 +420,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     renderWorkspace();
 
-    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-12');
+    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
     expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
     expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
@@ -433,7 +433,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     renderWorkspace();
 
-    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-12');
+    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
     expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
     expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
@@ -452,7 +452,7 @@ describe('AssistantThreadTabsWorkspace', () => {
         vi.advanceTimersByTime(500);
       });
 
-      expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-12');
+      expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
       expect(screen.getByRole('status')).toHaveAccessibleName('Loading PGlite-backed threads.');
       expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
     } finally {

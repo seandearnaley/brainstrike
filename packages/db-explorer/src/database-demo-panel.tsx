@@ -142,7 +142,7 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
     <>
       <div className="flex min-h-0 flex-[38] flex-col" data-testid="database-panel-loading-top">
         <div
-          className="@container/database-toolbar h-12 shrink-0 border-b bg-background"
+          className="@container/database-toolbar h-9 shrink-0 border-b bg-background"
           data-testid="database-panel-toolbar"
         >
           <div className="flex h-full items-center justify-between @[360px]:gap-2 gap-1 @[360px]:px-4 px-2">
@@ -189,12 +189,12 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
         </div>
         <div
           aria-hidden="true"
-          className="flex h-12 shrink-0 items-center justify-center gap-2 border-t bg-background px-2"
+          className="flex h-9 shrink-0 items-center justify-center gap-2 border-t bg-background px-2"
           data-testid="database-panel-loading-actions"
         >
-          <div className="h-8 w-10 rounded-md bg-muted/50" />
-          <div className="size-8 rounded-md bg-muted/50" />
-          <div className="h-8 w-14 rounded-md bg-muted/50" />
+          <div className="h-7 w-10 rounded-md bg-muted/50" />
+          <div className="size-7 rounded-md bg-muted/50" />
+          <div className="h-7 w-14 rounded-md bg-muted/50" />
         </div>
       </div>
       <div aria-hidden="true" className="h-1 shrink-0 bg-border" />
@@ -638,7 +638,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <div className="flex h-full flex-col overflow-hidden bg-panel-surface">
             {/* Header Toolbar — chrome controls (New | Refresh, Help, Settings) */}
             <div
-              className="@container/database-toolbar h-12 flex-shrink-0 border-b bg-background"
+              className="@container/database-toolbar h-9 flex-shrink-0 border-b bg-background"
               data-testid="database-panel-toolbar"
             >
               <div className="flex h-full items-center justify-between @[360px]:gap-2 gap-1 @[360px]:px-4 px-2">
@@ -780,7 +780,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               data-testid="database-panel-actions"
             >
               <div
-                className="flex h-12 flex-nowrap items-center justify-center @[420px]:gap-2 gap-1 @[420px]:px-4 px-1"
+                className="flex h-9 flex-nowrap items-center justify-center @[420px]:gap-2 gap-1 @[420px]:px-4 px-1"
                 data-testid="database-panel-actions-row"
               >
                 <TooltipProvider delayDuration={200}>

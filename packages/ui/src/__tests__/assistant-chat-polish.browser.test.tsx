@@ -114,6 +114,103 @@ describe('markdown typography (real browser, with preflight reset)', () => {
   });
 });
 
+/**
+ * Density pass: vertical rhythm comes from the UNLAYERED overrides.css rules
+ * (which always beat Tailwind's layered utilities), so assert the computed
+ * values in a real browser rather than class names.
+ */
+describe('message vertical rhythm (real browser)', () => {
+  test('assistant message roots use the compact rhythm from overrides.css', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="bs-thread">
+          <div className="aui-thread-viewport">
+            <div className="aui-assistant-message-root" data-testid="assistant-root">
+              assistant turn
+            </div>
+            <div className="aui-assistant-message-root" data-testid="assistant-root-last">
+              last assistant turn
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const root = screen.getByTestId('assistant-root');
+    const lastRoot = screen.getByTestId('assistant-root-last');
+    // 0.625rem between-message padding; non-last roots keep margin-bottom 0.
+    expect(getComputedStyle(root).paddingBottom).toBe('10px');
+    expect(getComputedStyle(root).marginBottom).toBe('0px');
+    // Last message: 0.75rem margin (down from 1rem) instead of the library's 24rem.
+    expect(getComputedStyle(lastRoot).marginBottom).toBe('12px');
+  });
+
+  test('user message roots use the compact rhythm from overrides.css', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="bs-thread">
+          <div className="aui-thread-viewport">
+            <div className="aui-user-message-root" data-testid="user-root">
+              user turn
+            </div>
+            <div className="aui-user-message-root" data-testid="user-root-last">
+              last user turn
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    expect(getComputedStyle(screen.getByTestId('user-root')).marginBottom).toBe('4px');
+    expect(getComputedStyle(screen.getByTestId('user-root-last')).marginBottom).toBe('12px');
+  });
+});
+
+/**
+ * Wide-panel real estate: .bs-thread is an inline-size container and message
+ * ROOTS (not the viewport) cap at 48rem and center once the panel is wide.
+ * Targeting the roots in place keeps the history-collapse
+ * `:nth-last-child(n + 9)` selector matching direct viewport children.
+ */
+describe('container-aware message width (real browser)', () => {
+  test('wide panel (960px): message roots cap at 48rem and center', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="bs-thread" style={{ width: 960 }}>
+          <div className="aui-thread-viewport">
+            <div className="aui-assistant-message-root" data-testid="wide-root">
+              assistant turn
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const root = screen.getByTestId('wide-root');
+    expect(getComputedStyle(root).maxWidth).toBe('768px');
+    expect(root.getBoundingClientRect().width).toBe(768);
+    expect(Number.parseFloat(getComputedStyle(root).marginLeft)).toBeGreaterThan(0);
+  });
+
+  test('narrow panel (360px): message roots stay full width with no centering', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="bs-thread" style={{ width: 360 }}>
+          <div className="aui-thread-viewport">
+            <div className="aui-assistant-message-root" data-testid="narrow-root">
+              assistant turn
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const root = screen.getByTestId('narrow-root');
+    expect(getComputedStyle(root).marginLeft).toBe('0px');
+    expect(root.getBoundingClientRect().width).toBe(360);
+  });
+});
+
 describe('AssistantActivityGroup (real browser)', () => {
   test('active turn: live "Working" heartbeat, current tool, expanded body', () => {
     render(
