@@ -62,7 +62,11 @@ describe('app-shell assistant contract boundary', () => {
     // calls useBudgetGuardrailBinding and mounts <BudgetGuardrailProvider>; the
     // spend derivation lives in cost-tracking/use-daily-spend.ts and the
     // chip/gate UI in packages/ui (budget-guardrail-control.tsx).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1565);
+    // Bumped 1565 → 1580 for multi-root main-vs-focused clarity: the wrapper
+    // derives mainRootId/mainRootPath (activeRootIds[0] → request ordering
+    // hint) and the ≥2-roots operatingRoot chip payload; the chip UI lives in
+    // packages/ui (operating-root-chip.tsx).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1580);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

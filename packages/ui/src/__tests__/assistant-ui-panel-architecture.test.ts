@@ -79,7 +79,13 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1818);
+    // Bumped 1818 → 1845 for the multi-root operating-root chip: operatingRoot
+    // threads the SAME 5 layers as cumulativeUsage (AssistantUiPanel →
+    // Local/DataStream chat → ChatThreadUI), and the composer shell mounts
+    // <OperatingRootChip /> as a SIBLING at the top of the stack (its own
+    // module, operating-root-chip.tsx — deliberately not nested inside
+    // ThreadContextMeter, which is being reworked separately).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1845);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

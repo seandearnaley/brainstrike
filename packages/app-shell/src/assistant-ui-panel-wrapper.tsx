@@ -429,6 +429,23 @@ export function AssistantUiPanelWrapper({
   // follow it. Distinct from the FOCUSED root (currentFolderId) below.
   const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
+  const activeRootCount = useFileExplorerStoreSelector((s) => s.activeRootIds?.length ?? 0);
+  // Composer operating-root chip: ONLY when 2+ roots are mounted (single-root
+  // workspaces need no disambiguation — zero extra chrome). The ui package
+  // stays store-free; it just renders what we pass.
+  const operatingRoot = useMemo(() => {
+    if (activeRootCount < 2 || !mainRootId) {
+      return;
+    }
+    const descriptor = rootDescriptors?.[mainRootId];
+    if (!descriptor) {
+      return;
+    }
+    return {
+      displayName: descriptor.displayName,
+      ...(descriptor.path ? { path: descriptor.path } : {}),
+    };
+  }, [activeRootCount, mainRootId, rootDescriptors]);
   // Multi-root write-back: map each open root's absolute path -> its client
   // RootId so an assistant update carrying a server rootPath can route to the
   // right folder (the two id spaces share only the path). Recomputed only when
@@ -1517,6 +1534,7 @@ export function AssistantUiPanelWrapper({
               onStreamActivity={renewActiveAssistantForegroundActivity}
               onToolApprovalRequired={onToolApprovalRequired}
               onUsage={handleUsage}
+              {...(operatingRoot ? { operatingRoot } : {})}
               pickerModels={pickerModels}
               pickerProviders={pickerProviders}
               prepareRequestData={prepareRequestData}
