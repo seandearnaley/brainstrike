@@ -25,6 +25,7 @@ describe('file-explorer-utils', () => {
         disabledIncludeFilters: new Set<string>(),
         excludeFilters: ['*.txt'],
         expandedDirectoryPaths: new Set(['dir1', 'dir2']),
+        explorerScrollTop: 0,
         fileContents: {},
         folderAccessOrder: [],
         folderStates: {
@@ -114,6 +115,7 @@ describe('file-explorer-utils', () => {
         disabledIncludeFilters: new Set<string>(),
         excludeFilters: ['*.md'],
         expandedDirectoryPaths: new Set(['newDir1']),
+        explorerScrollTop: 0,
         fileContents: {},
         folderAccessOrder: [],
         folderStates: {

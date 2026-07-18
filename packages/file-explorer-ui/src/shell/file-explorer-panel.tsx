@@ -46,6 +46,7 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import { TreeActionButtons } from '../components/tree-action-buttons';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
+import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
 import { useRuleMaterialization } from '../hooks/use-rule-materialization';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { RestorationStatus } from '../restoration-status';
@@ -435,6 +436,11 @@ function runFocusedTreeExpandAll(
 const FileExplorerPanelInner = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
+  // Persist + restore the explorer scroll position across sessions. Wired to the
+  // outer scroll root; the hook resolves the active (single-root vs forest)
+  // scroller and captures via a capture-phase listener.
+  const explorerScrollRootRef = React.useRef<HTMLDivElement | null>(null);
+  useExplorerScrollRestore(explorerScrollRootRef);
   const [
     includeFilters,
     excludeFilters,
@@ -1258,8 +1264,12 @@ const FileExplorerPanelInner = React.memo(() => {
               progress={restorationProgress}
             />
           </div>
-          {/* Scrollable content */}
-          <div className="h-full overflow-y-auto">
+          {/* Scrollable content — scroll root for session scroll restore */}
+          <div
+            className="h-full overflow-y-auto"
+            data-testid="explorer-scroll-root"
+            ref={explorerScrollRootRef}
+          >
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
                 cancelChildLoading={cancelChildLoading}

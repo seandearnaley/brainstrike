@@ -404,6 +404,10 @@ function TreeTableViewport({
         externalScroll ? 'overflow-visible' : 'overflow-auto',
         className
       )}
+      // Stable handle so consumers can find the actual scroll element when this
+      // viewport owns scrolling (externalScroll=false). Under external scroll it
+      // is overflow-visible and an ancestor owns the scroll instead.
+      data-testid="tree-table-viewport"
       ref={parentRef}
       style={externalScroll ? undefined : { maxHeight }}
     >

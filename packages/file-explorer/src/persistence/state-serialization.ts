@@ -267,6 +267,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     devInlineFixtureEnabled: state.devInlineFixtureEnabled,
     excludeFilters: state.excludeFilters,
     expandedDirectoryPaths: cachedSetToArray(state.expandedDirectoryPaths),
+    explorerScrollTop: state.explorerScrollTop,
     folderAccessOrder: state.folderAccessOrder,
     folderStates: Object.fromEntries(
       Object.entries(folderStatesToSerialize || {}).map(([id, folderState]) => [
@@ -342,6 +343,12 @@ export function mergeState(
       current.devInlineFixtureEnabled
     ),
     expandedDirectoryPaths: topLevelExpandedDirectoryPaths,
+    // Coerce over the raw spread: an older snapshot omits it (→ current default
+    // 0) and a corrupt non-number must not reach the DOM scroll setter.
+    explorerScrollTop: Math.max(
+      0,
+      coerceNumber(persistedSerialized.explorerScrollTop, current.explorerScrollTop)
+    ),
     folderAccessOrder: coerceStringArray(persistedSerialized.folderAccessOrder),
     folderStates: Object.fromEntries(
       Object.entries(persistedSerialized.folderStates ?? {}).map(([key, psFolderState]) => {

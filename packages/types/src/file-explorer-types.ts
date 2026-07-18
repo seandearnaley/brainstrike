@@ -159,6 +159,13 @@ export interface SerializedState {
   devInlineFixtureEnabled: boolean;
   excludeFilters: string[];
   expandedDirectoryPaths: string[];
+  /**
+   * Vertical scroll offset (px) of the explorer's scroll container, so a
+   * session resumes at the same position. Workspace-global (one scroll
+   * container spans every forest section), mirroring expandedDirectoryPaths.
+   * Optional for backward compatibility with older snapshots.
+   */
+  explorerScrollTop?: number;
   folderAccessOrder: string[];
   folderStates: Record<string, SerializedFolderState>;
   /**
@@ -275,6 +282,13 @@ export interface FileExplorerData {
   disabledIncludeFilters: Set<string>;
   excludeFilters: string[];
   expandedDirectoryPaths: Set<string>;
+  /**
+   * Vertical scroll offset (px) of the explorer's scroll container. Persisted
+   * (workspace-global) so a session resumes where the user left off. File-tree
+   * rows are fixed height, so a raw offset restores deterministically once the
+   * same expansions are present.
+   */
+  explorerScrollTop: number;
   fileContents: Record<string, string>;
   folderAccessOrder: string[];
   /**
@@ -413,6 +427,7 @@ export interface FileExplorerState extends FileExplorerData {
   // Directory expansion actions
   /** ADOPTS the passed set (no clone) — callers must not mutate it afterwards. */
   setExpandedPaths: (paths: Set<string>) => void;
+  setExplorerScrollTop: (value: number) => void;
 
   // File content actions
   setFileContent: (compositeKey: string, content: string) => void;
@@ -521,6 +536,7 @@ export const DEFAULT_STATE = {
     'playwright-report',
   ] as string[],
   expandedDirectoryPaths: new Set<string>(),
+  explorerScrollTop: 0,
   fileContents: {} as Record<string, string>,
   folderAccessOrder: [] as string[],
   // Used only when generating reports

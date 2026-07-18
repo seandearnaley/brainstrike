@@ -62,6 +62,11 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });
     },
+    setExplorerScrollTop: (value: number) => {
+      // Clamp negatives to 0; a persisted negative offset would fight the
+      // browser's own clamp and produce a one-frame jump on restore.
+      set({ explorerScrollTop: value > 0 ? value : 0 });
+    },
     setFilterChipsVisible: (visible: boolean) => {
       set({ isFilterChipsVisible: visible });
     },
