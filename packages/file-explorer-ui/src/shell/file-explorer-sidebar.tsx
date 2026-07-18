@@ -165,16 +165,34 @@ function forestEmptyStateMessage(args: {
  * Compact per-section empty state for forest mode. The full-height
  * single-tree empty state reads as a giant blank gap between root sections,
  * so a section with no visible rows gets ONE line that says why.
+ *
+ * A failed root SCAN must never masquerade as an empty folder (no-silent-
+ * fallbacks): when the section's provider carries a load error and there is
+ * nothing to show, the error is the message — the dev-fixture incident
+ * shipped "No files in this folder" over an adapter that was erroring on
+ * every read.
  */
 const ForestSectionEmptyState = ({
   isLoading,
   isFilteredOut,
+  loadError,
 }: {
   isLoading: boolean;
   isFilteredOut: boolean;
+  loadError: Error | null;
 }) => {
   const { includeFilters } = useActiveWorkspaceFilters();
   const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
+  // A retry/refresh in flight takes precedence: while isLoading, show the
+  // loading copy even if a previous error is still set, so a recovering
+  // section doesn't keep shouting the stale failure.
+  if (loadError && !isLoading) {
+    return (
+      <div className="px-9 py-1.5 text-destructive text-xs" role="alert">
+        {`Couldn't read this folder: ${loadError.message}`}
+      </div>
+    );
+  }
   return (
     <div className="px-9 py-1.5 text-muted-foreground text-xs">
       {forestEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
@@ -553,6 +571,7 @@ const PerRootTreePane = ({
         <ForestSectionEmptyState
           isFilteredOut={treeContext.fileTree.length > 0}
           isLoading={isLoading}
+          loadError={treeContext.error}
         />
       )}
     </div>

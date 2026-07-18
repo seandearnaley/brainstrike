@@ -40,7 +40,11 @@ const FileExplorerToolbar = React.memo(
           className="grid h-full w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-0"
           data-testid="file-explorer-toolbar"
         >
-          <div className="@container/explorer-selection flex min-w-0 items-center justify-start">
+          {/* overflow-hidden on BOTH side slots: each cluster is clipped to its
+              own grid track, so an overwide cluster can never bleed across the
+              centered add-folder button and intercept its pointer events (the
+              unclickable-Add regression at narrow panel widths). */}
+          <div className="@container/explorer-selection flex min-w-0 items-center justify-start overflow-hidden">
             <div className="flex w-full min-w-0 items-center justify-start @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
               {selectionStatusControl}
             </div>
@@ -59,7 +63,7 @@ const FileExplorerToolbar = React.memo(
               {FileExplorerStrings.addFolderToWorkspace}
             </span>
           </Button>
-          <div className="@container/explorer-bulk flex min-w-0 items-center justify-end">
+          <div className="@container/explorer-bulk flex min-w-0 items-center justify-end overflow-hidden">
             <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:gap-1 gap-0.5 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
               {treeActionsControl}
               {bulkSelectionControl}

@@ -183,7 +183,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       adapter.readFile({
         ...fileHandle,
         name: 'missing.txt',
-        path: 'missing.txt',
+        path: 'fixture-root/missing.txt',
       })
     ).resolves.toBe('');
     expect(baseReadFile).not.toHaveBeenCalled();
@@ -251,7 +251,16 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
   });
 
   it('resolves fixture files for indexing through the stamped rootId alias', async () => {
-    const adapter = createFixtureCapableAdapter(createBaseAdapter(), {
+    // The wrapper only exists when the BASE adapter has the capability (web).
+    const base = createBaseAdapter() as ReturnType<typeof createBaseAdapter> & {
+      resolveFileForIndexing: ReturnType<typeof vi.fn>;
+    };
+    base.resolveFileForIndexing = vi.fn(async (path: string) => ({
+      content: `base:${path}`,
+      fileSize: 0,
+      kind: 'content' as const,
+    }));
+    const adapter = createFixtureCapableAdapter(base, {
       platform: 'web',
     });
     const root = await adapter.loadInlineFixture(FIXTURE);
@@ -272,6 +281,32 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       fileSize: 'export const a = 1;'.length,
       kind: 'content',
     });
+    // Foreign paths delegate to the base resolver.
+    await expect(adapter.resolveFileForIndexing?.('/real/main.ts')).resolves.toEqual({
+      content: 'base:/real/main.ts',
+      fileSize: 0,
+      kind: 'content',
+    });
+  });
+
+  it('does NOT advertise resolveFileForIndexing when the base adapter lacks it', async () => {
+    // Capability rule (mirrors streaming/readFileByPath): consumers feature-
+    // detect this method to choose the web resolver over the Electron reader.
+    // Advertising it on a capability-less base (desktop) routed REAL files
+    // into a resolver that could not serve them while a fixture was active.
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'electron' });
+    await adapter.loadInlineFixture(FIXTURE);
+
+    expect(adapter.resolveFileForIndexing).toBeUndefined();
+    // Fixture files still readable through the universal readFile path.
+    await expect(
+      adapter.readFile({
+        kind: 'file',
+        name: 'a.ts',
+        path: 'fixture-root/src/a.ts',
+        platform: 'electron',
+      })
+    ).resolves.toBe('export const a = 1;');
   });
 
   it('streams fixture directories through the stamped rootId alias', async () => {
@@ -326,17 +361,92 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     ).resolves.toBe('example.ts content');
   });
 
-  it('returns empty directory listings for unknown fixture paths', async () => {
-    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+  it('returns empty directory listings for fixture-OWNED paths that are missing', async () => {
+    const base = createBaseAdapter();
+    // The decorator mutates the adapter in place — capture the original spy.
+    const baseReadDirectory = base.readDirectory;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
     await adapter.loadInlineFixture(FIXTURE);
 
-    const unknownDir: DirectoryHandle = {
+    // Under the fixture root but absent from the tree: a fixture-authoring
+    // bug, not a real filesystem path — stays fixture-served (empty + warn).
+    const missingOwnedDir: DirectoryHandle = {
       kind: 'directory',
       name: 'missing-dir',
-      path: 'missing-dir',
+      path: 'fixture-root/missing-dir',
       platform: 'web',
     };
-    await expect(adapter.readDirectory(unknownDir)).resolves.toEqual([]);
+    await expect(adapter.readDirectory(missingOwnedDir)).resolves.toEqual([]);
+    expect(baseReadDirectory).not.toHaveBeenCalled();
+  });
+
+  describe('foreign (non-fixture) paths while a fixture is active', () => {
+    // Regression: a persisted dev-fixture flag used to make the adapter claim
+    // EVERY path — real workspace roots read as empty ("No files in this
+    // folder") with only a console warn. Fixtures own ONLY their subtrees;
+    // anything else must delegate to the real adapter.
+    const realDir: DirectoryHandle = {
+      kind: 'directory',
+      name: 'brainstrike',
+      path: '/Users/dev/brainstrike',
+      platform: 'electron',
+    };
+
+    it('delegates readDirectory for a real root outside every fixture root', async () => {
+      const base = createBaseAdapter();
+      const baseReadDirectory = base.readDirectory as ReturnType<typeof vi.fn>;
+      const realNodes = [
+        {
+          depth: 0,
+          isVisible: true,
+          name: 'package.json',
+          path: '/Users/dev/brainstrike/package.json',
+          rootFolderId: 'real',
+          selectionState: 'unchecked',
+          type: 'file',
+        } as unknown as IFileNode,
+      ];
+      baseReadDirectory.mockResolvedValue(realNodes);
+      const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+      await adapter.loadInlineFixture(FIXTURE);
+
+      await expect(adapter.readDirectory(realDir)).resolves.toEqual(realNodes);
+      expect(baseReadDirectory).toHaveBeenCalledTimes(1);
+    });
+
+    it('delegates readDirectoryStreaming for a real root outside every fixture root', async () => {
+      const base = createBaseAdapter();
+      const baseReadDirectoryStreaming = base.readDirectoryStreaming as ReturnType<typeof vi.fn>;
+      const streamed: IFileNode[][] = [];
+      baseReadDirectoryStreaming.mockImplementation(
+        async (_handle: DirectoryHandle, onBatch: DirectoryStreamCallback) => {
+          onBatch([], { done: true, total: 0 });
+        }
+      );
+      const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+      await adapter.loadInlineFixture(FIXTURE);
+
+      await adapter.readDirectoryStreaming?.(realDir, (nodes) => {
+        streamed.push(nodes);
+      });
+      expect(baseReadDirectoryStreaming).toHaveBeenCalledTimes(1);
+    });
+
+    it('delegates readFile for a real file outside every fixture root', async () => {
+      const base = createBaseAdapter();
+      const baseReadFile = base.readFile as ReturnType<typeof vi.fn>;
+      const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+      await adapter.loadInlineFixture(FIXTURE);
+
+      const realFile: FileHandle = {
+        kind: 'file',
+        name: 'main.ts',
+        path: '/Users/dev/brainstrike/main.ts',
+        platform: 'electron',
+      };
+      await expect(adapter.readFile(realFile)).resolves.toBe('real-file');
+      expect(baseReadFile).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('rejects fixture streaming with the exact reason without emitting completion when aborted', async () => {
