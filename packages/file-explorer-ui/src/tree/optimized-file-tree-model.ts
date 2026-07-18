@@ -1198,6 +1198,7 @@ function fileTreeRowEqual(a: TreeNode<FileTreeRowData>, b: TreeNode<FileTreeRowD
     a.depth === b.depth &&
     a.type === b.type &&
     a.hasChildren === b.hasChildren &&
+    a.childCount === b.childCount &&
     a.isLoading === b.isLoading &&
     fileTreeRowDataEqual(a.data, b.data)
   );
@@ -1222,6 +1223,43 @@ export function reuseEqualFileTreeRows(
     const previous = previousById.get(row.id);
     return previous && fileTreeRowEqual(previous, row) ? previous : row;
   });
+}
+
+export interface FileTreeRowReuseCache {
+  /**
+   * Run the structural-sharing pass against the previous build and remember
+   * the result. Returns the previous rows ARRAY (same identity) when every
+   * row was reused in order, so downstream memos skip entirely on
+   * content-equal rebuilds.
+   */
+  stabilize: (rows: TreeNode<FileTreeRowData>[]) => TreeNode<FileTreeRowData>[];
+}
+
+/**
+ * Create-once per tree instance (via a useState lazy initializer). The
+ * closure hides the cache mutation from React Compiler — mirroring
+ * createFileTreeSelectionStore — and the render-phase write is safe because
+ * reuse is by value-equality, so a discarded concurrent render cannot make a
+ * later result incorrect (same argument as TreeTable's previousRowsByIdRef).
+ */
+export function createFileTreeRowReuseCache(): FileTreeRowReuseCache {
+  let previousById: ReadonlyMap<string, TreeNode<FileTreeRowData>> = new Map();
+  let previousRows: TreeNode<FileTreeRowData>[] = [];
+  return {
+    stabilize: (rows) => {
+      const stabilized = reuseEqualFileTreeRows(previousById, rows);
+      const next =
+        stabilized.length === previousRows.length &&
+        stabilized.every((row, index) => row === previousRows[index])
+          ? previousRows
+          : stabilized;
+      if (next !== previousRows) {
+        previousById = new Map(next.map((row) => [row.id, row]));
+        previousRows = next;
+      }
+      return next;
+    },
+  };
 }
 
 export function buildFileTreeRows(

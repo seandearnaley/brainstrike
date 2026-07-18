@@ -13,6 +13,7 @@ import {
   type BuildFileTreeRowsOptions,
   buildFileTreeRows,
   buildRowsFromNormalizedTree,
+  createFileTreeRowReuseCache,
   getNormalizedImmediateChildren,
   reuseEqualFileTreeRows,
 } from '../tree/optimized-file-tree-model';
@@ -220,6 +221,38 @@ describe('reuseEqualFileTreeRows', () => {
       }
     }
     expect(reusedCount).toBe(first.length);
+  });
+});
+
+describe('createFileTreeRowReuseCache', () => {
+  it('returns the previous rows ARRAY identity on a content-equal rebuild', () => {
+    const tree = fixtureNormalizedTree();
+    const options = buildOptions(['/root/src', '/root/src/lib']);
+    const cache = createFileTreeRowReuseCache();
+
+    const first = cache.stabilize(buildNormalizedRows(tree, options));
+    const second = cache.stabilize(buildNormalizedRows(tree, options));
+
+    expect(second).toBe(first);
+  });
+
+  it('returns a fresh array (reusing untouched rows) when a row changed', () => {
+    const tree = fixtureNormalizedTree();
+    const options = buildOptions(['/root/src', '/root/src/lib']);
+    const cache = createFileTreeRowReuseCache();
+
+    const first = cache.stabilize(buildNormalizedRows(tree, options));
+    const updatedTree = setNormalizedNodeLoadState(tree, '/root/src/lib', 'loading');
+    const second = cache.stabilize(buildNormalizedRows(updatedTree, options));
+
+    expect(second).not.toBe(first);
+    const firstA = first.find((row) => row.id === '/root/src/a.ts');
+    const secondA = second.find((row) => row.id === '/root/src/a.ts');
+    expect(secondA).toBe(firstA);
+
+    // A third content-equal build now returns the SECOND array's identity.
+    const third = cache.stabilize(buildNormalizedRows(updatedTree, options));
+    expect(third).toBe(second);
   });
 });
 

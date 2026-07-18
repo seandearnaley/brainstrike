@@ -62,6 +62,7 @@ import {
   buildRowsFromNormalizedTree,
   buildRowsFromWorkerNodes,
   computeNodeSelectionState,
+  createFileTreeRowReuseCache,
   type DirectorySelectionTraversalContext,
   type DirectoryToggleState,
   type FileTreeRowBuildSource,
@@ -74,7 +75,6 @@ import {
   indexFileNodesByPath,
   type NodeSelectionState,
   resolveDirectorySelectionMutation,
-  reuseEqualFileTreeRows,
   shouldLoadDirectoryRecursively,
 } from './optimized-file-tree-model';
 import {
@@ -680,14 +680,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
-    // Previous build's rows for the structural-sharing pass below. The
-    // render-phase ref write is safe for the same reason as TreeTable's
-    // previousRowsByIdRef: reuse is by value-equality, so a discarded
-    // concurrent render cannot make a later result incorrect.
-    const previousTreeRowsRef = useRef<{
-      byId: ReadonlyMap<string, TreeNode<FileTreeRowData>>;
-      rows: TreeNode<FileTreeRowData>[];
-    }>({ byId: new Map(), rows: [] });
+    // Structural-sharing cache across builds, created once via a useState lazy
+    // initializer (the create-once idiom used for selectionStore below). See
+    // createFileTreeRowReuseCache for the render-phase-write safety argument.
+    const [rowReuseCache] = useState(createFileTreeRowReuseCache);
     const treeRowsBuild = useMemo(() => {
       const measured = measureFileTreeOperation<FileTreeRowsBuildResult>(() => {
         const options: BuildFileTreeRowsOptions = {
@@ -732,19 +728,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       // order, keep the previous rows ARRAY identity too — downstream memos
       // (fileNodeByPath, rowDataByPath, TreeTable's flatten) then skip
       // entirely on content-equal rebuilds.
-      const previous = previousTreeRowsRef.current;
-      const stabilized = reuseEqualFileTreeRows(previous.byId, measured.result.rows);
-      const rows =
-        stabilized.length === previous.rows.length &&
-        stabilized.every((row, index) => row === previous.rows[index])
-          ? previous.rows
-          : stabilized;
-      if (rows !== previous.rows) {
-        previousTreeRowsRef.current = {
-          byId: new Map(rows.map((row) => [row.id, row])),
-          rows,
-        };
-      }
+      const rows = rowReuseCache.stabilize(measured.result.rows);
 
       return {
         rows,
@@ -769,6 +753,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       normalizedTreeContext,
       normalizedTreeContext?.version,
       visibleAggregates,
+      rowReuseCache,
     ]);
     const treeRows = treeRowsBuild.rows;
 
