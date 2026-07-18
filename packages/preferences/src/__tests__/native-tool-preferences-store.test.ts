@@ -75,6 +75,7 @@ describe('native-tool-preferences-store', () => {
         toolStates: {
           'brainstrike.getSelection': 'false',
           'brainstrike.readWorkspaceFile': false,
+          skill_read: false,
           unknownTool: false,
         },
       },

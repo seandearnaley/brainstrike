@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
+import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -93,7 +93,7 @@ function createNativeToolPreferencesStorage(): StateStorage {
 
 const storage = createJSONStorage(() => createNativeToolPreferencesStorage());
 
-const KNOWN_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
+const KNOWN_NATIVE_TOOL_IDS = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
 function sanitizeToolStates(value: unknown): NativeToolStateMap {
   if (!value || typeof value !== 'object') {

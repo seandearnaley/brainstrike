@@ -6,7 +6,10 @@ import {
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  NATIVE_TOOL_DEFAULTS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -673,7 +676,8 @@ export function AssistantUiPanelWrapper({
 
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>
-      Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
+      DESKTOP_NATIVE_TOOL_IDS.map((toolId) => {
+        const metadata = NATIVE_TOOL_DEFAULTS[toolId];
         const category =
           typeof (metadata as { category?: unknown }).category === 'string'
             ? (metadata as { category: string }).category
