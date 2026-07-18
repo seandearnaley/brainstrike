@@ -1,3 +1,4 @@
+import { resolveModelReasoningSupport } from '@brainstrike/assistant-contract/model-reasoning';
 import {
   getProviderDefinition,
   type ProviderRuntime,
@@ -115,12 +116,13 @@ export function useAssistantModelPickerConfig({
 
         models.push({
           capabilities: {
+            reasoning: resolveModelReasoningSupport(providerId, model.id).state,
             streaming: model.supportsStreaming ?? false,
             type: 'llm',
             vision: model.vision,
           },
           contextWindow: model.contextWindow,
-          description: null,
+          description: model.tagline ?? null,
           id: model.id,
           name: model.label ?? model.id,
           providerId,

@@ -29,6 +29,7 @@ const baseApproval = {
 
 function makeHandlers(): ToolApprovalGrantHandlers {
   return {
+    grantAllToolsForSession: vi.fn(),
     grantCategoryForSession: vi.fn(),
     grantToolAlways: vi.fn(),
   };
@@ -115,6 +116,45 @@ describe('AssistantToolApprovalNotice grant actions', () => {
 
     expect(screen.queryByTestId('approval-grant-tool-always')).toBeNull();
     expect(screen.queryByTestId('approval-grant-category-session')).toBeNull();
+  });
+
+  it('offers "Allow all tools this session" in the grant overflow; it records the blanket grant THEN approves', async () => {
+    const handlers = makeHandlers();
+    renderNotice(baseApproval, handlers);
+
+    await userEvent.click(screen.getByTestId('approval-grant-overflow'));
+    await userEvent.click(await screen.findByTestId('approval-grant-all-session'));
+
+    expect(handlers.grantAllToolsForSession).toHaveBeenCalledTimes(1);
+    // Grant FIRST, then the pending call approves through the normal resume.
+    expect(appendedApprovalAction()).toMatchObject({
+      action: 'approve',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+    });
+  });
+
+  it('omits the grant overflow without a provider (web / ungated hosts)', () => {
+    renderNotice(baseApproval, null);
+
+    expect(screen.queryByTestId('approval-grant-overflow')).toBeNull();
+  });
+
+  it('omits the grant overflow for a non-policy pause (no risk category)', () => {
+    const { riskCategory: _riskCategory, ...withoutRisk } = baseApproval;
+    renderNotice(withoutRisk, makeHandlers());
+
+    expect(screen.queryByTestId('approval-grant-overflow')).toBeNull();
+  });
+
+  it('disables the grant overflow after any action is submitted', async () => {
+    renderNotice(baseApproval, makeHandlers());
+
+    await userEvent.click(screen.getByRole('button', { name: /^approve /i }));
+
+    expect((screen.getByTestId('approval-grant-overflow') as HTMLButtonElement).disabled).toBe(
+      true
+    );
   });
 
   it('disables grant buttons after any action is submitted', async () => {

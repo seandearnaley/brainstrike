@@ -18,6 +18,7 @@ export * from './collection-browser';
 export * from './collection-picker';
 export * from './command-palette';
 export * from './context-menu';
+export * from './copy-text-button';
 export * from './data-table';
 export * from './dialog';
 export * from './diff-view';

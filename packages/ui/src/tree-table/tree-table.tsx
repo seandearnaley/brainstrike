@@ -378,31 +378,158 @@ function resolvePaginationTotalItems(isPagedWindowing: boolean, rowCount: number
 interface TreeTableViewportProps {
   children: React.ReactNode;
   className?: string | undefined;
+  /**
+   * Shared-scroller mode: the viewport is a non-scrolling spacer (natural
+   * height, overflow-visible) because an ancestor owns scrolling and the
+   * virtualizer windows via scrollMargin. A nested overflow-auto here would
+   * stretch to content height inside the scrolling ancestor and never
+   * scroll — the virtualizer's window would freeze (blank rows on scroll).
+   */
+  externalScroll: boolean;
   maxHeight: string;
   parentRef: React.RefObject<HTMLDivElement | null>;
 }
 
 function TreeTableViewport({
   className,
+  externalScroll,
   maxHeight,
   parentRef,
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
     <div
-      className={cn('relative min-h-0 min-w-0 flex-1 overflow-auto', className)}
+      className={cn(
+        'relative min-h-0 min-w-0 flex-1',
+        externalScroll ? 'overflow-visible' : 'overflow-auto',
+        className
+      )}
       ref={parentRef}
-      style={{ maxHeight }}
+      style={externalScroll ? undefined : { maxHeight }}
     >
       {children}
     </div>
   );
 }
 
+/**
+ * Track this table's vertical offset (TanStack scrollMargin) within a shared
+ * ancestor scroll element. The offset moves whenever content around the table
+ * resizes (sibling sections expanding/collapsing above it), so observe the
+ * scroll parent's direct children and re-arm when they change.
+ */
+function useExternalScrollMargin(
+  enabled: boolean,
+  scrollParentRef: React.RefObject<HTMLElement | null> | undefined,
+  viewportRef: React.RefObject<HTMLDivElement | null>
+): number {
+  const [margin, setMargin] = React.useState(0);
+  // Re-arm signal for the ref race below; a bare early-return would freeze
+  // the margin at 0 for the table's lifetime.
+  const [mountTick, setMountTick] = React.useState(0);
+
+  React.useLayoutEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const scrollParent = scrollParentRef?.current;
+    const viewport = viewportRef.current;
+    if (!(scrollParent && viewport)) {
+      // React attaches ANCESTOR host refs after descendant layout effects
+      // within the same commit, so on a same-commit mount the shared scroll
+      // parent's ref can still be null here. Re-arm next frame instead of
+      // silently freezing the margin at 0 (sections would render with the
+      // wrong window offset).
+      const raf = requestAnimationFrame(() => setMountTick((tick) => tick + 1));
+      return () => cancelAnimationFrame(raf);
+    }
+
+    const updateMargin = () => {
+      const nextMargin =
+        viewport.getBoundingClientRect().top -
+        scrollParent.getBoundingClientRect().top +
+        scrollParent.scrollTop;
+      // Sub-pixel churn from rect reads must not re-render the table.
+      setMargin((previous) => (Math.abs(previous - nextMargin) < 1 ? previous : nextMargin));
+    };
+    updateMargin();
+
+    const resizeObserver = new ResizeObserver(updateMargin);
+    const observeChildren = () => {
+      resizeObserver.disconnect();
+      resizeObserver.observe(scrollParent);
+      for (const child of Array.from(scrollParent.children)) {
+        resizeObserver.observe(child);
+      }
+      updateMargin();
+    };
+    observeChildren();
+    // Sections mount/unmount (roots added/removed, collapse) — re-arm on
+    // child-list changes so offsets stay fresh without polling.
+    const mutationObserver = new MutationObserver(observeChildren);
+    mutationObserver.observe(scrollParent, { childList: true });
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [enabled, scrollParentRef, viewportRef, mountTick]);
+
+  return enabled ? margin : 0;
+}
+
 interface TreeTableVirtualItem {
   end?: number;
   index: number;
   start?: number;
+}
+
+/** Shared-scroller mode is an opt-in and only meaningful under virtual windowing. */
+function resolveIsExternalScroll(
+  scrollParentRef: React.RefObject<HTMLElement | null> | undefined,
+  isVirtualWindowing: boolean
+): boolean {
+  return scrollParentRef !== undefined && isVirtualWindowing;
+}
+
+/** Virtualizer scroll element: the shared ancestor in external mode, else the viewport. */
+function resolveVirtualScrollElement(
+  isExternalScroll: boolean,
+  scrollParentRef: React.RefObject<HTMLElement | null> | undefined,
+  internalRef: React.RefObject<HTMLDivElement | null>
+): HTMLElement | null {
+  if (isExternalScroll) {
+    return scrollParentRef?.current ?? null;
+  }
+  return internalRef.current;
+}
+
+/**
+ * Nearest-edge scroll for shared-scroller mode. scrollToIndex must not be
+ * used here: virtual-core special-cases align-end on a virtualizer's LAST
+ * item by targeting the scroll element's maximum offset — with several
+ * tables sharing one scroller that is the bottom of the whole forest, not
+ * this section's last row. Measurements are margin-shifted (scroll-element
+ * coordinates), so comparing against the scroller's window is direct.
+ */
+function scrollExternalRowIntoView(args: {
+  measurement: { end: number; start: number } | undefined;
+  scrollElement: HTMLElement | null;
+  scrollToOffset: (offset: number, options: { behavior: 'auto' }) => void;
+}): void {
+  const { measurement, scrollElement, scrollToOffset } = args;
+  if (!(measurement && scrollElement)) {
+    return;
+  }
+  const viewTop = scrollElement.scrollTop;
+  const viewBottom = viewTop + scrollElement.clientHeight;
+  if (measurement.start < viewTop) {
+    scrollToOffset(measurement.start, { behavior: 'auto' });
+    return;
+  }
+  if (measurement.end > viewBottom) {
+    scrollToOffset(measurement.end - scrollElement.clientHeight, { behavior: 'auto' });
+  }
 }
 
 function buildFallbackVirtualItems(rowCount: number, overscan: number): TreeTableVirtualItem[] {
@@ -641,6 +768,7 @@ export function TreeTable<T>({
   onRowContextMenu,
   columnSizes,
   onColumnSizesChange,
+  scrollParentRef,
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -904,6 +1032,16 @@ export function TreeTable<T>({
     []
   );
 
+  // Shared-scroller mode: an ancestor owns scrolling; window against it with
+  // this table's offset as scrollMargin (only meaningful under virtual windowing).
+  const isExternalScroll = resolveIsExternalScroll(scrollParentRef, isVirtualWindowing);
+  // Already 0 when external scroll is off — usable directly as the offset.
+  const externalScrollMargin = useExternalScrollMargin(
+    isExternalScroll,
+    scrollParentRef,
+    parentRef
+  );
+
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
     count: isVirtualWindowing ? rows.length : 0,
@@ -911,9 +1049,11 @@ export function TreeTable<T>({
       const row = rows[index];
       return row ? getRowHeight(row.node) : 40;
     },
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () =>
+      resolveVirtualScrollElement(isExternalScroll, scrollParentRef, parentRef),
     observeElementRect: heightOnlyObserveRect,
     overscan,
+    scrollMargin: externalScrollMargin,
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,
   });
@@ -945,10 +1085,20 @@ export function TreeTable<T>({
         return;
       }
 
+      if (isExternalScroll) {
+        scrollExternalRowIntoView({
+          measurement: rowVirtualizer.measurementsCache[index],
+          scrollElement: scrollParentRef?.current ?? null,
+          scrollToOffset: rowVirtualizer.scrollToOffset,
+        });
+        return;
+      }
+
       rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
     },
     [
       indexMap,
+      isExternalScroll,
       isVirtualWindowing,
       isPagedWindowing,
       currentPage,
@@ -957,6 +1107,7 @@ export function TreeTable<T>({
       pagination,
       rowVirtualizer,
       scrollPagedRowIntoView,
+      scrollParentRef,
     ]
   );
 
@@ -1153,11 +1304,16 @@ export function TreeTable<T>({
   const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
   const firstRenderedVirtualItem = renderedVirtualItems[0];
   const lastRenderedVirtualItem = renderedVirtualItems.at(-1);
-  const paddingTop = firstRenderedVirtualItem?.start ?? 0;
+  // Virtual item start/end are in scroll-element coordinates and therefore
+  // include scrollMargin in shared-scroller mode; the spacers position rows
+  // WITHIN this table, so subtract the margin (0 in internal-scroll mode —
+  // useExternalScrollMargin returns 0 when disabled). getTotalSize() already
+  // excludes scrollMargin.
+  const paddingTop = Math.max(0, (firstRenderedVirtualItem?.start ?? 0) - externalScrollMargin);
   const paddingBottom =
     lastRenderedVirtualItem?.end === undefined
       ? 0
-      : Math.max(0, totalSize - lastRenderedVirtualItem.end);
+      : Math.max(0, totalSize - (lastRenderedVirtualItem.end - externalScrollMargin));
   const shouldShowPagination = isPagedWindowing ? (pagination?.showControls ?? true) : false;
   const tablePaginationProps = React.useMemo(
     () =>
@@ -1219,7 +1375,12 @@ export function TreeTable<T>({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <TreeTableViewport className={viewportClassName} maxHeight={maxHeight} parentRef={parentRef}>
+      <TreeTableViewport
+        className={viewportClassName}
+        externalScroll={isExternalScroll}
+        maxHeight={maxHeight}
+        parentRef={parentRef}
+      >
         <Table
           aria-colcount={columns.length}
           aria-label={ariaLabel}

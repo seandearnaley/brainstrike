@@ -1,22 +1,31 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { AssistantActivityGroup } from '../assistant-ui-panel/assistant-activity-group';
 import type { ToolActivitySummary } from '../assistant-ui-panel/tool-activity';
+import { CodeBlockBody } from '../code-block/code-block-body';
+import { CodeBlockHeader } from '../code-block/code-block-header';
+import { TooltipProvider } from '../tooltip';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '../globals.css';
 import '../assistant-ui-panel/overrides.css';
 
 /**
  * Reproduce the real app's CSS baseline: Tailwind v4 preflight zeroes element
- * margins and strips list styling via a universal-selector reset. The markdown
- * typography fix must win over this (it does — its selectors out-specify the
- * universal reset), which is exactly what these real-Chromium assertions prove.
+ * margins and strips list styling via a universal-selector reset that ships
+ * INSIDE `@layer base` (repo cascade rule: preflight is layered; unlayered
+ * universal resets are forbidden). The markdown typography fix and the shared
+ * code-block metrics must win over this (they do — unlayered overrides.css
+ * rules beat any layer, and the globals.css @layer base element rules
+ * out-specify the universal reset within the same layer), which is exactly
+ * what these real-Chromium assertions prove.
  */
 const PREFLIGHT_RESET = `
-  *, ::before, ::after { margin: 0; padding: 0; }
-  ul, ol { list-style: none; }
+  @layer base {
+    *, ::before, ::after { margin: 0; padding: 0; }
+    ul, ol { list-style: none; }
+  }
 `;
 
 beforeAll(() => {
@@ -209,6 +218,128 @@ describe('container-aware message width (real browser)', () => {
     expect(getComputedStyle(root).marginLeft).toBe('0px');
     expect(root.getBoundingClientRect().width).toBe(360);
   });
+});
+describe('shared code-block chrome (real browser)', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+  });
+
+  const renderChatBlock = (code: string, language: string) =>
+    render(
+      <TooltipProvider>
+        <div className="assistant-ui-panel">
+          <div className="aui-md">
+            {/* Chat pipeline contract: header and body render as SIBLINGS. */}
+            <CodeBlockHeader code={code} language={language} />
+            <CodeBlockBody code={code} language={language} />
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+
+  test('header and body halves carry the shared box-class contract', () => {
+    // Tailwind utilities are not compiled in this test bundle, so the box
+    // chrome is asserted as the class contract the app build styles.
+    const { container } = renderChatBlock('const x = 1;', 'typescript');
+
+    const header = container.querySelector('.bs-code-block-header');
+    const body = container.querySelector('.bs-code-block-body');
+    if (!(header && body)) {
+      throw new Error('expected both code-block halves to render');
+    }
+
+    // Header: rounded top, open bottom (the seam is a single border).
+    for (const cls of ['rounded-t-md', 'border', 'border-b-0']) {
+      expect(header.classList.contains(cls)).toBe(true);
+    }
+    // Body: rounded bottom, open top, horizontal scroll inside the box.
+    for (const cls of ['rounded-b-md', 'border', 'border-t-0', 'overflow-x-auto']) {
+      expect(body.classList.contains(cls)).toBe(true);
+    }
+  });
+
+  test('fallback <pre> and resolved Shiki share metrics (zero-shift swap), no stray language label', async () => {
+    // The Shiki singleton may already be cached from an earlier test, so the
+    // pre-highlight state cannot be observed on the same block. Instead mount
+    // a deterministic fallback (empty code never renders Shiki) next to a
+    // real highlighted block and require identical computed metrics — this is
+    // exactly the streamed-swap geometry.
+    const { container } = render(
+      <TooltipProvider>
+        <div className="assistant-ui-panel">
+          <div className="aui-md">
+            <div data-testid="fallback-block">
+              <CodeBlockBody code="" language="typescript" />
+            </div>
+            <div data-testid="highlighted-block">
+              <CodeBlockBody code={'const answer = 42;\n'} language="typescript" />
+            </div>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+
+    const fallbackPre = container.querySelector('[data-testid="fallback-block"] pre');
+    if (!fallbackPre) {
+      throw new Error('expected the fallback <pre>');
+    }
+    const fallbackStyle = getComputedStyle(fallbackPre);
+    const fallbackPadding = Number.parseFloat(fallbackStyle.paddingTop);
+    expect(fallbackPadding).toBeGreaterThan(0);
+    expect(Number.parseFloat(fallbackStyle.marginTop)).toBe(0);
+    expect(Number.parseFloat(fallbackStyle.marginBottom)).toBe(0);
+
+    // Real Shiki (wasm) resolves in-browser and renders <pre class="shiki">.
+    const shikiPre = await waitFor(
+      () => {
+        const pre = container.querySelector('[data-testid="highlighted-block"] pre.shiki');
+        if (!pre) {
+          throw new Error('shiki not resolved yet');
+        }
+        return pre;
+      },
+      { timeout: 15_000 }
+    );
+
+    const shikiStyle = getComputedStyle(shikiPre);
+    expect(Number.parseFloat(shikiStyle.paddingTop)).toBe(fallbackPadding);
+    expect(Number.parseFloat(shikiStyle.fontSize)).toBe(Number.parseFloat(fallbackStyle.fontSize));
+    expect(shikiStyle.lineHeight).toBe(fallbackStyle.lineHeight);
+    expect(Number.parseFloat(shikiStyle.marginTop)).toBe(0);
+    expect(shikiStyle.overflowX).toBe('auto');
+
+    // react-shiki's own label is disabled — the header owns the language text.
+    expect(container.querySelector('[data-slot="language-label"]')).toBeNull();
+  }, 20_000);
+
+  test('dark mode: shiki tokens actually take the dark palette', async () => {
+    document.documentElement.classList.add('dark');
+    const { container } = renderChatBlock('const answer = 42;\n', 'typescript');
+
+    const shikiPre = await waitFor(
+      () => {
+        const pre = container.querySelector('pre.shiki');
+        if (!pre) {
+          throw new Error('shiki not resolved yet');
+        }
+        return pre;
+      },
+      { timeout: 15_000 }
+    );
+
+    const tokenSpan = shikiPre.querySelector<HTMLElement>('span[style*="--shiki-dark"]');
+    if (!tokenSpan) {
+      throw new Error('expected a dual-theme token span');
+    }
+    const declaredDark = tokenSpan.style.getPropertyValue('--shiki-dark').trim();
+    const probe = document.createElement('span');
+    probe.style.color = declaredDark;
+    document.body.append(probe);
+    const expectedColor = getComputedStyle(probe).color;
+    probe.remove();
+
+    expect(getComputedStyle(tokenSpan).color).toBe(expectedColor);
+  }, 20_000);
 });
 
 describe('AssistantActivityGroup (real browser)', () => {

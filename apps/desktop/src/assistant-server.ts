@@ -879,7 +879,20 @@ async function handleSuspendedRunsRequest(
     const staleThresholdMs = resolveApprovalStaleMs();
     const now = Date.now();
     const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
+      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
+      // hits for every known native tool.
       const riskCategory = riskByTool[approval.toolName];
+      if (!riskCategory) {
+        // Honest degradation, surfaced loudly: without a risk category the
+        // rediscovered notice renders no reason line and no grant actions
+        // (never a fabricated category — no-silent-fallbacks).
+        logger.warn('Rediscovered approval has no resolvable risk category', {
+          code: 'assistant_suspended_approval_risk_unresolved',
+          runId: approval.runId,
+          toolName: approval.toolName,
+        });
+      }
       return {
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,

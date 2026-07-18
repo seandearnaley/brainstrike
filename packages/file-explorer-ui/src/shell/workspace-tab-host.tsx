@@ -1141,6 +1141,11 @@ function FileTabBody({
   }, [clearTarget, content, tab.compositeKey]);
 
   let body: ReactNode;
+  // Raw untruncated contents for the header's copy affordance — set ONLY on
+  // the normal-text branch below (never for BINARY / inaccessible / loading /
+  // error tabs). Copy intentionally uses the FULL `content` even when
+  // getDisplayContent truncates the DOM for very large files.
+  let copyText: string | null = null;
   if (status?.status === 'needs-permission') {
     body = (
       <div className="flex h-full flex-col items-center justify-center text-center">
@@ -1204,6 +1209,7 @@ function FileTabBody({
   } else {
     const { text, truncated } = getDisplayContent(content);
     const target = getTarget(tab.compositeKey);
+    copyText = content;
 
     body =
       effectiveMode === 'preview' ? (
@@ -1259,6 +1265,7 @@ function FileTabBody({
         onContextMenuCapture={resetContextMenuTarget}
       >
         <FileTabHeader
+          copyText={copyText}
           directory={directory}
           fileName={fileName}
           mode={effectiveMode}

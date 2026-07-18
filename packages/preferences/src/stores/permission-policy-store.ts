@@ -81,6 +81,14 @@ export interface PermissionToolGateSnapshotInput {
 interface PermissionPolicyActions {
   /** Clear every session grant (e.g. on a new session). */
   clearSessionGrants: () => void;
+  /**
+   * Grant ALL FOUR risk categories for this session in ONE atomic `set()`
+   * (subscribers observe a single update, never a partial grant set). This is
+   * the "Allow all tools this session" affordance: it is deliberately NOT a
+   * session-yolo flag — per-tool DENY overrides still beat a blanket session
+   * grant, and Settings lists/revokes each category individually.
+   */
+  grantAllSessionCategories: () => void;
   /** Grant "always allow for this session" for a category. */
   grantSessionCategory: (category: ToolRiskCategory) => void;
   /** Revoke a single session grant; the category falls back to its policy. */
@@ -205,6 +213,13 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         set((state) =>
           state.sessionGrants.size === 0 ? state : { sessionGrants: new Set<ToolRiskCategory>() }
         ),
+      grantAllSessionCategories: () =>
+        set((state) => {
+          if (ALL_RISK_CATEGORIES.every((category) => state.sessionGrants.has(category))) {
+            return state;
+          }
+          return { sessionGrants: new Set<ToolRiskCategory>(ALL_RISK_CATEGORIES) };
+        }),
       grantSessionCategory: (category) =>
         set((state) => {
           if (state.sessionGrants.has(category)) {

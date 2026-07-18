@@ -83,6 +83,40 @@ describe('permission-policy-store', () => {
     expect(usePermissionPolicyStore.getState().sessionGrants).toBe(first);
   });
 
+  it('grantAllSessionCategories grants read/edit/execute/mcp in ONE atomic set()', () => {
+    let notifications = 0;
+    const unsubscribe = usePermissionPolicyStore.subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      usePermissionPolicyStore.getState().grantAllSessionCategories();
+    } finally {
+      unsubscribe();
+    }
+
+    const state = usePermissionPolicyStore.getState();
+    expect(state.sessionGrants).toEqual(new Set(['read', 'edit', 'execute', 'mcp']));
+    // Atomic: subscribers observe ONE update, never a partial grant set.
+    expect(notifications).toBe(1);
+    // The serializable snapshot carries all four.
+    expect(buildPermissionToolGateSnapshotInput(state).sessionGrants.sort()).toEqual([
+      'edit',
+      'execute',
+      'mcp',
+      'read',
+    ]);
+  });
+
+  it('grantAllSessionCategories leaves grants individually revocable', () => {
+    usePermissionPolicyStore.getState().grantAllSessionCategories();
+    usePermissionPolicyStore.getState().revokeSessionCategory('execute');
+    const grants = usePermissionPolicyStore.getState().sessionGrants;
+    expect(grants.has('execute')).toBe(false);
+    expect(grants.has('read')).toBe(true);
+    expect(grants.has('edit')).toBe(true);
+    expect(grants.has('mcp')).toBe(true);
+  });
+
   it('clearSessionGrants empties the session grant set', () => {
     usePermissionPolicyStore.getState().grantSessionCategory('edit');
     usePermissionPolicyStore.getState().grantSessionCategory('mcp');
