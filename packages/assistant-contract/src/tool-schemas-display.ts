@@ -468,6 +468,44 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.lspInspect': {
+    description:
+      "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript). Returns the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Read-only. Returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available.",
+    parameters: [
+      {
+        description: 'Workspace-relative file path to inspect',
+        minLength: 1,
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: '1-based line number of the symbol to inspect',
+        min: 1,
+        name: 'line',
+        required: true,
+        type: 'number',
+      },
+      {
+        description:
+          "The target line's text — or a fragment that occurs exactly once on that line — with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`",
+        minLength: 3,
+        name: 'match',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Optional folder name or id when multiple folders are open (omit when one)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Up to four groups: hover (type/docs), diagnostics (the inspected line), definition (declaration locations with a one-line preview), and implementation (usage/implementation locations). An available:false note for unsupported file types or when no server is available.',
+    toolId: 'brainstrike.lspInspect',
+  },
+
   'brainstrike.manageTaskList': {
     description:
       'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the full desired list every call. Keep exactly one task in_progress and mark tasks completed as you finish them. The list is re-injected into your instructions each turn and shown to the user as a progress checklist.',

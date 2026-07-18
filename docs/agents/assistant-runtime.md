@@ -186,8 +186,26 @@ capability-gated, no `isElectron()`).
   `textDocument.publishDiagnostics` client capability (without it the server
   stays silent). Diagnostics land as two pushes (`[]` then the real set), so a
   settle-window is mandatory — an empty publish is polled a little longer
-  before the "clean" verdict is trusted. py/go/rust + an `lsp_inspect` read
-  tool (hover/definition/implementations, `<<<` cursor) are Phase B.
+  before the "clean" verdict is trusted. Python/Go/Rust discovery + the config
+  surface are the remaining Phase B work.
+- **`lspInspect` tool (Phase B).** A read-risk native tool for semantic
+  navigation: `{path, line (1-based), match}` where `match` is the line's text
+  with exactly one `<<<` cursor marker before the symbol (a unique fragment of
+  the line also works). The tool reads the file through the checked reader,
+  anchors `match` (marker removed) against the REAL line text — refusing with
+  the actual line if it isn't found, or if it occurs more than once — and
+  resolves the column as fragment-start + marker-offset, so a partial or stale
+  quote can never silently inspect the wrong position (same
+  validate-before-position convention as `stringReplace`). Returns up to four
+  groups — hover (inferred type/docs), the inspected line's diagnostics,
+  definition locations (with a one-line preview + workspace-relative path,
+  URIs converted via `fileURLToPath` so Windows drive letters survive), and
+  implementations. Reuses the same pooled connection + per-file diagnose lock;
+  each hover/definition/implementation query is independently bounded
+  (`QUERY_TIMEOUT_MS`) and degrades to omitted, never a throw. A malformed
+  marker / out-of-range line / unmatched or ambiguous `match` is an actionable
+  input error thrown for the model to correct. Registered across the full multi-registry checklist (read-risk,
+  no approval).
 - **Pool + lifecycle.** One pooled server child process per workspace `rootId`
   (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
   All acquisition goes through `acquireLspServer`, which registers the pool

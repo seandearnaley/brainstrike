@@ -1,6 +1,7 @@
 import type { AssistantTaskItem, AssistantTaskStatus } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
+  LSP_INSPECT_TOOL_ID,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
@@ -76,6 +77,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   hybridSearch: 'brainstrike.hybridSearch',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
+  lspInspect: LSP_INSPECT_TOOL_ID,
   manageTaskList: 'brainstrike.manageTaskList',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
@@ -100,6 +102,7 @@ interface ModelFacingToolNames {
   hybridSearch: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
+  lspInspect: string | null;
   manageTaskList: string | null;
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
@@ -182,6 +185,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     listWorkspaceContext: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listWorkspaceContext
+    ),
+    lspInspect: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.lspInspect
     ),
     manageTaskList: resolveModelFacingToolName(
       originalToModelFacing,
@@ -488,6 +495,18 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
   );
 }
 
+/**
+ * Guidance for the lsp_inspect tool (report R2 Phase B). Emitted only when the
+ * tool is registered; teaches the `<<<` cursor-marker convention so the model
+ * reaches for semantic inspection instead of grepping for definitions.
+ */
+function buildLspInspectInstruction(names: ModelFacingToolNames): string {
+  if (!names.lspInspect) {
+    return '';
+  }
+  return `To understand a symbol semantically before editing — its inferred TYPE, where it is DEFINED, and its IMPLEMENTATIONS — use ${names.lspInspect} with the file path, the 1-based line, and a \`match\` string that is that line's text with a \`<<<\` marker right before the symbol (TypeScript/JavaScript). Prefer this over guessing a type or grepping for a definition.`;
+}
+
 function buildPlanModeBlock(names: ModelFacingToolNames): string {
   const submitPlanClause = names.submitPlan
     ? `When your investigation is complete, call ${names.submitPlan} with a structured plan (title, overview, ordered steps, and — where useful — risks and verification) and WAIT for the user to approve or reject it. If they reject with feedback, revise and submit again. Do NOT propose or perform any changes before the plan is approved.`
@@ -528,6 +547,7 @@ export function buildDefaultInstructions(
         ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
         : 'Workspace file reading is unavailable in this run.';
   const writeInstruction = buildWriteInstruction(names);
+  const lspInspectInstruction = buildLspInspectInstruction(names);
   const executeCommandInstruction = buildExecuteCommandInstruction(names);
   const webSearchInstruction = buildWebSearchInstruction(names);
   const taskListInstruction = buildTaskListInstruction(names);
@@ -582,7 +602,7 @@ export function buildDefaultInstructions(
     'Use tools when they help you answer accurately.',
     'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
     `Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.`,
-    `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
+    `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${lspInspectInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
     buildSkillsInstruction(names),
     taskListInstruction,
     askUserInstruction,

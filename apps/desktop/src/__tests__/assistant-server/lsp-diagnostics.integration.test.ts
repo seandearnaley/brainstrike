@@ -38,6 +38,7 @@ import {
   disposeLspServers,
   evictLspServersForRoot,
   getEditDiagnostics,
+  getLspInspection,
 } from '../../assistant-server/lsp-diagnostics';
 
 async function makeRoot(): Promise<string> {
@@ -254,6 +255,57 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(cleanResult.diagnostics ?? []).toEqual([]);
       // One pooled server served both (per-file lock, not per-call spawn).
       expect(countPooledLspServers()).toBe(1);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('inspects a symbol: hover type + definition location (report R2 Phase B)', async () => {
+    const root = await makeRoot();
+    try {
+      // greeting is defined on line 1; used on line 2. Inspect the USE site.
+      const content = 'export const greeting: string = "hi";\nexport const echo = greeting;\n';
+      await fsPromises.writeFile(path.join(root, 'sym.ts'), content, 'utf8');
+
+      // 0-based line 1 (the second line), cursor on `greeting` (char 20).
+      const result = await getLspInspection({
+        absolutePath: path.join(root, 'sym.ts'),
+        content,
+        position: { character: 20, line: 1 },
+        rootId: 'root-1',
+        rootPath: root,
+      });
+
+      expect(result.available).toBe(true);
+      expect(result.language).toBe('typescript');
+      // Hover reports the inferred type of `greeting`.
+      expect(result.hover).toMatch(/greeting/);
+      expect(result.hover).toMatch(/string/);
+      // Definition points back to line 1 with a preview.
+      expect(result.definition?.length ?? 0).toBeGreaterThan(0);
+      const def = result.definition?.[0];
+      expect(def?.path).toBe('/sym.ts');
+      expect(def?.line).toBe(1);
+      expect(def?.preview).toMatch(/greeting/);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('lsp inspection degrades to an honest note for an unsupported language', async () => {
+    const root = await makeRoot();
+    try {
+      await fsPromises.writeFile(path.join(root, 'notes.md'), '# hi\n', 'utf8');
+      const result = await getLspInspection({
+        absolutePath: path.join(root, 'notes.md'),
+        content: '# hi\n',
+        position: { character: 2, line: 0 },
+        rootId: 'root-1',
+        rootPath: root,
+      });
+      expect(result.available).toBe(false);
+      expect(result.reason).toBe('unsupported-language');
+      expect(countPooledLspServers()).toBe(0);
     } finally {
       await fsPromises.rm(root, { force: true, recursive: true });
     }
