@@ -140,6 +140,32 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm turbo run build --concurrency=4
 
+      # `turbo run build` above restores @brainstrike/secure-fs-native's compiled
+      # addon (`build/**`, cached by its turbo `build` task) from the SHARED
+      # REMOTE turbo cache — whose hash keys on SOURCE, not CPU arch (turbo's
+      # hash omits arch and `runner.os` is "Linux" on both; only the LOCAL
+      # `.turbo` layer is arch-namespaced). The Static/Unit jobs run on arm64
+      # (ubuntu-24.04-arm) and populate that entry with an arm64
+      # `secure_fs_native.node`; this Coverage job runs on x64 (ubuntu-latest),
+      # so it replays the arm64 binary over the correct x64 one `pnpm install`
+      # already built. apps/desktop's `test:coverage` runs the FULL suite
+      # (unit + *.integration.test.*) in one process, and its user-commands /
+      # skills integration tests load the REAL addon in-process — so the wrong
+      # arch dies with "secure_fs_native.node: cannot open shared object file",
+      # blocking coverage for any PR that touches apps/desktop.
+      #
+      # Force a direct node-gyp rebuild on THIS runner (`pnpm run`, NOT turbo, so
+      # it bypasses the poisoned cache), the same guarantee the native-windows /
+      # native-electron lanes get from their own `pnpm build`. This MUST run
+      # AFTER `turbo run build` so it overwrites the restored arm64 artifact: the
+      # frozen-lockfile install already recorded the addon as built, so nothing
+      # downstream recompiles a `.node` that is merely present-but-wrong-arch —
+      # only an explicit `build` script (`node-gyp rebuild`) does. nightly-
+      # coverage.yml is unaffected — it has no `turbo run build` step, so its
+      # install-time x64 binary is never clobbered.
+      - name: Rebuild native secure-fs addon for this runner's arch
+        run: pnpm --filter @brainstrike/secure-fs-native run build
+
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
       # packages — dependents add no patch-coverage signal. `!./` excludes
