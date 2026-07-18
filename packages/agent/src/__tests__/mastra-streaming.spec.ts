@@ -195,6 +195,19 @@ vi.mock('@mastra/mcp', () => ({
   },
 }));
 
+/**
+ * Every initial-turn stream leads with the transient run-start context
+ * breakdown (context-ring WS8). Assert it explicitly, then hand back the
+ * remaining chunks so each test keeps its original whole-array expectation.
+ */
+function expectLeadingContextBreakdown(chunks: unknown[]): unknown[] {
+  expect(chunks[0]).toMatchObject({
+    breakdown: { provenance: 'heuristic' },
+    type: 'context-breakdown',
+  });
+  return chunks.slice(1);
+}
+
 describe('mastra streaming integration', () => {
   beforeEach(() => {
     agentInstances.length = 0;
@@ -230,7 +243,7 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       { type: 'text-delta', value: 'hello' },
       expect.objectContaining({
         event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
@@ -613,6 +626,9 @@ describe('mastra streaming integration', () => {
 
       const chunks: unknown[] = [];
       const stream = iterator[Symbol.asyncIterator]();
+      // Consume the run-start context breakdown so the timed steps below still
+      // line up with the tool chunks they assert against.
+      expect((await stream.next()).value).toMatchObject({ type: 'context-breakdown' });
       chunks.push((await stream.next()).value);
       chunks.push((await stream.next()).value);
       vi.setSystemTime(new Date('2026-05-30T08:00:05.000Z'));
@@ -973,7 +989,7 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       expect.objectContaining({
         event: expect.objectContaining({ kind: 'run.started', status: 'running' }),
         type: 'run-event',
@@ -1252,7 +1268,7 @@ describe('mastra streaming integration', () => {
       requireToolApproval?: boolean;
     };
     expect(streamOptions.requireToolApproval).toBe(true);
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       {
         args: { mode: 'replace', paths: ['src/index.ts'] },
         resumeSchema: '{}',
@@ -1342,7 +1358,7 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       expect.objectContaining({
         name: 'background.lookup',
         status: 'start',
@@ -1778,7 +1794,7 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       expect.objectContaining({
         name: 'brainstrike.updateWorkspaceContextSelection',
         payload: expect.objectContaining({
@@ -1884,7 +1900,7 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
       expect.objectContaining({
         name: 'brainstrike.queryEmbeddingSpace',
         status: 'start',
