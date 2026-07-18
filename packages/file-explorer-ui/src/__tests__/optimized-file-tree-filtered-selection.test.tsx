@@ -26,6 +26,22 @@ vi.mock('../tree/file-tree-provider', async (importOriginal) => {
   };
 });
 
+// Count the display-tree path-collection walks (the filteredPathSet build).
+// An unfiltered display tree must skip this O(N) traversal entirely.
+const collectTreePathsCalls = { count: 0 };
+
+vi.mock('../tree/optimized-file-tree-selection-counts', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../tree/optimized-file-tree-selection-counts')>();
+  return {
+    ...actual,
+    collectTreePaths: (nodes: IFileNode[], pathSet: Set<string>) => {
+      collectTreePathsCalls.count += 1;
+      return actual.collectTreePaths(nodes, pathSet);
+    },
+  };
+});
+
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { type FileExplorerStore, StoreHandleBridge } from './optimized-file-tree-test-support';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -79,7 +95,10 @@ function setupFilteredWorkspace() {
   return displayTree;
 }
 
-async function renderFilteredTree(displayTree: IFileNode[]) {
+async function renderFilteredTree(
+  displayTree: IFileNode[],
+  extraProps?: { isDisplayTreeFiltered?: boolean }
+) {
   let fileExplorerStore: FileExplorerStore | undefined;
   render(
     <FileExplorerTestWrapper>
@@ -88,7 +107,12 @@ async function renderFilteredTree(displayTree: IFileNode[]) {
           fileExplorerStore = store;
         }}
       />
-      <OptimizedFileTree fileTree={displayTree} folderId="root" loadingFiles={new Set()} />
+      <OptimizedFileTree
+        fileTree={displayTree}
+        folderId="root"
+        loadingFiles={new Set()}
+        {...extraProps}
+      />
     </FileExplorerTestWrapper>
   );
   await act(async () => {
@@ -180,5 +204,58 @@ describe('OptimizedFileTree selection under an active filter (normalized path)',
     // Deselect sweeps ALL selected descendants, hidden included — never
     // leave invisible residue behind (asymmetric with select on purpose).
     expect(store.getState().selectedFilePaths).toEqual(new Set());
+  });
+});
+
+describe('OptimizedFileTree filteredPathSet skip for unfiltered display trees', () => {
+  // PR #1734 audit follow-up: when the caller declares the display tree
+  // UNFILTERED, the O(N) full-tree path collection must be skipped — the
+  // normalized tree's raw O(1) maps already cover the whole visible universe.
+
+  it('skips the path-set walk when isDisplayTreeFiltered is false', async () => {
+    const fullTree = [directoryNode('/src', [fileNode('/src/a.ts', 1), fileNode('/src/b.md', 1)])];
+    mockNormalizedContext = createNormalizedContext(createNormalizedFileTreeState(fullTree));
+    collectTreePathsCalls.count = 0;
+
+    const store = await renderFilteredTree(fullTree, { isDisplayTreeFiltered: false });
+
+    expect(collectTreePathsCalls.count).toBe(0);
+
+    // Behavior parity: a folder click still selects every (raw) descendant.
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
+    expect(new Set(store.getState().selectedFilePaths)).toEqual(
+      new Set([encodeFileSelection('root', '/src/a.ts'), encodeFileSelection('root', '/src/b.md')])
+    );
+  });
+
+  it('still builds the path set when isDisplayTreeFiltered is true (D2 visible-universe rules)', async () => {
+    const displayTree = setupFilteredWorkspace();
+    collectTreePathsCalls.count = 0;
+
+    const store = await renderFilteredTree(displayTree, { isDisplayTreeFiltered: true });
+
+    expect(collectTreePathsCalls.count).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
+    // Only the VISIBLE file enters the selection — the filtered universe rules.
+    expect(Array.from(store.getState().selectedFilePaths)).toEqual([
+      encodeFileSelection('root', '/src/a.ts'),
+    ]);
+  });
+
+  it('defaults to building the path set when the caller does not declare filtering', async () => {
+    // Legacy call sites (no isDisplayTreeFiltered prop) must keep today's
+    // conservative behavior: the display tree may be filtered, so the
+    // restriction set is built.
+    const displayTree = setupFilteredWorkspace();
+    collectTreePathsCalls.count = 0;
+
+    await renderFilteredTree(displayTree);
+
+    expect(collectTreePathsCalls.count).toBeGreaterThan(0);
   });
 });
