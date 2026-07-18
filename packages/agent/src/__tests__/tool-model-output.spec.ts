@@ -166,6 +166,42 @@ describe('applyToolModelOutputProjections', () => {
     expect(text).not.toContain('text-only-tail');
   });
 
+  it('extracts MCP media from the Mastra execution envelope', () => {
+    const rawOutput = {
+      content: [
+        { text: 'Inspect both attachments.', type: 'text' },
+        { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+        { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
+      ],
+    };
+    const tool = asTool({ execute: () => rawOutput, id: 'multimodal' });
+
+    const projected = applyToolModelOutputProjections(
+      { multimodal: tool },
+      new Map([['multimodal', 'remote.multimodal']])
+    );
+    const modelOutput = (projected['multimodal'] as TestTool).toModelOutput?.({
+      input: { query: 'attachments' },
+      output: rawOutput,
+      toolCallId: 'call-multimodal',
+    }) as {
+      type?: string;
+      value?: Record<string, unknown>[];
+    };
+
+    expect(modelOutput.type).toBe('content');
+    expect(modelOutput.value).toContainEqual({
+      data: 'aGVsbG8=',
+      mediaType: 'image/png',
+      type: 'image-data',
+    });
+    expect(modelOutput.value).toContainEqual({
+      data: 'UklGRg==',
+      mediaType: 'audio/wav',
+      type: 'file-data',
+    });
+  });
+
   it('fails loudly for a malformed declared projection', () => {
     const malformed = asTool({
       execute: () => 'raw',

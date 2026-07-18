@@ -85,7 +85,10 @@ post-hook execution result without replacing it: native raw output remains
 available to stream/application consumers and is what Mastra persists; only
 the provider receives the bounded projection. Existing custom projections are
 composed with the final ceiling, not allowed to bypass it. Persona agents
-receive the same projections before their independent permission gate.
+receive the same projections before their independent permission gate. Mastra
+1.51 passes `{toolCallId,input,output}` to generated projections, so the generic
+projection extracts the envelope's `output`; direct raw-output calls remain
+supported.
 
 MCP is the temporary exception while artifact storage is absent: text/JSON is
 bounded inside `execute()` before inline persistence; image/audio stays raw

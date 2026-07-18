@@ -250,8 +250,11 @@ text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
 domain projections keep their semantics but pass through the same final text
 ceiling; malformed non-callable projections throw. MCP image/audio results use
 Mastra `content` output so base64 media remains model-native while companion
-text is bounded. `skill` is the explicit text exception (6000), because its
-instruction body is the payload and cannot be paged.
+text is bounded. Mastra 1.51 invokes generated projections with
+`{toolCallId,input,output}`; the generic projection extracts that envelope's
+raw `output` while retaining direct raw-output invocation compatibility.
+`skill` is the explicit text exception (6000), because its instruction body is
+the payload and cannot be paged.
 
 Mastra 1.51's stock `TokenLimiter` counts raw database-shaped
 `toolInvocation.result` before provider conversion. Brainstrike therefore
