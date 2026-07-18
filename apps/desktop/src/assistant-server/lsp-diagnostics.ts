@@ -852,11 +852,7 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
 
   try {
     return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
-      let connection = pool.get(args.rootId);
-      if (!connection) {
-        connection = new LspServerConnection(server, args.rootPath);
-        pool.set(args.rootId, connection);
-      }
+      const connection = await acquireLspServer(args.rootId, args.rootPath, server);
       const raw = await connection.inspect(
         args.absolutePath,
         args.content,
