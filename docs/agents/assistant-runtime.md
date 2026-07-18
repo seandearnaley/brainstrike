@@ -263,9 +263,16 @@ Flow (desktop assistant server → agent runtime):
    direction), it changes no wire contract, and Settings > Permissions lists
    each granted category individually revocable plus a "Revoke all" button
    (`clearSessionGrants`). All grant actions record the grant
-   FIRST, then approve the pending call through the normal resume — the grant
-   affects the NEXT request via the wrapper's reactive store subscription; the
+   FIRST, then approve the pending call through the normal resume; the
    pending call still resolves through `streamMastraToolApprovalAction`.
+   TIMING (confirmed): the grant takes effect on the SAME resumed leg, not
+   just the next request — `useAssistantRequestLifecycle.prepareRequestData`
+   reads the permission posture FRESH from the store
+   (`getPermissionToolGateSnapshotInput()`) at request-composition time,
+   precisely because the grant + approve happen in one synchronous handler
+   with no re-render in between (the same fresh-read pattern as plan-mode
+   exit). The wrapper's reactive subscription additionally keeps later
+   requests in sync.
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later
@@ -303,6 +310,45 @@ Flow (desktop assistant server → agent runtime):
    Per-tool DENY still wins in both cases: a denied tool never enters the gated
    map, so it never reaches the resume gate. A non-empty `askTools` always gates
    exactly the ask set regardless of posture.
+
+APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
+Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
+message whose `metadata.custom` + `runConfig.custom` carry the action under
+`TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
+text ("Approved <tool>." / "Approved the plan."). That message is THREAD-STATE
+ONLY:
+- The panel renders it as a compact outcome chip
+  (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a
+  prompt bubble — BOTH marker kinds: per-tool approvals ("Approved
+  <tool>"/"Declined <tool>") and suspend resumes ("Approved/Rejected the plan"
+  with a feedback note, "Answered: <truncated answer>"). The recognizers are
+  STRICT (canonical contract guards + only the resumeData shapes the suspend
+  notice actually produces); an unrecognized/malformed marker falls through to
+  the ordinary bubble — content is never hidden behind a guessed chip. The
+  message stays in thread state so the notices' outcome locking
+  (`resolveApprovalRunOutcome`/`resolveSuspendRunOutcome`) and the resume
+  `runConfig` keep working.
+- The shared transport (`data-stream-runtime.ts` `run()`, both apps) excludes
+  action messages (BOTH keys — `approval-action-message.ts` is the single
+  recognizer) from EVERY outbound payload BEFORE
+  `selectTransportMessagesForMastraMemory`, so a regenerate-after-approval leg
+  anchors on the previous REAL user message instead of the echo, and
+  non-memory full-history resends never replay it. Action legs themselves
+  (runConfig carries either key) ship `messages: []` — the desktop and web
+  resume routes read the action from `runConfig` and ignore messages. The
+  transport recognizer uses the SAME strict contract guards as the chip
+  (`isAssistantToolApprovalAction`/`isAssistantToolResumeAction`, keyed per
+  run-config key), NOT a loose "is a record" check: wire-exclusion and
+  chip-rendering MUST agree on what an action message is. A
+  record-but-structurally-invalid marker (e.g. `{}`) is NOT an action — the chip
+  renders it as an ordinary bubble, so the transport keeps it on the wire rather
+  than silently dropping a user-visible prompt (no-silent-fallbacks). Proof:
+  `data-stream-runtime.test.ts` ("keeps a record-but-INVALID … marker on the
+  wire").
+- Mastra never persists the echo (neither resume path passes messages), so it
+  is absent after reload — restart-safe rediscovery owns the post-restart UI.
+  Pinned live in `mastra-tool-approval-suspend.integration.spec.ts`
+  ("never persists an approval action echo").
 
 NAME-FORM CONTRACT (settled — the rediscovery live bug class): Mastra registers
 tools under SANITIZED ids (`brainstrike.executeCommand` → `brainstrike_executeCommand`,

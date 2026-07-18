@@ -1050,6 +1050,86 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     await database.close();
   });
 
+  it('never persists an approval action echo as a Mastra user row (transport bookkeeping only)', async () => {
+    // Pins the persistence claim behind the transport-level echo exclusion:
+    // neither the suspend leg nor the approve resume passes the client's
+    // "Approved <tool>." bookkeeping message to Mastra, so `mastra_messages`
+    // must contain NO user row with approval action text. If this ever finds
+    // one, the exclusion needs a persistence-side seam at that writer (and
+    // docs/agents/assistant-persistence.md must be updated).
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-echo-1', threadId: 'thread-echo-1' } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Echo check finished.',
+      input: JSON.stringify({ command: 'echo persisted?' }),
+      toolCallId: 'call-echo-persist-1',
+      toolName: 'shell_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-echo-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      )
+    );
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+    expect(askExecute).toHaveBeenCalledTimes(1);
+
+    const { rows } = await database.query<{ content: string; role: string }>(
+      'SELECT role, content FROM mastra_messages WHERE thread_id = $1',
+      [thread.threadId]
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    const userRows = rows.filter((row) => row.role === 'user');
+    // The real user prompt IS persisted…
+    expect(userRows.some((row) => JSON.stringify(row.content).includes('run echo'))).toBe(true);
+    // …but no approval bookkeeping text ever becomes a durable user row.
+    expect(userRows.some((row) => JSON.stringify(row.content).includes('Approved'))).toBe(false);
+
+    await database.close();
+  });
+
   it('D4: the resume leg does NOT prompt approval for Mastra-internal updateWorkingMemory', async () => {
     // The resume passes run-wide requireToolApproval: true (required by the resume
     // API). Without the D4 exemption that blanket gate suspends EVERY tool call on

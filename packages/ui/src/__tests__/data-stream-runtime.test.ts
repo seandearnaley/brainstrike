@@ -3,6 +3,8 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
 } from '@brainstrike/assistant-contract';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -11,6 +13,7 @@ import {
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readApprovalActionChipProps } from '../assistant-ui-panel/approval-action-chip';
 import {
   BrainstrikeDataStreamRuntimeAdapter,
   boundResentImageHistory,
@@ -35,6 +38,79 @@ function message(id: string, role: ThreadMessage['role']): ThreadMessage {
     role,
   } as ThreadMessage;
 }
+
+/** A user message appended by the approval notice (Approve/Decline). */
+function approvalActionMessage(id: string, text = 'Approved shell.tool.'): ThreadMessage {
+  return {
+    content: [{ text, type: 'text' }],
+    createdAt: new Date(0),
+    id,
+    metadata: {
+      custom: {
+        [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+          action: 'approve',
+          runId: 'run-echo-1',
+          toolCallId: 'call-echo-1',
+          toolName: 'shell.tool',
+        },
+      },
+    },
+    role: 'user',
+  } as unknown as ThreadMessage;
+}
+
+/** A user message appended by the suspend notice ("Approved the plan."). */
+function suspendActionMessage(id: string): ThreadMessage {
+  return {
+    content: [{ text: 'Approved the plan.', type: 'text' }],
+    createdAt: new Date(0),
+    id,
+    metadata: {
+      custom: {
+        [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+          resumeData: { action: 'approved' },
+          runId: 'run-plan-1',
+          toolCallId: 'call-plan-1',
+          toolName: 'brainstrike.submitPlan',
+        },
+      },
+    },
+    role: 'user',
+  } as unknown as ThreadMessage;
+}
+
+/** Run the adapter against a scripted one-chunk response and capture the request body. */
+async function captureRequestBody(
+  options: Partial<Parameters<BrainstrikeDataStreamRuntimeAdapter['run']>[0]>,
+  body?: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = vi.fn(async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(
+      dataStreamFromLines([
+        'f:{"messageId":"msg-echo"}',
+        '0:"Done"',
+        'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+      ])
+    );
+  }) as typeof fetch;
+  const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+    api: 'http://assistant.test/api/assistant',
+    ...(body ? { body } : {}),
+  });
+  for await (const _message of adapter.run(runOptions(options))) {
+    // Consume the stream so the request fully completes.
+  }
+  if (!requestBody) {
+    throw new Error('adapter run did not issue a request');
+  }
+  return requestBody;
+}
+
+const MEMORY_BODY = {
+  data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
+} as const;
 
 function dataStreamFromLines(lines: readonly string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -178,6 +254,186 @@ describe('selectTransportMessagesForMastraMemory', () => {
         data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toBe(messages);
+  });
+});
+
+describe('approval action echo exclusion (transport seam)', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('excludes a history approval action message from a memory-backed normal turn', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          message('assistant-1', 'assistant'),
+          approvalActionMessage('approval-user'),
+          message('assistant-2', 'assistant'),
+          message('next-user', 'user'),
+        ],
+      },
+      { ...MEMORY_BODY }
+    );
+
+    expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved shell.tool.');
+    expect(JSON.stringify(requestBody['messages'])).toContain('next-user');
+  });
+
+  it('excludes a history approval action message from a NON-memory-backed turn (full history resend)', async () => {
+    const requestBody = await captureRequestBody({
+      messages: [
+        message('real-user', 'user'),
+        message('assistant-1', 'assistant'),
+        approvalActionMessage('approval-user'),
+        message('assistant-2', 'assistant'),
+        message('next-user', 'user'),
+      ],
+    });
+
+    // Full history is resent on non-memory transports — the approval echo must
+    // not ride along as model-visible conversation.
+    expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved shell.tool.');
+    expect(JSON.stringify(requestBody['messages'])).toContain('real-user');
+    expect(JSON.stringify(requestBody['messages'])).toContain('next-user');
+  });
+
+  it('anchors a regenerate-after-approval turn on the previous REAL user message (memory-backed)', async () => {
+    // Regenerating the post-approval response: the approval echo is the LAST
+    // user message and the runConfig carries no approval action. Without
+    // exclusion, the memory compaction anchors ON the echo and the model's
+    // "current turn" becomes "Approved shell.tool." — the wrong prompt.
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          message('assistant-1', 'assistant'),
+          approvalActionMessage('approval-user'),
+        ],
+      },
+      { ...MEMORY_BODY }
+    );
+
+    expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved shell.tool.');
+    expect(JSON.stringify(requestBody['messages'])).toContain('real-user');
+  });
+
+  it('ships EMPTY messages on the approval action leg itself (runConfig carries the approval key)', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          message('assistant-1', 'assistant'),
+          approvalActionMessage('approval-user'),
+        ],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'approve',
+              runId: 'run-echo-1',
+              toolCallId: 'call-echo-1',
+              toolName: 'shell.tool',
+            },
+          },
+        },
+      },
+      { ...MEMORY_BODY }
+    );
+
+    // Both resume routes read the action from runConfig and ignore messages —
+    // the echo must not reach the server at all.
+    expect(requestBody['messages']).toEqual([]);
+    expect(requestBody).toHaveProperty('runConfig');
+  });
+
+  it('excludes a history suspend action message ("Approved the plan.") — same echo class, same seam', async () => {
+    const requestBody = await captureRequestBody({
+      messages: [
+        message('real-user', 'user'),
+        message('assistant-1', 'assistant'),
+        suspendActionMessage('plan-user'),
+        message('assistant-2', 'assistant'),
+        message('next-user', 'user'),
+      ],
+    });
+
+    expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved the plan.');
+    expect(JSON.stringify(requestBody['messages'])).toContain('next-user');
+  });
+
+  it('ships EMPTY messages on the suspend resume leg (runConfig carries the suspend key)', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          message('assistant-1', 'assistant'),
+          suspendActionMessage('plan-user'),
+        ],
+        runConfig: {
+          custom: {
+            [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+              resumeData: { action: 'approved' },
+              runId: 'run-plan-1',
+              toolCallId: 'call-plan-1',
+              toolName: 'brainstrike.submitPlan',
+            },
+          },
+        },
+      },
+      { ...MEMORY_BODY }
+    );
+
+    expect(requestBody['messages']).toEqual([]);
+    expect(requestBody).toHaveProperty('runConfig');
+  });
+
+  it('keeps an ordinary user message with unrelated custom metadata on the wire', async () => {
+    const unrelated = {
+      ...message('custom-user', 'user'),
+      metadata: { custom: { somethingElse: { note: true } } },
+    } as ThreadMessage;
+    const requestBody = await captureRequestBody({
+      messages: [unrelated],
+    });
+
+    expect(JSON.stringify(requestBody['messages'])).toContain('custom-user');
+  });
+
+  it('keeps a record-but-INVALID suspend marker on the wire (it renders as a bubble, not a chip)', async () => {
+    // Defense-in-depth: the transport recognizer must agree with the chip
+    // recognizer on what an action message IS. A `custom` marker that is a
+    // RECORD but structurally invalid (empty object — no runId/toolCallId, no
+    // resumeData key) is NOT a valid action: the chip recognizer returns null so
+    // it renders as an ordinary prompt bubble. The transport therefore MUST keep
+    // it on the wire — stripping a user-visible prompt would be a silent drop.
+    const invalidSuspend = {
+      ...message('invalid-suspend-user', 'user'),
+      metadata: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: {} } },
+    } as unknown as ThreadMessage;
+
+    // The chip recognizer already treats it as a bubble (returns null)…
+    expect(readApprovalActionChipProps(invalidSuspend)).toBeNull();
+
+    // …so the transport must NOT strip it from the outbound wire.
+    const requestBody = await captureRequestBody({ messages: [invalidSuspend] });
+    expect(JSON.stringify(requestBody['messages'])).toContain('invalid-suspend-user');
+  });
+
+  it('keeps a record-but-INVALID approval marker on the wire (agrees with the chip recognizer)', async () => {
+    // Same divergence for the approval key: `{ action: 'approve' }` with no
+    // runId/toolCallId fails the strict contract guard, so it renders as a bubble
+    // and must stay on the wire.
+    const invalidApproval = {
+      ...message('invalid-approval-user', 'user'),
+      metadata: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { action: 'approve' } } },
+    } as unknown as ThreadMessage;
+
+    expect(readApprovalActionChipProps(invalidApproval)).toBeNull();
+
+    const requestBody = await captureRequestBody({ messages: [invalidApproval] });
+    expect(JSON.stringify(requestBody['messages'])).toContain('invalid-approval-user');
   });
 });
 
