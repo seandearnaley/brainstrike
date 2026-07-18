@@ -7,10 +7,11 @@
  *
  *   pnpm --filter @brainstrike/db test:pg-textsearch-durability
  *
- * The gate submits overlapping insert, update, delete, BM25 search, and VACUUM
- * requests, then repeatedly closes and reopens the same on-disk PGlite store.
- * A timeout bounds every workload cycle so a broken extension cannot leave the
- * qualification command looking idle indefinitely.
+ * The gate submits each cycle's insert, update, delete, BM25 search, and VACUUM
+ * statements as a rotated burst. PGlite serializes those statements through
+ * one WASM Postgres instance. The gate then repeatedly closes and reopens the
+ * same on-disk store. A timeout bounds every workload cycle so a broken
+ * extension cannot leave the qualification command looking idle indefinitely.
  */
 
 import { PGlite } from '@electric-sql/pglite';
@@ -28,6 +29,7 @@ const DEFAULT_REOPEN_INTERVAL = 4;
 const DEFAULT_CYCLE_TIMEOUT_MS = 60_000;
 const GATE_TIMEOUT_MS = 10 * 60_000;
 const BM25_INDEX_NAME = 'pg_textsearch_durability_docs_bm25';
+const MAX_INDEXED_ROW_COUNT = 100_000;
 
 function readBoundedInteger(
   environmentName: string,
@@ -79,10 +81,20 @@ const CYCLE_TIMEOUT_MS = GATE_ENABLED
       300_000
     )
   : DEFAULT_CYCLE_TIMEOUT_MS;
+const MAX_POSSIBLE_ROW_COUNT = WRITER_COUNT * ROWS_PER_WRITER * (CYCLE_COUNT + 1);
+
+if (GATE_ENABLED && MAX_POSSIBLE_ROW_COUNT > MAX_INDEXED_ROW_COUNT) {
+  throw new Error(
+    `The configured pg_textsearch durability workload can create ${MAX_POSSIBLE_ROW_COUNT} rows, exceeding pg_textsearch.default_limit=${MAX_INDEXED_ROW_COUNT}; reduce cycles, writers, or rows per writer so the BM25-backed integrity count covers the whole heap`
+  );
+}
 
 interface CountRow {
-  distinct_ids: string;
   row_count: string;
+}
+
+interface IndexedCountRow {
+  indexed_row_count: string;
 }
 
 interface ExtensionVersionRow {
@@ -92,6 +104,10 @@ interface ExtensionVersionRow {
 interface IndexStateRow {
   indisready: boolean;
   indisvalid: boolean;
+}
+
+interface QueryPlanRow {
+  'QUERY PLAN': string;
 }
 
 interface RankedRow {
@@ -114,19 +130,30 @@ async function configureStressThresholds(db: PGlite): Promise<void> {
     SET pg_textsearch.bulk_load_threshold = 100;
     SET pg_textsearch.memtable_pages_threshold = 2;
     SET pg_textsearch.segments_per_level = 2;
+    SET pg_textsearch.default_limit = ${MAX_INDEXED_ROW_COUNT};
   `);
 }
 
 async function runWithTimeout<T>(label: string, operation: Promise<T>): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let didTimeout = false;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
+      didTimeout = true;
       reject(new Error(`${label} exceeded the ${CYCLE_TIMEOUT_MS}ms durability-gate timeout`));
     }, CYCLE_TIMEOUT_MS);
   });
 
   try {
     return await Promise.race([operation, timeoutPromise]);
+  } catch (error) {
+    if (didTimeout) {
+      // PGlite cannot cancel statements already queued in its single WASM
+      // Postgres instance. Explicitly observe any later rejection while the
+      // caller performs best-effort database cleanup after the bounded failure.
+      void operation.catch(() => undefined);
+    }
+    throw error;
   } finally {
     if (timeout) {
       clearTimeout(timeout);
@@ -204,10 +231,29 @@ function createCycleOperations(db: PGlite, cycle: number): Array<() => Promise<u
 async function assertReopenIntegrity(db: PGlite, expectedRevision: number): Promise<number> {
   await configureStressThresholds(db);
   const counts = await db.query<CountRow>(
-    `SELECT
-       count(*)::text AS row_count,
-       count(DISTINCT id)::text AS distinct_ids
-     FROM durability_docs`
+    'SELECT count(*)::text AS row_count FROM durability_docs'
+  );
+  const indexedCounts = await db.query<IndexedCountRow>(
+    `SELECT count(*)::text AS indexed_row_count
+     FROM (
+       SELECT id
+       FROM durability_docs
+       ORDER BY content <@> to_bm25query(
+         'scheduler recovery',
+         '${BM25_INDEX_NAME}'
+       )
+       LIMIT ${MAX_INDEXED_ROW_COUNT}
+     ) AS bm25_rows`
+  );
+  const indexedCountPlan = await db.query<QueryPlanRow>(
+    `EXPLAIN (COSTS OFF)
+     SELECT id
+     FROM durability_docs
+     ORDER BY content <@> to_bm25query(
+       'scheduler recovery',
+       '${BM25_INDEX_NAME}'
+     )
+     LIMIT ${MAX_INDEXED_ROW_COUNT}`
   );
   const revisions = await db.query<RevisionRow>(
     'SELECT max(revision)::integer AS max_revision FROM durability_docs'
@@ -218,11 +264,14 @@ async function assertReopenIntegrity(db: PGlite, expectedRevision: number): Prom
      WHERE index.indexrelid = '${BM25_INDEX_NAME}'::regclass`
   );
   const rowCount = Number(counts.rows[0]?.row_count);
-  const distinctIds = Number(counts.rows[0]?.distinct_ids);
+  const indexedRowCount = Number(indexedCounts.rows[0]?.indexed_row_count);
 
   expect(Number.isSafeInteger(rowCount)).toBe(true);
   expect(rowCount).toBeGreaterThan(WRITER_COUNT * ROWS_PER_WRITER);
-  expect(distinctIds).toBe(rowCount);
+  expect(indexedCountPlan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+    `Index Scan using ${BM25_INDEX_NAME}`
+  );
+  expect(indexedRowCount).toBe(rowCount);
   expect(revisions.rows).toEqual([{ max_revision: expectedRevision }]);
   expect(indexState.rows).toEqual([{ indisready: true, indisvalid: true }]);
   await searchBm25(db);
@@ -232,7 +281,7 @@ async function assertReopenIntegrity(db: PGlite, expectedRevision: number): Prom
 
 describe.skipIf(!GATE_ENABLED)('pg_textsearch BM25 durability qualification gate', () => {
   it(
-    'survives sustained overlapping writes, VACUUM, searches, checkpoints, and reopens',
+    'survives sustained rotated writes, VACUUM, searches, checkpoints, and reopens',
     async () => {
       const dataDir = createPGliteTestDataDir('pglite-pg-textsearch-durability');
       let db: PGlite | null = openDatabase(dataDir);
@@ -275,25 +324,32 @@ describe.skipIf(!GATE_ENABLED)('pg_textsearch BM25 durability qualification gate
           }
 
           console.info(
-            `[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: running writes, search, and VACUUM`
+            `[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: running rotated writes, search, and VACUUM`
           );
           await runWithTimeout(
             `pg_textsearch durability cycle ${cycle}/${CYCLE_COUNT}`,
-            Promise.all(createCycleOperations(activeDb, cycle).map((operation) => operation()))
-          );
-          await activeDb.exec('CHECKPOINT');
+            (async () => {
+              await Promise.all(
+                createCycleOperations(activeDb, cycle).map((operation) => operation())
+              );
+              await activeDb.exec('CHECKPOINT');
 
-          if (cycle % REOPEN_INTERVAL === 0 || cycle === CYCLE_COUNT) {
-            await activeDb.close();
-            db = null;
-            db = openDatabase(dataDir);
-            const rowCount = await assertReopenIntegrity(db, cycle);
-            console.info(
-              `[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: reopen verified ${rowCount} rows`
-            );
-          } else {
-            console.info(`[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: complete`);
-          }
+              if (cycle % REOPEN_INTERVAL === 0 || cycle === CYCLE_COUNT) {
+                console.info(
+                  `[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: checkpoint complete; reopening store`
+                );
+                db = null;
+                await activeDb.close();
+                db = openDatabase(dataDir);
+                const rowCount = await assertReopenIntegrity(db, cycle);
+                console.info(
+                  `[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: reopen verified ${rowCount} rows`
+                );
+              } else {
+                console.info(`[pg-textsearch-durability] cycle ${cycle}/${CYCLE_COUNT}: complete`);
+              }
+            })()
+          );
         }
       } finally {
         await db?.close();
