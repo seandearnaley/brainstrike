@@ -137,34 +137,18 @@ jobs:
 
       # See test.yml's Unit job for the rationale. Coverage instrumentation
       # runs tests so it has the same build-dependency requirement.
+      #
+      # This also (re)builds @brainstrike/secure-fs-native's native addon fresh
+      # on THIS x64 runner: its turbo `build` task is `cache: false`
+      # (packages/secure-fs-native/turbo.json), so `turbo run build` always
+      # node-gyp-rebuilds it here rather than replaying an arm64 artifact from
+      # the arch-blind shared remote cache. That is what lets apps/desktop's
+      # `test:coverage` load the REAL addon in-process (its user-commands /
+      # skills *.integration.test.* files) instead of dying with
+      # "secure_fs_native.node: cannot open shared object file". See that
+      # turbo.json comment and PR #1749 for the full cross-arch rationale.
       - name: Build workspace dependencies
         run: pnpm turbo run build --concurrency=4
-
-      # `turbo run build` above restores @brainstrike/secure-fs-native's compiled
-      # addon (`build/**`, cached by its turbo `build` task) from the SHARED
-      # REMOTE turbo cache — whose hash keys on SOURCE, not CPU arch (turbo's
-      # hash omits arch and `runner.os` is "Linux" on both; only the LOCAL
-      # `.turbo` layer is arch-namespaced). The Static/Unit jobs run on arm64
-      # (ubuntu-24.04-arm) and populate that entry with an arm64
-      # `secure_fs_native.node`; this Coverage job runs on x64 (ubuntu-latest),
-      # so it replays the arm64 binary over the correct x64 one `pnpm install`
-      # already built. apps/desktop's `test:coverage` runs the FULL suite
-      # (unit + *.integration.test.*) in one process, and its user-commands /
-      # skills integration tests load the REAL addon in-process — so the wrong
-      # arch dies with "secure_fs_native.node: cannot open shared object file",
-      # blocking coverage for any PR that touches apps/desktop.
-      #
-      # Force a direct node-gyp rebuild on THIS runner (`pnpm run`, NOT turbo, so
-      # it bypasses the poisoned cache), the same guarantee the native-windows /
-      # native-electron lanes get from their own `pnpm build`. This MUST run
-      # AFTER `turbo run build` so it overwrites the restored arm64 artifact: the
-      # frozen-lockfile install already recorded the addon as built, so nothing
-      # downstream recompiles a `.node` that is merely present-but-wrong-arch —
-      # only an explicit `build` script (`node-gyp rebuild`) does. nightly-
-      # coverage.yml is unaffected — it has no `turbo run build` step, so its
-      # install-time x64 binary is never clobbered.
-      - name: Rebuild native secure-fs addon for this runner's arch
-        run: pnpm --filter @brainstrike/secure-fs-native run build
 
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
