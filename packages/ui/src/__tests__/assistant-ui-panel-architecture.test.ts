@@ -85,7 +85,13 @@ describe('assistant UI panel architecture', () => {
     // by design), matching the existing onUsage seam shape. The ring, popover,
     // and breakdown-row logic all live in their own modules
     // (context-ring.tsx, context-usage-popover.tsx, context-usage-meter.tsx).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1835);
+    // Bumped 1835 → 1850 for the context-breakdown null-renderer registration
+    // (review fix): CONTEXT_BREAKDOWN_DATA_NAME is the only emitted aui-data
+    // name that reached AssistantDataRendererRegistration without a registered
+    // renderer — assistantContextBreakdownDataUI mirrors assistantShellOutputDataUI's
+    // `render: () => null` so the transient breakdown data part never surfaces
+    // as a stray/unhandled element.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1850);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

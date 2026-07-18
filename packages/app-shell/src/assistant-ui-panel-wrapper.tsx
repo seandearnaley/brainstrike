@@ -94,6 +94,7 @@ import {
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
   getToolDescription,
+  hasContextBreakdownChannel,
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
@@ -1323,6 +1324,14 @@ export function AssistantUiPanelWrapper({
   const handleUsage = useCallback(
     (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
+      // A turn on a capability-absent transport (the in-renderer local
+      // runtime) can never have refreshed the breakdown — drop a stale one
+      // left over from an earlier hosted turn on the SAME thread so the
+      // popover never mixes one turn's category rows with another turn's
+      // exact totals (review fix).
+      if (!hasContextBreakdownChannel(selectedProvider, localChatTransport)) {
+        useContextUsageStore.getState().clearBreakdown(threadId);
+      }
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
       // A turn just finished: re-list threads so an observer-generated title
@@ -1373,10 +1382,12 @@ export function AssistantUiPanelWrapper({
     [
       assistantThreadRepository,
       getActiveRunUsageContext,
+      localChatTransport,
       memoryResourceId,
       refreshCumulativeUsage,
       refreshResourceThreads,
       selectedMemoryThreadId,
+      selectedProvider,
     ]
   );
 

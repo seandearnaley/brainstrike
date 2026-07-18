@@ -23,6 +23,7 @@ export interface ThreadTokenUsage {
 
 interface ContextUsageState {
   breakdownByThread: Record<string, AssistantContextBreakdownState>;
+  clearBreakdown: (threadId: string) => void;
   clearThread: (threadId: string) => void;
   recordBreakdown: (threadId: string, breakdown: AssistantContextBreakdownState) => void;
   recordUsage: (threadId: string, usage: ThreadTokenUsage) => void;
@@ -31,6 +32,20 @@ interface ContextUsageState {
 
 export const useContextUsageStore = create<ContextUsageState>((set) => ({
   breakdownByThread: {},
+  // Drops a thread's stale breakdown WITHOUT touching its usage. Used when a
+  // turn's transport structurally cannot emit a fresh breakdown (the
+  // in-renderer local runtime, capability-absent by design): without this a
+  // hosted turn's breakdown would keep rendering in the popover next to a
+  // later local turn's freshly updated exact usage — a misleading mix of one
+  // turn's category rows with another turn's totals.
+  clearBreakdown: (threadId) =>
+    set((state) => {
+      if (!(threadId in state.breakdownByThread)) {
+        return state;
+      }
+      const { [threadId]: _removedBreakdown, ...breakdownRest } = state.breakdownByThread;
+      return { breakdownByThread: breakdownRest };
+    }),
   clearThread: (threadId) =>
     set((state) => {
       const { [threadId]: _removedUsage, ...usageRest } = state.usageByThread;

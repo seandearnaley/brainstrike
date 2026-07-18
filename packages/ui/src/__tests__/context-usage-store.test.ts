@@ -97,6 +97,30 @@ describe('context usage store', () => {
     expect(useContextUsageStore.getState().breakdownByThread['t1']).toBeUndefined();
   });
 
+  it('clearBreakdown drops a stale breakdown without touching usage', () => {
+    const { recordBreakdown, recordUsage, clearBreakdown } = useContextUsageStore.getState();
+    recordUsage('t1', { inputTokens: 10, outputTokens: 10 });
+    recordBreakdown('t1', {
+      breakdown: { attachmentsCount: 0, provenance: 'heuristic', systemInstructionsTokens: 5 },
+      invalid: false,
+    });
+    clearBreakdown('t1');
+    expect(useContextUsageStore.getState().breakdownByThread['t1']).toBeUndefined();
+    expect(useContextUsageStore.getState().usageByThread['t1']).toEqual({
+      inputTokens: 10,
+      outputTokens: 10,
+    });
+  });
+
+  it('clearBreakdown only affects the named thread', () => {
+    const { recordBreakdown, clearBreakdown } = useContextUsageStore.getState();
+    recordBreakdown('t1', { invalid: true });
+    recordBreakdown('t2', { invalid: true });
+    clearBreakdown('t1');
+    expect(useContextUsageStore.getState().breakdownByThread['t1']).toBeUndefined();
+    expect(useContextUsageStore.getState().breakdownByThread['t2']).toEqual({ invalid: true });
+  });
+
   it('resetContextUsageStore clears breakdown records (session/factory reset)', () => {
     useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
     resetContextUsageStore();

@@ -346,7 +346,15 @@ Runtime invariants:
   `recordUsage`. The "Unattributed" row is display math only (exact `inputTokens` − displayed
   categories, clamped ≥ 0 with a debug log) and appears only once exact usage lands. The
   in-renderer local runtime path has no breakdown channel (capability-absent — web
-  `LocalRuntimeChat` unaffected).
+  `LocalRuntimeChat` unaffected). The data part is registered with a null renderer in
+  `AssistantDataRendererRegistration` (assistant-ui-panel.tsx, mirroring `SHELL_OUTPUT_DATA_NAME`)
+  so the transient part never surfaces as a stray element in the message flow — it is consumed only
+  by the `onContextBreakdown` tap, never rendered inline. Because a capability-absent local turn
+  can never refresh the breakdown, `handleUsage` clears the thread's stale breakdown
+  (`useContextUsageStore.getState().clearBreakdown`) whenever `hasContextBreakdownChannel`
+  (assistant-ui-panel-wrapper-runtime.ts) is false for the active provider/transport pair —
+  otherwise a later local turn on a thread that previously had a hosted turn would update exact
+  usage while the popover kept showing the earlier hosted turn's stale category rows.
 - OpenRouter finish messages must additionally carry `billedCostUsd`, sourced
   from Mastra's official OpenRouter provider metadata. Persist it in
   `brainstrike_assistant_run_usage.billed_cost_usd`; cumulative and cross-root

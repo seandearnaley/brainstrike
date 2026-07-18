@@ -25,6 +25,7 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
+  CONTEXT_BREAKDOWN_DATA_NAME,
   type LocalLlmBackendFactory,
   SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
@@ -128,6 +129,16 @@ const assistantToolSuspendDataUI = {
 // surface as stray elements.
 const assistantShellOutputDataUI = {
   name: SHELL_OUTPUT_DATA_NAME,
+  render: () => null,
+} satisfies AssistantDataUIProps;
+
+// The run-start prompt breakdown is consumed by the onContextBreakdown tap
+// (buildContextBreakdownTap in data-stream-runtime.ts) and rendered in the
+// Context Usage popover, NOT inline in the message flow — register a null
+// renderer so the transient data part never surfaces as a stray element
+// (mirrors assistantShellOutputDataUI above).
+const assistantContextBreakdownDataUI = {
+  name: CONTEXT_BREAKDOWN_DATA_NAME,
   render: () => null,
 } satisfies AssistantDataUIProps;
 
@@ -621,6 +632,7 @@ const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantToolApprovalDataUI);
   useAssistantDataUI(assistantToolSuspendDataUI);
   useAssistantDataUI(assistantShellOutputDataUI);
+  useAssistantDataUI(assistantContextBreakdownDataUI);
 
   return null;
 };

@@ -62,7 +62,12 @@ describe('app-shell assistant contract boundary', () => {
     // calls useBudgetGuardrailBinding and mounts <BudgetGuardrailProvider>; the
     // spend derivation lives in cost-tracking/use-daily-spend.ts and the
     // chip/gate UI in packages/ui (budget-guardrail-control.tsx).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1565);
+    // Bumped 1565 → 1575 for the context-breakdown stale-clear review fix:
+    // handleUsage calls hasContextBreakdownChannel (assistant-ui-panel-wrapper-runtime.ts)
+    // and clears a thread's stale breakdown via
+    // useContextUsageStore.getState().clearBreakdown when the active turn's
+    // transport structurally cannot refresh it (capability-absent local runtime).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1575);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
