@@ -1,6 +1,6 @@
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { type ProcessInputStepArgs, TokenLimiter } from '@mastra/core/processors';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProjectionAwareTokenLimiter } from '../mastra/projection-aware-token-limiter';
 
 function createProcessInputStepArgs(messageList: MessageList): ProcessInputStepArgs {
@@ -47,6 +47,47 @@ function createToolResultMessage(args: {
 }
 
 describe('ProjectionAwareTokenLimiter', () => {
+  it.each([
+    {
+      content: 'Legacy plain-text content.',
+      shape: 'string content',
+    },
+    {
+      content: { content: 'Legacy object content.' },
+      shape: 'object content without parts',
+    },
+  ])('delegates legacy $shape to Mastra without reading format-2 parts', async ({ content }) => {
+    const messageList = new MessageList();
+    messageList.add(
+      {
+        content: 'Legacy plain-text content.',
+        createdAt: new Date(),
+        id: 'legacy-user-1',
+        role: 'user',
+        type: 'text',
+      },
+      'response'
+    );
+    const storedMessage = messageList.get.all.db()[0];
+    if (!storedMessage) {
+      throw new Error('Expected the legacy message to be stored');
+    }
+    storedMessage.content = content as unknown as MastraDBMessage['content'];
+    const delegatedProcessInputStep = vi.spyOn(TokenLimiter.prototype, 'processInputStep');
+
+    try {
+      await expect(
+        new ProjectionAwareTokenLimiter(100).processInputStep(
+          createProcessInputStepArgs(messageList)
+        )
+      ).resolves.toBeUndefined();
+      expect(delegatedProcessInputStep).toHaveBeenCalledOnce();
+      expect(messageList.get.all.db()[0]?.content).toEqual(content);
+    } finally {
+      delegatedProcessInputStep.mockRestore();
+    }
+  });
+
   it('counts the model projection with compact media markers and restores the raw result', async () => {
     const rawResult = { content: 'r'.repeat(250_000), rawOnly: true };
     const mediaData = 'b'.repeat(250_000);

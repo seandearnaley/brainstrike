@@ -66,8 +66,12 @@ function readStoredModelOutput(message: MastraDBMessage): Array<{
   modelOutput: unknown;
 }> {
   const outputs: Array<{ invocation: MutableToolInvocation; modelOutput: unknown }> = [];
+  const parts = message.content?.parts;
+  if (!Array.isArray(parts)) {
+    return outputs;
+  }
 
-  for (const part of message.content.parts) {
+  for (const part of parts) {
     if (part.type !== 'tool-invocation' || part.toolInvocation.state !== 'result') {
       continue;
     }

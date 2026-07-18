@@ -369,8 +369,6 @@ export function boundToolOutputForModel(
     if (isBoundedTruncatedToolOutput(jsonSafeOutput)) {
       return { output: jsonSafeOutput };
     }
-  }
-  if (serialized.length <= maxSerializedChars) {
     return { output: jsonSafeOutput };
   }
 
