@@ -20,6 +20,7 @@ import {
   makeHookBlockedStream,
   withStopHook,
 } from '../../../assistant-server/hooks/server-integration';
+import { enrichRuntimeDataWithWorkspaceRoots } from '../../../assistant-server/workspace-roots';
 
 let tmpRoot: string;
 const logger = {
@@ -214,6 +215,66 @@ describe('attestation scoping severs execution on disconnect (kill chain)', () =
       sessionId: 's1',
     });
     expect(severed.hasHooks()).toBe(false);
+  });
+});
+
+// MAIN-ROOT cwd proof: the client-declared main root (runtimeData.mainRootId)
+// reorders the enriched workspaceRoots, and buildHookManager's primaryCwd —
+// the `cwd` every non-tool hook event (UserPromptSubmit/Stop/Session)
+// receives on stdin, and the spawn cwd assigned to GLOBAL hooks — follows
+// roots[0]. This is THE behavior change of the main-vs-focused split:
+// previously roots[0] was the first-ever-added live DB row.
+describe('hooks primaryCwd follows the declared main root (roots[0] after reorder)', () => {
+  it('feeds the Stop hook cwd = main root, flipping with the declaration', async () => {
+    const rootA = join(tmpRoot, 'root-a');
+    const rootB = join(tmpRoot, 'root-b');
+    mkdirSync(rootA, { recursive: true });
+    mkdirSync(rootB, { recursive: true });
+    const marker = join(tmpRoot, 'stop-payload.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(rootA, config);
+    const trust = {
+      approvals: [{ approvedAt: 1, rootId: 'db-a', sha256: sha256OfFile(file) }],
+    };
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          { displayName: 'a', id: 'db-a', path: rootA },
+          { displayName: 'b', id: 'db-b', path: rootB },
+        ] as never[],
+      })),
+    };
+
+    const runStopAndReadCwd = async (runtimeData: RuntimeData | undefined): Promise<string> => {
+      const manager = buildHookManager({
+        hookTrustRequest: trust,
+        logger,
+        runtimeData,
+        sessionId: 's1',
+      });
+      expect(manager.hasHooks()).toBe(true);
+      await manager.runStop('complete');
+      const payload = JSON.parse(readFileSync(marker, 'utf8')) as { cwd: string };
+      return payload.cwd;
+    };
+
+    // No declaration → created_at order → primaryCwd = root A.
+    const defaultOrder = await enrichRuntimeDataWithWorkspaceRoots(
+      { provider: 'openai' } as RuntimeData,
+      db
+    );
+    expect(await runStopAndReadCwd(defaultOrder)).toBe(rootA);
+
+    // Declared main = B → reorder → primaryCwd = root B (same hook, same
+    // config root — only the event cwd moved).
+    const mainB = await enrichRuntimeDataWithWorkspaceRoots(
+      { mainRootId: 'db-b', provider: 'openai' } as RuntimeData,
+      db
+    );
+    expect(mainB?.workspaceRoots?.[0]?.rootId).toBe('db-b');
+    expect(await runStopAndReadCwd(mainB)).toBe(rootB);
   });
 });
 

@@ -137,10 +137,54 @@ export async function loadWorkspaceRootsFromDatabase(
 }
 
 /**
+ * Reorder the enriched roots so the CLIENT-DECLARED MAIN root
+ * (`runtimeData.mainRootId`, i.e. activeRootIds[0]) is FIRST. `roots[0]` is
+ * the contract for "the assistant's operating root": hooks `primaryCwd` and
+ * the model-facing "main root path" both read it. Matching:
+ * 1. by durable rootId (DB `roots.id` — the common case; client + server
+ *    share the id space since storage v5),
+ * 2. else by resolved absolute path (`mainRootPath`) — covers legacy client
+ *    ids that diverged from the DB id (see root-identity-context).
+ * No match (or no declaration) keeps the DB `created_at ASC` order — the
+ * legacy tiebreak — with a debug log, never a throw: the declaration is an
+ * ordering PREFERENCE, not a security boundary.
+ */
+export function orderWorkspaceRoots(
+  roots: readonly RuntimeWorkspaceRoot[],
+  mainRootId: string | undefined,
+  mainRootPath: string | undefined
+): RuntimeWorkspaceRoot[] {
+  if (roots.length <= 1) {
+    return [...roots];
+  }
+  const trimmedId = mainRootId?.trim();
+  const trimmedPath = mainRootPath?.trim();
+  if (!(trimmedId || trimmedPath)) {
+    return [...roots];
+  }
+  let index = trimmedId ? roots.findIndex((root) => root.rootId === trimmedId) : -1;
+  if (index < 0 && trimmedPath && path.isAbsolute(trimmedPath)) {
+    const resolvedPath = path.resolve(trimmedPath);
+    index = roots.findIndex((root) => root.path === resolvedPath);
+  }
+  if (index < 0) {
+    logger.debug('Declared main root not among live roots; keeping created_at order.', {
+      mainRootId: trimmedId,
+      mainRootPath: trimmedPath,
+    });
+    return [...roots];
+  }
+  const main = roots[index] as RuntimeWorkspaceRoot;
+  return [main, ...roots.filter((_root, rootIndex) => rootIndex !== index)];
+}
+
+/**
  * Enrich RuntimeData with the active workspace roots so the tools become
  * multi-root aware. We resolve roots server-side from the DB so each root id is
  * the DB `roots.id` that `file_records.root_id` references — the single id
  * source shared by search-result `rootId`s and read-tool path resolution.
+ * The loaded roots are then reordered so the client-declared MAIN root
+ * (`mainRootId`/`mainRootPath`) is `roots[0]` (see `orderWorkspaceRoots`).
  *
  * INVARIANT: a pre-supplied `runtimeData.workspaceRoots` is treated as
  * authoritative and skips DB resolution, so any such list MUST already carry DB
@@ -149,7 +193,8 @@ export async function loadWorkspaceRootsFromDatabase(
  * keeps a future client from silently diverging the two id sources.
  *
  * On an empty result or a query failure we leave RuntimeData unchanged so the
- * resolver falls back to the single `workspaceRootPath` (legacy) — logged,
+ * resolver falls back to the single `workspaceRootPath` (the FOCUSED root —
+ * degraded mode; the main-root declaration cannot apply there) — logged,
  * never silent.
  */
 export async function enrichRuntimeDataWithWorkspaceRoots(
@@ -168,7 +213,10 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
     if (roots.length === 0) {
       return runtimeData;
     }
-    return { ...runtimeData, workspaceRoots: roots };
+    return {
+      ...runtimeData,
+      workspaceRoots: orderWorkspaceRoots(roots, runtimeData.mainRootId, runtimeData.mainRootPath),
+    };
   } catch (error) {
     logger.error('Failed to load workspace roots; tools fall back to the focused root.', { error });
     return runtimeData;
