@@ -464,7 +464,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     const modelBox = await composerShell
       .getByTestId('assistant-model-dropdown')
-      .getByRole('combobox')
+      .getByTestId('composer-model-menu-trigger')
       .boundingBox();
     const controlsBox = await composerShell
       .getByRole('button', { name: 'Open assistant controls' })

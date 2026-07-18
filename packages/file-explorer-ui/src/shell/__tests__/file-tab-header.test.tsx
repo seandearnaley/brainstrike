@@ -39,6 +39,34 @@ describe('FileTabHeader', () => {
     );
   });
 
+  it('renders a copy button for the file contents when copyText is provided', () => {
+    render(
+      <FileTabHeader
+        copyText="# Title\nbody"
+        directory=""
+        fileName="readme.md"
+        mode="preview"
+        onModeChange={vi.fn()}
+        showModeToggle={true}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Copy readme.md' })).toBeInTheDocument();
+  });
+
+  it('omits the copy button when copyText is absent (binary / inaccessible / loading tabs)', () => {
+    render(
+      <FileTabHeader
+        copyText={null}
+        directory=""
+        fileName="readme.md"
+        mode="source"
+        onModeChange={vi.fn()}
+        showModeToggle={false}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Copy readme.md' })).not.toBeInTheDocument();
+  });
+
   it('fires onModeChange with the clicked mode', () => {
     const onModeChange = vi.fn();
     render(

@@ -1057,4 +1057,131 @@ describe('assistant-preferences-store', () => {
     const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
   });
+
+  describe('recent models', () => {
+    it('defaults to an empty recents list', () => {
+      expect(useAssistantPreferencesStore.getState().recentModels).toEqual([]);
+    });
+
+    it('records selections newest-first, deduped, capped at five', () => {
+      const store = useAssistantPreferencesStore.getState();
+      const keys = [
+        `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        `anthropic::${PROVIDER_DEFAULT_MODELS.anthropic}`,
+        `google::${PROVIDER_DEFAULT_MODELS.google}`,
+        'openai::gpt-5.6-sol',
+        'anthropic::claude-haiku-4-5',
+        'google::gemini-2.5-flash',
+      ];
+      for (const key of keys) {
+        store.setModel(key);
+      }
+
+      // Re-selecting an existing entry moves it to the front without duplication.
+      store.setModel(`anthropic::${PROVIDER_DEFAULT_MODELS.anthropic}`);
+
+      expect(useAssistantPreferencesStore.getState().recentModels).toEqual([
+        `anthropic::${PROVIDER_DEFAULT_MODELS.anthropic}`,
+        'google::gemini-2.5-flash',
+        'anthropic::claude-haiku-4-5',
+        'openai::gpt-5.6-sol',
+        `google::${PROVIDER_DEFAULT_MODELS.google}`,
+      ]);
+    });
+
+    it('ignores invalid composite keys', () => {
+      const store = useAssistantPreferencesStore.getState();
+      store.setModel('not-a-composite');
+      store.setModel('unknown-provider::model-x');
+      expect(useAssistantPreferencesStore.getState().recentModels).toEqual([]);
+    });
+
+    it('defaults recentModels to empty when migrating pre-v7 snapshots', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const priorState: StorageValue<unknown> = {
+        state: {
+          enabledModelsByProvider: {},
+          modelsByProvider: {},
+          providerSettings: {},
+          selectedModel: `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        },
+        version: 6,
+      };
+
+      options.storage.setItem(options.name, priorState);
+      await persistApi.rehydrate?.();
+
+      expect(useAssistantPreferencesStore.getState().recentModels).toEqual([]);
+    });
+
+    it('persists recents in the partialized snapshot', () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const compositeKey = `openai::${PROVIDER_DEFAULT_MODELS.openai}`;
+      useAssistantPreferencesStore.getState().setModel(compositeKey);
+
+      const snapshot = options.storage.getItem(options.name) as unknown as {
+        state?: { recentModels?: string[] };
+      } | null;
+      expect(snapshot?.state?.recentModels).toEqual([compositeKey]);
+    });
+  });
+
+  describe('plan mode migration', () => {
+    it('preserves planModeEnabled: true from a pre-v7 snapshot across migration', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const priorState: StorageValue<unknown> = {
+        state: {
+          enabledModelsByProvider: {},
+          modelsByProvider: {},
+          planModeEnabled: true,
+          providerSettings: {},
+          selectedModel: `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        },
+        version: 6,
+      };
+
+      options.storage.setItem(options.name, priorState);
+      await persistApi.rehydrate?.();
+
+      expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(true);
+    });
+
+    it('defaults planModeEnabled to false when absent from a pre-v7 snapshot', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const priorState: StorageValue<unknown> = {
+        state: {
+          enabledModelsByProvider: {},
+          modelsByProvider: {},
+          providerSettings: {},
+          selectedModel: `openai::${PROVIDER_DEFAULT_MODELS.openai}`,
+        },
+        version: 6,
+      };
+
+      options.storage.setItem(options.name, priorState);
+      await persistApi.rehydrate?.();
+
+      expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+    });
+  });
 });

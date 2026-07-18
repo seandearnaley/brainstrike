@@ -1,3 +1,4 @@
+import { resolveReasoningControlsAvailability } from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
   AssistantProviderSettingsMap,
@@ -46,14 +47,14 @@ interface ToolMenuGroup {
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
 
-const ReasoningControlsSection = ({
-  hasReasoning,
+const OutputLimitsSection = ({
+  hasOutputControls,
   modelName,
   onProviderSettingsChange,
   providerId,
   settings,
 }: {
-  hasReasoning: boolean;
+  hasOutputControls: boolean;
   modelName: string | undefined;
   onProviderSettingsChange:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -61,7 +62,7 @@ const ReasoningControlsSection = ({
   providerId: string | undefined;
   settings: AssistantProviderSettings | undefined;
 }) => {
-  if (!hasReasoning) {
+  if (!hasOutputControls) {
     return null;
   }
 
@@ -69,7 +70,7 @@ const ReasoningControlsSection = ({
     <>
       <DropdownMenuSeparator className="my-2" />
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="text-sm">Reasoning & Output</DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger className="text-sm">Output & Limits</DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="w-[420px] p-2">
           <ProviderSettingsPanel
             modelName={modelName}
@@ -178,20 +179,19 @@ export const ControlsMenu = ({
   selectedProvider,
   modelName,
 }: ControlsMenuProps) => {
-  const supportsReasoningSettings = useMemo(() => {
+  // Output & Limits renders for the hosted reasoning families. family:'local'
+  // deliberately gets NO section here — its only reasoning control (the
+  // Thinking toggle) lives in the composer model menu (pinned by the local
+  // test below).
+  const supportsOutputControls = useMemo(() => {
     if (!selectedProvider) {
       return false;
     }
-    const normalized = selectedProvider.toLowerCase();
-    return (
-      normalized === 'openai' ||
-      normalized === 'openrouter' ||
-      normalized === 'anthropic' ||
-      normalized === 'google'
-    );
-  }, [selectedProvider]);
+    const availability = resolveReasoningControlsAvailability(selectedProvider, modelName);
+    return availability.available && availability.family !== 'local';
+  }, [modelName, selectedProvider]);
 
-  const hasReasoning = Boolean(supportsReasoningSettings && onProviderSettingsChange);
+  const hasOutputControls = Boolean(supportsOutputControls && onProviderSettingsChange);
 
   const toolMenuItems = toolMenu?.items;
   const toolMenuSummary = toolMenu?.summary;
@@ -267,8 +267,8 @@ export const ControlsMenu = ({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px] p-2">
         <DetailLevelControl />
-        <ReasoningControlsSection
-          hasReasoning={hasReasoning}
+        <OutputLimitsSection
+          hasOutputControls={hasOutputControls}
           modelName={modelName}
           onProviderSettingsChange={onProviderSettingsChange}
           providerId={selectedProvider}

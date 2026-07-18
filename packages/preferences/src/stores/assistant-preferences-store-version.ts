@@ -11,4 +11,4 @@
  * file with no runtime code, which crashes Playwright's esbuild-based test
  * loader when it tries to execute the "resolved" module directly.
  */
-export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
+export const ASSISTANT_PREFERENCES_STORE_VERSION = 7;

@@ -45,8 +45,8 @@ import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useStat
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
+import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { cn } from '../lib/utils';
-import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import {
   ApprovalActionChip,
@@ -75,6 +75,7 @@ import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attac
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
+import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
 
@@ -326,6 +327,11 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   providers?: ProviderConfig[];
+  /**
+   * Recently selected composite model keys ("provider::model"), newest first.
+   * Already filtered to currently valid options by the app-shell wrapper.
+   */
+  recentModels?: readonly string[];
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
@@ -355,7 +361,7 @@ const LocalReasoningPart = () => {
   return (
     <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
       <p className="mb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-        Model reasoning
+        Thinking
       </p>
       <div className="text-muted-foreground text-sm leading-6" data-testid="local-reasoning-part">
         <AssistantMessageText />
@@ -392,9 +398,9 @@ function isReasoningPart(part: unknown): boolean {
 
 function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): string {
   if (collapsed) {
-    return isContinuation ? 'Show additional reasoning' : 'Show reasoning';
+    return isContinuation ? 'Show additional thinking' : 'Show thinking';
   }
-  return isContinuation ? 'Hide additional reasoning' : 'Hide reasoning';
+  return isContinuation ? 'Hide additional thinking' : 'Hide thinking';
 }
 
 /**
@@ -446,7 +452,7 @@ const ChainReasoningFold = ({
             className="bs-thinking-mark-static size-4"
             testId="assistant-reasoning-static-mark"
           />
-          {isContinuation ? null : <span className="truncate">Reasoning</span>}
+          {isContinuation ? null : <span className="truncate">Thinking</span>}
         </span>
       )}
       {isContinuation ? null : collapsed ? (
@@ -703,12 +709,12 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: AssistantUsage) => void) | undefined;
   pickerModels: ModelPickerModel[];
-  pickerProviders: ModelPickerProvider[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
+  recentModels: readonly string[] | undefined;
   requestData?: Record<string, unknown> | undefined;
   selectedModel: string | undefined;
   selectedProvider: string | undefined;
@@ -728,8 +734,8 @@ const LocalRuntimeChat = ({
   effectiveInputBudget,
   providerGroups,
   pickerModels,
-  pickerProviders,
   providerSettings,
+  recentModels,
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
@@ -842,10 +848,10 @@ const LocalRuntimeChat = ({
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
           {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
           providerSettings={providerSettings}
+          recentModels={recentModels}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
           slashCommands={slashCommands}
@@ -869,8 +875,8 @@ const DataStreamRuntimeChat = ({
   effectiveInputBudget,
   providerGroups,
   pickerModels,
-  pickerProviders,
   providerSettings,
+  recentModels,
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
@@ -1025,11 +1031,11 @@ const DataStreamRuntimeChat = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             pickerModels={pickerModels}
-            pickerProviders={pickerProviders}
             {...(planMode ? { planMode } : {})}
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
             providerGroups={providerGroups}
             providerSettings={providerSettings}
+            recentModels={recentModels}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
             slashCommands={slashCommands}
@@ -1055,8 +1061,8 @@ const ChatThreadUI = ({
   providerGroups,
   hasGroupedProviders,
   pickerModels,
-  pickerProviders,
   providerSettings,
+  recentModels,
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
@@ -1088,8 +1094,8 @@ const ChatThreadUI = ({
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
-  pickerProviders: ModelPickerProvider[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
+  recentModels: readonly string[] | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
@@ -1300,8 +1306,8 @@ const ChatThreadUI = ({
               onModelChange={onModelChange}
               onProviderSettingsChange={onProviderSettingsChange}
               pickerModels={pickerModels}
-              pickerProviders={pickerProviders}
               providerSettings={providerSettings}
+              recentModels={recentModels}
               selectedModel={selectedModel}
               selectedProvider={selectedProvider}
               toolMenu={toolMenu}
@@ -1324,8 +1330,8 @@ export const AssistantUiPanel = ({
   effectiveInputBudget,
   providerGroups,
   pickerModels,
-  pickerProviders,
   providerSettings,
+  recentModels,
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
@@ -1438,10 +1444,10 @@ export const AssistantUiPanel = ({
             onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
-            pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}
             providerGroups={groupedProviders}
             providerSettings={providerSettings}
+            recentModels={recentModels}
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
@@ -1488,10 +1494,10 @@ export const AssistantUiPanel = ({
             onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
-            pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}
             providerGroups={groupedProviders}
             providerSettings={providerSettings}
+            recentModels={recentModels}
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
@@ -1547,19 +1553,65 @@ const UserMessage = () => {
   );
 };
 
-const UserActionBar = () => (
-  <ActionBarPrimitive.Root
-    autohide="not-last"
-    className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
-    hideWhenRunning
-  >
-    <ActionBarPrimitive.Edit asChild>
-      <TooltipIconButton aria-label="Edit message" tooltip="Edit">
-        <PencilIcon className="size-4" />
+// Exported (rather than kept module-private like AssistantActionBar) so
+// tests can mount it directly against a real assistant-ui local runtime --
+// see __tests__/user-action-bar-copy.test.tsx.
+export const UserActionBar = () => {
+  const aui = useAui();
+  const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
+
+  // Routed through the shared clipboard service (useCopyToClipboard), NOT
+  // ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText --
+  // that call swallows write rejections, so a broken Electron bridge would
+  // silently do nothing (no-silent-fallbacks rule). aui.message().getCopyText()
+  // is the same message-text extraction assistant-ui's own copy hook uses
+  // internally (join of the message's text parts).
+  const onCopy = () => {
+    if (isCopied) {
+      return;
+    }
+    copyToClipboard(aui.message().getCopyText());
+  };
+
+  let tooltip = 'Copy';
+  if (isCopied) {
+    tooltip = 'Copied!';
+  } else if (isFailed) {
+    tooltip = 'Copy failed';
+  }
+
+  let copyIcon: ReactNode;
+  if (isCopied) {
+    copyIcon = <CheckIcon className="size-4" />;
+  } else if (isFailed) {
+    copyIcon = <CopyIcon className="size-4 text-destructive" />;
+  } else {
+    copyIcon = <CopyIcon className="size-4" />;
+  }
+
+  return (
+    <ActionBarPrimitive.Root
+      autohide="not-last"
+      className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
+      hideWhenRunning
+    >
+      <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>
+        {copyIcon}
       </TooltipIconButton>
-    </ActionBarPrimitive.Edit>
-  </ActionBarPrimitive.Root>
-);
+      {/* Proactively announce a broken clipboard to screen readers -- the
+          tooltip alone is not announced (no-silent-fallbacks). Mirrors
+          CodeBlockHeader / CopyTextButton. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {isFailed ? 'Copy failed' : null}
+      </span>
+      <ActionBarPrimitive.Edit asChild>
+        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+          <PencilIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Edit>
+    </ActionBarPrimitive.Root>
+  );
+};
 
 const EditComposer = () => {
   // Editing a past user message RE-SENDS it, so the last-24h budget gate must
@@ -1681,29 +1733,6 @@ const BranchPicker = ({ className }: { className?: string }) => (
   </BranchPickerPrimitive.Root>
 );
 
-const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
-  browser: 'Browser',
-  gateway: 'Gateway',
-  hosted: 'Hosted',
-  local: 'Local',
-};
-
-interface ProviderModelOption {
-  groupLabel: string;
-  model: ProviderModelOptionConfig;
-  provider: ProviderOptionConfig;
-  value: string;
-}
-
-interface NormalizedProviderGroup {
-  label: string;
-  providers: Array<{
-    provider: ProviderOptionConfig;
-    models: ProviderModelOptionConfig[];
-  }>;
-  runtime: ProviderRuntimeCategory;
-}
-
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
   onModelChange?: ((compositeKey: string) => void) | undefined;
@@ -1711,8 +1740,8 @@ interface ProviderModelHeaderProps {
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
   pickerModels: ModelPickerModel[];
-  pickerProviders: ModelPickerProvider[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
+  recentModels?: readonly string[] | undefined;
   selectedModel?: string | undefined;
   selectedProvider?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
@@ -1721,103 +1750,31 @@ interface ProviderModelHeaderProps {
 const ProviderModelHeader = ({
   groups,
   pickerModels,
-  pickerProviders,
   providerSettings,
   onProviderSettingsChange,
+  recentModels,
   selectedProvider,
   selectedModel,
   onModelChange,
   toolMenu,
 }: ProviderModelHeaderProps) => {
-  // Extract model name from composite key (format: "provider::model")
-  const modelName = useMemo(() => {
-    if (!selectedModel) {
-      return;
-    }
-    const parts = selectedModel.split('::');
-    return parts.length === 2 ? parts[1] : selectedModel;
-  }, [selectedModel]);
-
-  const normalizedGroups = useMemo<NormalizedProviderGroup[]>(
-    () =>
-      groups
-        .map((group) => {
-          const providers = group.providers
-            .map((provider) => ({
-              models: provider.models.filter((model) => model.enabled),
-              provider,
-            }))
-            .filter((entry) => entry.models.length > 0);
-          if (providers.length === 0) {
-            return null;
-          }
-          return {
-            label: group.label ?? RUNTIME_LABELS[group.runtime],
-            providers,
-            runtime: group.runtime,
-          };
-        })
-        .filter((group): group is NormalizedProviderGroup => group !== null),
-    [groups]
-  );
-
-  const options = useMemo<ProviderModelOption[]>(
-    () =>
-      normalizedGroups.flatMap((group) =>
-        group.providers.flatMap((entry) =>
-          entry.models.map((model) => ({
-            groupLabel: group.label,
-            model,
-            provider: entry.provider,
-            value: `${entry.provider.id}::${model.id}`,
-          }))
-        )
-      ),
-    [normalizedGroups]
-  );
-
-  // Build a lookup map from model ID to provider ID for the ModelPicker callback
-  const modelToProviderMap = useMemo(() => {
-    const map = new Map<string, string>();
-    if (pickerModels) {
-      for (const model of pickerModels) {
-        map.set(model.id, model.providerId);
-      }
-    }
-    return map;
-  }, [pickerModels]);
-
-  // Handle ModelPicker selection - convert model ID to composite key
-  const handleModelPickerChange = useCallback(
-    (modelId: string | string[]) => {
-      const id = Array.isArray(modelId) ? modelId[0] : modelId;
-      if (!id) {
-        return;
-      }
-
-      const providerId = modelToProviderMap.get(id);
-      if (providerId) {
-        // Construct composite key: "provider::model"
-        onModelChange?.(`${providerId}::${id}`);
-      }
-    },
-    [modelToProviderMap, onModelChange]
-  );
+  // Bare model id for the Output & Limits menu (display/model-scoped
+  // constraints only — selection itself stays composite end-to-end).
+  const modelName = modelIdFromCompositeKey(selectedModel);
 
   return (
     <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
       <div className="bs-composer-primary-controls">
         <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-          <ModelPicker
-            models={pickerModels}
-            providers={pickerProviders}
-            {...(modelName ? { value: modelName } : {})}
-            className="bs-composer-model-picker h-8 rounded-full border-border/70 bg-background/85 text-xs"
-            disabled={options.length === 0 || !onModelChange}
-            mode="single"
-            modelType="llm"
-            onChange={handleModelPickerChange}
-            placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
+          <ComposerModelMenu
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            pickerModels={pickerModels}
+            providerGroups={groups}
+            providerSettings={providerSettings}
+            recentModels={recentModels}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
           />
         </div>
         <div className="bs-composer-controls-slot">
