@@ -864,6 +864,56 @@ describe('agent-runtime edge cases', () => {
     });
   });
 
+  describe('run-start context breakdown emission', () => {
+    it('yields a context-breakdown chunk FIRST with measured instruction + wire counts', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({ textDelta: 'hi', type: 'text-delta' });
+            controller.enqueue({ type: 'finish', usage: {} });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', parts: [{ text: 'measure me please', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const first = chunks[0] as {
+        breakdown?: {
+          attachmentsCount: number;
+          historyMessagesTokens?: number;
+          provenance: string;
+          systemInstructionsTokens: number;
+        };
+        type: string;
+      };
+      expect(first.type).toBe('context-breakdown');
+      expect(first.breakdown?.provenance).toBe('heuristic');
+      // Composed hosted instructions are always non-empty.
+      expect(first.breakdown?.systemInstructionsTokens).toBeGreaterThan(0);
+      // Non-memory run: the wire IS the conversation, so it is measured
+      // ('measure me please' = 17 chars → ceil(17/4) = 5 heuristic tokens).
+      expect(first.breakdown?.historyMessagesTokens).toBe(5);
+      expect(first.breakdown?.attachmentsCount).toBe(0);
+
+      Agent.prototype.stream = originalStream;
+    });
+  });
+
   describe('dispose error handling', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');

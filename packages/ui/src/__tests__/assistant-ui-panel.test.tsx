@@ -1,5 +1,6 @@
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  CONTEXT_BREAKDOWN_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -471,6 +472,36 @@ describe('AssistantUiPanel model picker', () => {
         data: expect.anything(),
       })
     );
+  });
+
+  it('registers a null renderer for the context-breakdown data part (never a stray element)', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useAssistantDataUIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: CONTEXT_BREAKDOWN_DATA_NAME,
+        render: expect.any(Function),
+      })
+    );
+
+    const dataUi = useAssistantDataUIMock.mock.calls
+      .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
+      .find((entry) => entry.name === CONTEXT_BREAKDOWN_DATA_NAME);
+    const ContextBreakdownPart = dataUi?.render;
+    if (!ContextBreakdownPart) {
+      throw new Error('Expected a context-breakdown data renderer to be registered.');
+    }
+
+    const { container } = render(
+      <ContextBreakdownPart
+        data={{
+          attachmentsCount: 0,
+          provenance: 'heuristic',
+          systemInstructionsTokens: 100,
+        }}
+      />
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('hides background run-event rows by default (memory/context bookkeeping)', () => {

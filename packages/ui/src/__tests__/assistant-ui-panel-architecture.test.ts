@@ -79,19 +79,16 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    // Bumped 1818 → 1828 for the user-message copy affordance: UserActionBar
-    // gains an ActionBarPrimitive.Copy mirroring AssistantActionBar's
-    // Check/Copy swap (see the "copy affordance alongside edit" test below).
-    // Bumped 1828 → 1865 (review fix): the user-message copy control now
-    // routes through the shared clipboard service (useCopyToClipboard) instead
-    // of ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText,
-    // which swallows write rejections -- a broken Electron bridge would
-    // silently do nothing. UserActionBar is exported (test-only seam, mirrors
-    // how CodeBlockHeader is unit-tested against a real assistant-ui runtime;
-    // see assistant-ui-panel/__tests__/user-action-bar-copy.test.tsx) and now
-    // computes its own tooltip/icon/aria-live states instead of delegating to
-    // MessagePrimitive.If.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1865);
+    // This panel accreted several independent features that each threaded a
+    // small prop/renderer through it: the context-breakdown seam + null-renderer
+    // registration (context-ring WS8; assistantContextBreakdownDataUI mirrors
+    // assistantShellOutputDataUI's `render: () => null` so the transient part
+    // never surfaces as a stray element), and the shared-clipboard user-message
+    // copy (WS3; UserActionBar routes through useCopyToClipboard instead of
+    // ActionBarPrimitive.Copy's navigator.clipboard, computing its own
+    // tooltip/icon/aria-live states). The model-menu swap net-removed code, so
+    // the merged file measures ~1803 lines; budget carries modest headroom.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1840);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
