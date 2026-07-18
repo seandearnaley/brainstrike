@@ -15,6 +15,12 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { CodeSurface } from '../code-surface/code-surface';
 import { DiffView } from '../diff-view/diff-view';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../dropdown-menu';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('AssistantToolApprovalNotice');
@@ -552,6 +558,35 @@ function ApprovalGrantButtons({
         <Timer className="size-3.5" />
         Allow {grantNoun} this session
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="More grant options"
+            data-testid="approval-grant-overflow"
+            disabled={disabled}
+            size="sm"
+            title="More grant options"
+            variant="outline"
+          >
+            <ChevronDown className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem
+            data-testid="approval-grant-all-session"
+            onSelect={() => {
+              // Grant FIRST, then approve — same ordering contract as the
+              // inline grant buttons (if the approve append fails, the grant is
+              // already recorded for the retried/next run).
+              grants.grantAllToolsForSession();
+              approve();
+            }}
+          >
+            <ShieldCheck className="size-3.5" />
+            Allow all tools this session
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   );
 }

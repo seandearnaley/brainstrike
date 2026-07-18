@@ -1470,6 +1470,8 @@ export function AssistantUiPanelWrapper({
   // grant recorded here reaches the very next request without extra plumbing.
   const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
     () => ({
+      grantAllToolsForSession: () =>
+        usePermissionPolicyStore.getState().grantAllSessionCategories(),
       grantCategoryForSession: (category) =>
         usePermissionPolicyStore.getState().grantSessionCategory(category),
       grantToolAlways: (toolId) =>

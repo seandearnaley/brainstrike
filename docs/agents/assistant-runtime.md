@@ -248,13 +248,21 @@ Flow (desktop assistant server → agent runtime):
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
    prompts the user; approve→execute, decline→skip. Alongside Approve/Decline
-   the notice offers two GRANT actions when (a) a `ToolApprovalGrantProvider`
+   the notice offers GRANT actions when (a) a `ToolApprovalGrantProvider`
    is mounted above it (app-shell wraps the panel, same outside-in pattern as
    `EditCheckpointProvider`; no provider → no buttons, capability gating) and
    (b) the approval carries a valid `riskCategory` (policy-driven ask —
    non-policy pauses never over-promise a grant): "Always allow <tool>" →
    `setToolOverride(toolId,'allow')` (persisted), "Allow <category> this
-   session" → `grantSessionCategory` (session-lived). Both record the grant
+   session" → `grantSessionCategory` (session-lived), and — in a compact
+   overflow menu (`approval-grant-overflow`) — "Allow all tools this session"
+   → `grantAllSessionCategories()`, which grants ALL FOUR risk categories in
+   ONE atomic store `set()` (a single subscriber notification, never a partial
+   grant set). SETTLED: the blanket action is four category grants, NOT a
+   session-yolo flag — per-tool DENY overrides still beat it (the safe
+   direction), it changes no wire contract, and Settings > Permissions lists
+   each granted category individually revocable plus a "Revoke all" button
+   (`clearSessionGrants`). All grant actions record the grant
    FIRST, then approve the pending call through the normal resume — the grant
    affects the NEXT request via the wrapper's reactive store subscription; the
    pending call still resolves through `streamMastraToolApprovalAction`.
@@ -280,6 +288,37 @@ Flow (desktop assistant server → agent runtime):
    `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An empty
    policy ask set denotes an explicitly global approval request, so its resumed
    leg continues gating every non-internal tool.
+
+NAME-FORM CONTRACT (settled — the rediscovery live bug class): Mastra registers
+tools under SANITIZED ids (`brainstrike.executeCommand` → `brainstrike_executeCommand`,
+see `tool-sanitizer.ts`) and its stream parts + suspended-run snapshots carry
+that registered id. Every CLIENT-FACING approval surface, though, is keyed by
+the ORIGINAL dotted name: `riskByTool` (`buildNativeToolRiskMap`), per-tool
+overrides (`setToolOverride` from "Always allow"), and the notice label. The
+bridges:
+- `askTools` stays SINGLE-keyed by sanitized id (dual-keying would corrupt the
+  `askTools.size === 0` explicit-global-approval detection in
+  `resolveResumeApprovalGate` and duplicate the gate's per-tool logs — do not
+  relitigate). `resolveAskToolMetadata(askTools, name)` (permission-tool-gate.ts)
+  resolves metadata under EITHER form: `get(name)` first, else a scan over
+  `meta.originalName`.
+- `makeApprovalRequiredChunks` uses that lookup; the emitted chunk's `toolName`
+  is always the ORIGINAL name (via the runtime `toolNameMap`). A policy-driven
+  pause (non-empty `askTools`) whose tool resolves under NEITHER form still
+  surfaces the pause but omits `riskCategory`/`policyDecision` (never
+  fabricated) and logs `logger.error` code
+  `mastra_agent_approval_metadata_unresolved`.
+- `listSuspendedMastraRuns` maps each discovered `toolCall.toolName` back to the
+  original: the discovery runtime's `toolNameMap` first (tools registered), else
+  the static native reverse map (`denormalizeNativeToolName` — this is what
+  makes the desktop KEYLESS discovery route resolve natives), else the
+  registered id passes through with `logger.warn` code
+  `mastra_agent_suspended_tool_name_unmapped`. The desktop route then warns with
+  `assistant_suspended_approval_risk_unresolved` when a rediscovered approval
+  still has no risk category (honest degradation: no reason line, no grant
+  buttons). Live proof: the dotted-id cases in
+  `mastra-suspended-runs-discovery.integration.spec.ts` and
+  `mastra-tool-approval-suspend.integration.spec.ts`.
 
 Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
 `false` was the default AND always persisted, so a pre-v2 `false` slice is
@@ -309,7 +348,9 @@ the (already restart-safe) `streamMastraToolApprovalAction` resume seam
 untouched. Flow:
 - `listSuspendedMastraRuns(filter, options)` (`agent-runtime.ts`) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
-  returns approval-gated tool calls only (`requiresApproval === true`);
+  returns approval-gated tool calls only (`requiresApproval === true`) with
+  `toolName` mapped back to the ORIGINAL dotted form (see NAME-FORM CONTRACT
+  above);
   non-approval `suspend()` pauses (submitPlan/askUser) and delegation-thread runs
   are tolerated + skipped (debug-logged) — a unified suspend rediscovery is a
   follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id

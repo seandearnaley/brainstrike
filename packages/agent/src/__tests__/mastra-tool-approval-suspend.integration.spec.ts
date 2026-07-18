@@ -350,6 +350,95 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     await database.close();
   });
 
+  it('surfaces the ORIGINAL dotted tool name + risk metadata on a live approval pause, and the approve resume executes', async () => {
+    // Pins the name-form contract for the LIVE stream: a tool registered under a
+    // DOTTED id is sanitized for Mastra (`shell_tool`), but the approval chunk
+    // the client sees must carry the ORIGINAL dotted name PLUS the policy risk
+    // metadata (askTools is keyed by the sanitized id — the metadata lookup must
+    // bridge the two forms).
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const dottedTool = createTool({
+      description: 'An execute-risk tool registered under a DOTTED id.',
+      execute: askExecute,
+      id: 'shell.tool',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ ran: z.string() }),
+    });
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { 'shell.tool': 'execute' },
+      yolo: false,
+    } as const;
+    const thread = { resourceId: 'resource-dotted-1', threadId: 'thread-dotted-1' } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Dotted command finished.',
+      input: JSON.stringify({ command: 'echo dotted' }),
+      toolCallId: 'call-dotted-approve-1',
+      // The model calls the REGISTERED (sanitized) id — what a real provider sees.
+      toolName: 'shell_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-dot-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'shell.tool': dottedTool },
+        }
+      )
+    );
+
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+    // Client-facing surfaces always carry the ORIGINAL dotted name…
+    expect(approval?.toolName).toBe('shell.tool');
+    // …and the policy metadata resolves even though askTools is keyed sanitized.
+    expect(approval?.riskCategory).toBe('execute');
+    expect(approval?.policyDecision).toBe('ask');
+    expect(askExecute).not.toHaveBeenCalled();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: approval?.toolName ?? '',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'shell.tool': dottedTool },
+        }
+      )
+    );
+
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo dotted' });
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
   it('keeps an OpenRouter approval resumable and reports both model-step costs after resume', async () => {
     const database = new PGlite();
     const { memory, storage } = await makeMemory(database);

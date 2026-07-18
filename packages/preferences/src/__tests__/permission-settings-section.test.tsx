@@ -182,5 +182,41 @@ describe('PermissionSettingsSection', () => {
       expect(usePermissionPolicyStore.getState().sessionGrants.has('execute')).toBe(true);
       expect(screen.getByTestId('permission-session-grant-revoke-execute')).not.toBeNull();
     });
+
+    it('lists ALL FOUR categories after a blanket grant, each individually revocable', async () => {
+      // "Allow all tools this session" is just four category grants — Settings
+      // must list them individually so a user can peel one back.
+      usePermissionPolicyStore.getState().grantAllSessionCategories();
+      render(<PermissionSettingsSection />);
+
+      for (const category of ['read', 'edit', 'execute', 'mcp'] as const) {
+        expect(screen.getByTestId(`permission-session-grant-revoke-${category}`)).not.toBeNull();
+      }
+
+      fireEvent.click(screen.getByTestId('permission-session-grant-revoke-execute'));
+      await waitFor(() => {
+        expect(usePermissionPolicyStore.getState().sessionGrants.has('execute')).toBe(false);
+      });
+      expect(usePermissionPolicyStore.getState().sessionGrants.has('read')).toBe(true);
+      expect(usePermissionPolicyStore.getState().sessionGrants.has('edit')).toBe(true);
+      expect(usePermissionPolicyStore.getState().sessionGrants.has('mcp')).toBe(true);
+    });
+
+    it('offers "Revoke all" which clears every session grant at once', async () => {
+      usePermissionPolicyStore.getState().grantAllSessionCategories();
+      render(<PermissionSettingsSection />);
+
+      fireEvent.click(screen.getByTestId('permission-session-grants-revoke-all'));
+      await waitFor(() => {
+        expect(usePermissionPolicyStore.getState().sessionGrants.size).toBe(0);
+      });
+      expect(screen.getByTestId('permission-session-grants-empty')).not.toBeNull();
+    });
+
+    it('hides "Revoke all" when no session grants are active', () => {
+      render(<PermissionSettingsSection />);
+
+      expect(screen.queryByTestId('permission-session-grants-revoke-all')).toBeNull();
+    });
   });
 });
