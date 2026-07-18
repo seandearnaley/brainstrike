@@ -251,7 +251,16 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
   });
 
   it('resolves fixture files for indexing through the stamped rootId alias', async () => {
-    const adapter = createFixtureCapableAdapter(createBaseAdapter(), {
+    // The wrapper only exists when the BASE adapter has the capability (web).
+    const base = createBaseAdapter() as ReturnType<typeof createBaseAdapter> & {
+      resolveFileForIndexing: ReturnType<typeof vi.fn>;
+    };
+    base.resolveFileForIndexing = vi.fn(async (path: string) => ({
+      content: `base:${path}`,
+      fileSize: 0,
+      kind: 'content' as const,
+    }));
+    const adapter = createFixtureCapableAdapter(base, {
       platform: 'web',
     });
     const root = await adapter.loadInlineFixture(FIXTURE);
@@ -272,6 +281,32 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       fileSize: 'export const a = 1;'.length,
       kind: 'content',
     });
+    // Foreign paths delegate to the base resolver.
+    await expect(adapter.resolveFileForIndexing?.('/real/main.ts')).resolves.toEqual({
+      content: 'base:/real/main.ts',
+      fileSize: 0,
+      kind: 'content',
+    });
+  });
+
+  it('does NOT advertise resolveFileForIndexing when the base adapter lacks it', async () => {
+    // Capability rule (mirrors streaming/readFileByPath): consumers feature-
+    // detect this method to choose the web resolver over the Electron reader.
+    // Advertising it on a capability-less base (desktop) routed REAL files
+    // into a resolver that could not serve them while a fixture was active.
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'electron' });
+    await adapter.loadInlineFixture(FIXTURE);
+
+    expect(adapter.resolveFileForIndexing).toBeUndefined();
+    // Fixture files still readable through the universal readFile path.
+    await expect(
+      adapter.readFile({
+        kind: 'file',
+        name: 'a.ts',
+        path: 'fixture-root/src/a.ts',
+        platform: 'electron',
+      })
+    ).resolves.toBe('export const a = 1;');
   });
 
   it('streams fixture directories through the stamped rootId alias', async () => {

@@ -482,16 +482,24 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       }
     ).readFileByPath = readFileByPath;
   }
-  // Always wire `resolveFileForIndexing` so fixture-driven e2e tests can serve
-  // file bytes for unexpanded-subfolder selections. When no fixture is loaded
-  // we forward to the underlying adapter (which on web returns a real handle).
-  // The fixture branch returns pre-loaded `kind: 'content'` so the worker
-  // never tries to call `.getFile()` on a structured-clone-stripped handle.
-  (
-    decorated as T & {
-      resolveFileForIndexing?: (path: string) => Promise<FileForIndexingResolution>;
-    }
-  ).resolveFileForIndexing = resolveFileForIndexing;
+  // Wire `resolveFileForIndexing` ONLY when the base adapter has it (same
+  // capability rule as streaming/readFileByPath above): consumers feature-
+  // detect this optional method to pick the web resolver path over the
+  // Electron reader. Unconditionally advertising it made the desktop indexer
+  // route REAL files into a resolver whose base could not serve them (they
+  // parked forever) whenever the dev inline fixture was on. Fixture files on
+  // capability-less adapters still index fine: the Electron reader path reads
+  // through the decorated `readFile`, which serves fixture-owned paths.
+  // On adapters WITH the capability (web), the fixture branch returns
+  // pre-loaded `kind: 'content'` so the worker never calls `.getFile()` on a
+  // structured-clone-stripped handle; foreign paths delegate to the base.
+  if (originalResolveFileForIndexing) {
+    (
+      decorated as T & {
+        resolveFileForIndexing?: (path: string) => Promise<FileForIndexingResolution>;
+      }
+    ).resolveFileForIndexing = resolveFileForIndexing;
+  }
   if (adapter.restoreLastFolder) {
     decorated.restoreLastFolder = restoreLastFolder;
   }

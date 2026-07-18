@@ -181,7 +181,10 @@ const ForestSectionEmptyState = ({
 }) => {
   const { includeFilters } = useActiveWorkspaceFilters();
   const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
-  if (loadError) {
+  // A retry/refresh in flight takes precedence: while isLoading, show the
+  // loading copy even if a previous error is still set, so a recovering
+  // section doesn't keep shouting the stale failure.
+  if (loadError && !isLoading) {
     return (
       <div className="px-9 py-1.5 text-destructive text-xs" role="alert">
         {`Couldn't read this folder: ${loadError.message}`}
