@@ -464,7 +464,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'Open workspace roots (workspaceRoots: name + id + path), the primary root path, selected paths, selected count, workspace index hint, and optional metadata',
+      'Open workspace roots (workspaceRoots: name + id + path), the main root path, selected paths, selected count, workspace index hint, and optional metadata',
     toolId: 'brainstrike.listWorkspaceContext',
   },
 

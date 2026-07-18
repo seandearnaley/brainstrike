@@ -80,18 +80,18 @@ describe('assistant UI panel architecture', () => {
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
     // This panel accreted several independent features that each threaded a
-    // small prop/renderer through it: the approval/suspend outcome chip (WS2;
-    // UserMessage renders an action message as a compact chip via
-    // approval-action-chip.tsx / approval-action-message.ts), the
-    // context-breakdown seam + null-renderer registration (context-ring WS8;
-    // assistantContextBreakdownDataUI mirrors assistantShellOutputDataUI's
-    // `render: () => null` so the transient part never surfaces as a stray
-    // element), and the shared-clipboard user-message copy (WS3; UserActionBar
-    // routes through useCopyToClipboard instead of ActionBarPrimitive.Copy's
-    // navigator.clipboard, computing its own tooltip/icon/aria-live states). The
-    // model-menu swap net-removed code, so the merged file measures ~1803 lines;
-    // budget carries modest headroom.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1840);
+    // small prop/renderer through it: the multi-root operating-root chip (WS6;
+    // <OperatingRootChip /> mounts as a sibling at the top of the composer
+    // stack), the approval/suspend outcome chip (WS2), the context-breakdown
+    // seam + null-renderer registration (context-ring WS8; assistantContext-
+    // BreakdownDataUI mirrors assistantShellOutputDataUI's `render: () => null`
+    // so the transient part never surfaces as a stray element), and the
+    // shared-clipboard user-message copy (WS3; UserActionBar routes through
+    // useCopyToClipboard instead of ActionBarPrimitive.Copy's navigator.clipboard,
+    // computing its own tooltip/icon/aria-live states). The model-menu swap
+    // net-removed code; after all four panel-touching features merged the file
+    // measures 1849 lines; budget carries modest headroom.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1855);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

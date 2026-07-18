@@ -72,6 +72,8 @@ interface FileExplorerSidebarProps {
   loadingPathForSelection?: string | null | undefined;
   /** Set of paths currently loading their children (lazy loading) */
   loadingPaths?: Set<string> | undefined;
+  /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
+  mainRootId?: string | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /**
@@ -565,6 +567,8 @@ const PerRootTreePane = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
+  /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
+  mainRootId?: string | undefined;
   onRemoveRoot?:
     | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
     | undefined;
@@ -659,8 +663,21 @@ const RootSectionInner = ({
       <RootSectionHeader
         displayName={rootDirectoryHandle.name}
         isCollapsed={isCollapsed}
+        // Main = client-declared assistant operating root (activeRootIds[0]);
+        // Focused = selection state (currentFolderId). Both compare against the
+        // section's resolved root identity — never the raw path when a durable
+        // RootId exists.
+        isFocused={rest.currentFolderId !== null && rest.currentFolderId === rootIdentity}
+        isMain={rest.mainRootId !== undefined && rest.mainRootId === rootIdentity}
         onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
         onToggleCollapse={handleToggle}
+        // Web FSA handles carry no absolute path distinct from the name —
+        // suppress the tooltip when the path adds nothing.
+        path={
+          rootDirectoryHandle.path && rootDirectoryHandle.path !== rootDirectoryHandle.name
+            ? rootDirectoryHandle.path
+            : undefined
+        }
         selectionControl={
           <RootSelectAllCheckbox
             displayName={rootDirectoryHandle.name}
@@ -738,6 +755,7 @@ const FileExplorerSidebar = memo(
     isLoading,
     isInitialLoad,
     currentFolderId,
+    mainRootId,
     onTreeRender,
     loadingPaths,
     onLoadChildren,
@@ -777,6 +795,7 @@ const FileExplorerSidebar = memo(
         loadingFiles,
         loadingPathForSelection,
         loadingPaths,
+        mainRootId,
         onLoadChildren,
         onSelectFolderRecursively,
         onTreeRender,

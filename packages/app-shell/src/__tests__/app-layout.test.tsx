@@ -88,6 +88,11 @@ vi.mock('../status-items/database-status-item', () => ({
 vi.mock('../status-items/indexing-status-item', () => ({
   IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
 }));
+vi.mock('../status-items/workspace-root-status-item', () => ({
+  WorkspaceRootStatusItem: () => (
+    <div data-testid="workspace-root-status-item">Workspace Root Status</div>
+  ),
+}));
 
 // Mock the file-explorer-hooks package
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -143,6 +148,23 @@ describe('AppLayout', () => {
     ).toBeTruthy();
     expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
     expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
+  });
+
+  it('places the workspace-root item on the left beside the database item', () => {
+    render(
+      <AppLayout config={mockConfig} currentPath="/">
+        <div>Page Content</div>
+      </AppLayout>
+    );
+    const left = screen.getByTestId('status-bar-left');
+    expect(left).toContainElement(screen.getByTestId('database-status-item'));
+    expect(left).toContainElement(screen.getByTestId('workspace-root-status-item'));
+    expect(
+      screen
+        .getByTestId('database-status-item')
+        .compareDocumentPosition(screen.getByTestId('workspace-root-status-item')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('should pass correct props to NavigationSidebar', () => {

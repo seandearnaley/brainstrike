@@ -198,6 +198,24 @@ export interface RuntimeData {
   enabledNativeToolIds?: readonly string[];
   includeFileReport?: boolean;
   includeProjectTree?: boolean;
+  /**
+   * The client's declared MAIN root (activeRootIds[0] in the file-explorer
+   * store) — the assistant's operating root. An ORDERING HINT for the
+   * server's workspace-root enrichment (the matching root moves to the front
+   * of `workspaceRoots`, so hooks cwd and the model-facing "main root path"
+   * follow it); a preference, not a security boundary. NEVER treat the id as
+   * a path — it is a durable identity (DB `roots.id` on desktop). Absent =>
+   * server keeps `created_at ASC` order (legacy tiebreak).
+   */
+  mainRootId?: string;
+  /**
+   * Absolute path of the declared main root (from the client root
+   * descriptor). Fallback matcher for the server reorder when the client
+   * root id diverges from the DB `roots.id` (legacy id spaces); same
+   * ordering-hint trust posture as `mainRootId`. Absent for roots without an
+   * absolute path (web FSA).
+   */
+  mainRootPath?: string;
   mcpEnabled?: boolean;
   memory?: RuntimeMemoryContext;
   model?: string;

@@ -601,6 +601,10 @@ const FileExplorerPanelInner = React.memo(() => {
     showToast,
   ]);
 
+  // MAIN root = activeRootIds[0] (the assistant's operating root). Threaded
+  // to the sidebar so forest sections can badge it; distinct from the
+  // FOCUSED root (currentFolderId) above.
+  const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
@@ -1269,6 +1273,7 @@ const FileExplorerPanelInner = React.memo(() => {
                 loadingFiles={loadingFiles}
                 loadingPathForSelection={loadingPathForSelection}
                 loadingPaths={loadingPaths}
+                mainRootId={mainRootId}
                 onLoadChildren={loadChildren}
                 onRemoveRoot={removeRootDirectory}
                 onSelectFolderRecursively={handleSelectFolderRecursively}

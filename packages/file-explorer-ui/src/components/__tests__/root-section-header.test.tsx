@@ -52,6 +52,105 @@ describe('RootSectionHeader', () => {
     expect(screen.getByLabelText(/expand/i)).toBeInTheDocument();
   });
 
+  describe('main-root badge and focused indicator (main vs focused clarity)', () => {
+    it('renders a "Main" badge when isMain is true', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          isMain={true}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('root-main-badge')).toHaveTextContent('Main');
+    });
+
+    it('does NOT render the "Main" badge when isMain is absent/false', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('root-main-badge')).toBeNull();
+    });
+
+    it('marks the header row with data-focused when isFocused is true', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          isFocused={true}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('root-section-header-row')).toHaveAttribute('data-focused', 'true');
+      expect(screen.getByTestId('root-focused-accent')).toBeInTheDocument();
+    });
+
+    it('has no data-focused attribute or accent when isFocused is absent', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('root-section-header-row')).not.toHaveAttribute('data-focused');
+      expect(screen.queryByTestId('root-focused-accent')).toBeNull();
+    });
+
+    it('main and focused are independent: both can be set at once', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          isFocused={true}
+          isMain={true}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('root-main-badge')).toBeInTheDocument();
+      expect(screen.getByTestId('root-section-header-row')).toHaveAttribute('data-focused', 'true');
+    });
+  });
+
+  describe('path tooltip', () => {
+    it('shows the full path in a tooltip when hovering the name', async () => {
+      const user = userEvent.setup();
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          onToggleCollapse={vi.fn()}
+          path="/Users/me/dev/my-project"
+        />
+      );
+
+      await user.hover(screen.getByText('my-project'));
+      const matches = await screen.findAllByText('/Users/me/dev/my-project');
+      expect(matches.length).toBeGreaterThan(0);
+    });
+
+    it('renders the plain name (no tooltip wiring) when path is absent (web FSA)', () => {
+      render(
+        <RootSectionHeader
+          displayName="my-project"
+          isCollapsed={false}
+          onToggleCollapse={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('my-project')).toBeInTheDocument();
+    });
+  });
+
   describe('disconnect button (Phase 5)', () => {
     it('does NOT render the disconnect button when onDisconnect is absent', () => {
       render(

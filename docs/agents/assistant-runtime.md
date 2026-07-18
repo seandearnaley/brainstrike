@@ -563,7 +563,9 @@ keychain, never in the process env.
 **Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
 discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:
 global-first, then roots in mounted order; each loaded hook is tagged with its
-source `cwd`/`rootId` (global hooks' cwd = primary root).
+source `cwd`/`rootId` (global hooks' cwd = the MAIN root — client-declared
+`activeRootIds[0]`, `created_at` fallback; see "WORKSPACE ROOT IDENTITY" in
+`docs/agents/workspace-context.md`).
 
 **Threading:** `RuntimeData.hookRunner` (trusted, agent-only, never serialized —
 mirrors `localLlmHostClient`; preserved by `resolveRuntimeConfiguration`'s spread)

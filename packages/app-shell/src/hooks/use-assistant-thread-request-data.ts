@@ -20,6 +20,14 @@ interface UseAssistantThreadRequestDataArgs {
    */
   readonly hookTrustRequest?: HookTrustRequest | undefined;
   readonly hostedMemoryBackendAvailable: boolean;
+  /**
+   * The client's declared MAIN root (activeRootIds[0]); ordering hint for the
+   * server's workspace-root enrichment. Never a path; never a security
+   * boundary. Absent when no roots are mounted.
+   */
+  readonly mainRootId?: string | undefined;
+  /** Absolute path of the declared main root (server path-fallback matcher). */
+  readonly mainRootPath?: string | undefined;
   readonly memoryOptions: RuntimeMemoryOptions;
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
@@ -74,6 +82,8 @@ export function useAssistantThreadRequestData({
   enabledNativeToolIds,
   hostedMemoryBackendAvailable,
   hookTrustRequest,
+  mainRootId,
+  mainRootPath,
   memoryOptions,
   memoryResourceId,
   modelSettings,
@@ -106,6 +116,8 @@ export function useAssistantThreadRequestData({
         enabledNativeToolIds,
         hookTrustRequest,
         hostedMemoryBackendAvailable,
+        ...(mainRootId ? { mainRootId } : {}),
+        ...(mainRootPath ? { mainRootPath } : {}),
         memoryOptions,
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
@@ -127,6 +139,8 @@ export function useAssistantThreadRequestData({
       enabledNativeToolIds,
       hookTrustRequest,
       hostedMemoryBackendAvailable,
+      mainRootId,
+      mainRootPath,
       memoryOptions,
       memoryResourceId,
       modelSettings,

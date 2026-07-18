@@ -408,6 +408,45 @@ describe('assistant runtime helpers', () => {
     ).toEqual(skillsPreference);
   });
 
+  it('attaches mainRootId/mainRootPath only when provided (multi-root main declaration)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // No mounted roots (or single-root legacy) → neither field rides the wire.
+    const withoutMain = buildAssistantRequestData(baseArgs);
+    expect(withoutMain).not.toHaveProperty('mainRootId');
+    expect(withoutMain).not.toHaveProperty('mainRootPath');
+
+    // Main root declared → both fields attach verbatim.
+    const withMain = buildAssistantRequestData({
+      ...baseArgs,
+      mainRootId: 'root-a',
+      mainRootPath: '/Users/me/ProjectA',
+    });
+    expect(withMain['mainRootId']).toBe('root-a');
+    expect(withMain['mainRootPath']).toBe('/Users/me/ProjectA');
+
+    // The id can attach without a path (web FSA descriptor with no absolute
+    // path) — the server's path fallback simply has nothing to match.
+    const idOnly = buildAssistantRequestData({ ...baseArgs, mainRootId: 'root-a' });
+    expect(idOnly['mainRootId']).toBe('root-a');
+    expect(idOnly).not.toHaveProperty('mainRootPath');
+  });
+
   it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {
     const baseArgs = {
       agentLoopSettings: { maxSteps: 6 },

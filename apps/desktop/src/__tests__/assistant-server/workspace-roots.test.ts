@@ -4,6 +4,7 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
   loadWorkspaceRootsFromDatabase,
+  orderWorkspaceRoots,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
 } from '../../assistant-server/workspace-roots';
@@ -112,7 +113,64 @@ describe('loadWorkspaceRootsFromDatabase', () => {
   });
 });
 
+describe('orderWorkspaceRoots (client-declared MAIN root reorder)', () => {
+  const ROOT_C = { displayName: 'ProjectC', path: '/Users/me/ProjectC', rootId: 'root-c' };
+
+  it('moves the root matching mainRootId to the FRONT, preserving the rest', () => {
+    expect(orderWorkspaceRoots([ROOT_A, ROOT_B, ROOT_C], 'root-c', undefined)).toEqual([
+      ROOT_C,
+      ROOT_A,
+      ROOT_B,
+    ]);
+  });
+
+  it('falls back to a resolved-path match when the id does not match (legacy id divergence)', () => {
+    expect(
+      orderWorkspaceRoots([ROOT_A, ROOT_B], 'client-uuid-not-db-id', '/Users/me/ProjectB/')
+    ).toEqual([ROOT_B, ROOT_A]);
+  });
+
+  it('keeps the created_at (input) order when neither id nor path matches', () => {
+    expect(orderWorkspaceRoots([ROOT_A, ROOT_B], 'nope', '/Users/me/Elsewhere')).toEqual([
+      ROOT_A,
+      ROOT_B,
+    ]);
+  });
+
+  it('keeps the input order when no main declaration is present', () => {
+    expect(orderWorkspaceRoots([ROOT_A, ROOT_B], undefined, undefined)).toEqual([ROOT_A, ROOT_B]);
+  });
+
+  it('is a no-op when the declared main root is already first', () => {
+    expect(orderWorkspaceRoots([ROOT_A, ROOT_B], 'root-a', undefined)).toEqual([ROOT_A, ROOT_B]);
+  });
+});
+
 describe('enrichRuntimeDataWithWorkspaceRoots', () => {
+  it('reorders DB roots so the client-declared main root is first', async () => {
+    const db = mockDb([
+      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+    ]);
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(
+      runtime({ mainRootId: 'root-b', workspaceRootPath: '/Users/me/ProjectA' }),
+      db
+    );
+    expect(enriched?.workspaceRoots).toEqual([ROOT_B, ROOT_A]);
+  });
+
+  it('keeps created_at order when the declared main root is not a live DB root', async () => {
+    const db = mockDb([
+      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+    ]);
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(
+      runtime({ mainRootId: 'gone', mainRootPath: '/Users/me/Elsewhere' }),
+      db
+    );
+    expect(enriched?.workspaceRoots).toEqual([ROOT_A, ROOT_B]);
+  });
+
   it('injects DB roots when none are present on the runtime', async () => {
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ workspaceRootPath: '/Users/me/ProjectA' }),

@@ -1693,7 +1693,11 @@ interface ListWorkspaceContextToolResult {
   tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
   truncated: boolean;
   workspaceIndex: WorkspaceIndexSummary;
-  /** Primary/focused root path (back-compat); see workspaceRoots for the full set. */
+  /**
+   * MAIN root path (the assistant's operating root — `workspaceRoots[0]`,
+   * client-declared with a created_at fallback). NOT the focused root:
+   * selected files live in the FOCUSED root — see selectionFolderId.
+   */
   workspaceRootPath: string;
   /**
    * Every open workspace root (id + display name + path). The model reads these
@@ -1712,8 +1716,9 @@ function runListWorkspaceContext(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
-  // The first root is the primary/focused one (path.resolve matches the legacy
-  // resolveWorkspaceRootPath value for the single-root case).
+  // The first root is the MAIN root (client-declared via mainRootId, with the
+  // DB created_at order as fallback — see orderWorkspaceRoots). Identical to
+  // the legacy resolveWorkspaceRootPath value in the single-root case.
   const workspaceRootPath = workspaceRoots[0]?.path ?? '';
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
   const curatedContext = getRuntimeWorkspaceContext(runtimeData);

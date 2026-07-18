@@ -426,6 +426,29 @@ export function AssistantUiPanelWrapper({
 
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
+  // MAIN root = activeRootIds[0] (client-declared; the assistant's operating
+  // root). Sent per request as an ORDERING HINT so the server's root
+  // enrichment puts it first — hooks cwd + the model-facing "main root path"
+  // follow it. Distinct from the FOCUSED root (currentFolderId) below.
+  const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
+  const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
+  const activeRootCount = useFileExplorerStoreSelector((s) => s.activeRootIds?.length ?? 0);
+  // Composer operating-root chip: ONLY when 2+ roots are mounted (single-root
+  // workspaces need no disambiguation — zero extra chrome). The ui package
+  // stays store-free; it just renders what we pass.
+  const operatingRoot = useMemo(() => {
+    if (activeRootCount < 2 || !mainRootId) {
+      return;
+    }
+    const descriptor = rootDescriptors?.[mainRootId];
+    if (!descriptor) {
+      return;
+    }
+    return {
+      displayName: descriptor.displayName,
+      ...(descriptor.path ? { path: descriptor.path } : {}),
+    };
+  }, [activeRootCount, mainRootId, rootDescriptors]);
   // Multi-root write-back: map each open root's absolute path -> its client
   // RootId so an assistant update carrying a server rootPath can route to the
   // right folder (the two id spaces share only the path). Recomputed only when
@@ -465,13 +488,19 @@ export function AssistantUiPanelWrapper({
   }, [effectiveSelection]);
 
   const selectionData = useMemo(() => {
-    // MULTI-ROOT PARTITION: the assistant's file tools are single-root —
-    // every path resolves against ONE workspaceRootPath (the focused root).
-    // Mixing other roots' paths into the list misattributes same-relative
-    // paths to the wrong root (or dangles). Only the FOCUSED root's
-    // selections are addressable; the rest are COUNTED so the assistant can
-    // say "N selected files are outside this workspace" instead of silently
-    // ignoring them.
+    // MULTI-ROOT PARTITION — two distinct root concepts ride each request:
+    // - MAIN root (mainRootId/mainRootPath above, activeRootIds[0]): the
+    //   assistant's OPERATING root — hooks cwd + model-facing "main root
+    //   path". Stable; only "Set as main" or disconnecting the main root
+    //   changes it.
+    // - FOCUSED root (currentFolderId → workspaceRootPath): SELECTION scope.
+    //   Flips on incidental clicks, so it must never drive hooks/model cwd.
+    // The selection legs stay focused-root-scoped: every path resolves
+    // against ONE workspaceRootPath (the focused root). Mixing other roots'
+    // paths into the list misattributes same-relative paths to the wrong
+    // root (or dangles). Only the FOCUSED root's selections are addressable;
+    // the rest are COUNTED so the assistant can say "N selected files are
+    // outside this workspace" instead of silently ignoring them.
     const filePaths = new Set<string>();
     const folderIds = new Set<string>();
     let otherRootsCount = 0;
@@ -932,6 +961,8 @@ export function AssistantUiPanelWrapper({
     enabledNativeToolIds,
     hookTrustRequest,
     hostedMemoryBackendAvailable,
+    mainRootId,
+    mainRootPath,
     memoryOptions: assistantMemoryOptions,
     memoryResourceId,
     modelSettings,
@@ -1542,6 +1573,7 @@ export function AssistantUiPanelWrapper({
               onStreamActivity={renewActiveAssistantForegroundActivity}
               onToolApprovalRequired={onToolApprovalRequired}
               onUsage={handleUsage}
+              {...(operatingRoot ? { operatingRoot } : {})}
               pickerModels={pickerModels}
               pickerProviders={pickerProviders}
               prepareRequestData={prepareRequestData}

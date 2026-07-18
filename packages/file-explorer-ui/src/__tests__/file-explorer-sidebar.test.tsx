@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
@@ -1315,6 +1316,100 @@ describe('FileExplorerSidebar', () => {
     });
     await waitFor(() => {
       expect(screen.getAllByText('No files match the search "zzz-no-match"').length).toBe(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Main vs Focused clarity (forest mode)
+  // -------------------------------------------------------------------------
+  describe('main badge + focused indicator (forest mode)', () => {
+    const handleA = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-a',
+      path: '/project-a',
+      platform: 'web' as const,
+    };
+    const handleB = {
+      _internal: {} as FileSystemDirectoryHandle,
+      kind: 'directory' as const,
+      name: 'project-b',
+      path: '/project-b',
+      platform: 'web' as const,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+    const rootIdByPath = new Map([
+      ['/project-a', ROOT_ID_A],
+      ['/project-b', ROOT_ID_B],
+    ]);
+
+    function forestUi(opts: { currentFolderId?: string | null; mainRootId?: string } = {}) {
+      return (
+        <FileExplorerSidebar
+          {...defaultProps}
+          currentFolderId={opts.currentFolderId ?? null}
+          mainRootId={opts.mainRootId}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          rootIdByPath={rootIdByPath}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    }
+
+    it('renders EXACTLY ONE Main badge, on the section matching mainRootId (store order)', () => {
+      act(() => {
+        renderWithProviders(forestUi({ mainRootId: ROOT_ID_B }));
+      });
+
+      const badges = screen.getAllByTestId('root-main-badge');
+      expect(badges).toHaveLength(1);
+      const headers = screen.getAllByTestId('root-section-header-row');
+      // Section order follows the handle array (A then B); the badge sits in B.
+      expect(headers[1]).toContainElement(badges[0] as HTMLElement);
+      expect(headers[0]).not.toContainElement(badges[0] as HTMLElement);
+    });
+
+    it('moves the Main badge when mainRootId changes (badge moves; sections do not reorder)', () => {
+      let view: { rerender: (ui: ReactElement) => void } | undefined;
+      act(() => {
+        view = renderWithProviders(forestUi({ mainRootId: ROOT_ID_A })) as unknown as {
+          rerender: (ui: ReactElement) => void;
+        };
+      });
+      let headers = screen.getAllByTestId('root-section-header-row');
+      expect(headers[0]).toContainElement(screen.getByTestId('root-main-badge'));
+
+      act(() => {
+        view?.rerender(forestUi({ mainRootId: ROOT_ID_B }));
+      });
+      headers = screen.getAllByTestId('root-section-header-row');
+      const badges = screen.getAllByTestId('root-main-badge');
+      expect(badges).toHaveLength(1);
+      expect(headers[1]).toContainElement(badges[0] as HTMLElement);
+      // Section ORDER did not change — only the badge moved.
+      expect(headers[0]).toHaveTextContent('project-a');
+    });
+
+    it('focused indicator follows currentFolderId, independent of the Main badge', () => {
+      act(() => {
+        renderWithProviders(forestUi({ currentFolderId: ROOT_ID_B, mainRootId: ROOT_ID_A }));
+      });
+
+      const headers = screen.getAllByTestId('root-section-header-row');
+      // Focused (selection state) is B; Main stays on A.
+      expect(headers[1]).toHaveAttribute('data-focused', 'true');
+      expect(headers[0]).not.toHaveAttribute('data-focused');
+      expect(headers[0]).toContainElement(screen.getByTestId('root-main-badge'));
+    });
+
+    it('renders NO Main badge when mainRootId is absent', () => {
+      act(() => {
+        renderWithProviders(forestUi());
+      });
+
+      expect(screen.queryByTestId('root-main-badge')).toBeNull();
     });
   });
 

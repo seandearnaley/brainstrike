@@ -77,6 +77,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
 
@@ -338,6 +339,12 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
+  /**
+   * The assistant's operating root (MAIN root — activeRootIds[0]), shown as a
+   * compact chip above the composer. App-shell passes it ONLY when 2+
+   * workspace roots are mounted; absent renders no chip (single-root/web).
+   */
+  operatingRoot?: OperatingRootInfo;
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -731,6 +738,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: AssistantUsage) => void) | undefined;
+  /** Assistant operating root chip (multi-root only); absent → no chip. */
+  operatingRoot?: OperatingRootInfo | undefined;
   pickerModels: ModelPickerModel[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -780,6 +789,7 @@ const LocalRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  operatingRoot,
   planMode,
   toolMenu,
   requestData,
@@ -870,6 +880,7 @@ const LocalRuntimeChat = ({
           onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
+          {...(operatingRoot ? { operatingRoot } : {})}
           pickerModels={pickerModels}
           {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
@@ -926,6 +937,7 @@ const DataStreamRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  operatingRoot,
   planMode,
   attachmentsAvailability,
   toolMenu,
@@ -1055,6 +1067,7 @@ const DataStreamRuntimeChat = ({
             onRunFinished={onRunFinished}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
+            {...(operatingRoot ? { operatingRoot } : {})}
             pickerModels={pickerModels}
             {...(planMode ? { planMode } : {})}
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
@@ -1104,6 +1117,7 @@ const ChatThreadUI = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  operatingRoot,
   planMode,
   attachmentsAvailability,
   threadKey,
@@ -1115,6 +1129,7 @@ const ChatThreadUI = ({
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  operatingRoot?: OperatingRootInfo | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1270,6 +1285,11 @@ const ChatThreadUI = ({
        * This required aggressive CSS overrides (see overrides.css).
        */}
       <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+        {/* Multi-root operating-root chip ("in {main root}") — its own module,
+            a SIBLING at the top of the composer stack (never nested inside
+            ThreadContextMeter, which is being reworked separately). Renders
+            nothing unless app-shell passes operatingRoot (2+ roots). */}
+        <OperatingRootChip operatingRoot={operatingRoot} />
         <ThreadContextMeter
           contextWindow={contextWindow}
           cumulativeUsage={cumulativeUsage}
@@ -1381,6 +1401,7 @@ export const AssistantUiPanel = ({
   onContextBreakdown,
   onUsage,
   attachmentsAvailability,
+  operatingRoot,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1466,6 +1487,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
+            operatingRoot={operatingRoot}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -1506,6 +1528,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
+            operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
             {...(onUsage ? { onUsage } : {})}

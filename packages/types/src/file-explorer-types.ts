@@ -149,6 +149,9 @@ export interface SerializedFolderState {
 export interface SerializedState {
   /**
    * Ordered list of active root IDs (sidebar order).
+   * activeRootIds[0] is the MAIN root — the assistant's operating root
+   * (declared client-side; see setMainRoot). Persisting the order persists
+   * the main-root choice; no separate field exists.
    * Optional for backward compatibility — older snapshots lack this field.
    */
   activeRootIds?: string[];
@@ -243,6 +246,11 @@ export interface FileExplorerData {
   /**
    * Ordered list of active root IDs (sidebar order).
    * RootId strings that index into rootDescriptors.
+   * activeRootIds[0] is the MAIN root — the assistant's operating root
+   * (hooks cwd, model-facing "main root path"). "Set as main" is a pure
+   * reorder (setMainRoot); removing the main root promotes activeRootIds[1].
+   * Distinct from the FOCUSED root (currentFolderId), which is selection
+   * state and flips on incidental clicks.
    * Phase-4 initial state is empty (single-root compat).
    */
   activeRootIds: string[];
@@ -430,6 +438,13 @@ export interface FileExplorerState extends FileExplorerData {
   // Access loading state action (for blocking stale clearing during restore)
   setIsAccessLoading: (loading: boolean) => void;
   setLastActiveTab: (tab: string) => void;
+  /**
+   * Declare the MAIN root: move the rootId to the front of activeRootIds
+   * (activeRootIds[0] = main root). No-op if already first; warn-and-no-op
+   * for an unknown id. Never touches descriptors, folder states, or the
+   * focused root (currentFolderId).
+   */
+  setMainRoot: (rootId: string) => void;
   /**
    * Update materialized paths cache from rule evaluation.
    * Called after rules are evaluated against the file tree.
