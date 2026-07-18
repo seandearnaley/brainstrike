@@ -342,9 +342,10 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   so `SKILL_ACTIVATION_RESULT_TOKEN_BUDGET` (6000) is an EXPLICIT per-tool
   override in `boundToolOutputForModel` (tool-output-limits.ts), and the tool
   SELF-BOUNDS to the same ceiling with an honest truncation note
-  (skill-tools.ts) so the backstop never converts an activation into a
-  `tool_result_too_large` error. `skill_read`/`skill_search` self-bound to the
-  native budget with line-range / narrower-query hints.
+  (skill-tools.ts). The generic Mastra `toModelOutput` projection honors the
+  same override, so an activation is never cut to the normal 2000-token model
+  projection. `skill_read`/`skill_search` self-bound to the native budget with
+  line-range / narrower-query hints.
 
 - **Metadata injection:** Mastra's `SkillsProcessor` composed into the
   PER-CALL `inputProcessors` in `buildToolLoopOptions` (per-call options
@@ -674,5 +675,3 @@ preservation),
 When changing this flow, update this section and the paired tests.
 
 ---
-
-

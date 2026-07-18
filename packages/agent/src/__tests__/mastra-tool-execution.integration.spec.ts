@@ -75,6 +75,7 @@ function createScriptedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
@@ -93,6 +94,7 @@ function createScriptedToolCallModel(args: {
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
       if (promptHasToolResult) {
+        args.onToolResultPrompt?.(options.prompt);
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -238,6 +240,29 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
   };
 }
 
+function readToolResultText(message: unknown): string {
+  if (!(message && typeof message === 'object')) {
+    throw new TypeError('Expected a tool prompt message');
+  }
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    throw new TypeError('Expected tool prompt content');
+  }
+  const resultPart = content.find(
+    (part) =>
+      part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool-result'
+  ) as { output?: unknown } | undefined;
+  const output = resultPart?.output;
+  if (!(output && typeof output === 'object')) {
+    throw new TypeError('Expected a projected tool result');
+  }
+  const value = (output as { type?: unknown; value?: unknown }).value;
+  if ((output as { type?: unknown }).type !== 'text' || typeof value !== 'string') {
+    throw new TypeError('Expected a text tool result projection');
+  }
+  return value;
+}
+
 describe('mastra real tool execution (real @mastra/core/agent)', () => {
   beforeEach(() => {
     modelHolder.current = undefined;
@@ -289,6 +314,59 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // And the tool result flowed back through to a terminal run-event + answer.
     expect(runEventKinds).toContain('tool.completed');
     expect(finalText).toContain('21C in Paris');
+  });
+
+  it('projects oversized raw tool results before the next real model step', async () => {
+    const rawOnlyTail = 'raw-only-tail-must-not-reach-the-model';
+    const executeSpy = vi.fn(() =>
+      Promise.resolve({
+        content: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+        path: '/large-output.txt',
+      })
+    );
+    const largeOutputTool = createTool({
+      description: 'Return a deliberately large raw result.',
+      execute: executeSpy,
+      id: 'large_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ content: z.string(), path: z.string() }),
+    });
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The projected output was bounded.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-large-output-1',
+      toolName: 'large_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-large', parts: [{ text: 'return the large output', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { large_output: largeOutputTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
+
+    const rawSuccess = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> =>
+        chunk.type === 'tool-event' && chunk.name === 'large_output' && chunk.status === 'success'
+    );
+    expect(JSON.stringify(rawSuccess?.payload)).toContain(rawOnlyTail);
   });
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {

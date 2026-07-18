@@ -76,6 +76,22 @@ below are LIVE.
    provider (the hidden llm-host owns its own engine-fault recovery; no
    hosted-provider wire quirks apply).
 
+**Raw/model tool-output split (LIVE):**
+`createMastraAgentRuntime` composes tools in this order:
+`sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
+gates → provider-native swap → model-output projection → Agent`. The final
+projection uses Mastra's native `toModelOutput`, so the mapping observes the
+post-hook execution result without replacing it: raw output remains available
+to stream/application consumers and is what Mastra persists; only the next
+model request receives the bounded projection. Persona agents receive the same
+projection before their independent permission gate. Do not move destructive
+bounding back into MCP `execute()` or the raw channel is irrecoverably lost.
+The UI data-stream bound is a separate transport backstop, not the model-context
+boundary. `mastra-tool-execution.integration.spec.ts` must keep proving the
+actual next provider step sees the projection, and
+`mastra-memory-persistence.integration.spec.ts` must keep proving the raw
+sentinel is durable.
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these

@@ -151,7 +151,7 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
 
     // ...and the second prompt carried the full tool round in the local
     // dialect: the assistant message preserves its tool call, and the tool
-    // message carries the REAL executed result parsed from Mastra's V2
+    // message carries the model-facing JSON text projection from Mastra's V2
     // `output` envelope (not undefined, not a legacy `result` field).
     const secondRequest = hostClient.requests[1];
     const assistantWithToolCall = secondRequest?.messages.find(
@@ -163,7 +163,9 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     });
     const toolMessage = secondRequest?.messages.find((message) => message.role === 'tool');
     expect(toolMessage?.toolResponses?.[0]?.name).toBe('get_weather');
-    expect(toolMessage?.toolResponses?.[0]?.response).toMatchObject({
+    const projectedResponse = toolMessage?.toolResponses?.[0]?.response;
+    expect(typeof projectedResponse).toBe('string');
+    expect(JSON.parse(String(projectedResponse))).toMatchObject({
       city: 'Paris',
       temperatureC: 21,
     });

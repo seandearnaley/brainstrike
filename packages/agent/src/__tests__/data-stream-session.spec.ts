@@ -1231,7 +1231,7 @@ describe('AssistantDataStreamSession', () => {
       expect(visibleText).not.toContain('Tool execution failed');
     });
 
-    it('turns oversized successful tool output into a bounded recoverable tool error', async () => {
+    it('keeps oversized successful tool output successful with a bounded preview', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [
         {
@@ -1279,19 +1279,16 @@ describe('AssistantDataStreamSession', () => {
       const serializedToolResult = JSON.stringify(toolResult);
 
       expect(toolResult).toMatchObject({
-        isError: true,
         result: {
-          code: 'tool_result_too_large',
+          code: 'tool_result_truncated',
         },
         toolCallId: 'call_files',
       });
-      expect(toolResult?.result?.error).toContain(
-        'filesystem.search_files returned too much output'
-      );
+      expect(toolResult?.isError).toBeUndefined();
       expect(toolResult?.result?.preview).toContain('filesystem match');
       expect(serializedToolResult.length).toBeLessThan(20_000);
       expect(serializedToolResult).not.toContain('needle-at-tail');
-      expect(textDelta?.value).toContain('filesystem.search_files returned too much output');
+      expect(textDelta).toBeUndefined();
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 

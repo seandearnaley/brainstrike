@@ -239,7 +239,29 @@ and per-root partial indexes were measured and rejected
 whole-set searches never run the counts. Do not "optimize" selective filtered
 searches back onto the ANN index without re-running that benchmark.
 
-Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
+Tool output budget (anti-thrash contract): budgets are token-denominated and
+enforced deterministically on serialized chars at 4 chars/token (mirrors
+`countTokensHeuristic`). Native producers self-bound result lists to
+`NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
+runtime then adds `toModelOutput` to every execute-backed native/MCP tool that
+does not already declare a domain projection: `execute()` still returns the
+RAW post-hook value for application consumers and Mastra persistence, while
+the next provider step receives only a text projection capped at
+`MAX_MODEL_TOOL_RESULT_TOKENS` (2000). `skill` is the explicit exception
+(6000), because its instruction body is the payload and cannot be paged.
+Existing tool-specific projections are authoritative and malformed
+non-callable projections throw. Finally, the UI transport independently caps
+the streamed result at `MAX_TOOL_RESULT_TOKENS` (3000). Oversized collections
+(matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
+structurally trimmed; opaque outputs become a SUCCESSFUL
+`tool_result_truncated` preview with an actionable hint. Output size alone is
+never a tool error. The legacy `tool_result_too_large` envelope remains
+readable only for persisted-history compatibility. Proofs:
+`tool-model-output.spec.ts`, `tool-output-limits.spec.ts`,
+`mastra-tool-execution.integration.spec.ts`,
+`mastra-memory-persistence.integration.spec.ts`, and
+`data-stream-session.spec.ts`. `listWorkspaceContext` is concise by default
+(counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.
 

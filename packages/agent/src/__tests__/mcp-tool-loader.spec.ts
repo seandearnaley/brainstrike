@@ -1173,7 +1173,7 @@ describe('mcp-tool-loader', () => {
       expect(result).toHaveProperty('filesystem_list_directory');
     });
 
-    it('bounds oversized MCP tool output before it reaches the model stream', async () => {
+    it('keeps oversized MCP execution output raw for the later model-projection boundary', async () => {
       const mockMcpClient = createMockMcpClient({
         filesystem: {
           read_file: {
@@ -1205,10 +1205,7 @@ describe('mcp-tool-loader', () => {
 
       const output = await (tool as { execute: () => Promise<unknown> }).execute();
 
-      expect(output).toMatchObject({
-        code: 'tool_result_too_large',
-        truncated: true,
-      });
+      expect(output).toBe('x'.repeat(13_000));
     });
   });
 });

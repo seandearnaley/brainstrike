@@ -3,7 +3,6 @@ import {
   boundToolOutputForModel,
   fitItemsToCharBudget,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
-  TOOL_RESULT_TOO_LARGE_CODE,
 } from '../stream/tool-output-limits';
 
 describe('boundToolOutputForModel structural degradation', () => {
@@ -43,24 +42,34 @@ describe('boundToolOutputForModel structural degradation', () => {
     expect(JSON.stringify(bounded.output).length).toBeLessThanOrEqual(12_000);
   });
 
-  it('keeps the error+preview path for oversized non-collection outputs, reported in tokens', () => {
+  it('returns a successful preview for oversized non-collection outputs, reported in tokens', () => {
     const bounded = boundToolOutputForModel('filesystem.read_file', 'x'.repeat(20_000));
-    expect(bounded.errorText).toContain('returned too much output');
-    expect(bounded.errorText).toContain('tokens');
+    expect(bounded.errorText).toBeUndefined();
     expect(bounded.output).toMatchObject({
       // 20_002 serialized chars (string quotes) at 4 chars/token.
       approxTokens: Math.ceil(20_002 / 4),
-      code: TOOL_RESULT_TOO_LARGE_CODE,
+      code: 'tool_result_truncated',
       maxTokens: 3000,
       truncated: true,
     });
   });
 
-  it('falls back to the error path when even one collection item cannot fit', () => {
+  it('returns a successful preview when even one collection item cannot fit', () => {
     const bounded = boundToolOutputForModel('someTool', {
       items: ['y'.repeat(20_000), 'z'.repeat(20_000)],
     });
-    expect(bounded.errorText).toContain('returned too much output');
+    expect(bounded.errorText).toBeUndefined();
+    expect(bounded.output).toMatchObject({
+      code: 'tool_result_truncated',
+      truncated: true,
+    });
+  });
+
+  it('keeps escaped previews inside an explicit model-facing budget', () => {
+    const bounded = boundToolOutputForModel('someTool', '\u0000'.repeat(20_000), 2000);
+
+    expect(bounded.errorText).toBeUndefined();
+    expect(JSON.stringify(bounded.output).length).toBeLessThanOrEqual(8000);
   });
 
   it('trims an oversized delegation subAgentToolResults list instead of erroring', () => {

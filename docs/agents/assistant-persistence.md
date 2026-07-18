@@ -21,6 +21,15 @@ contracts keep reloaded threads identical to live ones:
    fixtures must mirror REAL persisted rows, never hand-written shapes — a
    hand-written `tool-call` fixture previously kept tests green while real
    tool history silently vanished on every reload.
+   Tool output uses a deliberate dual channel: Mastra persists the RAW
+   `toolInvocation.result`, while `toModelOutput` supplies the bounded text
+   projection repeated into the next provider request. Never replace the raw
+   result inside `execute()` merely to save prompt tokens; that destroys
+   reload/application evidence. The real-memory proof includes an oversized
+   sentinel in
+   `packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`;
+   the live-provider proof that the sentinel is absent from the next model
+   request lives in `mastra-tool-execution.integration.spec.ts`.
 2. **Snapshot grouping + live-order interleaving:** observational-memory
    sealing and per-step saves split ONE live assistant turn into several
    `mastra_messages` rows (progressive snapshots under fresh ids, so one

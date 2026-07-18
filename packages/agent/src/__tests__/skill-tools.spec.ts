@@ -6,9 +6,9 @@
  * contract: every result self-bounds with an HONEST truncation note (never a
  * hard size error), and the `skill` activation tool gets a dedicated, larger
  * budget — the Agent Skills spec allows ~5k-token instructions, above the
- * generic 3000-token transport guard. The transport backstop
- * (`boundToolOutputForModel`) honors the same per-tool override so a full-size
- * skill activation is never converted into a `tool_result_too_large` error.
+ * generic 2000-token model projection / 3000-token transport guard. The shared
+ * backstop (`boundToolOutputForModel`) honors the same override so a full-size
+ * skill activation is never prematurely truncated.
  */
 
 import { createSkill, resolveAgentSkills } from '@mastra/core/skills';
@@ -18,7 +18,11 @@ import {
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   SKILL_TOOL_IDS,
 } from '../skills/skill-tools';
-import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
+import {
+  boundToolOutputForModel,
+  MAX_TOOL_RESULT_TOKENS,
+  TOOL_RESULT_TRUNCATED_CODE,
+} from '../stream/tool-output-limits';
 
 function inlineEngine(instructions: string, extra: Parameters<typeof createSkill>[0][] = []) {
   return resolveAgentSkills([
@@ -55,7 +59,7 @@ describe('createAssistantSkillTools', () => {
   it('self-bounds an oversized activation with an honest truncation note (never an error)', async () => {
     // Markdown with newlines: JSON serialization escapes them, so the bound
     // must hold on the SERIALIZED form the transport guard measures — a
-    // raw-length bound would still trip tool_result_too_large downstream.
+    // raw-length bound would still force a second downstream truncation.
     const hugeInstructions = 'word line\n'.repeat(20_000);
     const tools = createAssistantSkillTools(inlineEngine(hugeInstructions));
     const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
@@ -103,15 +107,25 @@ describe('transport guard override for skill activations', () => {
     expect(bounded.output).toBe(activation);
   });
 
-  it('still backstops a skill output beyond the skill budget', () => {
+  it('returns a successful preview for a skill output beyond the skill budget', () => {
     const activation = 'a'.repeat(SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4 + 4000);
     const bounded = boundToolOutputForModel('skill', activation);
-    expect(bounded.errorText).toBeDefined();
+    expect(bounded.errorText).toBeUndefined();
+    expect(bounded.output).toMatchObject({
+      code: TOOL_RESULT_TRUNCATED_CODE,
+      maxTokens: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+      truncated: true,
+    });
   });
 
   it('keeps the generic budget for every other tool', () => {
     const oversized = 'a'.repeat(MAX_TOOL_RESULT_TOKENS * 4 + 1000);
     const bounded = boundToolOutputForModel('someOtherTool', oversized);
-    expect(bounded.errorText).toBeDefined();
+    expect(bounded.errorText).toBeUndefined();
+    expect(bounded.output).toMatchObject({
+      code: TOOL_RESULT_TRUNCATED_CODE,
+      maxTokens: MAX_TOOL_RESULT_TOKENS,
+      truncated: true,
+    });
   });
 });

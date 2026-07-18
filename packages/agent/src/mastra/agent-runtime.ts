@@ -101,6 +101,7 @@ import {
   readMastraStreamPartValue,
   readNestedToolOutputChunk,
 } from './tool-event-mapper';
+import { applyToolModelOutputProjections } from './tool-model-output';
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
@@ -642,6 +643,12 @@ export async function createMastraAgentRuntime(
     toolNameMap,
     tools: gatedTools,
   });
+  // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
+  // returning the raw, post-hook result for persistence/application consumers,
+  // while the next model step receives only a bounded projection. Apply this
+  // AFTER every policy/provider transformation so no final execute-backed tool
+  // can bypass the projection; tool-specific projections remain authoritative.
+  const modelProjectedTools = applyToolModelOutputProjections(finalTools, toolNameMap);
 
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
@@ -673,7 +680,7 @@ export async function createMastraAgentRuntime(
   // name map to the sanitized ids present in `gatedTools` (both are keyed by the
   // same sanitized id — see sanitizeTools) so an omitted tool is never advertised.
   const effectiveToolNameMap = new Map(
-    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in finalTools)
+    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in modelProjectedTools)
   );
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
@@ -685,7 +692,9 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = resolvePersonaRuntimeParts({
-    guardedTools,
+    // Persona agents get the same raw/model split. Their independent policy
+    // gate clones full tool descriptors, so `toModelOutput` survives intact.
+    guardedTools: applyToolModelOutputProjections(guardedTools, toolNameMap),
     languageModel,
     permissionSnapshot,
     personas,
@@ -732,7 +741,7 @@ export async function createMastraAgentRuntime(
     instructions: composedInstructions,
     model: languageModel,
     name: 'Brainstrike Assistant',
-    tools: finalTools,
+    tools: modelProjectedTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
     ...(memory ? { memory } : {}),
     ...(errorProcessors

@@ -261,6 +261,7 @@ async function runTurnWithMemory(args: {
   observationDelayMs?: number;
   observationalMemoryModel?: LanguageModelV2;
   onStreamConsumed?: () => void;
+  weatherDetail?: string;
 }): Promise<{ finalText: string }> {
   const memoryFactoryOptions: PgliteMastraMemoryOptions = {
     database: args.database as unknown as PgliteDatabase,
@@ -277,10 +278,18 @@ async function runTurnWithMemory(args: {
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
     execute: (inputData: { city: string }) =>
-      Promise.resolve({ city: inputData.city, temperatureC: 21 }),
+      Promise.resolve({
+        city: inputData.city,
+        temperatureC: 21,
+        ...(args.weatherDetail === undefined ? {} : { detail: args.weatherDetail }),
+      }),
     id: 'get_weather',
     inputSchema: z.object({ city: z.string() }),
-    outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
+    outputSchema: z.object({
+      city: z.string(),
+      detail: z.string().optional(),
+      temperatureC: z.number(),
+    }),
   });
 
   modelHolder.current = createScriptedToolCallModel({
@@ -417,6 +426,29 @@ describe('mastra memory persistence through the live stream path', () => {
     },
     30_000
   );
+
+  it('persists the raw tool result while the model uses its bounded projection', async () => {
+    const rawOnlyTail = 'persisted-raw-only-tail';
+    const threadId = 'thread-raw-tool-result';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      threadId,
+      weatherDetail: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+    });
+
+    const rows = await listThreadMessages(database, threadId);
+    const invocation = rows
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .find((part) => part.type === 'tool-invocation')?.toolInvocation;
+
+    expect(invocation?.result).toMatchObject({
+      city: 'Paris',
+      temperatureC: 21,
+    });
+    expect(JSON.stringify(invocation?.result)).toContain(rawOnlyTail);
+  });
 
   it('persists a user image attachment part with its media type and data-URL body', async () => {
     const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
