@@ -209,6 +209,7 @@ function PerToolOverridesBlock() {
 function SessionGrantsBlock() {
   const sessionGrants = usePermissionPolicyStore(permissionPolicySelectors.sessionGrants);
   const revokeSessionCategory = usePermissionPolicyStore((state) => state.revokeSessionCategory);
+  const clearSessionGrants = usePermissionPolicyStore((state) => state.clearSessionGrants);
   // Taxonomy order (read → edit → execute → mcp), same source the category
   // cards use — no local duplicate of the ordering.
   const active = TOOL_RISK_CATEGORIES.filter((category) => sessionGrants.has(category));
@@ -216,10 +217,26 @@ function SessionGrantsBlock() {
   return (
     <fieldset className="space-y-3 border-0 p-0">
       <legend className="font-medium text-sm">Session grants</legend>
-      <p className="text-muted-foreground text-sm">
-        Categories allowed for this session only — cleared when the app reloads. Grant one from an
-        approval prompt.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-muted-foreground text-sm">
+          Categories allowed for this session only — cleared when the app reloads. Grant one from an
+          approval prompt.
+        </p>
+        {active.length > 0 ? (
+          <Button
+            aria-label="Revoke all session grants"
+            className="shrink-0"
+            data-testid="permission-session-grants-revoke-all"
+            onClick={() => clearSessionGrants()}
+            size="sm"
+            title="Revoke every session grant at once"
+            variant="ghost"
+          >
+            <X className="size-3.5" />
+            Revoke all
+          </Button>
+        ) : null}
+      </div>
       {active.length === 0 ? (
         <p
           className="rounded-md border border-dashed p-3 text-muted-foreground text-sm"

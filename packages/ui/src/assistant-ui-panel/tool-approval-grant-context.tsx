@@ -11,6 +11,13 @@ import { createContext, type ReactNode, use } from 'react';
  */
 export interface ToolApprovalGrantHandlers {
   /**
+   * Grant ALL risk categories for THIS SESSION only (cleared on reload) — the
+   * "Allow all tools this session" overflow action. Semantically four category
+   * grants recorded atomically, NOT a session-yolo flag: per-tool DENY
+   * overrides still win, and Settings lists/revokes each category.
+   */
+  readonly grantAllToolsForSession: () => void;
+  /**
    * Promote `category` to allow for THIS SESSION only (cleared on reload).
    * Takes effect from the next assistant request; the pending call still
    * resolves through the normal approve resume.
