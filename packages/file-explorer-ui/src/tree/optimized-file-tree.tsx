@@ -96,6 +96,14 @@ interface IOptimizedFileTreeProps {
   cancelChildLoading?: ((path: string) => void) | undefined;
   fileTree: IFileNode[];
   folderId: string;
+  /**
+   * Whether `fileTree` had anything removed by display filtering (view/quick
+   * filters) relative to the canonical provider tree. `false` skips the O(N)
+   * filtered-path-set build on the normalized (desktop) path — the raw O(1)
+   * maps already cover the whole visible universe. Omit when the caller
+   * cannot tell (conservative: the set is built).
+   */
+  isDisplayTreeFiltered?: boolean | undefined;
   /** Whether a folder is being loaded for selection */
   isLoadingForSelection?: boolean | undefined;
   loadingFiles: Set<string>;
@@ -511,6 +519,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     isLoadingForSelection,
     loadingPathForSelection,
     scrollParentRef,
+    isDisplayTreeFiltered,
   }) => {
     const store = useFileExplorerStoreContext();
     const { showToast } = useToastManager();
@@ -648,11 +657,17 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       if (!normalizedTreeContext) {
         return null;
       }
+      // Caller declared the display tree unfiltered → null means "no
+      // restriction" everywhere this set flows, exactly equivalent to a set
+      // covering the whole normalized universe, without the O(N) walk.
+      if (isDisplayTreeFiltered === false) {
+        return null;
+      }
 
       const pathSet = new Set<string>();
       collectTreePaths(fileTree, pathSet);
       return pathSet;
-    }, [normalizedTreeContext, fileTree]);
+    }, [normalizedTreeContext, fileTree, isDisplayTreeFiltered]);
 
     // Visible-universe aggregates (decision D2): when a view/quick filter
     // hides part of the normalized tree, tri-state denominators, completeness

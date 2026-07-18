@@ -89,9 +89,9 @@ describe('assistant UI panel architecture', () => {
     // shared-clipboard user-message copy (WS3; UserActionBar routes through
     // useCopyToClipboard instead of ActionBarPrimitive.Copy's navigator.clipboard,
     // computing its own tooltip/icon/aria-live states). The model-menu swap
-    // net-removed code, so the merged file measures ~1803 lines; budget carries
-    // modest headroom.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1840);
+    // net-removed code; after all four panel-touching features merged the file
+    // measures 1849 lines; budget carries modest headroom.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1855);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

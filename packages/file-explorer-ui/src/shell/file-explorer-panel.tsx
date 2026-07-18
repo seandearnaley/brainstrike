@@ -67,8 +67,11 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
 import {
+  type ExpandAllProgress,
   ForestTreeActionsProvider,
   type ForestTreeActionsValue,
+  useForestExpandAllProgress,
+  useForestIsExpandingAll,
   useOptionalForestTreeActions,
 } from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -169,7 +172,8 @@ function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined
 function resolveExpandAllScanningSource(args: {
   cancelExpandAll: () => void;
   expandAllProgress: { loaded: number; total: number } | null;
-  forestActions: ForestTreeActionsValue | null;
+  forestCancelExpandAll: (() => void) | null;
+  forestExpandAllProgress: ExpandAllProgress | null;
   isExpandingAll: boolean;
   isForestExpandingAll: boolean;
 }): {
@@ -180,19 +184,110 @@ function resolveExpandAllScanningSource(args: {
   const {
     cancelExpandAll,
     expandAllProgress,
-    forestActions,
+    forestCancelExpandAll,
+    forestExpandAllProgress,
     isExpandingAll,
     isForestExpandingAll,
   } = args;
-  if (isForestExpandingAll && forestActions) {
+  if (isForestExpandingAll && forestCancelExpandAll) {
     return {
-      cancel: forestActions.cancelExpandAll,
+      cancel: forestCancelExpandAll,
       isExpanding: true,
-      progress: forestActions.expandAllProgress,
+      progress: forestExpandAllProgress,
     };
   }
   return { cancel: cancelExpandAll, isExpanding: isExpandingAll, progress: expandAllProgress };
 }
+
+/**
+ * Toolbar tree-actions cluster incl. the scanning indicator — a LEAF over the
+ * forest progress aggregate. The useForestExpandAllProgress subscription lives
+ * HERE (not in FileExplorerPanelInner) so per-frame progress updates during a
+ * forest sweep re-render only this small cluster, never the whole panel
+ * (PR #1734 audit).
+ */
+const PanelTreeActionButtons = React.memo(
+  ({
+    cancellable,
+    cancelExpandAll,
+    expandAllProgress,
+    forestCancelExpandAll,
+    handleCancelOperation,
+    isCancelling,
+    isExpandingAll,
+    isForestExpandingAll,
+    isLoading,
+    isRefreshing,
+    loadingProgress,
+    onCollapseAll,
+    onExpandAll,
+    onRefresh,
+  }: {
+    cancellable: boolean;
+    cancelExpandAll: () => void;
+    expandAllProgress: { loaded: number; total: number } | null;
+    forestCancelExpandAll: (() => void) | null;
+    handleCancelOperation: () => void;
+    isCancelling: boolean;
+    isExpandingAll: boolean;
+    isForestExpandingAll: boolean;
+    isLoading: boolean;
+    isRefreshing: boolean;
+    loadingProgress: { isInitialLoading?: boolean } | null | undefined;
+    onCollapseAll: () => void;
+    onExpandAll: () => void;
+    onRefresh: () => void;
+  }) => {
+    const forestExpandAllProgress = useForestExpandAllProgress();
+    // During a forest sweep the indicator reads the registry's aggregate
+    // progress and cancels the forest run; otherwise the focused provider's
+    // expand state.
+    const scanningStatus = useMemo(() => {
+      const source = resolveExpandAllScanningSource({
+        cancelExpandAll,
+        expandAllProgress,
+        forestCancelExpandAll,
+        forestExpandAllProgress,
+        isExpandingAll,
+        isForestExpandingAll,
+      });
+      return computeScanningStatusProps({
+        cancelExpandAll: source.cancel,
+        cancellable,
+        expandAllProgress: source.progress,
+        handleCancelOperation,
+        isCancelling,
+        isExpandingAll: source.isExpanding,
+        loadingProgress,
+      });
+    }, [
+      cancellable,
+      cancelExpandAll,
+      expandAllProgress,
+      forestCancelExpandAll,
+      forestExpandAllProgress,
+      handleCancelOperation,
+      isCancelling,
+      isExpandingAll,
+      isForestExpandingAll,
+      loadingProgress,
+    ]);
+
+    return (
+      <TreeActionButtons
+        isExpandingAll={isExpandingAll || isForestExpandingAll}
+        isLoading={isLoading}
+        isRefreshing={isRefreshing}
+        onCollapseAll={onCollapseAll}
+        onExpandAll={onExpandAll}
+        onRefresh={onRefresh}
+        scanningStatus={scanningStatus}
+      />
+    );
+  }
+);
+
+PanelTreeActionButtons.displayName = 'PanelTreeActionButtons';
 
 /**
  * Staged forest expand-all: sweeping every root's full subtree is I/O-heavy
@@ -442,6 +537,7 @@ const FileExplorerPanelInner = React.memo(() => {
     removeRootDirectory,
     setFocusedRoot,
     rootIdByPath,
+    unfilteredFileTree,
   } = useFileExplorer();
 
   const {
@@ -918,7 +1014,9 @@ const FileExplorerPanelInner = React.memo(() => {
   // (invisible) top-level tree when multiple roots are active.
   const forestActions = useOptionalForestTreeActions();
   const isForestMode = isForestModeActive(rootDirectoryHandles);
-  const isForestExpandingAll = Boolean(forestActions?.isExpandingAll);
+  // Run-boundary signal only — high-frequency progress is subscribed by the
+  // PanelTreeActionButtons leaf, never by this panel component.
+  const isForestExpandingAll = useForestIsExpandingAll();
 
   const forestExpandConfirm = useForestExpandConfirm(forestActions);
   const stageForestExpandConfirm = forestExpandConfirm.stage;
@@ -999,38 +1097,6 @@ const FileExplorerPanelInner = React.memo(() => {
     });
   }, [cancelOperation, showToast]);
 
-  // Compute scanning status props - extracted to reduce complexity. During a
-  // forest sweep the indicator reads the registry's aggregate progress and
-  // cancels the forest run; otherwise the focused provider's expand state.
-  const scanningStatusProps = useMemo(() => {
-    const source = resolveExpandAllScanningSource({
-      cancelExpandAll,
-      expandAllProgress,
-      forestActions,
-      isExpandingAll,
-      isForestExpandingAll,
-    });
-    return computeScanningStatusProps({
-      cancelExpandAll: source.cancel,
-      cancellable,
-      expandAllProgress: source.progress,
-      handleCancelOperation,
-      isCancelling,
-      isExpandingAll: source.isExpanding,
-      loadingProgress,
-    });
-  }, [
-    loadingProgress,
-    isExpandingAll,
-    isForestExpandingAll,
-    expandAllProgress,
-    forestActions,
-    cancellable,
-    isCancelling,
-    cancelExpandAll,
-    handleCancelOperation,
-  ]);
-
   return (
     <FileExplorerErrorBoundary>
       <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
@@ -1098,14 +1164,21 @@ const FileExplorerPanelInner = React.memo(() => {
             }
             treeActionsControl={
               rootDirectoryHandle ? (
-                <TreeActionButtons
-                  isExpandingAll={isExpandingAll || isForestExpandingAll}
+                <PanelTreeActionButtons
+                  cancelExpandAll={cancelExpandAll}
+                  cancellable={cancellable}
+                  expandAllProgress={expandAllProgress}
+                  forestCancelExpandAll={forestActions?.cancelExpandAll ?? null}
+                  handleCancelOperation={handleCancelOperation}
+                  isCancelling={isCancelling}
+                  isExpandingAll={isExpandingAll}
+                  isForestExpandingAll={isForestExpandingAll}
                   isLoading={isLoading}
                   isRefreshing={isRefreshing}
+                  loadingProgress={loadingProgress}
                   onCollapseAll={collapseAll}
                   onExpandAll={expandAll}
                   onRefresh={handleRefresh}
-                  scanningStatus={scanningStatusProps}
                 />
               ) : null
             }
@@ -1192,6 +1265,7 @@ const FileExplorerPanelInner = React.memo(() => {
                 cancelChildLoading={cancelChildLoading}
                 currentFolderId={currentFolderId}
                 filterError={filterErrorAsError}
+                isDisplayTreeFiltered={quickFilteredTree !== unfilteredFileTree}
                 isInitialLoad={isInitialLoad}
                 isLoading={isLoading}
                 isLoadingForSelectAll={isLoadingForSelectAll}

@@ -15,6 +15,7 @@ import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import {
   ForestTreeActionsProvider,
   type ForestTreeActionsValue,
+  useForestExpandAllProgress,
   useOptionalForestTreeActions,
 } from '../shell/forest-tree-actions-context';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -1044,12 +1045,20 @@ describe('FileExplorerSidebar', () => {
       forestActionsRef.current = useOptionalForestTreeActions();
       return null;
     }
+    const forestProgressRef: { current: { loaded: number; total: number } | null } = {
+      current: null,
+    };
+    function ForestProgressProbe() {
+      forestProgressRef.current = useForestExpandAllProgress();
+      return null;
+    }
 
     const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
     act(() => {
       renderWithPopulatedAdapter(
         <ForestTreeActionsProvider>
           <ForestActionsProbe />
+          <ForestProgressProbe />
           <FileExplorerSidebar
             {...defaultProps}
             rootDirectoryHandle={handleA}
@@ -1085,9 +1094,10 @@ describe('FileExplorerSidebar', () => {
 
     // Progress pipe: section B's traversal reported into the registry, so the
     // toolbar has an aggregate count to show during forest sweeps (the focused
-    // provider's own expandAllProgress stays null in forest mode).
+    // provider's own expandAllProgress stays null in forest mode). Published
+    // through the coalesced observable store, hence the waitFor.
     await waitFor(() => {
-      expect(forestActionsRef.current?.expandAllProgress).not.toBeNull();
+      expect(forestProgressRef.current).not.toBeNull();
     });
   });
 
