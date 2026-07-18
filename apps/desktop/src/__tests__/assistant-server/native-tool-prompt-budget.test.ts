@@ -80,6 +80,7 @@ function createPromptBudgetWorkspaceSkills(): WorkspaceSkills {
  * for the representative skill above. createMastraAgentRuntime counts its
  * static skills guidance in getInstructions(), while this per-call processor
  * context is added later by buildToolLoopOptions and must be counted separately.
+ * Keep this literal byte-aligned with @mastra/core when upgrading Mastra.
  */
 function withSkillsProcessorContext(instructions: string): string {
   const availableSkill = `<available_skills>
