@@ -280,13 +280,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
   return (
     <div
-      className={`bs-tool-timeline my-1.5 rounded-lg border ${
+      className={`bs-tool-timeline my-1 rounded-lg border ${
         isError ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="tool-fallback"
       data-tool-category={category}
     >
-      <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
+      <div className="flex min-w-0 items-center gap-2 px-2 py-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <span
@@ -349,7 +349,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       </div>
 
       {isError && errorMessage ? (
-        <p className="px-2.5 pb-1.5 text-destructive text-xs">{errorMessage}</p>
+        <p className="px-2 pb-1 text-destructive text-xs">{errorMessage}</p>
       ) : null}
 
       {/* Live incremental output while the command runs. Once it finishes, the
@@ -588,9 +588,9 @@ function ToolDetailsPane({
     [hasResult, result]
   );
   return (
-    <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
+    <div className="flex flex-col gap-1.5 border-t pt-1.5" id={detailsId}>
       {showRawIo ? (
-        <div className="px-3 py-1">
+        <div className="px-2 py-1">
           <ToolDetailLabel>Metadata:</ToolDetailLabel>
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px]">
             <dt className="text-muted-foreground">toolCallId</dt>
@@ -601,17 +601,17 @@ function ToolDetailsPane({
         </div>
       ) : null}
       {argsText ? (
-        <div className="px-3 py-1">
+        <div className="px-2 py-1">
           <ToolDetailLabel>Arguments:</ToolDetailLabel>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-1.5 font-mono text-[11px] leading-relaxed">
             {argsText}
           </pre>
         </div>
       ) : null}
       {hasResult && !isError ? (
-        <div className="px-3 pb-2">
+        <div className="px-2 pb-2">
           <ToolDetailLabel>Result:</ToolDetailLabel>
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-1.5 font-mono text-[11px] leading-relaxed">
             {formattedResult}
           </pre>
         </div>
