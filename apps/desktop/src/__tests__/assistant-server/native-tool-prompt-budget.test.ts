@@ -1,4 +1,8 @@
-import { createMastraAgentRuntime, type RuntimeData } from '@brainstrike/agent';
+import {
+  createMastraAgentRuntime,
+  PROVIDER_DEFAULT_MODELS,
+  type RuntimeData,
+} from '@brainstrike/agent';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -18,7 +22,9 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(),
 }));
 
-const MAX_PROVIDER_VISIBLE_NATIVE_TOOL_TOKENS = 7900;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 7900;
+const MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS = 11_500;
+const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
 
 interface ProviderFunctionTool {
@@ -168,15 +174,17 @@ function countO200kTokens(text: string): number {
 }
 
 function formatBudgetFailure(args: {
+  budget: number;
   descriptions: number;
   instructions: number;
+  label: string;
   schemas: number;
   toolBreakdown: readonly { name: string; tokens: number }[];
   total: number;
 }): string {
   const tools = args.toolBreakdown.map(({ name, tokens }) => `  ${name}: ${tokens}`).join('\n');
   return [
-    `Provider-visible native tool surface is ${args.total} tokens; budget is ${MAX_PROVIDER_VISIBLE_NATIVE_TOOL_TOKENS}.`,
+    `${args.label} is ${args.total} tokens; budget is ${args.budget}.`,
     `  instructions: ${args.instructions}`,
     `  descriptions: ${args.descriptions}`,
     `  schemas: ${args.schemas}`,
@@ -185,11 +193,48 @@ function formatBudgetFailure(args: {
   ].join('\n');
 }
 
+function expectProviderSurfaceWithinBudget(args: {
+  budget: number;
+  instructions: string;
+  label: string;
+  tools: readonly ProviderFunctionTool[];
+}): void {
+  const payload = JSON.stringify({ instructions: args.instructions, tools: args.tools });
+  const total = countO200kTokens(payload);
+  const toolBreakdown = args.tools.map((tool) => ({
+    name: tool.function.name,
+    tokens: countO200kTokens(JSON.stringify(tool)),
+  }));
+  const descriptions = countO200kTokens(
+    args.tools.map((tool) => tool.function.description).join('\n')
+  );
+  const schemas = args.tools.reduce(
+    (tokens, tool) => tokens + countO200kTokens(JSON.stringify(tool.function.parameters)),
+    0
+  );
+  const instructions = countO200kTokens(args.instructions);
+
+  expect(
+    total,
+    formatBudgetFailure({
+      budget: args.budget,
+      descriptions,
+      instructions,
+      label: args.label,
+      schemas,
+      toolBreakdown,
+      total,
+    })
+  ).toBeLessThanOrEqual(args.budget);
+}
+
 describe('desktop native tool provider prompt budget', () => {
-  it('keeps the exact full hosted registry and instructions within 7,900 o200k tokens', async () => {
+  it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
+    expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
     const providerSurface = snapshotProviderToolSurface(desktopTools);
     const runtime = await createMastraAgentRuntime({
+      model: OPENROUTER_PROMPT_BUDGET_MODEL,
       runtime: {
         apiKey: 'prompt-budget-test-key',
         provider: 'openrouter',
@@ -203,31 +248,66 @@ describe('desktop native tool provider prompt budget', () => {
         throw new TypeError('Brainstrike hosted instructions must resolve to one string');
       }
       const providerTools = buildProviderFunctionTools(providerSurface, runtime.toolNameMap);
-      const payload = JSON.stringify({ instructions: resolvedInstructions, tools: providerTools });
-      const total = countO200kTokens(payload);
-      const toolBreakdown = providerTools.map((tool) => ({
-        name: tool.function.name,
-        tokens: countO200kTokens(JSON.stringify(tool)),
-      }));
-      const descriptions = countO200kTokens(
-        providerTools.map((tool) => tool.function.description).join('\n')
-      );
-      const schemas = providerTools.reduce(
-        (tokens, tool) => tokens + countO200kTokens(JSON.stringify(tool.function.parameters)),
-        0
-      );
-      const instructionTokens = countO200kTokens(resolvedInstructions);
+      expectProviderSurfaceWithinBudget({
+        budget: MAX_AUTHORED_NATIVE_TOOL_TOKENS,
+        instructions: resolvedInstructions,
+        label: 'Authored native tool surface',
+        tools: providerTools,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
 
-      expect(
-        total,
-        formatBudgetFailure({
-          descriptions,
-          instructions: instructionTokens,
-          schemas,
-          toolBreakdown,
-          total,
-        })
-      ).toBeLessThanOrEqual(MAX_PROVIDER_VISIBLE_NATIVE_TOOL_TOKENS);
+  it('keeps the actual Mastra/OpenRouter full hosted registry and instructions within 11,500 o200k tokens', async () => {
+    expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
+    const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
+    const runtime = await createMastraAgentRuntime({
+      model: OPENROUTER_PROMPT_BUDGET_MODEL,
+      runtime: {
+        apiKey: 'prompt-budget-test-key',
+        provider: 'openrouter',
+      },
+      tools: omitNonProviderSuspendMetadata(desktopTools),
+    });
+
+    try {
+      const resolvedInstructions = await runtime.agent.getInstructions();
+      if (typeof resolvedInstructions !== 'string') {
+        throw new TypeError('Brainstrike hosted instructions must resolve to one string');
+      }
+      const coreTools = await runtime.agent.getToolsForExecution({});
+      const providerTools = Array.from(runtime.toolNameMap, ([name, originalName]) => {
+        const tool = coreTools[name];
+        if (!tool) {
+          throw new Error(`Mastra omitted desktop tool ${originalName} (${name})`);
+        }
+        if (typeof tool.description !== 'string') {
+          throw new TypeError(`Mastra tool ${name} lacks a description`);
+        }
+        const parameters = tool.parameters;
+        if (!parameters || typeof parameters !== 'object' || !('jsonSchema' in parameters)) {
+          throw new TypeError(`Mastra tool ${name} lacks provider JSON Schema`);
+        }
+        if (parameters.jsonSchema === undefined) {
+          throw new TypeError(`Mastra tool ${name} has undefined provider JSON Schema`);
+        }
+        return {
+          function: {
+            description: tool.description,
+            name,
+            parameters: parameters.jsonSchema,
+          },
+          type: 'function' as const,
+        };
+      });
+
+      expectProviderSurfaceWithinBudget({
+        budget: MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS,
+        instructions: resolvedInstructions,
+        label: 'Actual Mastra/OpenRouter native tool surface',
+        tools: providerTools,
+      });
     } finally {
       await runtime.dispose();
     }

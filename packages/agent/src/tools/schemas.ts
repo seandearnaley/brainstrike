@@ -1,5 +1,7 @@
 import {
-  LSP_INSPECT_TOOL_ID,
+  type DesktopNativeToolId,
+  isDesktopNativeToolId,
+  NATIVE_TOOL_ID,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
@@ -146,7 +148,7 @@ const ROOT_QUALIFIER_DESCRIPTION =
   'Which open folder the path is in: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one.';
 
 const ROOT_WRITE_GUARD_DESCRIPTION =
-  'Which open folder to curate: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one. The selection is applied to that folder even if it is not the focused one.';
+  'Which open folder to curate: its name or id (from listWorkspaceContext or a search result). Omit to target the Focused folder. An explicit root targets that folder even when it is not focused.';
 
 export const ReadWorkspaceFileInputSchema = z
   .object({
@@ -482,8 +484,6 @@ export const UpdatePreviewContextFilesInputSchema = z
 
 /** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
-
-const EchoInput = z.object({ text: z.string().min(1) }).strict();
 
 export const RetrievalContextInputSchema = z
   .object({
@@ -846,34 +846,31 @@ export const AskUserInputSchema = z
 
 export type AskUserInput = z.infer<typeof AskUserInputSchema>;
 
-const schemaMap: Record<string, z.ZodSchema> = {
-  'brainstrike.askUser': AskUserInputSchema,
-  'brainstrike.deleteWorkspaceFile': DeleteWorkspaceFileInputSchema,
-  'brainstrike.executeCommand': ExecuteCommandInputSchema,
-  // Minimal BrainStrike native tools
-  'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
-  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
-  'brainstrike.grepSearch': GrepSearchInputSchema,
-  'brainstrike.hybridSearch': HybridSearchInputSchema,
-  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
-  'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
-  'brainstrike.manageTaskList': ManageTaskListInputSchema,
-  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
-  'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
-  'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
-  'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
-  'brainstrike.renameWorkspaceFile': RenameWorkspaceFileInputSchema,
-  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
-  'brainstrike.submitPlan': SubmitPlanInputSchema,
-  'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
-  'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
-  [LSP_INSPECT_TOOL_ID]: LspInspectInputSchema,
+export const NATIVE_TOOL_INPUT_SCHEMAS = {
+  [NATIVE_TOOL_ID.askUser]: AskUserInputSchema,
+  [NATIVE_TOOL_ID.deleteWorkspaceFile]: DeleteWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.executeCommand]: ExecuteCommandInputSchema,
+  [NATIVE_TOOL_ID.findWorkspaceSymbol]: FindWorkspaceSymbolInputSchema,
+  [NATIVE_TOOL_ID.globWorkspace]: GlobWorkspaceInputSchema,
+  [NATIVE_TOOL_ID.grepSearch]: GrepSearchInputSchema,
+  [NATIVE_TOOL_ID.hybridSearch]: HybridSearchInputSchema,
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ListEmbeddingSetsInputSchema,
+  [NATIVE_TOOL_ID.listWorkspaceContext]: ListWorkspaceContextInputSchema,
+  [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
+  [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
+  [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceContext]: ReadWorkspaceContextInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.renameWorkspaceFile]: RenameWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: StringReplaceWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.submitPlan]: SubmitPlanInputSchema,
+  [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: UpdateWorkspaceContextSelectionInputSchema,
+  [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: UpdateWorkspaceTapestrySelectionsInputSchema,
   [WEB_EXTRACT_TOOL_ID]: WebExtractInputSchema,
   [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
-  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
-  // Web tools
-  'web.echo': EchoInput,
-};
+  [NATIVE_TOOL_ID.writeWorkspaceFile]: WriteWorkspaceFileInputSchema,
+} as const satisfies Record<DesktopNativeToolId, z.ZodSchema>;
 
 function formatZodIssue(issue: z.ZodIssue): string {
   const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
@@ -900,7 +897,7 @@ export function validateToolInput(
   params: Record<string, unknown> | undefined
 ): { ok: true; data: unknown } | { ok: false; issues: string[] } {
   try {
-    const schema = schemaMap[name];
+    const schema = isDesktopNativeToolId(name) ? NATIVE_TOOL_INPUT_SCHEMAS[name] : undefined;
     if (schema) {
       return parseWithSchema(schema, params);
     }

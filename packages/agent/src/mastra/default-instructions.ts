@@ -1,10 +1,9 @@
-import type { AssistantTaskItem, AssistantTaskStatus } from '@brainstrike/assistant-contract';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
-  LSP_INSPECT_TOOL_ID,
-  WEB_EXTRACT_TOOL_ID,
-  WEB_SEARCH_TOOL_ID,
-} from '@brainstrike/assistant-contract/tool-metadata';
+  type AssistantTaskItem,
+  type AssistantTaskStatus,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
@@ -67,31 +66,6 @@ export function buildCurrentTaskListNote(
 const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
 
-const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
-  askUser: 'brainstrike.askUser',
-  deleteWorkspaceFile: 'brainstrike.deleteWorkspaceFile',
-  executeCommand: 'brainstrike.executeCommand',
-  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
-  globWorkspace: 'brainstrike.globWorkspace',
-  grepSearch: 'brainstrike.grepSearch',
-  hybridSearch: 'brainstrike.hybridSearch',
-  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
-  listWorkspaceContext: 'brainstrike.listWorkspaceContext',
-  lspInspect: LSP_INSPECT_TOOL_ID,
-  manageTaskList: 'brainstrike.manageTaskList',
-  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
-  readWorkspaceContext: 'brainstrike.readWorkspaceContext',
-  readWorkspaceFile: 'brainstrike.readWorkspaceFile',
-  renameWorkspaceFile: 'brainstrike.renameWorkspaceFile',
-  stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
-  submitPlan: 'brainstrike.submitPlan',
-  updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
-  updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
-  webExtract: WEB_EXTRACT_TOOL_ID,
-  webSearch: WEB_SEARCH_TOOL_ID,
-  writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
-} as const;
-
 interface ModelFacingToolNames {
   askUser: string | null;
   deleteWorkspaceFile: string | null;
@@ -106,6 +80,7 @@ interface ModelFacingToolNames {
   manageTaskList: string | null;
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
+  readWorkspaceDirectory: string | null;
   readWorkspaceFile: string | null;
   renameWorkspaceFile: string | null;
   skill: string | null;
@@ -119,16 +94,6 @@ interface ModelFacingToolNames {
   webSearch: string | null;
   writeWorkspaceFile: string | null;
 }
-
-/**
- * Canonical Mastra skill tool ids (registered unnamespaced — they are Mastra's
- * own tools; see skills/skill-tools.ts).
- */
-const SKILL_TOOL_ORIGINAL_IDS = {
-  skill: 'skill',
-  skillRead: 'skill_read',
-  skillSearch: 'skill_search',
-} as const;
 
 function buildOriginalToModelFacingToolNameMap(
   toolNameMap: ReadonlyMap<string, string>
@@ -150,99 +115,79 @@ function resolveModelFacingToolName(
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
-    askUser: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.askUser
-    ),
+    askUser: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.askUser),
     deleteWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.deleteWorkspaceFile
+      NATIVE_TOOL_ID.deleteWorkspaceFile
     ),
     executeCommand: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.executeCommand
+      NATIVE_TOOL_ID.executeCommand
     ),
     findWorkspaceSymbol: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
+      NATIVE_TOOL_ID.findWorkspaceSymbol
     ),
-    globWorkspace: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.globWorkspace
-    ),
-    grepSearch: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.grepSearch
-    ),
-    hybridSearch: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.hybridSearch
-    ),
+    globWorkspace: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.globWorkspace),
+    grepSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.grepSearch),
+    hybridSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.hybridSearch),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
+      NATIVE_TOOL_ID.listEmbeddingSpaces
     ),
     listWorkspaceContext: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.listWorkspaceContext
+      NATIVE_TOOL_ID.listWorkspaceContext
     ),
     lspInspect: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.lspInspect
+      NATIVE_TOOL_ID.lspInspect
     ),
     manageTaskList: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.manageTaskList
+      NATIVE_TOOL_ID.manageTaskList
     ),
     queryEmbeddingSpace: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
+      NATIVE_TOOL_ID.queryEmbeddingSpace
     ),
     readWorkspaceContext: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceContext
+      NATIVE_TOOL_ID.readWorkspaceContext
+    ),
+    readWorkspaceDirectory: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.readWorkspaceDirectory
     ),
     readWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
+      NATIVE_TOOL_ID.readWorkspaceFile
     ),
     renameWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.renameWorkspaceFile
+      NATIVE_TOOL_ID.renameWorkspaceFile
     ),
-    skill: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skill),
-    skillRead: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skillRead),
-    skillSearch: resolveModelFacingToolName(
-      originalToModelFacing,
-      SKILL_TOOL_ORIGINAL_IDS.skillSearch
-    ),
+    skill: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skill),
+    skillRead: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skillRead),
+    skillSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skillSearch),
     stringReplaceWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.stringReplaceWorkspaceFile
+      NATIVE_TOOL_ID.stringReplaceWorkspaceFile
     ),
-    submitPlan: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.submitPlan
-    ),
+    submitPlan: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.submitPlan),
     updateWorkspaceContextSelection: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceContextSelection
+      NATIVE_TOOL_ID.updateWorkspaceContextSelection
     ),
     updateWorkspaceTapestrySelections: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
+      NATIVE_TOOL_ID.updateWorkspaceTapestrySelections
     ),
-    webExtract: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.webExtract
-    ),
-    webSearch: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.webSearch
-    ),
+    webExtract: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.webExtract),
+    webSearch: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.webSearch),
     writeWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.writeWorkspaceFile
+      NATIVE_TOOL_ID.writeWorkspaceFile
     ),
   };
 }
@@ -303,6 +248,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.globWorkspace,
     names.hybridSearch,
     names.queryEmbeddingSpace,
+    names.readWorkspaceDirectory,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
     names.findWorkspaceSymbol,
@@ -321,9 +267,9 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   ].filter((name): name is string => Boolean(name));
   const writeBackNote =
     writeBackTools.length > 0
-      ? ` Selection write-back (${writeBackTools.join(', ')}) accepts the same "root" argument: pass it to curate a specific open folder (it need not be the focused one); omit it when only one folder is open.`
+      ? ` Selection write-back (${writeBackTools.join(', ')}) accepts the same "root" argument to curate a specific folder; without it, selection targets the Focused root.`
       : '';
-  return `The workspace can have several folders ("roots") open at once: ${names.listWorkspaceContext} returns workspaceRoots — each open folder's name and id. File paths are relative to a root, so when more than one folder is open a bare path is ambiguous: pass a "root" argument (the folder name or id from workspaceRoots) to ${rootQualifiedToolNames.join(', ')} to say which folder you mean, and omit it when only one folder is open. Search and read results are labelled with their owning rootName/rootId — use that label to disambiguate and to choose the root for any follow-up call.${writeBackNote}`;
+  return `${names.listWorkspaceContext} distinguishes the Main root (workspaceRootPath, used for the assistant run) from the Focused root (whose selection it reports) and returns every open folder's name/id in workspaceRoots. Paths are root-relative; with several roots, pass "root" (a workspaceRoots name/id) to ${rootQualifiedToolNames.join(', ')} because bare paths are ambiguous—there is no implicit Main-root fallback. Results include rootName/rootId for follow-up calls.${writeBackNote}`;
 }
 
 /**
@@ -333,35 +279,30 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
  */
 function buildWriteInstruction(names: ModelFacingToolNames): string {
   const clauses: string[] = [];
-  if (names.writeWorkspaceFile) {
+  if (names.writeWorkspaceFile && names.stringReplaceWorkspaceFile) {
     clauses.push(
-      `To create a new file or fully rewrite one, use ${names.writeWorkspaceFile}: it writes the full UTF-8 content to a workspace-relative path, OVERWRITING any existing file and creating missing parent directories.`
+      `Use ${names.stringReplaceWorkspaceFile} for partial edits and ${names.writeWorkspaceFile} only for creates or full rewrites. Read first; oldStr/newStr should use enough whole-line context to match exactly once—missing or ambiguous matches are refused.`
+    );
+  } else if (names.stringReplaceWorkspaceFile) {
+    clauses.push(
+      `Use ${names.stringReplaceWorkspaceFile} for partial edits. Read first; oldStr/newStr should use enough whole-line context to match exactly once—missing or ambiguous matches are refused.`
+    );
+  } else if (names.writeWorkspaceFile) {
+    clauses.push(`Use ${names.writeWorkspaceFile} for creates or full rewrites.`);
+  }
+  if (names.renameWorkspaceFile && names.deleteWorkspaceFile) {
+    clauses.push(
+      `Use ${names.renameWorkspaceFile} and ${names.deleteWorkspaceFile} instead of shell mv/rm so the workspace index stays coherent.`
+    );
+  } else if (names.renameWorkspaceFile) {
+    clauses.push(
+      `Use ${names.renameWorkspaceFile} instead of shell mv to keep the index coherent.`
+    );
+  } else if (names.deleteWorkspaceFile) {
+    clauses.push(
+      `Use ${names.deleteWorkspaceFile} instead of shell rm to keep the index coherent.`
     );
   }
-  if (names.stringReplaceWorkspaceFile) {
-    const preferClause = names.writeWorkspaceFile
-      ? ` Prefer ${names.stringReplaceWorkspaceFile} over ${names.writeWorkspaceFile} when changing part of an existing file.`
-      : '';
-    clauses.push(
-      `To make a surgical edit to an existing file, use ${names.stringReplaceWorkspaceFile}: read the file first, then pass an oldStr block of WHOLE LINES with enough surrounding context to identify exactly ONE location, plus the newStr to replace it with (empty newStr deletes the block). A block that matches more than once is REFUSED (add context and retry), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings. It also REFUSES not-found matches instead of guessing, so re-read and adjust oldStr if it reports one.${preferClause}`
-    );
-  }
-  if (names.renameWorkspaceFile) {
-    clauses.push(
-      `To rename or move a file, use ${names.renameWorkspaceFile} (fromPath, toPath) rather than a shell "mv": it keeps the workspace index coherent, stays inside one open folder, and REFUSES an existing destination (delete the target first if you truly mean to replace it).`
-    );
-  }
-  if (names.deleteWorkspaceFile) {
-    clauses.push(
-      `To delete a file, use ${names.deleteWorkspaceFile} (FILES only — it refuses directories; use the shell for directory removal) rather than a shell "rm", so the workspace index is updated.`
-    );
-  }
-  if (clauses.length === 0) {
-    return '';
-  }
-  clauses.push(
-    'These edit tools are workspace-scoped (the path can never leave the open folder) and edit-risk, so only call them after the user confirms the change.'
-  );
   return clauses.join(' ');
 }
 
@@ -373,10 +314,10 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
  */
 function buildSearchInstruction(names: ModelFacingToolNames): string {
   const grepClause = names.grepSearch
-    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps file content across BOTH the index AND the live on-disk files, so a file you just edited is matched fresh even before re-indexing (each match is labelled source: index/live/both — re-grep after an edit to confirm your change landed). Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
-    : 'Exact-text grep search is unavailable in this run.';
+    ? `Use ${names.grepSearch} for exact strings, identifiers, and errors; it searches both indexed and live on-disk content. Start with its compact files mode, then request scoped content matches.`
+    : '';
   const globClause = names.globWorkspace
-    ? `To find files by NAME or PATH shape (e.g. every test file, all package.json, a component's tsx), call ${names.globWorkspace} with a glob like **/*.test.ts or src/**/*.tsx — use this instead of ${names.grepSearch ?? 'content search'} (which searches file CONTENT) and instead of paging readWorkspaceDirectory (which lists ONE level). It skips .git/node_modules/build output by default.`
+    ? `Use ${names.globWorkspace} for file-name/path patterns such as **/*.test.ts.`
     : '';
   return [grepClause, globClause].filter(Boolean).join(' ');
 }
@@ -392,7 +333,7 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can. By default the call SUSPENDS for the user's per-call approval before the command runs (they approve to run it or decline to skip it); the user may instead let it run unprompted or deny it entirely. The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
+  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.`;
 }
 
 /**
@@ -409,12 +350,12 @@ function buildWebSearchInstruction(names: ModelFacingToolNames): string {
   );
   const alternativesClause =
     localSearchAlternatives.length > 0
-      ? ` Do NOT use ${names.webSearch} for THIS project's own code or files — use ${localSearchAlternatives.join(' / ')} for that.`
+      ? ` Use ${localSearchAlternatives.join(' / ')} for private workspace code instead.`
       : '';
   const extractClause = names.webExtract
-    ? ` To READ a page behind a search result or a URL the user gave you, use ${names.webExtract} (up to 5 public http(s) URLs → markdown; same external-service caveat — private/internal URLs are refused).`
+    ? ` Use ${names.webExtract} to read public result pages or user-provided public URLs.`
     : '';
-  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider's built-in search when available, otherwise Tavily), so never include secrets or private workspace contents in the query.${alternativesClause}${extractClause} When no provider-native search is available and no Tavily API key is configured in Settings, it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
+  return `${names.webSearch} is only for current public information and sends queries to an EXTERNAL service; never include secrets or private workspace content.${alternativesClause}${extractClause}`;
 }
 
 /**
@@ -529,23 +470,26 @@ export function buildDefaultInstructions(
   const names = getModelFacingToolNames(toolNameMap);
   const planModePrefix = buildPlanModePrefix(names, options.planMode);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
-    : 'Workspace-selection inspection is unavailable in this run.';
+    ? `Inspect selected context, token budgets, open roots, and the workspace-index hint with ${names.listWorkspaceContext}; use detail: true only for per-file Tapestry ranges.`
+    : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
   const hybridSearchClause = names.hybridSearch
-    ? ` When a lookup mixes conceptual intent WITH distinctive exact terms (identifiers, error fragments, domain jargon), prefer ${names.hybridSearch} — it fuses semantic and exact-term (BM25) rankings and usually beats either arm alone.`
+    ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
-  const semanticSearchInstruction =
-    names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.${hybridSearchClause}`
-      : `Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.${hybridSearchClause}`;
+  const embeddingSpaceClause = names.listEmbeddingSpaces
+    ? ` Use ${names.listEmbeddingSpaces} only for coverage or a non-default embedding space.`
+    : '';
+  const semanticSearchInstruction = names.queryEmbeddingSpace
+    ? `Use ${names.queryEmbeddingSpace} without embeddingSetId for purely conceptual Workspace Index queries.${embeddingSpaceClause}`
+    : '';
+  const readToolNames = [names.readWorkspaceContext, names.readWorkspaceFile].filter(
+    (name): name is string => Boolean(name)
+  );
   const readContextInstruction =
-    names.readWorkspaceContext && names.readWorkspaceFile
-      ? `Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond the retrieved source line ranges.`
-      : names.readWorkspaceFile
-        ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
-        : 'Workspace file reading is unavailable in this run.';
+    readToolNames.length > 0
+      ? `Read only the needed source ranges afterward with ${readToolNames.join(' / ')}.`
+      : '';
   const writeInstruction = buildWriteInstruction(names);
   const lspInspectInstruction = buildLspInspectInstruction(names);
   const executeCommandInstruction = buildExecuteCommandInstruction(names);
@@ -556,12 +500,12 @@ export function buildDefaultInstructions(
     names.updateWorkspaceContextSelection &&
     names.updateWorkspaceTapestrySelections
       ? `When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, then call ${names.updateWorkspaceContextSelection} to bulk select files and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Read files when surrounding lines are needed to refine the ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.`
-      : 'Reusable context curation is unavailable unless semantic search, workspace selection, and Tapestry selection tools are all registered.';
+      : '';
 
   const selectionDefaultInstruction =
     names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
       ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, never the whole file. If the user names a specific symbol, function, type, section, or line range, you MUST select only that symbol's exact line span via ${names.updateWorkspaceTapestrySelections} and MUST NOT fall back to whole-file selection. Only use ${names.updateWorkspaceContextSelection} for whole-file selection when the user explicitly asks for the entire file or the whole file is genuinely needed. The line range you report to the user MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections} — never state a range you did not actually select.`
-      : 'Precise context selection is unavailable unless the workspace selection and Tapestry selection tools are registered.';
+      : '';
   const tapestryMechanicsInstruction = names.updateWorkspaceTapestrySelections
     ? [
         `Tapestry ranges are 1-based and inclusive; pass them as ranges: [{ startLine, endLine }] to ${names.updateWorkspaceTapestrySelections}.`,
@@ -593,6 +537,20 @@ export function buildDefaultInstructions(
 
   const askUserInstruction = buildAskUserInstruction(names);
   const delegationInstruction = buildDelegationInstruction(options.personas);
+  const projectWorkflowInstruction = [
+    'For project work, use only registered tools.',
+    workspaceInspectionInstruction,
+    searchInstruction,
+    hybridSearchClause,
+    semanticSearchInstruction,
+    readContextInstruction,
+    lspInspectInstruction,
+    writeInstruction,
+    executeCommandInstruction,
+    webSearchInstruction,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   // Each entry is one instruction line; empty optional clauses (e.g. an
   // unregistered askUser) are filtered out so they never leave a blank line.
@@ -601,8 +559,8 @@ export function buildDefaultInstructions(
     HARNESS_FRAMING,
     'Use tools when they help you answer accurately.',
     'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
-    `Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.`,
-    `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${lspInspectInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
+    `Registered native tools in this run: ${formatAvailableToolNames(names)}.`,
+    projectWorkflowInstruction,
     buildSkillsInstruction(names),
     taskListInstruction,
     askUserInstruction,

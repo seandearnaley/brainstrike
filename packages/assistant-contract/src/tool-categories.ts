@@ -7,6 +7,7 @@
  * - Consistent tool organization across native and MCP tools
  */
 
+import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
 import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
 /**
@@ -15,9 +16,9 @@ import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
  * runtime (which may swap in a provider-native search tool under the same id). A
  * `read`-risk retrieval tool — see NATIVE_TOOL_DEFAULTS below.
  */
-export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
-export const WEB_EXTRACT_TOOL_ID = 'brainstrike.webExtract' as const;
-export const LSP_INSPECT_TOOL_ID = 'brainstrike.lspInspect' as const;
+export const WEB_SEARCH_TOOL_ID = NATIVE_TOOL_ID.webSearch;
+export const WEB_EXTRACT_TOOL_ID = NATIVE_TOOL_ID.webExtract;
+export const LSP_INSPECT_TOOL_ID = NATIVE_TOOL_ID.lspInspect;
 
 /**
  * Source of a tool - either built into the application or from an MCP server.
@@ -143,14 +144,14 @@ export interface NativeToolDefaultMetadata {
  * Default metadata for known native tools.
  * Tool IDs follow the namespace.toolName pattern.
  */
-export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
+export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadata> = {
   // Suspending tool: asks the user a question and PAUSES the run for their
   // answer. `category:'action'` is the UI/load taxonomy, but the risk bucket is
   // EXPLICITLY 'read' — its OWN suspension is the user gate, so the permission
   // engine must NOT stack an approval prompt on top (that would double-gate it).
   // It mutates no workspace/fs/persistent-user state. An `action` tool MUST
   // declare riskCategory explicitly (tool-risk.ts throws otherwise).
-  'brainstrike.askUser': {
+  [NATIVE_TOOL_ID.askUser]: {
     category: 'action',
     estimatedTokens: 120,
     loadingTier: 'critical',
@@ -160,7 +161,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // Deletes a single workspace FILE. riskCategory 'edit' so the permission engine
   // gates it (→ 'ask' by default) like the other file-mutation tools; directory
   // deletes are refused by the tool itself.
-  'brainstrike.deleteWorkspaceFile': {
+  [NATIVE_TOOL_ID.deleteWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 130,
     loadingTier: 'critical',
@@ -174,14 +175,14 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // per-tool requireApproval); it is omitted from the map only as a fail-safe
   // when there is no workflow storage to resume the suspend, or when `execute`
   // is `'deny'`. `'allow'`/YOLO runs it unprompted.
-  'brainstrike.executeCommand': {
+  [NATIVE_TOOL_ID.executeCommand]: {
     category: 'action',
     estimatedTokens: 180,
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'execute',
   },
-  'brainstrike.findWorkspaceSymbol': {
+  [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
     category: 'retrieval',
     estimatedTokens: 150,
     loadingTier: 'critical',
@@ -190,33 +191,33 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
   // risk bucket (it is also derivable from retrieval + no-approval) so the
   // permission engine allows it by default, like the other workspace readers.
-  'brainstrike.globWorkspace': {
+  [NATIVE_TOOL_ID.globWorkspace]: {
     category: 'retrieval',
     estimatedTokens: 130,
     loadingTier: 'critical',
     requiresApproval: false,
     riskCategory: 'read',
   },
-  'brainstrike.grepSearch': {
+  [NATIVE_TOOL_ID.grepSearch]: {
     category: 'retrieval',
     estimatedTokens: 160,
     loadingTier: 'critical',
     requiresApproval: false,
   },
   // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
-  'brainstrike.hybridSearch': {
+  [NATIVE_TOOL_ID.hybridSearch]: {
     category: 'retrieval',
     estimatedTokens: 200,
     loadingTier: 'critical',
     requiresApproval: false,
   },
-  'brainstrike.listEmbeddingSpaces': {
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: {
     category: 'analysis',
     estimatedTokens: 110,
     loadingTier: 'critical',
     requiresApproval: false,
   },
-  'brainstrike.listWorkspaceContext': {
+  [NATIVE_TOOL_ID.listWorkspaceContext]: {
     category: 'retrieval',
     estimatedTokens: 120,
     loadingTier: 'critical',
@@ -227,7 +228,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // server. Read-only (no mutation), so 'read' risk + no approval like the
   // other workspace readers. Desktop-only (spawns a server child process);
   // web omits it.
-  'brainstrike.lspInspect': {
+  [NATIVE_TOOL_ID.lspInspect]: {
     category: 'retrieval',
     estimatedTokens: 160,
     loadingTier: 'critical',
@@ -241,33 +242,33 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // permission engine allows it by default and the loop never suspends for a plan
   // update. An `action` tool MUST declare riskCategory explicitly (tool-risk.ts
   // throws otherwise — no silent bucketing).
-  'brainstrike.manageTaskList': {
+  [NATIVE_TOOL_ID.manageTaskList]: {
     category: 'action',
     estimatedTokens: 140,
     loadingTier: 'critical',
     requiresApproval: false,
     riskCategory: 'read',
   },
-  'brainstrike.queryEmbeddingSpace': {
+  [NATIVE_TOOL_ID.queryEmbeddingSpace]: {
     category: 'retrieval',
     estimatedTokens: 190,
     loadingTier: 'critical',
     requiresApproval: false,
   },
-  'brainstrike.readWorkspaceContext': {
+  [NATIVE_TOOL_ID.readWorkspaceContext]: {
     category: 'retrieval',
     estimatedTokens: 180,
     loadingTier: 'critical',
     requiresApproval: false,
   },
-  'brainstrike.readWorkspaceDirectory': {
+  [NATIVE_TOOL_ID.readWorkspaceDirectory]: {
     category: 'retrieval',
     estimatedTokens: 120,
     loadingTier: 'critical',
     requiresApproval: false,
   },
   // Core workspace reading tools
-  'brainstrike.readWorkspaceFile': {
+  [NATIVE_TOOL_ID.readWorkspaceFile]: {
     category: 'retrieval',
     estimatedTokens: 140,
     loadingTier: 'critical',
@@ -276,7 +277,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // Renames/moves a single workspace FILE within one root. riskCategory 'edit' so
   // the permission engine gates it (→ 'ask' by default) like the other
   // file-mutation tools; cross-root moves and overwrites are refused by the tool.
-  'brainstrike.renameWorkspaceFile': {
+  [NATIVE_TOOL_ID.renameWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 150,
     loadingTier: 'critical',
@@ -285,7 +286,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   },
   // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
   // block and replaces it. Same edit-risk gating.
-  'brainstrike.stringReplaceWorkspaceFile': {
+  [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 160,
     loadingTier: 'critical',
@@ -296,21 +297,21 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // approve/reject decision. Risk bucket EXPLICITLY 'read' for the same reason as
   // askUser — its own suspension is the gate; do NOT let the permission engine
   // double-gate it with an approval prompt.
-  'brainstrike.submitPlan': {
+  [NATIVE_TOOL_ID.submitPlan]: {
     category: 'action',
     estimatedTokens: 140,
     loadingTier: 'critical',
     requiresApproval: false,
     riskCategory: 'read',
   },
-  'brainstrike.updateWorkspaceContextSelection': {
+  [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: {
     category: 'action',
     estimatedTokens: 150,
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
   },
-  'brainstrike.updateWorkspaceTapestrySelections': {
+  [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: {
     category: 'action',
     estimatedTokens: 190,
     loadingTier: 'critical',
@@ -323,7 +324,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // — the URLs are sent to Tavily. Model-supplied URLs are validated
   // server-side first (http/https only, no credentials, no private/loopback/
   // link-local hosts) so an internal URL never leaves the machine.
-  'brainstrike.webExtract': {
+  [NATIVE_TOOL_ID.webExtract]: {
     category: 'retrieval',
     estimatedTokens: 130,
     loadingTier: 'critical',
@@ -334,7 +335,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // false: it does NOT mutate workspace state, so the permission engine allows
   // it by default like the other readers. NOTE the privacy caveat documented on
   // the tool description: it sends the query to an EXTERNAL service (Tavily).
-  'brainstrike.webSearch': {
+  [NATIVE_TOOL_ID.webSearch]: {
     category: 'retrieval',
     estimatedTokens: 130,
     loadingTier: 'critical',
@@ -343,7 +344,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   },
   // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
   // the Phase 1 permission engine gates it when enforcement is on.
-  'brainstrike.writeWorkspaceFile': {
+  [NATIVE_TOOL_ID.writeWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 140,
     loadingTier: 'critical',
@@ -359,23 +360,21 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // disk; skill *scripts* still run through `brainstrike.executeCommand` and
   // its 'execute' approval gate. Explicit 'read' keeps them free under the
   // default policy and available in plan mode (investigation tools).
-  skill: {
+  [NATIVE_TOOL_ID.skill]: {
     category: 'retrieval',
     estimatedTokens: 90,
     loadingTier: 'critical',
     requiresApproval: false,
     riskCategory: 'read',
   },
-  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
-  skill_read: {
+  [NATIVE_TOOL_ID.skillRead]: {
     category: 'retrieval',
     estimatedTokens: 120,
     loadingTier: 'critical',
     requiresApproval: false,
     riskCategory: 'read',
   },
-  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
-  skill_search: {
+  [NATIVE_TOOL_ID.skillSearch]: {
     category: 'retrieval',
     estimatedTokens: 110,
     loadingTier: 'critical',
@@ -438,14 +437,14 @@ export function denormalizeNativeToolName(toolName: string): string {
  * Returns undefined if the tool is not a known native tool.
  */
 export function getNativeToolDefaults(toolId: string): NativeToolDefaultMetadata | undefined {
-  return NATIVE_TOOL_DEFAULTS[toolId];
+  return isNativeToolId(toolId) ? NATIVE_TOOL_DEFAULTS[toolId] : undefined;
 }
 
 /**
  * Check if a tool ID represents a native tool.
  */
 export function isNativeTool(toolId: string): boolean {
-  return toolId in NATIVE_TOOL_DEFAULTS;
+  return isNativeToolId(toolId);
 }
 
 /**

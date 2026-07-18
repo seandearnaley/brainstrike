@@ -7,7 +7,11 @@
  * empty list.
  */
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import type { AssistantTaskStatus, ManageTaskListResult } from '@brainstrike/assistant-contract';
+import {
+  type AssistantTaskStatus,
+  type ManageTaskListResult,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
 import { cn } from '../lib/utils';
 import {
   isSubagentDelegationToolName,
@@ -142,9 +146,8 @@ const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
 export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
   by_name: {
-    // biome-ignore lint/style/useNamingConvention: Mastra-sanitized tool name key
-    brainstrike_manageTaskList: TaskListToolCard,
-    'brainstrike.manageTaskList': TaskListToolCard,
+    [NATIVE_TOOL_ID.manageTaskList.replaceAll('.', '_')]: TaskListToolCard,
+    [NATIVE_TOOL_ID.manageTaskList]: TaskListToolCard,
     // Subagent delegation tools (`agent-<personaId>`) render as a collapsed
     // SubagentExecutionCard, not a raw tool card.
     ...SUBAGENT_TOOL_CARDS,

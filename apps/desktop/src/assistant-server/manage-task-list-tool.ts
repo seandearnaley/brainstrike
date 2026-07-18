@@ -7,6 +7,7 @@ import {
   type RuntimeData,
   summarizeAssistantTaskList,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   readThreadTaskList,
@@ -16,7 +17,7 @@ import {
 
 export type { TaskListDatabase } from './task-list-repository';
 
-export const MANAGE_TASK_LIST_TOOL_ID = 'brainstrike.manageTaskList' as const;
+export const MANAGE_TASK_LIST_TOOL_ID = NATIVE_TOOL_ID.manageTaskList;
 
 const logger = createLogger('AssistantTaskList');
 

@@ -1,8 +1,8 @@
 import {
+  getNativeToolDescription,
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
-  TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
@@ -72,7 +72,7 @@ function getNativeToolsAsDisplayMetadata(
  * Get human-readable description for native tools.
  */
 function getToolDescription(toolId: string): string {
-  return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
+  return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
 }
 
 function ModelSelectionCategory() {

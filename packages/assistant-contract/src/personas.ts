@@ -12,8 +12,9 @@
  * registry the permission gate uses. An unknown id is NOT read — it throws.
  */
 
+import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
-  NATIVE_TOOL_DEFAULTS,
+  getNativeToolDefaults,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from './tool-categories.js';
@@ -107,7 +108,7 @@ export class PersonaToolRiskViolationError extends Error {
  */
 export function assertReadOnlyPersona(persona: AssistantPersonaDefinition): void {
   for (const toolId of persona.allowedToolIds) {
-    const metadata = NATIVE_TOOL_DEFAULTS[toolId];
+    const metadata = getNativeToolDefaults(toolId);
     if (!metadata) {
       throw new PersonaToolRiskViolationError({
         personaId: persona.id,
@@ -138,11 +139,11 @@ function definePersona(persona: AssistantPersonaDefinition): AssistantPersonaDef
 export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
   definePersona({
     allowedToolIds: [
-      'brainstrike.queryEmbeddingSpace',
-      'brainstrike.grepSearch',
-      'brainstrike.globWorkspace',
-      'brainstrike.readWorkspaceFile',
-      'brainstrike.readWorkspaceDirectory',
+      NATIVE_TOOL_ID.queryEmbeddingSpace,
+      NATIVE_TOOL_ID.grepSearch,
+      NATIVE_TOOL_ID.globWorkspace,
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      NATIVE_TOOL_ID.readWorkspaceDirectory,
     ],
     description:
       'Delegate broad, RAG-native codebase exploration: semantic + exact search across the ' +
@@ -161,9 +162,9 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
   }),
   definePersona({
     allowedToolIds: [
-      'brainstrike.readWorkspaceFile',
-      'brainstrike.readWorkspaceDirectory',
-      'brainstrike.grepSearch',
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      NATIVE_TOOL_ID.readWorkspaceDirectory,
+      NATIVE_TOOL_ID.grepSearch,
       WEB_SEARCH_TOOL_ID,
       WEB_EXTRACT_TOOL_ID,
     ],

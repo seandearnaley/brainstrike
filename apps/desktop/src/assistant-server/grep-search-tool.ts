@@ -1,9 +1,12 @@
-import type { GrepSearchInput, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import {
   fitItemsToCharBudget,
+  type GrepSearchInput,
   normalizeOptionalText,
+  type RuntimeData,
+  type RuntimeWorkspaceRoot,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -13,7 +16,7 @@ import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
 
-export const GREP_SEARCH_TOOL_ID = 'brainstrike.grepSearch' as const;
+export const GREP_SEARCH_TOOL_ID = NATIVE_TOOL_ID.grepSearch;
 
 /**
  * Which engine produced a match:

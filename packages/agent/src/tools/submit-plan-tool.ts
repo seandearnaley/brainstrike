@@ -1,9 +1,14 @@
-import type { SubmitPlanDecision, SubmitPlanPayload } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  type SubmitPlanDecision,
+  type SubmitPlanPayload,
+} from '@brainstrike/assistant-contract';
+import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { SubmitPlanInputSchema } from './schemas';
 
-export const SUBMIT_PLAN_TOOL_ID = 'brainstrike.submitPlan' as const;
+export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 
 const SubmitPlanSuspendSchema = z.object({
   overview: z.string(),
@@ -36,8 +41,7 @@ const SubmitPlanOutputSchema = z.object({
  */
 export function createSubmitPlanTool() {
   return createTool({
-    description:
-      'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until the user responds. On rejection the user feedback is returned so you can revise and submit again. Use this in plan mode before proposing any changes.',
+    description: TOOL_DESCRIPTIONS[SUBMIT_PLAN_TOOL_ID],
     execute: async (input, context) => {
       const resume = context?.agent?.resumeData as SubmitPlanDecision | undefined;
       if (resume !== undefined) {

@@ -1,6 +1,6 @@
 import {
+  getNativeToolDescription,
   NATIVE_TOOL_DEFAULTS,
-  TOOL_DESCRIPTIONS,
   type ToolCategory,
   type ToolLoadingTier,
 } from '@brainstrike/agent/tool-metadata';
@@ -256,7 +256,7 @@ describe('SettingsPageContent tool operations', () => {
     const expectedTools: MockToolDisplayMetadata[] = Object.entries(NATIVE_TOOL_DEFAULTS).map(
       ([id, metadata]) => ({
         category: metadata.category,
-        description: TOOL_DESCRIPTIONS[id] ?? `Native tool: ${id}`,
+        description: getNativeToolDescription(id) ?? `Native tool: ${id}`,
         enabled: id === enabledToolId,
         estimatedTokens: metadata.estimatedTokens,
         id,

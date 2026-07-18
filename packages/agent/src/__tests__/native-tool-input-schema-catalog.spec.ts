@@ -11,6 +11,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.hybridSearch',
   'brainstrike.listEmbeddingSpaces',
   'brainstrike.listWorkspaceContext',
+  'brainstrike.lspInspect',
   'brainstrike.manageTaskList',
   'brainstrike.queryEmbeddingSpace',
   'brainstrike.readWorkspaceContext',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NATIVE_TOOL_ID, NATIVE_TOOL_IDS, type NativeToolId } from '../native-tool-catalog';
 import {
   buildNativeToolRiskMap,
   denormalizeNativeToolName,
@@ -66,7 +67,8 @@ describe('resolveToolRiskCategory', () => {
   });
 
   describe('every current native tool resolves without throwing', () => {
-    const entries = Object.entries(NATIVE_TOOL_DEFAULTS) as [string, NativeToolDefaultMetadata][];
+    const entries: readonly (readonly [NativeToolId, NativeToolDefaultMetadata])[] =
+      NATIVE_TOOL_IDS.map((id) => [id, NATIVE_TOOL_DEFAULTS[id]] as const);
 
     it.each(entries)('%s resolves to a known risk category', (_id, metadata) => {
       const resolved = resolveToolRiskCategory(metadata);
@@ -74,11 +76,11 @@ describe('resolveToolRiskCategory', () => {
     });
 
     it('classifies the approval-gated workspace mutators as edit (via explicit annotation)', () => {
-      const editTools: readonly string[] = [
-        'brainstrike.updateWorkspaceContextSelection',
-        'brainstrike.updateWorkspaceTapestrySelections',
-        'brainstrike.writeWorkspaceFile',
-        'brainstrike.stringReplaceWorkspaceFile',
+      const editTools = [
+        NATIVE_TOOL_ID.updateWorkspaceContextSelection,
+        NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
+        NATIVE_TOOL_ID.writeWorkspaceFile,
+        NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
       ];
       for (const id of editTools) {
         const metadata = NATIVE_TOOL_DEFAULTS[id];
@@ -133,7 +135,7 @@ describe('buildNativeToolRiskMap', () => {
 
   it('maps every native tool id to its resolved risk category', () => {
     const riskByTool = buildNativeToolRiskMap();
-    const ids = Object.keys(NATIVE_TOOL_DEFAULTS);
+    const ids = [...NATIVE_TOOL_IDS];
 
     // Every tool is present and classified...
     expect(Object.keys(riskByTool).sort()).toEqual(ids.sort());

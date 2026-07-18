@@ -8,12 +8,13 @@
  * @see retrieval-tool.ts for the DI pattern reference
  */
 
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type { HybridSearchInput } from './schemas';
 import { HybridSearchInputSchema } from './schemas';
 import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
-export const HYBRID_SEARCH_TOOL_ID = 'brainstrike.hybridSearch' as const;
+export const HYBRID_SEARCH_TOOL_ID = NATIVE_TOOL_ID.hybridSearch;
 
 /**
  * Safe error messages that can be shown to users.

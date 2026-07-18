@@ -1,9 +1,14 @@
-import type { AskUserAnswer, AskUserPayload } from '@brainstrike/assistant-contract';
+import {
+  type AskUserAnswer,
+  type AskUserPayload,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
+import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { AskUserInputSchema } from './schemas';
 
-export const ASK_USER_TOOL_ID = 'brainstrike.askUser' as const;
+export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
 const AskUserSuspendSchema = z.object({
   options: z.array(z.object({ description: z.string().optional(), label: z.string() })).optional(),
@@ -33,8 +38,7 @@ export function formatAskUserAnswer(answer: AskUserAnswer): string {
  */
 export function createAskUserTool() {
   return createTool({
-    description:
-      'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (set selectionMode multi_select to allow several), or omit options for a free-text question. Use when you need a decision or information only the user has.',
+    description: TOOL_DESCRIPTIONS[ASK_USER_TOOL_ID],
     execute: async (input, context) => {
       const resume = context?.agent?.resumeData as AskUserAnswer | undefined;
       if (resume !== undefined) {

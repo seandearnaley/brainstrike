@@ -1,14 +1,18 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
-import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  type ExecuteCommandInput,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  type RuntimeData,
+} from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
-export const EXECUTE_COMMAND_TOOL_ID = 'brainstrike.executeCommand' as const;
+export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 
 const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;

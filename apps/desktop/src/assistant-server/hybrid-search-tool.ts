@@ -13,8 +13,13 @@
  * never quietly degrades to vector-only results.
  */
 
-import type { HybridSearchInput, RuntimeData } from '@brainstrike/agent';
-import { fitItemsToCharBudget, normalizeOptionalText } from '@brainstrike/agent';
+import {
+  fitItemsToCharBudget,
+  type HybridSearchInput,
+  normalizeOptionalText,
+  type RuntimeData,
+} from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_HYBRID_SOURCE_LIMIT,
   FileChunkRepository,
@@ -35,7 +40,7 @@ import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantHybridSearchTool');
 
-export const HYBRID_SEARCH_TOOL_ID = 'brainstrike.hybridSearch' as const;
+export const HYBRID_SEARCH_TOOL_ID = NATIVE_TOOL_ID.hybridSearch;
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_VECTOR_THRESHOLD = 0.5;

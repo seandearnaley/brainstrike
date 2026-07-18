@@ -14,6 +14,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.hybridSearch',
   'brainstrike.listEmbeddingSpaces',
   'brainstrike.listWorkspaceContext',
+  'brainstrike.lspInspect',
   'brainstrike.manageTaskList',
   'brainstrike.queryEmbeddingSpace',
   'brainstrike.readWorkspaceContext',
@@ -59,7 +60,7 @@ describe('native tool catalog', () => {
       sorted([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS, ...EXPECTED_SKILL_NATIVE_TOOL_IDS])
     );
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
-    expect(desktopIds).toHaveLength(22);
+    expect(desktopIds).toHaveLength(23);
     expect(skillIds).toHaveLength(3);
   });
 
