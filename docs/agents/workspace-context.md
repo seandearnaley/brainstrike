@@ -591,6 +591,21 @@ one" comment):
   (which promotes `activeRootIds[1]`) changes it. Re-adding a removed root
   appends to the END — a re-added ex-main root is demoted (visible +
   recoverable, by design).
+  - **Restore-order preservation (`setActiveRoots`, `active-root-actions.ts`):**
+    the desktop boot restore (`runMultiRootRestore` in
+    `packages/file-explorer-hooks/src/use-file-system.ts`) rebuilds
+    `activeRootIds`/`rootDescriptors` from a SEPARATE main-process-persisted
+    `rootsList` (`apps/desktop/src/ipc-domains/file-system-ipc.ts`), which is
+    plain add-order and has NO notion of Main. `setActiveRoots` is therefore
+    ORDER-PRESERVING, not a blind overwrite: ids still reported keep their
+    existing relative order from the already-rehydrated store (the Main slot
+    survives), a newly-reported id not previously known appends at the END,
+    and an id no longer reported (pruned as missing-on-disk) drops out. This
+    is what makes the storage-v5 "persisting the order persists the choice"
+    claim above actually hold across a restart — without it, `runMultiRootRestore`
+    calling `setActiveRoots(storedDescriptors)` after hydration would silently
+    re-derive `activeRootIds[0]` from the rootsList's add-order and demote the
+    user's declared Main root on every restart.
 - **FOCUSED root** = SELECTION state (`currentFolderId`). Drives terminal
   cwd, selection scoping, and the selection write-back default
   (`resolveWriteBackTarget` untouched). It flips on any incidental click
@@ -644,7 +659,8 @@ by construction.
 
 **Paired tests:**
 `packages/file-explorer/src/actions/__tests__/active-root-actions.test.ts`
-(setMainRoot semantics + removal promotion),
+(setMainRoot semantics + removal promotion + `setActiveRoots` restore-order
+preservation),
 `packages/file-explorer-ui` `root-section-header.test.tsx` +
 `file-explorer-sidebar.test.tsx` (badge/focused/tooltip + forest wiring),
 `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`

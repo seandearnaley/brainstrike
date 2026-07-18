@@ -146,3 +146,59 @@ describe('removeActiveRoot main-promotion (pins existing behavior)', () => {
     expect(getState().activeRootIds).toEqual([ROOT_B.rootId, ROOT_A.rootId]);
   });
 });
+
+describe('setActiveRoots survives restart with a non-default Main root (restore-order bug)', () => {
+  // Reproduces the desktop restore path: zustand rehydrates persisted
+  // activeRootIds (Main-first, from a prior setMainRoot) BEFORE
+  // runMultiRootRestore calls setActiveRoots(storedDescriptors) with
+  // descriptors ordered by the main-process rootsList's insertion order,
+  // which has no notion of Main. setActiveRoots must not silently clobber the
+  // already-hydrated Main order with the insertion order.
+  it('preserves the previously-declared Main order when restore reports original insertion order', () => {
+    const { actions, getState } = makeHarness({
+      // User previously ran setMainRoot(ROOT_B) — persisted as [B, A].
+      activeRootIds: [ROOT_B.rootId, ROOT_A.rootId],
+      rootDescriptors: { [ROOT_A.rootId]: ROOT_A, [ROOT_B.rootId]: ROOT_B },
+    });
+
+    // Restore reports roots in original add order [A, B] — no Main awareness.
+    actions.setActiveRoots([ROOT_A, ROOT_B]);
+
+    expect(getState().activeRootIds).toEqual([ROOT_B.rootId, ROOT_A.rootId]);
+  });
+
+  it('appends a newly-discovered root (not previously known) to the END', () => {
+    const { actions, getState } = makeHarness({
+      activeRootIds: [ROOT_B.rootId, ROOT_A.rootId],
+      rootDescriptors: { [ROOT_A.rootId]: ROOT_A, [ROOT_B.rootId]: ROOT_B },
+    });
+
+    actions.setActiveRoots([ROOT_A, ROOT_B, ROOT_C]);
+
+    expect(getState().activeRootIds).toEqual([ROOT_B.rootId, ROOT_A.rootId, ROOT_C.rootId]);
+  });
+
+  it('drops ids no longer reported (e.g. a root pruned as missing-on-disk during restore)', () => {
+    const { actions, getState } = makeHarness({
+      activeRootIds: [ROOT_B.rootId, ROOT_A.rootId, ROOT_C.rootId],
+      rootDescriptors: {
+        [ROOT_A.rootId]: ROOT_A,
+        [ROOT_B.rootId]: ROOT_B,
+        [ROOT_C.rootId]: ROOT_C,
+      },
+    });
+
+    // ROOT_C no longer granted/present — pruned from the restore result.
+    actions.setActiveRoots([ROOT_A, ROOT_B]);
+
+    expect(getState().activeRootIds).toEqual([ROOT_B.rootId, ROOT_A.rootId]);
+  });
+
+  it('falls back to input order when nothing was previously known (first-ever restore)', () => {
+    const { actions, getState } = makeHarness({});
+
+    actions.setActiveRoots([ROOT_C, ROOT_A, ROOT_B]);
+
+    expect(getState().activeRootIds).toEqual([ROOT_C.rootId, ROOT_A.rootId, ROOT_B.rootId]);
+  });
+});
