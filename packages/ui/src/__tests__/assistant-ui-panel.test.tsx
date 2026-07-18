@@ -1212,24 +1212,19 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
   });
 
-  it('renders provider settings for the local runtime and updates the thinking toggle', () => {
-    const onSettingsChange = vi.fn();
-
+  it('renders only generic runtime limits for the local provider (thinking toggle lives in the model menu)', () => {
     render(
       <ProviderSettingsPanel
-        onSettingsChange={onSettingsChange}
+        onSettingsChange={vi.fn()}
         providerId="local"
         settings={{ localThinkingEnabled: true }}
       />
     );
 
-    expect(screen.getByText('Gemma thinking')).toBeInTheDocument();
-    const switches = screen.getAllByRole('switch');
-    const localThinkingToggle = switches.at(-1);
-    expect(localThinkingToggle).toBeDefined();
-    fireEvent.click(localThinkingToggle as HTMLElement);
-
-    expect(onSettingsChange).toHaveBeenCalledWith('local', { localThinkingEnabled: false });
+    expect(screen.getByText('Agent context')).toBeInTheDocument();
+    expect(screen.getByText('Output tokens / step')).toBeInTheDocument();
+    expect(screen.queryByText('Gemma thinking')).not.toBeInTheDocument();
+    expect(screen.queryByText('Enable thinking')).not.toBeInTheDocument();
   });
 
   it('renders google provider settings and updates include-thoughts', () => {
@@ -1254,7 +1249,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('google', { googleIncludeThoughts: true });
   });
 
-  it('only offers Kimi K3 reasoning efforts reported by OpenRouter', () => {
+  it('omits the effort select from Output & Limits (moved to the model menu) but keeps the summary', () => {
     render(
       <ProviderSettingsPanel
         modelName="moonshotai/kimi-k3"
@@ -1264,13 +1259,11 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const effortSelect = screen.getByRole('combobox', { name: 'Reasoning effort' });
-    expect(effortSelect).toHaveTextContent('Auto (max)');
-    fireEvent.click(effortSelect);
-    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'Auto (max)',
-      'Max',
-    ]);
+    // Model-constrained effort (e.g. kimi-k3 max-only) now lives in the
+    // composer model menu — see composer-model-menu.test.tsx.
+    expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Effort')).not.toBeInTheDocument();
+    expect(screen.getByText('Reasoning summary')).toBeInTheDocument();
   });
 
   it('renders anthropic settings and updates the thinking budget input', () => {
