@@ -86,9 +86,10 @@ available to stream/application consumers and is what Mastra persists; only
 the provider receives the bounded projection. Existing custom projections are
 composed with the final ceiling, not allowed to bypass it. Persona agents
 receive the same projections before their independent permission gate. Mastra
-1.51 passes `{toolCallId,input,output}` to generated projections, so the generic
-projection extracts the envelope's `output`; direct raw-output calls remain
-supported.
+1.51 passes `{toolCallId,input,output}` at the AI SDK boundary even though its
+`createTool` contract gives custom projectors the raw execute result. Brainstrike
+extracts the exact envelope's `output` before both custom and generated
+projections; direct raw-output calls remain supported.
 
 MCP is the temporary exception while artifact storage is absent: text/JSON is
 bounded inside `execute()` before inline persistence; image/audio stays raw

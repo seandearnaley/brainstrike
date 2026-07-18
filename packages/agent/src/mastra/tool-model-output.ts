@@ -44,7 +44,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function readDefaultProjectionOutput(value: unknown): unknown {
+function readProjectionOutput(value: unknown): unknown {
   if (
     !isRecord(value) ||
     typeof value['toolCallId'] !== 'string' ||
@@ -399,7 +399,12 @@ export function applyToolModelOutputProjections(
         configurable: true,
         enumerable: true,
         value: (output: unknown) =>
-          projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
+          projectExistingModelOutput(
+            originalToolName,
+            originalProjection,
+            cloned,
+            readProjectionOutput(output)
+          ),
         writable: true,
       });
       projected[toolId] = cloned;
@@ -410,7 +415,7 @@ export function applyToolModelOutputProjections(
       configurable: true,
       enumerable: true,
       value: (output: unknown) =>
-        createDefaultModelOutput(originalToolName, readDefaultProjectionOutput(output)),
+        createDefaultModelOutput(originalToolName, readProjectionOutput(output)),
       writable: true,
     });
     projected[toolId] = cloned;

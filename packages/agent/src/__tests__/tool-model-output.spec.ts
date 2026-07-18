@@ -59,6 +59,32 @@ describe('applyToolModelOutputProjections', () => {
     expect(toModelOutput).toHaveBeenCalledOnce();
   });
 
+  it('passes the raw result from a Mastra envelope to an existing projection', () => {
+    const rawOutput = { summary: 'compact result' };
+    const toModelOutput = vi.fn((output: unknown) => ({
+      type: 'text',
+      value: (output as { summary?: string }).summary,
+    }));
+    const tool = asTool({
+      execute: () => rawOutput,
+      id: 'custom-envelope',
+      toModelOutput,
+    });
+
+    const projected = applyToolModelOutputProjections(
+      { custom_envelope: tool },
+      new Map([['custom_envelope', 'custom.envelope']])
+    );
+    const modelOutput = (projected['custom_envelope'] as TestTool).toModelOutput?.({
+      input: { query: 'summary' },
+      output: rawOutput,
+      toolCallId: 'call-custom-envelope',
+    });
+
+    expect(modelOutput).toEqual({ type: 'text', value: 'compact result' });
+    expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
+  });
+
   it('bounds an oversized existing domain-specific text projection', () => {
     const rawOnlyTail = 'custom-raw-only-tail';
     const toModelOutput = vi.fn(() => ({
