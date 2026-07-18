@@ -43,6 +43,11 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./context-breakdown": {
+      "types": "./dist/context-breakdown.d.ts",
+      "import": "./dist/context-breakdown.js",
+      "require": "./dist/context-breakdown.js"
+    },
     "./context-budget": {
       "types": "./dist/context-budget.d.ts",
       "import": "./dist/context-budget.js",
