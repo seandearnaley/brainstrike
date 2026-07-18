@@ -24,6 +24,21 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Biome pinned at 2.5.2 — do NOT bump to 2.5.3/2.5.4 (2026-07-18)
+
+`@biomejs/biome` is pinned to exactly 2.5.2 (root + `apps/web`). Biome
+2.5.3/2.5.4 hit a module-graph panic (`module_resolver.rs:500:33`,
+"index out of bounds") **deterministically 39 times** on this codebase —
+triggered by `nursery/noFloatingPromises` resolving cross-module callback
+return types (upstream biomejs/biome#10963, same class as #10885/#10940).
+2.5.2 contains the same panic site but only hits it via a rare
+scheduling-dependent race (#10953); if `pnpm run lint` ever spews these
+panics on 2.5.2, just re-run (or `RAYON_NUM_THREADS=1` as a one-off).
+The real fix is upstream commit `e62f6b6` (2026-07-16, unreleased as of
+2.5.4). Bump only to a release containing it, and verify with
+`pnpm exec biome check .` (zero "Biome encountered an unexpected error")
+before landing.
+
 ### Static and Unit run on arm64 (Series C R9b)
 
 `static` and `unit` in `test.yml` run on `ubuntu-24.04-arm`, not
