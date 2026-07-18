@@ -6,12 +6,10 @@ import {
   MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
 } from '@assistant-ui/react-markdown';
-import { CheckIcon, CopyIcon } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
-import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
+import { CodeBlockHeader } from '../code-block/code-block-header';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
-import { TooltipIconButton } from './tooltip-icon-button';
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -41,33 +39,10 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
   );
 });
 
+// Module-scope adapter (NOT inline in defaultComponents): an inline component
+// would get a new identity per render and remount every streamed chunk.
 function CodeHeader({ language, code }: CodeHeaderProps) {
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
-
-  const onCopy = () => {
-    if (isCopied || !code) {
-      return;
-    }
-    copyToClipboard(String(code));
-  };
-
-  return (
-    <div className="aui-code-header-root flex items-center justify-between rounded-t-lg bg-muted px-4 py-2 font-semibold text-sm">
-      <span className="aui-code-header-language text-xs lowercase opacity-70">
-        {language || 'code'}
-      </span>
-      <TooltipIconButton
-        aria-label="Copy code to clipboard"
-        className="size-6"
-        onClick={onCopy}
-        size="icon"
-        tooltip={isCopied ? 'Copied!' : 'Copy code'}
-        variant="ghost"
-      >
-        {isCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-      </TooltipIconButton>
-    </div>
-  );
+  return <CodeBlockHeader code={code ?? ''} language={language} />;
 }
 
 const defaultComponents = memoizeMarkdownComponents({

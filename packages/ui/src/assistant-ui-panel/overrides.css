@@ -906,31 +906,22 @@
 }
 
 /**
- * SYNTAX HIGHLIGHTING THEME: Shiki dual theme support
+ * SYNTAX HIGHLIGHTING: the shared code-block box.
  *
- * React-shiki uses CSS variables to switch between light/dark themes.
- * The dark theme is activated when .dark class is present on html or ancestor.
+ * The box chrome + Shiki dual-theme dark switching live with the shared
+ * components: Tailwind classes on packages/ui/src/code-block/* and element
+ * rules in globals.css @layer base (`.bs-code-block-body pre/.shiki`,
+ * `html.dark .shiki`). This file only owns chat-specific prose rhythm: the
+ * chat markdown library renders CodeBlockHeader and CodeBlockBody as SIBLINGS
+ * (no shared wrapper element), so the vertical spacing around the box is split
+ * across the two halves here.
  */
-
-/* Dark mode theme switching for class-based dark mode */
-html.dark .shiki,
-html.dark .shiki span {
-  color: var(--shiki-dark);
-  background-color: var(--shiki-dark-bg);
-  font-style: var(--shiki-dark-font-style);
-  font-weight: var(--shiki-dark-font-weight);
-  text-decoration: var(--shiki-dark-text-decoration);
+.assistant-ui-panel .aui-md .bs-code-block-header {
+  margin-top: 0.9em;
 }
 
-/* Code block container styling */
-.aui-code-block {
-  margin: 1rem 0;
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-
-.aui-code-header-root {
-  border-bottom: 1px solid hsl(var(--border));
+.assistant-ui-panel .aui-md .bs-code-block-body {
+  margin-bottom: 0.9em;
 }
 
 /**
@@ -947,8 +938,8 @@ html.dark .shiki span {
  * for assistant prose spacing and are decoupled from upstream class-name churn.
  * Scoped to `.assistant-ui-panel .aui-md` so they also cover the streaming
  * loading placeholder and the model-reasoning panel (both use `.aui-md`).
- * Code blocks are intentionally untouched here — they are owned by
- * `.aui-code-block` / Shiki above.
+ * Code blocks are intentionally untouched here — they are owned by the shared
+ * `.bs-code-block-*` chrome (packages/ui/src/code-block/ + globals.css).
  */
 .assistant-ui-panel .aui-md {
   line-height: 1.6;
@@ -1047,7 +1038,7 @@ html.dark .shiki span {
   border-top: 1px solid hsl(var(--border));
 }
 
-/* Inline code only — fenced blocks are handled by .aui-code-block / Shiki. */
+/* Inline code only — fenced blocks are handled by the shared .bs-code-block box. */
 .assistant-ui-panel .aui-md :not(pre) > code {
   padding: 0.1rem 0.3rem;
   border-radius: 0.3rem;
@@ -1058,18 +1049,21 @@ html.dark .shiki span {
 
 /**
  * Fenced code blocks BEFORE Shiki resolves (or if it fails to load — the
- * SyntaxHighlighter falls back to a bare <pre><code>). Without this they render
- * as unstyled plaintext with no container. Scoped to `:not(.shiki)` so Shiki's
- * own highlighted <pre.shiki> output is never touched.
+ * SyntaxHighlighter falls back to a bare <pre><code>). The fallback now sits
+ * INSIDE the shared `.bs-code-block-body` box, which owns the border/radius/
+ * margin, so this rule (unlayered — it beats the globals.css @layer base
+ * metrics) must match the Shiki metrics EXACTLY for a zero-shift streamed
+ * swap; it only adds the muted background the plain <pre> lacks. Scoped to
+ * `:not(.shiki)` so Shiki's own highlighted <pre.shiki> output is never
+ * touched.
  */
 .assistant-ui-panel .aui-md pre:not(.shiki) {
-  margin-block: 0.9em;
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.5rem;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
   background: hsl(var(--muted) / 0.6);
   overflow-x: auto;
   font-size: 0.82em;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .assistant-ui-panel .aui-md pre:not(.shiki) code {
