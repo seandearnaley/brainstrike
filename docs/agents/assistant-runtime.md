@@ -122,6 +122,10 @@ Resolved default instructions plus every registered native function's name,
 description, and canonical Standard-Schema input must fit within 7,900
 `o200k_base` tokens. The actual OpenRouter payload extracted from Mastra's
 public `agent.getToolsForExecution({})` boundary must fit within 11,500 tokens.
+The production-equivalent fixture enables a representative workspace skill so
+both numbers include the three default skill tools, conditional skills
+guidance, and first-turn `SkillsProcessor` metadata; a registry measured
+without `workspaceSkills` is an undercount.
 Mastra 1.51 currently expands optional fields for the routed `openai/*` model;
 the authored guard is therefore not evidence for the provider payload. The
 regression constructs the real desktop registry and real hosted runtime

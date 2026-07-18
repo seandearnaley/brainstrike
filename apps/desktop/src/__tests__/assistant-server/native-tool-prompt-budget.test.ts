@@ -1,7 +1,11 @@
 import {
+  createAssistantSkillTools,
   createMastraAgentRuntime,
+  createScannedWorkspaceSkills,
   PROVIDER_DEFAULT_MODELS,
   type RuntimeData,
+  type ScannedSkill,
+  type WorkspaceSkills,
 } from '@brainstrike/agent';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
@@ -26,6 +30,22 @@ const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 7900;
 const MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS = 11_500;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
+const PROMPT_BUDGET_SKILL = {
+  containmentRoot: '/workspace',
+  description: 'A minimal production-equivalent skill for prompt-budget coverage.',
+  dirAbsPath: '/workspace/.brainstrike/skills/prompt-budget',
+  dirName: 'prompt-budget',
+  instructions: 'Use this skill to keep prompt-budget coverage production-equivalent.',
+  name: 'prompt-budget',
+  preferenceKey: 'root-a:root-brainstrike:prompt-budget',
+  sourceRootDisplayName: 'Workspace',
+  sourceRootId: 'root-a',
+  tier: 'root-brainstrike',
+  userInvocable: true,
+  warnings: [],
+} satisfies ScannedSkill;
+const SKILLS_PROCESSOR_USAGE_INSTRUCTION =
+  'IMPORTANT: Skills are NOT tools. Do not call skill names directly as tool names. To use a skill, call the `skill` tool with the skill name as the "name" parameter. If multiple skills share the same name, use the skill path (shown in the location field) instead of the name to disambiguate. When a user asks about a topic covered by an available skill, activate it immediately without asking for permission first.';
 
 interface ProviderFunctionTool {
   function: {
@@ -39,6 +59,38 @@ interface ProviderFunctionTool {
 interface MastraProviderTool {
   description: string;
   inputSchema: unknown;
+}
+
+function createPromptBudgetWorkspaceSkills(): WorkspaceSkills {
+  return createScannedWorkspaceSkills({
+    deps: {
+      listDir: () => null,
+      readFileBytes: () => ({ ok: false, reason: 'unreadable' }),
+      readFileText: () => ({ ok: false, reason: 'unreadable' }),
+    },
+    scan: () => ({
+      entries: [{ skill: PROMPT_BUDGET_SKILL, status: 'ok' }],
+      skills: [PROMPT_BUDGET_SKILL],
+    }),
+  });
+}
+
+/**
+ * Pins the first-turn system context emitted by Mastra 1.51's SkillsProcessor
+ * for the representative skill above. createMastraAgentRuntime counts its
+ * static skills guidance in getInstructions(), while this per-call processor
+ * context is added later by buildToolLoopOptions and must be counted separately.
+ */
+function withSkillsProcessorContext(instructions: string): string {
+  const availableSkill = `<available_skills>
+  <skill>
+    <name>${PROMPT_BUDGET_SKILL.name}</name>
+    <description>${PROMPT_BUDGET_SKILL.description}</description>
+    <location>${PROMPT_BUDGET_SKILL.dirAbsPath}/SKILL.md</location>
+    <source>local</source>
+  </skill>
+</available_skills>`;
+  return [instructions, availableSkill, SKILLS_PROCESSOR_USAGE_INSTRUCTION].join('\n');
 }
 
 function snapshotProviderToolSurface(
@@ -231,13 +283,19 @@ function expectProviderSurfaceWithinBudget(args: {
 describe('desktop native tool provider prompt budget', () => {
   it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
+    const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
-    const providerSurface = snapshotProviderToolSurface(desktopTools);
+    const authoredTools = {
+      ...createAssistantSkillTools(workspaceSkills),
+      ...desktopTools,
+    };
+    const providerSurface = snapshotProviderToolSurface(authoredTools);
     const runtime = await createMastraAgentRuntime({
       model: OPENROUTER_PROMPT_BUDGET_MODEL,
       runtime: {
         apiKey: 'prompt-budget-test-key',
         provider: 'openrouter',
+        workspaceSkills,
       },
       tools: omitNonProviderSuspendMetadata(desktopTools),
     });
@@ -250,7 +308,7 @@ describe('desktop native tool provider prompt budget', () => {
       const providerTools = buildProviderFunctionTools(providerSurface, runtime.toolNameMap);
       expectProviderSurfaceWithinBudget({
         budget: MAX_AUTHORED_NATIVE_TOOL_TOKENS,
-        instructions: resolvedInstructions,
+        instructions: withSkillsProcessorContext(resolvedInstructions),
         label: 'Authored native tool surface',
         tools: providerTools,
       });
@@ -261,12 +319,14 @@ describe('desktop native tool provider prompt budget', () => {
 
   it('keeps the actual Mastra/OpenRouter full hosted registry and instructions within 11,500 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
+    const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
     const runtime = await createMastraAgentRuntime({
       model: OPENROUTER_PROMPT_BUDGET_MODEL,
       runtime: {
         apiKey: 'prompt-budget-test-key',
         provider: 'openrouter',
+        workspaceSkills,
       },
       tools: omitNonProviderSuspendMetadata(desktopTools),
     });
@@ -304,7 +364,7 @@ describe('desktop native tool provider prompt budget', () => {
 
       expectProviderSurfaceWithinBudget({
         budget: MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS,
-        instructions: resolvedInstructions,
+        instructions: withSkillsProcessorContext(resolvedInstructions),
         label: 'Actual Mastra/OpenRouter native tool surface',
         tools: providerTools,
       });

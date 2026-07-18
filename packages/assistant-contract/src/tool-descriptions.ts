@@ -6,7 +6,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.deleteWorkspaceFile]:
     'Permanently delete a single file in a chosen open workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   [NATIVE_TOOL_ID.executeCommand]:
-    "Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. By default the call suspends for the user's per-call approval before running; the user can let it run unprompted or deny it. Starts in a chosen open workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs",
+    'Run a shell command for tests, builds, git, and other tools. NO sandbox: it can read or change anything the user can. Never run destructive commands unless explicitly requested. Requires per-call approval by default. Starts in a chosen open root; kills the process tree on timeout. Returns exitCode, bounded stdout/stderr tail, and durationMs',
   [NATIVE_TOOL_ID.findWorkspaceSymbol]:
     "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   [NATIVE_TOOL_ID.globWorkspace]:

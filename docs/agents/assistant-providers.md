@@ -334,10 +334,13 @@ there is no fallback alias or partially registered tool.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`
-builds the real registry and resolved hosted instructions. The canonical
-authored representation converts the real Zod inputs through the Standard
-Schema input protocol and must remain at or below 7,900 `o200k_base` tokens.
-The actual OpenRouter representation comes from Mastra's public
+builds the real registry and resolved hosted instructions with the default
+skills engine enabled. That means both guards include `skill`, `skill_read`,
+and `skill_search`, the conditional skills guidance, and a representative
+first-turn `SkillsProcessor` metadata block. The canonical authored
+representation converts the real Zod inputs through the Standard Schema input
+protocol and must remain at or below 7,900 `o200k_base` tokens. The actual
+OpenRouter representation comes from Mastra's public
 `agent.getToolsForExecution({})` boundary and must remain at or below 11,500
 tokens. Mastra 1.51 currently expands optional fields for the routed
 `openai/*` model, so the actual-provider guard is intentionally higher and

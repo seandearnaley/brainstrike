@@ -530,8 +530,10 @@ in the canonical description and Zod schema registries documented in
 workflow and invariants below once. The complete resolved instruction + native
 tool payload is guarded at no more than 7,900 `o200k_base` tokens in its
 canonical authored form and 11,500 tokens after the current Mastra/OpenRouter
-conversion. Both use the real hosted registry and resolved instructions; see
-`docs/agents/assistant-providers.md` for the exact measurement boundary.
+conversion. Both use the real hosted registry, a default-enabled representative
+workspace skill, resolved conditional guidance, and first-turn
+`SkillsProcessor` metadata; see `docs/agents/assistant-providers.md` for the
+exact measurement boundary.
 
 Prompt compaction MUST preserve these semantics:
 - **Main vs Focused:** `listWorkspaceContext.workspaceRootPath` is the MAIN
