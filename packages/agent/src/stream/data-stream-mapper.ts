@@ -1,3 +1,4 @@
+import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
@@ -10,6 +11,7 @@ import {
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
+  StreamChunkContextBreakdown,
   StreamChunkFinish,
   StreamChunkMessageFinish,
   StreamChunkReasoning,
@@ -234,6 +236,9 @@ export class DataStreamMapper {
       case 'shell-output':
         yield* this.handleShellOutput(chunk);
         return;
+      case 'context-breakdown':
+        yield* this.handleContextBreakdown(chunk);
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
@@ -370,6 +375,30 @@ export class DataStreamMapper {
           ...(chunk.truncated ? { truncated: true } : {}),
         },
         name: SHELL_OUTPUT_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+    if (this.streamingPartOpen) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  /**
+   * Emit the run-start prompt breakdown as a transient `aui-data` part. Subject
+   * to the SAME text-part deferral contract as run events / shell output: a
+   * data part emitted mid text/reasoning append would slice visible text, so
+   * while a part is open the encoded part is queued and flushed at the next
+   * natural boundary. In practice the breakdown is emitted before the first
+   * model token, so it streams immediately; the deferral only guards reordered
+   * interleaves.
+   */
+  private *handleContextBreakdown(chunk: StreamChunkContextBreakdown): Generator<EncodedChunk> {
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data: toJsonSafe(chunk.breakdown),
+        name: CONTEXT_BREAKDOWN_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.streamingPartOpen) {

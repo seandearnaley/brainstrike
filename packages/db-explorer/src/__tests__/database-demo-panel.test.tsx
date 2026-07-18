@@ -554,7 +554,7 @@ describe('DatabaseDemoPanel', () => {
 
       const stablePanel = screen.getByTestId('database-demo-panel');
       expect(stablePanel).toHaveAttribute('aria-busy', 'true');
-      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass('h-12');
+      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass('h-9');
       expect(screen.getByTestId('database-panel-toolbar')).toHaveClass(
         '@container/database-toolbar'
       );
@@ -569,7 +569,7 @@ describe('DatabaseDemoPanel', () => {
       );
       expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-[38]');
       expect(screen.getByTestId('database-panel-loading-body')).toBeInTheDocument();
-      expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-12');
+      expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-9');
 
       useFileRecordRepositoryMock.mockReturnValue(mockRepository);
       view.rerender(withProviders(<DatabaseDemoPanel />));
@@ -1000,7 +1000,7 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
-      expect(toolbar).toHaveClass('@container/database-toolbar', 'h-12');
+      expect(toolbar).toHaveClass('@container/database-toolbar', 'h-9');
       const newButton = within(toolbar).getByRole('button', { name: /^New$/ });
       expect(newButton).toBeInTheDocument();
       expect(within(newButton).getByText('New')).toHaveClass('hidden', '@[360px]:inline');
@@ -1063,7 +1063,7 @@ describe('DatabaseDemoPanel', () => {
       const footer = screen.getByTestId('database-panel-actions');
       const footerRow = screen.getByTestId('database-panel-actions-row');
       expect(footer).toHaveClass('@container/database-actions');
-      expect(footerRow).toHaveClass('h-12', 'justify-center');
+      expect(footerRow).toHaveClass('h-9', 'justify-center');
       expect(within(footerRow).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
       expect(within(footerRow).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       expect(within(footerRow).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();

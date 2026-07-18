@@ -340,6 +340,38 @@ Runtime invariants:
 - The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
   must never lie — wire-format usage is `{inputTokens, outputTokens, billedCostUsd?}` (e2e mocks
   must use the token field names).
+- UI shape: a compact ring row (`context-ring.tsx` donut + used/budget fraction) that triggers the
+  "Context Usage" popover (`context-usage-popover.tsx` — breakdown list, OM stats, cumulative+cost).
+  The critical (≥90%) windowing notice renders INLINE next to the ring, never inside the hover
+  popover — a warning must not hide behind hover. The ONE-DERIVATION invariant above is unchanged:
+  `agentLoopSettings.inputTokenLimit` remains the TokenLimiter budget, the meter/ring denominator,
+  and the instruction budget note; the popover introduces no second derivation.
+- Prompt breakdown channel: the agent computes HEURISTIC (chars/4) category counts at prompt
+  assembly (`packages/agent/src/mastra/prompt-breakdown.ts` — instruction-side at Agent
+  construction, message-side at stream start) and emits them once per initial turn as the
+  TRANSIENT `brainstrike.context-breakdown` aui-data part
+  (`@brainstrike/assistant-contract/context-breakdown`), honoring the same text-part deferral
+  contract as run events / shell output. NOT a run-event ON PURPOSE (shell-output precedent): the
+  desktop run-event persistence tap passes non-run-event chunks through, so the breakdown is never
+  persisted — after reload the popover honestly has none until the next run. Non-measurable
+  categories are ABSENT fields, never zero-faked (memory-backed runs omit `historyMessagesTokens`
+  because the wire carries only the current turn; the popover falls back to the client heuristic
+  walk). The renderer tap (`onContextBreakdown` in the ui data-stream runtime → app-shell
+  `handleContextBreakdown`) parses via the contract guard — malformed wire payload →
+  `{ invalid: true }`, stored and SURFACED in the popover, never coerced — and records into
+  `breakdownByThread` on the same session-only usage store under the same thread-key contract as
+  `recordUsage`. The "Unattributed" row is display math only (exact `inputTokens` − displayed
+  categories, clamped ≥ 0 with a debug log) and appears only once exact usage lands. The
+  in-renderer local runtime path has no breakdown channel (capability-absent — web
+  `LocalRuntimeChat` unaffected). The data part is registered with a null renderer in
+  `AssistantDataRendererRegistration` (assistant-ui-panel.tsx, mirroring `SHELL_OUTPUT_DATA_NAME`)
+  so the transient part never surfaces as a stray element in the message flow — it is consumed only
+  by the `onContextBreakdown` tap, never rendered inline. Because a capability-absent local turn
+  can never refresh the breakdown, `handleUsage` clears the thread's stale breakdown
+  (`useContextUsageStore.getState().clearBreakdown`) whenever `hasContextBreakdownChannel`
+  (assistant-ui-panel-wrapper-runtime.ts) is false for the active provider/transport pair —
+  otherwise a later local turn on a thread that previously had a hosted turn would update exact
+  usage while the popover kept showing the earlier hosted turn's stale category rows.
 - OpenRouter finish messages must additionally carry `billedCostUsd`, sourced
   from Mastra's official OpenRouter provider metadata. Persist it in
   `brainstrike_assistant_run_usage.billed_cost_usd`; cumulative and cross-root

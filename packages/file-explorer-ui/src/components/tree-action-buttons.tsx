@@ -192,7 +192,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@[96px]/explorer-toolbar:size-7 size-6"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
@@ -210,7 +210,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label={expandLabel}
-              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:hidden @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="expand-all-button-small"
               disabled={expandDisabled}
               onClick={onExpandAll}
@@ -232,7 +232,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Collapse All"
-              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:hidden @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="collapse-all-button-small"
               disabled={collapseDisabled}
               onClick={onCollapseAll}
@@ -258,7 +258,7 @@ export const TreeActionButtons = React.memo(
           <DropdownMenuTrigger asChild>
             <Button
               aria-label="More tree actions"
-              className="@max-[240px]/explorer-toolbar:flex hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:flex hidden @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="tree-actions-overflow-trigger"
               size="icon"
               variant="ghost"

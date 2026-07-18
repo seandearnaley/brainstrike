@@ -46,7 +46,7 @@ export function BudgetGuardrailControl(): ReactElement | null {
   const blocked = status.overCap && !overridden;
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 text-[11px]"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-0.5 text-[11px]"
       data-testid="budget-guardrail"
     >
       <span

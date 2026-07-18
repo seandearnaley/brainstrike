@@ -10,6 +10,7 @@ import {
   AssistantAttachmentValidationError,
   dataUrlByteLength,
 } from '@brainstrike/assistant-contract';
+import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
@@ -68,6 +69,14 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   onResponse?: (response: Response) => Promise<void> | void;
+  /**
+   * Called with the RAW payload of each `brainstrike.context-breakdown` data
+   * part (run-start prompt breakdown). The payload is deliberately `unknown`:
+   * the consumer parses it with the contract guard so a malformed part is
+   * surfaced as `{ invalid: true }`, never coerced here. Same non-throwing
+   * consumer contract as `onUsage`.
+   */
+  onContextBreakdown?: (data: unknown) => void;
   /**
    * Called when a finish-message chunk reports provider token usage.
    * The callback contract requires non-throwing consumers — our consumer
@@ -673,6 +682,28 @@ function buildUsageTap(
   });
 }
 
+/**
+ * Pass-through tap that surfaces `brainstrike.context-breakdown` data parts.
+ * The decoder maps an `aui-data` wire chunk to a `part-start` chunk carrying
+ * `part: { type: 'data', name, data }` (assistant-stream appendData), so the
+ * tap watches part-starts for the breakdown name and forwards the raw payload.
+ */
+function buildContextBreakdownTap(
+  onContextBreakdown: (data: unknown) => void
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    transform(chunk, controller) {
+      if (chunk.type === 'part-start') {
+        const part = (chunk as { part?: { data?: unknown; name?: unknown; type?: unknown } }).part;
+        if (part?.type === 'data' && part.name === CONTEXT_BREAKDOWN_DATA_NAME) {
+          onContextBreakdown(part.data);
+        }
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
 function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefined {
   if (chunk.type !== 'message-finish') {
     return;
@@ -731,6 +762,27 @@ function deferMessageFinishUntilFlush(): TransformStream<
       controller.enqueue(chunk);
     },
   });
+}
+
+/**
+ * Decode the response body and insert the optional pass-through taps (provider
+ * usage, run-start context breakdown). Each tap is only piped when its consumer
+ * is wired — the common no-consumer path keeps the original decoder →
+ * tool-result pipeline untouched.
+ */
+function buildDecodedTapPipeline(
+  body: ReadableStream<Uint8Array>,
+  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>
+): ReadableStream<AssistantStreamChunk> {
+  const decoded = body
+    .pipeThrough(new DataStreamDecoder())
+    .pipeThrough(deferMessageFinishUntilFlush());
+  const usageTapped = options.onUsage
+    ? decoded.pipeThrough(buildUsageTap(options.onUsage))
+    : decoded;
+  return options.onContextBreakdown
+    ? usageTapped.pipeThrough(buildContextBreakdownTap(options.onContextBreakdown))
+    : usageTapped;
 }
 
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
@@ -839,15 +891,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
-      // Only insert the usage tap when a consumer is wired; the common
-      // no-onUsage path keeps the original decoder → tool-result pipeline.
-      const onUsage = this.options.onUsage;
-      const decoded = response.body
-        .pipeThrough(new DataStreamDecoder())
-        .pipeThrough(deferMessageFinishUntilFlush());
-      const tapped = onUsage ? decoded.pipeThrough(buildUsageTap(onUsage)) : decoded;
-
-      const stream = tapped
+      const stream = buildDecodedTapPipeline(response.body, this.options)
         .pipeThrough(
           unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
             throw new Error('Tool interrupt is not supported in data stream runtime');
@@ -879,6 +923,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly headers: BrainstrikeDataStreamRuntimeOptions['headers'];
   readonly onActivity: BrainstrikeDataStreamRuntimeOptions['onActivity'];
   readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
+  readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
@@ -891,6 +936,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.headers === undefined ? {} : { headers: input.headers }),
     ...(input.onActivity === undefined ? {} : { onActivity: input.onActivity }),
     ...(input.onCancel === undefined ? {} : { onCancel: input.onCancel }),
+    ...(input.onContextBreakdown === undefined
+      ? {}
+      : { onContextBreakdown: input.onContextBreakdown }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
@@ -908,6 +956,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     maxSteps,
     onActivity,
     onCancel,
+    onContextBreakdown,
     onError,
     onFinish,
     onResponse,
@@ -921,6 +970,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     headers,
     onActivity,
     onCancel,
+    onContextBreakdown,
     onError,
     onFinish,
     onResponse,

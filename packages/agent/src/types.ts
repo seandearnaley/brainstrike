@@ -4,6 +4,7 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
@@ -305,6 +306,16 @@ export interface StreamChunkShellOutput {
   truncated?: boolean;
   type: 'shell-output';
 }
+/**
+ * Prompt-composition breakdown computed at prompt assembly, emitted once at run
+ * start. Transient (never persisted — the run-event persistence tap ignores
+ * non-run-event chunks; see CONTEXT_BREAKDOWN_DATA_NAME, mirroring the
+ * shell-output precedent).
+ */
+export interface StreamChunkContextBreakdown {
+  breakdown: AssistantContextBreakdown;
+  type: 'context-breakdown';
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -334,6 +345,7 @@ export interface StreamChunkMessageFinish {
   usage: { promptTokens: number; completionTokens: number };
 }
 export type StreamChunk =
+  | StreamChunkContextBreakdown
   | StreamChunkReasoning
   | StreamChunkRunEvent
   | StreamChunkShellOutput

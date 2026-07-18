@@ -225,6 +225,63 @@ describe('run-event deferral keeps streamed text contiguous', () => {
   });
 });
 
+describe('context-breakdown data part respects text continuity', () => {
+  const breakdownChunk: StreamChunk = {
+    breakdown: {
+      attachmentsCount: 0,
+      historyMessagesTokens: 250,
+      provenance: 'heuristic',
+      systemInstructionsTokens: 1200,
+      taskListTokens: 40,
+    },
+    type: 'context-breakdown',
+  } as unknown as StreamChunk;
+
+  it('emits the run-start breakdown immediately, before any streamed text', async () => {
+    const parsed = await mapChunks([
+      breakdownChunk,
+      { type: 'text-delta', value: 'Answer.' } as StreamChunk,
+      finishChunk,
+    ]);
+
+    const codes = parsed.map((p) => p.code);
+    const dataIndex = codes.indexOf('aui-data');
+    expect(dataIndex).toBeGreaterThanOrEqual(0);
+    expect(dataIndex).toBeLessThan(codes.indexOf('0'));
+    const part = parsed[dataIndex]?.value as { name?: string; data?: Record<string, unknown> };
+    expect(part.name).toBe('brainstrike.context-breakdown');
+    // NOT the run-event data name: run-events are persisted server-side, and
+    // the breakdown must stay transient (shell-output precedent).
+    expect(part.name).not.toBe('brainstrike.run-event');
+    expect(part.data).toEqual({
+      attachmentsCount: 0,
+      historyMessagesTokens: 250,
+      provenance: 'heuristic',
+      systemInstructionsTokens: 1200,
+      taskListTokens: 40,
+    });
+  });
+
+  it('defers a breakdown that arrives mid-text and flushes it at the next boundary', async () => {
+    const parsed = await mapChunks([
+      { type: 'text-delta', value: 'Hello ' } as StreamChunk,
+      breakdownChunk,
+      { type: 'text-delta', value: 'world.' } as StreamChunk,
+      finishChunk,
+    ]);
+
+    const codes = parsed.map((p) => p.code);
+    const firstText = codes.indexOf('0');
+    const lastText = codes.lastIndexOf('0');
+    const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
+    expect(dataIndices).toHaveLength(1);
+    // Never sliced into the text block; still delivered before the finish.
+    expect(dataIndices[0]).toBeGreaterThan(lastText);
+    expect(dataIndices[0]).toBeLessThan(codes.indexOf('d'));
+    expect(lastText - firstText).toBe(1);
+  });
+});
+
 describe('tool-suspend-required data part respects text continuity', () => {
   it('finalizes open text before emitting exactly one brainstrike.tool-suspend data part', async () => {
     const parsed = await mapChunks([

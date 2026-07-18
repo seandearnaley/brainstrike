@@ -1649,6 +1649,86 @@ describe('assistant-stream integration', () => {
     expect(onUsage).not.toHaveBeenCalled();
   });
 
+  it('fires onContextBreakdown with the RAW payload of a context-breakdown data part', async () => {
+    const payloads: unknown[] = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            'aui-data:{"name":"brainstrike.context-breakdown","data":{"attachmentsCount":0,"historyMessagesTokens":9,"provenance":"heuristic","systemInstructionsTokens":1200,"taskListTokens":40}}',
+            // A DIFFERENT data part must not trigger the callback.
+            'aui-data:{"name":"brainstrike.shell-output","data":{"chunk":"x","stream":"stdout","toolCallId":"c1"}}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":123,"outputTokens":45},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onContextBreakdown: (data) => payloads.push(data),
+    });
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yielded.push(nextMessage);
+    }
+
+    // Tap is pass-through: the stream still completes normally.
+    expect(yielded.length).toBeGreaterThan(0);
+    const lastMessage = yielded.at(-1) as { status?: { type?: string } };
+    expect(lastMessage.status).toMatchObject({ type: 'complete' });
+    // Raw payload forwarded exactly once (shell-output part ignored).
+    expect(payloads).toEqual([
+      {
+        attachmentsCount: 0,
+        historyMessagesTokens: 9,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 1200,
+        taskListTokens: 40,
+      },
+    ]);
+  });
+
+  it('forwards a malformed context-breakdown payload verbatim (consumer parses via contract guard)', async () => {
+    const payloads: unknown[] = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            'aui-data:{"name":"brainstrike.context-breakdown","data":{"bogus":true}}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onContextBreakdown: (data) => payloads.push(data),
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    // The tap never validates or coerces — the contract guard downstream turns
+    // this into { invalid: true } for the popover.
+    expect(payloads).toEqual([{ bogus: true }]);
+  });
+
   it('does not call onUsage for a zero-token finish (approval-pause junk row guard)', async () => {
     // Approval-pause turns emit a {0,0} message-finish (makeToolCallsFinishChunk);
     // onUsage must skip it so no junk (provider, model, 0, 0) durable row is written.

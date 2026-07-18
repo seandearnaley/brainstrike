@@ -139,7 +139,7 @@ export function FollowUpQueueChips({ threadKey }: { readonly threadKey?: string 
   return (
     <ul
       aria-label="Queued follow-up messages"
-      className="m-0 flex list-none flex-wrap gap-1.5 px-3 pb-1"
+      className="m-0 flex list-none flex-wrap gap-1.5 px-1 pb-0.5"
       data-testid="assistant-follow-up-queue"
     >
       {items.map((item) => (

@@ -628,7 +628,7 @@ export function AssistantThreadTabsWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
-        className="@container/assistant-tabs flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-2"
+        className="@container/assistant-tabs flex h-9 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-2"
         data-testid="assistant-thread-tab-strip"
       >
         <Button
@@ -667,7 +667,7 @@ export function AssistantThreadTabsWorkspace({
                     {(dragHandleRef) => (
                       // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
                       <div
-                        className={`group flex h-8 min-w-0 items-center overflow-hidden rounded-md border pr-1.5 text-sm transition-[color,background-color,border-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
+                        className={`group flex h-7 min-w-0 items-center overflow-hidden rounded-md border pr-1.5 text-xs transition-[color,background-color,border-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
                           isActive
                             ? 'border-border/90 bg-background text-foreground shadow-xs'
                             : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground'
@@ -736,7 +736,7 @@ export function AssistantThreadTabsWorkspace({
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
-        <div className="flex h-8 shrink-0 items-center border-border/70 border-l pl-1">
+        <div className="flex h-7 shrink-0 items-center border-border/70 border-l pl-1">
           <Button
             aria-label="New assistant thread"
             className="h-7 gap-1.5 rounded-md border border-transparent bg-transparent px-2 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground motion-reduce:transition-none"

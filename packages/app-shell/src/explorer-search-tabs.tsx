@@ -91,10 +91,10 @@ export function ExplorerSearchTabs(): ReactElement {
       value={activeTab}
     >
       <div
-        className="flex h-12 min-w-0 shrink-0 items-center border-border border-b px-2"
+        className="flex h-9 min-w-0 shrink-0 items-center border-border border-b px-2"
         data-testid="explorer-search-tab-strip"
       >
-        <TabsList aria-label="Explorer and search" className="grid h-8 w-full grid-cols-2">
+        <TabsList aria-label="Explorer and search" className="grid h-7 w-full grid-cols-2">
           <TabsTrigger
             className={PANEL_TAB_TRIGGER_CLASS_NAME}
             data-testid="explorer-tab-trigger"

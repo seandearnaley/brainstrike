@@ -25,6 +25,7 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
+  CONTEXT_BREAKDOWN_DATA_NAME,
   type LocalLlmBackendFactory,
   SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
@@ -135,6 +136,16 @@ const assistantToolSuspendDataUI = {
 // surface as stray elements.
 const assistantShellOutputDataUI = {
   name: SHELL_OUTPUT_DATA_NAME,
+  render: () => null,
+} satisfies AssistantDataUIProps;
+
+// The run-start prompt breakdown is consumed by the onContextBreakdown tap
+// (buildContextBreakdownTap in data-stream-runtime.ts) and rendered in the
+// Context Usage popover, NOT inline in the message flow — register a null
+// renderer so the transient data part never surfaces as a stray element
+// (mirrors assistantShellOutputDataUI above).
+const assistantContextBreakdownDataUI = {
+  name: CONTEXT_BREAKDOWN_DATA_NAME,
   render: () => null,
 } satisfies AssistantDataUIProps;
 
@@ -280,6 +291,15 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
+  /**
+   * Called with the RAW payload of each run-start `brainstrike.context-breakdown`
+   * data part (transient prompt breakdown). Hosted/data-stream transport only —
+   * the in-renderer local runtime has no breakdown channel (capability-absent),
+   * so the callback is simply never wired there. The app parses the payload
+   * with the contract guard (malformed → { invalid: true }) and records it in
+   * the context usage store; same seam shape as onUsage.
+   */
+  onContextBreakdown?: (data: unknown) => void;
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -610,7 +630,7 @@ const LocalChainOfThought = () => {
   }
 
   return (
-    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
+    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-2xl">
       {taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
         <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
@@ -624,6 +644,7 @@ const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantToolApprovalDataUI);
   useAssistantDataUI(assistantToolSuspendDataUI);
   useAssistantDataUI(assistantShellOutputDataUI);
+  useAssistantDataUI(assistantContextBreakdownDataUI);
 
   return null;
 };
@@ -697,6 +718,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  /** Data-stream transport only; never passed to the local runtime path. */
+  onContextBreakdown?: ((data: unknown) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -881,6 +904,7 @@ const DataStreamRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onContextBreakdown,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -1003,6 +1027,7 @@ const DataStreamRuntimeChat = ({
     onFinish: () => {
       void completeLatestPreparedRequest('completed');
     },
+    ...(onContextBreakdown ? { onContextBreakdown } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
 
@@ -1320,6 +1345,14 @@ const ChatThreadUI = ({
 };
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
+/** Initial API URL for the data stream runtime (hosted providers). */
+function resolveInitialAssistantApi(): string {
+  if (typeof window === 'undefined') {
+    return '/api/assistant';
+  }
+  return window.assistant?.url ? `${window.assistant.url}/assistant` : '/api/assistant';
+}
+
 export const AssistantUiPanel = ({
   className,
   composerDraftCommand,
@@ -1345,6 +1378,7 @@ export const AssistantUiPanel = ({
   onThreadRunStart,
   onTogglePlanMode,
   onToolApprovalRequired,
+  onContextBreakdown,
   onUsage,
   attachmentsAvailability,
   planModeEnabled,
@@ -1362,13 +1396,7 @@ export const AssistantUiPanel = ({
   threadKey,
 }: AssistantUiPanelProps) => {
   // API URL for data stream runtime (hosted providers)
-  const initialApi =
-    typeof window === 'undefined'
-      ? '/api/assistant'
-      : window.assistant?.url
-        ? `${window.assistant.url}/assistant`
-        : '/api/assistant';
-  const [api, setApi] = useState<string>(initialApi);
+  const [api, setApi] = useState<string>(resolveInitialAssistantApi);
 
   useEffect(() => {
     void preloadMarkdownText();
@@ -1479,6 +1507,7 @@ export const AssistantUiPanel = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
+            {...(onContextBreakdown ? { onContextBreakdown } : {})}
             {...(onUsage ? { onUsage } : {})}
             {...(onTogglePlanMode
               ? {
@@ -1532,7 +1561,7 @@ const UserMessage = () => {
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
       <ExpandableMessageContent
@@ -1645,9 +1674,10 @@ const EditComposer = () => {
 };
 
 const AssistantMessage = () => {
+  // Bottom rhythm comes from overrides.css (.aui-*-message-root rules).
   return (
-    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-4">
-      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-7">
+    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
+      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
         {/* ChainOfThought takes control of ALL reasoning and tool-call parts
             (the library forbids a separate `tools` mapping alongside it), so
             tool rendering lives inside LocalChainOfThought. */}
@@ -1787,7 +1817,6 @@ const ProviderModelHeader = ({
           />
         </div>
       </div>
-      <div className="bs-composer-context-slot" />
     </div>
   );
 };
