@@ -354,7 +354,7 @@ const LocalReasoningPart = () => {
   return (
     <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
       <p className="mb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-        Model reasoning
+        Thinking
       </p>
       <div className="text-muted-foreground text-sm leading-6" data-testid="local-reasoning-part">
         <AssistantMessageText />
@@ -391,9 +391,9 @@ function isReasoningPart(part: unknown): boolean {
 
 function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): string {
   if (collapsed) {
-    return isContinuation ? 'Show additional reasoning' : 'Show reasoning';
+    return isContinuation ? 'Show additional thinking' : 'Show thinking';
   }
-  return isContinuation ? 'Hide additional reasoning' : 'Hide reasoning';
+  return isContinuation ? 'Hide additional thinking' : 'Hide thinking';
 }
 
 /**
@@ -445,7 +445,7 @@ const ChainReasoningFold = ({
             className="bs-thinking-mark-static size-4"
             testId="assistant-reasoning-static-mark"
           />
-          {isContinuation ? null : <span className="truncate">Reasoning</span>}
+          {isContinuation ? null : <span className="truncate">Thinking</span>}
         </span>
       )}
       {isContinuation ? null : collapsed ? (

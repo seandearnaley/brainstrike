@@ -551,7 +551,7 @@ describe('AssistantUiPanel model picker', () => {
 
     renderCapturedChainOfThought();
 
-    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Reasoning');
+    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
@@ -584,7 +584,7 @@ describe('AssistantUiPanel model picker', () => {
 
     renderCapturedChainOfThought();
 
-    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Reasoning');
+    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
       'bs-thinking-mark-static'
     );
