@@ -9,6 +9,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
+  markRootDisconnectedByPath,
+  type WorkspaceRootsQueryable,
+} from '../assistant-server/workspace-roots';
+import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
   type FileReadErrorPayload,
@@ -19,6 +23,13 @@ import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface RegisterFileSystemIpcHandlersOptions {
   readonly fileSystem: ElectronFileSystemAdapter;
+  /**
+   * Main-process DB accessor for the roots status transition on disconnect
+   * (fs:removeRoot). Required — the status column is what scopes the assistant
+   * server's workspace tools, so a handler without it would silently keep
+   * serving disconnected folders.
+   */
+  readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   readonly storage: ElectronStorageAdapter;
 }
 
@@ -287,6 +298,7 @@ function toFileReadErrorPayload(error: unknown, filePath: string): FileReadError
 
 export function registerFileSystemIpcHandlers({
   fileSystem,
+  getRootsDatabase,
   storage,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -594,15 +606,37 @@ export function registerFileSystemIpcHandlers({
     'files',
     DESKTOP_IPC_CHANNELS.files.removeRoot,
     async (_event, rootId: string) => {
-      // Disconnect ≠ delete: this forgets ONLY the stored rootsList entry (and
-      // a matching lastFolderPath). It NEVER touches the DB — all
-      // roots/file_records/file_chunks rows are deliberately KEPT so re-adding
-      // the same folder reuses its rootId and resumes without re-indexing.
+      // Disconnect ≠ delete: this forgets the stored rootsList entry (and a
+      // matching lastFolderPath) and transitions the DB roots row to
+      // status='disconnected'. It never DELETEs — all roots/file_records/
+      // file_chunks rows are deliberately KEPT, and reconcileRoots restores
+      // status='live' on re-add, so remounting the same folder reuses its
+      // rootId and resumes without re-indexing.
       const entries = await readRootsList(storage);
       const removed = entries.find((entry) => entry.rootId === rootId);
       if (!removed) {
         logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
         return;
+      }
+
+      // Status transition FIRST, fail-closed: if it throws, the invoke rejects
+      // and the root stays fully mounted (rootsList untouched). The DB row is
+      // keyed by path (unique idx_roots_path) — the adapter rootId can diverge
+      // from roots.id for path-matched legacy rows. The inverse ordering
+      // (rootsList written, then a failed UPDATE) would leave the assistant
+      // server serving a folder the UI no longer shows.
+      const rootsDatabase = await getRootsDatabase();
+      const disconnectedRows = await markRootDisconnectedByPath(rootsDatabase, removed.path);
+      if (disconnectedRows === 0) {
+        // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
+        // rows matched means the row's stored `path` diverged from this entry's
+        // (normalization/case) or the row was never created — surface it (NO
+        // SILENT FALLBACKS) instead of clearing rootsList while a possibly-live
+        // row keeps being served to the assistant tools.
+        logger.warn('removeRoot: no roots row matched the disconnected path; DB status unchanged', {
+          path: removed.path,
+          rootId,
+        });
       }
 
       const remaining = entries.filter((entry) => entry.rootId !== rootId);
