@@ -1,6 +1,6 @@
 import { createClipboardService } from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('UseCopyToClipboard');
 const clipboard = createClipboardService();
@@ -21,6 +21,13 @@ export interface UseCopyToClipboardOptions {
 export function useCopyToClipboard({ copiedDuration = 2000 }: UseCopyToClipboardOptions = {}) {
   const [status, setStatus] = useState<CopyToClipboardStatus>('idle');
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Chat code blocks remount per streamed chunk and file tabs close, so this
+  // hook mounts/unmounts frequently -- a reset timer left running after
+  // unmount is a dangling timer and (in tests) an act(...) warning on the
+  // eventual late setState. Clear it on unmount. clearTimeout is a no-op for
+  // a null/already-fired handle, so no guard is needed here.
+  useEffect(() => () => clearTimeout(resetTimerRef.current ?? undefined), []);
 
   const copyToClipboard = (value: string) => {
     if (!value) {

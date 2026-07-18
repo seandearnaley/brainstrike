@@ -138,4 +138,27 @@ describe('useCopyToClipboard', () => {
 
     expect(clipboardMocks.writeText).not.toHaveBeenCalled();
   });
+
+  it('clears the pending reset timer on unmount (no dangling timer, no late setState)', async () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useCopyToClipboard({ copiedDuration: 1000 }));
+
+    act(() => {
+      result.current.copyToClipboard('const x = 1');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.isCopied).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+
+    // The reset setTimeout must be cleared on unmount -- otherwise it fires
+    // after unmount (late setState on an unmounted hook) and leaks a timer.
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+  });
 });

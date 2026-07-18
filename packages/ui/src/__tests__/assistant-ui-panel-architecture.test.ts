@@ -82,7 +82,16 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1818 → 1828 for the user-message copy affordance: UserActionBar
     // gains an ActionBarPrimitive.Copy mirroring AssistantActionBar's
     // Check/Copy swap (see the "copy affordance alongside edit" test below).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1828);
+    // Bumped 1828 → 1865 (review fix): the user-message copy control now
+    // routes through the shared clipboard service (useCopyToClipboard) instead
+    // of ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText,
+    // which swallows write rejections -- a broken Electron bridge would
+    // silently do nothing. UserActionBar is exported (test-only seam, mirrors
+    // how CodeBlockHeader is unit-tested against a real assistant-ui runtime;
+    // see assistant-ui-panel/__tests__/user-action-bar-copy.test.tsx) and now
+    // computes its own tooltip/icon/aria-live states instead of delegating to
+    // MessagePrimitive.If.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1865);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -171,19 +180,26 @@ describe('assistant UI panel architecture', () => {
     );
   });
 
-  it('gives user messages a copy affordance alongside edit', () => {
-    // Mirrors AssistantActionBar: ActionBarPrimitive.Copy with the
-    // MessagePrimitive.If copied Check/Copy swap, so a user's own prompt can
-    // be copied without manual text selection.
+  it('gives user messages a copy affordance alongside edit, routed through the shared clipboard service', () => {
+    // UNLIKE AssistantActionBar's ActionBarPrimitive.Copy (which uses
+    // navigator.clipboard.writeText directly and swallows write rejections),
+    // the user-message copy control routes through useCopyToClipboard --
+    // the same shared, bridge-aware service CodeBlockHeader/CopyTextButton
+    // use -- so a broken Electron clipboard bridge surfaces visibly instead
+    // of silently doing nothing (no-silent-fallbacks rule).
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
-    const userActionBarStart = source.indexOf('const UserActionBar =');
+    const userActionBarStart = source.indexOf('export const UserActionBar =');
     const editComposerStart = source.indexOf('const EditComposer =');
     const userActionBarSource = source.slice(userActionBarStart, editComposerStart);
 
-    expect(userActionBarSource).toContain('ActionBarPrimitive.Copy');
+    expect(userActionBarSource).toContain('useCopyToClipboard()');
+    expect(userActionBarSource).toContain('aui.message().getCopyText()');
     expect(userActionBarSource).toContain('ActionBarPrimitive.Edit');
-    expect(userActionBarSource).toContain('<MessagePrimitive.If copied>');
-    expect(userActionBarSource).toContain('<MessagePrimitive.If copied={false}>');
+    // Not USED as a component (a comment may still reference it by name to
+    // explain why it was replaced).
+    expect(userActionBarSource).not.toContain('<ActionBarPrimitive.Copy');
+    // Broken-bridge failure must be visibly rendered, never silent.
+    expect(userActionBarSource).toContain("isFailed ? 'Copy failed' : null");
   });
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {

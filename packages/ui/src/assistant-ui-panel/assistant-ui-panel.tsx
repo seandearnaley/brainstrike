@@ -45,6 +45,7 @@ import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useStat
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
+import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
@@ -1524,29 +1525,65 @@ const UserMessage = () => {
   );
 };
 
-const UserActionBar = () => (
-  <ActionBarPrimitive.Root
-    autohide="not-last"
-    className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
-    hideWhenRunning
-  >
-    <ActionBarPrimitive.Copy asChild>
-      <TooltipIconButton aria-label="Copy message" tooltip="Copy">
-        <MessagePrimitive.If copied>
-          <CheckIcon className="size-4" />
-        </MessagePrimitive.If>
-        <MessagePrimitive.If copied={false}>
-          <CopyIcon className="size-4" />
-        </MessagePrimitive.If>
+// Exported (rather than kept module-private like AssistantActionBar) so
+// tests can mount it directly against a real assistant-ui local runtime --
+// see __tests__/user-action-bar-copy.test.tsx.
+export const UserActionBar = () => {
+  const aui = useAui();
+  const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
+
+  // Routed through the shared clipboard service (useCopyToClipboard), NOT
+  // ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText --
+  // that call swallows write rejections, so a broken Electron bridge would
+  // silently do nothing (no-silent-fallbacks rule). aui.message().getCopyText()
+  // is the same message-text extraction assistant-ui's own copy hook uses
+  // internally (join of the message's text parts).
+  const onCopy = () => {
+    if (isCopied) {
+      return;
+    }
+    copyToClipboard(aui.message().getCopyText());
+  };
+
+  let tooltip = 'Copy';
+  if (isCopied) {
+    tooltip = 'Copied!';
+  } else if (isFailed) {
+    tooltip = 'Copy failed';
+  }
+
+  let copyIcon: ReactNode;
+  if (isCopied) {
+    copyIcon = <CheckIcon className="size-4" />;
+  } else if (isFailed) {
+    copyIcon = <CopyIcon className="size-4 text-destructive" />;
+  } else {
+    copyIcon = <CopyIcon className="size-4" />;
+  }
+
+  return (
+    <ActionBarPrimitive.Root
+      autohide="not-last"
+      className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
+      hideWhenRunning
+    >
+      <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>
+        {copyIcon}
       </TooltipIconButton>
-    </ActionBarPrimitive.Copy>
-    <ActionBarPrimitive.Edit asChild>
-      <TooltipIconButton aria-label="Edit message" tooltip="Edit">
-        <PencilIcon className="size-4" />
-      </TooltipIconButton>
-    </ActionBarPrimitive.Edit>
-  </ActionBarPrimitive.Root>
-);
+      {/* Proactively announce a broken clipboard to screen readers -- the
+          tooltip alone is not announced (no-silent-fallbacks). Mirrors
+          CodeBlockHeader / CopyTextButton. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {isFailed ? 'Copy failed' : null}
+      </span>
+      <ActionBarPrimitive.Edit asChild>
+        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+          <PencilIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Edit>
+    </ActionBarPrimitive.Root>
+  );
+};
 
 const EditComposer = () => {
   // Editing a past user message RE-SENDS it, so the last-24h budget gate must
