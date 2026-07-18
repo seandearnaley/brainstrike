@@ -1131,4 +1131,115 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
 
     await database.close();
   });
+
+  it('GRANT-ALL: "Allow all tools this session" resume runs a later ask-category tool WITHOUT re-prompting', async () => {
+    // The security-sensitive re-prompt bug: clicking "Allow all tools this
+    // session" records session grants for ALL categories, then approves the
+    // pending call. The resume still carries run-wide requireToolApproval: true,
+    // and — because every category is now granted — the rebuilt runtime's gate
+    // resolves NOTHING to 'ask' (askTools is empty). The OLD resolveResumeApprovalGate
+    // read an empty askTools as an EXPLICIT GLOBAL approval and re-gated every
+    // non-internal tool, so a SECOND mutation tool in the same resumed run would
+    // prompt again — the opposite of "allow all this session". The fix
+    // DISAMBIGUATES empty-because-all-allowed (a policy WAS enforced → allow-all)
+    // from empty-because-genuine-global (no policy → gate-all).
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const secondExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const secondTool = createTool({
+      description: 'A second execute-risk tool (also ask under the base policy).',
+      execute: secondExecute,
+      id: 'shell_tool_two',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ ran: z.string() }),
+    });
+    // Base policy: execute is ASK, so the initial run SUSPENDS on the first tool.
+    const basePolicy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { shell_tool: 'execute', shell_tool_two: 'execute' },
+      yolo: false,
+    } as const;
+    // Resume policy after "Allow all tools this session": every category granted.
+    // The gate now resolves BOTH execute tools to 'allow', so askTools is empty.
+    const grantAllPolicy = {
+      ...basePolicy,
+      sessionGrants: ['read', 'edit', 'execute', 'mcp'],
+    } as const;
+    const thread = { resourceId: 'resource-grant-all', threadId: 'thread-grant-all' } as const;
+
+    modelHolder.current = createAskThenToolCallModel({
+      askInput: JSON.stringify({ command: 'echo first' }),
+      askToolCallId: 'call-ask-grant-all',
+      askToolName: 'shell_tool',
+      finalText: 'Both commands finished.',
+      secondInput: JSON.stringify({ command: 'echo second' }),
+      secondToolCallId: 'call-second-grant-all',
+      secondToolName: 'shell_tool_two',
+    });
+
+    // ── Phase 1: initial turn suspends on the first ask tool ──
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-grant-all', parts: [{ text: 'run two commands', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: basePolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool, shell_tool_two: secondTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval?.toolName).toBe('shell_tool');
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: APPROVE with the grant-all policy → the pending tool executes,
+    //    then the model calls a SECOND execute-risk tool. Under the all-granted
+    //    posture it must NOT re-prompt (no approval chunk, execute runs). ──
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: grantAllPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool, shell_tool_two: secondTool },
+        }
+      )
+    );
+
+    // Both tools executed; the SECOND tool never surfaced an approval prompt.
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(secondExecute).toHaveBeenCalledTimes(1);
+    expect(
+      resumeChunks.find(
+        (chunk) => chunk.type === 'tool-approval-required' && chunk.toolName === 'shell_tool_two'
+      )
+    ).toBeUndefined();
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
 });

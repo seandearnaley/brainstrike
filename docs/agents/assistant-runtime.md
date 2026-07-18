@@ -285,9 +285,24 @@ Flow (desktop assistant server → agent runtime):
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
-   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An empty
-   policy ask set denotes an explicitly global approval request, so its resumed
-   leg continues gating every non-internal tool.
+   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An EMPTY
+   `askTools` on the resumed leg is AMBIGUOUS and is disambiguated by the
+   runtime's `permissionEnforced` flag (`permissionSnapshot !== undefined`),
+   NOT by `askTools.size` alone:
+   - **A policy WAS enforced (`permissionEnforced === true`) but resolved nothing
+     to `'ask'`** — every remaining tool is ALLOWED, e.g. after "Allow all tools
+     this session" grants all four categories (denied tools were already omitted
+     from the map). This is an all-allowed posture: the resume gate gates
+     NOTHING, so a later mutation tool in the SAME resumed run is NOT re-prompted.
+     (Without this, granting all categories then approving re-prompted every
+     subsequent tool — the opposite of "allow all this session".)
+   - **No policy was enforced (`permissionEnforced === false`) yet the caller set
+     run-wide `requireToolApproval: true`** — a genuine explicit GLOBAL approval
+     request (the pre-permission-engine behavior); the resumed leg keeps gating
+     every non-internal tool.
+   Per-tool DENY still wins in both cases: a denied tool never enters the gated
+   map, so it never reaches the resume gate. A non-empty `askTools` always gates
+   exactly the ask set regardless of posture.
 
 NAME-FORM CONTRACT (settled — the rediscovery live bug class): Mastra registers
 tools under SANITIZED ids (`brainstrike.executeCommand` → `brainstrike_executeCommand`,
@@ -296,9 +311,10 @@ that registered id. Every CLIENT-FACING approval surface, though, is keyed by
 the ORIGINAL dotted name: `riskByTool` (`buildNativeToolRiskMap`), per-tool
 overrides (`setToolOverride` from "Always allow"), and the notice label. The
 bridges:
-- `askTools` stays SINGLE-keyed by sanitized id (dual-keying would corrupt the
-  `askTools.size === 0` explicit-global-approval detection in
-  `resolveResumeApprovalGate` and duplicate the gate's per-tool logs — do not
+- `askTools` stays SINGLE-keyed by sanitized id (dual-keying would inflate
+  `askTools.size`, corrupting the empty-ask-set posture check in
+  `resolveResumeApprovalGate` — disambiguated by `permissionEnforced`, see above —
+  and duplicate the gate's per-tool logs — do not
   relitigate). `resolveAskToolMetadata(askTools, name)` (permission-tool-gate.ts)
   resolves metadata under EITHER form: `get(name)` first, else a scan over
   `meta.originalName`.
@@ -319,6 +335,16 @@ bridges:
   buttons). Live proof: the dotted-id cases in
   `mastra-suspended-runs-discovery.integration.spec.ts` and
   `mastra-tool-approval-suspend.integration.spec.ts`.
+  KNOWN DISPLAY GAP (documented follow-up, NOT a bug): on the KEYLESS discovery
+  route (empty `toolNameMap`) an MCP tool falls through BOTH maps —
+  `denormalizeNativeToolName` only reverses KNOWN NATIVE ids, and MCP sanitization
+  is not safely reversible (an underscore in an MCP server/tool name could be
+  original, so a blind `_`→`.` swap would FABRICATE a wrong dotted name — a
+  no-silent-fallbacks violation). So a rediscovered MCP approval displays its
+  sanitized id (`someServer_someTool`, not `someServer.someTool`). Display-only:
+  MCP is absent from the native risk map, so grant actions are correctly absent
+  anyway, and the pause still surfaces for approve/decline. A future fix would
+  persist the MCP name map alongside the suspended run.
 
 Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
 `false` was the default AND always persisted, so a pre-v2 `false` slice is

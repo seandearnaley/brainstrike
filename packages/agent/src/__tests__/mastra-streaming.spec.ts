@@ -1691,6 +1691,58 @@ describe('mastra streaming integration', () => {
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 
+  it('does NOT global-gate the approve resume when a policy allowed everything (empty ask set)', async () => {
+    // "Allow all tools this session" grants every category, so the resume's
+    // policy snapshot resolves NOTHING to 'ask' (empty askTools). That empty set
+    // must read as an ALL-ALLOWED posture (a policy WAS enforced) — NOT a global
+    // approval — so the resume gate gates nothing and a later mutation tool is
+    // not re-prompted. Contrast the "explicit global" test above (no policy).
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'Approved with all granted.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-grant-all',
+        toolCallId: 'tool-call-grant-all',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          // enforce:true posture with every category granted → all-allowed.
+          permissionPolicy: {
+            policies: { edit: 'allow', execute: 'allow', mcp: 'allow', read: 'allow' },
+            riskByTool: {},
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const agent = agentInstances.at(-1);
+    const approveGate = (
+      agent?.approveToolCallCalls[0] as { requireToolApproval?: unknown } | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
+    expect(typeof approveGate).toBe('function');
+    // All-allowed posture: NOTHING is gated on the resumed leg — not the mutation
+    // tool, not the internal memory tool.
+    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(false);
+    expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved with all granted.' });
+  });
+
   it('validates tool approval actions before initializing Mastra runtime resources', async () => {
     await expectMastraAgentError(
       streamMastraToolApprovalAction(
