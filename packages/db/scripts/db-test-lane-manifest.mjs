@@ -68,6 +68,7 @@ export const dbUnitLaneDefinitions = [
     matches: [
       /^hnsw-search-tuning\.integration\.test\.ts$/,
       /^hybrid-search-service\.test\.ts$/,
+      /^pg-textsearch-durability-gate\.integration\.test\.ts$/,
       /^retrieval-eval-runner\.test\.ts$/,
       /^retrieval-harness\.test\.ts$/,
       /^rrf\.test\.ts$/,

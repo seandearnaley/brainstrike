@@ -60,7 +60,19 @@ extension control file" error on that path only:
   bitmask from 0 through 63; every repository path validates it at runtime and
   binds it as a query parameter. Do not restore the BM25 index until an upstream
   fix is available and a sustained concurrent insert/update/VACUUM stress test
-  proves reopen-safe on-disk integrity.
+  proves reopen-safe on-disk integrity. The opt-in qualification test is
+  `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`;
+  run it from the repository root with
+  `pnpm --filter @brainstrike/db test:pg-textsearch-durability`. It submits
+  overlapping inserts, updates, deletes, BM25 searches, and VACUUM requests,
+  checkpoints every cycle, and repeatedly closes/reopens the same on-disk
+  store while verifying row uniqueness, revision continuity, catalog index
+  validity, and ranked reads. The command logs every bounded cycle/reopen and
+  fails a cycle after 60 seconds instead of appearing to hang. One passing
+  local run is not an admission signal: re-enabling pg_textsearch requires an
+  upstream release that addresses the corruption, repeated clean gate runs on
+  every supported desktop platform, and the normal migration/repository
+  regression suite.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):
