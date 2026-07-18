@@ -335,7 +335,16 @@ ONLY:
   anchors on the previous REAL user message instead of the echo, and
   non-memory full-history resends never replay it. Action legs themselves
   (runConfig carries either key) ship `messages: []` — the desktop and web
-  resume routes read the action from `runConfig` and ignore messages.
+  resume routes read the action from `runConfig` and ignore messages. The
+  transport recognizer uses the SAME strict contract guards as the chip
+  (`isAssistantToolApprovalAction`/`isAssistantToolResumeAction`, keyed per
+  run-config key), NOT a loose "is a record" check: wire-exclusion and
+  chip-rendering MUST agree on what an action message is. A
+  record-but-structurally-invalid marker (e.g. `{}`) is NOT an action — the chip
+  renders it as an ordinary bubble, so the transport keeps it on the wire rather
+  than silently dropping a user-visible prompt (no-silent-fallbacks). Proof:
+  `data-stream-runtime.test.ts` ("keeps a record-but-INVALID … marker on the
+  wire").
 - Mastra never persists the echo (neither resume path passes messages), so it
   is absent after reload — restart-safe rediscovery owns the post-restart UI.
   Pinned live in `mastra-tool-approval-suspend.integration.spec.ts`

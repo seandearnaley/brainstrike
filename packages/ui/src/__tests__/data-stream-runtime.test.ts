@@ -13,6 +13,7 @@ import {
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readApprovalActionChipProps } from '../assistant-ui-panel/approval-action-chip';
 import {
   BrainstrikeDataStreamRuntimeAdapter,
   boundResentImageHistory,
@@ -398,6 +399,41 @@ describe('approval action echo exclusion (transport seam)', () => {
     });
 
     expect(JSON.stringify(requestBody['messages'])).toContain('custom-user');
+  });
+
+  it('keeps a record-but-INVALID suspend marker on the wire (it renders as a bubble, not a chip)', async () => {
+    // Defense-in-depth: the transport recognizer must agree with the chip
+    // recognizer on what an action message IS. A `custom` marker that is a
+    // RECORD but structurally invalid (empty object — no runId/toolCallId, no
+    // resumeData key) is NOT a valid action: the chip recognizer returns null so
+    // it renders as an ordinary prompt bubble. The transport therefore MUST keep
+    // it on the wire — stripping a user-visible prompt would be a silent drop.
+    const invalidSuspend = {
+      ...message('invalid-suspend-user', 'user'),
+      metadata: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: {} } },
+    } as unknown as ThreadMessage;
+
+    // The chip recognizer already treats it as a bubble (returns null)…
+    expect(readApprovalActionChipProps(invalidSuspend)).toBeNull();
+
+    // …so the transport must NOT strip it from the outbound wire.
+    const requestBody = await captureRequestBody({ messages: [invalidSuspend] });
+    expect(JSON.stringify(requestBody['messages'])).toContain('invalid-suspend-user');
+  });
+
+  it('keeps a record-but-INVALID approval marker on the wire (agrees with the chip recognizer)', async () => {
+    // Same divergence for the approval key: `{ action: 'approve' }` with no
+    // runId/toolCallId fails the strict contract guard, so it renders as a bubble
+    // and must stay on the wire.
+    const invalidApproval = {
+      ...message('invalid-approval-user', 'user'),
+      metadata: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { action: 'approve' } } },
+    } as unknown as ThreadMessage;
+
+    expect(readApprovalActionChipProps(invalidApproval)).toBeNull();
+
+    const requestBody = await captureRequestBody({ messages: [invalidApproval] });
+    expect(JSON.stringify(requestBody['messages'])).toContain('invalid-approval-user');
   });
 });
 

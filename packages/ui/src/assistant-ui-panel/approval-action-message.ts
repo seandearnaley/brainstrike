@@ -17,8 +17,14 @@
  * both consume them.
  */
 
-import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
-import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  isAssistantToolApprovalAction,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isAssistantToolResumeAction,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-suspend';
 
 /**
  * The run-config keys whose presence marks a user message (or an outgoing
@@ -29,6 +35,26 @@ export const ACTION_MESSAGE_RUN_CONFIG_KEYS = [
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 ] as const;
+
+/**
+ * The STRICT contract guard for each action key — the SAME guards the chip
+ * recognizer (`approval-action-chip.tsx`) uses (`isAssistantToolApprovalAction`
+ * / `isAssistantToolResumeAction`, which require non-empty `runId`/`toolCallId`
+ * and — for suspend — a `resumeData` key). Wire-exclusion and chip-rendering
+ * MUST agree on what an action message is: a record-but-structurally-invalid
+ * marker (e.g. `{}`) is NOT an action — it renders as an ordinary prompt bubble,
+ * so it must stay on the wire, never be silently stripped (no-silent-fallbacks).
+ * A key with no registered guard is never treated as an action marker.
+ */
+const ACTION_MARKER_GUARD_BY_KEY: Record<string, (value: unknown) => boolean> = {
+  [TOOL_APPROVAL_RUN_CONFIG_KEY]: isAssistantToolApprovalAction,
+  [TOOL_SUSPEND_RUN_CONFIG_KEY]: isAssistantToolResumeAction,
+};
+
+function isValidActionMarker(custom: Record<string, unknown>, key: string): boolean {
+  const guard = ACTION_MARKER_GUARD_BY_KEY[key];
+  return guard === undefined ? false : guard(custom[key]);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -47,9 +73,11 @@ function readCustomMetadata(message: unknown): Record<string, unknown> | undefin
 }
 
 /**
- * True when `message` is a user message carrying an approval/suspend action
- * marker record under one of `keys` — i.e. transport bookkeeping the model
- * must never see.
+ * True when `message` is a user message carrying a STRUCTURALLY VALID
+ * approval/suspend action marker under one of `keys` — i.e. transport
+ * bookkeeping the model must never see. Uses the same strict contract guards as
+ * the chip recognizer, so a record-but-invalid marker is NOT stripped here (it
+ * renders as a bubble and must reach the wire).
  */
 export function isApprovalActionMessage(
   message: unknown,
@@ -62,7 +90,7 @@ export function isApprovalActionMessage(
   if (!custom) {
     return false;
   }
-  return keys.some((key) => isRecord(custom[key]));
+  return keys.some((key) => isValidActionMarker(custom, key));
 }
 
 /** Filter action bookkeeping messages out of an outgoing message list. */
@@ -77,10 +105,12 @@ export function excludeApprovalActionMessages<T>(
 }
 
 /**
- * True when an outgoing run's `runConfig` carries an approval/suspend action —
- * the ACTION LEG itself. Both resume routes (desktop + web) read the action
- * from `runConfig` and ignore `messages`, so the transport ships an EMPTY
- * message list on these legs.
+ * True when an outgoing run's `runConfig` carries a STRUCTURALLY VALID
+ * approval/suspend action — the ACTION LEG itself. Both resume routes (desktop +
+ * web) read the action from `runConfig` and ignore `messages`, so the transport
+ * ships an EMPTY message list on these legs. Uses the SAME strict guards as the
+ * message recognizer (and the server-side `readTool*RunConfigAction`), so an
+ * invalid marker is NOT mistaken for an action leg that suppresses the messages.
  */
 export function isActionRunConfig(runConfig: unknown): boolean {
   if (!isRecord(runConfig)) {
@@ -90,5 +120,5 @@ export function isActionRunConfig(runConfig: unknown): boolean {
   if (!isRecord(custom)) {
     return false;
   }
-  return ACTION_MESSAGE_RUN_CONFIG_KEYS.some((key) => isRecord(custom[key]));
+  return ACTION_MESSAGE_RUN_CONFIG_KEYS.some((key) => isValidActionMarker(custom, key));
 }
