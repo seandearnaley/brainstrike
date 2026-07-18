@@ -12,7 +12,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.grepSearch':
     "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
   'brainstrike.hybridSearch':
-    'Hybrid workspace search fusing semantic (vector) and full-text keyword rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly rather than degrading if either search arm fails',
+    'Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
   'brainstrike.listEmbeddingSpaces':
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   'brainstrike.listWorkspaceContext':

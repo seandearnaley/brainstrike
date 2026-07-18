@@ -6,10 +6,6 @@ import {
   EXACT_FILTERED_SCAN_MAX_ROWS,
   resolveFilteredVectorSearchRoute,
 } from '../src/repositories/_shared.js';
-import type {
-  FileChunkDatabase,
-  FileChunkQueryTx,
-} from '../src/repositories/file-chunk-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
@@ -21,51 +17,6 @@ describe('searchSimilar SQL path guards', () => {
     await expect(repo.searchSimilar([0.1, 0.2, 0.3], { limit: 5 })).rejects.toThrowError(
       /requires embeddingSetId/
     );
-  });
-});
-
-describe('fullTextSearch SQL path guards', () => {
-  function createRepository(): {
-    query: ReturnType<typeof vi.fn>;
-    repo: FileChunkRepository;
-  } {
-    const query = vi.fn();
-    const queryTx: FileChunkQueryTx = {
-      query: async <T = unknown>(sql: string, params?: unknown[]) => {
-        query(sql, params);
-        return { rows: [] as T[] };
-      },
-    };
-    const db: FileChunkDatabase = {
-      ...queryTx,
-      transaction: async <T>(fn: (tx: FileChunkQueryTx) => Promise<T>) => fn(queryTx),
-    };
-    return { query, repo: new FileChunkRepository(db) };
-  }
-
-  it('binds the validated rank-normalization bitmask instead of interpolating it', async () => {
-    const { query, repo } = createRepository();
-
-    await repo.fullTextSearch('needle', {
-      includeHeadline: false,
-      rankNormalization: 1 | 2,
-    });
-
-    const [searchSql, params] = query.mock.calls[0] as [string, unknown[]];
-    expect(searchSql.match(/\$3::integer/g)).toHaveLength(2);
-    expect(searchSql).not.toContain('DROP TABLE');
-    expect(params).toEqual(['english', 'needle', 3, 10]);
-  });
-
-  it('rejects malformed runtime values before issuing SQL', async () => {
-    const { query, repo } = createRepository();
-
-    await expect(
-      repo.fullTextSearch('needle', {
-        rankNormalization: '0); DROP TABLE file_chunks; --' as unknown as number,
-      })
-    ).rejects.toThrow('Expected an integer bitmask from 0 to 63');
-    expect(query).not.toHaveBeenCalled();
   });
 });
 

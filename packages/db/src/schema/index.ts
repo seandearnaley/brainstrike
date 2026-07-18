@@ -30,7 +30,7 @@ import {
  *
  * Usage in queries:
  * - WHERE content_tsvector @@ to_tsquery('english', 'search & terms')
- * - ts_rank(content_tsvector, query) for ranking
+ * - BM25 (`idx_file_chunks_content_bm25`) for ranking
  */
 const tsvector = customType<{
   data: string;

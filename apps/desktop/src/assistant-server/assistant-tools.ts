@@ -2830,7 +2830,7 @@ export function buildDesktopAssistantTools(
     },
     [HYBRID_SEARCH_TOOL_ID]: {
       description:
-        'Hybrid workspace search over the embedding index: runs semantic (vector) AND full-text keyword search in parallel and fuses the rankings with reciprocal rank fusion. BEST DEFAULT for code/doc retrieval when the query mixes conceptual intent with distinctive terms (identifiers, error fragments, domain jargon). Use queryEmbeddingSpace instead for purely conceptual queries with unknown wording, and grepSearch for exact strings/regex needing path:line matches. Omit embeddingSetId to use the Workspace Index. Fails visibly if either search arm fails — it never silently degrades to vector-only results.',
+        'Hybrid workspace search over the embedding index: runs semantic (vector) AND exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. BEST DEFAULT for code/doc retrieval when the query mixes conceptual intent with distinctive terms (identifiers, error fragments, domain jargon). Use queryEmbeddingSpace instead for purely conceptual queries with unknown wording, and grepSearch for exact strings/regex needing path:line matches. Omit embeddingSetId to use the Workspace Index. Fails visibly if the keyword index is unavailable — it never silently degrades to vector-only results.',
       execute: async (input: ToolExecuteInput<HybridSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(HybridSearchInputSchema, input);
         try {

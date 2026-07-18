@@ -1,14 +1,14 @@
 /**
- * Hand-authored golden set for the built-in full-text search arm.
+ * Hand-authored golden set for the LEXICAL (BM25-ordered fullTextSearch) arm.
  *
  * No embeddings — fullTextSearch never touches them. Each file carries one
  * chunk; queries name the single most-relevant chunk (`expectedChunkId`) so
  * the runner can score precision@1 and MRR. The corpus is deliberately
  * IDF-discriminating: "workspace" appears in EVERY document (near-zero IDF),
  * several medium-frequency terms cluster topically, and each query's target
- * owes its relevance to a rare, informative term. That query intentionally
- * records built-in `ts_rank`'s known frequency bias while the remaining
- * queries guard the corruption-safe baseline.
+ * owes its relevance to a rare, informative term — the ordering property BM25
+ * provides and frequency-only ts_rank did not (see
+ * search-bm25-textsearch-spike.test.ts for the quantified comparison).
  */
 
 export interface LexicalGoldenFile {
@@ -143,7 +143,7 @@ const QUERIES: LexicalGoldenQuery[] = [
   {
     // IDF discrimination (explicit OR — websearch's default is AND, and no doc
     // carries both terms): "pipeline" is common (6 docs, incl. the stuffed
-    // lex-file-11 with 4 occurrences) while "quaternion" appears once. The old BM25
+    // lex-file-11 with 4 occurrences) while "quaternion" appears once. BM25's
     // IDF must rank the rare-term target above the saturated-frequency stuffed
     // doc; a frequency-only ranker would not.
     expectedChunkId: 'lex-chunk-04',

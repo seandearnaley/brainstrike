@@ -223,7 +223,7 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     // All chunks should have the correct embedding_set_id
     expect(dbDiagnostics.embeddingSetIds).toContain(embeddingSetId);
 
-    // ── 5b. Verify FTS: tsvector populated and direct FTS query works ─────
+    // ── 5b. Verify FTS: tsvector matching + qualified BM25 ranking work ───
     const ftsDiagnostics = await activeWindow.evaluate(async (id) => {
       const api = (
         window as unknown as {
@@ -259,12 +259,26 @@ test.describe('Embedding Host Renderer - backfill search', () => {
         withContent: number;
       };
 
-      // Run direct FTS query for "backfill" — known word in fixture content
+      const bm25Catalog = await api.db.query(
+        `SELECT
+           (SELECT extversion FROM pg_extension WHERE extname = 'pg_textsearch') AS "extensionVersion",
+           to_regclass('idx_file_chunks_content_bm25')::text AS "indexName"`
+      );
+      const bm25CatalogRow = bm25Catalog.rows[0] as {
+        extensionVersion: string | null;
+        indexName: string | null;
+      };
+
+      // Match through the generated tsvector and rank the matched set through
+      // the same qualified BM25 index used by the repository.
       const ftsResult = await api.db.query(
         `SELECT id, content, fts_rank
          FROM (
            SELECT id, content,
-             ts_rank(content_tsvector, websearch_to_tsquery('english', 'backfill'), 0) AS fts_rank
+             (-(content <@> to_bm25query(
+               'backfill',
+               'idx_file_chunks_content_bm25'
+             )))::float8 AS fts_rank
            FROM file_chunks
            WHERE content_tsvector IS NOT NULL
              AND content_tsvector @@ websearch_to_tsquery('english', 'backfill')
@@ -279,6 +293,8 @@ test.describe('Embedding Host Renderer - backfill search', () => {
       }>;
 
       return {
+        bm25ExtensionVersion: bm25CatalogRow.extensionVersion,
+        bm25IndexName: bm25CatalogRow.indexName,
         ftsMatchCount: ftsRows.length,
         ftsTopContent: ftsRows.length > 0 ? String(ftsRows[0]!.content).slice(0, 80) : '',
         totalChunks: Number(tsRow.totalChunks ?? 0),
@@ -290,7 +306,9 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     // All chunks should have content and tsvector populated
     expect(ftsDiagnostics.withContent).toBe(ftsDiagnostics.totalChunks);
     expect(ftsDiagnostics.withTsvector).toBe(ftsDiagnostics.totalChunks);
-    // FTS should find "backfill" in our fixture content
+    expect(ftsDiagnostics.bm25ExtensionVersion).toBe('1.2.0');
+    expect(ftsDiagnostics.bm25IndexName).toBe('idx_file_chunks_content_bm25');
+    // Qualified BM25 should rank the tsvector matches for fixture content.
     expect(ftsDiagnostics.ftsMatchCount).toBeGreaterThan(0);
 
     // ── 6. Direct SQL vector search: verify pgvector similarity works ─────

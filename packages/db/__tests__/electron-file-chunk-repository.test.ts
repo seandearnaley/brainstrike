@@ -102,27 +102,6 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(result).toBeNull();
   });
 
-  it('binds validated FTS rank normalization and rejects malformed runtime values', async () => {
-    query.mockResolvedValueOnce({ rows: [] });
-
-    await repo.fullTextSearch('hello', {
-      includeHeadline: false,
-      rankNormalization: 1 | 2,
-    });
-
-    const [searchSql, params] = query.mock.calls[0] as [string, unknown[]];
-    expect(searchSql.match(/\$3::integer/g)).toHaveLength(2);
-    expect(params).toEqual(['english', 'hello', 3, 10]);
-
-    query.mockClear();
-    await expect(
-      repo.fullTextSearch('hello', {
-        rankNormalization: '0); DROP TABLE file_chunks; --' as unknown as number,
-      })
-    ).rejects.toThrow('Expected an integer bitmask from 0 to 63');
-    expect(query).not.toHaveBeenCalled();
-  });
-
   it('serialises embeddings during insert', async () => {
     const chunk: FileChunkInsert = {
       ...baseChunk,

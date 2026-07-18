@@ -70,7 +70,7 @@ describe('migration 065: quarantine pg_textsearch', () => {
     db = await wasmLoader.createPGlite(dataDir);
     const runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 65));
     await db.exec(`
       INSERT INTO file_records (id, name, path, size, created_at, updated_at)
       VALUES ('file-1', 'index.md', '/index.md', 16, now()::text, now()::text);

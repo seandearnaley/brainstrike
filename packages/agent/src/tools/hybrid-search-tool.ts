@@ -45,7 +45,7 @@ export interface HybridSearchResultItem {
   fileName?: string;
   /** File path where chunk originated */
   filePath?: string;
-  /** FTS rank (if found by full-text search) */
+  /** FTS rank (if found by full-text search): negated BM25, higher = better, unbounded */
   ftsRank?: number;
   /** Headline snippet from FTS */
   headline?: string;

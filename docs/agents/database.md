@@ -50,17 +50,37 @@ extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
-- `pg_textsearch` (from `@electric-sql/pglite-pg_textsearch`) is loaded only for
-  historical migration compatibility: migration 053 creates its BM25 index and
-  migration 065 immediately drops the index and extension before application
-  writes begin. pg_textsearch 1.3.1 produced persisted invalid memtable page
-  chains during real `file_chunks` updates, so runtime use is quarantined.
-  Lexical ranking uses built-in `ts_rank` over migration 034's generated
-  tsvector + GIN index. Its `rankNormalization` option is an integer PostgreSQL
-  bitmask from 0 through 63; every repository path validates it at runtime and
-  binds it as a query parameter. Do not restore the BM25 index until an upstream
-  fix is available and a sustained concurrent insert/update/VACUUM stress test
-  proves reopen-safe on-disk integrity.
+- `pg_textsearch` (BM25 index AM, from
+  `@electric-sql/pglite-pg_textsearch`) is a fail-closed, version-qualified
+  runtime dependency. The compatible package family is pinned together:
+  `@electric-sql/pglite@0.5.3`,
+  `@electric-sql/pglite-pgvector@0.0.4`, and
+  `@electric-sql/pglite-pg_textsearch@0.0.4`, whose bundled extension reports
+  exactly `pg_textsearch 1.2.0`. Do not independently bump one member.
+  pg_textsearch 1.3.x introduced a persisted paged-memtable design and 1.3.1
+  produced invalid BM25 page chains during real `file_chunks` updates.
+  Migration 065 always drops the historical index/extension first; migration
+  066 recreates them only after checking
+  `pg_extension.extversion = '1.2.0'`. A package drift therefore aborts
+  migration visibly before BM25 writes begin. The production lexical arm
+  matches through migration 034's generated tsvector + GIN index and orders
+  those matches with the migration-066 BM25 index. `rankNormalization` remains
+  in the public options type for compatibility but is inert because
+  pg_textsearch owns BM25 normalization. The opt-in qualification test is
+  `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`;
+  run it from the repository root with
+  `pnpm --filter @brainstrike/db test:pg-textsearch-durability`. It submits a
+  rotated burst of inserts, updates, deletes, BM25 searches, and VACUUM
+  requests; PGlite serializes them through its single WASM Postgres instance.
+  The gate checkpoints every cycle and repeatedly closes/reopens the same
+  on-disk store while verifying heap/BM25 row-count agreement, revision
+  continuity, catalog index validity, extension version, forced index
+  traversal, and ranked reads. The command logs every bounded cycle/reopen and
+  fails a cycle after 60 seconds instead of appearing to hang. Any future
+  extension or PGlite upgrade must first change the exact migration guard,
+  update the whole peer-compatible package family, pass repeated gate runs on
+  every supported desktop platform, and pass the normal
+  migration/repository regression suite.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):
@@ -101,7 +121,8 @@ Layers:
   constructors: `browser-first-run-bootstrap-pipeline.ts`.
 - Production execution: a DEDICATED plain worker
   (`browser-first-run-bootstrap-worker.ts` + `-worker-entry.ts` — a PGlite
-  construction site, engine extensions vector + pg_trgm) driven by
+  construction site, engine extensions vector + pg_trgm + pg_textsearch)
+  driven by
   `wasm-loader.ts`'s `runFirstRunBootstrapInWorker` over a two-message
   `{type:'run',dataDir}` → `{type:'result',ok,error?}` protocol with a
   fail-loud 5-minute timeout.
@@ -110,7 +131,7 @@ Invariants (do not regress):
 - NEVER rebuild this on "relaxed bootstrap + syncToFs + strict reopen": on a
   relaxed instance PGlite's public `syncToFs()` fire-and-forgets the underlying
   flush and `close()` does not flush at all (verified against
-  @electric-sql/pglite 0.5.4 src/pglite.ts). Dump/load into a strict instance
+  @electric-sql/pglite 0.5.3 src/pglite.ts). Dump/load into a strict instance
   is the only public-API path with a guaranteed awaited flush.
 - NEVER run the bootstrap through PGliteWorker sessions: its leader-election
   machinery rejects in-flight RPCs with 'Leader changed, pending operation in

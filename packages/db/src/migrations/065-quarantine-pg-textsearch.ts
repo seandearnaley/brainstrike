@@ -8,11 +8,13 @@ import type { Migration } from './migration-runner';
  * writes that maintain idx_file_chunks_content_bm25. Keep the historical 053
  * migration append-only, but remove its index and extension before application
  * writes can begin. Lexical search continues through the built-in generated
- * tsvector + GIN index from migration 034.
+ * tsvector + GIN index from migration 034 until migration 066 verifies the
+ * qualified pre-paged-memtable engine and restores BM25.
  *
  * The extension module must remain available at PGlite construction sites
  * until the migration history is squashed: a greenfield database still runs
- * 053 before this migration immediately removes the unsafe objects.
+ * 053 before this migration immediately removes the unsafe objects, then 066
+ * creates them again only after its exact engine-version guard passes.
  */
 export const migration065QuarantinePgTextsearch: Migration = {
   down: `

@@ -12,7 +12,6 @@ import {
   MAX_OVERFETCH_LIMIT,
   parseEmbeddingLoose,
   resolveHnswEfSearch,
-  validateFtsRankNormalization,
 } from '../src/repositories/_shared';
 
 describe('file_chunks column projections', () => {
@@ -53,26 +52,6 @@ describe('computeOverfetchLimit', () => {
     expect(MAX_OVERFETCH_LIMIT).toBe(10_000);
     expect(computeOverfetchLimit(2000)).toBe(10_000);
     expect(computeOverfetchLimit(100_000)).toBe(10_000);
-  });
-});
-
-describe('validateFtsRankNormalization', () => {
-  it('accepts PostgreSQL normalization bitmasks from 0 through 63', () => {
-    expect(validateFtsRankNormalization(0)).toBe(0);
-    expect(validateFtsRankNormalization(1 | 2 | 8 | 32)).toBe(43);
-    expect(validateFtsRankNormalization(63)).toBe(63);
-  });
-
-  it.each([
-    -1,
-    1.5,
-    64,
-    Number.NaN,
-    '0); DROP TABLE file_chunks; --',
-  ])('rejects malformed runtime value %s', (value) => {
-    expect(() => validateFtsRankNormalization(value)).toThrow(
-      'Expected an integer bitmask from 0 to 63'
-    );
   });
 });
 

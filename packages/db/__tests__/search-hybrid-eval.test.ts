@@ -1,5 +1,5 @@
 /**
- * Gates the hybrid (vector + full-text keyword, RRF-fused) arm against the hand-authored
+ * Gates the hybrid (vector + BM25, RRF-fused) arm against the hand-authored
  * golden set: the fused ranking must place every target first (precision@1 = 1,
  * MRR = 1) while — by design — NEITHER pure arm alone does. The runner itself
  * fails when either single arm reaches precision@1 = 1, so this test also
@@ -49,7 +49,7 @@ describe('hybrid retrieval evaluation (RRF fusion)', () => {
     async () => {
       const report = await runHybridEvaluation();
 
-      // The foreign-set decoy tops full-text ranking for every query; an unscoped keyword
+      // The foreign-set decoy tops BM25 for every query; an unscoped keyword
       // arm would fuse it in (and the runner itself would report a failure).
       for (const query of report.queries) {
         expect(query.hybridTopChunkIds).not.toContain('hyb-chunk-foreign');

@@ -23,8 +23,8 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@electric-sql/pglite": "0.5.4",
-    "@electric-sql/pglite-pgvector": "0.0.5",
+    "@electric-sql/pglite": "0.5.3",
+    "@electric-sql/pglite-pgvector": "0.0.4",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
