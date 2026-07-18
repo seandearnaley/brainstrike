@@ -29,6 +29,15 @@ Windowing and performance:
 - Default strategy should remain `auto` unless a product requirement explicitly pins behavior.
 - For search-heavy and large result flows, paged windowing is acceptable when it produces more stable UX than virtual scrolling.
 - Avoid full-tree rematerialization during render paths; keep derived rows memoized and keyed by stable node ids.
+- Renderer-fallback expand-all (worker unavailable) batches display commits:
+  successful directory loads buffer in `use-lazy-file-tree` and publish once
+  per traversal batch through the session's `onBatchLoadsSettled` boundary
+  (before discovery reads), plus on cancellation and session end. Per-directory
+  `'loading'` display commits are suppressed while expand-all runs — each
+  `commitNormalizedTree` is an O(tree) clone+materialize, so per-directory
+  commits are O(tree × directories). Pinned by
+  `use-lazy-file-tree-expand-all-batching.test.ts` and the
+  `onBatchLoadsSettled` ordering test in `direct-directory-traversal.test.ts`.
 - Persisted expansion restoration is scoped to the active root path before any
   worker I/O. A multi-root provider must never replay another root's paths.
   Web File System Access roots expose only a relative folder name, so their

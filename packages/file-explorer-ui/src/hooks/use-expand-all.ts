@@ -310,6 +310,7 @@ async function runExpandAllSession(args: {
   isExpandingAllRef: React.RefObject<boolean>;
   loadDirectoryPath: (path: string) => Promise<void>;
   now: () => number;
+  onBatchLoadsSettled?: (() => void) | undefined;
   onProgress?: ((loaded: number, total: number) => void) | undefined;
   sessionId: number;
   sessionIdRef: React.RefObject<number>;
@@ -328,6 +329,7 @@ async function runExpandAllSession(args: {
     isExpandingAllRef,
     loadDirectoryPath,
     now,
+    onBatchLoadsSettled,
     onProgress,
     sessionId,
     sessionIdRef,
@@ -347,6 +349,7 @@ async function runExpandAllSession(args: {
     isActive: () => isExpandingAllRef.current && sessionIdRef.current === sessionId,
     loadDirectoryPath,
     now,
+    onBatchLoadsSettled,
     onProgress,
     ...batchConfig,
   });
@@ -395,6 +398,7 @@ async function runPendingUnloadedExpandAll(args: {
   isExpandingAllRef: React.RefObject<boolean>;
   loadDirectoryPath: (path: string) => Promise<void>;
   now: () => number;
+  onBatchLoadsSettled?: (() => void) | undefined;
   onProgress?: ((loaded: number, total: number) => void) | undefined;
   pathsToExpand: readonly string[];
   rootDirectoryPaths: readonly string[];
@@ -420,6 +424,7 @@ async function runPendingUnloadedExpandAll(args: {
     isExpandingAllRef,
     loadDirectoryPath,
     now,
+    onBatchLoadsSettled,
     onProgress,
     pathsToExpand,
     rootDirectoryPaths,
@@ -452,6 +457,7 @@ async function runPendingUnloadedExpandAll(args: {
     isExpandingAllRef,
     loadDirectoryPath,
     now,
+    onBatchLoadsSettled,
     onProgress,
     sessionId,
     sessionIdRef,
@@ -495,6 +501,12 @@ export interface UseExpandAllOptions {
   getRootNodes: () => IFileNode[];
   loadDirectoryPath: (path: string) => Promise<void>;
   now?: () => number;
+  /**
+   * Renderer-session batch boundary: invoked after each traversal batch's
+   * loads settle, before discovery reads nodes. Lets the tree owner defer
+   * per-directory commits and publish once per batch.
+   */
+  onBatchLoadsSettled?: () => void;
   onError?: (error: Error) => void;
   onProgress?: (loaded: number, total: number) => void;
   rootFolderId: string;
@@ -521,6 +533,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     getRootNodes,
     loadDirectoryPath,
     now = defaultNow,
+    onBatchLoadsSettled,
     onError,
     onProgress,
     rootFolderId,
@@ -620,6 +633,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           isExpandingAllRef,
           loadDirectoryPath,
           now,
+          onBatchLoadsSettled,
           onProgress,
           pathsToExpand: pendingWork.pathsToExpand,
           rootDirectoryPaths,
@@ -679,6 +693,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       maxDirectories,
       maxDirectoriesPerBatch,
       now,
+      onBatchLoadsSettled,
       onError,
       onProgress,
       rootFolderId,

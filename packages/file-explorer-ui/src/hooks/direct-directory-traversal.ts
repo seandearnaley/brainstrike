@@ -11,6 +11,13 @@ export interface DirectDirectoryTraversalOptions {
   maxDirectories?: number;
   maxDirectoriesPerBatch?: number;
   now?: () => number;
+  /**
+   * Called once per batch, after every load in the batch has settled and
+   * before the discovery phase reads nodes via getDirectoryByPath. Consumers
+   * that defer per-directory commits use this boundary to publish the batch
+   * so discovery always observes the loaded children.
+   */
+  onBatchLoadsSettled?: (() => void) | undefined;
   onProgress?: ((loaded: number, total: number) => void) | undefined;
 }
 
@@ -229,6 +236,7 @@ export function createDirectDirectoryTraversalSession(
     maxDirectories = DEFAULT_MAX_DIRECTORIES,
     maxDirectoriesPerBatch = DEFAULT_MAX_DIRECTORIES_PER_BATCH,
     now = () => performance.now(),
+    onBatchLoadsSettled,
     onProgress,
   } = options;
 
@@ -294,6 +302,11 @@ export function createDirectDirectoryTraversalSession(
       });
       state.failedLoads += loadResult.failedLoads;
       state.firstError ??= loadResult.firstError;
+
+      // Publish the batch even when cancellation lands right after the loads:
+      // the data was read from disk, and deferring consumers must not let it
+      // drift from sinks (worker/index) that already ingested it.
+      onBatchLoadsSettled?.();
 
       if (!isActive()) {
         return {
