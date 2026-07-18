@@ -1,4 +1,5 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -79,6 +80,11 @@ import {
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
+  computeInstructionBreakdown,
+  computePromptBreakdown,
+  type InstructionBreakdown,
+} from './prompt-breakdown';
+import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
@@ -158,6 +164,13 @@ export interface MastraAgentRuntime {
    */
   delegationToolPersonas: ReadonlyMap<string, string>;
   dispose: () => Promise<void>;
+  /**
+   * Instruction-side heuristic token counts, captured where the composed system
+   * instructions were finalized. Combined with the message-side counts at
+   * stream start (computePromptBreakdown) and emitted as the transient
+   * `brainstrike.context-breakdown` data part.
+   */
+  instructionBreakdown: InstructionBreakdown;
   mcpClient?: McpRuntimeClient;
   /**
    * Whether a permission-policy snapshot was enforced when this runtime built its
@@ -697,6 +710,14 @@ export async function createMastraAgentRuntime(
     toolNameMap: effectiveToolNameMap,
   });
 
+  // Instruction-side prompt-breakdown counts (heuristic), captured HERE because
+  // this is the only seam where the task list note and the final composed
+  // instructions are both in scope. Message-side counts join at stream start.
+  const instructionBreakdown = computeInstructionBreakdown({
+    composedInstructions,
+    taskListNote,
+  });
+
   // Error-processor resilience layer (PrefillErrorHandler +
   // StreamErrorRetryProcessor + ProviderHistoryCompat's reactive rules) on the
   // Agent-config `errorProcessors` seam — the ONE processor array a per-call
@@ -734,6 +755,7 @@ export async function createMastraAgentRuntime(
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
+    instructionBreakdown,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
@@ -1835,6 +1857,12 @@ interface StreamIterationParams {
 }
 
 interface StreamGeneratorParams {
+  /**
+   * Run-start prompt breakdown to emit as the first StreamChunk (initial turn
+   * only — the approval-resume legs have no wire messages to measure, so they
+   * honestly omit it rather than re-emitting a partial figure).
+   */
+  promptBreakdown?: AssistantContextBreakdown;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -2097,6 +2125,7 @@ function resolveMemoryOption(
 }
 
 async function* streamChunksFromMastra({
+  promptBreakdown,
   runtime,
   runtimeData,
   stream,
@@ -2114,6 +2143,12 @@ async function* streamChunksFromMastra({
   };
 
   try {
+    // Run-start prompt breakdown (transient, display-only). Emitted BEFORE the
+    // first Mastra part so the mapper ships it ahead of any streaming text
+    // (the mapper still applies the text-part deferral defensively).
+    if (promptBreakdown) {
+      yield { breakdown: promptBreakdown, type: 'context-breakdown' };
+    }
     const source = withInactivityTimeout(
       readableStreamIterator(stream, runtimeData?.signal),
       runtime.resilienceConfig.streamInactivityMs
@@ -2229,7 +2264,19 @@ async function createStreamIteratorFromRuntime({
       });
     }
 
+    // Prompt breakdown for the context usage popover: instruction-side counts
+    // were captured at Agent construction; the message-side counts (wire text +
+    // attachments) join here, where the outgoing messages are in scope.
+    // Memory-backed runs omit the history figure — Mastra recalls durable
+    // history AFTER this seam, so the wire is not the conversation.
+    const promptBreakdown = computePromptBreakdown({
+      instructionBreakdown: runtime.instructionBreakdown,
+      memoryBacked: Boolean(memoryOption),
+      messages,
+    });
+
     return streamChunksFromMastra({
+      promptBreakdown,
       runtime,
       stream: fullStream,
       ...(runtimeData ? { runtimeData } : {}),

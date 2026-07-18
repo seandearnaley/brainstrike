@@ -123,7 +123,7 @@ function DatabaseTabLoadingState(): ReactElement {
         data-testid="database-tab-loading-top-panel"
       >
         <div
-          className="@container/database-toolbar h-12 shrink-0 border-b bg-background"
+          className="@container/database-toolbar h-9 shrink-0 border-b bg-background"
           data-testid="database-tab-loading-toolbar"
         >
           <div className="flex h-full items-center justify-between @[360px]:gap-2 gap-1 @[360px]:px-4 px-2">
@@ -145,12 +145,12 @@ function DatabaseTabLoadingState(): ReactElement {
         </div>
         <div
           aria-hidden="true"
-          className="flex h-12 shrink-0 items-center justify-center gap-2 border-t bg-background px-2"
+          className="flex h-9 shrink-0 items-center justify-center gap-2 border-t bg-background px-2"
           data-testid="database-tab-loading-actions"
         >
-          <div className="h-8 w-10 rounded-md bg-muted/50" />
-          <div className="size-8 rounded-md bg-muted/50" />
-          <div className="h-8 w-14 rounded-md bg-muted/50" />
+          <div className="h-7 w-10 rounded-md bg-muted/50" />
+          <div className="size-7 rounded-md bg-muted/50" />
+          <div className="h-7 w-14 rounded-md bg-muted/50" />
         </div>
       </div>
       <div aria-hidden="true" className="h-1 shrink-0 bg-border" />

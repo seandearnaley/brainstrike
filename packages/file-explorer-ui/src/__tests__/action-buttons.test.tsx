@@ -111,7 +111,8 @@ describe('ActionButtons', () => {
       const button = screen.getByRole('button', { name: 'Select All' });
       expect(button).toBeInTheDocument();
       expect(button).toHaveAttribute('data-size', 'icon-xs');
-      expect(button).toHaveClass('size-6', '@[96px]:size-7', '@[128px]:size-8', '@[180px]:w-auto');
+      expect(button).toHaveClass('size-6', '@[96px]:size-7', '@[180px]:w-auto');
+      expect(button).not.toHaveClass('@[128px]:size-8');
     });
 
     it('should show "Select All" even when files exceed limit (recursive selection handles limits)', () => {

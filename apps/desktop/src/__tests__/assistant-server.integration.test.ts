@@ -2547,6 +2547,51 @@ describe('assistant-server', () => {
   });
 
   // Two deferred P2 findings from the tool-lifecycle hooks PR (#1556).
+  describe('run-event persistence tap transience', () => {
+    it('passes a context-breakdown chunk through UNPERSISTED (transient, shell-output precedent)', async () => {
+      const runId = 'run-breakdown-transience';
+      const breakdownChunk = {
+        breakdown: {
+          attachmentsCount: 0,
+          historyMessagesTokens: 9,
+          provenance: 'heuristic',
+          systemInstructionsTokens: 1234,
+        },
+        type: 'context-breakdown',
+      } as unknown as StreamChunk;
+
+      async function* source(): AsyncIterable<StreamChunk> {
+        yield breakdownChunk;
+        yield {
+          event: {
+            id: 'ev-1',
+            kind: 'run.finished',
+            label: 'Assistant run finished',
+            status: 'completed',
+            timestamp: '2026-07-18T00:00:00.000Z',
+          },
+          type: 'run-event',
+        } as unknown as StreamChunk;
+      }
+
+      const seen: StreamChunk[] = [];
+      for await (const chunk of observeDesktopAssistantRunEvents(source(), runId, [])) {
+        seen.push(chunk);
+      }
+
+      // Pass-through: the breakdown chunk reaches the mapper untouched.
+      expect(seen[0]).toBe(breakdownChunk);
+      // Never persisted: no INSERT parameter carries the breakdown figures,
+      // while the run-event on the same stream WAS persisted.
+      const persistedValues = mockDesktopDatabase.query.mock.calls
+        .map((call) => call[1])
+        .filter((params): params is unknown[] => Array.isArray(params))
+        .flat();
+      expect(persistedValues).not.toContain(1234);
+      expect(persistedValues).toContain('run.finished');
+    });
+  });
+
   describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     function writeHooksFile(rootAbsPath: string, config: Record<string, unknown>): string {
       const dir = join(rootAbsPath, '.brainstrike');

@@ -643,7 +643,7 @@ function WorkspaceTabStrip({
   return (
     <ActionContextMenu controller={contextMenuController} localActions={localActions}>
       <div
-        className="flex h-12 flex-shrink-0 items-stretch border-border border-b bg-muted/30"
+        className="flex h-9 flex-shrink-0 items-stretch border-border border-b bg-muted/30"
         data-testid="workspace-tab-strip"
         onContextMenuCapture={() => setContextMenuTarget(null)}
         role="tablist"
@@ -740,7 +740,7 @@ function AppTabButton({ app, isActive, onSelect }: AppTabButtonProps) {
       aria-controls={`workspace-app-panel-${app.id}`}
       aria-selected={isActive}
       className={cn(
-        'flex h-full items-center gap-1.5 px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+        'flex h-full items-center gap-1.5 px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
         isActive
           ? 'border-primary border-b-2 bg-background text-foreground'
           : 'border-transparent border-b-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -820,7 +820,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
         aria-controls={panelId}
         aria-selected={isActive}
         className={cn(
-          'flex h-full items-center gap-2 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'flex h-full items-center gap-2 px-3 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           status?.status === 'needs-permission' && 'text-amber-600 dark:text-amber-400',
           status?.status === 'not-found' && 'text-destructive'
         )}

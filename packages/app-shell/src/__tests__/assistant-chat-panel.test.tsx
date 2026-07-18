@@ -27,7 +27,7 @@ describe('AssistantChatPanel', () => {
     render(<AssistantChatPanel />);
 
     expect(screen.getByTestId('assistant-panel-loading')).toHaveClass('h-full');
-    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-12');
+    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
     expect(screen.getByText('Checking assistant availability…')).toHaveClass('sr-only');
   });
 

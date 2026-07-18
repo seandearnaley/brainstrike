@@ -129,7 +129,7 @@ describe('WorkspaceTabHost', () => {
     const explorerTab = await screen.findByRole('tab', { name: /context explorer/i });
     expect(explorerTab).toBeInTheDocument();
     expect(explorerTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('workspace-tab-strip')).toHaveClass('h-12', 'flex-shrink-0');
+    expect(screen.getByTestId('workspace-tab-strip')).toHaveClass('h-9', 'flex-shrink-0');
 
     // Body: the preview panel
     expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();

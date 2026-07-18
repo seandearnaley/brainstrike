@@ -62,15 +62,19 @@ describe('app-shell assistant contract boundary', () => {
     // calls useBudgetGuardrailBinding and mounts <BudgetGuardrailProvider>; the
     // spend derivation lives in cost-tracking/use-daily-spend.ts and the
     // chip/gate UI in packages/ui (budget-guardrail-control.tsx).
-    // Bumped 1565 → 1580 for multi-root main-vs-focused clarity: the wrapper
-    // derives mainRootId/mainRootPath (activeRootIds[0] → request ordering
-    // hint) and the ≥2-roots operatingRoot chip payload; the chip UI lives in
-    // packages/ui (operating-root-chip.tsx).
-    // Bumped 1580 → 1590 on merge with the universal-grant work (#1736,
-    // grantAllToolsForSession wiring) and the context-breakdown stale-clear
-    // (#1738, handleUsage → clearBreakdown). Value kept identical across the
-    // concurrently-merging wrapper PRs so the line does not re-conflict.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1590);
+    // Bumped 1565 → 1575 for the context-breakdown stale-clear review fix:
+    // handleUsage calls hasContextBreakdownChannel (assistant-ui-panel-wrapper-runtime.ts)
+    // and clears a thread's stale breakdown via
+    // useContextUsageStore.getState().clearBreakdown when the active turn's
+    // transport structurally cannot refresh it (capability-absent local runtime).
+    // Bumped 1575 → 1620 after the three concurrently-merged wrapper-touching
+    // PRs landed together: the universal-grant wiring (#1736,
+    // grantAllToolsForSession), the context-breakdown stale-clear (#1738,
+    // handleUsage → clearBreakdown), and multi-root main-vs-focused clarity
+    // (#1735: the wrapper derives mainRootId/mainRootPath and the ≥2-roots
+    // operatingRoot chip payload; the chip UI lives in operating-root-chip.tsx).
+    // The merged wrapper measures 1614 lines; budget carries modest headroom.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1620);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

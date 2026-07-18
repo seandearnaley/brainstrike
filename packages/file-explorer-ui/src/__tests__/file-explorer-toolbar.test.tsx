@@ -84,13 +84,13 @@ describe('FileExplorerToolbar', () => {
     expect(toolbar).not.toHaveTextContent(/focused root/i);
   });
 
-  it('uses a stable 48px centered toolbar and an accented reduced-motion-safe primary action', () => {
+  it('uses a stable 36px centered toolbar and an accented reduced-motion-safe primary action', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     const toolbar = screen.getByTestId('file-explorer-toolbar');
 
     expect(toolbar.parentElement).toHaveClass(
       '@container/explorer-toolbar',
-      'h-12',
+      'h-9',
       'overflow-hidden',
       'border-b'
     );
@@ -116,9 +116,12 @@ describe('FileExplorerToolbar', () => {
       'bg-primary/10',
       'motion-reduce:transition-none',
       'size-6',
-      '@[96px]/explorer-toolbar:size-7',
-      '@[128px]/explorer-toolbar:size-8'
+      '@[96px]/explorer-toolbar:size-7'
     );
+    // Controls cap at size-7 inside the 36px bar — the old size-8 tier is gone.
+    expect(
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
+    ).not.toHaveClass('@[128px]/explorer-toolbar:size-8');
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
     ).toHaveAttribute('data-size', 'icon-xs');

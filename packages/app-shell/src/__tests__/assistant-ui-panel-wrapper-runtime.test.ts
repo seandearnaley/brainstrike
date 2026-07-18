@@ -14,6 +14,7 @@ import {
   extractPreparedRunId,
   formatToolLabel,
   getEnabledBuiltInLocalRegistryModelIds,
+  hasContextBreakdownChannel,
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
@@ -862,6 +863,23 @@ describe('resolveComposerAttachmentsAvailability', () => {
       throw new Error('Expected disabled availability');
     }
     expect(availability.reason).toContain('mystery-text-model');
+  });
+
+  it('hasContextBreakdownChannel: false only for a local provider on the local-runtime transport', () => {
+    expect(hasContextBreakdownChannel('local', 'local-runtime')).toBe(false);
+  });
+
+  it('hasContextBreakdownChannel: true for a local provider routed through data-stream (desktop)', () => {
+    expect(hasContextBreakdownChannel('local', 'data-stream')).toBe(true);
+  });
+
+  it('hasContextBreakdownChannel: true for a hosted provider regardless of the local-runtime transport value', () => {
+    expect(hasContextBreakdownChannel('openai', 'local-runtime')).toBe(true);
+    expect(hasContextBreakdownChannel('openai', 'data-stream')).toBe(true);
+  });
+
+  it('hasContextBreakdownChannel: true with no selected provider', () => {
+    expect(hasContextBreakdownChannel(null, 'local-runtime')).toBe(true);
   });
 
   it('stays optimistic for unknown vision support and unresolved model definitions', () => {

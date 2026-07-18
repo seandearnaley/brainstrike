@@ -79,19 +79,18 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    // Several independent features each threaded a small prop/renderer through
-    // this panel and landed via separate PRs; the budget carries the merged
-    // total with modest headroom:
-    //  • multi-root operating-root chip (WS6): operatingRoot threads the same 5
-    //    layers as cumulativeUsage; the composer shell mounts <OperatingRootChip />
-    //    as a sibling at the top of the stack (operating-root-chip.tsx).
-    //  • user-message copy (WS3): UserActionBar routes through the shared
-    //    clipboard service (useCopyToClipboard) instead of
-    //    ActionBarPrimitive.Copy's navigator.clipboard; exported test-only seam.
-    //  • approval-outcome chip (WS2) + context-breakdown seam (WS8).
-    // The model-menu swap net-removed code, so the merged file measures ~1797
-    // lines. Value kept identical across the concurrently-merging panel PRs so
-    // the line does not re-conflict.
+    // This panel accreted several independent features that each threaded a
+    // small prop/renderer through it: the multi-root operating-root chip (WS6;
+    // <OperatingRootChip /> mounts as a sibling at the top of the composer
+    // stack), the approval/suspend outcome chip (WS2), the context-breakdown
+    // seam + null-renderer registration (context-ring WS8; assistantContext-
+    // BreakdownDataUI mirrors assistantShellOutputDataUI's `render: () => null`
+    // so the transient part never surfaces as a stray element), and the
+    // shared-clipboard user-message copy (WS3; UserActionBar routes through
+    // useCopyToClipboard instead of ActionBarPrimitive.Copy's navigator.clipboard,
+    // computing its own tooltip/icon/aria-live states). The model-menu swap
+    // net-removed code, so the merged file measures ~1803 lines; budget carries
+    // modest headroom.
     expect(source.split('\n').length).toBeLessThanOrEqual(1840);
   });
 

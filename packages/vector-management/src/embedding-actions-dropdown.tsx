@@ -170,7 +170,7 @@ export function EmbeddingActionsDropdown({
   const backfillButton = (
     <Button
       aria-label={buttonText}
-      className={`h-8 rounded-r-none border-r-0 text-xs ${
+      className={`h-7 rounded-r-none border-r-0 text-xs ${
         collapseLabelAtNarrowWidth ? '@[480px]:min-w-[8.25rem] @[480px]:px-3 px-2' : 'px-3'
       }`}
       disabled={isBackfillDisabled}
@@ -212,7 +212,7 @@ export function EmbeddingActionsDropdown({
             <DropdownMenuTrigger asChild>
               <Button
                 aria-label="More embedding actions"
-                className="h-8 rounded-l-none px-1.5"
+                className="h-7 rounded-l-none px-1.5"
                 disabled={!hasDb}
                 size="sm"
                 variant="outline"

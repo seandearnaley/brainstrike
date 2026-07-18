@@ -1,4 +1,5 @@
 import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   getProviderModelDefinitions,
   isSupportedProvider,
@@ -93,6 +94,7 @@ import {
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
   getToolDescription,
+  hasContextBreakdownChannel,
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
@@ -1332,6 +1334,21 @@ export function AssistantUiPanelWrapper({
     }
   }, [assistantThreadRepository, resolveModelPricing, selectedMemoryThreadId]);
 
+  // Record the run-start prompt breakdown (transient context-breakdown data
+  // part). Parsed with the contract guard so a malformed wire payload is stored
+  // as the explicit { invalid: true } marker the popover surfaces — never
+  // coerced, never dropped. Keyed by the SAME thread key contract as
+  // recordUsage (writer and meter reader must agree).
+  const handleContextBreakdown = useCallback(
+    (data: unknown) => {
+      const threadId = selectedMemoryThreadId ?? 'active';
+      useContextUsageStore
+        .getState()
+        .recordBreakdown(threadId, parseAssistantContextBreakdown(data));
+    },
+    [selectedMemoryThreadId]
+  );
+
   // Record provider token usage. ONE usage derivation (the single tap) fans out
   // to two sinks:
   //   1. the session-lived zustand store (last-turn meter), keyed by the active
@@ -1347,6 +1364,14 @@ export function AssistantUiPanelWrapper({
   const handleUsage = useCallback(
     (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
+      // A turn on a capability-absent transport (the in-renderer local
+      // runtime) can never have refreshed the breakdown — drop a stale one
+      // left over from an earlier hosted turn on the SAME thread so the
+      // popover never mixes one turn's category rows with another turn's
+      // exact totals (review fix).
+      if (!hasContextBreakdownChannel(selectedProvider, localChatTransport)) {
+        useContextUsageStore.getState().clearBreakdown(threadId);
+      }
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
       // A turn just finished: re-list threads so an observer-generated title
@@ -1397,10 +1422,12 @@ export function AssistantUiPanelWrapper({
     [
       assistantThreadRepository,
       getActiveRunUsageContext,
+      localChatTransport,
       memoryResourceId,
       refreshCumulativeUsage,
       refreshResourceThreads,
       selectedMemoryThreadId,
+      selectedProvider,
     ]
   );
 
@@ -1539,6 +1566,7 @@ export function AssistantUiPanelWrapper({
                     onComposerTextChange: handleComposerTextChange,
                   }
                 : {})}
+              onContextBreakdown={handleContextBreakdown}
               onProviderSettingsChange={handleProviderSettingsChange}
               onRunFailed={handleRunFailed}
               onRunFinished={handleRunFinished}

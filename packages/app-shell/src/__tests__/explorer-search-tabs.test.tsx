@@ -33,7 +33,7 @@ describe('ExplorerSearchTabs', () => {
 
     const explorerTab = screen.getByRole('tab', { name: 'Explorer' });
     const searchTab = screen.getByRole('tab', { name: 'Search' });
-    expect(screen.getByTestId('explorer-search-tab-strip')).toHaveClass('h-12');
+    expect(screen.getByTestId('explorer-search-tab-strip')).toHaveClass('h-9');
     // Converged on the same shared segmented Tabs primitive the Library uses.
     expect(explorerTab).toHaveAttribute('data-slot', 'tabs-trigger');
     expect(searchTab).toHaveAttribute('data-slot', 'tabs-trigger');

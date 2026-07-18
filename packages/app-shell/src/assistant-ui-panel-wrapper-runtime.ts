@@ -633,6 +633,27 @@ export function resolveComposerAttachmentsAvailability(args: {
   return { state: 'enabled' };
 }
 
+/**
+ * True when the ACTIVE turn's transport can ever deliver a context-breakdown
+ * data part (review fix, context-ring WS8). `AssistantUiPanel` routes a
+ * turn through `LocalRuntimeChat` — the in-renderer local runtime, which
+ * structurally has no breakdown channel — only when the provider is `'local'`
+ * AND `localChatTransport !== 'data-stream'` (web's built-in local provider;
+ * desktop's built-in local provider instead routes through the assistant
+ * server's data-stream transport, which DOES forward `onContextBreakdown`).
+ * Every other combination uses `DataStreamRuntimeChat`, which always forwards
+ * it. Callers use this to clear a thread's stale breakdown when a
+ * capability-absent local turn updates usage without ever refreshing it —
+ * otherwise the popover keeps showing an earlier hosted turn's breakdown rows
+ * next to the local turn's freshly updated totals.
+ */
+export function hasContextBreakdownChannel(
+  selectedProvider: SupportedProvider | null,
+  localChatTransport: 'data-stream' | 'local-runtime'
+): boolean {
+  return !(selectedProvider === 'local' && localChatTransport !== 'data-stream');
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
