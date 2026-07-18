@@ -487,4 +487,38 @@
   body::-webkit-scrollbar-corner {
     background: hsl(var(--muted)); /* Or transparent */
   }
+
+  /* ==========================================================================
+   * Shared code-block box (packages/ui/src/code-block/): element-level metrics.
+   * Component chrome (borders, rounding, background) is Tailwind classes on
+   * CodeBlockHeader/CodeBlockBody; these element rules keep the plain-<pre>
+   * fallback and the resolved Shiki <pre.shiki> metrically identical so the
+   * streamed fallback→highlighted swap causes zero layout shift.
+   */
+  .bs-code-block-body pre,
+  .bs-code-block-body .shiki {
+    margin: 0;
+    padding: 0.7rem 0.9rem;
+    overflow-x: auto;
+    font-size: 0.82em;
+    line-height: 1.55;
+  }
+
+  /*
+   * Shiki dual-theme switching for class-based dark mode (used by every Shiki
+   * surface: assistant chat, markdown file preview, notes preview). Shiki
+   * inlines the LIGHT palette as `color`/`background-color` style attributes
+   * and ships the dark palette as `--shiki-dark*` custom properties, so the
+   * switch MUST be !important to beat those inline declarations — this is the
+   * upstream-documented recipe; without it dark mode silently keeps the light
+   * palette (verified in assistant-chat-polish.browser.test.tsx).
+   */
+  html.dark .shiki,
+  html.dark .shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+    text-decoration: var(--shiki-dark-text-decoration) !important;
+  }
 }

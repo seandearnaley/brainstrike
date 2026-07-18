@@ -1,31 +1,27 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
-import { memo, useMemo } from 'react';
-import ShikiHighlighter from 'react-shiki/core';
-import { normalizeShikiLanguage, useShikiHighlighter } from '../shiki/highlighter-core';
+import { memo } from 'react';
+import { CodeBlockBody } from '../code-block/code-block-body';
 
+/**
+ * Chat-pipeline adapter over the shared CodeBlockBody. The library renders
+ * this as a SIBLING of CodeHeader (never nested), so the body carries the
+ * bottom half of the shared box chrome; delay=50 keeps re-highlights coalesced
+ * during streaming. The pre-highlight fallback reuses the library's Pre/Code
+ * components so streamed markdown swaps to Shiki without remounting semantics.
+ */
 const SyntaxHighlighterImpl = ({ language, code, components }: SyntaxHighlighterProps) => {
-  const highlighter = useShikiHighlighter();
-  const resolvedLanguage = useMemo(() => normalizeShikiLanguage(language), [language]);
-
-  if (!(code && highlighter)) {
-    const { Pre, Code } = components;
-    return (
-      <Pre>
-        <Code>{code}</Code>
-      </Pre>
-    );
-  }
-
+  const { Pre, Code } = components;
   return (
-    <ShikiHighlighter
-      className="overflow-hidden rounded-md"
+    <CodeBlockBody
+      code={code}
       delay={50}
-      highlighter={highlighter}
-      language={resolvedLanguage}
-      theme={{ dark: 'github-dark', light: 'github-light' }}
-    >
-      {code}
-    </ShikiHighlighter>
+      fallback={
+        <Pre>
+          <Code>{code}</Code>
+        </Pre>
+      }
+      language={language}
+    />
   );
 };
 
