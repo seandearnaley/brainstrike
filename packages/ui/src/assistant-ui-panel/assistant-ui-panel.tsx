@@ -1502,7 +1502,6 @@ export const AssistantUiPanel = ({
 // ===== Message Components =====
 
 const UserMessage = () => {
-  // Bottom rhythm (margin) comes from overrides.css (.aui-user-message-root).
   return (
     <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
@@ -1571,7 +1570,7 @@ const EditComposer = () => {
 };
 
 const AssistantMessage = () => {
-  // Bottom rhythm (padding/margin) comes from overrides.css (.aui-assistant-message-root).
+  // Bottom rhythm comes from overrides.css (.aui-*-message-root rules).
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
@@ -1791,7 +1790,7 @@ const ProviderModelHeader = ({
             models={pickerModels}
             providers={pickerProviders}
             {...(modelName ? { value: modelName } : {})}
-            className="bs-composer-model-picker h-8 rounded-full border-border/70 bg-background/85 text-xs"
+            className="bs-composer-model-picker h-7 rounded-full border-border/70 bg-background/85 text-xs"
             disabled={options.length === 0 || !onModelChange}
             mode="single"
             modelType="llm"
@@ -1809,7 +1808,6 @@ const ProviderModelHeader = ({
           />
         </div>
       </div>
-      <div className="bs-composer-context-slot" />
     </div>
   );
 };
