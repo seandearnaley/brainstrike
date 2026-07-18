@@ -409,10 +409,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(JSON.stringify(rawSuccess?.payload)).toContain(rawOnlyTail);
   });
 
-  it('uses the raw result when a custom projection declines with undefined', async () => {
+  it('uses a bounded default projection when a custom projection declines with undefined', async () => {
     const rawOutput = { raw: 'fallback-result' };
     const conditionalTool = createTool({
-      description: 'Return a raw result when conditional projection is unavailable.',
+      description: 'Return a result when the conditional projection is unavailable.',
       execute: () => Promise.resolve(rawOutput),
       id: 'conditional_output',
       inputSchema: z.object({}),
@@ -426,7 +426,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     let modelFacingToolOutput: unknown;
 
     modelHolder.current = createScriptedToolCallModel({
-      finalText: 'The raw fallback reached the model.',
+      finalText: 'The bounded default projection reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
         const toolMessage = prompt.find((message) => message.role === 'tool');
@@ -451,11 +451,14 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
 
     for await (const _chunk of iterator) {
-      // Consuming the stream drives the conditional projection and fallback.
+      // Consuming the stream drives the conditional and default projections.
     }
 
     expect(toModelOutput).toHaveBeenCalledOnce();
-    expect(modelFacingToolOutput).toEqual({ type: 'json', value: rawOutput });
+    expect(modelFacingToolOutput).toEqual({
+      type: 'text',
+      value: JSON.stringify(rawOutput),
+    });
   });
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
