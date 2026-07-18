@@ -1,4 +1,4 @@
-# Workspace Context Features: Prompt Workbench, Instructions Injection, Slash Commands, Agent Skills, Edit Checkpoints
+# Workspace Context Features: Prompt Workbench, Instructions Injection, Slash Commands, Agent Skills, Edit Checkpoints, Root Identity (Main vs Focused)
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing the prompt library, AGENTS.md/CLAUDE.md injection, user-defined /commands, or the edit-checkpoint journal. Keep updated with the code.
 
@@ -569,6 +569,91 @@ without revisiting the test surface that legitimately writes unread files.
   (state semantics) + the `read-before-write staleness guard` describe block in
   `apps/desktop/src/__tests__/assistant-server/assistant-tools.integration.test.ts`
   (real-fs refuse/recover behavior, `utimes`-forced external edits).
+
+When changing this flow, update this section and the paired tests.
+
+---
+
+## WORKSPACE ROOT IDENTITY: MAIN vs FOCUSED
+
+Two DISTINCT root concepts exist in a multi-root workspace — never conflate
+them (the pre-split code did, with a false "first root is the primary/focused
+one" comment):
+
+- **MAIN root** = the assistant's OPERATING root. Defined as
+  `activeRootIds[0]` in the file-explorer store (insertion-ordered, persisted
+  in file-explorer-storage v5 — persisting the order persists the choice; no
+  extra field, no DB migration). Drives the hooks `primaryCwd` (the stdin
+  `cwd` of UserPromptSubmit/Stop/Session events and the spawn cwd of GLOBAL
+  hooks) and the model-facing "main root path"
+  (`listWorkspaceContext.workspaceRootPath`). Stable: only "Set as main" (a
+  pure store reorder via `setMainRoot`) or disconnecting the main root
+  (which promotes `activeRootIds[1]`) changes it. Re-adding a removed root
+  appends to the END — a re-added ex-main root is demoted (visible +
+  recoverable, by design).
+- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives terminal
+  cwd, selection scoping, and the selection write-back default
+  (`resolveWriteBackTarget` untouched). It flips on any incidental click
+  (`handleTreeInteraction` in `file-explorer-sidebar.tsx`), so it must NEVER
+  drive hooks/model cwd. Surfaced visually, never described as the
+  assistant's root.
+
+**Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
+wrapper attaches `mainRootId` (= `activeRootIds[0]`) and `mainRootPath` (the
+descriptor's absolute path) per request. They are an ORDERING HINT for the
+server — a preference, not a security boundary; the id is a durable identity
+(DB `roots.id` since storage v5), NEVER a path. `workspaceRootPath` stays the
+FOCUSED root (selection scope) — unchanged.
+
+**Server reorder** (`apps/desktop/src/assistant-server/workspace-roots.ts`):
+`enrichRuntimeDataWithWorkspaceRoots` loads live DB roots (`created_at ASC`)
+then calls the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)` —
+match by rootId first, else by resolved absolute path (covers legacy client
+ids that diverged from DB ids; web enrichment never runs, FSA roots have null
+paths), unmatched/absent keeps `created_at` order (the legacy tiebreak) with
+a debug log. `roots[0]` is therefore GENUINELY the main root — no
+`buildHookManager` change was needed. Degraded mode is unchanged: a DB
+load/query failure leaves RuntimeData untouched, so tools fall back to the
+single FOCUSED `workspaceRootPath` synthesis (the main declaration cannot
+apply there).
+
+**Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
+chrome):
+- Root section headers (`root-section-header.tsx` + sidebar wiring): "Main"
+  badge on the main root (exactly one; the badge MOVES when main changes —
+  sections never reorder), persistent focused affordance (`data-focused`
+  attr + left accent — app state, NOT `:focus-visible`), full path tooltip.
+- Status bar (`packages/app-shell/src/status-items/workspace-root-status-item.tsx`,
+  left, beside the database item): main root name (+N), popover listing every
+  mounted root (path or "browser folder", Main badge, Focused marker) with a
+  per-row "Set as main" → `setMainRoot`.
+- Composer chip (`packages/ui/src/assistant-ui-panel/operating-root-chip.tsx`):
+  "in {main root}" at the top of the composer stack — a SIBLING of
+  ThreadContextMeter (never nest it there; the meter is being reworked), fed
+  by the wrapper's `operatingRoot` prop only at 2+ roots.
+- DEFERRED (v1 ruling): a root-header right-click context action ("Set as
+  main" / Disconnect / Copy path / Reveal) — root headers have no
+  ContextTarget kind yet; it is a coherent follow-up surface.
+
+**Known issue (out of scope here, filed separately):** nothing ever
+transitions `roots.status` off `'live'` (`reconcileRoots` never UPDATEs), so
+the server can still serve DISCONNECTED folders in `workspaceRoots`; this
+feature only reorders. The client's `activeRootIds` contains only MOUNTED
+roots, which is why the client-declared main avoids the phantom-root problem
+by construction.
+
+**Paired tests:**
+`packages/file-explorer/src/actions/__tests__/active-root-actions.test.ts`
+(setMainRoot semantics + removal promotion),
+`packages/file-explorer-ui` `root-section-header.test.tsx` +
+`file-explorer-sidebar.test.tsx` (badge/focused/tooltip + forest wiring),
+`packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`
+(mainRootId/mainRootPath wire fields) + `workspace-root-status-item.test.tsx`,
+`packages/ui/src/assistant-ui-panel/__tests__/operating-root-chip.test.tsx`,
+`apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
+(orderWorkspaceRoots + enrichment reorder), and the
+`hooks primaryCwd follows the declared main root` describe in
+`apps/desktop/src/__tests__/assistant-server/hooks/server-composition.integration.test.ts`.
 
 When changing this flow, update this section and the paired tests.
 
