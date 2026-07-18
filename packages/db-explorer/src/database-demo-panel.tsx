@@ -645,7 +645,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 <div className="flex min-w-0 items-center">
                   <Button
                     aria-label="New"
-                    className="h-8 gap-1.5 @[360px]:px-2.5 px-2 font-medium text-xs"
+                    className="h-7 gap-1.5 @[360px]:px-2.5 px-2 font-medium text-xs"
                     onClick={collectionDialogs.handleCreateCollection}
                     size="sm"
                     title="Create new collection"
@@ -661,7 +661,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          className="h-8 w-8 p-0"
+                          className="size-7 p-0"
                           disabled={refreshing}
                           onClick={handleManualRefresh}
                           size="sm"
@@ -680,7 +680,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button className="h-8 w-8 p-0" size="sm" variant="ghost">
+                        <Button className="size-7 p-0" size="sm" variant="ghost">
                           <HelpCircle className="h-4 w-4 text-muted-foreground" />
                           <span className="sr-only">Help</span>
                         </Button>
@@ -705,7 +705,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                           <PopoverTrigger asChild>
                             <button
                               aria-label="Import Settings"
-                              className="group flex h-8 items-center gap-1.5 rounded-md border border-border bg-background @[360px]:px-2.5 px-2 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:border-foreground/20 focus-visible:bg-accent/80 focus-visible:outline-none motion-reduce:transition-none"
+                              className="group flex h-7 items-center gap-1.5 rounded-md border border-border bg-background @[360px]:px-2.5 px-2 text-xs transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:border-foreground/20 focus-visible:bg-accent/80 focus-visible:outline-none motion-reduce:transition-none"
                               type="button"
                             >
                               <Settings2 className="size-3.5 text-muted-foreground" />
@@ -795,7 +795,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     <TooltipTrigger asChild>
                       <Button
                         aria-label={`Import (${importFlow.selectedFileCount})`}
-                        className="flex h-8 @[420px]:min-w-[5.25rem] items-center gap-1.5 @[420px]:px-3 px-2"
+                        className="flex h-7 @[420px]:min-w-[5.25rem] items-center gap-1.5 @[420px]:px-3 px-2"
                         disabled={
                           importFlow.isImporting ||
                           !activeCollectionId ||

@@ -32,7 +32,7 @@ export function ExportDropdown({
       <DropdownMenuTrigger asChild>
         <Button
           aria-label={triggerLabel}
-          className={`flex h-8 items-center gap-1.5 ${
+          className={`flex h-7 items-center gap-1.5 ${
             collapseLabelAtNarrowWidth ? '@[420px]:min-w-28 @[420px]:px-3 px-2' : ''
           }`}
           disabled={countsPending || !hasAnyData}
