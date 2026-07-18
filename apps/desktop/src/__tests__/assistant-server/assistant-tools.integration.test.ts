@@ -3349,6 +3349,45 @@ describe('assistant-tools multi-root read tools', () => {
       }
     }, 30_000);
 
+    it('lspInspect omits the preview for an oversized definition target but keeps path/line (review)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        // Definition target > 2 MB (a stand-in for a large generated .d.ts):
+        // the location must still resolve, but the accessory preview is skipped
+        // rather than slurping the whole file into memory.
+        const bigTarget = `export const bigSym = 1;\n// ${'a'.repeat(2_200_000)}\n`;
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'big.ts'),
+          bigTarget,
+          'utf8'
+        );
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'use.ts'),
+          "import { bigSym } from './big';\nexport const use = bigSym;\n",
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-big-target' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        const result = await tools['brainstrike.lspInspect'].execute({
+          context: {
+            line: 2,
+            match: 'export const use = <<<bigSym;',
+            path: '/src/use.ts',
+          },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.definition?.[0]?.path).toBe('/src/big.ts');
+        expect(result.definition?.[0]?.line).toBe(1);
+        expect(result.definition?.[0]?.preview).toBeUndefined();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
     it('lspInspect refuses a malformed cursor marker with an actionable error', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {

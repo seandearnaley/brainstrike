@@ -221,9 +221,23 @@ interface RawLocation {
   uri?: string;
 }
 
-/** Resolve a value or a fallback after `ms`, whichever is first. */
-function timeout<T>(ms: number, fallback: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(fallback), ms));
+/**
+ * Race `promise` against a `ms` deadline, resolving to `fallback` on timeout.
+ * The timer is ALWAYS cleared once the race settles — on the common path where
+ * `promise` wins, an uncleared timer would otherwise stay scheduled up to `ms`
+ * (4s here, ×N queries per inspect), holding the event loop open and delaying
+ * shutdown / test teardown.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  const timer = new Promise<T>((resolve) => {
+    handle = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([promise, timer]).finally(() => {
+    if (handle) {
+      clearTimeout(handle);
+    }
+  });
 }
 
 /** Flatten an LSP hover response (MarkupContent | MarkedString | array) to text. */
@@ -464,10 +478,11 @@ class LspServerConnection {
   private async queryHover(uri: string, position: Position): Promise<string | undefined> {
     try {
       const params: HoverParams = { position, textDocument: { uri } };
-      const result = (await Promise.race([
+      const result = await withTimeout<RawHover | null>(
         this.connection.sendRequest<RawHover | null>(LSP.hover, params),
-        timeout<null>(QUERY_TIMEOUT_MS, null),
-      ])) as RawHover | null;
+        QUERY_TIMEOUT_MS,
+        null
+      );
       return result ? extractHoverText(result) : undefined;
     } catch {
       return;
@@ -484,10 +499,11 @@ class LspServerConnection {
         position,
         textDocument: { uri },
       };
-      const result = await Promise.race([
+      const result = await withTimeout<unknown>(
         this.connection.sendRequest<unknown>(method, params),
-        timeout<null>(QUERY_TIMEOUT_MS, null),
-      ]);
+        QUERY_TIMEOUT_MS,
+        null
+      );
       return normalizeLocations(result);
     } catch {
       return [];
@@ -727,6 +743,14 @@ function uriToPath(uri: string): string {
 const MAX_INSPECT_LOCATIONS = 10;
 const MAX_HOVER_CHARS = 1200;
 const MAX_PREVIEW_CHARS = 200;
+/**
+ * Ceiling on a definition/implementation TARGET file we'll read just to build a
+ * one-line preview. tsserver routinely resolves into large generated `.d.ts`
+ * files; reading a multi-MB target whole into Electron main for a 200-char
+ * preview would memory-spike and bypasses the workspace reader's own size
+ * guard. Over this, the preview is omitted (path + line are still returned).
+ */
+const MAX_PREVIEW_FILE_BYTES = 2 * 1024 * 1024;
 
 /** Workspace-relative "/path" when under root, else the absolute path. */
 function toDisplayPath(absolutePath: string, rootPath: string): string {
@@ -737,9 +761,18 @@ function toDisplayPath(absolutePath: string, rootPath: string): string {
   return absolutePath;
 }
 
-/** Best-effort bounded preview of a 1-based line (undefined on read error). */
+/**
+ * Best-effort bounded preview of a 1-based line (undefined on read error or an
+ * oversized target). Stats first so a huge generated `.d.ts` target can't be
+ * slurped whole into memory for a 200-char preview — the preview is optional,
+ * so skipping it degrades an accessory field, never the location itself.
+ */
 async function readLinePreview(absolutePath: string, line: number): Promise<string | undefined> {
   try {
+    const stat = await fsPromises.stat(absolutePath);
+    if (!stat.isFile() || stat.size > MAX_PREVIEW_FILE_BYTES) {
+      return;
+    }
     const fileText = await fsPromises.readFile(absolutePath, 'utf8');
     const target = fileText.split('\n')[line - 1]?.trim();
     if (!target) {
