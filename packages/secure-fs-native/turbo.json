@@ -2,7 +2,23 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "outputs": ["build/**"]
+      // NEVER cache — same "ABI is not in the hash" reason as `test` below, but
+      // caching this task also caused a PROVEN cross-arch failure. `node-gyp
+      // rebuild` emits an arch/ABI-specific `.node` into build/**, yet turbo's
+      // cache hash keys on the C/C++/JS SOURCE only — never the compiler / Node /
+      // OS ABI it was built against. `runner.os` is "Linux" on both arm64 and x64
+      // GitHub runners and arch is absent from the hash, so the shared REMOTE
+      // turbo cache is arch-blind. Caching build/** let the arm64 Static/Unit
+      // jobs (ubuntu-24.04-arm) populate an entry that an x64 job (ubuntu-latest)
+      // then replayed, so consumers loaded an arm64 addon on x64 and died with
+      // "secure_fs_native.node: cannot open shared object file" (the Coverage
+      // lane — see PR #1749). Not caching forces a fresh node-gyp rebuild on
+      // whichever runner actually needs the addon, the only sound behavior for a
+      // native build. The LOCAL .turbo layer is arch-namespaced and would be
+      // safe, but turbo cannot scope cache:false to remote-only, and a ~3s
+      // rebuild is cheap. `outputs` is intentionally omitted: it is meaningless
+      // once nothing is cached.
+      "cache": false
     },
     "test": {
       // NEVER cache: the `test` script is `pnpm build && node --test

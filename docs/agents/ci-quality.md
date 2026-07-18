@@ -68,6 +68,21 @@ arch-namespaced (`${{ runner.os }}-${{ runner.arch }}-turbo-...`, added in
 C2/#1668) so it cannot cross-restore an incompatible entry — that guard
 just doesn't extend to the remote cache.
 
+**Native (node-gyp) build outputs are the exception to "arch-independent"
+and MUST NOT be turbo-cached.** `@brainstrike/secure-fs-native` compiles an
+arch/ABI-specific `.node` into `build/**`. When its turbo `build` task cached
+that output, the arch-blind remote cache let the arm64 Static/Unit jobs
+populate an entry that the x64 Coverage job (`ubuntu-latest`) then replayed —
+so `apps/desktop`'s coverage lane, which loads the real addon via its
+`*.integration.test.*` files, died with `secure_fs_native.node: cannot open
+shared object file` on every PR touching `apps/desktop` (PR #1749 shipped a
+runner-side rebuild; the follow-up made the fix structural). Its `build` task
+is now `cache: false` (`packages/secure-fs-native/turbo.json`), matching the
+same package's long-standing `test` policy, so every runner node-gyp-rebuilds
+the addon for its own ABI. Any future native/node-gyp package added to the
+monorepo must do the same — never cache a compiled binary on turbo's
+source-only, arch-blind hash.
+
 ### Coverage is a separate workflow (`.github/workflows/coverage.yml`)
 
 Coverage used to be a job inside `test.yml` running on every `synchronize` —
