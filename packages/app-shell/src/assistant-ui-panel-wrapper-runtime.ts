@@ -211,6 +211,15 @@ export function buildAssistantRequestData(args: {
   enabledNativeToolIds: readonly string[];
   hookTrustRequest?: HookTrustRequest | undefined;
   hostedMemoryBackendAvailable: boolean;
+  /**
+   * The client's declared MAIN root (activeRootIds[0]) — an ordering hint for
+   * the server's workspace-root enrichment; never a path, never a security
+   * boundary. Attached only when a main root exists (multi-root or storage-v5
+   * single-root; legacy snapshots without activeRootIds send nothing).
+   */
+  mainRootId?: string | undefined;
+  /** Absolute path of the declared main root (server path-fallback matcher). */
+  mainRootPath?: string | undefined;
   memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
   memorySettings: RuntimeAssistantMemorySettings;
@@ -281,6 +290,15 @@ export function buildAssistantRequestData(args: {
   }
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
+  }
+  // MAIN root declaration (multi-root): ordering hint for the server's root
+  // enrichment. Distinct from workspaceRootPath above, which stays the
+  // FOCUSED root (selection scope).
+  if (args.mainRootId) {
+    data['mainRootId'] = args.mainRootId;
+  }
+  if (args.mainRootPath) {
+    data['mainRootPath'] = args.mainRootPath;
   }
   data['enabledNativeToolIds'] = Array.from(args.enabledNativeToolIds);
   if (args.workspaceContext) {
