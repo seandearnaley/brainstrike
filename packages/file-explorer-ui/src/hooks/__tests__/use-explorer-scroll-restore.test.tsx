@@ -9,24 +9,14 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, render } from '@testing-library/react';
 import type { ReactNode, RefObject } from 'react';
 import { useRef } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FileExplorerProvider,
   useFileExplorerStoreContext,
 } from '../../shell/file-explorer-provider';
 import { useExplorerScrollRestore } from '../use-explorer-scroll-restore';
 
-// Run rAF callbacks synchronously so the throttle resolves within act().
-beforeEach(() => {
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback): number => {
-    cb(0);
-    return 0;
-  });
-  vi.stubGlobal('cancelAnimationFrame', () => {});
-});
-
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -77,48 +67,88 @@ function renderHarness(rootEl: HTMLElement): { store: Store } {
 }
 
 describe('useExplorerScrollRestore capture', () => {
-  it('writes the active container scroll offset into the store', async () => {
-    const rootEl = makeScrollRoot(1000);
-    const { store } = renderHarness(rootEl);
-    // No persisted offset (default 0) → restore resolves immediately, capture on.
-    await act(async () => {
-      await Promise.resolve();
-    });
+  it('writes the active container scroll offset into the store (trailing-debounced)', async () => {
+    vi.useFakeTimers();
+    try {
+      const rootEl = makeScrollRoot(1000);
+      const { store } = renderHarness(rootEl);
+      // No persisted offset (default 0) → restore resolves immediately, capture on.
+      await act(async () => {
+        await Promise.resolve();
+      });
 
-    rootEl.scrollTop = 275;
-    await act(async () => {
-      rootEl.dispatchEvent(new Event('scroll'));
-      await Promise.resolve();
-    });
+      rootEl.scrollTop = 275;
+      act(() => {
+        rootEl.dispatchEvent(new Event('scroll'));
+      });
+      // Debounced: not committed until the trailing timer fires.
+      expect(store.getState().explorerScrollTop).toBe(0);
 
-    expect(store.getState().explorerScrollTop).toBe(275);
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(store.getState().explorerScrollTop).toBe(275);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('debounces a continuous scroll to a single commit of the resting position', async () => {
+    vi.useFakeTimers();
+    try {
+      const rootEl = makeScrollRoot(1000);
+      const { store } = renderHarness(rootEl);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const setSpy = vi.spyOn(store.getState(), 'setExplorerScrollTop');
+
+      act(() => {
+        for (const top of [40, 120, 260, 410]) {
+          rootEl.scrollTop = top;
+          rootEl.dispatchEvent(new Event('scroll'));
+          vi.advanceTimersByTime(50); // faster than the debounce window
+        }
+        vi.advanceTimersByTime(250); // let the trailing timer fire
+      });
+
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      expect(store.getState().explorerScrollTop).toBe(410);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('captures the inner forest scroller (via the capture-phase listener), not the root', async () => {
-    const rootEl = makeScrollRoot(200, 100);
-    const forest = makeScrollRoot(1000, 100);
-    forest.setAttribute('data-testid', 'forest-sections-scroll');
-    rootEl.appendChild(forest);
+    vi.useFakeTimers();
+    try {
+      const rootEl = makeScrollRoot(200, 100);
+      const forest = makeScrollRoot(1000, 100);
+      forest.setAttribute('data-testid', 'forest-sections-scroll');
+      rootEl.appendChild(forest);
 
-    const { store } = renderHarness(rootEl);
-    await act(async () => {
-      await Promise.resolve();
-    });
+      const { store } = renderHarness(rootEl);
+      await act(async () => {
+        await Promise.resolve();
+      });
 
-    // A scroll on the OUTER root is ignored (forest is the active container).
-    rootEl.scrollTop = 50;
-    await act(async () => {
-      rootEl.dispatchEvent(new Event('scroll'));
-      await Promise.resolve();
-    });
-    expect(store.getState().explorerScrollTop).toBe(0);
+      // A scroll on the OUTER root is ignored (forest is the active container).
+      rootEl.scrollTop = 50;
+      act(() => {
+        rootEl.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(250);
+      });
+      expect(store.getState().explorerScrollTop).toBe(0);
 
-    // A scroll on the inner forest container is captured.
-    forest.scrollTop = 333;
-    await act(async () => {
-      forest.dispatchEvent(new Event('scroll'));
-      await Promise.resolve();
-    });
-    expect(store.getState().explorerScrollTop).toBe(333);
+      // A scroll on the inner forest container is captured.
+      forest.scrollTop = 333;
+      act(() => {
+        forest.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(250);
+      });
+      expect(store.getState().explorerScrollTop).toBe(333);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
