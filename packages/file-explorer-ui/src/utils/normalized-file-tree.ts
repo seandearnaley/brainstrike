@@ -344,6 +344,24 @@ export function materializeNormalizedNode(
   return { ...node };
 }
 
+// Identity-stable shallow (childless) materializations, keyed by the immutable
+// normalized node object — the same invariant the subtree caches above rely
+// on. Row builders read through this so an unchanged normalized node projects
+// to the SAME IFileNode object across rebuilds, which is what lets the row
+// reuse pass (and TreeTable's `a.node === b.node` flatten reuse) hit at all.
+// Consumers must treat the result as immutable — it is shared across builds.
+const shallowMaterializedNodeCache = new WeakMap<NormalizedFileTreeNode, IFileNode>();
+
+export function materializeNormalizedNodeStable(node: NormalizedFileTreeNode): IFileNode {
+  const cached = shallowMaterializedNodeCache.get(node);
+  if (cached) {
+    return cached;
+  }
+  const materialized: IFileNode = { ...node };
+  shallowMaterializedNodeCache.set(node, materialized);
+  return materialized;
+}
+
 export function materializeNormalizedFileTree(state: NormalizedFileTreeState): IFileNode[] {
   return state.rootPaths
     .map((rootPath) => materializeNode(state, rootPath))

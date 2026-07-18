@@ -4,7 +4,13 @@ import type { GetState, SetState } from '../types/store-types';
 export interface DirectoryExpansionActions {
   collapseAllDirectories: () => void;
   expandAllDirectories: (fileTree: IFileNode[]) => void;
-  setExpandedPaths: (paths: ReadonlySet<string>) => void;
+  /**
+   * Replace the expanded set. ADOPTS the passed set (no defensive clone —
+   * every caller hands over a freshly built set, and cloning here doubled the
+   * per-commit allocation during progressive expand-all). Ownership transfers:
+   * callers must not mutate the set after passing it.
+   */
+  setExpandedPaths: (paths: Set<string>) => void;
   toggleDirectoryExpansion: (path: string) => void;
 }
 
@@ -61,8 +67,8 @@ export const createDirectoryExpansionActions = (
       return updateExpandedPaths(state, newExpandedPaths);
     });
   },
-  setExpandedPaths: (paths: ReadonlySet<string>) => {
-    set((state) => updateExpandedPaths(state, new Set(paths)));
+  setExpandedPaths: (paths: Set<string>) => {
+    set((state) => updateExpandedPaths(state, paths));
   },
 
   toggleDirectoryExpansion: (path: string) => {

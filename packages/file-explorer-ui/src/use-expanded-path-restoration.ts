@@ -1,10 +1,10 @@
-import { isAbsolutePath } from '@brainstrike/context-actions';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { getPathDepth, isDescendantPath } from '@brainstrike/utils/tree-operations';
+import { getPathDepth } from '@brainstrike/utils/tree-operations';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { isPathWithinRoot, normalizePathForRootScope } from './utils/root-scoped-paths';
 
 const logger = createLogger('ExpandedPathRestoration');
 export const MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS = 100;
@@ -293,44 +293,6 @@ function handleRestorationLock(
   }
 
   return false;
-}
-
-function normalizePathForRootScope(path: string): string {
-  return path.replace(/\\/g, '/');
-}
-
-function isWindowsAbsolutePath(path: string): boolean {
-  const normalizedPath = normalizePathForRootScope(path);
-  return /^[A-Za-z]:\//u.test(normalizedPath) || normalizedPath.startsWith('//');
-}
-
-function isPathWithinRoot(path: string, currentRootPath: string | null | undefined): boolean {
-  if (!currentRootPath) {
-    return true;
-  }
-  if (!isAbsolutePath(currentRootPath)) {
-    return !isAbsolutePath(path);
-  }
-  const normalizedPath = normalizePathForRootScope(path);
-  const normalizedRootPath = normalizePathForRootScope(currentRootPath);
-  const scopedPath = isWindowsAbsolutePath(currentRootPath)
-    ? normalizedPath.toLowerCase()
-    : normalizedPath;
-  const scopedRootPath = isWindowsAbsolutePath(currentRootPath)
-    ? normalizedRootPath.toLowerCase()
-    : normalizedRootPath;
-  if (/^\/+$/u.test(scopedRootPath)) {
-    return scopedPath.startsWith(scopedRootPath);
-  }
-  const descendantRootPath = scopedRootPath.endsWith('/')
-    ? scopedRootPath.slice(0, -1)
-    : scopedRootPath;
-  const isWindowsDriveRoot = /^[a-z]:\/$/u.test(scopedRootPath);
-  return (
-    scopedPath === scopedRootPath ||
-    (!isWindowsDriveRoot && scopedPath === descendantRootPath) ||
-    isDescendantPath(scopedPath, descendantRootPath)
-  );
 }
 
 function sortRestorationPaths(paths: Iterable<string>): string[] {
