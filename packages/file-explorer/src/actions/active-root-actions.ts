@@ -1,5 +1,8 @@
 import type { FileExplorerState, StoredRootDescriptor } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { GetState, SetState } from '../types/store-types';
+
+const logger = createLogger('ActiveRootActions');
 
 export interface ActiveRootActions {
   /**
@@ -21,6 +24,15 @@ export interface ActiveRootActions {
    * rootDescriptors = keyed by rootId.
    */
   setActiveRoots: (roots: StoredRootDescriptor[]) => void;
+  /**
+   * Declare the MAIN root: moves the given rootId to the FRONT of
+   * activeRootIds (activeRootIds[0] = main root — the assistant's operating
+   * root), preserving the relative order of the remaining ids. No-op when the
+   * id is already first; warn-and-no-op for an unknown id. Never touches
+   * rootDescriptors/folderStates and never changes the focused root
+   * (currentFolderId) — main and focused are independent concepts.
+   */
+  setMainRoot: (rootId: string) => void;
 }
 
 export const createActiveRootActions = (
@@ -58,6 +70,21 @@ export const createActiveRootActions = (
     set({
       activeRootIds: roots.map((r) => r.rootId),
       rootDescriptors: Object.fromEntries(roots.map((r) => [r.rootId, r])),
+    });
+  },
+  setMainRoot: (rootId: string) => {
+    set((state: FileExplorerState) => {
+      if (!state.activeRootIds.includes(rootId)) {
+        logger.warn('setMainRoot ignored: rootId is not an active root', { rootId });
+        return {};
+      }
+      if (state.activeRootIds[0] === rootId) {
+        // Already the main root — keep the array identity stable.
+        return {};
+      }
+      return {
+        activeRootIds: [rootId, ...state.activeRootIds.filter((id) => id !== rootId)],
+      };
     });
   },
 });

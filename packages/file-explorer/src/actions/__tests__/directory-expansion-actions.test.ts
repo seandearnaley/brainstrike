@@ -62,6 +62,7 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   setIncludeProjectTree: vi.fn(),
   setIsAccessLoading: vi.fn(),
   setLastActiveTab: vi.fn(),
+  setMainRoot: vi.fn(),
   setMaterializedPaths: vi.fn(),
   setMaxSelectionCount: vi.fn(),
   setQuerySelection: vi.fn(),
