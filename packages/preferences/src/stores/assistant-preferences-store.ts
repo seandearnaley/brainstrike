@@ -67,6 +67,12 @@ interface AssistantPreferencesData {
    */
   planModeEnabled: boolean;
   providerSettings: ProviderSettingsMap;
+  /**
+   * Most-recently selected composite keys ("provider::model"), newest first,
+   * deduped, capped at {@link RECENT_MODELS_MAX}. Feeds the composer model
+   * menu's top-level rows; consumers filter to currently valid options.
+   */
+  recentModels: string[];
   selectedModel: string | null; // Composite key: "provider::model"
 }
 
@@ -136,6 +142,7 @@ const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
   (provider) => providerEnvKeys(provider).length === 0 && !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
+const RECENT_MODELS_MAX = 5;
 
 interface LocalRuntimeServices {
   readonly discoveryService: LocalRuntimeDiscoveryService;
@@ -381,6 +388,11 @@ function parseCompositeModelKey(value: string | null | undefined): ParsedComposi
 
 function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
+}
+
+function pushRecentModel(recents: readonly string[], compositeKey: string): string[] {
+  const next = [compositeKey, ...recents.filter((entry) => entry !== compositeKey)];
+  return next.slice(0, RECENT_MODELS_MAX);
 }
 
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
@@ -1104,6 +1116,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
       planModeEnabled: false,
       providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
+      recentModels: [],
       selectedModel: null,
 
       setModel: (compositeKey) =>
@@ -1117,6 +1130,7 @@ export const useAssistantPreferencesStore = create<Store>()(
           // The UI layer validates model enabled state against the database before calling setModel
           return {
             modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
+            recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
             selectedModel: parsed.compositeKey,
           };
         }),
@@ -1199,13 +1213,37 @@ export const useAssistantPreferencesStore = create<Store>()(
         );
         const selectedModel = buildMigratedSelectedModel(base, migratedEnabled);
 
+        // v7 introduced recentModels. Pre-v7 snapshots have none (default
+        // []); if a future rollback re-runs this path, keep only entries
+        // that still parse as composite keys, remapped through the model-id
+        // migrations.
+        const recentModels = Array.isArray(base.recentModels)
+          ? Array.from(
+              new Set(
+                base.recentModels
+                  .map((entry) => parseCompositeModelKey(entry))
+                  .filter((parsed): parsed is ParsedCompositeModelKey => parsed !== null)
+                  .map(
+                    (parsed) =>
+                      `${parsed.provider}${MODEL_KEY_DELIMITER}${migrateModelId(parsed.provider, parsed.model)}`
+                  )
+              )
+            ).slice(0, RECENT_MODELS_MAX)
+          : [];
+
         return {
           enabledModelsByProvider: migratedEnabled,
           modelsByProvider: migratedModelsByProvider,
+          // Preserve every partialize'd field the migrated snapshot may carry
+          // (e.g. a pre-v7 user's read-only planning guard) — the returned
+          // partial is merged over initial state, so anything omitted here
+          // silently resets to its default.
+          planModeEnabled: typeof base.planModeEnabled === 'boolean' ? base.planModeEnabled : false,
           providerSettings: {
             ...DEFAULT_PROVIDER_SETTINGS,
             ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),
           },
+          recentModels,
           selectedModel,
         } satisfies Partial<Store>;
       },
@@ -1215,6 +1253,7 @@ export const useAssistantPreferencesStore = create<Store>()(
         modelsByProvider: s.modelsByProvider,
         planModeEnabled: s.planModeEnabled,
         providerSettings: s.providerSettings,
+        recentModels: s.recentModels,
         selectedModel: s.selectedModel,
       }),
       storage,
@@ -1229,6 +1268,7 @@ function resetStoreState() {
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     planModeEnabled: false,
     providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
+    recentModels: [],
     selectedModel: null,
   });
 }

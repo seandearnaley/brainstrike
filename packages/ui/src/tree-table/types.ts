@@ -363,6 +363,18 @@ export interface TreeTableProps<T> {
   // Virtualization
   /** Row height (fixed number or function) */
   rowHeight?: RowHeightConfig<T>;
+  /**
+   * Shared-scroller mode (forest sections): virtualize against this ancestor
+   * scroll element instead of the internal viewport. The viewport becomes a
+   * non-scrolling spacer (overflow-visible, natural height) and the
+   * virtualizer windows via TanStack's scrollMargin — the table's offset
+   * within the ancestor, tracked as surrounding content resizes. Multiple
+   * TreeTables stacked in ONE scroll container stay windowed this way; giving
+   * each its own scrollbar inside a scrolling column breaks virtualization
+   * (the viewport stretches to content height and never scrolls).
+   * Only honored under the `virtual` windowing strategy.
+   */
+  scrollParentRef?: React.RefObject<HTMLElement | null>;
 
   // Selection state
   /** Currently selected node ID (single selection mode) */

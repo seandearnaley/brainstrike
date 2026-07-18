@@ -79,13 +79,20 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    // Bumped 1818 → 1845 for the multi-root operating-root chip: operatingRoot
-    // threads the SAME 5 layers as cumulativeUsage (AssistantUiPanel →
-    // Local/DataStream chat → ChatThreadUI), and the composer shell mounts
-    // <OperatingRootChip /> as a SIBLING at the top of the stack (its own
-    // module, operating-root-chip.tsx — deliberately not nested inside
-    // ThreadContextMeter, which is being reworked separately).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1845);
+    // Several independent features each threaded a small prop/renderer through
+    // this panel and landed via separate PRs; the budget carries the merged
+    // total with modest headroom:
+    //  • multi-root operating-root chip (WS6): operatingRoot threads the same 5
+    //    layers as cumulativeUsage; the composer shell mounts <OperatingRootChip />
+    //    as a sibling at the top of the stack (operating-root-chip.tsx).
+    //  • user-message copy (WS3): UserActionBar routes through the shared
+    //    clipboard service (useCopyToClipboard) instead of
+    //    ActionBarPrimitive.Copy's navigator.clipboard; exported test-only seam.
+    //  • approval-outcome chip (WS2) + context-breakdown seam (WS8).
+    // The model-menu swap net-removed code, so the merged file measures ~1797
+    // lines. Value kept identical across the concurrently-merging panel PRs so
+    // the line does not re-conflict.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1840);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -172,6 +179,28 @@ describe('assistant UI panel architecture', () => {
     expect(readSource('assistant-ui-panel/budget-guardrail-control.tsx')).toContain(
       'export function BudgetGuardrailControl'
     );
+  });
+
+  it('gives user messages a copy affordance alongside edit, routed through the shared clipboard service', () => {
+    // UNLIKE AssistantActionBar's ActionBarPrimitive.Copy (which uses
+    // navigator.clipboard.writeText directly and swallows write rejections),
+    // the user-message copy control routes through useCopyToClipboard --
+    // the same shared, bridge-aware service CodeBlockHeader/CopyTextButton
+    // use -- so a broken Electron clipboard bridge surfaces visibly instead
+    // of silently doing nothing (no-silent-fallbacks rule).
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const userActionBarStart = source.indexOf('export const UserActionBar =');
+    const editComposerStart = source.indexOf('const EditComposer =');
+    const userActionBarSource = source.slice(userActionBarStart, editComposerStart);
+
+    expect(userActionBarSource).toContain('useCopyToClipboard()');
+    expect(userActionBarSource).toContain('aui.message().getCopyText()');
+    expect(userActionBarSource).toContain('ActionBarPrimitive.Edit');
+    // Not USED as a component (a comment may still reference it by name to
+    // explain why it was replaced).
+    expect(userActionBarSource).not.toContain('<ActionBarPrimitive.Copy');
+    // Broken-bridge failure must be visibly rendered, never silent.
+    expect(userActionBarSource).toContain("isFailed ? 'Copy failed' : null");
   });
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {

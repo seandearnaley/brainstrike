@@ -2,7 +2,8 @@
   "name": "@brainstrike/assistant-contract",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -117,6 +118,11 @@
       "types": "./dist/user-personas.d.ts",
       "import": "./dist/user-personas.js",
       "require": "./dist/user-personas.js"
+    },
+    "./model-reasoning": {
+      "types": "./dist/model-reasoning.d.ts",
+      "import": "./dist/model-reasoning.js",
+      "require": "./dist/model-reasoning.js"
     }
   },
   "files": [

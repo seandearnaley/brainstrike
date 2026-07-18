@@ -66,7 +66,11 @@ describe('app-shell assistant contract boundary', () => {
     // derives mainRootId/mainRootPath (activeRootIds[0] → request ordering
     // hint) and the ≥2-roots operatingRoot chip payload; the chip UI lives in
     // packages/ui (operating-root-chip.tsx).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1580);
+    // Bumped 1580 → 1590 on merge with the universal-grant work (#1736,
+    // grantAllToolsForSession wiring) and the context-breakdown stale-clear
+    // (#1738, handleUsage → clearBreakdown). Value kept identical across the
+    // concurrently-merging wrapper PRs so the line does not re-conflict.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1590);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

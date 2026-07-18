@@ -9,6 +9,7 @@ const openAiDefaultModel: LlmProviderModelDefinition = {
   id: 'hosted-default',
   label: 'Hosted Default',
   supportsStreaming: true,
+  tagline: 'Most capable for everyday work',
   type: 'llm',
   vision: 'supported',
 };
@@ -113,15 +114,29 @@ describe('useAssistantModelPickerConfig', () => {
     ]);
     expect(result.current.pickerModels).toEqual([
       {
-        capabilities: { streaming: true, type: 'llm', vision: 'supported' },
+        // Hosted OpenAI models reason by provider default; the tagline flows
+        // through as the row description.
+        capabilities: {
+          reasoning: 'supported',
+          streaming: true,
+          type: 'llm',
+          vision: 'supported',
+        },
         contextWindow: 200_000,
-        description: null,
+        description: 'Most capable for everyday work',
         id: 'hosted-default',
         name: 'Hosted Default',
         providerId: 'openai',
       },
       {
-        capabilities: { streaming: true, type: 'llm', vision: 'unknown' },
+        // Discovered runtime models surface tri-state 'unknown' (unverified),
+        // and taglineless models keep a null description (no invented copy).
+        capabilities: {
+          reasoning: 'unknown',
+          streaming: true,
+          type: 'llm',
+          vision: 'unknown',
+        },
         contextWindow: 200_000,
         description: null,
         id: 'llama3.2',

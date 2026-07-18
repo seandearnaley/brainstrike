@@ -1,7 +1,7 @@
-import { Button, CodeSurface } from '@brainstrike/ui';
+import { Button, CodeSurface, CopyTextButton } from '@brainstrike/ui';
 import { MarkdownSurface } from '@brainstrike/ui/markdown-surface';
 import { createLogger } from '@brainstrike/utils';
-import { Check, Copy, Eye, FileCode2, Loader2, Pencil } from 'lucide-react';
+import { Check, Eye, FileCode2, Loader2, Pencil } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
@@ -30,45 +30,6 @@ function rootForNote(roots: readonly VaultRootState[], note: VaultNoteNode): Vau
   return roots.find((root) => root.rootId === note.rootId) ?? null;
 }
 
-function CopyButton({ content }: { content: string }): React.ReactNode {
-  const [copied, setCopied] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setFailed(false);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (error) {
-      logger.error('Copying note content failed', { error });
-      setFailed(true);
-    }
-  }, [content]);
-
-  return (
-    <span className="flex items-center gap-1">
-      {failed ? <span className="text-destructive text-xs">Copy failed</span> : null}
-      <Button
-        aria-label="Copy note content"
-        className="h-7 gap-1.5 px-2 text-xs"
-        onClick={() => {
-          void handleCopy();
-        }}
-        size="sm"
-        variant="ghost"
-      >
-        {copied ? (
-          <Check aria-hidden="true" className="h-3.5 w-3.5 text-green-600" />
-        ) : (
-          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
-        )}
-        {copied ? 'Copied' : 'Copy'}
-      </Button>
-    </span>
-  );
-}
-
 function HeaderActions({
   editor,
   contentReady,
@@ -93,7 +54,11 @@ function HeaderActions({
           {SAVE_STATE_LABELS[editor.saveState]}
         </span>
       ) : null}
-      {contentReady ? <CopyButton content={copyContent} /> : null}
+      {contentReady ? (
+        // Shared CopyTextButton routes through the clipboard service (Electron
+        // bridge on desktop) instead of navigator.clipboard directly.
+        <CopyTextButton ariaLabel="Copy note content" label="Copy" text={copyContent} />
+      ) : null}
       {editor.editing ? (
         <Button
           aria-label="Done editing"

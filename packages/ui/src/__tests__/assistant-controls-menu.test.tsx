@@ -66,7 +66,7 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('Detail')).toBeInTheDocument();
   });
 
-  it('renders reasoning controls for supported providers', () => {
+  it('renders output & limits controls for supported providers', () => {
     const settings = {
       OpenAI: {
         reasoningEffort: 'low',
@@ -83,7 +83,7 @@ describe('ControlsMenu', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
-    expect(screen.getByText('Reasoning & Output')).toBeInTheDocument();
+    expect(screen.getByText('Output & Limits')).toBeInTheDocument();
     expect(screen.getByText('Provider settings panel')).toHaveAttribute(
       'data-provider-id',
       'OpenAI'
@@ -95,7 +95,7 @@ describe('ControlsMenu', () => {
     render(<ControlsMenu onProviderSettingsChange={vi.fn()} selectedProvider="local" />);
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
-    expect(screen.queryByText('Reasoning & Output')).not.toBeInTheDocument();
+    expect(screen.queryByText('Output & Limits')).not.toBeInTheDocument();
   });
 
   it('groups tools by source and label, summarizes enabled counts, and routes actions', async () => {

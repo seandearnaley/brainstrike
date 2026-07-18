@@ -23,7 +23,12 @@ When changing the model catalog:
    packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
    (no DB migration). It drives the thread context meter and the auto-derived
    `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
-7. Every LLM model entry MUST also declare `vision` ('supported' | 'unsupported'; never
+7. `tagline` on a registry LLM entry is OPTIONAL, registry-only composer copy: it renders as
+   the model's one-line description in the composer model menu. The DB catalog's own
+   tagline/description column feeds the db-explorer surface instead — the two are separate
+   sources on purpose (no migration needed for registry tagline changes). Omit rather than
+   invent copy: taglineless models render name-only.
+8. Every LLM model entry MUST also declare `vision` ('supported' | 'unsupported'; never
    'unknown' in the static registry — pinned by provider-registry-vision.test.ts). It gates the
    composer image-attachment affordance per selected model. Unlike `contextWindow`, this one IS
    mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities

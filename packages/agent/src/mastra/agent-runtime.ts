@@ -1,7 +1,10 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
-import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  buildNativeToolRiskMap,
+  denormalizeNativeToolName,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import {
@@ -71,6 +74,7 @@ import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
+  resolveAskToolMetadata,
 } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
@@ -155,6 +159,17 @@ export interface MastraAgentRuntime {
   delegationToolPersonas: ReadonlyMap<string, string>;
   dispose: () => Promise<void>;
   mcpClient?: McpRuntimeClient;
+  /**
+   * Whether a permission-policy snapshot was enforced when this runtime built its
+   * tool map. It DISAMBIGUATES an empty {@link askTools}: empty because a policy
+   * WAS enforced but resolved nothing to `'ask'` (every remaining tool is
+   * allowed — e.g. after "Allow all tools this session" grants all categories)
+   * vs. empty because NO policy was enforced at all. The approval-resume gate
+   * (`resolveResumeApprovalGate`) needs this: the former is an all-allowed
+   * posture (gate nothing), the latter with run-wide `requireToolApproval: true`
+   * is a genuine explicit GLOBAL approval (gate every non-internal tool).
+   */
+  permissionEnforced: boolean;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   resilienceConfig: AssistantResilienceConfig;
@@ -719,6 +734,10 @@ export async function createMastraAgentRuntime(
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
+    // Present iff a policy snapshot gated this run's tool map — the signal the
+    // resume gate uses to tell all-allowed (empty askTools) from a genuine
+    // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
+    permissionEnforced: permissionSnapshot !== undefined,
     personasById,
     resilienceConfig,
     toolNameMap,
@@ -1216,10 +1235,26 @@ function makeApprovalRequiredChunks(
   const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
-  // The Mastra approval part names the tool by its registered (sanitized) id,
-  // which is how `askTools` is keyed by the permission gate. When the pause was
-  // driven by a permission 'ask', surface the risk reason so the UI can say WHY.
-  const askMetadata = askTools?.get(rawToolName);
+  // The Mastra approval part names the tool by its registered (sanitized) id
+  // today, which is how `askTools` is keyed by the permission gate — but the
+  // lookup accepts EITHER name form (sanitized key or originalName) so a part
+  // carrying the original dotted name still resolves. When the pause was driven
+  // by a permission 'ask', surface the risk reason so the UI can say WHY.
+  const askMetadata = askTools ? resolveAskToolMetadata(askTools, rawToolName) : undefined;
+  if (!askMetadata && askTools && askTools.size > 0) {
+    // Policy-driven run (non-empty ask set) with an approval pause we cannot
+    // attribute: surface the pause WITHOUT metadata (never fabricate a
+    // riskCategory) and log LOUDLY — a silent drop here removes the notice's
+    // reason line and grant actions with no trace (no-silent-fallbacks).
+    logger.error('approval pause tool not found in ask-tool metadata under either name form', {
+      code: 'mastra_agent_approval_metadata_unresolved',
+      knownAskTools: Array.from(askTools.keys()),
+      rawToolName,
+      runId,
+      toolCallId,
+      toolName,
+    });
+  }
 
   logger.info('mastra tool approval pause surfaced for client approval', {
     code: 'mastra_agent_tool_approval_required',
@@ -2224,19 +2259,34 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
  * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
  * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
  * allowed read/state tools run free, ask-gated mutations can suspend again, and
- * Mastra's internal memory tools remain exempt. An empty ask set means the
- * approval was explicitly global rather than policy-scoped, so every
- * non-internal follow-up remains gated. A caller-supplied function or a
+ * Mastra's internal memory tools remain exempt. A caller-supplied function or a
  * non-`true` value passes through unchanged.
+ *
+ * An empty `askTools` is AMBIGUOUS and MUST be disambiguated by `permissionEnforced`:
+ *  - `permissionEnforced === true` → a policy WAS enforced but resolved nothing
+ *    to `'ask'`, i.e. every remaining tool is ALLOWED (e.g. "Allow all tools
+ *    this session" granted all categories; denied tools were already omitted
+ *    from the map). This is an all-allowed posture → gate NOTHING, so a later
+ *    mutation tool in the same resumed run is NOT re-prompted.
+ *  - `permissionEnforced === false` → NO policy was enforced yet the caller set
+ *    run-wide `requireToolApproval: true` → a genuine explicit GLOBAL approval
+ *    request → keep gating every non-internal tool (the pre-permission-engine
+ *    behavior). Per-tool DENY still wins in both cases: a denied tool never
+ *    reaches the map, so it never reaches this gate.
  */
 function resolveResumeApprovalGate(
   requireToolApproval: ApprovalGate | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
+  permissionEnforced: boolean
 ): ApprovalGate {
   if (requireToolApproval !== true) {
     return requireToolApproval ?? false;
   }
-  const isExplicitGlobalApproval = askTools.size === 0;
+  // Global-gate ONLY when the empty ask set is a genuine global-approval request
+  // (no policy enforced). An empty ask set UNDER an enforced policy is the
+  // all-allowed posture: the function below then gates nothing (askTools.has is
+  // always false), honoring "Allow all tools this session".
+  const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
   return ({ toolName }: { toolName: string }): boolean =>
     !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
@@ -2274,7 +2324,11 @@ async function createToolApprovalIteratorFromRuntime({
       ...(requireToolApproval === undefined
         ? {}
         : {
-            requireToolApproval: resolveResumeApprovalGate(requireToolApproval, runtime.askTools),
+            requireToolApproval: resolveResumeApprovalGate(
+              requireToolApproval,
+              runtime.askTools,
+              runtime.permissionEnforced
+            ),
           }),
     };
 
@@ -2443,6 +2497,41 @@ export interface ListSuspendedApprovalsResult {
 }
 
 /**
+ * Map a suspended tool call's REGISTERED (Mastra-sanitized) id back to the
+ * ORIGINAL name every client-facing approval surface is keyed by (riskByTool
+ * lookups, per-tool overrides, the notice label). Resolution order:
+ * 1. the discovery runtime's `toolNameMap` (authoritative when the tool is
+ *    registered on this runtime — covers custom/MCP dotted names), then
+ * 2. the static native reverse map (`denormalizeNativeToolName`) — covers the
+ *    desktop KEYLESS discovery route, which registers NO tools, for every
+ *    known native id (the confirmed `brainstrike_executeCommand` live bug).
+ * When neither resolves, the registered id is returned unchanged with a LOUD
+ * warning: the pause still surfaces (the user can approve/decline), but risk
+ * metadata / grant actions will be honestly unavailable downstream — never a
+ * silent drop, never a fabricated mapping (no-silent-fallbacks).
+ */
+function resolveDiscoveredApprovalToolName(
+  registeredToolName: string,
+  toolNameMap: ReadonlyMap<string, string>,
+  runId: string
+): string {
+  const mapped = toolNameMap.get(registeredToolName);
+  if (mapped !== undefined) {
+    return mapped;
+  }
+  const nativeDotted = denormalizeNativeToolName(registeredToolName);
+  if (nativeDotted !== registeredToolName) {
+    return nativeDotted;
+  }
+  logger.warn('suspended approval tool name could not be mapped to an original name', {
+    code: 'mastra_agent_suspended_tool_name_unmapped',
+    runId,
+    toolName: registeredToolName,
+  });
+  return registeredToolName;
+}
+
+/**
  * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
  * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
  * sanctioned `agent.listSuspendedRuns` — it holds no in-memory stream handle, so
@@ -2499,7 +2588,14 @@ export async function listSuspendedMastraRuns(
           runId: run.runId,
           suspendedAt,
           toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
+          // Snapshots store the REGISTERED (sanitized) id; every client-facing
+          // surface is keyed by the ORIGINAL name — map it back here so the
+          // desktop route's riskByTool lookup and per-tool overrides match.
+          toolName: resolveDiscoveredApprovalToolName(
+            toolCall.toolName,
+            runtime.toolNameMap,
+            run.runId
+          ),
           ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
         });
       }
