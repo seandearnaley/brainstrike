@@ -8,6 +8,13 @@
  *
  * Each PerRootTreePane registers its section-scoped actions here; the panel
  * toolbar runs them across every section.
+ *
+ * PERF SPLIT (PR #1734 audit): the registry callbacks are STABLE and live in
+ * their own context, while the high-frequency expand-all progress aggregate is
+ * an external store subscribed only by the toolbar's progress display through
+ * `useForestExpandAllProgress`. Progress reports are coalesced through
+ * requestAnimationFrame and the aggregate is maintained by per-section delta,
+ * so a report neither re-renders every section pane nor re-sums every root.
  */
 
 import {
@@ -15,9 +22,11 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 
 export interface SectionSelectAllSummary {
@@ -53,6 +62,12 @@ export interface ExpandAllProgress {
   total: number;
 }
 
+/**
+ * STABLE registry value: every field keeps its identity for the provider's
+ * lifetime. Progress observation deliberately lives OUTSIDE this value — use
+ * `useForestExpandAllProgress` / `useForestIsExpandingAll` — so the sections
+ * that only register/report never re-render on progress events.
+ */
 export interface ForestTreeActionsValue {
   /** Cancel every section's in-flight progressive expansion. */
   cancelExpandAll: () => void;
@@ -62,15 +77,6 @@ export interface ForestTreeActionsValue {
    * quick-filter Select All.
    */
   collectVisibleQuickFilterKeys: () => string[];
-  /**
-   * Aggregate expand-all progress: the sum of every section's latest report
-   * for the CURRENT run (null before the first report). Values persist after
-   * a run completes — consumers gate display on isExpandingAll — and reset
-   * when the next run starts.
-   */
-  expandAllProgress: ExpandAllProgress | null;
-  /** True while a forest-wide expand-all is running. */
-  isExpandingAll: boolean;
   /** Register a section's actions; returns the unregister cleanup. */
   register: (rootId: string, actions: SectionTreeActions) => () => void;
   /**
@@ -78,7 +84,8 @@ export interface ForestTreeActionsValue {
    * context's expandAllProgress here because it lives in per-root providers
    * the toolbar cannot see. Accepted at any time (section commits can trail
    * the run) — each run clears the aggregate at start and consumers gate
-   * display on isExpandingAll.
+   * display on isExpandingAll. Reports are aggregated by DELTA against the
+   * section's previous report and published once per animation frame.
    */
   reportExpandAllProgress: (rootId: string, progress: ExpandAllProgress) => void;
   /** Run expand-all across every registered section (sequentially). */
@@ -92,7 +99,29 @@ export interface ForestTreeActionsValue {
   runSelectAll: () => Promise<ForestSelectAllSummary>;
 }
 
+interface ExpandAllProgressStore {
+  getSnapshot: () => ExpandAllProgress | null;
+  subscribe: (listener: () => void) => () => void;
+}
+
+/**
+ * Observable run state. Kept separate from the actions value so subscribing
+ * to it (toolbar) never churns the registry consumers: `isExpandingAll` flips
+ * only at run boundaries, and the progress store's identity is stable (its
+ * SNAPSHOT changes per coalesced frame, delivered via useSyncExternalStore).
+ */
+interface ForestExpandAllStateValue {
+  isExpandingAll: boolean;
+  progressStore: ExpandAllProgressStore;
+}
+
 const ForestTreeActionsContext = createContext<ForestTreeActionsValue | null>(null);
+const ForestExpandAllStateContext = createContext<ForestExpandAllStateValue | null>(null);
+
+// Provider-absent fallbacks (isolated tests / single-root layouts): stable
+// no-op store so useSyncExternalStore's inputs keep their identities.
+const noopSubscribe = () => () => {};
+const nullSnapshot = () => null;
 
 export function ForestTreeActionsProvider({ children }: { children: ReactNode }) {
   const sectionsRef = useRef(new Map<string, SectionTreeActions>());
@@ -101,7 +130,15 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   // Lazily initialized (react-doctor rerender-lazy-ref-init): a useRef(new
   // Map()) initializer would allocate and discard a Map on every render.
   const progressByRootRef = useRef<Map<string, ExpandAllProgress> | null>(null);
-  const [expandAllProgress, setExpandAllProgress] = useState<ExpandAllProgress | null>(null);
+  // Running aggregate, maintained by delta as sections report — never re-sums
+  // every root on a report.
+  const aggregateRef = useRef({ loaded: 0, total: 0 });
+  // Published snapshot for useSyncExternalStore. Only replaced inside the
+  // coalesced frame flush (or the synchronous run-start reset) and only when
+  // the sums actually changed, so unchanged reports keep the object identity.
+  const snapshotRef = useRef<ExpandAllProgress | null>(null);
+  const listenersRef = useRef<Set<() => void> | null>(null);
+  const frameRef = useRef<number | null>(null);
 
   const register = useCallback((rootId: string, actions: SectionTreeActions) => {
     sectionsRef.current.set(rootId, actions);
@@ -112,37 +149,100 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     };
   }, []);
 
-  const reportExpandAllProgress = useCallback((rootId: string, progress: ExpandAllProgress) => {
-    // Deliberately ungated: section commits can trail the run's completion
-    // (React batches under load), so a run-active gate would drop the very
-    // reports it exists to collect. Staleness is handled elsewhere — each run
-    // clears the map at start, and consumers gate display on isExpandingAll.
-    if (progressByRootRef.current === null) {
-      progressByRootRef.current = new Map<string, ExpandAllProgress>();
+  const notifyProgressListeners = useCallback(() => {
+    const listeners = listenersRef.current;
+    if (!listeners) {
+      return;
     }
-    const progressByRoot = progressByRootRef.current;
-    progressByRoot.set(rootId, progress);
-    let loaded = 0;
-    let total = 0;
-    for (const sectionProgress of progressByRoot.values()) {
-      loaded += sectionProgress.loaded;
-      total += sectionProgress.total;
+    for (const listener of listeners) {
+      listener();
     }
-    // Value-equal bailout: repeated reports of the same sums must not churn
-    // context consumers with fresh object identities.
-    setExpandAllProgress((previous) =>
-      previous && previous.loaded === loaded && previous.total === total
-        ? previous
-        : { loaded, total }
-    );
   }, []);
+
+  const flushProgress = useCallback(() => {
+    frameRef.current = null;
+    const { loaded, total } = aggregateRef.current;
+    const previous = snapshotRef.current;
+    // Value-equal bailout: repeated reports of the same sums must not churn
+    // subscribers with fresh object identities.
+    if (previous && previous.loaded === loaded && previous.total === total) {
+      return;
+    }
+    snapshotRef.current = { loaded, total };
+    notifyProgressListeners();
+  }, [notifyProgressListeners]);
+
+  const scheduleProgressFlush = useCallback(() => {
+    if (frameRef.current !== null) {
+      return;
+    }
+    frameRef.current = requestAnimationFrame(flushProgress);
+  }, [flushProgress]);
+
+  // Unmount-only cleanup: drop any pending coalesced flush.
+  useEffect(() => {
+    const cancelPendingFlush = () => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+    return cancelPendingFlush;
+  }, []);
+
+  const reportExpandAllProgress = useCallback(
+    (rootId: string, progress: ExpandAllProgress) => {
+      // Deliberately ungated: section commits can trail the run's completion
+      // (React batches under load), so a run-active gate would drop the very
+      // reports it exists to collect. Staleness is handled elsewhere — each
+      // run clears the aggregate at start, and consumers gate display on
+      // isExpandingAll.
+      if (progressByRootRef.current === null) {
+        progressByRootRef.current = new Map<string, ExpandAllProgress>();
+      }
+      const previous = progressByRootRef.current.get(rootId);
+      progressByRootRef.current.set(rootId, progress);
+      aggregateRef.current.loaded += progress.loaded - (previous?.loaded ?? 0);
+      aggregateRef.current.total += progress.total - (previous?.total ?? 0);
+      // Coalesce: bursts of reports publish at most once per animation frame.
+      scheduleProgressFlush();
+    },
+    [scheduleProgressFlush]
+  );
+
+  const progressStore = useMemo<ExpandAllProgressStore>(
+    () => ({
+      getSnapshot: () => snapshotRef.current,
+      subscribe: (listener: () => void) => {
+        if (listenersRef.current === null) {
+          listenersRef.current = new Set<() => void>();
+        }
+        const listeners = listenersRef.current;
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    }),
+    []
+  );
 
   const runExpandAll = useCallback(async () => {
     cancelledRef.current = false;
     // Fresh aggregate per run; completed runs keep their final counts only
-    // until the next run starts (display is gated on isExpandingAll).
+    // until the next run starts (display is gated on isExpandingAll). The
+    // reset publishes SYNCHRONOUSLY — a stale previous-run count must never
+    // survive into the new run's first frame.
     progressByRootRef.current?.clear();
-    setExpandAllProgress(null);
+    aggregateRef.current = { loaded: 0, total: 0 };
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    if (snapshotRef.current !== null) {
+      snapshotRef.current = null;
+      notifyProgressListeners();
+    }
     setRunningCount((count) => count + 1);
     try {
       // Sequential: progressive expansion is I/O-heavy per root; one section
@@ -157,7 +257,7 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     } finally {
       setRunningCount((count) => count - 1);
     }
-  }, []);
+  }, [notifyProgressListeners]);
 
   const cancelExpandAll = useCallback(() => {
     cancelledRef.current = true;
@@ -192,12 +292,13 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     return keys;
   }, []);
 
-  const value = useMemo(
+  // Every dependency is a stable callback — this value NEVER changes identity,
+  // so actions-only consumers (each PerRootTreePane, the panel's toolbar
+  // callbacks) do not re-render on progress or run-state changes.
+  const actionsValue = useMemo<ForestTreeActionsValue>(
     () => ({
       cancelExpandAll,
       collectVisibleQuickFilterKeys,
-      expandAllProgress,
-      isExpandingAll: runningCount > 0,
       register,
       reportExpandAllProgress,
       runExpandAll,
@@ -206,21 +307,49 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     [
       cancelExpandAll,
       collectVisibleQuickFilterKeys,
-      expandAllProgress,
       register,
       reportExpandAllProgress,
       runExpandAll,
-      runningCount,
       runSelectAll,
     ]
   );
 
+  // Changes only at run boundaries (progress travels through the store).
+  const expandAllStateValue = useMemo<ForestExpandAllStateValue>(
+    () => ({ isExpandingAll: runningCount > 0, progressStore }),
+    [runningCount, progressStore]
+  );
+
   return (
-    <ForestTreeActionsContext.Provider value={value}>{children}</ForestTreeActionsContext.Provider>
+    <ForestTreeActionsContext.Provider value={actionsValue}>
+      <ForestExpandAllStateContext.Provider value={expandAllStateValue}>
+        {children}
+      </ForestExpandAllStateContext.Provider>
+    </ForestTreeActionsContext.Provider>
   );
 }
 
 /** Null outside a ForestTreeActionsProvider (e.g. isolated tests). */
 export function useOptionalForestTreeActions(): ForestTreeActionsValue | null {
   return useContext(ForestTreeActionsContext);
+}
+
+/** True while a forest-wide expand-all runs; false outside a provider. */
+export function useForestIsExpandingAll(): boolean {
+  return useContext(ForestExpandAllStateContext)?.isExpandingAll ?? false;
+}
+
+/**
+ * The forest-wide expand-all progress aggregate (null before the first report
+ * of a run, and outside a provider). Subscribes via useSyncExternalStore, so
+ * ONLY the calling component re-renders — at most once per animation frame —
+ * as sections report. Values persist after a run completes (consumers gate
+ * display on useForestIsExpandingAll) and reset when the next run starts.
+ */
+export function useForestExpandAllProgress(): ExpandAllProgress | null {
+  const store = useContext(ForestExpandAllStateContext)?.progressStore;
+  return useSyncExternalStore(
+    store?.subscribe ?? noopSubscribe,
+    store?.getSnapshot ?? nullSnapshot
+  );
 }

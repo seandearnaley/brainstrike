@@ -12,7 +12,11 @@ import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEventDetail,
 } from '../shell/file-explorer-refresh-event';
-import { useOptionalForestTreeActions } from '../shell/forest-tree-actions-context';
+import {
+  useForestExpandAllProgress,
+  useForestIsExpandingAll,
+  useOptionalForestTreeActions,
+} from '../shell/forest-tree-actions-context';
 import { useFileExplorer } from '../shell/use-file-explorer-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
 import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
@@ -94,7 +98,12 @@ vi.mock('../shell/use-file-explorer-context', () => ({
 // "no forest provider", the single-root path every existing test exercises.
 vi.mock('../shell/forest-tree-actions-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../shell/forest-tree-actions-context')>();
-  return { ...actual, useOptionalForestTreeActions: vi.fn(() => null) };
+  return {
+    ...actual,
+    useForestExpandAllProgress: vi.fn(() => null),
+    useForestIsExpandingAll: vi.fn(() => false),
+    useOptionalForestTreeActions: vi.fn(() => null),
+  };
 });
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
@@ -340,9 +349,11 @@ describe('FileExplorerPanel', () => {
 
     showToastMock = vi.fn<(options: unknown) => void>();
     handleDirectorySelectErrorMock = vi.fn();
-    // clearAllMocks keeps mockReturnValue overrides — reset the forest hook
-    // to its "no provider" default so forest tests can't leak into others.
+    // clearAllMocks keeps mockReturnValue overrides — reset the forest hooks
+    // to their "no provider" defaults so forest tests can't leak into others.
     vi.mocked(useOptionalForestTreeActions).mockReturnValue(null);
+    vi.mocked(useForestIsExpandingAll).mockReturnValue(false);
+    vi.mocked(useForestExpandAllProgress).mockReturnValue(null);
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
@@ -1284,8 +1295,6 @@ describe('FileExplorerPanel', () => {
     const makeForestActions = () => ({
       cancelExpandAll: vi.fn(),
       collectVisibleQuickFilterKeys: vi.fn(() => []),
-      expandAllProgress: null,
-      isExpandingAll: false,
       register: vi.fn(() => () => {}),
       reportExpandAllProgress: vi.fn(),
       runExpandAll: vi.fn().mockResolvedValue(undefined),
@@ -1366,12 +1375,12 @@ describe('FileExplorerPanel', () => {
 
     it('shows aggregate forest progress with a cancel affordance while the sweep runs', async () => {
       const user = userEvent.setup();
-      const forestActions = {
-        ...makeForestActions(),
-        expandAllProgress: { loaded: 3, total: 9 },
-        isExpandingAll: true,
-      };
+      const forestActions = makeForestActions();
       vi.mocked(useOptionalForestTreeActions).mockReturnValue(forestActions);
+      // The aggregate now flows through the leaf-subscribed observable hooks,
+      // not the actions registry value.
+      vi.mocked(useForestIsExpandingAll).mockReturnValue(true);
+      vi.mocked(useForestExpandAllProgress).mockReturnValue({ loaded: 3, total: 9 });
       vi.mocked(useFileExplorer).mockReturnValue({
         ...fileExplorerReturnValue,
         fileTree: [dirNode],
