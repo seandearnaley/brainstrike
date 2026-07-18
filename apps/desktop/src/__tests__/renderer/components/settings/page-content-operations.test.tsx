@@ -57,6 +57,7 @@ interface CapturedToolsOperations {
 let capturedOperations: CapturedToolsOperations | null = null;
 
 vi.mock('@brainstrike/agent/tool-metadata', () => ({
+  DESKTOP_NATIVE_TOOL_IDS: ['native-read'],
   getNativeToolDescription: (toolId: string) =>
     toolId === 'native-read' ? 'Read local files' : undefined,
   isNativeTool: (toolId: string) => toolId === 'native-read',
