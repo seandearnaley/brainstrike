@@ -243,21 +243,40 @@ Tool output budget (anti-thrash contract): budgets are token-denominated and
 enforced deterministically on serialized chars at 4 chars/token (mirrors
 `countTokensHeuristic`). Native producers self-bound result lists to
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
-runtime then adds `toModelOutput` to every execute-backed native/MCP tool that
-does not already declare a domain projection: `execute()` still returns the
-RAW post-hook value for application consumers and Mastra persistence, while
-the next provider step receives only a text projection capped at
-`MAX_MODEL_TOOL_RESULT_TOKENS` (2000). `skill` is the explicit exception
-(6000), because its instruction body is the payload and cannot be paged.
-Existing tool-specific projections are authoritative and malformed
-non-callable projections throw. Finally, the UI transport independently caps
-the streamed result at `MAX_TOOL_RESULT_TOKENS` (3000). Oversized collections
+runtime then adds or composes `toModelOutput` on every execute-backed
+native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
+application consumers and Mastra persistence, while the provider receives a
+text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
+domain projections keep their semantics but pass through the same final text
+ceiling; malformed non-callable projections throw. MCP image/audio results use
+Mastra `content` output so base64 media remains model-native while companion
+text is bounded. `skill` is the explicit text exception (6000), because its
+instruction body is the payload and cannot be paged.
+
+Mastra 1.51's stock `TokenLimiter` counts raw database-shaped
+`toolInvocation.result` before provider conversion. Brainstrike therefore
+installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
+`providerMetadata.mastra.modelOutput` (with inline media replaced by counting
+markers), delegates to Mastra's limiter, and restores the exact raw result in a
+`finally`. Keep its canonical processor id `token-limiter`.
+
+MCP does not yet have durable artifact settlement, so its persistence channel
+has a separate temporary inline ceiling: text/JSON is bounded to
+`MAX_TOOL_RESULT_TOKENS` (3000); multimodal output keeps raw media only up to
+the assistant aggregate encoded-media ceiling and 12000 non-media serialized
+characters. Exceeding either multimodal ceiling throws visibly—never drops
+media. The artifact-store PR must replace this temporary compromise.
+
+Finally, the UI transport independently caps streamed output at 3000 tokens.
+Oversized collections
 (matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
 structurally trimmed; opaque outputs become a SUCCESSFUL
-`tool_result_truncated` preview with an actionable hint. Output size alone is
-never a tool error. The legacy `tool_result_too_large` envelope remains
-readable only for persisted-history compatibility. Proofs:
+`tool_result_truncated` preview with an actionable hint. The legacy
+`tool_result_too_large` envelope remains readable only for persisted-history
+compatibility, and untrusted envelope-shaped output is revalidated against the
+active budget. Proofs:
 `tool-model-output.spec.ts`, `tool-output-limits.spec.ts`,
+`projection-aware-token-limiter.spec.ts`,
 `mastra-tool-execution.integration.spec.ts`,
 `mastra-memory-persistence.integration.spec.ts`, and
 `data-stream-session.spec.ts`. `listWorkspaceContext` is concise by default

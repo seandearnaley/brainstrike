@@ -1173,7 +1173,7 @@ describe('mcp-tool-loader', () => {
       expect(result).toHaveProperty('filesystem_list_directory');
     });
 
-    it('keeps oversized MCP execution output raw for the later model-projection boundary', async () => {
+    it('keeps oversized text-only MCP persistence within the temporary inline ceiling', async () => {
       const mockMcpClient = createMockMcpClient({
         filesystem: {
           read_file: {
@@ -1205,7 +1205,128 @@ describe('mcp-tool-loader', () => {
 
       const output = await (tool as { execute: () => Promise<unknown> }).execute();
 
-      expect(output).toBe('x'.repeat(13_000));
+      expect(output).toMatchObject({
+        code: 'tool_result_truncated',
+        truncated: true,
+      });
+      expect(JSON.stringify(output).length).toBeLessThanOrEqual(12_000);
+    });
+
+    it('preserves bounded MCP image and audio output for model-native projection', async () => {
+      const rawOutput = {
+        content: [
+          { text: 'A tiny caption.', type: 'text' },
+          { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+          { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
+        ],
+      };
+      const mockMcpClient = createMockMcpClient({
+        remote: {
+          multimodal: {
+            description: 'return media',
+            execute: vi.fn(async () => rawOutput),
+            id: 'multimodal',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'remote',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['remote_multimodal'] as { execute: () => Promise<unknown> };
+      await expect(tool.execute()).resolves.toEqual(rawOutput);
+    });
+
+    it('fails visibly when MCP inline media exceeds the temporary persistence ceiling', async () => {
+      const mockMcpClient = createMockMcpClient({
+        remote: {
+          oversized_media: {
+            description: 'return oversized media',
+            execute: vi.fn(async () => ({
+              content: [
+                {
+                  data: 'x'.repeat(14_000_000),
+                  mimeType: 'image/png',
+                  type: 'image',
+                },
+              ],
+            })),
+            id: 'oversized_media',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'remote',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['remote_oversized_media'] as { execute: () => Promise<unknown> };
+      await expect(tool.execute()).rejects.toThrow(
+        'MCP tool remote.oversized_media returned 14000000 inline media characters'
+      );
+    });
+
+    it('fails visibly when MCP media metadata hides an oversized text payload', async () => {
+      const mockMcpClient = createMockMcpClient({
+        remote: {
+          oversized_caption: {
+            description: 'return oversized caption',
+            execute: vi.fn(async () => ({
+              content: [
+                { text: 'x'.repeat(13_000), type: 'text' },
+                { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+              ],
+            })),
+            id: 'oversized_caption',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'remote',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['remote_oversized_caption'] as { execute: () => Promise<unknown> };
+      await expect(tool.execute()).rejects.toThrow(
+        'MCP tool remote.oversized_caption returned 13089 non-media serialized characters'
+      );
     });
   });
 });

@@ -17,7 +17,7 @@ import {
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
-import { SkillsProcessor, TokenLimiter } from '@mastra/core/processors';
+import { SkillsProcessor } from '@mastra/core/processors';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { IdGeneratorContext } from '@mastra/core/types';
@@ -79,6 +79,7 @@ import {
 } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
+import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
 import {
   computeInstructionBreakdown,
   computePromptBreakdown,
@@ -2071,7 +2072,11 @@ function buildToolLoopOptions(
   // so token trimming is unaffected. Excluded for the local provider.
   const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
   const tokenLimiter = inputTokenLimit
-    ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
+    ? new ProjectionAwareTokenLimiter({
+        limit: inputTokenLimit,
+        strategy: 'truncate',
+        trimMode: 'contiguous',
+      })
     : undefined;
   // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
   // own SkillsProcessor puts the <available_skills> block into the system

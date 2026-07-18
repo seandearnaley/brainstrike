@@ -1,5 +1,6 @@
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
+import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner';
 import { toJsonSafe } from './json';
 
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
@@ -93,7 +94,7 @@ export interface BoundedToolOutput {
 
 function stringifyJsonSafe(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? String(value);
   } catch {
     return String(value);
   }
@@ -190,11 +191,23 @@ function findTrimmableCollectionKey(record: Record<string, unknown>): string | u
   });
 }
 
-function buildTruncationHint(toolName: string, key: string, kept: number, total: number): string {
+function buildTruncationHint(
+  toolName: string,
+  key: string,
+  kept: number,
+  total: number,
+  record: Readonly<Record<string, unknown>>
+): string {
+  const offset = record['offset'];
+  let continuation = ' Narrow the request or use the tool-specific pagination controls.';
+  if (typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0) {
+    continuation = ` Continue with offset: ${offset + kept}.`;
+  } else if (typeof record['hint'] === 'string' && record['hint'].trim().length > 0) {
+    continuation = ` Producer hint: ${record['hint']}`;
+  }
   return (
-    `${toolName} output was truncated to fit the tool result budget: showing ${kept} of ${total} ${key}. ` +
-    'Narrow the request (more specific filters, smaller limits) or page through the remainder ' +
-    `with an offset of ${kept} if the tool supports it.`
+    `${toolName} output was truncated to fit the tool result budget: ` +
+    `showing ${kept} of ${total} returned ${key}.${continuation}`
   );
 }
 
@@ -213,7 +226,7 @@ function trimCollectionToBudget(
   const buildCandidate = (kept: number): Record<string, unknown> => ({
     ...record,
     [key]: items.slice(0, kept),
-    hint: buildTruncationHint(toolName, key, kept, items.length),
+    hint: buildTruncationHint(toolName, key, kept, items.length, record),
     omittedItems: items.length - kept,
     truncated: true,
   });
@@ -235,6 +248,7 @@ function trimCollectionToBudget(
 }
 
 function buildPreviewOutput(params: {
+  readonly hookAdditionalContext?: string;
   readonly maxSerializedChars: number;
   readonly maxTokens: number;
   readonly originalLength: number;
@@ -253,23 +267,32 @@ function buildPreviewOutput(params: {
     originalLength: params.originalLength,
     preview: params.preview,
     truncated: true,
+    ...(params.hookAdditionalContext
+      ? { hookAdditionalContext: params.hookAdditionalContext }
+      : {}),
   };
 }
 
 function createBoundedPreviewOutput(params: {
+  readonly hookAdditionalContext?: string;
   readonly maxSerializedChars: number;
   readonly maxTokens: number;
   readonly originalLength: number;
   readonly previewSource: string;
   readonly toolName: string;
 }): Record<string, unknown> {
+  const hookAdditionalContext = fitHookContextToPreviewBudget(params);
+  const boundedParams = {
+    ...params,
+    ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
+  };
   const envelopeReserve = 512;
   const initialPreviewChars = Math.min(
     TOOL_RESULT_PREVIEW_CHARS,
     Math.max(0, params.maxSerializedChars - envelopeReserve)
   );
   const initial = buildPreviewOutput({
-    ...params,
+    ...boundedParams,
     preview: sliceCodePoints(params.previewSource, initialPreviewChars),
   });
   if (stringifyJsonSafe(initial).length <= params.maxSerializedChars) {
@@ -279,12 +302,50 @@ function createBoundedPreviewOutput(params: {
   // JSON escaping can expand a raw control character to six characters. Use
   // that worst-case ratio only when the readable first candidate did not fit;
   // this remains bounded work and never walks the unbounded tail.
-  const empty = buildPreviewOutput({ ...params, preview: '' });
+  const empty = buildPreviewOutput({ ...boundedParams, preview: '' });
   const availableChars = Math.max(0, params.maxSerializedChars - stringifyJsonSafe(empty).length);
   return buildPreviewOutput({
-    ...params,
+    ...boundedParams,
     preview: sliceCodePoints(params.previewSource, Math.floor(availableChars / 6)),
   });
+}
+
+function fitHookContextToPreviewBudget(params: {
+  readonly hookAdditionalContext?: string;
+  readonly maxSerializedChars: number;
+  readonly maxTokens: number;
+  readonly originalLength: number;
+  readonly toolName: string;
+}): string | undefined {
+  const context = params.hookAdditionalContext;
+  if (!context) {
+    return;
+  }
+  const build = (hookAdditionalContext?: string): Record<string, unknown> =>
+    buildPreviewOutput({
+      ...params,
+      ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
+      preview: '',
+    });
+  if (stringifyJsonSafe(build(context)).length <= params.maxSerializedChars) {
+    return context;
+  }
+
+  const suffix = '… [hook context truncated]';
+  let low = 0;
+  let high = Math.min(context.length, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET);
+  let best: string | undefined;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = `${sliceCodePoints(context, kept)}${suffix}`;
+    if (stringifyJsonSafe(build(candidate)).length <= params.maxSerializedChars) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
 }
 
 export function boundToolOutputForModel(
@@ -292,22 +353,46 @@ export function boundToolOutputForModel(
   output: unknown,
   maxTokensOverride?: number
 ): BoundedToolOutput {
-  // Preserve old persisted hard-error envelopes without re-serializing them.
-  // New oversized successful results use the non-error preview shape below.
-  if (isLegacyOversizedToolError(output)) {
-    return { errorText: output.error, output };
-  }
-  if (isBoundedTruncatedToolOutput(output)) {
-    return { output };
-  }
-
   const maxTokens =
     maxTokensOverride ?? TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ?? MAX_TOOL_RESULT_TOKENS;
   const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);
+
+  // Recognized envelopes are idempotent only when they fit the ACTIVE budget.
+  // Tool output is untrusted (especially MCP), so shape alone must never bypass
+  // serialization or a tighter 3000→2000-token projection boundary.
+  if (serialized.length <= maxSerializedChars) {
+    if (isLegacyOversizedToolError(jsonSafeOutput)) {
+      return { errorText: jsonSafeOutput.error, output: jsonSafeOutput };
+    }
+    if (isBoundedTruncatedToolOutput(jsonSafeOutput)) {
+      return { output: jsonSafeOutput };
+    }
+  }
   if (serialized.length <= maxSerializedChars) {
     return { output: jsonSafeOutput };
+  }
+
+  if (isLegacyOversizedToolError(jsonSafeOutput)) {
+    const errorText = sliceCodePoints(jsonSafeOutput.error, 256);
+    const legacyErrorReserveChars = 2048;
+    const preview = createBoundedPreviewOutput({
+      maxSerializedChars: maxSerializedChars - legacyErrorReserveChars,
+      maxTokens,
+      originalLength: serialized.length,
+      previewSource: serialized,
+      toolName,
+    });
+    return {
+      errorText,
+      output: {
+        ...preview,
+        code: TOOL_RESULT_TOO_LARGE_CODE,
+        error: errorText,
+        maxLength: maxSerializedChars,
+      },
+    };
   }
 
   // Structural degradation: trim a recognizable result list to fit and return
@@ -327,12 +412,28 @@ export function boundToolOutputForModel(
     }
   }
 
+  const hookAdditionalContext =
+    isPlainRecordOutput(jsonSafeOutput) &&
+    typeof jsonSafeOutput['hookAdditionalContext'] === 'string'
+      ? sliceCodePoints(
+          jsonSafeOutput['hookAdditionalContext'],
+          HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET
+        )
+      : undefined;
+  let previewSource = typeof jsonSafeOutput === 'string' ? jsonSafeOutput : serialized;
+  if (hookAdditionalContext && isPlainRecordOutput(jsonSafeOutput)) {
+    const previewRecord = { ...jsonSafeOutput };
+    previewRecord['hookAdditionalContext'] = undefined;
+    previewSource = stringifyJsonSafe(previewRecord);
+  }
+
   return {
     output: createBoundedPreviewOutput({
+      ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
       maxSerializedChars,
       maxTokens,
       originalLength: serialized.length,
-      previewSource: typeof jsonSafeOutput === 'string' ? jsonSafeOutput : serialized,
+      previewSource,
       toolName,
     }),
   };

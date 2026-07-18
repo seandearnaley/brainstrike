@@ -64,6 +64,9 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 const { streamMastraAgent } = await import('../mastra/agent-runtime');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
+const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
+const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
+const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
 
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
@@ -199,6 +202,34 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
         };
       }
     );
+    mcpServer.registerTool(
+      'multimodal',
+      {
+        description: 'Return bounded text with image and audio through a real remote MCP server.',
+        inputSchema: {},
+      },
+      async () => {
+        executions.push('multimodal');
+        return {
+          content: [
+            {
+              text: `${'m'.repeat(9500)}${MCP_TEXT_RAW_ONLY_TAIL}`,
+              type: 'text',
+            },
+            {
+              data: MCP_IMAGE_DATA,
+              mimeType: 'image/png',
+              type: 'image',
+            },
+            {
+              data: MCP_AUDIO_DATA,
+              mimeType: 'audio/wav',
+              type: 'audio',
+            },
+          ],
+        };
+      }
+    );
     // Stateless mode: omit sessionIdGenerator entirely (exactOptionalPropertyTypes
     // forbids passing an explicit `undefined` for the optional property).
     const transport = new StreamableHTTPServerTransport({});
@@ -240,7 +271,7 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
   };
 }
 
-function readToolResultText(message: unknown): string {
+function readToolResultOutput(message: unknown): unknown {
   if (!(message && typeof message === 'object')) {
     throw new TypeError('Expected a tool prompt message');
   }
@@ -256,6 +287,11 @@ function readToolResultText(message: unknown): string {
   if (!(output && typeof output === 'object')) {
     throw new TypeError('Expected a projected tool result');
   }
+  return output;
+}
+
+function readToolResultText(message: unknown): string {
+  const output = readToolResultOutput(message);
   const value = (output as { type?: unknown; value?: unknown }).value;
   if ((output as { type?: unknown }).type !== 'text' || typeof value !== 'string') {
     throw new TypeError('Expected a text tool result projection');
@@ -320,7 +356,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const rawOnlyTail = 'raw-only-tail-must-not-reach-the-model';
     const executeSpy = vi.fn(() =>
       Promise.resolve({
-        content: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+        content: `${'x'.repeat(250_000)}${rawOnlyTail}`,
         path: '/large-output.txt',
       })
     );
@@ -347,7 +383,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const iterator = await streamMastraAgent(
       [{ id: 'u-large', parts: [{ text: 'return the large output', type: 'text' }], role: 'user' }],
       {
-        runtime: { apiKey: 'test-key', provider: 'openai' },
+        runtime: {
+          agentLoop: { inputTokenLimit: 7000 },
+          apiKey: 'test-key',
+          provider: 'openai',
+        },
         tools: { large_output: largeOutputTool },
       }
     );
@@ -431,6 +471,77 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         .map((chunk) => chunk.value)
         .join('')
     ).toContain('remote server echoed hello');
+  });
+
+  it('preserves MCP image and audio as model-native media while bounding companion text', async () => {
+    const server = await startStreamableMcpServer();
+    let modelFacingToolOutput: unknown;
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The remote media reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-remote-multimodal-1',
+      toolName: 'remote_multimodal',
+    });
+
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-remote-multimodal',
+            parts: [{ text: 'return remote media', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          mcpConfig: {
+            servers: [
+              {
+                name: 'remote',
+                transport: 'streamable-http',
+                url: server.url,
+              },
+            ],
+          },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Consuming the real stream drives the remote tool and second model step.
+      }
+    } finally {
+      await server.close();
+    }
+
+    expect(server.executions).toEqual(['multimodal']);
+    expect(modelFacingToolOutput).toMatchObject({ type: 'content' });
+    const value = (modelFacingToolOutput as { value?: unknown }).value;
+    expect(Array.isArray(value)).toBe(true);
+    const modelParts = value as Record<string, unknown>[];
+    expect(modelParts).toEqual(
+      expect.arrayContaining([
+        {
+          data: MCP_IMAGE_DATA,
+          mediaType: 'image/png',
+          type: 'media',
+        },
+        {
+          data: MCP_AUDIO_DATA,
+          mediaType: 'audio/wav',
+          type: 'media',
+        },
+      ])
+    );
+    const text = modelParts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('');
+    expect(text).toContain('output was truncated');
+    expect(text).not.toContain(MCP_TEXT_RAW_ONLY_TAIL);
+    expect(text.length).toBeLessThanOrEqual(8000);
   });
 
   // Live-loop proof for the SHAPE of brainstrike.executeCommand (an execute-risk
@@ -1558,6 +1669,65 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     // The tool result the model sees carries the hook-injected context.
     expect(JSON.stringify(chunks)).toContain('hookAdditionalContext');
     expect(JSON.stringify(chunks)).toContain('lint: ok');
+  });
+
+  it('retains PostToolUse context in the bounded model projection of an oversized result', async () => {
+    const rawOnlyTail = 'oversized-hook-raw-only-tail';
+    const hookContext = 'post-tool-check: inspect the generated migration';
+    const executeSpy = vi.fn(() =>
+      Promise.resolve({
+        content: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+        path: '/large-hook-output.txt',
+      })
+    );
+    const largeOutputTool = createTool({
+      description: 'Return a deliberately large result for hook projection coverage.',
+      execute: executeSpy,
+      id: 'large_hook_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ content: z.string(), path: z.string() }),
+    });
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({ additionalContext: hookContext }),
+      preToolUse: (): Promise<HookToolGateResult> => Promise.resolve({ decision: 'allow' }),
+    };
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'I retained the post-tool guidance.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-large-hook-output-1',
+      toolName: 'large_hook_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-large-hook-output',
+          parts: [{ text: 'return a large result', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { large_hook_output: largeOutputTool },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the tool and second model step.
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).toContain('hookAdditionalContext');
+    expect(modelFacingToolOutput).toContain(hookContext);
+    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
   });
 
   it('threads the runner through runtime.hookRunner (survives runtime resolution)', async () => {

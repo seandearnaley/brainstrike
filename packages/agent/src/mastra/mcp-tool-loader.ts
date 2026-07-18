@@ -1,3 +1,4 @@
+import { ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from '../mcp/config';
@@ -5,13 +6,19 @@ import {
   isAnyToolIdEnabledByFilterConfig,
   toolRegistry as mcpToolRegistry,
 } from '../mcp/tool-registry';
+import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
 import type { McpRuntimeClient, McpToolsetsWithErrors } from './mcp-runtime-client';
+import { measureMcpMultimodalOutput } from './tool-model-output';
 import { sanitizeTools } from './tool-sanitizer';
 
 const logger = createLogger('MastraAgentMcpTools');
 
 const DEFAULT_MCP_TIMEOUT_MS = 5000;
+const APPROX_CHARS_PER_TOKEN = 4;
+export const MAX_MCP_INLINE_MEDIA_DATA_CHARS =
+  Math.ceil(ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES / 3) * 4;
+export const MAX_MCP_NON_MEDIA_SERIALIZED_CHARS = MAX_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 
 export interface CollectCombinedToolsOptions {
   mcpClient: McpRuntimeClient | undefined;
@@ -69,15 +76,66 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      // Keep the MCP execution result raw. createMastraAgentRuntime adds a
-      // Mastra-native `toModelOutput` projection after policy/provider
-      // transformations, so bounding here would destroy the application and
-      // persistence channel before that split exists.
-      Object.assign(combined, enabled);
+      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap));
     }
   }
 
   return combined;
+}
+
+type ExecutableTool = ToolsInput[string] & {
+  execute: (...args: unknown[]) => unknown;
+};
+
+function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
+  return typeof (tool as { execute?: unknown }).execute === 'function';
+}
+
+/**
+ * MCP results remain inline until the durable artifact store lands. Keep that
+ * persistence channel explicitly bounded now: text/JSON receives the normal
+ * successful-preview ceiling, while model-native media keeps its raw base64
+ * only within the same aggregate byte budget as assistant attachments.
+ */
+function wrapMcpToolOutputs(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): ToolsInput {
+  const wrapped: ToolsInput = {};
+  for (const [toolId, tool] of Object.entries(tools)) {
+    if (!isExecutableTool(tool)) {
+      wrapped[toolId] = tool;
+      continue;
+    }
+
+    const originalExecute = tool.execute;
+    const originalToolName = toolNameMap.get(toolId) ?? toolId;
+    const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
+    Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
+    cloned.execute = async (...args: unknown[]): Promise<unknown> => {
+      const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
+      const multimodalSize = measureMcpMultimodalOutput(output);
+      if (!multimodalSize) {
+        return boundToolOutputForModel(originalToolName, output).output;
+      }
+      if (multimodalSize.mediaDataChars > MAX_MCP_INLINE_MEDIA_DATA_CHARS) {
+        throw new RangeError(
+          `MCP tool ${originalToolName} returned ${multimodalSize.mediaDataChars} inline media characters; ` +
+            `the temporary persistence ceiling is ${MAX_MCP_INLINE_MEDIA_DATA_CHARS}`
+        );
+      }
+      if (multimodalSize.nonMediaSerializedChars > MAX_MCP_NON_MEDIA_SERIALIZED_CHARS) {
+        throw new RangeError(
+          `MCP tool ${originalToolName} returned ${multimodalSize.nonMediaSerializedChars} ` +
+            'non-media serialized characters; the temporary persistence ceiling is ' +
+            `${MAX_MCP_NON_MEDIA_SERIALIZED_CHARS}`
+        );
+      }
+      return output;
+    };
+    wrapped[toolId] = cloned;
+  }
+  return wrapped;
 }
 
 function selectToolsetForServer(
