@@ -65,21 +65,12 @@ DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayNam
 const DropdownMenuContent = ({
   className,
   sideOffset = 4,
-  portalled = true,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
-  /**
-   * Render the content inside a Radix portal (default). Pass `false` for
-   * hosts (e.g. Dialog surfaces) that need the menu inline so stacking and
-   * scroll containment follow the host; the default path is unchanged for
-   * existing consumers.
-   */
-  portalled?: boolean;
-} & {
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Content> | null>;
-}) => {
-  const content = (
+}) => (
+  <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       className={cn(
         'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in',
@@ -90,12 +81,8 @@ const DropdownMenuContent = ({
       sideOffset={sideOffset}
       {...props}
     />
-  );
-  if (!portalled) {
-    return content;
-  }
-  return <DropdownMenuPrimitive.Portal>{content}</DropdownMenuPrimitive.Portal>;
-};
+  </DropdownMenuPrimitive.Portal>
+);
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = ({

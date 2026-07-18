@@ -37,34 +37,6 @@ describe('DropdownMenu', () => {
     expect(screen.getByText('Item 1')).toBeInTheDocument();
   });
 
-  it('portals content by default and renders inline with portalled={false}', () => {
-    const portalledRender = render(
-      <DropdownMenu open>
-        <DropdownMenuTrigger>Open Menu</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem>Portalled Item</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-
-    // The default path portals the content to document.body (outside the
-    // render container) — byte-identical behavior for existing consumers.
-    expect(screen.getByText('Portalled Item')).toBeInTheDocument();
-    expect(portalledRender.container).not.toContainElement(screen.getByText('Portalled Item'));
-    portalledRender.unmount();
-
-    const inlineRender = render(
-      <DropdownMenu open>
-        <DropdownMenuTrigger>Open Menu</DropdownMenuTrigger>
-        <DropdownMenuContent portalled={false}>
-          <DropdownMenuItem>Inline Item</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-
-    expect(inlineRender.container).toContainElement(screen.getByText('Inline Item'));
-  });
-
   it('renders menu label', () => {
     render(
       <DropdownMenu open>

@@ -95,7 +95,7 @@ describe('ControlsMenu', () => {
     render(<ControlsMenu onProviderSettingsChange={vi.fn()} selectedProvider="local" />);
 
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
-    expect(screen.queryByText('Reasoning & Output')).not.toBeInTheDocument();
+    expect(screen.queryByText('Output & Limits')).not.toBeInTheDocument();
   });
 
   it('groups tools by source and label, summarizes enabled counts, and routes actions', async () => {
