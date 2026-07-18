@@ -190,6 +190,12 @@ capability-gated, no `isElectron()`).
   tool (hover/definition/implementations, `<<<` cursor) are Phase B.
 - **Pool + lifecycle.** One pooled server child process per workspace `rootId`
   (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
+  All acquisition goes through `acquireLspServer`, which registers the pool
+  entry (a `Promise<LspServerConnection>`) in the same synchronous frame as
+  the miss check — the diagnose locks are per-FILE, so concurrent
+  first-touches of different files under one root race creation, and a bare
+  get → create → set would spawn two children and orphan one. Do not inline
+  `pool.get`/`pool.set` at call sites.
   Every server MUST be torn down: `disposeLspServers()` is wired into BOTH the
   factory-reset `runtimes[]` and graceful shutdown in `main.ts` (alongside the
   shell/terminal reapers); `evictLspServersForRoot(rootId)` fires from the

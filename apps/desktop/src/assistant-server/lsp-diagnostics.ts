@@ -25,7 +25,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   createMessageConnection,
@@ -159,11 +159,22 @@ function resolveTypescriptServer(): ResolvedServer | null {
   return cachedServer;
 }
 
-/** file:// URI or fs path → canonical comparison key for the diagnostics map. */
+/** file:// URI or fs path → canonical comparison key for the diagnostics map.
+ * fileURLToPath (not URL.pathname) so Windows drive letters round-trip
+ * ("file:///C:/x" → "C:\x", not "/C:/x" — URL.pathname would never match the
+ * absolute-path key written at diagnose() time, reporting every edit as a
+ * timeout on Windows). A malformed URI from the server falls back to the raw
+ * string: this runs inside the publishDiagnostics notification handler, where
+ * a throw would kill the connection over one rogue publish. */
 function diagnosticsKey(uriOrPath: string): string {
-  const asPath = uriOrPath.startsWith('file://')
-    ? decodeURIComponent(new URL(uriOrPath).pathname)
-    : uriOrPath;
+  let asPath = uriOrPath;
+  if (uriOrPath.startsWith('file://')) {
+    try {
+      asPath = fileURLToPath(uriOrPath);
+    } catch {
+      /* not a valid file URI — key on the raw string */
+    }
+  }
   return process.platform === 'win32' ? asPath.toLowerCase() : asPath;
 }
 
@@ -402,8 +413,40 @@ class LspServerConnection {
   }
 }
 
-/** rootId → its pooled server connection. */
-const pool = new Map<string, LspServerConnection>();
+/** rootId → its pooled server connection, stored as a PROMISE registered
+ * synchronously at first touch — see acquireLspServer. */
+const pool = new Map<string, Promise<LspServerConnection>>();
+
+/**
+ * Get-or-create the pooled server for a root. Creation is serialized per
+ * rootId by registering the pool entry in the SAME synchronous frame as the
+ * miss check: the diagnose locks are per-FILE, so two concurrent first-touches
+ * of different files under one root race this path — a bare get → create →
+ * set would let each spawn a server child and orphan one (never disposed).
+ * Storing the promise keeps that invariant structural even if construction
+ * ever grows an await (e.g. Phase B async PATH discovery).
+ */
+function acquireLspServer(
+  rootId: string,
+  rootPath: string,
+  server: ResolvedServer
+): Promise<LspServerConnection> {
+  const existing = pool.get(rootId);
+  if (existing) {
+    return existing;
+  }
+  const created = Promise.resolve().then(() => new LspServerConnection(server, rootPath));
+  pool.set(rootId, created);
+  // A failed creation must not poison the root forever: evict the entry so the
+  // next edit retries. The rejection itself still surfaces to every caller
+  // awaiting this promise (honest degrade in getEditDiagnostics's catch).
+  created.catch(() => {
+    if (pool.get(rootId) === created) {
+      pool.delete(rootId);
+    }
+  });
+  return created;
+}
 
 /**
  * Per-file diagnose serialization. A pooled server's diagnostics map + document
@@ -469,11 +512,7 @@ export async function getEditDiagnostics(
     // Serialize per file so concurrent same-file edits can't cross-attribute
     // each other's diagnostics through the shared per-connection state.
     return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
-      let connection = pool.get(args.rootId);
-      if (!connection) {
-        connection = new LspServerConnection(server, args.rootPath);
-        pool.set(args.rootId, connection);
-      }
+      const connection = await acquireLspServer(args.rootId, args.rootPath, server);
       const raw = await connection.diagnose(args.absolutePath, args.content, language);
       if (!connection.hasPublishedFor(args.absolutePath)) {
         // No publish arrived within the budget — honest timeout note.
@@ -510,28 +549,35 @@ export function countPooledLspServers(): number {
 }
 
 /** Pooled server pids (test only — no-orphan proof). */
-export function __getPooledPidsForTest(): number[] {
-  return Array.from(pool.values(), (connection) => connection.pid);
+export async function __getPooledPidsForTest(): Promise<number[]> {
+  const settled = await Promise.allSettled(pool.values());
+  return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value.pid] : []));
 }
 
 /**
  * Dispose every pooled language server (SIGKILL — no orphans). Wired into
  * main.ts factory-reset runtimes AND graceful shutdown, mirroring the shell
- * and terminal process reapers. Returns the count disposed.
+ * and terminal process reapers. Returns the count disposed. Awaits pending
+ * creations first so a server mid-spawn cannot slip past teardown.
  */
 export async function disposeLspServers(): Promise<number> {
-  const connections = Array.from(pool.values());
+  const pending = Array.from(pool.values());
   pool.clear();
+  const settled = await Promise.allSettled(pending);
+  const connections = settled.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : []
+  );
   await Promise.allSettled(connections.map((connection) => connection.dispose()));
   return connections.length;
 }
 
 /** Dispose the server(s) for a single root (root removed/closed). */
 export async function evictLspServersForRoot(rootId: string): Promise<void> {
-  const connection = pool.get(rootId);
-  if (!connection) {
+  const pending = pool.get(rootId);
+  if (!pending) {
     return;
   }
   pool.delete(rootId);
-  await connection.dispose();
+  const connection = await pending.catch(() => null);
+  await connection?.dispose();
 }
