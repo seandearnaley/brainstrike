@@ -37,7 +37,7 @@ const logger = createLogger('BrowserFirstRunBootstrap');
  * syncToFs, then reopen strict": PGlite's PUBLIC API cannot guarantee a flush
  * on a relaxed instance — `PGlite.syncToFs()` fire-and-forgets the underlying
  * FS sync when `relaxedDurability` is true, and `close()` does not flush
- * either (verified against @electric-sql/pglite 0.5.4 src/pglite.ts). With
+ * either (verified against @electric-sql/pglite 0.5.3 src/pglite.ts). With
  * dump/load the persistent store is only ever written by STRICT instances, so
  * the #1111 guarantee holds for every byte the store ever sees.
  *

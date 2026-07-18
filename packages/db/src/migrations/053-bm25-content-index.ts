@@ -5,8 +5,9 @@ import type { Migration } from './migration-runner';
  *
  * Migration 065 quarantines and removes both objects after pg_textsearch 1.3.1
  * produced persisted BM25 memtable corruption during file_chunks updates.
- * This migration remains append-only so existing ledgers and greenfield
- * bootstrap history stay valid; no runtime repository references the index.
+ * Migration 066 restores the index only on the qualified pre-paged-memtable
+ * engine. This migration remains append-only so existing ledgers and
+ * greenfield bootstrap history stay valid.
  *
  * Built inline (not deferred like the HNSW dimension indexes): the empirical
  * gate (search-bm25-empirical-gate.test.ts) measured the build at ~0.5 s for

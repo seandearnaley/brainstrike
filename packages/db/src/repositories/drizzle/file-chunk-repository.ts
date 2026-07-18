@@ -28,6 +28,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
@@ -36,7 +37,6 @@ import {
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
-  validateFtsRankNormalization,
 } from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -534,11 +534,9 @@ export class DrizzleFileChunkRepository {
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
-      rankNormalization = 0,
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
-    const normalizedRankNormalization = validateFtsRankNormalization(rankNormalization);
 
     // Validate query
     const trimmedQuery = query.trim();
@@ -567,16 +565,23 @@ export class DrizzleFileChunkRepository {
       ? sql`ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
       : sql``;
-    // Rank with PostgreSQL's built-in FTS implementation. Keeping matching and
-    // ranking on the same generated tsvector avoids a second write-maintained
-    // index and preserves the caller's language + normalization settings.
-    const ftsRank = sql`ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${normalizedRankNormalization}::integer)`;
+    // Ranked by BM25 (pg_textsearch, migration 066): matching stays
+    // tsvector-based below, so query-mode semantics are unchanged; only the
+    // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
+    // deterministic — BM25 produces exact score ties for rows with identical
+    // term statistics.
+    // NOTE: this is the drizzle-idiomatic form of `bm25RankExpression` from
+    // ../_shared.ts (used by the raw-SQL repos): the index name rides as a
+    // BOUND PARAMETER here instead of a SQL literal — semantically identical
+    // to Postgres, and both spellings share BM25_CONTENT_INDEX_NAME so the
+    // name cannot drift between the paths.
+    const bm25Rank = sql`(-(content <@> to_bm25query(${trimmedQuery}, ${BM25_CONTENT_INDEX_NAME})))::float8`;
     let baseQuery = sql`
       SELECT
         ${sql.raw(ftsColumns)},
-        ${ftsRank} as fts_rank,
+        ${bm25Rank} as fts_rank,
         ${headlineColumn}
-        ROW_NUMBER() OVER (ORDER BY ${ftsRank} DESC, id) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
       FROM file_chunks
       WHERE content_tsvector IS NOT NULL
         AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})

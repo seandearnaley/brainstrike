@@ -1,5 +1,5 @@
 /**
- * pg_textsearch (BM25) Spike — PGlite 0.5.4 / Postgres 18.3
+ * pg_textsearch (BM25) Spike — qualified 1.2.0 / PGlite 0.5.3 / Postgres 18.3
  *
  * Evaluates `@electric-sql/pglite-pg_textsearch` (Tiger Data's BM25 index AM,
  * compacts synchronously — no background worker, which is why PGlite can ship
@@ -16,9 +16,10 @@
  *    frequency-only `ts_rank` ordering is dominated by a stuffed common term —
  *    the quantified comparison is asserted, not just logged.
  *
- * If pg_textsearch graduates to production wiring, the loader must be added to
- * ALL PGlite construction sites (wasm-loader.ts, pglite-worker-entry.ts,
- * apps/desktop/src/db-main.ts) per docs/agents/database.md.
+ * The production loader must remain present at ALL PGlite construction sites
+ * (wasm-loader.ts, pglite-worker-entry.ts,
+ * browser-first-run-bootstrap-worker.ts, apps/desktop/src/db-main.ts) per
+ * docs/agents/database.md.
  */
 
 import { PGlite } from '@electric-sql/pglite';
@@ -64,7 +65,7 @@ interface RankedRow {
   score: number;
 }
 
-describe.skip('pg_textsearch BM25 spike (quarantined by migration 065)', () => {
+describe('pg_textsearch BM25 spike (qualified 1.2.0 / PGlite 0.5.3 / PG18)', () => {
   let db: PGlite;
   let migrationResult: Awaited<ReturnType<typeof runMigrations>>;
 

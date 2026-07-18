@@ -2,8 +2,8 @@
  * Opt-in pg_textsearch durability qualification gate.
  *
  * This deliberately creates a BM25 index outside Brainstrike's migration
- * suite: migration 065 quarantines pg_textsearch before application writes.
- * Run only when qualifying an upstream replacement:
+ * suite so the extension can be qualified independently of application data.
+ * Run before changing the engine version accepted by migration 066:
  *
  *   pnpm --filter @brainstrike/db test:pg-textsearch-durability
  *
@@ -19,6 +19,7 @@ import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { describe, expect, it } from 'vitest';
+import { QUALIFIED_PG_TEXTSEARCH_VERSION } from '../src/pg-textsearch-compatibility';
 import { createPGliteTestDataDir } from './test-data-dir';
 
 const GATE_ENABLED = process.env.TEST_ENABLE_PG_TEXTSEARCH_DURABILITY === 'true';
@@ -126,7 +127,10 @@ function openDatabase(dataDir: string): PGlite {
 }
 
 async function configureStressThresholds(db: PGlite): Promise<void> {
+  // Accepted fast workloads can be too small for the cost-based planner to
+  // prefer BM25 on its own. The gate must traverse the index at every size.
   await db.exec(`
+    SET enable_seqscan = off;
     SET pg_textsearch.bulk_load_threshold = 100;
     SET pg_textsearch.memtable_pages_threshold = 2;
     SET pg_textsearch.segments_per_level = 2;
@@ -300,6 +304,12 @@ describe.skipIf(!GATE_ENABLED)('pg_textsearch BM25 durability qualification gate
         const extensionVersion = await db.query<ExtensionVersionRow>(
           "SELECT extversion FROM pg_extension WHERE extname = 'pg_textsearch'"
         );
+        const actualExtensionVersion = extensionVersion.rows[0]?.extversion;
+        if (actualExtensionVersion !== QUALIFIED_PG_TEXTSEARCH_VERSION) {
+          throw new Error(
+            `Expected qualified pg_textsearch ${QUALIFIED_PG_TEXTSEARCH_VERSION}, received ${actualExtensionVersion ?? '<missing>'}`
+          );
+        }
         const initialDb = db;
         await Promise.all(
           Array.from({ length: WRITER_COUNT }, (_value, writer) =>
@@ -314,7 +324,7 @@ describe.skipIf(!GATE_ENABLED)('pg_textsearch BM25 durability qualification gate
         await db.exec('CHECKPOINT');
 
         console.info(
-          `[pg-textsearch-durability] started: extension=${extensionVersion.rows[0]?.extversion ?? 'unknown'}, cycles=${CYCLE_COUNT}, writers=${WRITER_COUNT}, rowsPerWriter=${ROWS_PER_WRITER}, reopenEvery=${REOPEN_INTERVAL}`
+          `[pg-textsearch-durability] started: extension=${actualExtensionVersion}, cycles=${CYCLE_COUNT}, writers=${WRITER_COUNT}, rowsPerWriter=${ROWS_PER_WRITER}, reopenEvery=${REOPEN_INTERVAL}`
         );
 
         for (let cycle = 1; cycle <= CYCLE_COUNT; cycle += 1) {

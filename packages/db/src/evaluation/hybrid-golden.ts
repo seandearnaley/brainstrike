@@ -1,5 +1,5 @@
 /**
- * Hand-authored golden set for the HYBRID (vector + full-text, RRF-fused) arm.
+ * Hand-authored golden set for the HYBRID (vector + BM25, RRF-fused) arm.
  *
  * Designed so that NEITHER arm alone ranks any target first, but the fusion
  * ranks EVERY target first — the property this eval gates:
@@ -10,7 +10,7 @@
  *  - VECTOR distractor — closest embedding (vector rank 1) but missing the
  *               query terms, so the websearch-AND tsquery never matches it
  *               (absent from the lexical list).
- *  - LEXICAL distractor — term-stuffed (full-text rank 1) but embedded on the
+ *  - LEXICAL distractor — term-stuffed (BM25 rank 1) but embedded on the
  *               NEGATIVE query axis, below the 0.5 similarity threshold
  *               (absent from the vector list).
  *
@@ -51,7 +51,7 @@ export interface HybridGoldenDataset {
   files: HybridGoldenFile[];
   /**
    * Files seeded into a DIFFERENT embedding set. They are term-stuffed to top
-   * full-text results for every query, so an UNSCOPED keyword arm would fuse them in; the
+   * BM25 for every query, so an UNSCOPED keyword arm would fuse them in; the
    * runner fails if any of their chunks ever appears in a fused result list
    * (embedding-set scoping regression guard).
    */

@@ -17,20 +17,6 @@ export interface Queryable {
 export const MAX_INLINE_FILE_PATHS = 500;
 
 /**
- * PostgreSQL `ts_rank` accepts a bitmask composed from 1, 2, 4, 8, 16, and 32.
- * Validate at the repository boundary because desktop IPC and plain JavaScript
- * callers are not protected by the TypeScript option type.
- */
-export function validateFtsRankNormalization(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 63) {
-    throw new Error(
-      `Invalid FTS rankNormalization (${String(value)}). Expected an integer bitmask from 0 to 63.`
-    );
-  }
-  return value;
-}
-
-/**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
  */
@@ -346,6 +332,22 @@ export const MAX_OVERFETCH_LIMIT = 10_000;
  */
 export function computeOverfetchLimit(limit: number): number {
   return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+}
+
+/**
+ * Name of the BM25 index on `file_chunks.content` restored by migration 066.
+ * pg_textsearch resolves corpus statistics through this name and errors if the
+ * index is absent, so migration 066 must precede all code using this constant.
+ */
+export const BM25_CONTENT_INDEX_NAME = 'idx_file_chunks_content_bm25';
+
+/**
+ * BM25 ranking expression for `file_chunks.content`, negated so the surfaced
+ * rank is higher-is-better. The query remains parameterized; the index name is
+ * a code-owned literal.
+ */
+export function bm25RankExpression(queryParam: string): string {
+  return `(-(content <@> to_bm25query(${queryParam}, '${BM25_CONTENT_INDEX_NAME}')))::float8`;
 }
 
 /**

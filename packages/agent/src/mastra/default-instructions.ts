@@ -515,7 +515,7 @@ export function buildDefaultInstructions(
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
   const hybridSearchClause = names.hybridSearch
-    ? ` When a lookup mixes conceptual intent WITH distinctive exact terms (identifiers, error fragments, domain jargon), prefer ${names.hybridSearch} — it fuses semantic and full-text keyword rankings and usually beats either arm alone.`
+    ? ` When a lookup mixes conceptual intent WITH distinctive exact terms (identifiers, error fragments, domain jargon), prefer ${names.hybridSearch} — it fuses semantic and exact-term (BM25) rankings and usually beats either arm alone.`
     : '';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
