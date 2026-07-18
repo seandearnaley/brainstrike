@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import '@assistant-ui/react-markdown/styles/dot.css';
 import { useMessagePartText } from '@assistant-ui/react';
 import {
@@ -6,17 +6,18 @@ import {
   MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
 } from '@assistant-ui/react-markdown';
-import { createClipboardService } from '@brainstrike/context-actions';
-import { createLogger } from '@brainstrike/utils/logger';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
+import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 import { TooltipIconButton } from './tooltip-icon-button';
 
 const REMARK_PLUGINS = [remarkGfm];
-const logger = createLogger('MarkdownText');
-const clipboard = createClipboardService();
+
+// Test-visible seam: markdown-text-clipboard.test.tsx (and any external
+// consumer) imports the hook from this module.
+export { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 
 export const MarkdownText = memo(function MarkdownTextImpl() {
   const { status, text, type } = useMessagePartText();
@@ -67,30 +68,6 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
       </TooltipIconButton>
     </div>
   );
-}
-
-export function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
-  const [isCopied, setIsCopied] = useState(false);
-  const copyToClipboard = (value: string) => {
-    if (!value) {
-      return;
-    }
-    const text = String(value);
-    const markCopied = () => {
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), copiedDuration);
-    };
-    // Route through the shared clipboard service so a present-but-broken
-    // Electron bridge is surfaced (never silently falls back to navigator).
-    void clipboard.writeText(text).then((outcome) => {
-      if (outcome.ok) {
-        markCopied();
-        return;
-      }
-      logger.warn('Failed to copy code to clipboard', { error: outcome.error });
-    });
-  };
-  return { copyToClipboard, isCopied } as const;
 }
 
 const defaultComponents = memoizeMarkdownComponents({
