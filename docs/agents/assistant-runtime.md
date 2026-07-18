@@ -263,9 +263,16 @@ Flow (desktop assistant server → agent runtime):
    direction), it changes no wire contract, and Settings > Permissions lists
    each granted category individually revocable plus a "Revoke all" button
    (`clearSessionGrants`). All grant actions record the grant
-   FIRST, then approve the pending call through the normal resume — the grant
-   affects the NEXT request via the wrapper's reactive store subscription; the
+   FIRST, then approve the pending call through the normal resume; the
    pending call still resolves through `streamMastraToolApprovalAction`.
+   TIMING (confirmed): the grant takes effect on the SAME resumed leg, not
+   just the next request — `useAssistantRequestLifecycle.prepareRequestData`
+   reads the permission posture FRESH from the store
+   (`getPermissionToolGateSnapshotInput()`) at request-composition time,
+   precisely because the grant + approve happen in one synchronous handler
+   with no re-render in between (the same fresh-read pattern as plan-mode
+   exit). The wrapper's reactive subscription additionally keeps later
+   requests in sync.
    An OpenRouter approval pause terminates its transport leg with zero-token
    usage and no claimed cost: Mastra emits the pause before that model step's
    `step-finish`. Approval resume emits the deferred step finish before later
@@ -312,9 +319,15 @@ text ("Approved <tool>." / "Approved the plan."). That message is THREAD-STATE
 ONLY:
 - The panel renders it as a compact outcome chip
   (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a
-  prompt bubble; the message stays in thread state so the notice's outcome
-  locking (`resolveApprovalRunOutcome`) and the resume `runConfig` keep
-  working.
+  prompt bubble — BOTH marker kinds: per-tool approvals ("Approved
+  <tool>"/"Declined <tool>") and suspend resumes ("Approved/Rejected the plan"
+  with a feedback note, "Answered: <truncated answer>"). The recognizers are
+  STRICT (canonical contract guards + only the resumeData shapes the suspend
+  notice actually produces); an unrecognized/malformed marker falls through to
+  the ordinary bubble — content is never hidden behind a guessed chip. The
+  message stays in thread state so the notices' outcome locking
+  (`resolveApprovalRunOutcome`/`resolveSuspendRunOutcome`) and the resume
+  `runConfig` keep working.
 - The shared transport (`data-stream-runtime.ts` `run()`, both apps) excludes
   action messages (BOTH keys — `approval-action-message.ts` is the single
   recognizer) from EVERY outbound payload BEFORE
