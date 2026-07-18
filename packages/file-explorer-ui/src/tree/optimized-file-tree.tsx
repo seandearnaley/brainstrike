@@ -110,6 +110,11 @@ interface IOptimizedFileTreeProps {
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
+  /**
+   * Shared-scroller mode (forest sections): forward to TreeTable so this
+   * tree virtualizes against the sections column instead of its own viewport.
+   */
+  scrollParentRef?: React.RefObject<HTMLElement | null> | undefined;
 }
 
 const logger = createLogger('OptimizedFileTree');
@@ -505,6 +510,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     onSelectFolderRecursively,
     isLoadingForSelection,
     loadingPathForSelection,
+    scrollParentRef,
   }) => {
     const store = useFileExplorerStoreContext();
     const { showToast } = useToastManager();
@@ -1233,6 +1239,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                 selectionMode="single"
                 showHeader={false}
                 windowingStrategy="virtual"
+                {...(scrollParentRef !== undefined && { scrollParentRef })}
               />
             </div>
           </div>
