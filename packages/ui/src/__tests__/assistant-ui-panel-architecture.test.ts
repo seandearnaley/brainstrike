@@ -79,7 +79,13 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1818);
+    // Bumped 1818 → 1841 for the approval-outcome chip: UserMessage renders an
+    // approval ACTION message ("Approved <tool>.") as a compact chip instead of
+    // a prompt bubble. The marker detection, chip component, and selector-key
+    // helpers all live in their own modules (approval-action-chip.tsx /
+    // approval-action-message.ts); this file only imports them and adds the
+    // stable-key selector + early return in UserMessage.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1841);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

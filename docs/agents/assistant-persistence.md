@@ -88,6 +88,23 @@ contracts keep reloaded threads identical to live ones:
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
 
+Approval/suspend ACTION messages are deliberately NEVER a Mastra row: the
+"Approved <tool>." / "Approved the plan." user message the notices append is
+UI/transport bookkeeping (its `runConfig` drives the resume; its metadata
+marker drives the notice outcome locking + chip rendering). Neither resume
+path passes messages to Mastra, and the shared transport
+(`packages/ui/src/assistant-ui-panel/data-stream-runtime.ts` +
+`approval-action-message.ts`) excludes action-marked messages from every
+outbound payload and ships `messages: []` on the action legs. Consequences:
+the echo is absent after reload (restart-safe rediscovery owns the
+post-restart approval UI — see assistant-runtime.md PERMISSION ENGINE), and a
+regenerate-after-approval resends the previous REAL user prompt, never the
+echo. Live pin (real Agent + real PGlite): the "never persists an approval
+action echo" case in
+packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts —
+if a Mastra writer ever starts persisting the echo, extend the exclusion at
+that writer and update this section.
+
 Image attachments (composer → model → persistence → reload):
 - The composer's attachment adapter (packages/ui assistant-ui-panel/
   attachment-adapter.ts) accepts IMAGES ONLY and enforces the shared caps in

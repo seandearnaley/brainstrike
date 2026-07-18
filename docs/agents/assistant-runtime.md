@@ -304,6 +304,30 @@ Flow (desktop assistant server → agent runtime):
    map, so it never reaches the resume gate. A non-empty `askTools` always gates
    exactly the ask set regardless of posture.
 
+APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
+Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
+message whose `metadata.custom` + `runConfig.custom` carry the action under
+`TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
+text ("Approved <tool>." / "Approved the plan."). That message is THREAD-STATE
+ONLY:
+- The panel renders it as a compact outcome chip
+  (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a
+  prompt bubble; the message stays in thread state so the notice's outcome
+  locking (`resolveApprovalRunOutcome`) and the resume `runConfig` keep
+  working.
+- The shared transport (`data-stream-runtime.ts` `run()`, both apps) excludes
+  action messages (BOTH keys — `approval-action-message.ts` is the single
+  recognizer) from EVERY outbound payload BEFORE
+  `selectTransportMessagesForMastraMemory`, so a regenerate-after-approval leg
+  anchors on the previous REAL user message instead of the echo, and
+  non-memory full-history resends never replay it. Action legs themselves
+  (runConfig carries either key) ship `messages: []` — the desktop and web
+  resume routes read the action from `runConfig` and ignore messages.
+- Mastra never persists the echo (neither resume path passes messages), so it
+  is absent after reload — restart-safe rediscovery owns the post-restart UI.
+  Pinned live in `mastra-tool-approval-suspend.integration.spec.ts`
+  ("never persists an approval action echo").
+
 NAME-FORM CONTRACT (settled — the rediscovery live bug class): Mastra registers
 tools under SANITIZED ids (`brainstrike.executeCommand` → `brainstrike_executeCommand`,
 see `tool-sanitizer.ts`) and its stream parts + suspended-run snapshots carry

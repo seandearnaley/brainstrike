@@ -24,6 +24,13 @@ import {
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { useMemo, useRef } from 'react';
+import {
+  excludeApprovalActionMessages,
+  isActionRunConfig,
+  isApprovalActionMessage,
+} from './approval-action-message';
+
+export { excludeApprovalActionMessages, isApprovalActionMessage };
 
 type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
@@ -627,6 +634,25 @@ function boundWireMessagesForTransport(
 }
 
 /**
+ * Approval/suspend ACTION messages are transport bookkeeping — exclude them
+ * from every outbound payload BEFORE the memory compaction so a
+ * regenerate-after-approval leg anchors on the previous REAL user message,
+ * never the "Approved <tool>." echo. On the action leg itself (runConfig
+ * carries the action) both resume routes ignore messages entirely, so ship an
+ * EMPTY list. Thread state is untouched: the notice outcome locking and the
+ * chip rendering still see the message.
+ */
+function resolveOutboundTransportMessages(
+  messages: readonly ThreadMessage[],
+  runConfig: unknown
+): readonly ThreadMessage[] {
+  if (isActionRunConfig(runConfig)) {
+    return [];
+  }
+  return excludeApprovalActionMessages(messages);
+}
+
+/**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
  * (type: "message-finish") — not the raw DataStreamChunk (type: "d") — because
@@ -760,10 +786,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const rawBodyValue =
         typeof this.options.body === 'function' ? await this.options.body() : this.options.body;
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
-      const transportMessages = selectTransportMessagesForMastraMemory(messages, bodyValue);
+      const outboundMessages = resolveOutboundTransportMessages(messages, runConfig);
+      const transportMessages = selectTransportMessagesForMastraMemory(outboundMessages, bodyValue);
       const compactedBodyValue = withTransportCompactionMetadata(
         bodyValue,
-        messages.length,
+        outboundMessages.length,
         transportMessages.length
       );
       const imageBound = boundWireMessagesForTransport(

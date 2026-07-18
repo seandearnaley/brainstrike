@@ -48,6 +48,12 @@ import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
+import {
+  ApprovalActionChip,
+  fromApprovalActionChipKey,
+  readApprovalActionChipProps,
+  toApprovalActionChipKey,
+} from './approval-action-chip';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
@@ -1502,6 +1508,23 @@ export const AssistantUiPanel = ({
 // ===== Message Components =====
 
 const UserMessage = () => {
+  // Approval action messages ("Approved <tool>.") are transport bookkeeping —
+  // kept in thread state (outcome locking + resume runConfig ride on them,
+  // and they are excluded from every outbound payload at the transport seam)
+  // but rendered as a compact outcome chip, never a prompt bubble. The
+  // selector returns a stable string key (same pattern as the approval
+  // notice's outcome key) so the store snapshot stays referentially stable.
+  const approvalChipKey = useAuiState((state) =>
+    toApprovalActionChipKey(readApprovalActionChipProps(state.message))
+  );
+  if (approvalChipKey) {
+    const chipProps = fromApprovalActionChipKey(approvalChipKey);
+    return (
+      <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+        <ApprovalActionChip {...chipProps} />
+      </MessagePrimitive.Root>
+    );
+  }
   return (
     <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
       <UserActionBar />
