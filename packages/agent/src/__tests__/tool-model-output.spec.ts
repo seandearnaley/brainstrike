@@ -88,10 +88,12 @@ describe('applyToolModelOutputProjections', () => {
   it.each([
     null,
     undefined,
-  ])('preserves a nullish custom projection so Mastra can use its native fallback (%s)', (customProjection) => {
+  ])('bounds the raw result when a custom projection declines with %s', (customProjection) => {
+    const rawOnlyTail = 'conditional-raw-only-tail';
+    const rawOutput = { content: `${'x'.repeat(20_000)}${rawOnlyTail}` };
     const toModelOutput = vi.fn(() => customProjection);
     const tool = asTool({
-      execute: () => ({ raw: 'result' }),
+      execute: () => rawOutput,
       id: 'conditional-custom',
       toModelOutput,
     });
@@ -100,16 +102,21 @@ describe('applyToolModelOutputProjections', () => {
       { conditional_custom: tool },
       new Map([['conditional_custom', 'custom.conditional']])
     );
+    const modelOutput = (projected['conditional_custom'] as TestTool).toModelOutput?.(
+      rawOutput
+    ) as { type?: string; value?: string };
 
-    expect((projected['conditional_custom'] as TestTool).toModelOutput?.({ raw: 'result' })).toBe(
-      customProjection
-    );
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('output was truncated');
+    expect(modelOutput.value).not.toContain(rawOnlyTail);
   });
 
-  it('preserves an asynchronously resolved nullish custom projection', async () => {
+  it('bounds the raw result when an asynchronous custom projection declines', async () => {
+    const rawOnlyTail = 'async-conditional-raw-only-tail';
+    const rawOutput = { content: `${'x'.repeat(20_000)}${rawOnlyTail}` };
     const toModelOutput = vi.fn(async () => undefined);
     const tool = asTool({
-      execute: () => ({ raw: 'result' }),
+      execute: () => rawOutput,
       id: 'async-conditional-custom',
       toModelOutput,
     });
@@ -119,9 +126,13 @@ describe('applyToolModelOutputProjections', () => {
       new Map([['async_conditional_custom', 'custom.async-conditional']])
     );
 
-    await expect(
-      (projected['async_conditional_custom'] as TestTool).toModelOutput?.({ raw: 'result' })
-    ).resolves.toBeUndefined();
+    const modelOutput = (await (projected['async_conditional_custom'] as TestTool).toModelOutput?.(
+      rawOutput
+    )) as { type?: string; value?: string };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('output was truncated');
+    expect(modelOutput.value).not.toContain(rawOnlyTail);
   });
 
   it('bounds an oversized existing domain-specific text projection', () => {

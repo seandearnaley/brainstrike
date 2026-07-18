@@ -355,7 +355,7 @@ function projectExistingModelOutput(
 ): unknown {
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
-      return resolved;
+      return createDefaultModelOutput(toolName, output);
     }
     return boundProjectedModelOutput(toolName, resolved);
   };
