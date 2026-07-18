@@ -13,6 +13,7 @@ import {
 import { AccountMenu } from './account-menu';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { IndexingStatusItem } from './status-items/indexing-status-item';
+import { WorkspaceRootStatusItem } from './status-items/workspace-root-status-item';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({
@@ -52,7 +53,14 @@ export function AppLayout({
               </div>
               {/* Status bar at bottom */}
               <StatusBar
-                leftContent={<DatabaseStatusItem />}
+                leftContent={
+                  <>
+                    <DatabaseStatusItem />
+                    {/* Workspace root identity (Main vs Focused clarity):
+                        renders nothing until a folder is mounted. */}
+                    <WorkspaceRootStatusItem />
+                  </>
+                }
                 rightContent={
                   <>
                     <GlobalDownloadIndicator />
