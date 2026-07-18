@@ -2,6 +2,7 @@ import { Command } from 'cmdk';
 import { Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { ModelPickerModel } from './types';
+import { formatContextWindow } from './utils/format-context-window';
 import { getProviderColor } from './utils/provider-colors';
 
 interface ModelPickerItemProps {
@@ -9,16 +10,6 @@ interface ModelPickerItemProps {
   model: ModelPickerModel;
   onSelect: (value: string) => void;
   theme?: 'light' | 'dark';
-}
-
-function formatContextWindow(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${Number((tokens / 1_000_000).toFixed(1))}M context`;
-  }
-  if (tokens >= 1000) {
-    return `${Math.round(tokens / 1000)}K context`;
-  }
-  return `${tokens} context`;
 }
 
 export function ModelPickerItem({

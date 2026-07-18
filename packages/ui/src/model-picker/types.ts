@@ -10,6 +10,12 @@ export interface ModelPickerModel {
      * dynamically discovered local-runtime models with no capability signal.
      */
     vision?: 'supported' | 'unsupported' | 'unknown';
+    /**
+     * Reasoning/thinking support (LLM models), resolved by the
+     * assistant-contract `resolveModelReasoningSupport` tri-state. 'unknown'
+     * renders as an explicit "unverified" affordance — never coerce it.
+     */
+    reasoning?: 'supported' | 'unsupported' | 'unknown';
     [key: string]: unknown; // extensible
   };
   // Extended metadata (optional, for future)
