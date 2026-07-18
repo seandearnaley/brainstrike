@@ -79,19 +79,16 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1816 → 1818 for the edit-composer keyboard gate (review #1714):
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
-    // Bumped 1818 → 1835 for the context-breakdown seam (context-ring WS8):
-    // onContextBreakdown threads AssistantUiPanelProps → ChatThreadProps →
-    // DataStreamRuntimeChat ONLY (the local runtime path is capability-absent
-    // by design), matching the existing onUsage seam shape. The ring, popover,
-    // and breakdown-row logic all live in their own modules
-    // (context-ring.tsx, context-usage-popover.tsx, context-usage-meter.tsx).
-    // Bumped 1835 → 1850 for the context-breakdown null-renderer registration
-    // (review fix): CONTEXT_BREAKDOWN_DATA_NAME is the only emitted aui-data
-    // name that reached AssistantDataRendererRegistration without a registered
-    // renderer — assistantContextBreakdownDataUI mirrors assistantShellOutputDataUI's
-    // `render: () => null` so the transient breakdown data part never surfaces
-    // as a stray/unhandled element.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1850);
+    // This panel accreted several independent features that each threaded a
+    // small prop/renderer through it: the context-breakdown seam + null-renderer
+    // registration (context-ring WS8; assistantContextBreakdownDataUI mirrors
+    // assistantShellOutputDataUI's `render: () => null` so the transient part
+    // never surfaces as a stray element), and the shared-clipboard user-message
+    // copy (WS3; UserActionBar routes through useCopyToClipboard instead of
+    // ActionBarPrimitive.Copy's navigator.clipboard, computing its own
+    // tooltip/icon/aria-live states). The model-menu swap net-removed code, so
+    // the merged file measures ~1803 lines; budget carries modest headroom.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1840);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -178,6 +175,28 @@ describe('assistant UI panel architecture', () => {
     expect(readSource('assistant-ui-panel/budget-guardrail-control.tsx')).toContain(
       'export function BudgetGuardrailControl'
     );
+  });
+
+  it('gives user messages a copy affordance alongside edit, routed through the shared clipboard service', () => {
+    // UNLIKE AssistantActionBar's ActionBarPrimitive.Copy (which uses
+    // navigator.clipboard.writeText directly and swallows write rejections),
+    // the user-message copy control routes through useCopyToClipboard --
+    // the same shared, bridge-aware service CodeBlockHeader/CopyTextButton
+    // use -- so a broken Electron clipboard bridge surfaces visibly instead
+    // of silently doing nothing (no-silent-fallbacks rule).
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const userActionBarStart = source.indexOf('export const UserActionBar =');
+    const editComposerStart = source.indexOf('const EditComposer =');
+    const userActionBarSource = source.slice(userActionBarStart, editComposerStart);
+
+    expect(userActionBarSource).toContain('useCopyToClipboard()');
+    expect(userActionBarSource).toContain('aui.message().getCopyText()');
+    expect(userActionBarSource).toContain('ActionBarPrimitive.Edit');
+    // Not USED as a component (a comment may still reference it by name to
+    // explain why it was replaced).
+    expect(userActionBarSource).not.toContain('<ActionBarPrimitive.Copy');
+    // Broken-bridge failure must be visibly rendered, never silent.
+    expect(userActionBarSource).toContain("isFailed ? 'Copy failed' : null");
   });
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {

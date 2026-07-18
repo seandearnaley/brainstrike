@@ -67,7 +67,10 @@ describe('app-shell assistant contract boundary', () => {
     // and clears a thread's stale breakdown via
     // useContextUsageStore.getState().clearBreakdown when the active turn's
     // transport structurally cannot refresh it (capability-absent local runtime).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1575);
+    // Bumped 1575 → 1590 on merge with the universal-grant work (#1736): the
+    // wrapper also wires grantAllToolsForSession into the tool-approval grant
+    // handlers (grant plumbing only; the store/notice own the behavior).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1590);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

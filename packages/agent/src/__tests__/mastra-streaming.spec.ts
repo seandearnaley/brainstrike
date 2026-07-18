@@ -1,4 +1,5 @@
 import { ReadableStream } from 'node:stream/web';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -1286,6 +1287,131 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('resolves ask-tool risk metadata when the approval part carries the ORIGINAL dotted name (dual-form lookup)', async () => {
+    // askTools is keyed by the SANITIZED registered id; a Mastra upgrade (or any
+    // path that surfaces the pause under the ORIGINAL dotted name) must not
+    // silently drop the risk metadata — the lookup bridges both name forms.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-dotted-1',
+          // ORIGINAL dotted name, NOT the registered sanitized id.
+          toolName: 'brainstrike.runShell',
+        },
+        runId: 'run-approval-dotted-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-dotted', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runShell': 'execute' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: { id: 'workflow-storage' } as never,
+        tools: {
+          'brainstrike.runShell': { description: 'run shell', id: 'brainstrike.runShell' },
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        policyDecision: 'ask',
+        riskCategory: 'execute',
+        runId: 'run-approval-dotted-1',
+        toolCallId: 'approval-dotted-1',
+        toolName: 'brainstrike.runShell',
+        type: 'tool-approval-required',
+      })
+    );
+  });
+
+  it('logs a LOUD error and omits risk metadata when a policy-driven pause cannot be resolved (never fabricates)', async () => {
+    // A policy-driven run (non-empty askTools) that pauses on a tool the
+    // metadata lookup cannot resolve under EITHER name form must surface the
+    // pause honestly — no riskCategory, no policyDecision — and log an error so
+    // the metadata drop is observable (no silent fallback).
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-unresolved-1',
+          toolName: 'totally.unknownTool',
+        },
+        runId: 'run-approval-unresolved-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    const chunks: unknown[] = [];
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-unresolved', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            permissionPolicy: {
+              policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+              riskByTool: { 'brainstrike.runShell': 'execute' },
+              yolo: false,
+            },
+            provider: 'openai',
+          },
+          storage: { id: 'workflow-storage' } as never,
+          tools: {
+            'brainstrike.runShell': { description: 'run shell', id: 'brainstrike.runShell' },
+          },
+        }
+      );
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const approvalChunk = chunks.find(
+      (chunk): chunk is Record<string, unknown> =>
+        Boolean(chunk && typeof chunk === 'object') &&
+        (chunk as { type?: unknown }).type === 'tool-approval-required'
+    );
+    // The pause still surfaces (the user can approve/decline)…
+    expect(approvalChunk).toMatchObject({
+      toolCallId: 'approval-unresolved-1',
+      toolName: 'totally.unknownTool',
+    });
+    // …but the metadata is honestly omitted, never fabricated.
+    expect(approvalChunk).not.toHaveProperty('riskCategory');
+    expect(approvalChunk).not.toHaveProperty('policyDecision');
+    // And the drop is LOUD.
+    const unresolvedLog = logRecords.find(
+      (record) =>
+        record.level === LogLevel.ERROR &&
+        record.args.some(
+          (arg) =>
+            Boolean(arg && typeof arg === 'object') &&
+            (arg as { code?: unknown }).code === 'mastra_agent_approval_metadata_unresolved'
+        )
+    );
+    expect(unresolvedLog).toBeDefined();
+  });
+
   it('keeps an OpenRouter tool approval resumable before Mastra emits step-finish', async () => {
     setMockStreamParts([
       {
@@ -1579,6 +1705,58 @@ describe('mastra streaming integration', () => {
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
+  });
+
+  it('does NOT global-gate the approve resume when a policy allowed everything (empty ask set)', async () => {
+    // "Allow all tools this session" grants every category, so the resume's
+    // policy snapshot resolves NOTHING to 'ask' (empty askTools). That empty set
+    // must read as an ALL-ALLOWED posture (a policy WAS enforced) — NOT a global
+    // approval — so the resume gate gates nothing and a later mutation tool is
+    // not re-prompted. Contrast the "explicit global" test above (no policy).
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'Approved with all granted.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-grant-all',
+        toolCallId: 'tool-call-grant-all',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          // enforce:true posture with every category granted → all-allowed.
+          permissionPolicy: {
+            policies: { edit: 'allow', execute: 'allow', mcp: 'allow', read: 'allow' },
+            riskByTool: {},
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const agent = agentInstances.at(-1);
+    const approveGate = (
+      agent?.approveToolCallCalls[0] as { requireToolApproval?: unknown } | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
+    expect(typeof approveGate).toBe('function');
+    // All-allowed posture: NOTHING is gated on the resumed leg — not the mutation
+    // tool, not the internal memory tool.
+    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(false);
+    expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved with all granted.' });
   });
 
   it('validates tool approval actions before initializing Mastra runtime resources', async () => {

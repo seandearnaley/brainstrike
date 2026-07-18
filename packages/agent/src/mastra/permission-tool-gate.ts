@@ -137,6 +137,36 @@ export interface PermissionAskToolMetadata {
 }
 
 /**
+ * Resolve an `'ask'` tool's risk metadata by EITHER name form: the sanitized
+ * registered id (the map key — Mastra's approval parts carry it today) or the
+ * ORIGINAL pre-sanitization name (`meta.originalName` — what every client-facing
+ * approval surface is keyed by, and what a future Mastra emitting original names
+ * would carry). Returns `undefined` on a miss; the caller decides how loudly to
+ * surface that (a policy-driven pause with unresolved metadata is an error-level
+ * event — see `makeApprovalRequiredChunks`).
+ *
+ * DELIBERATELY a lookup helper, NOT a dual-keyed map: `askTools` must stay
+ * single-keyed by sanitized id because `askTools.size === 0` denotes an explicit
+ * GLOBAL approval request (see `resolveResumeApprovalGate`) and the gate logs
+ * one entry per ask tool — dual-keying would corrupt both.
+ */
+export function resolveAskToolMetadata(
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
+  name: string
+): PermissionAskToolMetadata | undefined {
+  const direct = askTools.get(name);
+  if (direct) {
+    return direct;
+  }
+  for (const meta of askTools.values()) {
+    if (meta.originalName === name) {
+      return meta;
+    }
+  }
+  return;
+}
+
+/**
  * The result of gating a tool map: the (possibly reduced) tool map — where each
  * `'ask'` tool is a CLONE carrying `requireApproval: true` — plus the set of
  * sanitized ids of those ask tools. `askToolIds`/`askTools` drive the runtime's

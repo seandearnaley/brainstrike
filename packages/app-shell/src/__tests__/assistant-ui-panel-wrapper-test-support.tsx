@@ -148,6 +148,7 @@ vi.mock('@brainstrike/preferences', async () => {
     getSelectedProvider: () => SupportedProvider | null;
     modelsByProvider: Record<string, string>;
     providerSettings: Record<string, Record<string, unknown>>;
+    recentModels: string[];
     selectedModel: string | null;
     selectedProvider: SupportedProvider | null;
     setModel: (compositeKey: string) => void;
@@ -229,6 +230,7 @@ vi.mock('@brainstrike/preferences', async () => {
     getSelectedProvider: () => get().selectedProvider,
     modelsByProvider: {},
     providerSettings: {},
+    recentModels: [],
     selectedModel: null,
     selectedProvider: null,
     setModel: (compositeKey: string) => {
@@ -238,6 +240,10 @@ vi.mock('@brainstrike/preferences', async () => {
       }
       set((state) => ({
         modelsByProvider: { ...state.modelsByProvider, [provider]: model },
+        recentModels: [
+          compositeKey,
+          ...state.recentModels.filter((entry) => entry !== compositeKey),
+        ].slice(0, 5),
         selectedModel: compositeKey,
         selectedProvider: provider as SupportedProvider,
       }));
@@ -343,6 +349,7 @@ vi.mock('@brainstrike/preferences', async () => {
       enabledModelsByProvider: buildEnabledModelsByProvider(),
       modelsByProvider: {},
       providerSettings: {},
+      recentModels: [],
       selectedModel: null,
       selectedProvider: null,
     });

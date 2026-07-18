@@ -14,6 +14,7 @@ export * from './local-llm-model-specs.js';
 export * from './local-runtime.js';
 export * from './mastra-memory-schema.js';
 export * from './memory-settings.js';
+export * from './model-reasoning.js';
 export * from './personas.js';
 export * from './provider-metadata.js';
 export * from './provider-registry.js';

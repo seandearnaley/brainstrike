@@ -71,6 +71,13 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
+  /**
+   * Curated one-line marketing copy for the composer model menu (e.g. "Best
+   * mix of smarts and speed"). REGISTRY-ONLY composer copy source — the DB
+   * model-catalog tagline column feeds the db-explorer, not this menu. Omit
+   * rather than invent copy: a model without a tagline renders name-only.
+   */
+  tagline?: string;
   type: 'llm';
   /**
    * Image-input support. REQUIRED: adding a model without it is a compile
@@ -173,6 +180,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
+        tagline: 'Most capable for everyday work',
         type: 'llm',
         vision: 'supported',
       },
@@ -203,6 +211,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
+        tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
@@ -223,6 +232,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
+        tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
@@ -243,6 +253,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 0.05, outputPerMTok: 0.4 },
         supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
@@ -273,6 +284,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
+        tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
@@ -327,6 +339,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 64_000,
         pricing: { inputPerMTok: 5, outputPerMTok: 25 },
         supportsStreaming: true,
+        tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
@@ -339,6 +352,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // Anthropic introductory rate through 2026-08-31.
         pricing: { inputPerMTok: 2, outputPerMTok: 10 },
         supportsStreaming: true,
+        tagline: 'Best mix of smarts and speed',
         type: 'llm',
         vision: 'supported',
       },
@@ -359,6 +373,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 64_000,
         pricing: { inputPerMTok: 1, outputPerMTok: 5 },
         supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
@@ -386,6 +401,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
         supportsStreaming: true,
+        tagline: 'Best mix of smarts and speed',
         type: 'llm',
         vision: 'supported',
       },
@@ -396,6 +412,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 2, outputPerMTok: 12 },
         supportsStreaming: true,
+        tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
@@ -406,6 +423,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
         supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
@@ -436,6 +454,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
         supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
@@ -522,6 +541,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
+        tagline: 'Most capable for everyday work',
         type: 'llm',
         vision: 'supported',
       },
@@ -553,6 +573,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // OpenRouter currently reflects Anthropic's introductory rate.
         pricing: { inputPerMTok: 2, outputPerMTok: 10 },
         supportsStreaming: true,
+        tagline: 'Best mix of smarts and speed',
         type: 'llm',
         vision: 'supported',
       },
@@ -730,6 +751,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 64_000,
         pricing: { inputPerMTok: 1, outputPerMTok: 5 },
         supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
@@ -859,6 +881,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'Gemma 4 E2B',
         maxOutputTokens: 2048,
         supportsStreaming: false,
+        tagline: 'Runs privately on this device',
         type: 'llm',
         vision: 'unsupported',
       },

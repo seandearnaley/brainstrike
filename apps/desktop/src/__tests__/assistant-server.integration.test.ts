@@ -1623,6 +1623,12 @@ describe('assistant-server', () => {
 
     it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
       const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      // NAME-FORM CONTRACT: `listSuspendedMastraRuns` returns the ORIGINAL
+      // dotted tool name (it maps Mastra's registered/sanitized id back via the
+      // runtime toolNameMap + the static native map) — the SAME form
+      // `buildNativeToolRiskMap()` is keyed by. The live proof is
+      // packages/agent/src/__tests__/mastra-suspended-runs-discovery.integration.spec.ts;
+      // this mock must mirror that contract, never a sanitized id.
       (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
         approvals: [
           {
@@ -1692,6 +1698,50 @@ describe('assistant-server', () => {
         stale: true,
         toolName: 'brainstrike.writeWorkspaceFile',
       });
+    });
+
+    it('GET /assistant/suspended-runs omits riskCategory for a tool absent from the risk map and warns LOUDLY', async () => {
+      // An MCP (or no-longer-registered) tool has no entry in
+      // buildNativeToolRiskMap(): the response must omit riskCategory /
+      // policyDecision HONESTLY (the notice then renders no grant buttons) and
+      // the degradation must be observable — never a silent metadata drop.
+      const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+        approvals: [
+          {
+            args: { query: 'hello' },
+            runId: 'run-mcp-1',
+            suspendedAt: new Date().toISOString(),
+            toolCallId: 'call-mcp-1',
+            toolName: 'someServer.someTool',
+          },
+        ],
+      });
+      const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
+        // Silence expected warning output.
+      });
+
+      try {
+        const response = await runRequest({
+          method: 'GET',
+          url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+        });
+
+        expect(response.status).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.approvals[0]).toMatchObject({ toolName: 'someServer.someTool' });
+        expect(body.approvals[0]).not.toHaveProperty('riskCategory');
+        expect(body.approvals[0]).not.toHaveProperty('policyDecision');
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            code: 'assistant_suspended_approval_risk_unresolved',
+            toolName: 'someServer.someTool',
+          })
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('GET /assistant/suspended-runs returns 400 when thread context is missing', async () => {

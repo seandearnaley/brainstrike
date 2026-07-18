@@ -192,6 +192,7 @@ export function AssistantUiPanelWrapper({
     getLocalRuntimeStatuses,
   });
   const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
+  const recentModels = useAssistantPreferencesStore((state) => state.recentModels);
   const draftRuntimeByThreadId = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const enabledModelsByProvider = useAssistantPreferencesStore(
@@ -1203,6 +1204,14 @@ export function AssistantUiPanelWrapper({
     isModelEnabled,
   });
 
+  // Recents feed the composer model menu's top rows. Filter to composite keys
+  // that are still valid selections (configured provider + enabled model) so
+  // a disabled/retired model never renders as a pickable recent.
+  const validRecentModels = useMemo(() => {
+    const validKeys = new Set(pickerModels.map((model) => `${model.providerId}::${model.id}`));
+    return recentModels.filter((key) => validKeys.has(key));
+  }, [pickerModels, recentModels]);
+
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
   );
@@ -1497,6 +1506,8 @@ export function AssistantUiPanelWrapper({
   // grant recorded here reaches the very next request without extra plumbing.
   const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
     () => ({
+      grantAllToolsForSession: () =>
+        usePermissionPolicyStore.getState().grantAllSessionCategories(),
       grantCategoryForSession: (category) =>
         usePermissionPolicyStore.getState().grantSessionCategory(category),
       grantToolAlways: (toolId) =>
@@ -1536,6 +1547,7 @@ export function AssistantUiPanelWrapper({
               prepareRequestData={prepareRequestData}
               providerGroups={providerGroups}
               providerSettings={effectiveProviderSettings}
+              recentModels={validRecentModels}
               requestData={requestData}
               slashCommands={slashCommands}
               {...(desktopAssistantBackendAvailable
