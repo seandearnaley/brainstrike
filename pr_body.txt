@@ -1,9 +1,0 @@
-💡 **What**: Refactored the `sortJsonValue` function inside `assistant-server.ts` to sort object keys using simple string relational operators (`<`, `>`) instead of `Object.entries` combined with `localeCompare`.
-
-🎯 **Why**: The serialization function `stableJsonStringify` is a hot path used to deterministically cache memory configurations and large JSON payload settings. `localeCompare` imposes significant overhead due to V8's Unicode-aware and Internationalization context switches. Additionally, iterating via `Object.entries` creates temporary `[key, value]` arrays for every entry, putting pressure on garbage collection. Switching to sorting primitive string keys via `Object.keys` bypasses this.
-
-📊 **Impact**: Reduces execution time by approximately 20% on large recursive JSON payloads.
-
-🔬 **Measurement**: Benchmarks captured in trace using a generated payload:
-- `localeCompare` execution: ~645ms
-- `Object.keys` + relational operator execution: ~528ms
