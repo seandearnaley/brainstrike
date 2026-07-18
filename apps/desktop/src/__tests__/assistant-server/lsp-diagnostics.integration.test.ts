@@ -12,6 +12,8 @@
  *  - an unsupported language is silently omitted (available:false, no note
  *    spam on every markdown/json edit),
  *  - the pool reuses one server per root (no re-spawn per edit),
+ *  - concurrent first-touches of different files under one root spawn exactly
+ *    one server (per-root creation is serialized; no orphaned child),
  *  - disposeLspServers() actually kills the spawned process (no orphan),
  *  - a missing/unresolvable server degrades to an honest note, never a throw.
  */
@@ -138,7 +140,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
         rootId: 'root-1',
         rootPath: root,
       });
-      const pidsAfterFirst = __getPooledPidsForTest();
+      const pidsAfterFirst = await __getPooledPidsForTest();
       expect(pidsAfterFirst).toHaveLength(1);
 
       await getEditDiagnostics({
@@ -147,8 +149,48 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
         rootId: 'root-1',
         rootPath: root,
       });
-      const pidsAfterSecond = __getPooledPidsForTest();
+      const pidsAfterSecond = await __getPooledPidsForTest();
       expect(pidsAfterSecond).toEqual(pidsAfterFirst);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('spawns exactly one server when two files under one root are first-touched concurrently', async () => {
+    // The diagnose locks are per-FILE, so two concurrent first-touches of
+    // DIFFERENT files under the same root race pool acquisition. A bare
+    // get → create → set there would let each spawn a server child and orphan
+    // one (leaked process, never disposed). acquireLspServer registers the
+    // pool entry synchronously at the miss check, so exactly one child may
+    // ever exist per root — asserted via pool size + pids.
+    const root = await makeRoot();
+    try {
+      const contentA = 'export const first = 1;\n';
+      const contentB = 'export const second = 2;\n';
+      await fsPromises.writeFile(path.join(root, 'first.ts'), contentA, 'utf8');
+      await fsPromises.writeFile(path.join(root, 'second.ts'), contentB, 'utf8');
+
+      const [resultA, resultB] = await Promise.all([
+        getEditDiagnostics({
+          absolutePath: path.join(root, 'first.ts'),
+          content: contentA,
+          rootId: 'root-1',
+          rootPath: root,
+        }),
+        getEditDiagnostics({
+          absolutePath: path.join(root, 'second.ts'),
+          content: contentB,
+          rootId: 'root-1',
+          rootPath: root,
+        }),
+      ]);
+
+      expect(resultA.available).toBe(true);
+      expect(resultB.available).toBe(true);
+      expect(countPooledLspServers()).toBe(1);
+      const pids = await __getPooledPidsForTest();
+      expect(pids).toHaveLength(1);
+      expect(isProcessAlive(pids[0] ?? -1)).toBe(true);
     } finally {
       await fsPromises.rm(root, { force: true, recursive: true });
     }
@@ -164,7 +206,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
         rootId: 'root-1',
         rootPath: root,
       });
-      const [pid] = __getPooledPidsForTest();
+      const pid = (await __getPooledPidsForTest())[0] ?? -1;
       expect(pid).toBeGreaterThan(0);
       expect(isProcessAlive(pid)).toBe(true);
 
