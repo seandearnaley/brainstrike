@@ -191,41 +191,53 @@ function isModelContentOutput(output: unknown): output is ModelContentOutput {
   return isRecord(output) && output['type'] === 'content' && Array.isArray(output['value']);
 }
 
-function isModelInlineDataPart(part: unknown): part is Record<string, unknown> & {
-  readonly data: string;
-  readonly type: 'file-data' | 'image-data';
-} {
-  return (
-    isRecord(part) &&
-    (part['type'] === 'image-data' || part['type'] === 'file-data') &&
-    typeof part['data'] === 'string'
-  );
-}
-
-function compactModelInlineDataPart(
-  part: Record<string, unknown> & {
-    readonly data: string;
-    readonly type: 'file-data' | 'image-data';
+function isModelPreservedContentPart(part: unknown): part is Record<string, unknown> {
+  if (!isRecord(part)) {
+    return false;
   }
-): Record<string, unknown> {
-  const mediaType =
-    typeof part['mediaType'] === 'string' && part['mediaType'].length > 0
-      ? part['mediaType'].slice(0, 256)
-      : part.type === 'image-data'
-        ? 'image/png'
-        : 'application/octet-stream';
-  return {
-    data: part.data,
-    mediaType,
-    type: part.type,
-  };
+  switch (part['type']) {
+    case 'file-data':
+    case 'image-data':
+    case 'media':
+      return typeof part['data'] === 'string';
+    case 'file-url':
+    case 'image-url':
+      return typeof part['url'] === 'string';
+    case 'file-id':
+    case 'image-file-id':
+      return typeof part['fileId'] === 'string' || isRecord(part['fileId']);
+    case 'custom':
+      return true;
+    default:
+      return false;
+  }
 }
 
-function maskInlineDataForMeasurement(output: ModelContentOutput): Record<string, unknown> {
+function maskPreservedContentPart(part: Record<string, unknown>): Record<string, unknown> {
+  if (
+    (part['type'] === 'file-data' || part['type'] === 'image-data' || part['type'] === 'media') &&
+    typeof part['data'] === 'string'
+  ) {
+    return { ...part, data: '' };
+  }
+  if (
+    (part['type'] === 'file-url' || part['type'] === 'image-url') &&
+    typeof part['url'] === 'string' &&
+    part['url'].startsWith('data:')
+  ) {
+    const payloadOffset = part['url'].indexOf(',');
+    if (payloadOffset >= 0) {
+      return { ...part, url: part['url'].slice(0, payloadOffset + 1) };
+    }
+  }
+  return part;
+}
+
+function maskMediaDataForMeasurement(output: ModelContentOutput): Record<string, unknown> {
   return {
     type: 'content',
     value: output.value.map((part) =>
-      isModelInlineDataPart(part) ? { ...compactModelInlineDataPart(part), data: '' } : part
+      isModelPreservedContentPart(part) ? maskPreservedContentPart(part) : part
     ),
   };
 }
@@ -233,16 +245,15 @@ function maskInlineDataForMeasurement(output: ModelContentOutput): Record<string
 function fitContentTextToModelBudget(
   toolName: string,
   text: string,
-  mediaParts: readonly Record<string, unknown>[]
+  preservedParts: readonly Record<string, unknown>[]
 ): Record<string, unknown> {
   const build = (value: string): ModelContentOutput => ({
     type: 'content',
-    value: [...(value ? [{ text: value, type: 'text' }] : []), ...mediaParts],
+    value: [...(value ? [{ text: value, type: 'text' }] : []), ...preservedParts],
   });
   const empty = build('');
   if (
-    stringifyJsonSafe(maskInlineDataForMeasurement(empty)).length >
-    MAX_MODEL_OUTPUT_SERIALIZED_CHARS
+    stringifyJsonSafe(maskMediaDataForMeasurement(empty)).length > MAX_MODEL_OUTPUT_SERIALIZED_CHARS
   ) {
     throw new RangeError(
       `${toolName} model projection media metadata exceeds the ${MAX_MODEL_OUTPUT_SERIALIZED_CHARS}-character budget`
@@ -251,8 +262,7 @@ function fitContentTextToModelBudget(
 
   const full = build(text);
   if (
-    stringifyJsonSafe(maskInlineDataForMeasurement(full)).length <=
-    MAX_MODEL_OUTPUT_SERIALIZED_CHARS
+    stringifyJsonSafe(maskMediaDataForMeasurement(full)).length <= MAX_MODEL_OUTPUT_SERIALIZED_CHARS
   ) {
     return full as unknown as Record<string, unknown>;
   }
@@ -265,7 +275,7 @@ function fitContentTextToModelBudget(
     const kept = Math.floor((low + high) / 2);
     const candidate = build(`${sliceCodePoints(text, kept)}${suffix}`);
     if (
-      stringifyJsonSafe(maskInlineDataForMeasurement(candidate)).length <=
+      stringifyJsonSafe(maskMediaDataForMeasurement(candidate)).length <=
       MAX_MODEL_OUTPUT_SERIALIZED_CHARS
     ) {
       best = candidate;
@@ -282,16 +292,16 @@ function boundContentModelOutput(
   output: ModelContentOutput
 ): Record<string, unknown> {
   if (
-    stringifyJsonSafe(maskInlineDataForMeasurement(output)).length <=
+    stringifyJsonSafe(maskMediaDataForMeasurement(output)).length <=
     MAX_MODEL_OUTPUT_SERIALIZED_CHARS
   ) {
     return output as unknown as Record<string, unknown>;
   }
 
-  const mediaParts = output.value.filter(isModelInlineDataPart).map(compactModelInlineDataPart);
-  const nonMediaParts = output.value.filter((part) => !isModelInlineDataPart(part));
-  const boundedText = serializeBoundedOutput(toolName, nonMediaParts);
-  return fitContentTextToModelBudget(toolName, boundedText, mediaParts);
+  const preservedParts = output.value.filter(isModelPreservedContentPart);
+  const textAndUnknownParts = output.value.filter((part) => !isModelPreservedContentPart(part));
+  const boundedText = serializeBoundedOutput(toolName, textAndUnknownParts);
+  return fitContentTextToModelBudget(toolName, boundedText, preservedParts);
 }
 
 function boundProjectedModelOutput(toolName: string, output: unknown): Record<string, unknown> {

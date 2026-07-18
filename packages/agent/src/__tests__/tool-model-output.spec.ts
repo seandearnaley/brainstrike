@@ -86,6 +86,49 @@ describe('applyToolModelOutputProjections', () => {
     expect(modelOutput.value?.length).toBeLessThanOrEqual(8000);
   });
 
+  it('preserves Mastra-native media from an async custom projection while bounding text', async () => {
+    const mediaData = 'a'.repeat(10_000);
+    const imageDataUrl = `data:image/png;base64,${'b'.repeat(10_000)}`;
+    const toModelOutput = vi.fn(async () => ({
+      type: 'content',
+      value: [
+        { data: mediaData, mediaType: 'image/png', type: 'media' },
+        { type: 'image-url', url: imageDataUrl },
+        { text: `${'x'.repeat(20_000)}custom-text-tail`, type: 'text' },
+      ],
+    }));
+    const tool = asTool({
+      execute: () => 'raw',
+      id: 'custom-media',
+      toModelOutput,
+    });
+
+    const projected = applyToolModelOutputProjections(
+      { custom_media: tool },
+      new Map([['custom_media', 'custom.media']])
+    );
+    const modelOutput = (await (projected['custom_media'] as TestTool).toModelOutput?.(
+      'result'
+    )) as {
+      type?: string;
+      value?: Record<string, unknown>[];
+    };
+
+    expect(modelOutput.type).toBe('content');
+    expect(modelOutput.value).toContainEqual({
+      data: mediaData,
+      mediaType: 'image/png',
+      type: 'media',
+    });
+    expect(modelOutput.value).toContainEqual({
+      type: 'image-url',
+      url: imageDataUrl,
+    });
+    const text = modelOutput.value?.find((part) => part['type'] === 'text')?.['text'];
+    expect(text).toContain('output was truncated');
+    expect(text).not.toContain('custom-text-tail');
+  });
+
   it('preserves MCP image and audio data while bounding model-facing text', () => {
     const rawOutput = {
       content: [
