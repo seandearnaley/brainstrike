@@ -1,6 +1,8 @@
 import {
+  DESKTOP_NATIVE_TOOL_IDS,
   getNativeToolDescription,
   NATIVE_TOOL_DEFAULTS,
+  SKILL_NATIVE_TOOL_IDS,
   type ToolCategory,
   type ToolLoadingTier,
 } from '@brainstrike/agent/tool-metadata';
@@ -221,7 +223,7 @@ const renderPage = () =>
   );
 
 function getNativeToolIdAt(index: number): string {
-  const id = Object.keys(NATIVE_TOOL_DEFAULTS)[index];
+  const id = DESKTOP_NATIVE_TOOL_IDS[index];
   if (id === undefined) {
     throw new Error(`Expected native tool at index ${index}`);
   }
@@ -253,8 +255,9 @@ describe('SettingsPageContent tool operations', () => {
     expect(operations).toBeDefined();
 
     const tools = await operations?.getTools();
-    const expectedTools: MockToolDisplayMetadata[] = Object.entries(NATIVE_TOOL_DEFAULTS).map(
-      ([id, metadata]) => ({
+    const expectedTools: MockToolDisplayMetadata[] = DESKTOP_NATIVE_TOOL_IDS.map((id) => {
+      const metadata = NATIVE_TOOL_DEFAULTS[id];
+      return {
         category: metadata.category,
         description: getNativeToolDescription(id) ?? `Native tool: ${id}`,
         enabled: id === enabledToolId,
@@ -263,9 +266,12 @@ describe('SettingsPageContent tool operations', () => {
         loadingTier: metadata.loadingTier,
         requiresApproval: metadata.requiresApproval,
         source: 'native',
-      })
-    );
+      };
+    });
     expect(tools).toEqual(expectedTools);
+    expect(tools?.map((tool) => tool.id)).not.toEqual(
+      expect.arrayContaining([...SKILL_NATIVE_TOOL_IDS])
+    );
 
     const stats = await operations?.getStats();
     const byCategory: Record<ToolCategory, number> = {
