@@ -78,6 +78,12 @@ export function CodeBlockHeader({
       >
         {copyIcon}
       </TooltipIconButton>
+      {/* Proactively announce a broken clipboard to screen readers — the
+          tooltip alone is not announced (no-silent-fallbacks). Mirrors
+          CopyTextButton. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {isFailed ? 'Copy failed' : null}
+      </span>
     </div>
   );
 }

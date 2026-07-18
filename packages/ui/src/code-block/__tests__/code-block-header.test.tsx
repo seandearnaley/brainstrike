@@ -82,6 +82,10 @@ describe('CodeBlockHeader', () => {
       expect(copyButton).toHaveAttribute('title', 'Copy failed');
     });
     expect(container.querySelector('.text-destructive')).not.toBeNull();
+    // Screen-reader announcement, not just a hover-only tooltip.
+    const liveRegion = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(liveRegion).not.toBeNull();
+    expect(liveRegion).toHaveTextContent('Copy failed');
   });
 
   it('allows an immediate retry after a failed copy', async () => {
