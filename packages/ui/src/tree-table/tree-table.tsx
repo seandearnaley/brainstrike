@@ -424,6 +424,9 @@ function useExternalScrollMargin(
   viewportRef: React.RefObject<HTMLDivElement | null>
 ): number {
   const [margin, setMargin] = React.useState(0);
+  // Re-arm signal for the ref race below; a bare early-return would freeze
+  // the margin at 0 for the table's lifetime.
+  const [mountTick, setMountTick] = React.useState(0);
 
   React.useLayoutEffect(() => {
     if (!enabled) {
@@ -432,7 +435,13 @@ function useExternalScrollMargin(
     const scrollParent = scrollParentRef?.current;
     const viewport = viewportRef.current;
     if (!(scrollParent && viewport)) {
-      return;
+      // React attaches ANCESTOR host refs after descendant layout effects
+      // within the same commit, so on a same-commit mount the shared scroll
+      // parent's ref can still be null here. Re-arm next frame instead of
+      // silently freezing the margin at 0 (sections would render with the
+      // wrong window offset).
+      const raf = requestAnimationFrame(() => setMountTick((tick) => tick + 1));
+      return () => cancelAnimationFrame(raf);
     }
 
     const updateMargin = () => {
@@ -464,7 +473,7 @@ function useExternalScrollMargin(
       resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
-  }, [enabled, scrollParentRef, viewportRef]);
+  }, [enabled, scrollParentRef, viewportRef, mountTick]);
 
   return enabled ? margin : 0;
 }

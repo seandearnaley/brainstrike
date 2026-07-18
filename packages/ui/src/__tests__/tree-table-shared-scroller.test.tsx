@@ -132,6 +132,45 @@ describe('TreeTable shared-scroller mode', () => {
     expect(typeof options.scrollMargin).toBe('number');
   });
 
+  it('self-heals when the scroll parent ref attaches after the first layout effect', async () => {
+    // React attaches ANCESTOR host refs after descendant layout effects in
+    // the same commit — the margin hook must re-arm until the ref exists
+    // instead of freezing at 0 with no observers for the table's lifetime.
+    const observedTargets: Element[] = [];
+    class RecordingResizeObserver {
+      disconnect(): void {}
+      observe(target: Element): void {
+        observedTargets.push(target);
+      }
+      unobserve(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver);
+    try {
+      const scrollParentRef: { current: HTMLElement | null } = { current: null };
+      render(
+        <TreeTable
+          columns={COLUMNS}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onToggleExpand={vi.fn()}
+          scrollParentRef={scrollParentRef}
+        />
+      );
+      expect(observedTargets).toHaveLength(0);
+
+      // Ancestor ref attaches after the commit (the race under guard).
+      const scrollParent = document.createElement('div');
+      scrollParentRef.current = scrollParent;
+
+      // The rAF re-arm must eventually wire the observers to the parent.
+      await vi.waitFor(() => {
+        expect(observedTargets).toContain(scrollParent);
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps the internal scroll element when only non-virtual strategies run', () => {
     capturedVirtualizerOptions.current.length = 0;
     const scrollParent = document.createElement('div');
