@@ -15,6 +15,7 @@ import { watch as fsWatch } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 const MAX_FANOUT = 16;
@@ -228,7 +229,7 @@ async function main() {
 }
 
 const isDirectRun =
-  process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);

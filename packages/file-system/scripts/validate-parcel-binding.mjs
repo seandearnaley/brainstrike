@@ -11,6 +11,7 @@
 // loudly. The @parcel/watcher install script is deliberately disallowed in
 // pnpm-workspace.yaml `allowBuilds`, so a missing prebuild can never be
 // masked by a silent source compile.
+import { rmSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -58,7 +59,14 @@ function resolvePrebuildPackage() {
   return null;
 }
 
+// fail() exits synchronously, which skips async finally blocks — the temp
+// root registers here so repeated packaged-app runs never accumulate dirs.
+let cleanupRoot = null;
+
 function fail(backend, code, message) {
+  if (cleanupRoot) {
+    rmSync(cleanupRoot, { force: true, recursive: true });
+  }
   process.stdout.write(
     `${JSON.stringify({
       arch: process.arch,
@@ -93,6 +101,7 @@ try {
 }
 
 const root = await mkdtemp(join(tmpdir(), 'bst568-validate-'));
+cleanupRoot = root;
 try {
   const subscribeStart = performance.now();
   let sawEvent = () => undefined;
