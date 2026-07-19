@@ -62,13 +62,15 @@ export interface QueueTelemetrySnapshot {
   readonly throughputPerMinute: number;
 }
 
-function computePercentile(values: readonly number[], percentile: number): number | null {
-  if (values.length === 0) {
+function readPercentile(sortedValues: readonly number[], percentile: number): number | null {
+  if (sortedValues.length === 0) {
     return null;
   }
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.floor((percentile / 100) * sorted.length));
-  return sorted[index] ?? null;
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.floor((percentile / 100) * sortedValues.length)
+  );
+  return sortedValues[index] ?? null;
 }
 
 export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 5000) {
@@ -109,8 +111,10 @@ export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 50
       latencies.length > 0
         ? latencies.reduce((sum, value) => sum + value, 0) / latencies.length
         : null;
-    const latencyP50 = computePercentile(latencies, 50);
-    const latencyP95 = computePercentile(latencies, 95);
+    // Both percentiles share one ordering to avoid a second O(n log n) sort per snapshot.
+    latencies.sort((a, b) => a - b);
+    const latencyP50 = readPercentile(latencies, 50);
+    const latencyP95 = readPercentile(latencies, 95);
     const errorCount = windowEvents.filter((event) => event.event === 'error').length;
 
     return {
