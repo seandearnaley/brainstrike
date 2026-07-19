@@ -523,9 +523,10 @@ export function hasValidProviderModelSelection(args: {
   currentProvider: SupportedProvider;
   currentSelectedModel: string | null;
   isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
+  providerModelIds: readonly string[];
 }): boolean {
   const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
-  if (!currentModelName) {
+  if (!(currentModelName && args.providerModelIds.includes(currentModelName))) {
     return false;
   }
   return args.isModelEnabled(args.currentProvider, currentModelName);

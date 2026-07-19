@@ -1079,8 +1079,9 @@ export function AssistantUiPanelWrapper({
         currentProvider,
         currentSelectedModel: getSelectedModel(),
         isModelEnabled,
+        providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
       }),
-    [getSelectedModel, isModelEnabled]
+    [getProviderLlmModels, getSelectedModel, isModelEnabled]
   );
 
   const handleLocalRuntimeSelection = useCallback(
@@ -1108,7 +1109,6 @@ export function AssistantUiPanelWrapper({
   }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
   // Reconcile selection whenever providers or enabled models change.
-  // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
     if (seedBuiltInLocalModelSelection()) {
