@@ -1653,6 +1653,56 @@ describe('assistant-stream integration', () => {
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
   });
 
+  it('forwards Anthropic cache token counts with token usage', async () => {
+    const usageEvents: Array<{
+      cacheCreationInputTokens?: number;
+      cacheReadInputTokens?: number;
+      inputTokens: number;
+      outputTokens: number;
+    }> = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":123,"outputTokens":45,"cacheReadInputTokens":40,"cacheCreationInputTokens":60},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage: (usage) => {
+        usageEvents.push(usage);
+      },
+    });
+
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: {
+        callSettings: {},
+        config: {},
+        tools: {},
+      },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({
+        metadata: {},
+      }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      void nextMessage;
+    }
+
+    expect(usageEvents).toEqual([
+      {
+        cacheCreationInputTokens: 60,
+        cacheReadInputTokens: 40,
+        inputTokens: 123,
+        outputTokens: 45,
+      },
+    ]);
+  });
+
   it('forwards provider-reported billed cost with token usage', async () => {
     const usageEvents: Array<{
       billedCostUsd?: number;

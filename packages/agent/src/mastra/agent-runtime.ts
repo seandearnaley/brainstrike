@@ -814,10 +814,22 @@ function assertModernLanguageModel(
 }
 
 interface UsageLike {
+  /** Mastra's flattened Anthropic cache-write token count. */
+  cacheCreationInputTokens?: number;
+  /** Mastra's flattened Anthropic cache-read token count. */
+  cachedInputTokens?: number;
   completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   promptTokens?: number;
+}
+
+/** Read a non-negative finite count or drop the field entirely. */
+function readCacheTokenCount(value: number | undefined): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return;
 }
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
@@ -913,12 +925,19 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
   const billedCostUsd = lifecycleState.sawStepBilledCost
     ? lifecycleState.stepBilledCostUsd
     : finishCost;
+  const cacheReadInputTokens = readCacheTokenCount(usage.cachedInputTokens);
+  const cacheCreationInputTokens = readCacheTokenCount(usage.cacheCreationInputTokens);
   return {
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
     path: [],
     type: 'message-finish',
-    usage: { completionTokens, promptTokens },
+    usage: {
+      completionTokens,
+      promptTokens,
+      ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
+      ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    },
   };
 }
 

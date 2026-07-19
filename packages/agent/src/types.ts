@@ -342,7 +342,14 @@ export interface StreamChunkMessageFinish {
   finishReason: StreamFinishReason;
   path: readonly number[];
   type: 'message-finish';
-  usage: { promptTokens: number; completionTokens: number };
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    /** Anthropic prompt-cache write tokens (billed at the cache-write rate). */
+    cacheCreationInputTokens?: number;
+    /** Anthropic prompt-cache read tokens (billed at the cache-read rate). */
+    cacheReadInputTokens?: number;
+  };
 }
 export type StreamChunk =
   | StreamChunkContextBreakdown

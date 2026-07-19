@@ -43,6 +43,10 @@ interface StepState {
 }
 
 interface DataStreamUsage {
+  /** Anthropic prompt-cache write tokens; present only when reported. */
+  cacheCreationInputTokens?: number;
+  /** Anthropic prompt-cache read tokens; present only when reported. */
+  cacheReadInputTokens?: number;
   inputTokens: number;
   outputTokens: number;
 }
@@ -68,6 +72,8 @@ function formatToolActionFailure(errors: readonly string[]): string {
 }
 
 function toDataStreamUsage(raw?: {
+  cacheCreationInputTokens?: unknown;
+  cacheReadInputTokens?: unknown;
   completionTokens?: unknown;
   inputTokens?: unknown;
   outputTokens?: unknown;
@@ -79,7 +85,24 @@ function toDataStreamUsage(raw?: {
   const outputTokensRaw = raw?.outputTokens ?? raw?.completionTokens;
   const outputTokens =
     typeof outputTokensRaw === 'number' && Number.isFinite(outputTokensRaw) ? outputTokensRaw : 0;
-  return { inputTokens, outputTokens };
+  const cacheCreationInputTokens =
+    typeof raw?.cacheCreationInputTokens === 'number' &&
+    Number.isFinite(raw.cacheCreationInputTokens) &&
+    raw.cacheCreationInputTokens > 0
+      ? raw.cacheCreationInputTokens
+      : undefined;
+  const cacheReadInputTokens =
+    typeof raw?.cacheReadInputTokens === 'number' &&
+    Number.isFinite(raw.cacheReadInputTokens) &&
+    raw.cacheReadInputTokens > 0
+      ? raw.cacheReadInputTokens
+      : undefined;
+  return {
+    ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
+    ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    inputTokens,
+    outputTokens,
+  };
 }
 
 function sanitizeDelta(value: string | undefined): string | undefined {
@@ -103,6 +126,8 @@ function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish)
   const usage = (
     chunk as {
       usage?: {
+        cacheCreationInputTokens?: unknown;
+        cacheReadInputTokens?: unknown;
         completionTokens?: unknown;
         inputTokens?: unknown;
         outputTokens?: unknown;

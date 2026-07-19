@@ -345,6 +345,40 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 11, outputTokens: 13 });
   });
 
+  it('serializes Anthropic cache token usage on the finish wire value', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Hello' },
+      {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: {
+          cacheCreationInputTokens: 60,
+          cacheReadInputTokens: 40,
+          completionTokens: 13,
+          promptTokens: 111,
+        },
+      } as unknown as StreamChunk,
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-usage-cache',
+      sessionId: 'usage-cache',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const finish = events.at(-1)?.value as {
+      usage: DataStreamUsage;
+    };
+
+    expect(finish?.usage).toStrictEqual({
+      cacheCreationInputTokens: 60,
+      cacheReadInputTokens: 40,
+      inputTokens: 111,
+      outputTokens: 13,
+    });
+  });
+
   it('encodes assistant run events as assistant-ui named data parts', async () => {
     const chunks: StreamChunk[] = [
       {

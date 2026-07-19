@@ -269,6 +269,50 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('carries Anthropic cache token usage through the message-finish chunk', async () => {
+    setMockStreamParts([
+      { textDelta: 'hello', type: 'text-delta' },
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: {
+          cacheCreationInputTokens: 60,
+          cachedInputTokens: 40,
+          completionTokens: 11,
+          promptTokens: 107,
+        },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-1',
+          parts: [{ text: 'hi there', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      { runtime: { apiKey: 'test-key', provider: 'anthropic' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.at(-1)).toEqual({
+      finishReason: 'stop',
+      path: [],
+      type: 'message-finish',
+      usage: {
+        cacheCreationInputTokens: 60,
+        cacheReadInputTokens: 40,
+        completionTokens: 11,
+        promptTokens: 107,
+      },
+    });
+  });
+
   it('aggregates provider-reported OpenRouter cost across model steps', async () => {
     setMockStreamParts([
       {
