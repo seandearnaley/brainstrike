@@ -53,6 +53,8 @@ Object.assign(process, mockProcess);
 
 // Type assertion to help TypeScript understand the mocked process
 const processWithChdir = process as typeof process & { chdir: (dir: string) => void };
+const itOnDarwin = process.platform === 'darwin' ? it : it.skip;
+const itOutsideDarwin = process.platform === 'darwin' ? it.skip : it;
 
 describe('ElectronFileSystemAdapter', () => {
   let tempDir: string;
@@ -284,7 +286,32 @@ describe('ElectronFileSystemAdapter', () => {
     expect(await adapter.exists(path.join(tempDir, 'missing.txt'))).toBe(false);
   });
 
-  it('should watch directory changes', async () => {
+  itOnDarwin('should use one native recursive watcher on macOS', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+    const chokidar = await import('chokidar');
+    vi.mocked(chokidar.default.watch).mockClear();
+    const nativeClose = vi.fn();
+    const fsWatchSpy = vi.spyOn(fs, 'watch').mockReturnValue({
+      close: nativeClose,
+      once: vi.fn(),
+    } as unknown as ReturnType<typeof fs.watch>);
+
+    const handle = await adapter.requestDirectoryAccess();
+    const stop = adapter.watchDirectory(handle as DirectoryHandle, vi.fn());
+
+    expect(fsWatchSpy).toHaveBeenCalledTimes(1);
+    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: true }, expect.any(Function));
+    expect(chokidar.default.watch).not.toHaveBeenCalled();
+
+    stop();
+    expect(nativeClose).toHaveBeenCalledTimes(1);
+  });
+
+  itOutsideDarwin('should watch directory changes', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
@@ -345,7 +372,7 @@ describe('ElectronFileSystemAdapter', () => {
     expect(mockWatcher.close).toHaveBeenCalled();
   });
 
-  it('should fall back to fs.watch when chokidar import fails', async () => {
+  itOutsideDarwin('should fall back to fs.watch when chokidar import fails', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
@@ -364,6 +391,7 @@ describe('ElectronFileSystemAdapter', () => {
     // Mock fs.watch
     const mockFsWatcher = {
       close: vi.fn(),
+      once: vi.fn(),
     };
     const fsWatchSpy = vi
       .spyOn(fs, 'watch')
@@ -385,7 +413,7 @@ describe('ElectronFileSystemAdapter', () => {
     expect(mockFsWatcher.close).toHaveBeenCalled();
   });
 
-  it('should return noop watcher when both chokidar and fs.watch fail', async () => {
+  itOutsideDarwin('should return noop watcher when both chokidar and fs.watch fail', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
@@ -409,6 +437,23 @@ describe('ElectronFileSystemAdapter', () => {
     // No need to wait arbitrarily; stop should be callable
 
     expect(() => stop()).not.toThrow();
+  });
+
+  itOnDarwin('should fail visibly when the primary native watcher cannot start', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('fs.watch failed');
+    });
+
+    const handle = await adapter.requestDirectoryAccess();
+
+    expect(() => adapter.watchDirectory(handle as DirectoryHandle, vi.fn())).toThrow(
+      'fs.watch failed'
+    );
   });
 
   describe('metadata caching (BST-146)', () => {
@@ -538,7 +583,7 @@ describe('ElectronFileSystemAdapter', () => {
       expect(count).toBeGreaterThan(0);
     });
 
-    it('should invalidate cache on file watcher changes', async () => {
+    itOutsideDarwin('should invalidate cache on file watcher changes', async () => {
       // Reset modules to clear previous chokidar mock from fs.watch fallback test
       vi.resetModules();
       vi.doMock('electron', () => ({
