@@ -377,7 +377,6 @@ describe('applyToolModelOutputProjections', () => {
 
   it.each([
     ['null', null],
-    ['undefined', undefined],
     ['false', false],
     ['zero', 0],
   ])('preserves an exact %s result across every hook carrier channel', async (_label, result) => {
@@ -417,6 +416,30 @@ describe('applyToolModelOutputProjections', () => {
     });
     expect(displayOutput).toBe(result);
     expect(transcriptOutput).toBe(result);
+  });
+
+  it('fails visibly when hook context is requested for an undefined tool result', async () => {
+    const toolNameMap = new Map([['undefined_result', 'undefined.result']]);
+    const hooked = applyToolHooks(
+      {
+        undefined_result: asTool({
+          execute: () => Promise.resolve(undefined),
+          id: 'undefined-result',
+        }),
+      },
+      {
+        hookRunner: {
+          postToolUse: () => Promise.resolve({ additionalContext: 'model-only context' }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const hookedTool = hooked['undefined_result'] as TestTool;
+
+    await expect(hookedTool.execute?.({})).rejects.toThrow(
+      'undefined.result returned undefined and cannot carry PostToolUse context'
+    );
   });
 
   it('passes the domain result through existing target-aware output transforms', async () => {

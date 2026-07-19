@@ -580,11 +580,14 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   result in the explicitly discriminated internal hook envelope. Mastra's
   target-aware display/transcript transforms restore the exact domain result
   before the live UI and persistence boundary; the envelope itself is never a
-  public or durable tool result. The later model-projection seam consumes that
-  reserved envelope: domain projectors receive the clean original result, and
-  the provider view gets centrally composed context within the final
-  model-output budget. A hook-runner FAULT is allow-on-fault (a runner bug must
-  not brick tool calling).
+  public or durable tool result. Because JSON persistence and Mastra's
+  transform protocol cannot represent an exact `undefined` result, a tool that
+  returns `undefined` while PostToolUse requests context fails visibly instead
+  of dropping the guidance or substituting a placeholder. The later
+  model-projection seam consumes that reserved envelope: domain projectors
+  receive the clean original result, and the provider view gets centrally
+  composed context within the final model-output budget. A hook-runner FAULT is
+  allow-on-fault (a runner bug must not brick tool calling).
 - `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext

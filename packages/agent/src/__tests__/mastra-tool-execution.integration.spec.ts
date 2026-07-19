@@ -1877,6 +1877,60 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     expect(JSON.stringify(chunks)).not.toContain('lint: ok');
   });
 
+  it('surfaces an undefined hooked result as a real Mastra tool failure', async () => {
+    const executeSpy = vi.fn(() => Promise.resolve(undefined));
+    const undefinedTool = createTool({
+      description: 'Return no result for hook-carrier validation.',
+      execute: executeSpy,
+      id: 'undefined_result',
+      inputSchema: z.object({}),
+      outputSchema: z.unknown(),
+    });
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({ additionalContext: 'model-only context' }),
+      preToolUse: (): Promise<HookToolGateResult> => Promise.resolve({ decision: 'allow' }),
+    };
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The tool did not return a usable result.',
+      input: '{}',
+      toolCallId: 'call-hook-undefined-1',
+      toolName: 'undefined_result',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-hook-undefined',
+          parts: [{ text: 'run the nullable tool', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { undefined_result: undefinedTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(chunks)).toContain(
+      'undefined_result returned undefined and cannot carry PostToolUse context'
+    );
+    expect(JSON.stringify(chunks)).not.toContain('model-only context');
+    expect(runEventKinds).toContain('tool.failed');
+    expect(runEventKinds).not.toContain('tool.completed');
+  });
+
   it('composes a custom domain projection with PostToolUse context in the next model step', async () => {
     const rawOutput = { city: 'Paris', temperatureC: 21 };
     const weatherTool = makeWeatherTool(() => Promise.resolve(rawOutput));

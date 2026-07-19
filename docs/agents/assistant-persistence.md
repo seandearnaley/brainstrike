@@ -30,7 +30,8 @@ contracts keep reloaded threads identical to live ones:
    the correct transcript transform metadata but still hands its raw in-memory
    message to `MemoryStorage.saveMessages`; `PgliteMemoryStore.saveMessages`
    therefore applies that official transcript projection again at the durable
-   boundary and independently refuses to store a surviving internal carrier.
+   boundary, returns the projected messages from `saveMessages`, and
+   independently refuses to store or return a surviving internal carrier.
    The real-memory hook regression proves the stored invocation is the exact
    domain result while `providerMetadata.mastra.modelOutput` retains the
    model-only guidance. MCP results remain inline only within the explicit temporary

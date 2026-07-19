@@ -1030,7 +1030,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       }
     });
 
-    return { messages: args.messages };
+    return { messages: persistedMessages };
   }
 
   override async updateMessages(args: {

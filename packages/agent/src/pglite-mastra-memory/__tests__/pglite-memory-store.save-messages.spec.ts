@@ -166,11 +166,17 @@ describe('PgliteMemoryStore.saveMessages transactionality', () => {
       type: 'v2',
     } as MastraDBMessage;
 
-    await store.saveMessages({ messages: [assistantMessage] });
+    const saved = await store.saveMessages({ messages: [assistantMessage] });
 
     const persistedContent = JSON.parse(String(mock.committed[0]?.values?.[2])) as {
       parts?: Array<{ toolInvocation?: { result?: unknown } }>;
     };
+    expect(
+      (saved.messages[0]?.content as { parts?: Array<{ toolInvocation?: { result?: unknown } }> })
+        .parts?.[0]?.toolInvocation?.result
+    ).toBeNull();
+    expect(JSON.stringify(saved)).not.toContain('__brainstrikeHookResultEnvelope');
+    expect(JSON.stringify(saved)).not.toContain('model-only context');
     expect(persistedContent.parts?.[0]?.toolInvocation?.result).toBeNull();
     expect(JSON.stringify(persistedContent)).not.toContain('__brainstrikeHookResultEnvelope');
     expect(JSON.stringify(persistedContent)).not.toContain('model-only context');

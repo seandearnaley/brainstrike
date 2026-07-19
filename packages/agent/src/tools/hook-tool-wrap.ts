@@ -186,6 +186,7 @@ async function runPostHook(
   result: unknown,
   logger?: ToolLogger
 ): Promise<unknown> {
+  let additionalContext: string | undefined;
   try {
     const post = await runner.postToolUse({
       toolError: isGuardedToolError(result),
@@ -193,13 +194,20 @@ async function runPostHook(
       toolName,
       toolOutput: result,
     });
-    if (post.additionalContext) {
-      return mergeAdditionalContext(result, post.additionalContext);
-    }
+    additionalContext = post.additionalContext;
   } catch (error) {
     logger?.error('PostToolUse hook runner threw; keeping tool result', { error, toolName });
+    return result;
   }
-  return result;
+  if (!additionalContext) {
+    return result;
+  }
+  if (result === undefined) {
+    throw new TypeError(
+      `${toolName} returned undefined and cannot carry PostToolUse context; tools must return a JSON-serializable result`
+    );
+  }
+  return mergeAdditionalContext(result, additionalContext);
 }
 
 export function applyToolHooks<TMap extends Record<string, unknown>>(
