@@ -8,6 +8,7 @@ import { useLocalRuntime } from '@assistant-ui/react';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
+  createAssistantRequestEnvelope,
   dataUrlByteLength,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
@@ -18,7 +19,6 @@ import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
   toGenericMessages,
-  toToolsJSONSchema,
   // This runtime is pinned to assistant-stream 0.3.25 because tool result
   // streaming is still exported behind the unstable API surface.
   unstable_toolResultStream,
@@ -36,17 +36,6 @@ export { excludeApprovalActionMessages, isApprovalActionMessage };
 type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
 const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
-const RESERVED_TRANSPORT_FIELDS = new Set([
-  'data',
-  'messages',
-  'parentId',
-  'runConfig',
-  'state',
-  'system',
-  'threadId',
-  'tools',
-  'unstable_assistantMessageId',
-]);
 
 export interface AssistantUsage {
   readonly billedCostUsd?: number;
@@ -184,19 +173,31 @@ export function extractTransportBodyData(
   return Object.hasOwn(bodyValue, 'data') ? { data: bodyValue['data'] } : {};
 }
 
-function assertNoTransportFieldCollisions(
-  value: Record<string, unknown> | undefined,
-  sourceName: string
+function assertSupportedAssistantUiRequestContext(
+  context: ChatModelRunOptions['context'],
+  state: unknown
 ): void {
-  if (!value) {
-    return;
+  const unsupportedFields: string[] = [];
+  if (Object.keys(context.callSettings ?? {}).length > 0) {
+    unsupportedFields.push('callSettings');
   }
-  const collisionKeys = Object.keys(value).filter((key) => RESERVED_TRANSPORT_FIELDS.has(key));
-  if (collisionKeys.length === 0) {
+  if (Object.keys(context.config ?? {}).length > 0) {
+    unsupportedFields.push('config');
+  }
+  if (state !== undefined && state !== null) {
+    unsupportedFields.push('state');
+  }
+  if (context.system) {
+    unsupportedFields.push('system');
+  }
+  if (Object.keys(context.tools ?? {}).length > 0) {
+    unsupportedFields.push('tools');
+  }
+  if (unsupportedFields.length === 0) {
     return;
   }
   throw new Error(
-    `Assistant runtime ${sourceName} cannot override transport field(s): ${collisionKeys.join(', ')}.`
+    `Brainstrike assistant transport does not support assistant-ui field(s): ${unsupportedFields.join(', ')}.`
   );
 }
 
@@ -816,8 +817,6 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     abortSignal,
     context,
     unstable_assistantMessageId,
-    unstable_threadId,
-    unstable_parentId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
     abortSignal.addEventListener(
@@ -838,6 +837,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const rawBodyValue =
         typeof this.options.body === 'function' ? await this.options.body() : this.options.body;
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
+      assertSupportedAssistantUiRequestContext(
+        context,
+        unstable_getMessage().metadata.unstable_state
+      );
       const outboundMessages = resolveOutboundTransportMessages(messages, runConfig);
       const transportMessages = selectTransportMessagesForMastraMemory(outboundMessages, bodyValue);
       const compactedBodyValue = withTransportCompactionMetadata(
@@ -850,27 +853,15 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         compactedBodyValue
       );
       const bodyData = extractTransportBodyData(imageBound.bodyValue);
-      assertNoTransportFieldCollisions(context.callSettings, 'callSettings');
-      assertNoTransportFieldCollisions(context.config, 'config');
       const headers = new Headers(headersValue);
       headers.set('Content-Type', 'application/json');
 
-      const requestBody: Record<string, unknown> = {
-        messages: imageBound.messages,
-        tools: toToolsJSONSchema(context.tools ?? {}),
-        ...(context.system ? { system: context.system } : {}),
-        // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
-        ...(unstable_assistantMessageId ? { unstable_assistantMessageId } : {}),
-        ...(unstable_threadId ? { threadId: unstable_threadId } : {}),
-        ...(unstable_parentId === undefined ? {} : { parentId: unstable_parentId }),
-        ...(runConfig === undefined ? {} : { runConfig }),
-        ...(unstable_getMessage().metadata.unstable_state
-          ? { state: unstable_getMessage().metadata.unstable_state }
-          : {}),
-        ...context.callSettings,
-        ...context.config,
+      const requestBody = createAssistantRequestEnvelope({
+        ...(unstable_assistantMessageId ? { assistantMessageId: unstable_assistantMessageId } : {}),
         ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
-      };
+        messages: imageBound.messages,
+        ...(runConfig === undefined ? {} : { runConfig }),
+      });
 
       const response = await fetch(this.options.api, {
         body: JSON.stringify(requestBody),

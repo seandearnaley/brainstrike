@@ -4,6 +4,7 @@ import {
   AssistantInvalidJsonError,
   AssistantRequestBodyLimitConfigError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   hasNonEmptyAssistantPrompt,
   parseAssistantRequestPayloadText,
@@ -102,17 +103,59 @@ describe('assistant request helpers', () => {
     );
   });
 
-  it('parses empty and non-object request payloads to an empty transport payload', () => {
-    expect(parseAssistantRequestPayloadText('')).toEqual({
+  it.each(['', '   '])('rejects an empty request body as invalid JSON', (payload) => {
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(AssistantInvalidJsonError);
+  });
+
+  it('requires an own messages field while allowing an empty action-leg array', () => {
+    expect(() => parseAssistantRequestPayloadText('{}')).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
+    expect(() => parseAssistantRequestPayloadText('{}')).toThrow(
+      'Assistant request payload must include its own messages array.'
+    );
+    expect(parseAssistantRequestPayloadText('{"messages":[]}')).toEqual({
       data: undefined,
       rawMessages: [],
       runConfig: undefined,
     });
-    expect(parseAssistantRequestPayloadText('null')).toEqual({
-      data: undefined,
-      rawMessages: [],
-      runConfig: undefined,
-    });
+  });
+
+  it.each(['null', '[]', '42', '"text"'])('rejects non-object request envelope %s', (payload) => {
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(
+      'Assistant request payload must be a JSON object.'
+    );
+  });
+
+  it.each([
+    'apiKey',
+    'system',
+    'temperature',
+    'threadId',
+    'tools',
+  ])('rejects unsupported top-level request field %s', (field) => {
+    const parse = () =>
+      parseAssistantRequestPayloadText(
+        JSON.stringify({
+          [field]: field === 'tools' ? {} : 'attacker-controlled',
+          messages: [],
+        })
+      );
+
+    expect(parse).toThrow(AssistantRequestEnvelopeValidationError);
+    expect(parse).toThrow('Assistant request payload contains an unsupported top-level field.');
+  });
+
+  it.each([
+    ['data', 'false'],
+    ['runConfig', '"resume"'],
+  ])('rejects non-object %s', (field, value) => {
+    expect(() => parseAssistantRequestPayloadText(`{"messages":[],"${field}":${value}}`)).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
   });
 
   it('extracts runtime data, messages, and run config from valid payload JSON', () => {
@@ -139,7 +182,7 @@ describe('assistant request helpers', () => {
         JSON.stringify({
           data: { provider: 'openai' },
           messages: { role: 'user' },
-          runConfig: false,
+          runConfig: {},
         })
       )
     ).toThrow(AssistantMessageValidationError);

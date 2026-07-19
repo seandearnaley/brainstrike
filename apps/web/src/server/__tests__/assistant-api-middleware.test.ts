@@ -140,6 +140,80 @@ describe('assistant API middleware request body limit', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'dev',
+      '/api/chat',
+      '',
+      {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      },
+    ],
+    [
+      'preview',
+      '/api/assistant',
+      '',
+      {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      },
+    ],
+    [
+      'dev',
+      '/api/assistant',
+      '{}',
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    [
+      'preview',
+      '/api/chat',
+      '{}',
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    [
+      'dev',
+      '/api/chat',
+      JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload contains an unsupported top-level field.',
+      },
+    ],
+    [
+      'preview',
+      '/api/assistant',
+      JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload contains an unsupported top-level field.',
+      },
+    ],
+  ] as const)('returns the canonical envelope error in %s for %s', async (mode, url, body, expected) => {
+    const middleware = createAssistantApiMiddleware(mode);
+    const req = createRequest({});
+    req.url = url;
+    const res = new ResponseSink();
+    const next = vi.fn();
+    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+
+    if (body.length > 0) {
+      req.emit('data', Buffer.from(body));
+    }
+    req.emit('end');
+    await responsePromise;
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual(expected);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('resumes an existing assistant session before parsing its bounded body', async () => {
     vi.mocked(resolveDataStreamSession).mockReturnValue({
       createResponse: () => new Response('resumed-without-json'),

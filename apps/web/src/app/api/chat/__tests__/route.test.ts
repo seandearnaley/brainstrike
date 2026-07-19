@@ -93,6 +93,45 @@ describe('chat route schema', () => {
     expect(streamMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'an empty body',
+      '',
+      {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      },
+    ],
+    [
+      'a missing messages field',
+      '{}',
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    [
+      'an unsupported top-level field',
+      JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload contains an unsupported top-level field.',
+      },
+    ],
+  ])('returns canonical typed 400 for %s', async (_name, body, expected) => {
+    const req = new Request('http://localhost/api/chat', {
+      body,
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expected);
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
   it('returns typed 400 for deeply nested tool input before streaming', async () => {
     let nested: Record<string, unknown> = { value: true };
     for (let depth = 0; depth < 3000; depth += 1) {

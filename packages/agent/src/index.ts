@@ -98,6 +98,8 @@ export {
   AssistantInvalidJsonError,
   AssistantRequestBodyLimitConfigError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
+  type AssistantRequestEnvelopeValidationReason,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   hasNonEmptyAssistantPrompt,
   parseAssistantRequestPayloadText,

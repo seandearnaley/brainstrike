@@ -1,3 +1,4 @@
+import { ASSISTANT_REQUEST_ENVELOPE_KEYS } from '@brainstrike/assistant-contract';
 import {
   AssistantMessageValidationError,
   assertAssistantMessageGraphWithinLimits,
@@ -17,6 +18,7 @@ export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
  * BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow throws loudly.
  */
 export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+const ASSISTANT_REQUEST_ENVELOPE_KEY_SET = new Set<string>(ASSISTANT_REQUEST_ENVELOPE_KEYS);
 
 export interface AssistantRequestPayload {
   assistantMessageId?: string;
@@ -31,6 +33,33 @@ export class AssistantInvalidJsonError extends Error {
   constructor() {
     super('Request body must be valid JSON.');
     this.name = 'AssistantInvalidJsonError';
+  }
+}
+
+export type AssistantRequestEnvelopeValidationReason =
+  | 'invalid-data'
+  | 'invalid-root'
+  | 'invalid-run-config'
+  | 'missing-messages'
+  | 'unsupported-field';
+
+const REQUEST_ENVELOPE_VALIDATION_MESSAGES: Record<
+  AssistantRequestEnvelopeValidationReason,
+  string
+> = {
+  'invalid-data': 'Assistant request data must be a JSON object.',
+  'invalid-root': 'Assistant request payload must be a JSON object.',
+  'invalid-run-config': 'Assistant request runConfig must be a JSON object.',
+  'missing-messages': 'Assistant request payload must include its own messages array.',
+  'unsupported-field': 'Assistant request payload contains an unsupported top-level field.',
+};
+
+export class AssistantRequestEnvelopeValidationError extends Error {
+  readonly code = 'invalid_request_payload';
+
+  constructor(readonly reason: AssistantRequestEnvelopeValidationReason) {
+    super(REQUEST_ENVELOPE_VALIDATION_MESSAGES[reason]);
+    this.name = 'AssistantRequestEnvelopeValidationError';
   }
 }
 
@@ -116,13 +145,22 @@ export async function readRequestBodyText(
 export function parseAssistantRequestPayloadText(body: string): AssistantRequestPayload {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(body || '{}');
+    parsed = JSON.parse(body);
   } catch {
     throw new AssistantInvalidJsonError();
   }
 
-  if (!(parsed && typeof parsed === 'object')) {
-    return { data: undefined, rawMessages: [], runConfig: undefined };
+  if (!(parsed && typeof parsed === 'object') || Array.isArray(parsed)) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-root');
+  }
+  const hasUnsupportedField = Object.keys(parsed).some(
+    (key) => !ASSISTANT_REQUEST_ENVELOPE_KEY_SET.has(key)
+  );
+  if (hasUnsupportedField) {
+    throw new AssistantRequestEnvelopeValidationError('unsupported-field');
+  }
+  if (!Object.hasOwn(parsed, 'messages')) {
+    throw new AssistantRequestEnvelopeValidationError('missing-messages');
   }
 
   const maybePayload = parsed as Partial<{
@@ -132,6 +170,26 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
     // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
     unstable_assistantMessageId: unknown;
   }>;
+  if (
+    Object.hasOwn(maybePayload, 'data') &&
+    !(
+      maybePayload.data &&
+      typeof maybePayload.data === 'object' &&
+      !Array.isArray(maybePayload.data)
+    )
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-data');
+  }
+  if (
+    Object.hasOwn(maybePayload, 'runConfig') &&
+    !(
+      maybePayload.runConfig &&
+      typeof maybePayload.runConfig === 'object' &&
+      !Array.isArray(maybePayload.runConfig)
+    )
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-run-config');
+  }
   const assistantMessageId = maybePayload.unstable_assistantMessageId;
   if (
     assistantMessageId !== undefined &&

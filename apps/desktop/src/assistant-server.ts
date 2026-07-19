@@ -16,7 +16,9 @@ import type {
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantInvalidJsonError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
   assistantDataStreamSessions,
   buildNativeToolRiskMap,
   convertAssistantUiMessages,
@@ -704,7 +706,11 @@ async function prepareAssistantPostRequest(
     toolResumeAction = payload.toolResumeAction;
     toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
-    if (error instanceof AssistantInvalidJsonError) {
+    if (
+      error instanceof AssistantInvalidJsonError ||
+      error instanceof AssistantMessageValidationError ||
+      error instanceof AssistantRequestEnvelopeValidationError
+    ) {
       respondJson(res, 400, {
         error: error.code,
         message: error.message,

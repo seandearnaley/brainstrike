@@ -625,6 +625,55 @@ describe('assistant-server', () => {
       expect(data.message).toBe('Request body must be valid JSON.');
     }, 10_000);
 
+    it.each([
+      [
+        'an empty body',
+        '',
+        {
+          error: 'invalid_json',
+          message: 'Request body must be valid JSON.',
+        },
+      ],
+      [
+        'a missing messages field',
+        '{}',
+        {
+          error: 'invalid_request_payload',
+          message: 'Assistant request payload must include its own messages array.',
+        },
+      ],
+      [
+        'an unsupported top-level field',
+        JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+        {
+          error: 'invalid_request_payload',
+          message: 'Assistant request payload contains an unsupported top-level field.',
+        },
+      ],
+      [
+        'a malformed messages field',
+        JSON.stringify({ messages: {} }),
+        {
+          error: 'invalid_messages',
+          message: 'Assistant messages must be an array.',
+        },
+      ],
+    ])(
+      'should return typed 400 for %s',
+      async (_name, body, expected) => {
+        const response = await runRequest({
+          body,
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/assistant',
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual(expected);
+      },
+      10_000
+    );
+
     it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
       const response = await runRequest({
         body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),

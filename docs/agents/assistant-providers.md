@@ -67,9 +67,26 @@
     declared and streamed/chunked overflow is byte-counted before JSON parsing
     and fails visibly with `request_body_too_large` / HTTP 413 while the Node
     stream drains. Malformed JSON fails without logging its value as
-    `invalid_json` / HTTP 400. Before recursive assistant-ui compatibility
-    normalization, the shared iterative message boundary caps message and part
-    counts, graph nodes/depth, object fields, and string sizes. It rejects
+    `invalid_json` / HTTP 400; an empty or whitespace-only body is malformed
+    JSON rather than an implicit empty request. The canonical assistant request
+    envelope has exactly four possible top-level fields: required `messages`
+    plus optional `data`, `runConfig`, and `unstable_assistantMessageId`.
+    `messages` must be an own array (an empty array is valid for approval and
+    suspend/resume action legs), while present `data` and `runConfig` must be
+    objects. Missing `messages`, non-object roots, invalid optional objects, and
+    every unknown top-level field fail as `invalid_request_payload` / HTTP 400
+    on Next, Vite dev/preview, and Desktop. The renderer constructs that exact
+    shape through the shared assistant-contract helper. It omits assistant-ui
+    thread/parent bookkeeping because the message graph and `data.memory` own
+    topology, and rejects non-empty client `callSettings`, `config`, `system`,
+    `tools`, or message state before fetch because the custom server consumes
+    none of them. In particular, provider API keys/base URLs and per-call
+    headers can never leak through assistant-ui's generic model-context bags.
+    This envelope reduces and secures HTTP transport bytes; model-context
+    savings remain the separate memory/projection/compaction contracts below.
+    Before recursive assistant-ui compatibility normalization, the shared
+    iterative message boundary caps message and part counts, graph nodes/depth,
+    object fields, and string sizes. It rejects
     cycles, non-plain objects, and non-JSON scalars (including bigint and
     non-finite numbers) while permitting `undefined` for optional in-memory
     fields. Violations fail as `invalid_messages` / HTTP 400. Message conversion

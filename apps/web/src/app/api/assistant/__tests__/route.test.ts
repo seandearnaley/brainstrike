@@ -163,6 +163,45 @@ describe('assistant route', () => {
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'an empty body',
+      '',
+      {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      },
+    ],
+    [
+      'a missing messages field',
+      '{}',
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    [
+      'an unsupported top-level field',
+      JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload contains an unsupported top-level field.',
+      },
+    ],
+  ])('returns canonical typed 400 for %s', async (_name, body, expected) => {
+    const req = new Request('http://localhost/api/assistant', {
+      body,
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expected);
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('returns typed 400 when the assistant message id is malformed', async () => {
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
@@ -505,6 +544,7 @@ describe('assistant route', () => {
   ])('returns typed 400 for approval actions with %s', async (_case, action) => {
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        messages: [],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } },
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -629,6 +669,7 @@ describe('assistant route', () => {
     };
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        messages: [],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       }),
       headers: { 'Content-Type': 'application/json' },

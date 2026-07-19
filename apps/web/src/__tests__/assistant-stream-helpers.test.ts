@@ -374,6 +374,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        messages: [],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } },
       })
     );
@@ -543,16 +544,23 @@ describe('assistant-stream-helpers', () => {
   });
 
   it.each([
-    ['missing', {}],
-    ['empty', { messages: [] }],
-  ])('returns typed 400 when chat messages are %s', async (_case, body) => {
+    [
+      'missing',
+      {},
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    ['empty', { messages: [] }, { error: 'empty_prompt' }],
+  ])('returns typed 400 when chat messages are %s', async (_case, body, expected) => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const res = new ResponseSink();
 
     await handleChatEndpoint(requestBody(body), res as unknown as http.ServerResponse);
 
     expect(res.status).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(JSON.parse(res.body)).toEqual(expected);
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 

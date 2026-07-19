@@ -8,6 +8,7 @@ import {
   AssistantInvalidJsonError,
   AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
   convertAssistantUiMessages,
   parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
@@ -105,7 +106,8 @@ export function describeWebAssistantInputError(error: unknown): WebAssistantInpu
   }
   if (
     error instanceof AssistantInvalidJsonError ||
-    error instanceof AssistantMessageValidationError
+    error instanceof AssistantMessageValidationError ||
+    error instanceof AssistantRequestEnvelopeValidationError
   ) {
     return {
       payload: { error: error.code, message: error.message },
