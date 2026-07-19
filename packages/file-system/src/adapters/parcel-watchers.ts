@@ -18,7 +18,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { DEFAULT_IGNORE_PATTERNS, fileFilter } from '@brainstrike/utils/path-filter';
-import type { DirectoryHandle, FileSystemChange } from '../types';
+import type {
+  DirectoryHandle,
+  FileSystemChange,
+  WatcherFailure,
+  WatcherHealthState,
+  WatcherHealthTransition,
+} from '../types';
 import { createFileSystemChangeBatcher } from './electron-watchers';
 import { loadParcelWatcher, type ParcelWatcherModule, selectParcelBackend } from './parcel-backend';
 
@@ -38,6 +44,11 @@ export class ParcelSubscribeTimeoutError extends Error {
 export interface StartParcelWatchOptions {
   /** Test seam: overrides the lazy binding load. */
   loadModule?: () => Promise<ParcelWatcherModule>;
+  /**
+   * Receives typed health transitions, exactly once per state change:
+   * starting -> healthy | failed, healthy -> degraded (once), -> stopped.
+   */
+  onHealth?: (event: WatcherHealthTransition) => void;
   /** Test seam: overrides PARCEL_SUBSCRIBE_TIMEOUT_MS. */
   subscribeTimeoutMs?: number;
 }
@@ -58,7 +69,37 @@ export async function startParcelWatch(
 ): Promise<() => void> {
   const backend = selectParcelBackend();
   const timeoutMs = options.subscribeTimeoutMs ?? PARCEL_SUBSCRIBE_TIMEOUT_MS;
-  const module = await (options.loadModule ?? loadParcelWatcher)();
+
+  // Health transitions fire exactly once per state change; a repeated cause
+  // (e.g. an FSEvents error storm) cannot re-emit the same state.
+  let healthState: WatcherHealthState | null = null;
+  const transitionHealth = (state: WatcherHealthState, failure?: WatcherFailure): void => {
+    if (healthState === state) {
+      return;
+    }
+    healthState = state;
+    options.onHealth?.({
+      backend,
+      ...(failure ? { failure } : {}),
+      state,
+      timestamp: Date.now(),
+    });
+  };
+
+  transitionHealth('starting');
+
+  let module: ParcelWatcherModule;
+  try {
+    module = await (options.loadModule ?? loadParcelWatcher)();
+  } catch (error) {
+    transitionHealth('failed', {
+      code: 'binding-load-failed',
+      message: error instanceof Error ? error.message : String(error),
+      retryable: false,
+      terminal: true,
+    });
+    throw error;
+  }
 
   const batcher = createFileSystemChangeBatcher(callback);
   let stopped = false;
@@ -143,6 +184,12 @@ export async function startParcelWatch(
           path: handle.path,
         });
       }
+      transitionHealth('degraded', {
+        code: 'backend-error',
+        message: error.message,
+        retryable: true,
+        terminal: false,
+      });
       // ROOT-INVALIDATION SENTINEL: type 'added' on the root path, NOT
       // 'modified'. The Explorer refresh consumer deliberately skips
       // 'modified' as content-only (use-file-tree-refresh-events.ts), while a
@@ -191,6 +238,12 @@ export async function startParcelWatch(
       // release it instead of leaking a live native subscription.
       subscribePromise.then((late) => late.unsubscribe()).catch(() => undefined);
     }
+    transitionHealth('failed', {
+      code: timedOut ? 'subscribe-timeout' : 'subscribe-failed',
+      message: error instanceof Error ? error.message : String(error),
+      retryable: true,
+      terminal: false,
+    });
     throw error;
   });
 
@@ -199,12 +252,14 @@ export async function startParcelWatch(
     path: handle.path,
     platform: process.platform,
   });
+  transitionHealth('healthy');
 
   return () => {
     if (stopped) {
       return;
     }
     stopped = true;
+    transitionHealth('stopped');
     batcher.dispose();
     subscription.unsubscribe().catch((error: unknown) => {
       logger.error('Failed to unsubscribe parcel watcher', {

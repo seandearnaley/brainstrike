@@ -6,4 +6,9 @@ export type {
   FileSystemAdapter,
   FileSystemChange,
   StreamingDirectoryReadOptions,
+  WatcherBackendKind,
+  WatcherFailure,
+  WatcherHealthEvent,
+  WatcherHealthState,
+  WatcherHealthTransition,
 } from '@brainstrike/types';
