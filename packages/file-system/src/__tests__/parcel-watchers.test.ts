@@ -6,7 +6,11 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParcelBackendName, ParcelWatcherModule } from '../adapters/parcel-backend';
+import {
+  type ParcelBackendName,
+  type ParcelWatcherModule,
+  selectParcelBackend,
+} from '../adapters/parcel-backend';
 import {
   PARCEL_SUBSCRIBE_TIMEOUT_MS,
   ParcelSubscribeTimeoutError,
@@ -107,7 +111,8 @@ describe('startParcelWatch', () => {
       loadModule: () => Promise.resolve(fake.module),
     });
     expect(fake.lastSubscribeArgs.dir).toBe(root);
-    expect(fake.lastSubscribeArgs.backend).toBe('fs-events');
+    // Platform-derived: fs-events on darwin, inotify on linux, windows on win32.
+    expect(fake.lastSubscribeArgs.backend).toBe(selectParcelBackend(process.platform));
     expect(fake.lastSubscribeArgs.ignore).toContain('**/node_modules/**');
     expect(fake.lastSubscribeArgs.ignore).toContain('**/.git/**');
     stop();
