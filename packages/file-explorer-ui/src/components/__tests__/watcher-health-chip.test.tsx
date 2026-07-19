@@ -96,6 +96,41 @@ describe('WatcherHealthChip', () => {
     expect(retryWatcher).toHaveBeenCalledWith('/roots/a');
   });
 
+  it('keeps retry disabled for retryAfterMs on a throttled outcome', async () => {
+    let push: ((event: WatcherRootHealthEvent) => void) | null = null;
+    const retryWatcher = vi
+      .fn()
+      .mockResolvedValue({ reason: 'throttled', retried: false, retryAfterMs: 300 });
+    renderChip(
+      {
+        onWatcherHealth: (callback) => {
+          push = callback;
+          return () => undefined;
+        },
+        platform: 'electron',
+        retryWatcher,
+      },
+      '/roots/a'
+    );
+    act(() => {
+      push?.(makeEvent('/roots/a', 'failed', 'boom'));
+    });
+    const retryButton = screen.getByRole('button', {
+      name: 'Retry file watching',
+    });
+    await act(async () => {
+      fireEvent.click(retryButton);
+    });
+    // Still disabled: the throttle window has not elapsed.
+    expect(retryButton).toBeDisabled();
+    await vi.waitFor(
+      () => {
+        expect(retryButton).not.toBeDisabled();
+      },
+      { interval: 25, timeout: 2000 }
+    );
+  });
+
   it('shows a degraded chip without a retry action', () => {
     let push: ((event: WatcherRootHealthEvent) => void) | null = null;
     renderChip(

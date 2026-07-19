@@ -107,7 +107,9 @@ function stopWatcher(watchId: string, entry: LiveFileSystemWatcher): void {
 /**
  * Health sink for one watchId. Updates retry/backoff bookkeeping on the live
  * entry (if it still exists) and pushes the wire event to the OWNING renderer
- * only. Wire events carry no root path.
+ * only. Wire events carry no root-path FIELD — the renderer resolves watchId
+ * back to its own root. (failure.message may quote the owner's own path for
+ * diagnostics; owner scoping means it never crosses renderer boundaries.)
  */
 function makeHealthSink(
   owner: WebContents,

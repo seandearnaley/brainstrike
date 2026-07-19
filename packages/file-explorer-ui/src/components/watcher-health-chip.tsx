@@ -25,8 +25,18 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
   const onRetry = useCallback(async () => {
     setRetryPending(true);
     try {
-      await retry(rootPath);
-    } finally {
+      const outcome = await retry(rootPath);
+      if (!outcome.retried && outcome.reason === 'throttled') {
+        // Main enforces an escalating minimum retry interval; keep the button
+        // visibly disabled until the window opens instead of a silent no-op.
+        window.setTimeout(
+          () => setRetryPending(false),
+          Math.max(outcome.retryAfterMs ?? 1000, 250)
+        );
+        return;
+      }
+      setRetryPending(false);
+    } catch {
       setRetryPending(false);
     }
   }, [retry, rootPath]);
