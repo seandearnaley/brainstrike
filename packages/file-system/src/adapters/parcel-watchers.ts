@@ -67,22 +67,28 @@ export async function startParcelWatch(
   // Backends report kernel realpaths (macOS tmp: /var -> /private/var), but
   // every consumer matches change paths against the handle-rooted prefix —
   // the legacy engine emitted handle-rooted paths by construction. Translate.
-  let realRoot = handle.path;
+  // Root paths are normalized without a trailing separator so re-rooted
+  // children can never gain a doubled separator.
+  const rootPath =
+    handle.path.length > 1 && handle.path.endsWith(path.sep)
+      ? handle.path.slice(0, -1)
+      : handle.path;
+  let realRoot = rootPath;
   try {
-    realRoot = await fs.promises.realpath(handle.path);
+    realRoot = await fs.promises.realpath(rootPath);
   } catch {
     // Root vanished between caller stat and watch start; subscribe below
     // will surface the real failure.
   }
   const rerootEventPath = (eventPath: string): string => {
-    if (realRoot === handle.path) {
+    if (realRoot === rootPath) {
       return eventPath;
     }
     if (eventPath === realRoot) {
-      return handle.path;
+      return rootPath;
     }
     if (eventPath.startsWith(realRoot + path.sep)) {
-      return handle.path + eventPath.slice(realRoot.length);
+      return rootPath + eventPath.slice(realRoot.length);
     }
     return eventPath;
   };

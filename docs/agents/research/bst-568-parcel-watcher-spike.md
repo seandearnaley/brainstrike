@@ -67,6 +67,15 @@ directory (the EMFILE storm of PR #1761's incident).
    protocol (slice 3) must classify ENOSPC as terminal+retryable-after-config.
 4. **Prebuild resolution must go through `@parcel/watcher`'s own location**
    (pnpm strict layout) — relevant for the packaged-app check in slice 4.
+5. **Event paths must be re-rooted onto the handle path.** Backends report
+   kernel realpaths (`/var` → `/private/var`); consumers prefix-match against
+   handle-rooted paths, which the legacy engine emitted by construction.
+6. **Settled ruling (slice 4):** parcel cannot distinguish file vs directory
+   deletion, so every delete normalizes to `directory`/`removed` (safe
+   invalidation). On Linux/Windows this diverges from chokidar's precise
+   `unlink` kind but is functionally equivalent for all three consumers — a
+   deliberate, reviewed trade, not a surprise to relitigate when chokidar is
+   removed.
 
 ## Packaged Electron plan (slice 4)
 
