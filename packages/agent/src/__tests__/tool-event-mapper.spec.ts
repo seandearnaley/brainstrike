@@ -138,6 +138,36 @@ describe('mapMastraToolEvent', () => {
     expect(JSON.stringify(chunk)).not.toContain('model-only');
   });
 
+  it('defensively unwraps an internal hook result when display metadata is absent', () => {
+    const toolNames = new Map<string, string>([['call-1', 'task_list']]);
+    const domainResult = { completed: 1, inProgress: 0, total: 1 };
+
+    const chunk = mapMastraToolEvent(
+      {
+        result: {
+          __brainstrikeHookResultEnvelope: {
+            additionalContext: 'model-only',
+            kind: 'brainstrike.post-tool-result.v1',
+            result: domainResult,
+          },
+        },
+        toolCallId: 'call-1',
+        type: 'tool-result',
+      },
+      toolNames
+    );
+
+    expect(chunk).toMatchObject({
+      payload: {
+        output: domainResult,
+        result: domainResult,
+      },
+      status: 'success',
+    });
+    expect(JSON.stringify(chunk)).not.toContain('__brainstrikeHookResultEnvelope');
+    expect(JSON.stringify(chunk)).not.toContain('model-only');
+  });
+
   it('maps guarded tool timeout results to error events', () => {
     const toolNames = new Map<string, string>([['call-1', 'filesystem.search']]);
     const timeoutResult = {

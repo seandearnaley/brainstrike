@@ -4,6 +4,7 @@ import {
   type ToolPayloadTransformPhase,
 } from '@mastra/core/tools';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
+import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
 
 type ToolEventPart = {
@@ -160,7 +161,12 @@ function readDisplayToolPayload(
 ): unknown {
   const metadata = readMastraStreamPartValue(candidate, 'metadata');
   const transformed = getTransformedToolPayload(metadata, 'display', phase);
-  return hasTransformedToolPayload(transformed) ? transformed.transformed : fallback;
+  const value = hasTransformedToolPayload(transformed) ? transformed.transformed : fallback;
+  const envelope = readHookResultEnvelope(value);
+  if (!envelope) {
+    return value;
+  }
+  return envelope.result;
 }
 
 function progressEvent(
