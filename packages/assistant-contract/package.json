@@ -119,6 +119,11 @@
       "import": "./dist/tool-metadata.js",
       "require": "./dist/tool-metadata.js"
     },
+    "./tool-output-artifact": {
+      "types": "./dist/tool-output-artifact.d.ts",
+      "import": "./dist/tool-output-artifact.js",
+      "require": "./dist/tool-output-artifact.js"
+    },
     "./tool-suspend": {
       "types": "./dist/tool-suspend.d.ts",
       "import": "./dist/tool-suspend.js",
