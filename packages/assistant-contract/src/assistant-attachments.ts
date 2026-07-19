@@ -139,10 +139,11 @@ export function dataUrlByteLength(dataUrl: string): number {
 
 /**
  * Validate one inline image attachment part against the shared allowlist and
- * size cap. Throws {@link AssistantAttachmentValidationError}; returns void on
- * success.
+ * size cap. Throws {@link AssistantAttachmentValidationError}; returns the
+ * decoded byte count on success so callers can enforce a combined budget
+ * without reparsing the base64 body.
  */
-export function validateImageAttachmentPart(part: { data: string; mediaType: string }): void {
+export function validateImageAttachmentPart(part: { data: string; mediaType: string }): number {
   const normalizedMediaType = part.mediaType.trim().toLowerCase();
   if (!isSupportedImageAttachmentMediaType(normalizedMediaType)) {
     throw new AssistantAttachmentValidationError(
@@ -164,4 +165,5 @@ export function validateImageAttachmentPart(part: { data: string; mediaType: str
       `Image attachment is ${bytes} bytes; the limit is ${ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES} bytes.`
     );
   }
+  return bytes;
 }

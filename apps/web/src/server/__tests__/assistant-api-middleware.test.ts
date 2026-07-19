@@ -7,16 +7,19 @@ vi.mock('@brainstrike/agent', async () => {
   return {
     ...actual,
     resolveDataStreamSession: vi.fn(),
+    toAiSdkStyleStream: vi.fn(),
   };
 });
 
-import type { AssistantDataStreamSession } from '@brainstrike/agent';
-import { resolveDataStreamSession } from '@brainstrike/agent';
+import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
+import { resolveDataStreamSession, toAiSdkStyleStream } from '@brainstrike/agent';
 import { createAssistantApiMiddleware } from '../assistant-api-middleware';
 
 class ResponseSink extends EventEmitter {
   body = '';
+  destroyError: Error | undefined;
   headers: Record<string, string> = {};
+  headersSent = false;
   statusCode = 200;
   destroyed = false;
 
@@ -25,8 +28,12 @@ class ResponseSink extends EventEmitter {
   }
 
   writeHead(status: number, headers: Record<string, string>): void {
+    if (this.headersSent) {
+      throw new Error('ERR_HTTP_HEADERS_SENT');
+    }
     this.statusCode = status;
     this.headers = headers;
+    this.headersSent = true;
   }
 
   write(chunk: Uint8Array | string): boolean {
@@ -39,6 +46,13 @@ class ResponseSink extends EventEmitter {
       this.body += chunk;
     }
     this.emit('finish');
+  }
+
+  destroy(error?: Error): this {
+    this.destroyed = true;
+    this.destroyError = error;
+    this.emit('close');
+    return this;
   }
 }
 
@@ -260,6 +274,38 @@ describe('assistant API middleware request body limit', () => {
       error: 'invalid_messages',
       message: 'Assistant message id must be a non-empty bounded string.',
     });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('destroys a partially written Vite chat response when its stream fails', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'partial' } as StreamChunk;
+        throw new Error('provider stream failed');
+      },
+    });
+    const middleware = createAssistantApiMiddleware('dev');
+    const req = createRequest({});
+    const res = new ResponseSink();
+    const next = vi.fn();
+    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+
+    req.emit(
+      'data',
+      Buffer.from(
+        JSON.stringify({
+          messages: [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        })
+      )
+    );
+    req.emit('end');
+    await responsePromise;
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('partial');
+    expect(res.destroyed).toBe(true);
+    expect(res.destroyError).toEqual(new Error('provider stream failed'));
     expect(next).not.toHaveBeenCalled();
   });
 });

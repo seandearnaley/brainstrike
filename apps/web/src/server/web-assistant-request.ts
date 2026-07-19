@@ -9,7 +9,8 @@ import {
   AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
   AssistantRequestEnvelopeValidationError,
-  convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
+  hasAssistantPromptContent,
   parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
 } from '@brainstrike/agent';
@@ -41,7 +42,9 @@ export interface WebAssistantTurn extends WebAssistantNormalTurn {
 
 export class EmptyAssistantPromptError extends Error {
   constructor() {
-    super('Assistant request must end with a non-empty user prompt.');
+    super(
+      'Assistant request must end with user prompt content: non-empty text or a validated image attachment.'
+    );
     this.name = 'EmptyAssistantPromptError';
   }
 }
@@ -55,28 +58,14 @@ export class InvalidToolApprovalActionError extends Error {
   }
 }
 
-function isUserMessage(value: unknown): boolean {
-  if (!(value && typeof value === 'object' && 'role' in value)) {
-    return false;
-  }
-  return typeof value.role === 'string' && value.role.toLowerCase() === 'user';
-}
-
 function resolveNormalTurn(payload: AssistantRequestPayload): WebAssistantNormalTurn {
-  const lastRawMessage = payload.rawMessages.at(-1) as unknown;
-  if (!isUserMessage(lastRawMessage)) {
-    throw new EmptyAssistantPromptError();
-  }
-
-  const finalAgentMessage = convertAssistantUiMessages(payload.rawMessages.slice(-1)).at(-1);
-  const hasNonEmptyText = finalAgentMessage?.parts.some(
-    (part) => part.type === 'text' && part.text.trim().length > 0
+  const { finalInputMessage, messages: agentMessages } = convertAssistantUiMessagesWithFinalInput(
+    payload.rawMessages
   );
-  if (finalAgentMessage?.role !== 'user' || !hasNonEmptyText) {
+  if (!(finalInputMessage && hasAssistantPromptContent([finalInputMessage]))) {
     throw new EmptyAssistantPromptError();
   }
 
-  const agentMessages = convertAssistantUiMessages(payload.rawMessages);
   return { agentMessages, payload };
 }
 

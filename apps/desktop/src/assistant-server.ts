@@ -26,7 +26,7 @@ import {
   createLocalHostEmbeddingModel,
   createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  hasNonEmptyAssistantPrompt,
+  hasAssistantPromptContent,
   isSupportedProvider,
   listSuspendedMastraRuns,
   PROVIDER_DEFAULT_MODELS,
@@ -783,7 +783,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!(toolApprovalAction || toolResumeAction || hasNonEmptyPrompt(messages))) {
+  if (!(toolApprovalAction || toolResumeAction || hasPromptContent(messages))) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -1147,8 +1147,8 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
   };
 }
 
-function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  return hasNonEmptyAssistantPrompt(messages);
+function hasPromptContent(messages: AgentMessage[]): boolean {
+  return hasAssistantPromptContent(messages);
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {

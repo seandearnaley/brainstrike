@@ -604,6 +604,63 @@ describe('assistant route', () => {
     );
   });
 
+  it('accepts an image-only user turn as a valid vision prompt', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
+      },
+    };
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
+      createResponse: () => new Response('ok', { status: 200 }),
+    } as unknown as AssistantDataStreamSession);
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          messages: [
+            {
+              id: 'image-only',
+              parts: [
+                {
+                  data: 'data:image/png;base64,aGVsbG8=',
+                  mediaType: 'image/png',
+                  type: 'file',
+                },
+              ],
+              role: 'user',
+            },
+          ],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentMessages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      })
+    );
+  });
+
   it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       apiKey: 'test-key',

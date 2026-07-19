@@ -2,7 +2,6 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   AssistantAttachmentValidationError,
-  dataUrlByteLength,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
 import { assertAssistantMessageGraphWithinLimits } from './assistant-message-boundary';
@@ -76,7 +75,6 @@ function readWireFileAttachmentCandidate(
     mediaType,
     type: 'file',
   };
-  validateImageAttachmentPart(part);
   return part;
 }
 
@@ -89,7 +87,7 @@ function assertAttachmentCollectionWithinLimits(collected: AgentMessagePartFile[
   }
   let combinedBytes = 0;
   for (const part of collected) {
-    combinedBytes += dataUrlByteLength(part.data);
+    combinedBytes += validateImageAttachmentPart(part);
   }
   if (combinedBytes > ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES) {
     throw new AssistantAttachmentValidationError(
@@ -235,18 +233,30 @@ export function convertAssistantUiMessages(
 export function convertAssistantUiMessages(
   messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
 ): AgentMessage[] {
+  return convertAssistantUiMessagesWithFinalInput(messages).messages;
+}
+
+export interface AssistantUiMessageConversionResult {
+  finalInputMessage: AgentMessage | null;
+  messages: AgentMessage[];
+}
+
+export function convertAssistantUiMessagesWithFinalInput(
+  messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
+): AssistantUiMessageConversionResult {
   assertAssistantMessageGraphWithinLimits(messages);
   const converted: AgentMessage[] = [];
-  for (const message of messages) {
+  let finalInputMessage: AgentMessage | null = null;
+  for (const [index, message] of messages.entries()) {
     const agentMessage = toAgentMessage(message);
+    if (index === messages.length - 1) {
+      finalInputMessage = agentMessage;
+    }
     if (agentMessage) {
       converted.push(agentMessage);
     }
   }
-  if (converted.length > 0) {
-    return converted;
-  }
-  return [];
+  return { finalInputMessage, messages: converted };
 }
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes

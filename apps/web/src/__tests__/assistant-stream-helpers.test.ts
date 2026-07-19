@@ -487,6 +487,53 @@ describe('assistant-stream-helpers', () => {
     );
   });
 
+  it('accepts an image-only user turn on the Vite chat boundary', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {
+        yield { type: 'text-delta', value: 'image received' } as StreamChunk;
+      })()
+    );
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(200);
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+      [
+        {
+          id: 'image-only',
+          parts: [
+            {
+              data: 'data:image/png;base64,aGVsbG8=',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      { apiKey: 'key', provider: 'openai' }
+    );
+  });
+
   it('returns the canonical attachment error from the Vite chat boundary', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const res = new ResponseSink();
@@ -595,6 +642,61 @@ describe('assistant-stream-helpers', () => {
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('accepts an image-only user turn on the Vite assistant route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
+      },
+    };
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
+      createResponse: () => new Response('ok'),
+    } as unknown as AssistantDataStreamSession);
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentMessages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      })
+    );
   });
 
   it.each([

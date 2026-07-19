@@ -577,6 +577,39 @@ describe('assistant-server', () => {
       expect(data.error).toBe('empty_prompt');
     }, 10_000);
 
+    it('should accept an image-only user turn as a valid vision prompt', async () => {
+      const { streamResponse } = await import('../assistant-server/http');
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [
+            {
+              id: 'image-only',
+              parts: [
+                {
+                  data: 'data:image/png;base64,aGVsbG8=',
+                  mediaType: 'image/png',
+                  type: 'file',
+                },
+              ],
+              role: 'user',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+
+      expect(response.status).toBe(200);
+      expect(streamResponse).toHaveBeenCalledOnce();
+    }, 10_000);
+
     it('should reject assistant route when provider is missing', async () => {
       const response = await runRequest({
         body: JSON.stringify({

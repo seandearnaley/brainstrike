@@ -74,9 +74,7 @@ describe('assistant attachment limits', () => {
   });
 
   it('validates a supported, in-budget image part', () => {
-    expect(() =>
-      validateImageAttachmentPart({ data: PNG_DATA_URL, mediaType: 'image/png' })
-    ).not.toThrow();
+    expect(validateImageAttachmentPart({ data: PNG_DATA_URL, mediaType: 'image/png' })).toBe(29);
     expect(() =>
       validateImageAttachmentPart({
         data: 'data:image/PNG;base64,aGVsbG8=',

@@ -11,6 +11,7 @@ import type { AgentMessage, RuntimeData } from '../index';
 import {
   AssistantAttachmentValidationError,
   convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
   toAiSdkStyleStream,
 } from '../index';
 
@@ -84,6 +85,18 @@ describe('convertAssistantUiMessages image attachments', () => {
     expect(messages).toHaveLength(1);
     const [first] = messages as [AgentMessage];
     expect(first.parts).toEqual([{ data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' }]);
+  });
+
+  it('tracks whether the final input message converted without rewalking it separately', () => {
+    expect(
+      convertAssistantUiMessagesWithFinalInput([
+        { id: 'u1', parts: [{ text: 'first', type: 'text' }], role: 'user' },
+        { id: 'u2', parts: [{ text: '   ', type: 'text' }], role: 'user' },
+      ])
+    ).toEqual({
+      finalInputMessage: null,
+      messages: [{ id: 'u1', parts: [{ text: 'first', type: 'text' }], role: 'user' }],
+    });
   });
 
   it('throws loudly on an unsupported attachment media type', () => {
@@ -319,6 +332,30 @@ describe('convertAssistantUiMessages image attachments', () => {
         },
       ])
     ).toThrow(/attachment/i);
+  });
+
+  it('checks attachment count before measuring an oversized file', () => {
+    const oversizedBody = 'A'.repeat(Math.ceil((6 * 1024 * 1024) / 3) * 4);
+    const parts = [
+      {
+        data: `data:image/png;base64,${oversizedBody}`,
+        mediaType: 'image/png',
+        type: 'file',
+      },
+      ...Array.from({ length: 4 }, () => ({
+        data: PNG_DATA_URL,
+        mediaType: 'image/png',
+        type: 'file',
+      })),
+    ];
+
+    try {
+      convertAssistantUiMessages([{ content: parts, id: 'u1', role: 'user' }]);
+      expect.unreachable('five attachments must be rejected before per-file measurement');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AssistantAttachmentValidationError);
+      expect(error).toMatchObject({ reason: 'too-many-attachments' });
+    }
   });
 
   it('throws loudly when the combined attachment payload exceeds the shared cap', () => {

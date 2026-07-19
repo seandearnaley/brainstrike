@@ -212,9 +212,18 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
   };
 }
 
-export function hasNonEmptyAssistantPrompt(messages: readonly AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
-  const lastText =
-    lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
-  return Boolean(lastText.trim().length > 0);
+export function hasAssistantPromptContent(messages: readonly AgentMessage[]): boolean {
+  const finalMessage = messages.at(-1);
+  if (finalMessage?.role !== 'user') {
+    return false;
+  }
+  return finalMessage.parts.some((part: AgentMessage['parts'][number]) => {
+    if (part.type === 'file') {
+      return true;
+    }
+    if (part.type !== 'text') {
+      return false;
+    }
+    return part.text.trim().length > 0;
+  });
 }

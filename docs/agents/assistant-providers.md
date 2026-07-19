@@ -82,6 +82,11 @@
     `tools`, or message state before fetch because the custom server consumes
     none of them. In particular, provider API keys/base URLs and per-call
     headers can never leak through assistant-ui's generic model-context bags.
+    `runConfig` is currently bounded by the overall 16MB request cap; only the
+    shared approval/suspend action readers consume it, and a suspend action's
+    `resumeData` is then validated by the tool's Mastra resume schema. Do not
+    forward any other `runConfig` subtree: expanding that contract first
+    requires shared graph, identifier, and UI-input bounds.
     This envelope reduces and secures HTTP transport bytes; model-context
     savings remain the separate memory/projection/compaction contracts below.
     Before recursive assistant-ui compatibility normalization, the shared
@@ -97,8 +102,12 @@
     `{type:"file",path:"README.md"}` can never collide with the attachment
     discriminator or be flattened into prompt text. The elevated data-URL string
     allowance likewise applies only at those exact user-file positions; every
-    other string remains under the normal graph budget. Attachment limits count
-    wire occurrences rather than object identity. File parts require canonical
+    other string remains under the normal graph budget. An image attachment is
+    prompt content in its own right, so validated
+    image-only user turns are accepted consistently by Next, Vite, and Desktop.
+    Blank text-only turns and turns ending in assistant/system history remain
+    invalid. Attachment limits count wire occurrences rather than object
+    identity. File parts require canonical
     base64 alphabet, length, and padding, and the data-URL media type must equal
     the declared allowlisted image media type. An empty base64 body is invalid
     (`invalid-base64`), never a canonical zero-byte image. Malformed direct file

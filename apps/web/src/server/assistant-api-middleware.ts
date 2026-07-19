@@ -78,6 +78,17 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
 
       await handleAssistantEndpoint(req, res, bodyText);
     } catch (error) {
+      if (res.headersSent) {
+        logger.error(`${mode} assistant API stream failed after response headers were sent`, {
+          error,
+        });
+        res.destroy(
+          error instanceof Error
+            ? error
+            : new Error(`${mode} assistant API stream failed with a non-Error value.`)
+        );
+        return;
+      }
       if (sendKnownRequestError(res, error)) {
         return;
       }

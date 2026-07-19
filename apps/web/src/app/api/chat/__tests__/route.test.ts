@@ -251,6 +251,49 @@ describe('chat route schema', () => {
     );
   });
 
+  it('accepts an image-only user turn as a valid vision prompt', async () => {
+    streamMock.mockResolvedValue(createStream({ type: 'text-delta', value: 'a tiny image' }));
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(streamMock).toHaveBeenCalledWith(
+      [
+        {
+          id: 'image-only',
+          parts: [
+            {
+              data: 'data:image/png;base64,aGVsbG8=',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      expect.any(Object)
+    );
+  });
+
   it('returns the canonical attachment error for malformed file parts', async () => {
     const req = new Request('http://localhost/api/chat', {
       body: JSON.stringify({

@@ -101,7 +101,7 @@ export {
   AssistantRequestEnvelopeValidationError,
   type AssistantRequestEnvelopeValidationReason,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  hasNonEmptyAssistantPrompt,
+  hasAssistantPromptContent,
   parseAssistantRequestPayloadText,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
@@ -219,7 +219,12 @@ export {
   type RuntimeAssistantSemanticRecallSettings,
 } from './memory-settings';
 // Message utilities — conversion and normalization functions
-export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
+export {
+  type AssistantUiMessageConversionResult,
+  convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
+  toAiSdkStyleStream,
+} from './message-utils';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
