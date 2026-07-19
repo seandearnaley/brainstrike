@@ -1,8 +1,4 @@
-import {
-  type AssistantRunEvent,
-  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  type LocalLlmBackendFactory,
-} from '@brainstrike/assistant-contract';
+import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   getProviderModelDefinitions,
@@ -78,6 +74,7 @@ import {
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
+import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
   buildTapestryRangesForUpdate,
   computeReplacedSelection,
@@ -795,17 +792,15 @@ export function AssistantUiPanelWrapper({
   );
   const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
-  const desktopRuntimeBridgeAvailable = hasDesktopRuntimeBridge();
   const hostedMemoryBackendAvailable =
     selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
   // Desktop routes built-in local chat through the assistant server (real
   // Mastra loop with persistence/run events; inference proxied to the hidden
   // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
   const localChatTransport: 'data-stream' | 'local-runtime' =
-    desktopRuntimeBridgeAvailable && desktopAssistantBackendAvailable && hasDesktopLlmHost()
+    hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
       ? 'data-stream'
       : 'local-runtime';
-
   // Permission enforcement (OPT-IN). Subscribe to the persisted posture so the
   // request snapshot stays in sync; the serializable input is only attached to
   // the request when the user enabled `enforce`. Scoped to the desktop
@@ -1589,9 +1584,7 @@ export function AssistantUiPanelWrapper({
               providerGroups={providerGroups}
               providerSettings={effectiveProviderSettings}
               recentModels={validRecentModels}
-              {...(desktopAssistantBackendAvailable
-                ? {}
-                : { requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES })}
+              {...webBodyLimitProps(desktopAssistantBackendAvailable)}
               requestData={requestData}
               slashCommands={slashCommands}
               {...(desktopAssistantBackendAvailable

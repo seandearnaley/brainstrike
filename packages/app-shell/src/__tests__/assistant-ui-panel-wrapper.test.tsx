@@ -125,6 +125,7 @@ describe('AssistantUiPanelWrapper', () => {
     // localChatTransport describes the LOCAL provider's transport and must
     // not gate hosted providers on web — the /api/assistant route shares the
     // desktop server's image-aware conversion (#1685 review fix).
+    Reflect.deleteProperty(window, 'assistant');
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
