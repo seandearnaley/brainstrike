@@ -57,3 +57,27 @@ test('reconciles an unavailable thread draft provider to the hosted provider', a
     });
   });
 });
+
+test('rebuilds stale draft options when the hosted fixed model already matches', async () => {
+  useAssistantThreadStore.getState().setThreadDraftRuntime('thread-existing', {
+    model: 'gpt-5.6-terra',
+    provider: 'openai',
+    providerOptions: { openrouter: { reasoning: { effort: 'high' } } },
+  });
+
+  render(
+    <AssistantUiPanelWrapper
+      fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
+      initialProviders={['openai']}
+      loadLocalLlmBackend={loadTestLocalLlmBackend}
+      memoryResourceId="/tmp/test-workspace"
+      memoryThreadId="thread-existing"
+    />
+  );
+
+  await waitFor(() => {
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']
+    ).not.toHaveProperty('providerOptions.openrouter');
+  });
+});

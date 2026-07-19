@@ -3,7 +3,7 @@ import type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { AssistantThreadDraftRuntime } from '../assistant-thread-store';
 import {
   buildDraftRuntimeForProvider,
@@ -83,15 +83,24 @@ export function useAssistantModelChange({
       setThreadDraftRuntime,
     ]
   );
-  // biome-ignore lint/plugin: the hosted runtime contract changes outside any user event
+  const reconciledFixedSelectionsRef = useRef(new Set<string>());
   useEffect(() => {
-    const replacementModel = resolveFixedProviderModelSelection({
+    const fixedModel = resolveFixedProviderModelSelection({
       currentModel,
       fixedProviderModels,
     });
-    if (replacementModel) {
-      handleModelChange(replacementModel);
+    if (!fixedModel) {
+      return;
     }
-  }, [currentModel, fixedProviderModels, handleModelChange]);
+    const reconciliationKey = JSON.stringify([memoryThreadId, currentModel, fixedModel]);
+    if (reconciledFixedSelectionsRef.current.has(reconciliationKey)) {
+      return;
+    }
+    reconciledFixedSelectionsRef.current.add(reconciliationKey);
+    reconciledFixedSelectionsRef.current.add(
+      JSON.stringify([memoryThreadId, fixedModel, fixedModel])
+    );
+    handleModelChange(fixedModel);
+  }, [currentModel, fixedProviderModels, handleModelChange, memoryThreadId]);
   return handleModelChange;
 }

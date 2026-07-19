@@ -789,7 +789,7 @@ export function resolveFixedProviderModelSelection(args: {
     currentModelName &&
     args.fixedProviderModels[currentProvider]?.includes(currentModelName)
   ) {
-    return;
+    return `${currentProvider}::${currentModelName}`;
   }
   for (const [provider, models] of Object.entries(args.fixedProviderModels)) {
     const model = models?.[0];
