@@ -1,8 +1,10 @@
 import type http from 'node:http';
 import {
+  AssistantRequestBodyTooLargeError,
   type AssistantUiMessage,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   type StreamChunk,
@@ -26,13 +28,87 @@ type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
 };
 
-export async function readBody(req: http.IncomingMessage): Promise<string> {
-  return await new Promise<string>((resolve) => {
-    let data = '';
-    req.on('data', (chunk: Buffer) => {
-      data += chunk;
-    });
-    req.on('end', () => resolve(data));
+function requestChunkToBuffer(chunk: unknown): Buffer {
+  if (typeof chunk === 'string') {
+    return Buffer.from(chunk);
+  }
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  throw new TypeError('Assistant request body emitted a non-byte chunk.');
+}
+
+export async function readBody(
+  req: http.IncomingMessage,
+  bodyLimitBytes: number = DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES
+): Promise<string> {
+  const contentLengthHeader = req.headers['content-length'];
+  const contentLength = Array.isArray(contentLengthHeader)
+    ? contentLengthHeader.at(-1)
+    : contentLengthHeader;
+  if (contentLength) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > bodyLimitBytes) {
+      if (typeof req.resume === 'function') {
+        req.resume();
+      }
+      throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
+    }
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    const removeListeners = (): void => {
+      req.removeListener('aborted', onAborted);
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+    };
+    const rejectRead = (error: Error, drainRemainingBody: boolean): void => {
+      removeListeners();
+      if (drainRemainingBody && typeof req.resume === 'function') {
+        req.resume();
+      }
+      reject(error);
+    };
+    const onAborted = (): void => {
+      rejectRead(new Error('Assistant request body stream was aborted.'), false);
+    };
+    const onData = (chunk: unknown): void => {
+      let buffer: Buffer;
+      try {
+        buffer = requestChunkToBuffer(chunk);
+      } catch (error) {
+        rejectRead(
+          error instanceof Error
+            ? error
+            : new TypeError('Assistant request body emitted an invalid chunk.'),
+          true
+        );
+        return;
+      }
+
+      totalBytes += buffer.byteLength;
+      if (totalBytes > bodyLimitBytes) {
+        rejectRead(new AssistantRequestBodyTooLargeError(bodyLimitBytes), true);
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      removeListeners();
+      resolve(Buffer.concat(chunks, totalBytes).toString('utf8'));
+    };
+    const onError = (error: Error): void => {
+      rejectRead(error, false);
+    };
+
+    req.once('aborted', onAborted);
+    req.on('data', onData);
+    req.once('end', onEnd);
+    req.once('error', onError);
   });
 }
 

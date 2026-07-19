@@ -50,6 +50,7 @@ vi.mock('../server/web-mastra-storage', () => ({
 
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
+  AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   resolveDataStreamSession,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
@@ -97,6 +98,7 @@ describe('assistant-stream-helpers', () => {
 
   it('reads the request body as a string', async () => {
     const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
     const bodyPromise = readBody(req);
 
     req.emit('data', Buffer.from('hello '));
@@ -104,6 +106,31 @@ describe('assistant-stream-helpers', () => {
     req.emit('end');
 
     await expect(bodyPromise).resolves.toBe('hello world');
+  });
+
+  it('rejects a declared request body larger than the configured byte limit before reading', async () => {
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'content-length': '6' };
+    req.resume = vi.fn().mockReturnValue(req);
+    const dataListener = vi.fn();
+    req.on('data', dataListener);
+
+    await expect(readBody(req, 5)).rejects.toEqual(new AssistantRequestBodyTooLargeError(5));
+    expect(dataListener).not.toHaveBeenCalled();
+    expect(req.resume).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a chunked request as soon as its accumulated bytes exceed the limit', async () => {
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    req.resume = vi.fn().mockReturnValue(req);
+    const bodyPromise = readBody(req, 5);
+
+    req.emit('data', Buffer.from('abc'));
+    req.emit('data', Buffer.from('def'));
+
+    await expect(bodyPromise).rejects.toEqual(new AssistantRequestBodyTooLargeError(5));
+    expect(req.resume).toHaveBeenCalledOnce();
   });
 
   it('sends assistant status payload', async () => {

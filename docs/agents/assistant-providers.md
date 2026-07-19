@@ -62,7 +62,12 @@
     `invalid_runtime_data` / HTTP 400. TypeScript types alone are not a request
     trust boundary. The Web request therefore cannot create tools, launch stdio
     MCP, replace provider credentials, or set server cost policy through
-    serialized runtime data.
+    serialized runtime data. Production route handlers and the Vite dev/preview
+    middleware share the canonical assistant request-body limit contract:
+    declared and streamed/chunked overflow is byte-counted before JSON parsing
+    and fails visibly with `request_body_too_large` / HTTP 413 while the Node
+    stream drains. Malformed JSON fails without logging its value as
+    `invalid_json` / HTTP 400.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

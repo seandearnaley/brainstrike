@@ -27,6 +27,14 @@ const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
 
 describe('web vite config alias contract', () => {
+  it('delegates assistant API requests to the bounded Node middleware', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toMatch(/import\(\s*'\.\/src\/server\/assistant-api-middleware\.ts'\s*\)/);
+    expect(config).toContain('createAssistantApiMiddleware(mode)');
+    expect(config).not.toContain('const bodyStr = await readBody(req)');
+  });
+
   it('spreads the shared workspace-src-alias registry', () => {
     expect(readWebViteConfig()).toContain('workspaceSrcAliases(');
   });
