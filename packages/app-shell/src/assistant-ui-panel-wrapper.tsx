@@ -109,7 +109,6 @@ import {
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
-  resolveProviderModelSelection,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -123,6 +122,7 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useProviderModelSelector } from './hooks/use-provider-model-selector';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
@@ -188,8 +188,6 @@ export function AssistantUiPanelWrapper({
     getAvailableProviders,
     getLocalRuntimeStatuses,
     getLocalRuntimeModels,
-    getSelectedModel,
-    getSelectedProvider,
     setProviderSettings,
   } = useAssistantPreferencesStore();
   const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
@@ -1027,21 +1025,15 @@ export function AssistantUiPanelWrapper({
     [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
-  const selectModelForProvider = useCallback(
-    (provider: SupportedProvider) => {
-      const modelToSelect =
-        resolveProviderModelSelection({
-          getProviderLlmModels,
-          isModelEnabled,
-          provider,
-        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
-      if (!modelToSelect) {
-        return;
-      }
-      setModel(`${provider}::${modelToSelect}`);
-    },
-    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
-  );
+  const selectModelForProvider = useProviderModelSelector({
+    enabledBuiltInLocalModelIds,
+    getProviderLlmModels,
+    isModelEnabled,
+    memoryThreadId,
+    selectedThreadDraftRuntime,
+    setModel,
+    setThreadDraftRuntime,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1077,23 +1069,23 @@ export function AssistantUiPanelWrapper({
     (currentProvider: SupportedProvider) =>
       hasValidProviderModelSelection({
         currentProvider,
-        currentSelectedModel: getSelectedModel(),
+        currentSelectedModel: currentModel,
         isModelEnabled,
         providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
       }),
-    [getProviderLlmModels, getSelectedModel, isModelEnabled]
+    [currentModel, getProviderLlmModels, isModelEnabled]
   );
 
   const handleLocalRuntimeSelection = useCallback(
     (currentProvider: SupportedProvider): boolean =>
       resolveLocalRuntimeSelection({
         currentProvider,
-        currentSelectedModel: getSelectedModel(),
+        currentSelectedModel: currentModel,
         isModelEnabled,
         providerHasEnabledModels,
         selectModelForProvider,
       }),
-    [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
+    [currentModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
   const seedBuiltInLocalModelSelection = useCallback((): boolean => {
@@ -1115,7 +1107,7 @@ export function AssistantUiPanelWrapper({
       return;
     }
 
-    const currentProvider = getSelectedProvider();
+    const currentProvider = selectedProvider;
     if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
     }
@@ -1158,10 +1150,10 @@ export function AssistantUiPanelWrapper({
     enabledModelIds,
     handleLocalRuntimeSelection,
     hasValidCurrentModelSelection,
-    getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
     seedBuiltInLocalModelSelection,
+    selectedProvider,
     selectModelForProvider,
     shouldSkipSelectionReconcile,
   ]);
