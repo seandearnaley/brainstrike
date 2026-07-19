@@ -254,6 +254,20 @@ const ACCEPTED_IGNORED_WIRE_SCHEMAS = {
     .strict(),
   provider: idSchema,
   providerOptions: z.custom<Record<string, unknown>>(isBoundedJsonObject),
+  transportImageElision: z
+    .object({
+      elidedImageBytes: countSchema,
+      elidedImageCount: countSchema,
+      keptImageBytes: countSchema,
+      strategy: z.literal('newest-first-combined-image-budget'),
+      unmeasurableImageCount: countSchema.optional(),
+    })
+    .strict()
+    .refine(
+      (metadata) =>
+        metadata.unmeasurableImageCount === undefined ||
+        metadata.unmeasurableImageCount <= metadata.elidedImageCount
+    ),
 } satisfies Partial<Record<keyof RuntimeData, z.ZodType>>;
 
 type AcceptedIgnoredWireField = keyof typeof ACCEPTED_IGNORED_WIRE_SCHEMAS;

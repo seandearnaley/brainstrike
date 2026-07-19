@@ -111,6 +111,74 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     });
   });
 
+  it('accepts bounded client image-elision metadata without forwarding it into the runtime', () => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(
+      resolveWebAssistantRuntime(
+        asRuntimeData({
+          transportImageElision: {
+            elidedImageBytes: 5_242_880,
+            elidedImageCount: 1,
+            keptImageBytes: 6_291_456,
+            strategy: 'newest-first-combined-image-budget',
+          },
+        }),
+        'server-key'
+      )
+    ).toEqual({
+      apiKey: 'server-key',
+      provider: 'openai',
+    });
+  });
+
+  it.each([
+    [
+      'negative byte counts',
+      {
+        elidedImageBytes: -1,
+        elidedImageCount: 1,
+        keptImageBytes: 0,
+        strategy: 'newest-first-combined-image-budget',
+      },
+    ],
+    [
+      'unknown fields',
+      {
+        elidedImageBytes: 1,
+        elidedImageCount: 1,
+        injected: true,
+        keptImageBytes: 0,
+        strategy: 'newest-first-combined-image-budget',
+      },
+    ],
+    [
+      'an unsupported strategy',
+      {
+        elidedImageBytes: 1,
+        elidedImageCount: 1,
+        keptImageBytes: 0,
+        strategy: 'oldest-first',
+      },
+    ],
+    [
+      'an impossible unmeasurable count',
+      {
+        elidedImageBytes: 1,
+        elidedImageCount: 1,
+        keptImageBytes: 0,
+        strategy: 'newest-first-combined-image-budget',
+        unmeasurableImageCount: 2,
+      },
+    ],
+  ])('rejects image-elision metadata with %s', (_case, transportImageElision) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ transportImageElision }), 'server-key')
+    ).toThrow('Invalid web assistant runtime field: transportImageElision');
+  });
+
   it.each([
     ['agentLoop', { inputTokenLimit: '1000', maxSteps: '20' }],
     ['enabledNativeToolIds', 'execute-anything'],

@@ -43,7 +43,7 @@ vi.mock('../../../../server/web-mastra-storage', () => ({
   buildWebAssistantStream: vi.fn(),
 }));
 
-import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
+import type { AssistantDataStreamSession, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   assistantDataStreamSessions,
@@ -659,6 +659,52 @@ describe('assistant route', () => {
         ],
       })
     );
+  });
+
+  it('accepts the image-elision metadata emitted by the shared UI transport', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'ok' } as StreamChunk;
+      },
+    };
+    let resolvedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
+      resolvedRuntime = resolveWebAssistantRuntime(params.data, params.apiKey);
+      return stream;
+    });
+    vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
+      createResponse: () => new Response('ok', { status: 200 }),
+    } as unknown as AssistantDataStreamSession);
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: {
+            transportImageElision: {
+              elidedImageBytes: 5_242_880,
+              elidedImageCount: 1,
+              keptImageBytes: 6_291_456,
+              strategy: 'newest-first-combined-image-budget',
+            },
+          },
+          messages: [
+            { id: 'current-user', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+          ],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(resolvedRuntime).toEqual({
+      apiKey: 'test-key',
+      provider: 'openai',
+    });
   });
 
   it('resumes a tool approval action through workflow storage (no longer 501)', async () => {

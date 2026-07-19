@@ -7,6 +7,7 @@ import type {
   AssistantTaskItem,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  AssistantUiMessageConversionResult,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -15,13 +16,14 @@ import type {
 } from '@brainstrike/agent';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
   AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
   AssistantRequestEnvelopeValidationError,
   assistantDataStreamSessions,
   buildNativeToolRiskMap,
-  convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
   createEmbeddingProvider,
   createLocalHostEmbeddingModel,
   createProvider,
@@ -685,6 +687,36 @@ function withTrustedAssistantMessageId(
   };
 }
 
+function convertAssistantMessagesOrRespond(
+  rawMessages: readonly AssistantUiMessage[],
+  res: http.ServerResponse
+): AssistantUiMessageConversionResult | undefined {
+  try {
+    return convertAssistantUiMessagesWithFinalInput(rawMessages);
+  } catch (error) {
+    if (!(error instanceof AssistantAttachmentValidationError)) {
+      throw error;
+    }
+    respondJson(res, 400, {
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: error.reason,
+    });
+    return;
+  }
+}
+
+function hasAssistantPromptOrAction(
+  finalInputMessage: AgentMessage | null,
+  toolApprovalAction: AssistantToolApprovalAction | undefined,
+  toolResumeAction: AssistantToolResumeAction | undefined
+): boolean {
+  if (toolApprovalAction || toolResumeAction) {
+    return true;
+  }
+  return Boolean(finalInputMessage && hasPromptContent([finalInputMessage]));
+}
+
 async function prepareAssistantPostRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
@@ -728,7 +760,11 @@ async function prepareAssistantPostRequest(
     throw error;
   }
 
-  const messages = convertAssistantUiMessages(rawMessages);
+  const conversion = convertAssistantMessagesOrRespond(rawMessages, res);
+  if (!conversion) {
+    return;
+  }
+  const { finalInputMessage, messages } = conversion;
   const provider = resolveRequestedProvider(data);
 
   if (toolApprovalActionInvalid) {
@@ -783,7 +819,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!(toolApprovalAction || toolResumeAction || hasPromptContent(messages))) {
+  if (!hasAssistantPromptOrAction(finalInputMessage, toolApprovalAction, toolResumeAction)) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -1195,7 +1231,7 @@ function respondNotFound(res: http.ServerResponse): void {
 function respondJson(
   res: http.ServerResponse,
   status: number,
-  payload: { error: string; message: string }
+  payload: { error: string; message: string; reason?: string }
 ): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.statusCode = status;

@@ -10,6 +10,7 @@ import {
   AssistantAttachmentValidationError,
   createAssistantRequestEnvelope,
   dataUrlByteLength,
+  type RuntimeTransportImageElision,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -366,14 +367,7 @@ function withTransportCompactionMetadata(
   };
 }
 
-export interface TransportImageElision {
-  readonly elidedImageBytes: number;
-  readonly elidedImageCount: number;
-  readonly keptImageBytes: number;
-  readonly strategy: 'newest-first-combined-image-budget';
-  /** Present only when history parts could not be measured (counted in elidedImageCount, excluded from elidedImageBytes). */
-  readonly unmeasurableImageCount?: number;
-}
+export type TransportImageElision = RuntimeTransportImageElision;
 
 interface WireImagePartRef {
   readonly bytes: number;

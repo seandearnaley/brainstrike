@@ -106,14 +106,18 @@
     prompt content in its own right, so validated
     image-only user turns are accepted consistently by Next, Vite, and Desktop.
     Blank text-only turns and turns ending in assistant/system history remain
-    invalid. Attachment limits count wire occurrences rather than object
+    invalid. Prompt validity is checked against the FINAL raw wire entry before
+    lossy compatibility normalization, never against the last surviving history
+    message; a dropped blank/tool-only tail therefore cannot replay an earlier
+    user prompt. Attachment limits count wire occurrences rather than object
     identity. File parts require canonical
     base64 alphabet, length, and padding, and the data-URL media type must equal
     the declared allowlisted image media type. An empty base64 body is invalid
     (`invalid-base64`), never a canonical zero-byte image. Malformed direct file
     parts and attachment validation failures return a safe `invalid_attachment`
-    / HTTP 400 response. Approval resume actions likewise cross a strict shared
-    boundary: only the exact `action`, `runId`, `toolCallId`, and optional
+    / HTTP 400 response across Next, Vite, and Desktop. Approval resume actions
+    likewise cross a strict shared boundary: only the exact `action`, `runId`,
+    `toolCallId`, and optional
     `toolName` own keys are accepted; identifiers must be non-empty and stay
     within the documented 512-character transport ceilings. Extra keys and
     oversized identifiers return `invalid_tool_approval_action` / HTTP 400 on
@@ -124,7 +128,10 @@
     reconnects cannot bypass the cap.
     Wire-compatible provider/model/tool hints are strictly bounded and validated
     before they are discarded, including iterative
-    depth/cardinality/string/number limits for arbitrary provider options.
+    depth/cardinality/string/number limits for arbitrary provider options. The
+    UI's `transportImageElision` observability metadata follows the same rule:
+    Web accepts only the bounded, strict shared-contract shape and discards it
+    before building the trusted model runtime.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

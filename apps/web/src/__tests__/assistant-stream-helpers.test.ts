@@ -48,7 +48,7 @@ vi.mock('../server/web-mastra-storage', () => ({
   buildWebAssistantStream: vi.fn(),
 }));
 
-import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
+import type { AssistantDataStreamSession, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   AssistantRequestBodyTooLargeError,
@@ -64,7 +64,10 @@ import {
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
 import { resolveAssistantProviderConfig } from '../server/assistant-config';
-import { InvalidWebAssistantRuntimeDataError } from '../server/web-assistant-runtime';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from '../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../server/web-mastra-storage';
 
 class ResponseSink extends EventEmitter {
@@ -273,6 +276,50 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
+  });
+
+  it('accepts shared-transport image-elision metadata on the Vite assistant route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'hello' } as StreamChunk;
+      },
+    };
+    let resolvedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
+      resolvedRuntime = resolveWebAssistantRuntime(params.data, params.apiKey);
+      return stream;
+    });
+    vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
+      createResponse: () => new Response('ok'),
+    } as unknown as AssistantDataStreamSession);
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        data: {
+          transportImageElision: {
+            elidedImageBytes: 5_242_880,
+            elidedImageCount: 1,
+            keptImageBytes: 6_291_456,
+            strategy: 'newest-first-combined-image-budget',
+          },
+        },
+        messages: [
+          { id: 'current-user', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(resolvedRuntime).toEqual({
+      apiKey: 'key',
+      provider: 'openai',
+    });
   });
 
   it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
