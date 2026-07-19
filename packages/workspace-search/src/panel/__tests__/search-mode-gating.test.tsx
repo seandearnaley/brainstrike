@@ -80,6 +80,20 @@ describe('useSemanticAvailability', () => {
 
     expect(result).toEqual({ available: true, reason: null });
   });
+
+  it('does not gate when the set row exists but its joined stats are NULL (stats unknown, not zero)', () => {
+    // LEFT JOIN with no collection_indexing_stats row yields NULL columns —
+    // "unknown", which must stay optimistic like a missing row, never read as 0.
+    mockRows([makeRow({ chunkCount: null, embeddedChunkCount: null, pendingChunkCount: null })]);
+    let result: ReturnType<typeof useSemanticAvailability> | null = null;
+    function Probe(): null {
+      result = useSemanticAvailability(null);
+      return null;
+    }
+    render(<Probe />);
+
+    expect(result).toEqual({ available: true, reason: null });
+  });
 });
 
 describe('SearchModeToggle — semantic gating', () => {
@@ -116,15 +130,48 @@ describe('SearchModeToggle — semantic gating', () => {
     expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
 
-  it('falls back to text mode when the current mode is semantic and the set becomes gated', async () => {
+  it('keeps the user-selected semantic mode when a gated stats snapshot arrives (no silent revert)', async () => {
+    // Regression: clearEmbeddings/re-embed cycles legitimately write
+    // embedded_chunk_count = 0 to collection_indexing_stats while the toggle
+    // stays mounted (forceMount latch). That transient snapshot must gate the
+    // Semantic BUTTON, never silently rewrite the user's chosen mode — the old
+    // auto-revert left the store on 'text' after embeddings returned.
+    mockRows([makeRow({ embeddedChunkCount: 10 })]);
+    useWorkspaceSearchStore.getState().setMode('semantic');
+
+    const { rerender } = render(<SearchModeToggle />);
+    expect(screen.getByRole('button', { name: 'Semantic' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    mockRows([makeRow({ embeddedChunkCount: 0 })]);
+    rerender(<SearchModeToggle />);
+
+    // The gate shows (aria-disabled) but the selection is preserved.
+    const semantic = screen.getByRole('button', { name: 'Semantic' });
+    expect(semantic).toHaveAttribute('aria-disabled', 'true');
+    expect(semantic).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
+    });
+
+    // Availability recovering leaves the selection intact and drops the gate.
+    mockRows([makeRow({ embeddedChunkCount: 10 })]);
+    rerender(<SearchModeToggle />);
+    expect(screen.getByRole('button', { name: 'Semantic' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
+  });
+
+  it('while gated, the user can still switch to Text explicitly', () => {
     mockRows([makeRow({ embeddedChunkCount: 0 })]);
     useWorkspaceSearchStore.getState().setMode('semantic');
-    expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
-
     render(<SearchModeToggle />);
 
-    await waitFor(() => {
-      expect(useWorkspaceSearchStore.getState().mode).toBe('text');
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Text' }));
+    expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
 });

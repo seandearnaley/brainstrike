@@ -10,7 +10,7 @@ import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 
 const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteLiveQueryMock: vi.fn(() => ({ rows: [] })),
+  usePGliteLiveQueryMock: vi.fn((): { rows: unknown[] } => ({ rows: [] })),
 }));
 
 vi.mock('@brainstrike/db', () => ({
@@ -68,7 +68,21 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
+import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../use-semantic-availability';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
+
+/** Workspace-index stats row used to drive `useSemanticAvailability` per-test. */
+function workspaceIndexRow(embeddedChunkCount: number | null) {
+  return {
+    chunkCount: 0,
+    embeddedChunkCount,
+    fileCount: 0,
+    id: 'workspace-index',
+    name: 'Workspace Index',
+    pendingChunkCount: 0,
+    systemRole: 'workspace-index' as const,
+  };
+}
 
 function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
   return {
@@ -251,6 +265,40 @@ describe('WorkspaceSearchPanel', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('gated semantic submit surfaces the reason and never runs the (lexical-degradable) hybrid search', () => {
+    // Regression (PR #1757 review, Codex P1): the semantic executor's hybrid
+    // search has an FTS arm scoped only by embedding_set_id (no `embedding IS
+    // NOT NULL`), so a pressed-Semantic Enter against a zero-embedding set would
+    // silently return lexical-only results. The submit must be gated like the
+    // toggle: fail VISIBLY (error card) while preserving the user's mode.
+    usePGliteLiveQueryMock.mockReturnValue({ rows: [workspaceIndexRow(0)] });
+    act(() => {
+      useWorkspaceSearchStore.setState({ mode: 'semantic', query: 'foobar' });
+    });
+    const { props } = renderPanel();
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
+
+    expect(props.runSemanticSearch).not.toHaveBeenCalled();
+    const state = useWorkspaceSearchStore.getState();
+    expect(state.status).toBe('error');
+    expect(state.error).toBe(SEMANTIC_UNAVAILABLE_NO_CHUNKS);
+    expect(state.mode).toBe('semantic');
+    expect(screen.getByRole('alert')).toHaveTextContent(SEMANTIC_UNAVAILABLE_NO_CHUNKS);
+  });
+
+  it('available semantic submit runs the semantic search', () => {
+    usePGliteLiveQueryMock.mockReturnValue({ rows: [workspaceIndexRow(42)] });
+    act(() => {
+      useWorkspaceSearchStore.setState({ mode: 'semantic', query: 'foobar' });
+    });
+    const { props } = renderPanel();
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
+
+    expect(props.runSemanticSearch).toHaveBeenCalledTimes(1);
   });
 
   it('shows selected token count in the footer', () => {

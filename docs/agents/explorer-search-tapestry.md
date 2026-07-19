@@ -85,6 +85,27 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   reconcile (clamp to the real total) once content lands; there is no
   default-range stretch step (see TAPESTRY below — rangeless files stay
   rangeless).
+- **Mode is user intent — never auto-rewritten; the SUBMIT is gated, not the
+  mode.** The semantic gate (`use-semantic-availability.ts`, sole honest
+  precondition: confirmed-zero `embeddedChunkCount` on the effective set)
+  blocks ENTERING semantic in the toggle (aria-disabled button + named tooltip
+  reason). It must NOT silently revert an already-selected semantic mode: the
+  toggle stays mounted behind inactive tabs (forceMount latch) and availability
+  is a live async signal that transiently reads unavailable mid re-embed
+  (`clearEmbeddings` writes `embedded_chunk_count = 0` to
+  `collection_indexing_stats` until the queue re-embeds) — an auto-revert
+  flipped semantic → text in the background with nothing restoring it. NULL
+  joined stats (no `collection_indexing_stats` row) are "unknown",
+  optimistic-available — never coerced to 0. Because the toggle no longer
+  reroutes the mode, the SUBMIT path itself must gate: `WorkspaceSearchPanel`'s
+  `onSubmit` blocks a gated-semantic Enter/Retry and surfaces the reason in the
+  error card, PRESERVING the mode. This is load-bearing — the semantic executor's
+  hybrid search has an FTS arm scoped only by `embedding_set_id` (NOT
+  `embedding IS NOT NULL`, `file-chunk-repository.ts` `fullTextSearch`), so an
+  ungated semantic run against a zero-embedding set would silently return
+  lexical-only results (a silent fallback), never an error. Pinned in
+  `search-mode-gating.test.tsx` (entry gate + no-revert) and
+  `workspace-search-panel.test.tsx` (submit gate).
 - **Session-only.** The store is not persisted; it is reset on factory reset via
   the `registerFactoryResetSessionStore` seam (app-shell registers it — see
   FACTORY RESET CONTRACT). The active Explorer|Search tab persists in

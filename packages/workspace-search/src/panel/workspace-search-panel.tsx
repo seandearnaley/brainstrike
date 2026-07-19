@@ -9,6 +9,10 @@ import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
 import { SearchModeToggle } from './search-mode-toggle';
 import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
+import {
+  SEMANTIC_UNAVAILABLE_NO_CHUNKS,
+  useSemanticAvailability,
+} from './use-semantic-availability';
 
 /** Text-mode live-search debounce window. */
 const TEXT_DEBOUNCE_MS = 250;
@@ -46,6 +50,12 @@ export function WorkspaceSearchPanel({
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
 
+  // Same live-stats signal (shared query + cache key) the mode toggle gates on
+  // — see {@link useSemanticAvailability}. Load-bearing for the SUBMIT gate
+  // below, not just the toggle's entry gate.
+  const { available: semanticAvailable, reason: semanticReason } =
+    useSemanticAvailability(collectionId);
+
   // Output (post-range) tokens match the per-file range model + the meters'
   // locked "output" language — source tokens would show a huge-file total even
   // when only one chunk is checked.
@@ -53,7 +63,28 @@ export function WorkspaceSearchPanel({
     (state) => state.contextSnapshot?.selectedOutputApproxTokens
   );
 
-  const onSubmit = mode === 'semantic' ? runSemanticSearch : runTextSearch;
+  // Gate the SUBMIT path, not just the toggle's ENTRY: the toggle only blocks
+  // clicking into semantic, but Enter/Retry route to `runSemanticSearch` off the
+  // store `mode` alone. Running a semantic search against a confirmed-zero
+  // embedded set silently degrades — the hybrid executor's FTS arm scopes by
+  // `embedding_set_id` WITHOUT `embedding IS NOT NULL`, so it returns
+  // lexical-only matches under a pressed Semantic mode (a silent fallback).
+  // Instead we fail VISIBLY (error card) while PRESERVING the user's mode —
+  // `beginSearch` + `failSearch` reuse the generation-guarded store transition
+  // so the surfaced error can't clobber a newer in-flight run.
+  const onSubmit = useCallback(() => {
+    if (mode !== 'semantic') {
+      runTextSearch();
+      return;
+    }
+    if (semanticAvailable) {
+      runSemanticSearch();
+      return;
+    }
+    const store = useWorkspaceSearchStore.getState();
+    const generation = store.beginSearch();
+    store.failSearch(semanticReason ?? SEMANTIC_UNAVAILABLE_NO_CHUNKS, generation);
+  }, [mode, semanticAvailable, semanticReason, runSemanticSearch, runTextSearch]);
 
   // Show-more paging (text mode only, Task P2): bump the store's cap, then
   // rerun the current text search — `beginSearch()` inside `runTextSearch`
