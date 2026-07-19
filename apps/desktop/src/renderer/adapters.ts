@@ -1,6 +1,12 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { ElectronAPI, FileSystemChange, IFileNode, RootDescriptor } from '@brainstrike/types';
+import type {
+  ElectronAPI,
+  FileSystemChange,
+  FileSystemWatchEvent,
+  IFileNode,
+  RootDescriptor,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('ElectronRendererAdapters');
@@ -11,6 +17,55 @@ function requireElectronAPI(): ElectronAPI {
     throw new Error('Electron API is not available in the renderer process');
   }
   return api;
+}
+
+/**
+ * Shared fs:watch-event dispatcher. Every `watchDirectory` call funnels through
+ * ONE `onWatchEvent` bridge subscription that fans out to per-watch callbacks
+ * keyed by `watchId`. Registering a listener per watch instead would put
+ * O(roots) listeners on the single IPC channel — a forest with >10 mounted
+ * roots trips Node's MaxListenersExceededWarning in the renderer and makes
+ * every push O(roots) to filter. The shared subscription is created lazily on
+ * the first registration and torn down when the last watch unregisters.
+ */
+const watchCallbacksById = new Map<string, (changes: FileSystemChange[]) => void>();
+let sharedWatchUnsubscribe: (() => void) | null = null;
+
+function ensureSharedWatchSubscription(
+  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void
+): void {
+  if (sharedWatchUnsubscribe) {
+    return;
+  }
+  sharedWatchUnsubscribe = onWatchEvent((event) => {
+    const callback = watchCallbacksById.get(event.watchId);
+    if (callback && event.changes.length > 0) {
+      callback(event.changes);
+    }
+  });
+}
+
+function registerWatchCallback(
+  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void,
+  watchId: string,
+  callback: (changes: FileSystemChange[]) => void
+): void {
+  ensureSharedWatchSubscription(onWatchEvent);
+  watchCallbacksById.set(watchId, callback);
+}
+
+function unregisterWatchCallback(watchId: string): void {
+  watchCallbacksById.delete(watchId);
+  if (watchCallbacksById.size === 0 && sharedWatchUnsubscribe) {
+    sharedWatchUnsubscribe();
+    sharedWatchUnsubscribe = null;
+  }
+}
+
+/** Test-only: reset the module-level shared dispatcher between test cases. */
+export function __resetFsWatchDispatcherForTest(): void {
+  watchCallbacksById.clear();
+  sharedWatchUnsubscribe = null;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -102,15 +157,6 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     let closed = false;
     let watchId: string | null = null;
 
-    const unsubscribe = api.onWatchEvent((event) => {
-      if (closed || watchId === null || event.watchId !== watchId) {
-        return;
-      }
-      if (event.changes.length > 0) {
-        callback(event.changes);
-      }
-    });
-
     const stopMainWatcher = (id: string): void => {
       api.unwatchDirectory(id).catch((error: unknown) => {
         logger.warn('watchDirectory: failed to stop main-process watcher', {
@@ -128,6 +174,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
           return;
         }
         watchId = id;
+        // Route pushes for this id through the shared dispatcher (one bridge
+        // subscription total, regardless of how many roots are watched).
+        registerWatchCallback(api.onWatchEvent, id, callback);
       })
       .catch((error: unknown) => {
         // Visible capability failure (invalid path, watcher setup error) —
@@ -143,8 +192,8 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         return;
       }
       closed = true;
-      unsubscribe();
       if (watchId !== null) {
+        unregisterWatchCallback(watchId);
         stopMainWatcher(watchId);
         watchId = null;
       }

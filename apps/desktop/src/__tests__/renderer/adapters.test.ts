@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __resetFsWatchDispatcherForTest,
   ElectronRendererFileSystemAdapter,
   ElectronRendererStorageAdapter,
 } from '../../renderer/adapters';
@@ -361,6 +362,7 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
   let unsubscribe: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    __resetFsWatchDispatcherForTest();
     adapter = new ElectronRendererFileSystemAdapter();
     vi.clearAllMocks();
     pushEvent = null;
@@ -379,7 +381,7 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
 
     adapter.watchDirectory(handle, onChanges);
     await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledWith(handle);
+      expect(pushEvent).not.toBeNull();
     });
 
     pushEvent?.({ changes: sampleChanges, watchId: 'watch-1' });
@@ -391,17 +393,62 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
 
     adapter.watchDirectory(handle, onChanges);
     await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+      expect(pushEvent).not.toBeNull();
     });
 
     pushEvent?.({ changes: sampleChanges, watchId: 'someone-else' });
     expect(onChanges).not.toHaveBeenCalled();
   });
 
-  it('disposer unsubscribes from the push channel and unwatches in main', async () => {
+  it('shares ONE onWatchEvent subscription across many watches and routes by watchId', async () => {
+    const onChangesA = vi.fn();
+    const onChangesB = vi.fn();
+    mockElectronAPI.fileSystem.watchDirectory
+      .mockResolvedValueOnce({ watchId: 'watch-a' })
+      .mockResolvedValueOnce({ watchId: 'watch-b' });
+
+    adapter.watchDirectory(handle, onChangesA);
+    adapter.watchDirectory({ ...handle, path: '/workspace-2' }, onChangesB);
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledTimes(2);
+      expect(pushEvent).not.toBeNull();
+    });
+
+    // Only one bridge listener for the whole channel, no matter the root count.
+    expect(mockElectronAPI.fileSystem.onWatchEvent).toHaveBeenCalledTimes(1);
+
+    pushEvent?.({ changes: sampleChanges, watchId: 'watch-b' });
+    expect(onChangesB).toHaveBeenCalledWith(sampleChanges);
+    expect(onChangesA).not.toHaveBeenCalled();
+  });
+
+  it('keeps the shared subscription alive until the LAST watch is disposed', async () => {
+    mockElectronAPI.fileSystem.watchDirectory
+      .mockResolvedValueOnce({ watchId: 'watch-a' })
+      .mockResolvedValueOnce({ watchId: 'watch-b' });
+
+    const disposeA = adapter.watchDirectory(handle, vi.fn());
+    const disposeB = adapter.watchDirectory({ ...handle, path: '/workspace-2' }, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledTimes(2);
+      expect(pushEvent).not.toBeNull();
+    });
+
+    disposeA();
+    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-a');
+    // One watch remains → shared listener still attached.
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    disposeB();
+    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-b');
+    // Last watch gone → shared listener torn down.
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('disposer unwatches in main', async () => {
     const dispose = adapter.watchDirectory(handle, vi.fn());
     await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+      expect(pushEvent).not.toBeNull();
     });
 
     dispose();
@@ -427,6 +474,8 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     await vi.waitFor(() => {
       expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-late');
     });
+    // Disposed before resolve → never registered, so no bridge subscription.
+    expect(mockElectronAPI.fileSystem.onWatchEvent).not.toHaveBeenCalled();
     pushEvent?.({ changes: sampleChanges, watchId: 'watch-late' });
     expect(onChanges).not.toHaveBeenCalled();
   });

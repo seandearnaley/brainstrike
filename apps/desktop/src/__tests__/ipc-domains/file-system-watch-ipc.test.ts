@@ -63,12 +63,21 @@ function toDirectoryHandle(directoryPath: string) {
   };
 }
 
-/** A minimal WebContents stand-in recording the watch events pushed to it. */
+interface FakeListenerEntry {
+  listener: () => void;
+  once: boolean;
+}
+
+/**
+ * A minimal WebContents stand-in modelling on/once/removeListener with real
+ * add/remove semantics so listener-accumulation leaks are observable via
+ * `listenerCount`. Records the watch events pushed to it.
+ */
 class FakeWebContents {
   readonly id: number;
   readonly watchEvents: FileSystemWatchEventPayload[] = [];
   private destroyed = false;
-  private readonly onceListeners = new Map<string, (() => void)[]>();
+  private readonly listeners = new Map<string, FakeListenerEntry[]>();
 
   constructor(id: number) {
     this.id = id;
@@ -84,17 +93,46 @@ class FakeWebContents {
     return this.destroyed;
   }
 
+  on(event: string, listener: () => void): void {
+    this.addListener(event, listener, false);
+  }
+
   once(event: string, listener: () => void): void {
-    const listeners = this.onceListeners.get(event) ?? [];
-    listeners.push(listener);
-    this.onceListeners.set(event, listeners);
+    this.addListener(event, listener, true);
+  }
+
+  removeListener(event: string, listener: () => void): void {
+    const entries = this.listeners.get(event);
+    if (!entries) {
+      return;
+    }
+    const next = entries.filter((entry) => entry.listener !== listener);
+    if (next.length === 0) {
+      this.listeners.delete(event);
+    } else {
+      this.listeners.set(event, next);
+    }
+  }
+
+  /** Test helper: live listener count for an event (leak detection). */
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.length ?? 0;
+  }
+
+  private addListener(event: string, listener: () => void, once: boolean): void {
+    const entries = this.listeners.get(event) ?? [];
+    entries.push({ listener, once });
+    this.listeners.set(event, entries);
   }
 
   private fire(event: string): void {
-    const listeners = this.onceListeners.get(event) ?? [];
-    this.onceListeners.delete(event);
-    for (const listener of listeners) {
-      listener();
+    // Snapshot before firing — a reap listener may mutate the map mid-iteration.
+    const entries = [...(this.listeners.get(event) ?? [])];
+    for (const entry of entries) {
+      if (entry.once) {
+        this.removeListener(event, entry.listener);
+      }
+      entry.listener();
     }
   }
 
@@ -113,6 +151,12 @@ class FakeWebContents {
   fireDidNavigate(): void {
     this.fire('did-navigate');
   }
+}
+
+const TEARDOWN_EVENTS = ['destroyed', 'render-process-gone', 'did-navigate'] as const;
+
+function totalTeardownListeners(owner: FakeWebContents): number {
+  return TEARDOWN_EVENTS.reduce((sum, event) => sum + owner.listenerCount(event), 0);
 }
 
 function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
@@ -335,6 +379,30 @@ describe('file-system watch IPC domain', () => {
     expect(liveFileSystemWatcherCountForTest()).toBe(1);
   });
 
+  it('does not accumulate teardown listeners across repeated reloads', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+
+    // Simulate several reload cycles: watch, navigate (reap), re-watch.
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      await invokeWatch(owner, dir);
+      owner.fireDidNavigate();
+    }
+    // After a reload with no live watch, at most one reaper is attached per
+    // teardown event — the sibling listeners of a fired reap must be removed,
+    // not left dangling to pile up on the surviving WebContents.
+    await invokeWatch(owner, dir);
+    for (const event of TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(event)).toBeLessThanOrEqual(1);
+    }
+    expect(totalTeardownListeners(owner)).toBeLessThanOrEqual(TEARDOWN_EVENTS.length);
+
+    // The still-attached reaper must remain functional after all those cycles.
+    owner.fireDestroyed();
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    expect(totalTeardownListeners(owner)).toBe(0);
+  });
+
   it('caps the number of live watchers per renderer', async () => {
     const owner = new FakeWebContents(1);
     const other = new FakeWebContents(2);
@@ -346,6 +414,28 @@ describe('file-system watch IPC domain', () => {
     await expect(invokeWatch(owner, dir)).rejects.toThrow(/limit/i);
     // The cap is per-owner: another renderer can still watch.
     await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
+  });
+
+  it('enforces the per-owner cap under concurrent watch requests (no TOCTOU bypass)', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+
+    // Fire MAX + 5 watches concurrently: they all pass the initial (pre-await)
+    // count check unless a slot is reserved BEFORE the stat await. Exactly MAX
+    // must survive.
+    const attempts = MAX_FS_WATCHERS_PER_OWNER + 5;
+    const results = await Promise.allSettled(
+      Array.from({ length: attempts }, () => invokeWatch(owner, dir))
+    );
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
+    const rejected = results.filter(
+      (r) => r.status === 'rejected' && /limit/i.test(String(r.reason))
+    ).length;
+
+    expect(fulfilled).toBe(MAX_FS_WATCHERS_PER_OWNER);
+    expect(rejected).toBe(5);
+    expect(liveFileSystemWatcherCountForTest()).toBe(MAX_FS_WATCHERS_PER_OWNER);
   });
 
   it('the registrar disposer reaps every live watcher and unregisters the channels', async () => {

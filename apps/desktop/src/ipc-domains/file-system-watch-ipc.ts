@@ -51,7 +51,11 @@ interface LiveFileSystemWatcher {
 }
 
 const liveWatchers = new Map<string, LiveFileSystemWatcher>();
-const reaperAttachedOwners = new Set<WebContents>();
+// WeakSet — never strongly retain a WebContents (matches notes-vault).
+const reaperAttachedOwners = new WeakSet<WebContents>();
+// Slots reserved across a watch's async setup so concurrent requests observe
+// the correct per-owner total BEFORE any entry lands in liveWatchers.
+const reservedWatchersByOwner = new Map<number, number>();
 
 function stopWatcher(watchId: string, entry: LiveFileSystemWatcher): void {
   try {
@@ -92,13 +96,36 @@ function liveWatcherCountForOwner(ownerId: number): number {
   return count;
 }
 
+/** Live + in-flight (reserved) watchers for an owner. */
+function committedWatcherCountForOwner(ownerId: number): number {
+  return liveWatcherCountForOwner(ownerId) + (reservedWatchersByOwner.get(ownerId) ?? 0);
+}
+
+function reserveWatcherSlot(ownerId: number): void {
+  reservedWatchersByOwner.set(ownerId, (reservedWatchersByOwner.get(ownerId) ?? 0) + 1);
+}
+
+function releaseWatcherSlot(ownerId: number): void {
+  const next = (reservedWatchersByOwner.get(ownerId) ?? 0) - 1;
+  if (next <= 0) {
+    reservedWatchersByOwner.delete(ownerId);
+  } else {
+    reservedWatchersByOwner.set(ownerId, next);
+  }
+}
+
 /**
  * Reap every watcher this renderer owns when its context goes away. Attached
  * BEFORE any async setup work so a mid-setup teardown can never miss it.
  * Covers all three teardown shapes: window closed ('destroyed'), renderer
  * crash ('render-process-gone' — the WebContents survives), and main-frame
  * reload/navigation ('did-navigate' — the old context's disposers are gone).
- * `once` listeners are re-attached on the next fs:watch after a reap.
+ *
+ * Because 'did-navigate' fires while the WebContents SURVIVES, `reap` must
+ * remove ALL teardown listeners when any one fires — otherwise the siblings
+ * of the fired event linger and the next fs:watch re-attaches a fresh set,
+ * piling listeners up on one WebContents (MaxListenersExceededWarning + a
+ * closure leak). Listeners are re-attached on the next fs:watch after a reap.
  */
 function attachOwnerReaper(owner: WebContents): void {
   if (reaperAttachedOwners.has(owner)) {
@@ -107,11 +134,16 @@ function attachOwnerReaper(owner: WebContents): void {
   reaperAttachedOwners.add(owner);
   const reap = (): void => {
     reaperAttachedOwners.delete(owner);
+    // Remove ALL teardown listeners — a fired 'did-navigate' leaves the
+    // WebContents alive, so its siblings would otherwise linger and pile up.
+    owner.removeListener('destroyed', reap);
+    owner.removeListener('render-process-gone', reap);
+    owner.removeListener('did-navigate', reap);
     disposeFileSystemWatchersForWebContents(owner.id);
   };
-  owner.once('destroyed', reap);
-  owner.once('render-process-gone', reap);
-  owner.once('did-navigate', reap);
+  owner.on('destroyed', reap);
+  owner.on('render-process-gone', reap);
+  owner.on('did-navigate', reap);
 }
 
 export function registerFileSystemWatchIpcHandlers({
@@ -131,7 +163,10 @@ export function registerFileSystemWatchIpcHandlers({
       if (owner.isDestroyed()) {
         throw new Error('fs:watch: the requesting renderer is already destroyed.');
       }
-      if (liveWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
+      // Count live AND in-flight (reserved) watchers: without the reservation,
+      // N concurrent requests all pass this check before any inserts, blowing
+      // past the cap. The reserved slot below closes that TOCTOU window.
+      if (committedWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
         throw new Error(
           `fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`
         );
@@ -144,34 +179,41 @@ export function registerFileSystemWatchIpcHandlers({
 
       // E2E mock roots have no on-disk directory: register an inert watcher so
       // unwatch/reaping stays uniform without pointing chokidar at nothing.
+      // No await before the insert, so no reservation is needed here.
       if (isMockFileSystemIpcPath(requestedPath)) {
         liveWatchers.set(watchId, { ownerId: owner.id, stop: () => {} });
         return { watchId };
       }
 
-      const resolvedPath = await resolveFileSystemIpcPath(requestedPath, 'watch');
-      const stats = await fsPromises.stat(resolvedPath);
-      if (!stats.isDirectory()) {
-        throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
-      }
-
-      const stop = startWatch(resolvedPath, (changes) => {
-        // Push to the OWNING renderer only (never a broadcast).
-        if (owner.isDestroyed()) {
-          return;
+      // Hold a slot across the async setup so concurrent requests see it.
+      reserveWatcherSlot(owner.id);
+      try {
+        const resolvedPath = await resolveFileSystemIpcPath(requestedPath, 'watch');
+        const stats = await fsPromises.stat(resolvedPath);
+        if (!stats.isDirectory()) {
+          throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
         }
-        const payload: FileSystemWatchEventPayload = { changes, watchId };
-        owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
-      });
-      // The awaits above raced renderer teardown: if the owner is gone, its
-      // reaper has already fired — stop immediately instead of leaking.
-      if (owner.isDestroyed()) {
-        stop();
-        throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
+
+        const stop = startWatch(resolvedPath, (changes) => {
+          // Push to the OWNING renderer only (never a broadcast).
+          if (owner.isDestroyed()) {
+            return;
+          }
+          const payload: FileSystemWatchEventPayload = { changes, watchId };
+          owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
+        });
+        // The awaits above raced renderer teardown: if the owner is gone, its
+        // reaper has already fired — stop immediately instead of leaking.
+        if (owner.isDestroyed()) {
+          stop();
+          throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
+        }
+        liveWatchers.set(watchId, { ownerId: owner.id, stop });
+        logger.debug('Started file system watcher', { path: resolvedPath, watchId });
+        return { watchId };
+      } finally {
+        releaseWatcherSlot(owner.id);
       }
-      liveWatchers.set(watchId, { ownerId: owner.id, stop });
-      logger.debug('Started file system watcher', { path: resolvedPath, watchId });
-      return { watchId };
     }
   );
 

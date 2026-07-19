@@ -202,11 +202,18 @@ fallback.
   `@brainstrike/file-system/electron`: 150ms batch, `ignoreInitial`,
   `fileFilter.shouldIgnorePath`). Watchers are keyed by `watchId`, owned by the
   requesting `WebContents` (push to owner only, non-owner unwatch rejected
-  without an ownership oracle, per-owner cap `MAX_FS_WATCHERS_PER_OWNER`).
-  The owner reaper is attached BEFORE any async setup and covers all three
-  teardown shapes — `destroyed`, `render-process-gone` (crash; WebContents
-  survives), and `did-navigate` (reload) — plus a post-setup `isDestroyed`
-  re-check so mid-setup teardown can't leak a watcher. E2E mock paths get
+  without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
+  counts live PLUS reserved (in-flight) watchers — a slot is reserved before
+  the `stat` await so concurrent `fs:watch` calls can't race past the cap. The
+  owner reaper is attached BEFORE any async setup and covers all three teardown
+  shapes — `destroyed`, `render-process-gone` (crash; WebContents survives),
+  and `did-navigate` (reload); because `did-navigate` leaves the WebContents
+  alive, the reap removes ALL three listeners when any one fires (else they
+  pile up across reloads → MaxListenersExceededWarning). A post-setup
+  `isDestroyed` re-check stops a watcher whose renderer died mid-setup.
+  On the RENDERER side, every `watchDirectory` funnels through ONE shared
+  `onWatchEvent` subscription that fans out by `watchId` — a per-watch listener
+  would put O(roots) listeners on the single channel. E2E mock paths get
   inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
   `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
   emits `changedHandle: null` for `disappeared` records — the adapter maps
