@@ -37,10 +37,12 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
  * reads unavailable during re-embed cycles (clearEmbeddings writes
  * embedded_chunk_count = 0 to collection_indexing_stats until the queue
  * re-embeds). An auto-revert here silently flipped semantic → text in the
- * background and nothing restored it — a silent fallback. Instead the gate
- * only blocks ENTERING semantic; an already-selected gated semantic mode
- * surfaces through the gated button + tooltip, and a run against an empty set
- * fails visibly via the search error card.
+ * background and nothing restored it — a silent fallback. Instead this gate
+ * only blocks ENTERING semantic (button + tooltip); an already-selected gated
+ * semantic mode is preserved, and its SUBMIT is blocked separately by the
+ * panel's submit gate (`workspace-search-panel.tsx`), which surfaces the same
+ * reason in the error card rather than letting the hybrid executor return
+ * lexical-only results.
  */
 export function SearchModeToggle(): ReactNode {
   const mode = useWorkspaceSearchStore((state) => state.mode);
