@@ -296,6 +296,14 @@ export interface FileSystemAdapter {
    */
   addRoot?(): Promise<RootDescriptor>;
   exists(path: string): Promise<boolean>;
+  /**
+   * Watcher health capability (BST-568 slice 3, desktop only today).
+   * Subscribe to per-root health transitions; the adapter replays the latest
+   * known state per root to a new subscriber so late-mounting UI shows
+   * current status. Absent on adapters without main-process watchers — the
+   * capability check IS the platform gate (never `isElectron()`).
+   */
+  onWatcherHealth?(callback: (event: WatcherRootHealthEvent) => void): () => void;
   /** Platform identifier for this adapter */
   readonly platform?: 'web' | 'electron';
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
@@ -397,6 +405,12 @@ export interface FileSystemAdapter {
    */
   restoreRoots?(): Promise<RootDescriptor[]>;
   /**
+   * Deliberate manual retry of a failed watcher for a root previously passed
+   * to `watchDirectory`. Main-process throttling applies (bounded backoff,
+   * single-flight); the outcome is reported, never silently coerced.
+   */
+  retryWatcher?(rootPath: string): Promise<WatcherRetryOutcome>;
+  /**
    * Watch a directory for changes.
    *
    * `onSignal` is the out-of-band health channel for conditions that have no
@@ -408,6 +422,12 @@ export interface FileSystemAdapter {
    *   failure after setup). The adapter has already torn the watch down; the
    *   root is UNWATCHED from this point and consumers must surface that
    *   visibly (toast/log) — never absorb it silently.
+   *
+   * Desktop (BST-568): the typed watcher-health protocol is the richer
+   * superset; the electron renderer adapter TRANSLATES health transitions
+   * into this shared channel (degraded → 'overflow', failed → 'errored') so
+   * both platforms drive the same consumer plumbing, while `onWatcherHealth`
+   * / `retryWatcher` add the per-root chip + deliberate-retry UX on top.
    */
   watchDirectory?(
     handle: DirectoryHandle,
@@ -430,4 +450,17 @@ export type FileSystemWatchSignal =
       /** The watch is dead and already disconnected; the root is unwatched. */
       message: string;
       type: 'errored';
+    };
+
+/** A watcher health transition resolved to the renderer's own root path. */
+export interface WatcherRootHealthEvent extends WatcherHealthTransition {
+  rootPath: string;
+}
+
+export type WatcherRetryOutcome =
+  | { retried: true }
+  | {
+      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown' | 'unsupported';
+      retried: false;
+      retryAfterMs?: number;
     };
