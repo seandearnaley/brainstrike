@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   NATIVE_TOOL_DEFAULTS,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
   resetFileReadState,
   withFileLock,
@@ -172,6 +173,28 @@ describe('assistant-tools', () => {
     expect(result.content).toContain('line 1');
     expect(result.truncated).toBe(false);
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('keeps a default workspace file read inside the native result envelope', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'large.ts'),
+      'x'.repeat(12_000),
+      'utf8'
+    );
+
+    try {
+      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const result = await tools['brainstrike.readWorkspaceFile'].execute({
+        path: '/src/large.ts',
+      });
+
+      expect(JSON.stringify(result).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+      expect(result.truncated).toBe(true);
+      expect(result.omittedChars).toBe(12_000 - result.content.length);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('rejects symlink escapes outside the workspace root', async () => {

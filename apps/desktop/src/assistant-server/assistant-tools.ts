@@ -18,6 +18,7 @@ import {
   type LspInspectInput,
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type QueryEmbeddingSpaceInput,
   type ReadWorkspaceContextInput,
   type ReadWorkspaceDirectoryInput,
@@ -377,6 +378,15 @@ function truncateContent(
   };
 }
 
+function sliceContentPrefix(content: string, maxChars: number): string {
+  if (content.length <= maxChars) {
+    return content;
+  }
+  const boundaryCode = content.charCodeAt(maxChars - 1);
+  const safeEnd = boundaryCode >= 0xd8_00 && boundaryCode <= 0xdb_ff ? maxChars - 1 : maxChars;
+  return content.slice(0, safeEnd);
+}
+
 export async function readWorkspaceTextFile(args: {
   requestedPath: string;
   rootPath: string;
@@ -630,21 +640,45 @@ async function runReadWorkspaceFile(
   });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
-  const truncated = truncateContent(ranged.content, maxChars);
-
-  return {
-    approxOutputTokens: countTokensHeuristic(truncated.content),
-    content: truncated.content,
+  const buildResult = (content: string) => ({
+    approxOutputTokens: countTokensHeuristic(content),
+    content,
     endLine: ranged.endLine,
-    omittedChars: truncated.omittedChars,
+    omittedChars: ranged.content.length - content.length,
     path: file.path,
     rootName: root.displayName,
     size: file.size,
     startLine: ranged.startLine,
     tokenCount: null,
     totalLines: ranged.totalLines,
-    truncated: truncated.truncated,
-  };
+    truncated: content.length < ranged.content.length,
+  });
+  const requestedContent = sliceContentPrefix(ranged.content, maxChars);
+  const requestedResult = buildResult(requestedContent);
+  if (JSON.stringify(requestedResult).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+    return requestedResult;
+  }
+
+  const emptyResult = buildResult('');
+  if (JSON.stringify(emptyResult).length > NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+    throw new RangeError(
+      `readWorkspaceFile metadata exceeds the ${NATIVE_TOOL_RESULT_CHAR_BUDGET}-character native result budget`
+    );
+  }
+  let low = 0;
+  let high = requestedContent.length;
+  let best = emptyResult;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = buildResult(sliceContentPrefix(requestedContent, kept));
+    if (JSON.stringify(candidate).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
 }
 
 /**
