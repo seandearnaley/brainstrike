@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+} from '../tool-approval.js';
+import {
   type AssistantToolResumeAction,
   isAssistantToolResumeAction,
   readToolResumeRunConfigAction,
@@ -62,6 +66,106 @@ describe('tool-suspend contract', () => {
     expect(readToolResumeRunConfigAction(runConfig({ runId: 'r', toolCallId: 't' }))).toEqual({
       invalid: true,
     });
+  });
+
+  it('rejects resume actions with extra own fields', () => {
+    const action = {
+      injected: true,
+      resumeData: 'answer',
+      runId: 'r',
+      toolCallId: 't',
+    };
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+    expect(readToolResumeRunConfigAction(runConfig(action))).toEqual({ invalid: true });
+  });
+
+  it('rejects resume actions with extra own symbol fields', () => {
+    const action = {
+      resumeData: 'answer',
+      runId: 'r',
+      toolCallId: 't',
+      [Symbol('injected')]: true,
+    };
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
+
+  it.each([
+    'resumeData',
+    'runId',
+    'toolCallId',
+  ] as const)('rejects an inherited %s field', (field) => {
+    const inheritedValue = field === 'resumeData' ? 'answer' : field;
+    const action = Object.assign(Object.create({ [field]: inheritedValue }) as object, {
+      ...(field === 'resumeData' ? {} : { resumeData: 'answer' }),
+      ...(field === 'runId' ? {} : { runId: 'r' }),
+      ...(field === 'toolCallId' ? {} : { toolCallId: 't' }),
+    });
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
+
+  it('rejects an inherited optional toolName', () => {
+    const action = Object.assign(Object.create({ toolName: 'askUser' }) as object, {
+      resumeData: 'answer',
+      runId: 'r',
+      toolCallId: 't',
+    });
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
+
+  it.each([
+    ['own undefined', { resumeData: 'answer', runId: 'r', toolCallId: 't', toolName: undefined }],
+    [
+      'inherited undefined',
+      Object.assign(Object.create({ toolName: undefined }) as object, {
+        resumeData: 'answer',
+        runId: 'r',
+        toolCallId: 't',
+      }),
+    ],
+  ])('rejects an %s optional toolName', (_caseName, action) => {
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
+
+  it('accepts identifiers exactly at the shared tool-action limits', () => {
+    expect(
+      isAssistantToolResumeAction({
+        resumeData: 'answer',
+        runId: 'r'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS),
+        toolCallId: 'c'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS),
+        toolName: 't'.repeat(ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS),
+      })
+    ).toBe(true);
+  });
+
+  it.each([
+    ['runId', ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS],
+    ['toolCallId', ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS],
+    ['toolName', ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS],
+  ] as const)('rejects an oversized %s', (field, maxChars) => {
+    expect(
+      isAssistantToolResumeAction({
+        resumeData: 'answer',
+        runId: 'r',
+        toolCallId: 't',
+        toolName: 'askUser',
+        [field]: 'x'.repeat(maxChars + 1),
+      })
+    ).toBe(false);
+  });
+
+  it('rejects a blank optional tool name', () => {
+    expect(
+      isAssistantToolResumeAction({
+        resumeData: 'answer',
+        runId: 'r',
+        toolCallId: 't',
+        toolName: '   ',
+      })
+    ).toBe(false);
   });
 
   it('isAssistantToolResumeAction rejects non-records and bad shapes', () => {

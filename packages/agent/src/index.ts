@@ -1,10 +1,18 @@
 // Types — all inline type definitions live in types.ts
 
+// The broad entrypoint supports in-process browser inference. Server-safe
+// subpaths intentionally omit this registration and its Transformers graph.
+import { registerBrowserLocalLanguageModelFactory } from './providers/local-provider-registration';
+
+registerBrowserLocalLanguageModelFactory();
+
 export {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
   ASSISTANT_EDIT_CHECKPOINT_REVERTIBLE_STATUSES,
   ASSISTANT_TASK_STATUSES,
+  AssistantAttachmentValidationError,
+  type AssistantAttachmentValidationReason,
   type AssistantCheckpointRevertResult,
   type AssistantCheckpointRevertRunResult,
   type AssistantEditCheckpointCaptureStatus,
@@ -41,6 +49,8 @@ export {
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
 export {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
@@ -76,14 +86,28 @@ export {
 } from '@brainstrike/assistant-contract/tool-suspend';
 export type { WorkspaceSkills } from '@mastra/core/skills';
 export { formatSkillActivation } from '@mastra/core/workspace';
+export {
+  AssistantMessageValidationError,
+  type AssistantMessageValidationReason,
+  assertAssistantMessageGraphWithinLimits,
+  MAX_ASSISTANT_MESSAGE_ARRAY_ITEMS,
+  MAX_ASSISTANT_MESSAGE_GRAPH_DEPTH,
+  MAX_ASSISTANT_MESSAGE_GRAPH_NODES,
+  MAX_ASSISTANT_MESSAGE_ID_CHARS,
+  MAX_ASSISTANT_MESSAGE_OBJECT_FIELDS,
+  MAX_ASSISTANT_MESSAGE_STRING_CHARS,
+  MAX_ASSISTANT_MESSAGES,
+} from './assistant-message-boundary';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantInvalidJsonError,
   AssistantRequestBodyLimitConfigError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
+  type AssistantRequestEnvelopeValidationReason,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  hasNonEmptyAssistantPrompt,
+  hasAssistantPromptContent,
   parseAssistantRequestPayloadText,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
@@ -201,7 +225,12 @@ export {
   type RuntimeAssistantSemanticRecallSettings,
 } from './memory-settings';
 // Message utilities — conversion and normalization functions
-export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
+export {
+  type AssistantUiMessageConversionResult,
+  convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
+  toAiSdkStyleStream,
+} from './message-utils';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
@@ -358,6 +387,7 @@ export {
   AssistantDataStreamSessionManager,
   assistantDataStreamSessions,
   createRandomId,
+  createStatelessAssistantDataStreamResponse,
   resolveDataStreamSession,
 } from './stream/data-stream';
 export {

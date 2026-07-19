@@ -1,9 +1,9 @@
 // Integration lane config for @brainstrike/web.
 //
-// Runs the `*.integration.test.*` suffix lane. For web that is the
-// env-sensitive web-mastra-storage test (real PGlite / Mastra memory loop)
-// plus the pre-existing, fully-skipped app.integration.test.tsx, which keeps
-// its suffix for convention only. The lane is executed by the
+// Runs the `*.integration.test.*` suffix lane. The Hosted Web assistant is
+// stateless and no longer boots a server-side PGlite workflow store, so the
+// only current Web member is the pre-existing, fully-skipped
+// app.integration.test.tsx, which keeps its suffix for convention only. The lane is executed by the
 // `test:integration` script, which turbo routes through the root uncached
 // `test:integration` task (turbo.jsonc, `cache: false`) so these lanes are
 // never replayed from cache.

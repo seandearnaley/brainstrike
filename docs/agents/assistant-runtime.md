@@ -414,8 +414,39 @@ APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
 Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
 message whose `metadata.custom` + `runConfig.custom` carry the action under
 `TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
-text ("Approved <tool>." / "Approved the plan."). That message is THREAD-STATE
-ONLY:
+text ("Approved <tool>." / "Approved the plan."). Approval actions are a strict
+wire object: exactly the own keys `action`, `runId`, `toolCallId`, and optional
+`toolName`; the two required ids and any present tool name are non-empty and
+bounded by the shared 512-character approval-transport constants. Suspend
+resume actions mirror that exact-own-key and identifier contract for
+`resumeData`, `runId`, `toolCallId`, and optional `toolName`; only the
+`resumeData` value stays tool-defined for Mastra's resume schema. Extra own or
+inherited fields, blank identifiers, and oversized identifiers are malformed.
+Every Desktop and Hosted Web boundary parses BOTH continuation kinds before
+dispatch: either malformed action returns the corresponding
+`invalid_tool_approval_action` / `invalid_tool_resume_action` HTTP 400, and two
+valid actions return `conflicting_tool_continuation_actions` / HTTP 400. Hosted
+Web deliberately has no tool registry or durable Mastra workflow store: both
+the Vercel Preview function and Vite dev/preview return
+`tool_approval_unavailable` / HTTP 409 for a valid approval/decline action and
+`tool_resume_unavailable` / HTTP 409 for a valid suspend-resume action. This is
+identical in local Vite and Vercel Preview so a long-lived dev process cannot
+advertise continuation behavior that fails when Vercel routes the next request
+to another instance. The deployable Vercel wrappers fail closed outside Preview
+as `production_auth_required`; public production requires application
+authentication plus distributed quota/cost controls. Hosted Web likewise
+rejects every non-empty `Last-Event-ID` with
+`stream_resume_unavailable` / HTTP 409 after enforcing the body-size bound;
+process-local replay is not a distributed capability. Normal Web turns run
+without workflow storage, so approval/suspending tools remain fail-safe omitted.
+Before any Vite dev/preview assistant route reaches those contracts, its
+developer-key boundary requires a loopback TCP peer, a `localhost`/loopback
+`Host`, same-origin browser provenance (while permitting no-`Origin` loopback
+CLI calls), and `application/json` on POST. Boundary failures are typed 403/415
+responses and drain the incoming request; they never fall through to Vite or
+touch the assistant runtime. Vercel entrypoints use their separate deployment
+boundary rather than this local socket check.
+That message is THREAD-STATE ONLY:
 - The panel renders it as a compact outcome chip
   (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a
   prompt bubble — BOTH marker kinds: per-tool approvals ("Approved

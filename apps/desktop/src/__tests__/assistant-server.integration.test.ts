@@ -66,6 +66,7 @@ vi.mock('../secrets', () => ({
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  const convertAssistantUiMessages = vi.fn((messages) => messages);
   return {
     ...actual,
     assistantDataStreamSessions: {
@@ -77,7 +78,21 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
         })),
       })),
     },
-    convertAssistantUiMessages: vi.fn((messages) => messages),
+    convertAssistantUiMessages,
+    convertAssistantUiMessagesWithFinalInput: vi.fn(
+      (
+        messages: Parameters<typeof actual.convertAssistantUiMessagesWithFinalInput>[0]
+      ): ReturnType<typeof actual.convertAssistantUiMessagesWithFinalInput> => {
+        const finalRawMessage = messages.at(-1);
+        const { finalInputMessage } = actual.convertAssistantUiMessagesWithFinalInput(
+          finalRawMessage ? [finalRawMessage] : []
+        );
+        return {
+          finalInputMessage,
+          messages: convertAssistantUiMessages(messages),
+        };
+      }
+    ),
     createEmbeddingProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
       apiKey,
       model,
@@ -577,6 +592,150 @@ describe('assistant-server', () => {
       expect(data.error).toBe('empty_prompt');
     }, 10_000);
 
+    it('should accept an image-only user turn as a valid vision prompt', async () => {
+      const { streamResponse } = await import('../assistant-server/http');
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [
+            {
+              id: 'image-only',
+              parts: [
+                {
+                  data: 'data:image/png;base64,aGVsbG8=',
+                  mediaType: 'image/png',
+                  type: 'file',
+                },
+              ],
+              role: 'user',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+
+      expect(response.status).toBe(200);
+      expect(streamResponse).toHaveBeenCalledOnce();
+    }, 10_000);
+
+    it.each([
+      ['blank user', { id: 'blank-user', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+      [
+        'assistant tool result',
+        {
+          id: 'trailing-tool-result',
+          parts: [{ output: { ok: true }, type: 'tool-result' }],
+          role: 'assistant',
+        },
+      ],
+      [
+        'system context',
+        { id: 'trailing-system', parts: [{ text: 'late context', type: 'text' }], role: 'system' },
+      ],
+    ])(
+      'should reject a trailing %s message instead of reusing an earlier user prompt',
+      async (_case, trailingMessage) => {
+        const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+        const { streamResponse } = await import('../assistant-server/http');
+        (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+          { parts: [{ text: 'Earlier prompt', type: 'text' }], role: 'user' },
+        ]);
+        (streamResponse as Mock).mockImplementation(async (res: unknown) => {
+          const response = res as { end?: () => void };
+          response.end?.();
+        });
+
+        const response = await runRequest({
+          body: JSON.stringify({
+            data: { provider: 'openai' },
+            messages: [
+              {
+                id: 'earlier-user',
+                parts: [{ text: 'Earlier prompt', type: 'text' }],
+                role: 'user',
+              },
+              trailingMessage,
+            ],
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/assistant',
+        });
+
+        const streamResponseCallCount = (streamResponse as Mock).mock.calls.length;
+        (streamResponse as Mock).mockReset();
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({ error: 'empty_prompt' });
+        expect(streamResponseCallCount).toBe(0);
+      },
+      10_000
+    );
+
+    it.each([
+      [
+        'a non-data URL',
+        [{ data: 'not-a-data-url', mediaType: 'image/png', type: 'file' }],
+        'not-a-data-url',
+      ],
+      [
+        'invalid base64',
+        [{ data: 'data:image/png;base64,%%%= ', mediaType: 'image/png', type: 'file' }],
+        'invalid-base64',
+      ],
+      [
+        'a media-type mismatch',
+        [{ data: 'data:image/jpeg;base64,aGVsbG8=', mediaType: 'image/png', type: 'file' }],
+        'media-type-mismatch',
+      ],
+      ['a malformed file part', [{ mediaType: 'image/png', type: 'file' }], 'invalid-file-part'],
+      [
+        'too many files',
+        Array.from({ length: 5 }, () => ({
+          data: 'data:image/png;base64,aGVsbG8=',
+          mediaType: 'image/png',
+          type: 'file',
+        })),
+        'too-many-attachments',
+      ],
+    ])(
+      'should return typed invalid_attachment for %s',
+      async (_case, parts, reason) => {
+        const { streamResponse } = await import('../assistant-server/http');
+
+        const response = await runRequest({
+          body: JSON.stringify({
+            data: { provider: 'openai' },
+            messages: [
+              {
+                id: 'invalid-image',
+                parts,
+                role: 'user',
+              },
+            ],
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/assistant',
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid_attachment',
+          message: 'Assistant attachment payload is invalid.',
+          reason,
+        });
+        expect(streamResponse).not.toHaveBeenCalled();
+      },
+      10_000
+    );
+
     it('should reject assistant route when provider is missing', async () => {
       const response = await runRequest({
         body: JSON.stringify({
@@ -624,6 +783,55 @@ describe('assistant-server', () => {
       expect(data.error).toBe('invalid_json');
       expect(data.message).toBe('Request body must be valid JSON.');
     }, 10_000);
+
+    it.each([
+      [
+        'an empty body',
+        '',
+        {
+          error: 'invalid_json',
+          message: 'Request body must be valid JSON.',
+        },
+      ],
+      [
+        'a missing messages field',
+        '{}',
+        {
+          error: 'invalid_request_payload',
+          message: 'Assistant request payload must include its own messages array.',
+        },
+      ],
+      [
+        'an unsupported top-level field',
+        JSON.stringify({ messages: [], system: 'must stay server-owned' }),
+        {
+          error: 'invalid_request_payload',
+          message: 'Assistant request payload contains an unsupported top-level field.',
+        },
+      ],
+      [
+        'a malformed messages field',
+        JSON.stringify({ messages: {} }),
+        {
+          error: 'invalid_messages',
+          message: 'Assistant messages must be an array.',
+        },
+      ],
+    ])(
+      'should return typed 400 for %s',
+      async (_name, body, expected) => {
+        const response = await runRequest({
+          body,
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/assistant',
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual(expected);
+      },
+      10_000
+    );
 
     it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
       const response = await runRequest({
@@ -1618,6 +1826,118 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(400);
       expect(JSON.parse(response.body).error).toBe('invalid_tool_resume_action');
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects conflicting approval and suspend-resume actions with a typed 400 before dispatch', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+              },
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'approved' },
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'conflicting_tool_continuation_actions',
+        message: 'Assistant request must contain at most one tool continuation action.',
+      });
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed suspend-resume action even when the approval action is valid', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+              },
+              brainstrikeToolSuspend: {
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('invalid_tool_resume_action');
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed approval action even when the suspend-resume action is valid', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+              },
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'approved' },
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('invalid_tool_approval_action');
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
       expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
     });
 

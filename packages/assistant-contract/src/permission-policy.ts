@@ -203,14 +203,12 @@ export function resolvePermissionDecision(input: PermissionDecisionInput): Permi
   }
 
   // 2. Per-tool override beats the category policy (allow OR deny).
-  if (toolId !== undefined && perToolOverrides) {
+  if (toolId !== undefined && perToolOverrides && Object.hasOwn(perToolOverrides, toolId)) {
     const override = perToolOverrides[toolId];
-    if (override !== undefined) {
-      if (!isPermissionDecision(override)) {
-        throw new InvalidPermissionPolicyError(riskCategory, override);
-      }
-      return override;
+    if (!isPermissionDecision(override)) {
+      throw new InvalidPermissionPolicyError(riskCategory, override);
     }
+    return override;
   }
 
   // 3. A session grant promotes this category to 'allow' for this session only.

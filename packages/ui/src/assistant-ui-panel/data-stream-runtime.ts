@@ -8,7 +8,9 @@ import { useLocalRuntime } from '@assistant-ui/react';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
+  createAssistantRequestEnvelope,
   dataUrlByteLength,
+  type RuntimeTransportImageElision,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -18,7 +20,6 @@ import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
   toGenericMessages,
-  toToolsJSONSchema,
   // This runtime is pinned to assistant-stream 0.3.25 because tool result
   // streaming is still exported behind the unstable API surface.
   unstable_toolResultStream,
@@ -36,17 +37,6 @@ export { excludeApprovalActionMessages, isApprovalActionMessage };
 type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
 const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
-const RESERVED_TRANSPORT_FIELDS = new Set([
-  'data',
-  'messages',
-  'parentId',
-  'runConfig',
-  'state',
-  'system',
-  'threadId',
-  'tools',
-  'unstable_assistantMessageId',
-]);
 
 export interface AssistantUsage {
   readonly billedCostUsd?: number;
@@ -70,6 +60,12 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onFinish?: (message: ThreadMessage) => void;
   onResponse?: (response: Response) => Promise<void> | void;
   /**
+   * Exact UTF-8 ceiling for the serialized request body. Hosted Web sets this
+   * below its function platform's ingress limit so oversized turns fail in the
+   * renderer before fetch; desktop/local transports may omit it.
+   */
+  requestBodyLimitBytes?: number;
+  /**
    * Called with the RAW payload of each `brainstrike.context-breakdown` data
    * part (run-start prompt breakdown). The payload is deliberately `unknown`:
    * the consumer parses it with the contract guard so a malformed part is
@@ -89,6 +85,17 @@ export type BrainstrikeDataStreamRuntimeOptions = {
 type BrainstrikeDataStreamRuntimeOptionsSource =
   | BrainstrikeDataStreamRuntimeOptions
   | (() => BrainstrikeDataStreamRuntimeOptions);
+
+function assertSerializedRequestBodyWithinLimit(body: string, limitBytes: number): void {
+  if (!Number.isSafeInteger(limitBytes) || limitBytes <= 0) {
+    throw new Error(
+      `Assistant transport request-body limit must be a positive safe integer; received ${String(limitBytes)}.`
+    );
+  }
+  if (new TextEncoder().encode(body).byteLength > limitBytes) {
+    throw new Error(`Assistant request body exceeds the ${limitBytes}-byte transport limit.`);
+  }
+}
 
 interface GenericTextPart {
   readonly text?: unknown;
@@ -184,19 +191,31 @@ export function extractTransportBodyData(
   return Object.hasOwn(bodyValue, 'data') ? { data: bodyValue['data'] } : {};
 }
 
-function assertNoTransportFieldCollisions(
-  value: Record<string, unknown> | undefined,
-  sourceName: string
+function assertSupportedAssistantUiRequestContext(
+  context: ChatModelRunOptions['context'],
+  state: unknown
 ): void {
-  if (!value) {
-    return;
+  const unsupportedFields: string[] = [];
+  if (Object.keys(context.callSettings ?? {}).length > 0) {
+    unsupportedFields.push('callSettings');
   }
-  const collisionKeys = Object.keys(value).filter((key) => RESERVED_TRANSPORT_FIELDS.has(key));
-  if (collisionKeys.length === 0) {
+  if (Object.keys(context.config ?? {}).length > 0) {
+    unsupportedFields.push('config');
+  }
+  if (state !== undefined && state !== null) {
+    unsupportedFields.push('state');
+  }
+  if (context.system) {
+    unsupportedFields.push('system');
+  }
+  if (Object.keys(context.tools ?? {}).length > 0) {
+    unsupportedFields.push('tools');
+  }
+  if (unsupportedFields.length === 0) {
     return;
   }
   throw new Error(
-    `Assistant runtime ${sourceName} cannot override transport field(s): ${collisionKeys.join(', ')}.`
+    `Brainstrike assistant transport does not support assistant-ui field(s): ${unsupportedFields.join(', ')}.`
   );
 }
 
@@ -365,14 +384,7 @@ function withTransportCompactionMetadata(
   };
 }
 
-export interface TransportImageElision {
-  readonly elidedImageBytes: number;
-  readonly elidedImageCount: number;
-  readonly keptImageBytes: number;
-  readonly strategy: 'newest-first-combined-image-budget';
-  /** Present only when history parts could not be measured (counted in elidedImageCount, excluded from elidedImageBytes). */
-  readonly unmeasurableImageCount?: number;
-}
+export type TransportImageElision = RuntimeTransportImageElision;
 
 interface WireImagePartRef {
   readonly bytes: number;
@@ -816,8 +828,6 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     abortSignal,
     context,
     unstable_assistantMessageId,
-    unstable_threadId,
-    unstable_parentId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
     abortSignal.addEventListener(
@@ -838,6 +848,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const rawBodyValue =
         typeof this.options.body === 'function' ? await this.options.body() : this.options.body;
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
+      assertSupportedAssistantUiRequestContext(
+        context,
+        unstable_getMessage().metadata.unstable_state
+      );
       const outboundMessages = resolveOutboundTransportMessages(messages, runConfig);
       const transportMessages = selectTransportMessagesForMastraMemory(outboundMessages, bodyValue);
       const compactedBodyValue = withTransportCompactionMetadata(
@@ -850,30 +864,23 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         compactedBodyValue
       );
       const bodyData = extractTransportBodyData(imageBound.bodyValue);
-      assertNoTransportFieldCollisions(context.callSettings, 'callSettings');
-      assertNoTransportFieldCollisions(context.config, 'config');
       const headers = new Headers(headersValue);
       headers.set('Content-Type', 'application/json');
 
-      const requestBody: Record<string, unknown> = {
-        messages: imageBound.messages,
-        tools: toToolsJSONSchema(context.tools ?? {}),
-        ...(context.system ? { system: context.system } : {}),
-        // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
-        ...(unstable_assistantMessageId ? { unstable_assistantMessageId } : {}),
-        ...(unstable_threadId ? { threadId: unstable_threadId } : {}),
-        ...(unstable_parentId === undefined ? {} : { parentId: unstable_parentId }),
-        ...(runConfig === undefined ? {} : { runConfig }),
-        ...(unstable_getMessage().metadata.unstable_state
-          ? { state: unstable_getMessage().metadata.unstable_state }
-          : {}),
-        ...context.callSettings,
-        ...context.config,
+      const requestBody = createAssistantRequestEnvelope({
+        ...(unstable_assistantMessageId ? { assistantMessageId: unstable_assistantMessageId } : {}),
         ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
-      };
+        messages: imageBound.messages,
+        ...(runConfig === undefined ? {} : { runConfig }),
+      });
+      const serializedRequestBody = JSON.stringify(requestBody);
+      const requestBodyLimitBytes = this.options.requestBodyLimitBytes;
+      if (requestBodyLimitBytes !== undefined) {
+        assertSerializedRequestBodyWithinLimit(serializedRequestBody, requestBodyLimitBytes);
+      }
 
       const response = await fetch(this.options.api, {
-        body: JSON.stringify(requestBody),
+        body: serializedRequestBody,
         credentials: this.options.credentials ?? 'same-origin',
         headers,
         method: 'POST',
@@ -927,6 +934,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
 }): BrainstrikeDataStreamRuntimeOptions {
   return {
@@ -942,6 +950,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.requestBodyLimitBytes === undefined
+      ? {}
+      : { requestBodyLimitBytes: input.requestBodyLimitBytes }),
     ...(input.onUsage === undefined ? {} : { onUsage: input.onUsage }),
   };
 }
@@ -960,6 +971,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onError,
     onFinish,
     onResponse,
+    requestBodyLimitBytes,
     onUsage,
     unstable_humanToolNames,
   } = options;
@@ -975,6 +987,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onFinish,
     onResponse,
     onUsage,
+    requestBodyLimitBytes,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
   optionsRef.current = requestOptions;

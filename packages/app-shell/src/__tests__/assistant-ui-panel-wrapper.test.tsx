@@ -1,5 +1,9 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { DESKTOP_NATIVE_TOOL_IDS, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import {
   useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
@@ -107,6 +111,7 @@ describe('AssistantUiPanelWrapper', () => {
       await renderAssistantPanel(['openai'], () =>
         waitFor(() => {
           expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('data-stream');
+          expect(screen.getByTestId('request-body-limit')).toBeEmptyDOMElement();
         })
       );
     } finally {
@@ -120,10 +125,14 @@ describe('AssistantUiPanelWrapper', () => {
     // localChatTransport describes the LOCAL provider's transport and must
     // not gate hosted providers on web — the /api/assistant route shares the
     // desktop server's image-aware conversion (#1685 review fix).
+    Reflect.deleteProperty(window, 'assistant');
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
           '"state":"enabled"'
+        );
+        expect(screen.getByTestId('request-body-limit')).toHaveTextContent(
+          String(HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES)
         );
       })
     );

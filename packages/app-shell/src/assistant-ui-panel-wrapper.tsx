@@ -1,9 +1,7 @@
 import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
-  getProviderModelDefinitions,
   isSupportedProvider,
-  type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import {
@@ -74,6 +72,7 @@ import {
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
+import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
   buildTapestryRangesForUpdate,
   computeReplacedSelection,
@@ -92,10 +91,12 @@ import {
   buildModelSettings,
   buildProviderOptions,
   copyProviderSettingsMap,
+  type FixedProviderModels,
   findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
+  getRuntimeProviderLlmModels,
   getToolDescription,
   hasContextBreakdownChannel,
   hasValidProviderModelSelection,
@@ -132,12 +133,12 @@ import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
+  fixedProviderModels?: FixedProviderModels;
   initialProviders?: SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
 }
-
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
 declare global {
@@ -171,6 +172,7 @@ function hasDesktopAssistantBackend(): boolean {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
+  fixedProviderModels,
   initialProviders,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
@@ -251,6 +253,7 @@ export function AssistantUiPanelWrapper({
       buildEnabledModelIdSet({
         configuredProviders,
         enabledModelsByProvider,
+        fixedProviderModels,
         localRuntimeModels,
         registryEnabledModelIds,
         shouldFallbackToPreferences,
@@ -258,6 +261,7 @@ export function AssistantUiPanelWrapper({
     [
       configuredProviders,
       enabledModelsByProvider,
+      fixedProviderModels,
       localRuntimeModels,
       registryEnabledModelIds,
       shouldFallbackToPreferences,
@@ -289,16 +293,13 @@ export function AssistantUiPanelWrapper({
   );
 
   const getProviderLlmModels = useCallback(
-    (provider: SupportedProvider): readonly LlmProviderModelDefinition[] => {
-      if (isLocalRuntimeProvider(provider)) {
-        return runtimeLlmModelsByProvider[provider] ?? [];
-      }
-      return getProviderModelDefinitions(provider).filter(
-        (model: ProviderModelDefinition): model is LlmProviderModelDefinition =>
-          model.type === 'llm'
-      );
-    },
-    [runtimeLlmModelsByProvider]
+    (provider: SupportedProvider): readonly LlmProviderModelDefinition[] =>
+      getRuntimeProviderLlmModels(
+        provider,
+        runtimeLlmModelsByProvider,
+        fixedProviderModels?.[provider]
+      ),
+    [fixedProviderModels, runtimeLlmModelsByProvider]
   );
 
   const selectedThreadDraftRuntime = memoryThreadId
@@ -800,7 +801,6 @@ export function AssistantUiPanelWrapper({
     hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
       ? 'data-stream'
       : 'local-runtime';
-
   // Permission enforcement (OPT-IN). Subscribe to the persisted posture so the
   // request snapshot stays in sync; the serializable input is only attached to
   // the request when the user enabled `enforce`. Scoped to the desktop
@@ -1079,8 +1079,9 @@ export function AssistantUiPanelWrapper({
         currentProvider,
         currentSelectedModel: getSelectedModel(),
         isModelEnabled,
+        providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
       }),
-    [getSelectedModel, isModelEnabled]
+    [getProviderLlmModels, getSelectedModel, isModelEnabled]
   );
 
   const handleLocalRuntimeSelection = useCallback(
@@ -1107,9 +1108,6 @@ export function AssistantUiPanelWrapper({
     return true;
   }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
-  // Reconcile selection whenever providers or enabled models change.
-  // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
-  // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
     if (seedBuiltInLocalModelSelection()) {
       return;
@@ -1167,7 +1165,9 @@ export function AssistantUiPanelWrapper({
   ]);
 
   const handleModelChange = useAssistantModelChange({
+    currentModel,
     draftRuntimeByThreadId,
+    fixedProviderModels,
     memoryThreadId,
     providerSettings,
     setModel,
@@ -1584,6 +1584,7 @@ export function AssistantUiPanelWrapper({
               providerGroups={providerGroups}
               providerSettings={effectiveProviderSettings}
               recentModels={validRecentModels}
+              {...webBodyLimitProps(desktopAssistantBackendAvailable)}
               requestData={requestData}
               slashCommands={slashCommands}
               {...(desktopAssistantBackendAvailable

@@ -1,5 +1,5 @@
-import { EventEmitter } from 'node:events';
-import type http from 'node:http';
+import { EventEmitter, once } from 'node:events';
+import http from 'node:http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Partial mocks: spread real module, only override I/O-bound functions.
@@ -11,7 +11,6 @@ vi.mock('@brainstrike/agent', async () => {
     Boolean(value && typeof value === 'object' && !Array.isArray(value));
   return {
     ...actual,
-    assistantDataStreamSessions: { create: vi.fn() },
     readToolApprovalRunConfigAction: (runConfig: unknown) => {
       if (!isRecord(runConfig)) {
         return;
@@ -31,6 +30,16 @@ vi.mock('@brainstrike/agent', async () => {
   };
 });
 
+vi.mock('@brainstrike/agent/hosted-web', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/agent/hosted-web')>(
+    '@brainstrike/agent/hosted-web'
+  );
+  return {
+    ...actual,
+    createStatelessAssistantDataStreamResponse: vi.fn(),
+  };
+});
+
 vi.mock('../server/assistant-config', async () => {
   const actual = await vi.importActual<typeof import('../server/assistant-config')>(
     '../server/assistant-config'
@@ -41,20 +50,22 @@ vi.mock('../server/assistant-config', async () => {
   };
 });
 
-// The handler builds its stream (normal turn OR approval resume) through this
-// seam, which owns the in-process workflow storage. Mock it so the unit test
-// never spins up a real PGlite store.
-vi.mock('../server/web-mastra-storage', () => ({
+// The handler builds normal stateless hosted-Web turns through this seam.
+vi.mock('../server/web-assistant-stream', () => ({
   buildWebAssistantStream: vi.fn(),
 }));
 
-import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
+import type { AssistantDataStreamSession, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import {
-  assistantDataStreamSessions,
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  AssistantRequestBodyTooLargeError,
   resolveDataStreamSession,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
+import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import {
   handleAssistantEndpoint,
   handleChatEndpoint,
@@ -62,7 +73,11 @@ import {
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
 import { resolveAssistantProviderConfig } from '../server/assistant-config';
-import { buildWebAssistantStream } from '../server/web-mastra-storage';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from '../server/web-assistant-runtime';
+import { buildWebAssistantStream } from '../server/web-assistant-stream';
 
 class ResponseSink extends EventEmitter {
   status?: number;
@@ -88,6 +103,80 @@ class ResponseSink extends EventEmitter {
   }
 }
 
+function requestBody(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+const NORMAL_ASSISTANT_REQUEST_BODY = requestBody({
+  messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+});
+
+async function listenOnLoopback(server: http.Server): Promise<number> {
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!(address && typeof address === 'object')) {
+    throw new Error('Expected the test HTTP server to listen on a TCP port.');
+  }
+  return address.port;
+}
+
+async function closeServer(server: http.Server): Promise<void> {
+  if (!server.listening) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function postToServer(port: number, body = NORMAL_ASSISTANT_REQUEST_BODY): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const request = http.request(
+      {
+        headers: {
+          'Content-Length': Buffer.byteLength(body),
+          'Content-Type': 'application/json',
+        },
+        host: '127.0.0.1',
+        method: 'POST',
+        path: '/api/assistant',
+        port,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        response.once('error', reject);
+      }
+    );
+    request.once('error', reject);
+    request.end(body);
+  });
+}
+
+async function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 describe('assistant-stream-helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -96,6 +185,7 @@ describe('assistant-stream-helpers', () => {
 
   it('reads the request body as a string', async () => {
     const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
     const bodyPromise = readBody(req);
 
     req.emit('data', Buffer.from('hello '));
@@ -103,6 +193,31 @@ describe('assistant-stream-helpers', () => {
     req.emit('end');
 
     await expect(bodyPromise).resolves.toBe('hello world');
+  });
+
+  it('rejects a declared request body larger than the configured byte limit before reading', async () => {
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'content-length': '6' };
+    req.resume = vi.fn().mockReturnValue(req);
+    const dataListener = vi.fn();
+    req.on('data', dataListener);
+
+    await expect(readBody(req, 5)).rejects.toEqual(new AssistantRequestBodyTooLargeError(5));
+    expect(dataListener).not.toHaveBeenCalled();
+    expect(req.resume).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a chunked request as soon as its accumulated bytes exceed the limit', async () => {
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    req.resume = vi.fn().mockReturnValue(req);
+    const bodyPromise = readBody(req, 5);
+
+    req.emit('data', Buffer.from('abc'));
+    req.emit('data', Buffer.from('def'));
+
+    await expect(bodyPromise).rejects.toEqual(new AssistantRequestBodyTooLargeError(5));
+    expect(req.resume).toHaveBeenCalledOnce();
   });
 
   it('sends assistant status payload', async () => {
@@ -128,27 +243,71 @@ describe('assistant-stream-helpers', () => {
     });
 
     const res = new ResponseSink();
-    await handleChatEndpoint({ messages: [] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(503);
     expect(JSON.parse(res.body)).toMatchObject({ error: 'assistant_disabled' });
   });
 
-  it('streams assistant response using existing session', async () => {
-    const response = new Response('resume');
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+  it('rejects a non-empty last-event-id even when the process-local registry resolves it', async () => {
+    const createResponse = vi.fn(() => new Response('must-not-resume'));
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: '',
+      disabledReason: 'missing_api_key',
+      enabled: false,
+    });
     vi.mocked(resolveDataStreamSession).mockReturnValue({
-      createResponse: () => response,
+      createResponse,
     } as unknown as AssistantDataStreamSession);
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = { 'last-event-id': 'evt-1' } as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
-    expect(res.status).toBe(200);
-    expect(res.body).toContain('resume');
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'stream_resume_unavailable',
+      message:
+        'Hosted Web stream replay requires durable storage and is unavailable for this deployment.',
+    });
+    expect(resolveDataStreamSession).not.toHaveBeenCalled();
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when last-event-id cannot be resolved on this Vite server instance', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {
+      'last-event-id': 'evt-from-another-instance',
+    } as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'stream_resume_unavailable',
+      message:
+        'Hosted Web stream replay requires durable storage and is unavailable for this deployment.',
+    });
+    expect(resolveDataStreamSession).not.toHaveBeenCalled();
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
   it('returns 502 when streaming initialization fails', async () => {
@@ -159,7 +318,13 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(res.status).toBe(502);
     expect(JSON.parse(res.body)).toMatchObject({
@@ -168,7 +333,33 @@ describe('assistant-stream-helpers', () => {
     });
   });
 
-  it('creates a new assistant session for streaming', async () => {
+  it('returns 400 when assistant data contains a server-only runtime field', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(buildWebAssistantStream).mockRejectedValue(
+      new InvalidWebAssistantRuntimeDataError('mcpConfig')
+    );
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        data: { mcpConfig: { servers: [] } },
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Unsupported web assistant runtime field: mcpConfig',
+    });
+  });
+
+  it('creates a stateless assistant response for streaming', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const stream: AsyncIterable<StreamChunk> = {
@@ -178,37 +369,68 @@ describe('assistant-stream-helpers', () => {
     };
 
     vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
-    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
-      () =>
-        ({
-          createResponse: () => new Response('ok'),
-        }) as unknown as AssistantDataStreamSession
-    );
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
   });
 
-  it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
+  it('accepts shared-transport image-elision metadata on the Vite assistant route', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
-        yield { type: 'text-delta', value: 'resumed' } as StreamChunk;
+        yield { type: 'text-delta', value: 'hello' } as StreamChunk;
       },
     };
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
-    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
-      () =>
-        ({
-          createResponse: () => new Response('resumed'),
-        }) as unknown as AssistantDataStreamSession
+    let resolvedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
+      resolvedRuntime = resolveWebAssistantRuntime(params.data, params.apiKey);
+      return stream;
+    });
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        data: {
+          transportImageElision: {
+            elidedImageBytes: 5_242_880,
+            elidedImageCount: 1,
+            keptImageBytes: 6_291_456,
+            strategy: 'newest-first-combined-image-budget',
+          },
+        },
+        messages: [
+          { id: 'current-user', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+        ],
+      })
     );
+
+    expect(res.status).toBe(200);
+    expect(resolvedRuntime).toEqual({
+      apiKey: 'key',
+      provider: 'openai',
+    });
+  });
+
+  it('fails closed for a valid tool approval action in stateless Vite', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const approvalAction = {
       action: 'decline',
@@ -220,16 +442,55 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', parts: [], role: 'user' }],
-      runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toContain('resumed');
-    expect(buildWebAssistantStream).toHaveBeenCalledWith(
-      expect.objectContaining({ toolApprovalAction: approvalAction })
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: '1', parts: [], role: 'user' }],
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
+      })
     );
+
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'tool_approval_unavailable',
+      message: 'Hosted Web tool approval requires durable workflow storage.',
+    });
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a valid tool suspend resume action in stateless Vite', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+
+    const resumeAction = {
+      resumeData: { action: 'approved' },
+      runId: 'run-suspend-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'brainstrike.submitPlan',
+    };
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [],
+        runConfig: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: resumeAction } },
+      })
+    );
+
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'tool_resume_unavailable',
+      message: 'Hosted Web tool resume requires durable workflow storage.',
+    });
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
   it('rejects malformed tool approval actions on the web assistant helper route', async () => {
@@ -239,23 +500,165 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', parts: [], role: 'user' }],
-      runConfig: {
-        custom: {
-          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
-            action: 'decline',
-            runId: 'run-approval-1',
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: '1', parts: [], role: 'user' }],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'decline',
+              runId: 'run-approval-1',
+            },
           },
         },
-      },
-    });
+      })
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toMatchObject({
       error: 'invalid_tool_approval_action',
     });
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed tool suspend resume actions on the web assistant helper route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [],
+        runConfig: {
+          custom: {
+            [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+              resumeData: { action: 'approved' },
+              runId: 'run-suspend-1',
+            },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_tool_resume_action',
+      message:
+        'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'an extra own field',
+      {
+        injected: true,
+        resumeData: 'answer',
+        runId: 'run-suspend-1',
+        toolCallId: 'tool-call-1',
+      },
+    ],
+    [
+      'an oversized identifier',
+      {
+        resumeData: 'answer',
+        runId: 'r'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1),
+        toolCallId: 'tool-call-1',
+      },
+    ],
+    [
+      'an oversized tool name',
+      {
+        resumeData: 'answer',
+        runId: 'run-suspend-1',
+        toolCallId: 'tool-call-1',
+        toolName: 't'.repeat(ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS + 1),
+      },
+    ],
+    [
+      'a blank tool name',
+      {
+        resumeData: 'answer',
+        runId: 'run-suspend-1',
+        toolCallId: 'tool-call-1',
+        toolName: '   ',
+      },
+    ],
+  ])('returns typed 400 for a resume action with %s on the Vite route', async (_case, action) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [],
+        runConfig: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_tool_resume_action',
+      message:
+        'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'extra own fields',
+      {
+        action: 'decline',
+        injected: true,
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+      },
+    ],
+    [
+      'oversized identifiers',
+      {
+        action: 'decline',
+        runId: 'r'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1),
+        toolCallId: 'tool-call-1',
+      },
+    ],
+  ])('returns typed 400 for approval actions with %s on the Vite route', async (_case, action) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [],
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'invalid_tool_approval_action',
+      message:
+        'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it('streams chat response as JSON lines when provider is enabled', async () => {
@@ -277,10 +680,27 @@ describe('assistant-stream-helpers', () => {
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
 
     const res = new ResponseSink();
-    await handleChatEndpoint({ messages: [] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      requestBody({
+        data: {
+          agentLoop: { inputTokenLimit: 1_000_000, maxSteps: 999 },
+          mcpEnabled: true,
+          model: 'attacker-model',
+          modelSettings: { maxOutputTokens: 1_000_000 },
+          provider: 'ollama',
+          providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
+        },
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('application/json');
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(expect.any(Array), {
+      apiKey: 'key',
+      provider: 'openai',
+    });
 
     const lines = res.body.trim().split('\n');
     expect(lines).toHaveLength(2);
@@ -289,29 +709,445 @@ describe('assistant-stream-helpers', () => {
     expect(JSON.parse(lines[1]!)).toEqual(chunks[1]);
   });
 
-  it('resolves last-event-id from array header using the last element', async () => {
-    const response = new Response('resumed-from-array');
+  it('forwards valid image file parts through the Vite chat boundary', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
-    vi.mocked(resolveDataStreamSession).mockImplementation((id: string | null | undefined) =>
-      id === 'evt-2'
-        ? ({
-            createResponse: () => response,
-          } as unknown as AssistantDataStreamSession)
-        : undefined
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {
+        yield { type: 'text-delta', value: 'image received' } as StreamChunk;
+      })()
     );
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'chat-image-1',
+            parts: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,iVBORw0KGgo=',
+                filename: 'pixel.png',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(200);
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+      [
+        {
+          id: 'chat-image-1',
+          parts: [
+            { text: 'Describe this image', type: 'text' },
+            {
+              data: 'data:image/png;base64,iVBORw0KGgo=',
+              filename: 'pixel.png',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      { apiKey: 'key', provider: 'openai' }
+    );
+  });
+
+  it('accepts an image-only user turn on the Vite chat boundary', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {
+        yield { type: 'text-delta', value: 'image received' } as StreamChunk;
+      })()
+    );
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(200);
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+      [
+        {
+          id: 'image-only',
+          parts: [
+            {
+              data: 'data:image/png;base64,aGVsbG8=',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      { apiKey: 'key', provider: 'openai' }
+    );
+  });
+
+  it('returns the canonical attachment error from the Vite chat boundary', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'chat-image-1',
+            parts: [
+              { text: 'Describe this file', type: 'text' },
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('rejects server-only runtime data on the chat endpoint', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+
+    const res = new ResponseSink();
+    await handleChatEndpoint(
+      requestBody({
+        data: { mcpConfig: { servers: [] } },
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Unsupported web assistant runtime field: mcpConfig',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'missing',
+      {},
+      {
+        error: 'invalid_request_payload',
+        message: 'Assistant request payload must include its own messages array.',
+      },
+    ],
+    ['empty', { messages: [] }, { error: 'empty_prompt' }],
+  ])('returns typed 400 when chat messages are %s', async (_case, body, expected) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(requestBody(body), res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual(expected);
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 when a non-empty chat array normalizes to no messages', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({ messages: [null] }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns empty_prompt when a normal assistant turn has no effective prompt', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'empty-1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('accepts an image-only user turn on the Vite assistant route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
+      },
+    };
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentMessages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      })
+    );
+  });
+
+  it.each([
+    [
+      'assistant',
+      [{ id: 'assistant-1', parts: [{ text: 'continue', type: 'text' }], role: 'assistant' }],
+    ],
+    ['system', [{ id: 'system-1', parts: [{ text: 'continue', type: 'text' }], role: 'system' }]],
+    [
+      'trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
+      ],
+    ],
+    [
+      'blank trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
+      ],
+    ],
+  ])('rejects a normal assistant turn whose final prompt role is %s', async (_case, messages) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({ messages })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for a deeply nested chat message graph', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    let nested: Record<string, unknown> = { text: 'hello' };
+    for (let depth = 0; depth < 3000; depth += 1) {
+      nested = { content: nested };
+    }
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({ messages: [{ content: nested, id: 'deep-1', role: 'user' }] }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message payload exceeds the nesting depth limit.',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for an invalid assistant attachment', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            content: [
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed invalid_attachment for an empty image on the Vite route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            content: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'invalid-base64',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['wrong type', { projectId: 42 }, 'projectId'],
+    ['oversized string', { mainRootPath: 'x'.repeat(4097) }, 'mainRootPath'],
+    ['invalid enum', { workspaceIndexStatusState: 'ready' }, 'workspaceIndexStatusState'],
+  ])('rejects a known runtime field with %s', async (_case, data, field) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+
+    const res = new ResponseSink();
+    await handleChatEndpoint(
+      requestBody({
+        data,
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: `Invalid web assistant runtime field: ${field}`,
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-empty last-event-id array without consulting the session registry', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = { 'last-event-id': ['evt-1', 'evt-2'] } as unknown as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
-    expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith('evt-2');
-    expect(res.status).toBe(200);
-    expect(res.body).toContain('resumed-from-array');
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'stream_resume_unavailable',
+      message:
+        'Hosted Web stream replay requires durable storage and is unavailable for this deployment.',
+    });
+    expect(resolveDataStreamSession).not.toHaveBeenCalled();
+    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
-  it('creates a new session when no last-event-id header is present', async () => {
+  it('creates a stateless response when no last-event-id header is present', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const stream: AsyncIterable<StreamChunk> = {
@@ -321,37 +1157,49 @@ describe('assistant-stream-helpers', () => {
     };
 
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
-    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
-      () =>
-        ({
-          createResponse: () => new Response('fresh-session'),
-        }) as unknown as AssistantDataStreamSession
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response('fresh-session')
     );
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
-    expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith(undefined);
-    expect(vi.mocked(assistantDataStreamSessions.create)).toHaveBeenCalled();
+    expect(resolveDataStreamSession).not.toHaveBeenCalled();
+    expect(vi.mocked(createStatelessAssistantDataStreamResponse)).toHaveBeenCalled();
     expect(res.body).toContain('fresh-session');
   });
 
   it('calls res.end() when response body is null', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
-    vi.mocked(resolveDataStreamSession).mockReturnValue({
-      createResponse: () => new Response(null, { status: 200 }),
-    } as unknown as AssistantDataStreamSession);
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response(null, { status: 200 })
+    );
 
     const req = new EventEmitter() as http.IncomingMessage;
-    req.headers = { 'last-event-id': 'evt-null' } as http.IncomingHttpHeaders;
+    req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
     const endSpy = vi.spyOn(res, 'end');
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(endSpy).toHaveBeenCalled();
     expect(res.status).toBe(200);
@@ -370,12 +1218,13 @@ describe('assistant-stream-helpers', () => {
     });
     const response = new Response(bodyStream, { status: 200 });
 
-    vi.mocked(resolveDataStreamSession).mockReturnValue({
-      createResponse: () => response,
-    } as unknown as AssistantDataStreamSession);
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(response);
 
     const req = new EventEmitter() as http.IncomingMessage;
-    req.headers = { 'last-event-id': 'evt-bp' } as http.IncomingHttpHeaders;
+    req.headers = {} as http.IncomingHttpHeaders;
 
     // Override write to return false (signal backpressure), then emit drain
     const res = new ResponseSink();
@@ -390,55 +1239,254 @@ describe('assistant-stream-helpers', () => {
       return false; // signal backpressure
     };
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(drainResolved).toBe(true);
     expect(res.body).toContain('chunk-data');
   });
 
-  it('completes streaming after req emits close (abort cleanup)', async () => {
+  it('does not abort the runtime when a real Node request closes after a complete body', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
-    let resolveChunk: (() => void) | undefined;
-    const chunkReady = new Promise<void>((r) => {
-      resolveChunk = r;
+    let runtimeSignal: AbortSignal | undefined;
+    let requestWasComplete: boolean | undefined;
+    let resolveHandler!: () => void;
+    let rejectHandler!: (error: unknown) => void;
+    const handlerFinished = new Promise<void>((resolve, reject) => {
+      resolveHandler = resolve;
+      rejectHandler = reject;
     });
 
-    const encoder = new TextEncoder();
-    const bodyStream = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        // Enqueue one chunk, then wait before closing so we can emit 'close'
-        controller.enqueue(encoder.encode('before-abort'));
-        resolveChunk!();
-        // Yield control so the abort can fire
-        await new Promise((r) => setTimeout(r, 10));
-        controller.close();
-      },
-    });
-    const response = new Response(bodyStream, { status: 200 });
+    const server = http.createServer((req, res) => {
+      const requestClosed = once(req, 'close').then(() => {
+        requestWasComplete = req.complete;
+      });
+      req.resume();
 
-    vi.mocked(resolveDataStreamSession).mockReturnValue({
-      createResponse: () => response,
-    } as unknown as AssistantDataStreamSession);
+      vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
+        runtimeSignal = signal;
+        await requestClosed;
+        return (async function* stream() {})() as AsyncIterable<StreamChunk>;
+      });
+      vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValueOnce(
+        new Response('normal-close-ok')
+      );
 
-    const req = new EventEmitter() as http.IncomingMessage;
-    req.headers = { 'last-event-id': 'evt-abort' } as http.IncomingHttpHeaders;
-
-    const res = new ResponseSink();
-    const endSpy = vi.spyOn(res, 'end');
-
-    const streamPromise = handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [],
+      handleAssistantEndpoint(req, res, NORMAL_ASSISTANT_REQUEST_BODY).then(
+        resolveHandler,
+        rejectHandler
+      );
     });
 
-    // Wait for the first chunk to be read, then simulate client disconnect
-    await chunkReady;
-    req.emit('close');
+    try {
+      const port = await listenOnLoopback(server);
 
-    await streamPromise;
+      await expect(postToServer(port)).resolves.toContain('normal-close-ok');
+      await handlerFinished;
 
-    // Response should still end gracefully
-    expect(endSpy).toHaveBeenCalled();
+      expect(requestWasComplete).toBe(true);
+      expect(runtimeSignal).toBeDefined();
+      expect(runtimeSignal?.aborted).toBe(false);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('aborts the runtime when a real Node client aborts an incomplete request body', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+
+    let runtimeSignal: AbortSignal | undefined;
+    let requestWasComplete: boolean | undefined;
+    let resolveSignalCaptured!: () => void;
+    const signalCaptured = new Promise<void>((resolve) => {
+      resolveSignalCaptured = resolve;
+    });
+    let handlerError: unknown;
+    let resolveHandler!: () => void;
+    const handlerFinished = new Promise<void>((resolve) => {
+      resolveHandler = resolve;
+    });
+
+    const server = http.createServer((req, res) => {
+      req.once('close', () => {
+        requestWasComplete = req.complete;
+      });
+      vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
+        if (!signal) {
+          throw new Error('Expected the Hosted Web runtime to receive a cancellation signal.');
+        }
+        runtimeSignal = signal;
+        resolveSignalCaptured();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return (async function* stream() {})() as AsyncIterable<StreamChunk>;
+      });
+      vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValueOnce(new Response(null));
+
+      handleAssistantEndpoint(req, res, NORMAL_ASSISTANT_REQUEST_BODY).then(
+        resolveHandler,
+        (error: unknown) => {
+          handlerError = error;
+          resolveHandler();
+        }
+      );
+    });
+
+    try {
+      const port = await listenOnLoopback(server);
+      const request = http.request({
+        headers: { 'Content-Length': 1024 },
+        host: '127.0.0.1',
+        method: 'POST',
+        path: '/api/assistant',
+        port,
+      });
+      request.on('error', () => {
+        // ECONNRESET is expected after destroying the intentionally incomplete request.
+      });
+      request.write('{');
+
+      await signalCaptured;
+      const requestClosed = new Promise<void>((resolve) => {
+        request.once('close', () => resolve());
+      });
+      request.destroy();
+      await requestClosed;
+      await handlerFinished;
+
+      expect(requestWasComplete).toBe(false);
+      expect(runtimeSignal).toBeDefined();
+      expect(runtimeSignal?.aborted).toBe(true);
+      expect(handlerError).toBeUndefined();
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('aborts and releases real Node response backpressure when the downstream closes', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+
+    let runtimeSignal: AbortSignal | undefined;
+    let responseWritableEndedAtClose: boolean | undefined;
+    let responseBodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let serverResponseForCleanup: http.ServerResponse | undefined;
+    let resolveBackpressure!: () => void;
+    const backpressureObserved = new Promise<void>((resolve) => {
+      resolveBackpressure = resolve;
+    });
+    let resolveResponseClose!: () => void;
+    const responseClosed = new Promise<void>((resolve) => {
+      resolveResponseClose = resolve;
+    });
+    let resolveHandler!: () => void;
+    let rejectHandler!: (error: unknown) => void;
+    const handlerFinished = new Promise<void>((resolve, reject) => {
+      resolveHandler = resolve;
+      rejectHandler = reject;
+    });
+
+    const server = http.createServer((req, res) => {
+      const requestClosed = once(req, 'close');
+      req.resume();
+
+      void requestClosed.then(() => {
+        serverResponseForCleanup = res;
+        const write = res.write.bind(res);
+        res.write = ((chunk: Uint8Array) => {
+          const accepted = write(chunk);
+          if (!accepted) {
+            resolveBackpressure();
+          }
+          return accepted;
+        }) as typeof res.write;
+        res.once('close', () => {
+          responseWritableEndedAtClose = res.writableEnded;
+          resolveResponseClose();
+        });
+
+        vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
+          runtimeSignal = signal;
+          return (async function* stream() {})() as AsyncIterable<StreamChunk>;
+        });
+        vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValueOnce(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              cancel() {
+                responseBodyController = undefined;
+              },
+              start(controller) {
+                responseBodyController = controller;
+                controller.enqueue(new Uint8Array(8 * 1024 * 1024));
+              },
+            })
+          )
+        );
+
+        handleAssistantEndpoint(req, res, NORMAL_ASSISTANT_REQUEST_BODY).then(
+          resolveHandler,
+          rejectHandler
+        );
+      });
+    });
+
+    try {
+      const port = await listenOnLoopback(server);
+      let resolveClientResponse!: (response: http.IncomingMessage) => void;
+      const clientResponse = new Promise<http.IncomingMessage>((resolve) => {
+        resolveClientResponse = resolve;
+      });
+      const request = http.request(
+        {
+          headers: {
+            'Content-Length': Buffer.byteLength(NORMAL_ASSISTANT_REQUEST_BODY),
+            'Content-Type': 'application/json',
+          },
+          host: '127.0.0.1',
+          method: 'POST',
+          path: '/api/assistant',
+          port,
+        },
+        (response) => {
+          response.on('error', () => {
+            // ECONNRESET is expected after destroying the downstream response.
+          });
+          response.pause();
+          resolveClientResponse(response);
+        }
+      );
+      request.on('error', () => {
+        // The client is intentionally destroyed while the response is streaming.
+      });
+      request.end(NORMAL_ASSISTANT_REQUEST_BODY);
+
+      const response = await clientResponse;
+      await backpressureObserved;
+      response.destroy();
+      request.destroy();
+      await responseClosed;
+
+      const completed = await settlesWithin(handlerFinished, 1000);
+
+      expect(responseWritableEndedAtClose).toBe(false);
+      expect(runtimeSignal).toBeDefined();
+      expect(runtimeSignal?.aborted).toBe(true);
+      expect(completed).toBe(true);
+    } finally {
+      responseBodyController?.close();
+      serverResponseForCleanup?.emit('drain');
+      await closeServer(server);
+    }
   });
 
   it('sends enabled: true status when provider is enabled', async () => {
@@ -452,6 +1500,10 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('application/json');
-    expect(JSON.parse(res.body)).toEqual({ enabled: true });
+    expect(JSON.parse(res.body)).toEqual({
+      enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+    });
   });
 });

@@ -63,7 +63,7 @@ export interface AgentMessage {
   role: 'user' | 'assistant' | 'system';
 }
 
-export type AssistantUiScalar = string | number | bigint | boolean | null;
+export type AssistantUiScalar = string | number | boolean | null;
 
 export interface AssistantUiNodeObject {
   children?: AssistantUiNode;
@@ -102,10 +102,10 @@ export interface AssistantUiMessage {
 /**
  * Agent runtime data. Extends the dependency-light `assistant-contract`
  * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
- * fields that bind to runtime libraries, plus three server-only fields. The 28
- * shared fields — including `provider` (which now inherits `'local'`) — live in
- * the contract; this is what removes the old "keep the two declarations in sync"
- * drift hazard.
+ * fields that bind to runtime libraries, plus three server-only fields. The
+ * shared fields — including `provider` (which now inherits `'local'`) — live
+ * in the contract; this is what removes the old "keep the two declarations in
+ * sync" drift hazard.
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**

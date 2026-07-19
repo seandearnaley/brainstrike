@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +11,30 @@ interface VercelHeaderRule {
 }
 
 interface VercelConfig {
+  readonly functions?: Readonly<
+    Record<
+      string,
+      {
+        readonly maxDuration?: number;
+        readonly supportsCancellation?: boolean;
+      }
+    >
+  >;
   readonly headers?: readonly VercelHeaderRule[];
+}
+
+interface WebPackageJson {
+  readonly scripts?: Readonly<Record<string, string>>;
+}
+
+interface VercelFunctionTsconfig {
+  readonly compilerOptions?: {
+    readonly emitDeclarationOnly?: boolean;
+    readonly module?: string;
+    readonly moduleResolution?: string;
+    readonly verbatimModuleSyntax?: boolean;
+  };
+  readonly extends?: string;
 }
 
 function readVercelConfig(): VercelConfig {
@@ -79,5 +102,57 @@ describe('vercel.json production headers', () => {
         expect(rule.source.startsWith('/assets/')).toBe(true);
       }
     }
+  });
+});
+
+describe('Vercel preview assistant functions', () => {
+  it('ships root api entrypoints for every hosted assistant route', () => {
+    const webRoot = path.resolve(__dirname, '../..');
+
+    for (const entrypoint of ['api/assistant.ts', 'api/assistant/status.ts']) {
+      expect(existsSync(path.join(webRoot, entrypoint)), entrypoint).toBe(true);
+    }
+    // The legacy chat route owns a process-local rate limiter, which cannot be
+    // enforced across Vercel instances. Keep it dev-only until it is replaced
+    // by distributed state instead of deploying a misleading security control.
+    expect(existsSync(path.join(webRoot, 'api/chat.ts'))).toBe(false);
+  });
+
+  it('gives streaming assistant functions an explicit duration budget', () => {
+    const config = readVercelConfig();
+
+    expect(config.functions?.['api/**/*.ts']?.maxDuration).toBe(300);
+  });
+
+  it('declares client-cancellation support for streaming assistant functions', () => {
+    const config = readVercelConfig();
+
+    expect(config.functions?.['api/**/*.ts']?.supportsCancellation).toBe(true);
+  });
+
+  it('keeps function entrypoints in the required Web type-check gate', () => {
+    const packageJson = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')
+    ) as WebPackageJson;
+
+    expect(packageJson.scripts?.['type-check:api']).toBe(
+      'tsc --noEmit --project api/tsconfig.json'
+    );
+    expect(packageJson.scripts?.['type-check']).toContain('pnpm run type-check:api');
+  });
+
+  it('compiles function entrypoints as executable CommonJS instead of renderer declarations', () => {
+    const functionTsconfig = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../api/tsconfig.json'), 'utf8')
+    ) as VercelFunctionTsconfig;
+
+    // Vercel strips a direct emitDeclarationOnly override before resolving
+    // inherited options. Extending the renderer config would therefore emit
+    // declaration syntax as .js and produce functions that fail at runtime.
+    expect(functionTsconfig.extends).toBeUndefined();
+    expect(functionTsconfig.compilerOptions?.emitDeclarationOnly).not.toBe(true);
+    expect(functionTsconfig.compilerOptions?.module).toBe('Node16');
+    expect(functionTsconfig.compilerOptions?.moduleResolution).toBe('Node16');
+    expect(functionTsconfig.compilerOptions?.verbatimModuleSyntax).toBe(false);
   });
 });

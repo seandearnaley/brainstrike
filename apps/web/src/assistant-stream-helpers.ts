@@ -1,69 +1,167 @@
 import type http from 'node:http';
 import {
-  type AssistantUiMessage,
-  assistantDataStreamSessions,
-  convertAssistantUiMessages,
-  type RuntimeData,
-  readToolApprovalRunConfigAction,
-  resolveDataStreamSession,
+  AssistantRequestBodyTooLargeError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   type StreamChunk,
   sanitizeStreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
+import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
-import { resolveAssistantProviderConfig } from './server/assistant-config';
-import { buildWebAssistantStream } from './server/web-mastra-storage';
+import {
+  HOSTED_WEB_ASSISTANT_PROVIDER,
+  resolveAssistantProviderConfig,
+  resolveHostedWebAssistantModel,
+} from './server/assistant-config';
+import {
+  describeWebAssistantInputError,
+  resolveWebAssistantChatTurn,
+  resolveWebAssistantTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+  WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
+} from './server/web-assistant-request';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from './server/web-assistant-runtime';
+import { buildWebAssistantStream } from './server/web-assistant-stream';
 
 export type { StreamChunk };
 
 const logger = createLogger('WebAssistantStream');
+const JSON_RESPONSE_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Type': 'application/json; charset=utf-8',
+} as const;
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
 };
 
-export async function readBody(req: http.IncomingMessage): Promise<string> {
-  return await new Promise<string>((resolve) => {
-    let data = '';
-    req.on('data', (chunk: Buffer) => {
-      data += chunk;
-    });
-    req.on('end', () => resolve(data));
+function requestChunkToBuffer(chunk: unknown): Buffer {
+  if (typeof chunk === 'string') {
+    return Buffer.from(chunk);
+  }
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  throw new TypeError('Assistant request body emitted a non-byte chunk.');
+}
+
+export async function readBody(
+  req: http.IncomingMessage,
+  bodyLimitBytes: number = DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES
+): Promise<string> {
+  const contentLengthHeader = req.headers['content-length'];
+  const contentLength = Array.isArray(contentLengthHeader)
+    ? contentLengthHeader.at(-1)
+    : contentLengthHeader;
+  if (contentLength) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > bodyLimitBytes) {
+      if (typeof req.resume === 'function') {
+        req.resume();
+      }
+      throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
+    }
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    const removeListeners = (): void => {
+      req.removeListener('aborted', onAborted);
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+    };
+    const rejectRead = (error: Error, drainRemainingBody: boolean): void => {
+      removeListeners();
+      if (drainRemainingBody && typeof req.resume === 'function') {
+        req.resume();
+      }
+      reject(error);
+    };
+    const onAborted = (): void => {
+      rejectRead(new Error('Assistant request body stream was aborted.'), false);
+    };
+    const onData = (chunk: unknown): void => {
+      let buffer: Buffer;
+      try {
+        buffer = requestChunkToBuffer(chunk);
+      } catch (error) {
+        rejectRead(
+          error instanceof Error
+            ? error
+            : new TypeError('Assistant request body emitted an invalid chunk.'),
+          true
+        );
+        return;
+      }
+
+      totalBytes += buffer.byteLength;
+      if (totalBytes > bodyLimitBytes) {
+        rejectRead(new AssistantRequestBodyTooLargeError(bodyLimitBytes), true);
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      removeListeners();
+      resolve(Buffer.concat(chunks, totalBytes).toString('utf8'));
+    };
+    const onError = (error: Error): void => {
+      rejectRead(error, false);
+    };
+
+    req.once('aborted', onAborted);
+    req.on('data', onData);
+    req.once('end', onEnd);
+    req.once('error', onError);
   });
 }
 
 export async function handleChatEndpoint(
-  body: { messages?: unknown; data?: unknown },
+  bodyText: string,
   res: http.ServerResponse
 ): Promise<void> {
+  let turn: ReturnType<typeof resolveWebAssistantChatTurn>;
+  let stream: AsyncIterable<StreamChunk>;
+  try {
+    turn = resolveWebAssistantChatTurn(bodyText);
+  } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    throw error;
+  }
+
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
     sendAssistantDisabledResponse(res, provider);
     return;
   }
 
-  const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
-  const agentMessages = convertAssistantUiMessages(rawMessages);
-  const data = body?.data ?? undefined;
-
-  let stream: AsyncIterable<StreamChunk>;
   try {
-    stream = await toAiSdkStyleStream(agentMessages, {
-      ...(data as RuntimeData | undefined),
-      apiKey: provider.apiKey,
-    });
+    stream = await toAiSdkStyleStream(
+      turn.agentMessages,
+      resolveWebAssistantRuntime(turn.payload.data, provider.apiKey)
+    );
   } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    if (error instanceof InvalidWebAssistantRuntimeDataError) {
+      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
+      return;
+    }
     logger.error('Failed to initialize chat stream', { error });
-    res.writeHead(502, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
-    });
-    res.end(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      })
+    sendJsonResponse(
+      res,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
     );
     return;
   }
@@ -84,85 +182,78 @@ export async function handleChatEndpoint(
 export async function handleAssistantEndpoint(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: { messages?: unknown; data?: unknown; runConfig?: unknown }
+  bodyText: string
 ): Promise<void> {
+  const lastEventId = readLastEventId(req);
+  if (lastEventId) {
+    sendJsonResponse(res, 409, WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE);
+    return;
+  }
+
+  let turn: ReturnType<typeof resolveWebAssistantTurn>;
+  try {
+    turn = resolveWebAssistantTurn(bodyText);
+  } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    throw error;
+  }
+  if (turn.toolApprovalAction) {
+    sendJsonResponse(res, 409, {
+      error: 'tool_approval_unavailable',
+      message: 'Hosted Web tool approval requires durable workflow storage.',
+    });
+    return;
+  }
+  if (turn.toolResumeAction) {
+    sendJsonResponse(res, 409, {
+      error: 'tool_resume_unavailable',
+      message: 'Hosted Web tool resume requires durable workflow storage.',
+    });
+    return;
+  }
+
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
     sendAssistantDisabledResponse(res, provider);
     return;
   }
 
-  const lastEventId = readLastEventId(req);
-  const existingSession = resolveDataStreamSession(lastEventId);
-  if (existingSession) {
-    const response = existingSession.createResponse(
-      lastEventId ? { resumeFromEventId: lastEventId } : undefined
-    );
-    await streamResponse(res, response, req);
-    return;
-  }
-
-  // Validate any approval action up front (400 on malformed). A valid action
-  // resumes a SUSPENDED run below with workflow storage — no longer a 501. Only a
-  // normal turn carries user messages; the resume path has none.
-  const approvalResult = readToolApprovalRunConfigAction(body?.runConfig);
-  if (approvalResult && 'invalid' in approvalResult) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'invalid_tool_approval_action',
-        message: 'Tool approval action must include action, runId, and toolCallId.',
-      })
-    );
-    return;
-  }
-  const toolApprovalAction = approvalResult?.action;
-
-  const data = (body?.data ?? undefined) as RuntimeData | undefined;
   const abortController = new AbortController();
-  const onAbort = () => abortController.abort();
-  if (req) {
-    req.on('close', onAbort);
-    req.on('aborted', onAbort);
-  }
-  const removeAbortListeners = (): void => {
-    if (req) {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
-    }
-  };
+  const removeAbortListeners = listenForAssistantCancellation(req, res, abortController);
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    const rawMessages = Array.isArray(body?.messages)
-      ? (body.messages as AssistantUiMessage[])
-      : [];
-    // The seam resolves the TRUSTED permission policy from `data` (strips any
-    // client-supplied policy) so ask tools actually suspend on a normal turn.
+    // The seam admits only explicit request metadata. Hosted Web has no tool
+    // registry; permission-policy and server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
-      agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
+      agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
-      data,
+      data: turn.payload.data,
       signal: abortController.signal,
-      ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {
     removeAbortListeners();
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    if (error instanceof InvalidWebAssistantRuntimeDataError) {
+      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
+      return;
+    }
     logger.error('Failed to initialize assistant stream', { error });
-    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      })
+    sendJsonResponse(
+      res,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
     );
     return;
   }
 
-  const session = assistantDataStreamSessions.create(agentStream);
-  const response = session.createResponse();
+  const response = createStatelessAssistantDataStreamResponse(agentStream);
   try {
-    await streamResponse(res, response, req);
+    await streamResponse(res, response, abortController.signal);
   } finally {
     removeAbortListeners();
   }
@@ -181,24 +272,42 @@ function sendAssistantDisabledResponse(
   res: http.ServerResponse,
   provider: AssistantProviderConfig
 ): void {
-  res.writeHead(503, {
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/json; charset=utf-8',
+  sendJsonResponse(res, 503, {
+    error: 'assistant_disabled',
+    reason: assistantStatusPayload(provider).reason,
   });
-  res.end(
-    JSON.stringify({
-      error: 'assistant_disabled',
-      reason: assistantStatusPayload(provider).reason,
-    })
-  );
+}
+
+function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
+  const inputError = describeWebAssistantInputError(error);
+  if (!inputError) {
+    return false;
+  }
+  sendJsonResponse(res, inputError.status, inputError.payload);
+  return true;
+}
+
+function sendJsonResponse(
+  res: http.ServerResponse,
+  status: number,
+  payload: Record<string, unknown>
+): void {
+  res.writeHead(status, JSON_RESPONSE_HEADERS);
+  res.end(JSON.stringify(payload));
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {
   enabled: boolean;
+  model?: string;
+  provider?: 'openai';
   reason?: string;
 } {
   if (provider.enabled && provider.apiKey) {
-    return { enabled: true };
+    return {
+      enabled: true,
+      model: resolveHostedWebAssistantModel(),
+      provider: HOSTED_WEB_ASSISTANT_PROVIDER,
+    };
   }
   return {
     enabled: false,
@@ -232,11 +341,61 @@ function flushResponse(res: http.ServerResponse): void {
   }
 }
 
-async function writeChunkToResponse(value: Uint8Array, res: http.ServerResponse): Promise<void> {
+function listenForAssistantCancellation(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  controller: AbortController
+): () => void {
+  const abort = (): void => controller.abort();
+  const abortIncompleteRequest = (): void => {
+    if (!req.complete) {
+      abort();
+    }
+  };
+  const abortIncompleteResponse = (): void => {
+    if (!res.writableEnded) {
+      abort();
+    }
+  };
+
+  req.on('close', abortIncompleteRequest);
+  res.on('close', abortIncompleteResponse);
+
+  if ((req.destroyed && !req.complete) || (res.destroyed && !res.writableEnded)) {
+    abort();
+  }
+
+  return (): void => {
+    req.removeListener('close', abortIncompleteRequest);
+    res.removeListener('close', abortIncompleteResponse);
+  };
+}
+
+function waitForDrain(res: http.ServerResponse, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    const settle = (): void => {
+      res.removeListener('drain', settle);
+      signal.removeEventListener('abort', settle);
+      resolve();
+    };
+    res.once('drain', settle);
+    signal.addEventListener('abort', settle, { once: true });
+  });
+}
+
+async function writeChunkToResponse(
+  value: Uint8Array,
+  res: http.ServerResponse,
+  signal: AbortSignal
+): Promise<void> {
   const writeResult = res.write(value);
   flushResponse(res);
   if (!writeResult) {
-    await new Promise<void>((resolve) => res.once('drain', resolve));
+    await waitForDrain(res, signal);
   }
 }
 
@@ -252,7 +411,7 @@ async function pipeStreamToResponse(
         break;
       }
       if (value?.length > 0) {
-        await writeChunkToResponse(value, res);
+        await writeChunkToResponse(value, res, signal);
       }
     }
   } catch (error) {
@@ -265,7 +424,7 @@ async function pipeStreamToResponse(
 async function streamResponse(
   res: http.ServerResponse,
   response: Response,
-  req?: http.IncomingMessage
+  signal: AbortSignal
 ): Promise<void> {
   writeResponseHeaders(res, response);
 
@@ -276,16 +435,9 @@ async function streamResponse(
   }
 
   const reader = body.getReader();
-  const abortController = new AbortController();
-  const abort = () => abortController.abort();
-
-  if (req) {
-    req.on('close', abort);
-    req.on('aborted', abort);
-  }
 
   try {
-    await pipeStreamToResponse(reader, res, abortController.signal);
+    await pipeStreamToResponse(reader, res, signal);
   } finally {
     try {
       await reader.cancel();
@@ -293,9 +445,5 @@ async function streamResponse(
       // Ignore cancel errors
     }
     res.end();
-    if (req) {
-      req.removeListener('close', abort);
-      req.removeListener('aborted', abort);
-    }
   }
 }

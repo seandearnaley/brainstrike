@@ -16,6 +16,11 @@
  * and forward-compatible with it.
  */
 
+import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+} from './tool-approval.js';
+
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
 export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
 
@@ -52,25 +57,40 @@ export type ToolResumeRunConfigActionReadResult =
   | { readonly action: AssistantToolResumeAction }
   | { readonly invalid: true };
 
+const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'resumeData',
+  'runId',
+  'toolCallId',
+  'toolName',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function isBoundedIdentifier(value: unknown, maxChars: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxChars;
+}
+
 /**
  * True when `value` is a structurally valid {@link AssistantToolResumeAction}:
- * non-empty `runId`/`toolCallId` strings, an OPTIONAL string `toolName`, and a
- * `resumeData` KEY that is present (its value may be anything — a string, an
- * array, `null`, or an object — because each tool's resumeSchema defines it).
+ * exact own transport keys, bounded non-empty `runId`/`toolCallId` strings, an
+ * OPTIONAL bounded non-empty `toolName`, and an own `resumeData` key. Its value
+ * may be anything — a string, an array, `null`, or an object — because each
+ * tool's resumeSchema defines it.
  */
 export function isAssistantToolResumeAction(value: unknown): value is AssistantToolResumeAction {
   return (
     isRecord(value) &&
-    typeof value['runId'] === 'string' &&
-    value['runId'].trim().length > 0 &&
-    typeof value['toolCallId'] === 'string' &&
-    value['toolCallId'].trim().length > 0 &&
-    (value['toolName'] === undefined || typeof value['toolName'] === 'string') &&
-    'resumeData' in value
+    Reflect.ownKeys(value).every((key) => TOOL_RESUME_ACTION_OWN_KEYS.has(key)) &&
+    Object.hasOwn(value, 'resumeData') &&
+    Object.hasOwn(value, 'runId') &&
+    Object.hasOwn(value, 'toolCallId') &&
+    isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    (!('toolName' in value) ||
+      (Object.hasOwn(value, 'toolName') &&
+        isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))
   );
 }
 

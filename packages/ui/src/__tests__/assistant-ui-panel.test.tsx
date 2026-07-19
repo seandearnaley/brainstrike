@@ -1,6 +1,7 @@
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -443,11 +444,18 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('uses the Brainstrike data-stream runtime for hosted providers', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        requestBodyLimitBytes={HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES}
+      />
+    );
 
     expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         api: '/api/assistant',
+        requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
       })
     );
   });

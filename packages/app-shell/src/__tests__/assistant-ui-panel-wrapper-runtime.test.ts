@@ -565,8 +565,17 @@ describe('assistant runtime helpers', () => {
         currentProvider: 'openai',
         currentSelectedModel: 'openai::fast',
         isModelEnabled: (_provider, modelId) => modelId === 'fast',
+        providerModelIds: ['fast'],
       })
     ).toBe(true);
+    expect(
+      hasValidProviderModelSelection({
+        currentProvider: 'openai',
+        currentSelectedModel: 'openai::stale',
+        isModelEnabled: () => true,
+        providerModelIds: ['fixed'],
+      })
+    ).toBe(false);
 
     const selectModelForProvider = vi.fn();
     expect(
