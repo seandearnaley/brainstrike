@@ -349,6 +349,27 @@ describe('assistant-stream-helpers', () => {
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['wrong type', { projectId: 42 }, 'projectId'],
+    ['oversized string', { mainRootPath: 'x'.repeat(4097) }, 'mainRootPath'],
+    ['invalid enum', { workspaceIndexStatusState: 'ready' }, 'workspaceIndexStatusState'],
+  ])('rejects a known runtime field with %s', async (_case, data, field) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+
+    const res = new ResponseSink();
+    await handleChatEndpoint({ data, messages: [] }, res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: `Invalid web assistant runtime field: ${field}`,
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
   it('resolves last-event-id from array header using the last element', async () => {
     const response = new Response('resumed-from-array');
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });

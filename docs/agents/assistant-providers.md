@@ -55,11 +55,14 @@
     provider, generation, loop, MCP, and enabled-tool fields are
     wire-compatibility hints only and are never copied into that trusted runtime.
     `resolveWebAssistantRuntime` copies an explicit allowlist of non-privileged
-    request metadata; server-only or unknown fields (including `apiKey`,
+    request metadata only after strict runtime validation of every value,
+    including bounded strings, arrays, numbers, and strict nested objects.
+    Malformed known fields and server-only or unknown fields (including `apiKey`,
     `mcpConfig`, `mastraTools`, and `permissionPolicy`) fail with
-    `invalid_runtime_data` / HTTP 400. The Web request therefore cannot create
-    tools, launch stdio MCP, replace provider credentials, or set server cost
-    policy through serialized runtime data.
+    `invalid_runtime_data` / HTTP 400. TypeScript types alone are not a request
+    trust boundary. The Web request therefore cannot create tools, launch stdio
+    MCP, replace provider credentials, or set server cost policy through
+    serialized runtime data.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

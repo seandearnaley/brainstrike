@@ -14,6 +14,12 @@ import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/a
 import { resolveWebAssistantRuntime } from '../web-assistant-runtime';
 
 const asRuntimeData = (value: Record<string, unknown>): RuntimeData => value as RuntimeData;
+const validPolicies = {
+  edit: 'ask',
+  execute: 'ask',
+  mcp: 'allow',
+  read: 'allow',
+} as const;
 
 describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   beforeEach(() => {
@@ -46,7 +52,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   it('resolves permissionPolicyRequest into the SERVER-built trusted policy', () => {
     const trusted = { enforce: true, riskByTool: { 'workspace.writeFile': 'edit' } };
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(trusted as never);
-    const request = { policy: { enforce: true } };
+    const request = { enforce: true, policies: validPolicies };
     const runtime = resolveWebAssistantRuntime(
       asRuntimeData({ permissionPolicyRequest: request }),
       'key-2'
@@ -68,7 +74,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
         mcpEnabled: true,
         model: 'attacker-model',
         modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
-        permissionPolicyRequest: { x: 1 },
         provider: 'ollama',
         providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
       }),
@@ -83,10 +88,117 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     });
   });
 
+  it.each([
+    ['contextTokenCount', '1200'],
+    ['mainRootId', 42],
+    ['mainRootPath', 'x'.repeat(4097)],
+    ['permissionPolicyRequest', { enforce: true, injected: true, policies: validPolicies }],
+    ['projectId', false],
+    ['selectionFilePaths', Array.from({ length: 5001 }, () => '/a.ts')],
+    ['selectionFilePathsFromOtherRoots', -1],
+    ['selectionFolderId', []],
+    ['tokenBudget', 0],
+    ['workspaceIndexBlockedReason', {}],
+    ['workspaceIndexEmbeddingSetId', 42],
+    ['workspaceIndexingEnabled', 'true'],
+    ['workspaceIndexingMode', 'automatic'],
+    ['workspaceIndexingPaused', 0],
+    ['workspaceIndexLastError', []],
+    ['workspaceIndexStatusState', 'ready'],
+    ['workspaceRootPath', null],
+    [
+      'workspaceContext',
+      {
+        files: [
+          {
+            path: '/a.ts',
+            ranges: [{ endLine: 2, injected: true, startLine: 0 }],
+          },
+        ],
+      },
+    ],
+    [
+      'workspaceIndexQueueProgress',
+      { failed: 0, pending: 1, processed: 2, secret: 'attacker', totalQueued: 3 },
+    ],
+  ])('rejects a malformed known runtime field %s', (field, value) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ [field]: value }), 'server-key')
+    ).toThrow(`Invalid web assistant runtime field: ${field}`);
+  });
+
+  it('accepts bounded request metadata without dropping or coercing it', () => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+    const data = {
+      contextTokenCount: 1200,
+      mainRootId: 'root-1',
+      mainRootPath: '/workspace',
+      permissionPolicyRequest: { enforce: false },
+      projectId: 'project-1',
+      selectionFilePaths: ['/a.ts'],
+      selectionFilePathsFromOtherRoots: 1,
+      selectionFolderId: 'folder-1',
+      tokenBudget: 200_000,
+      workspaceContext: {
+        files: [
+          {
+            approxTokens: 10,
+            path: '/a.ts',
+            ranges: [{ approxTokens: 5, endLine: 2, isActive: true, startLine: 0 }],
+            rootDisplayName: 'root',
+            rootId: 'root-1',
+          },
+        ],
+        includeProjectTree: true,
+        tokenBudget: 200_000,
+      },
+      workspaceIndexBlockedReason: null,
+      workspaceIndexEmbeddingSetId: 'embedding-set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+      workspaceIndexLastError: null,
+      workspaceIndexQueueProgress: {
+        failed: 0,
+        lastError: null,
+        pending: 1,
+        processed: 2,
+        totalQueued: 3,
+      },
+      workspaceIndexStatusState: 'embedding',
+      workspaceRootPath: '/workspace',
+    } as const;
+
+    expect(resolveWebAssistantRuntime(asRuntimeData(data), 'key-4')).toEqual({
+      apiKey: 'key-4',
+      contextTokenCount: 1200,
+      mainRootId: 'root-1',
+      mainRootPath: '/workspace',
+      projectId: 'project-1',
+      provider: 'openai',
+      selectionFilePaths: ['/a.ts'],
+      selectionFilePathsFromOtherRoots: 1,
+      selectionFolderId: 'folder-1',
+      tokenBudget: 200_000,
+      workspaceContext: data.workspaceContext,
+      workspaceIndexBlockedReason: null,
+      workspaceIndexEmbeddingSetId: 'embedding-set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+      workspaceIndexLastError: null,
+      workspaceIndexQueueProgress: data.workspaceIndexQueueProgress,
+      workspaceIndexStatusState: 'embedding',
+      workspaceRootPath: '/workspace',
+    });
+  });
+
   it('returns server-owned provider + apiKey for undefined data', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
-    const runtime = resolveWebAssistantRuntime(undefined, 'key-4');
-    expect(runtime).toEqual({ apiKey: 'key-4', provider: 'openai' });
+    const runtime = resolveWebAssistantRuntime(undefined, 'key-5');
+    expect(runtime).toEqual({ apiKey: 'key-5', provider: 'openai' });
     expect(runtime).not.toHaveProperty('permissionPolicy');
   });
 });

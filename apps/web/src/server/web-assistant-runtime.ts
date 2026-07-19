@@ -1,42 +1,13 @@
 import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/agent';
-
-const FORWARDED_REQUEST_FIELDS = [
-  'contextTokenCount',
-  'mainRootId',
-  'mainRootPath',
-  'permissionPolicyRequest',
-  'projectId',
-  'selectionFilePaths',
-  'selectionFilePathsFromOtherRoots',
-  'selectionFolderId',
-  'tokenBudget',
-  'workspaceContext',
-  'workspaceIndexBlockedReason',
-  'workspaceIndexEmbeddingSetId',
-  'workspaceIndexingEnabled',
-  'workspaceIndexingMode',
-  'workspaceIndexingPaused',
-  'workspaceIndexLastError',
-  'workspaceIndexQueueProgress',
-  'workspaceIndexStatusState',
-  'workspaceRootPath',
-] as const satisfies readonly (keyof RuntimeData)[];
-const ACCEPTED_WIRE_FIELDS = new Set<string>([
-  ...FORWARDED_REQUEST_FIELDS,
-  'agentLoop',
-  'enabledNativeToolIds',
-  'mcpEnabled',
-  'model',
-  'modelSettings',
-  'provider',
-  'providerOptions',
-]);
+import { parseWebAssistantRuntimeData } from './web-assistant-runtime-schema';
 
 export class InvalidWebAssistantRuntimeDataError extends Error {
   readonly code = 'invalid_web_assistant_runtime_data';
 
-  constructor(field: string) {
-    super(`Unsupported web assistant runtime field: ${field}`);
+  constructor(field: string, reason: 'invalid' | 'unsupported' = 'unsupported') {
+    super(
+      `${reason === 'unsupported' ? 'Unsupported' : 'Invalid'} web assistant runtime field: ${field}`
+    );
     this.name = 'InvalidWebAssistantRuntimeDataError';
   }
 }
@@ -69,24 +40,10 @@ export function resolveWebAssistantRuntime(
   };
 }
 
-function readClientRuntime(
-  data: unknown
-): Partial<Pick<RuntimeData, (typeof FORWARDED_REQUEST_FIELDS)[number]>> {
-  if (data === undefined) {
-    return {};
+function readClientRuntime(data: unknown): Partial<RuntimeData> {
+  const result = parseWebAssistantRuntimeData(data);
+  if (!result.success) {
+    throw new InvalidWebAssistantRuntimeDataError(result.field, result.reason);
   }
-  if (!(data && typeof data === 'object' && !Array.isArray(data))) {
-    throw new InvalidWebAssistantRuntimeDataError('data');
-  }
-  const record = data as Record<string, unknown>;
-  const unsupportedField = Object.keys(record).find((field) => !ACCEPTED_WIRE_FIELDS.has(field));
-  if (unsupportedField) {
-    throw new InvalidWebAssistantRuntimeDataError(unsupportedField);
-  }
-  return Object.fromEntries(
-    FORWARDED_REQUEST_FIELDS.filter((field) => field in record).map((field) => [
-      field,
-      record[field],
-    ])
-  ) as Partial<Pick<RuntimeData, (typeof FORWARDED_REQUEST_FIELDS)[number]>>;
+  return result.data;
 }

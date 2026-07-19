@@ -52,7 +52,10 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
-import { InvalidWebAssistantRuntimeDataError } from '../../../../server/web-assistant-runtime';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from '../../../../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../../../../server/web-mastra-storage';
 import { POST } from '../route';
 
@@ -228,6 +231,41 @@ describe('assistant route', () => {
       error: 'invalid_runtime_data',
       message: 'Unsupported web assistant runtime field: mcpConfig',
     });
+  });
+
+  it('returns typed 400 when known runtime metadata has an invalid nested shape', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
+      resolveWebAssistantRuntime(params.data, params.apiKey);
+      return (async function* stream() {})();
+    });
+    vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
+      createResponse: () => new Response('unexpected', { status: 200 }),
+    } as unknown as AssistantDataStreamSession);
+
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        data: {
+          workspaceContext: {
+            files: [{ injected: true, path: '/a.ts' }],
+          },
+        },
+        messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Invalid web assistant runtime field: workspaceContext',
+    });
+    expect(assistantDataStreamSessions.create).not.toHaveBeenCalled();
   });
 
   it('rejects malformed tool approval actions on the web assistant route', async () => {
