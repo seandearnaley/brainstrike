@@ -152,11 +152,11 @@ const ROOT_WRITE_GUARD_DESCRIPTION =
 
 export const ReadWorkspaceFileInputSchema = z
   .object({
-    endLine: z.number().int().positive().optional().describe('Last 1-based line'),
-    maxChars: z.number().int().positive().max(50_000).optional().describe('Output character cap'),
+    endLine: z.number().int().positive().nullish().describe('Last 1-based line'),
+    maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
     path: z.string().min(1).describe('Workspace-relative file path'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    startLine: z.number().int().positive().optional().describe('First 1-based line'),
+    root: z.string().nullish().describe(ROOT_QUALIFIER_DESCRIPTION),
+    startLine: z.number().int().positive().nullish().describe('First 1-based line'),
   })
   .strict();
 

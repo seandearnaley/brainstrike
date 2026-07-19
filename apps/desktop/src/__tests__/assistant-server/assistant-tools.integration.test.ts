@@ -175,6 +175,28 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('treats provider-emitted null optional read args as omitted', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const tool = tools['brainstrike.readWorkspaceFile'];
+      const result = await tool.execute({
+        endLine: null,
+        maxChars: null,
+        path: '/src/main.ts',
+        root: null,
+        startLine: null,
+      } as never);
+
+      expect(result.path).toBe('/src/main.ts');
+      expect(result.content).toContain('line 1');
+      expect(result.truncated).toBe(false);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it('keeps a default workspace file read inside the native result envelope', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     await fsPromises.writeFile(

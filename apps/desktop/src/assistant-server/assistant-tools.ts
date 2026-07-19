@@ -622,7 +622,7 @@ async function runReadWorkspaceFile(
   approxOutputTokens: number;
   content: string;
 }> {
-  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const root = resolveWorkspaceRoot(runtimeData, input.root ?? undefined);
   const requestedPath = input.path;
   // Resolve first so the read + tracker record can run INSIDE the same
   // per-file lock the write tools use. An unlocked read could stat the OLD
@@ -638,7 +638,11 @@ async function runReadWorkspaceFile(
     recordKnownFileMtime(readStateScope(runtimeData), read.absolutePath, read.mtimeMs);
     return read;
   });
-  const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
+  const ranged = sliceContentByLineRange(
+    file.content,
+    input.startLine ?? undefined,
+    input.endLine ?? undefined
+  );
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const buildResult = (content: string) => ({
     approxOutputTokens: countTokensHeuristic(content),
