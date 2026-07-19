@@ -158,4 +158,5 @@ apps/desktop/e2e-artifacts/
 **/.vitest-attachments/
 packages/ui/src/**/__screenshots__/
 
-.claude
+.claude.impeccable/
+.impeccable/

@@ -3,6 +3,7 @@ import {
   type RediscoveredToolApproval,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/utils/logger';
+import { resolveAssistantAuthHeaders } from './hooks/use-assistant-availability';
 
 const logger = createLogger('SuspendedApprovals');
 
@@ -52,7 +53,8 @@ function parseSuspendedApprovals(payload: unknown): readonly RediscoveredToolApp
 export function createSuspendedApprovalDiscovery(
   resolveBaseUrl: () => Promise<string>,
   fetchImpl: typeof fetch = globalThis.fetch,
-  timeoutMs: number = DISCOVERY_TIMEOUT_MS
+  timeoutMs: number = DISCOVERY_TIMEOUT_MS,
+  resolveAuthHeaders: () => Promise<Record<string, string>> = resolveAssistantAuthHeaders
 ): SuspendedApprovalDiscovery {
   return async (threadId, resourceId) => {
     if (!(threadId && resourceId)) {
@@ -64,7 +66,7 @@ export function createSuspendedApprovalDiscovery(
         threadId
       )}&resourceId=${encodeURIComponent(resourceId)}`;
       const response = await fetchImpl(url, {
-        headers: { accept: 'application/json' },
+        headers: { accept: 'application/json', ...(await resolveAuthHeaders()) },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) {

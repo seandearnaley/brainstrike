@@ -1,3 +1,4 @@
+import type { AssistantServerAuthInfo } from '@brainstrike/assistant-contract';
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -9,6 +10,8 @@ interface ReloadIntent {
 }
 
 interface MainPlatformIpcDependencies {
+  /** Returns null while the assistant server is unavailable (failed start). */
+  readonly getAssistantAuth: () => AssistantServerAuthInfo | null;
   readonly getAssistantUrl: () => string;
   readonly getPowerSnapshot: () => DesktopPowerSnapshot;
   readonly noteNextWindowReload: (window: BrowserWindow, intent: ReloadIntent) => void;
@@ -34,6 +37,7 @@ function normalizeReloadIntentReason(reason: unknown): string {
 }
 
 export function registerMainPlatformIpcHandlers({
+  getAssistantAuth,
   getAssistantUrl,
   getPowerSnapshot,
   noteNextWindowReload,
@@ -42,6 +46,10 @@ export function registerMainPlatformIpcHandlers({
 
   registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl, () =>
     getAssistantUrl()
+  );
+
+  registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetAuth, () =>
+    getAssistantAuth()
   );
 
   registry.registerInvoke('runtime', DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot, () =>

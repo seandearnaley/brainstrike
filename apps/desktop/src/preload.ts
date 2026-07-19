@@ -183,6 +183,7 @@ const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
 const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse' as const;
 const AGENT_CHAT_CHANNEL = 'agent:chat' as const;
 const ASSISTANT_GET_URL_CHANNEL = 'assistant:get-url' as const;
+const ASSISTANT_GET_AUTH_CHANNEL = 'assistant:get-auth' as const;
 const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
 const MCP_CONFIG_UPDATED_EVENT = 'mcp:config:updated' as const;
 const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
@@ -829,8 +830,11 @@ contextBridge.exposeInMainWorld('tools', {
   },
 });
 
-// Assistant UI (data stream) endpoint helper
+// Assistant UI (data stream) endpoint helper. getAuth returns { url, token }
+// (or null while the server is unavailable); every renderer request to the
+// assistant server must send the token — see assistant-contract assistant-auth.
 contextBridge.exposeInMainWorld('assistant', {
+  getAuth: () => ipcRenderer.invoke(ASSISTANT_GET_AUTH_CHANNEL),
   getUrl: () => ipcRenderer.invoke(ASSISTANT_GET_URL_CHANNEL),
 });
 

@@ -221,9 +221,12 @@ async function runRequest(input: {
   const res = new MockResponse();
   const finished = new Promise<void>((resolve) => res.once('finish', resolve));
 
+  // Auth explicitly disabled: this harness exercises the task-list seam, not
+  // the token gate (covered in assistant-server.integration.test.ts).
   await handleAssistantRequest(
     req as unknown as http.IncomingMessage,
-    res as unknown as http.ServerResponse
+    res as unknown as http.ServerResponse,
+    { auth: 'disabled' }
   );
   await finished;
 

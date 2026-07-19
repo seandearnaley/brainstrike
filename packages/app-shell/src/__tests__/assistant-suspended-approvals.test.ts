@@ -53,6 +53,22 @@ describe('createSuspendedApprovalDiscovery', () => {
     );
   });
 
+  it('sends resolved auth headers with the discovery request', async () => {
+    const token = 't'.repeat(64);
+    const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(200, { approvals: [] })));
+
+    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl, undefined, () =>
+      Promise.resolve({ 'x-brainstrike-assistant-token': token })
+    );
+    await discover('thread-1', 'workspace-1');
+
+    const requestInit = (fetchImpl.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect(requestInit.headers).toEqual({
+      accept: 'application/json',
+      'x-brainstrike-assistant-token': token,
+    });
+  });
+
   it('drops a malformed entry with a warning but keeps the valid ones', async () => {
     const valid = {
       runId: 'run-1',

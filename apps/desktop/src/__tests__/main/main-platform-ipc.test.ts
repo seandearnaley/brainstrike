@@ -52,6 +52,30 @@ describe('main platform IPC', () => {
     expect(handlers.get('assistant:get-url')?.({})).toBe('http://127.0.0.1:4999');
   });
 
+  it('registers the assistant auth channel and returns url+token from the injected getter', () => {
+    registerMainPlatformIpcHandlers({
+      getAssistantAuth: () => ({ token: 'a'.repeat(64), url: 'http://127.0.0.1:4999' }),
+      getAssistantUrl: () => 'http://127.0.0.1:4999',
+      noteNextWindowReload,
+    });
+
+    expect(ipcMain.handle).toHaveBeenCalledWith('assistant:get-auth', expect.any(Function));
+    expect(handlers.get('assistant:get-auth')?.({})).toEqual({
+      token: 'a'.repeat(64),
+      url: 'http://127.0.0.1:4999',
+    });
+  });
+
+  it('returns null assistant auth when the server is unavailable', () => {
+    registerMainPlatformIpcHandlers({
+      getAssistantAuth: () => null,
+      getAssistantUrl: () => '',
+      noteNextWindowReload,
+    });
+
+    expect(handlers.get('assistant:get-auth')?.({})).toBeNull();
+  });
+
   it('records normalized renderer reload intent for the sender window', async () => {
     const window = { isDestroyed: () => false };
     const sender = {};
