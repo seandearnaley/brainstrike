@@ -111,8 +111,9 @@ export function isAssistantToolApprovalAction(
     (value['action'] === 'approve' || value['action'] === 'decline') &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
-    (value['toolName'] === undefined ||
-      isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS))
+    (!('toolName' in value) ||
+      (Object.hasOwn(value, 'toolName') &&
+        isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))
   );
 }
 

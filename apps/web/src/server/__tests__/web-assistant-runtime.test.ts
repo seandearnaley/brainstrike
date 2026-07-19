@@ -49,18 +49,14 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ).toThrow(`Unsupported web assistant runtime field: ${field}`);
   });
 
-  it('resolves permissionPolicyRequest into the SERVER-built trusted policy', () => {
-    const trusted = { enforce: true, riskByTool: { 'workspace.writeFile': 'edit' } };
-    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(trusted as never);
+  it('rejects permissionPolicyRequest because Hosted Web has no tool registry', () => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const request = { enforce: true, policies: validPolicies };
-    const runtime = resolveWebAssistantRuntime(
-      asRuntimeData({ permissionPolicyRequest: request }),
-      'key-2'
-    );
-    expect(resolveRequestPermissionPolicy).toHaveBeenCalledWith(request);
-    // The trusted (resolved) policy — not any client value — lands on the runtime,
-    // so ask tools get requireApproval and suspend on a normal turn.
-    expect(runtime.permissionPolicy).toBe(trusted);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ permissionPolicyRequest: request }), 'key-2')
+    ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
+    expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -82,7 +78,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
         }),
         'key-special'
       )
-    ).toThrow('Invalid web assistant runtime field: permissionPolicyRequest');
+    ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
     expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
@@ -234,7 +230,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ['contextTokenCount', '1200'],
     ['mainRootId', 42],
     ['mainRootPath', 'x'.repeat(4097)],
-    ['permissionPolicyRequest', { enforce: true, injected: true, policies: validPolicies }],
     ['projectId', false],
     ['selectionFilePaths', Array.from({ length: 5001 }, () => '/a.ts')],
     ['selectionFilePathsFromOtherRoots', -1],
@@ -277,7 +272,6 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
       contextTokenCount: 1200,
       mainRootId: 'root-1',
       mainRootPath: '/workspace',
-      permissionPolicyRequest: { enforce: false },
       projectId: 'project-1',
       selectionFilePaths: ['/a.ts'],
       selectionFilePathsFromOtherRoots: 1,

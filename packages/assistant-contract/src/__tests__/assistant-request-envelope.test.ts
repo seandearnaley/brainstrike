@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_REQUEST_ENVELOPE_KEYS,
   createAssistantRequestEnvelope,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
 } from '../assistant-request-envelope';
 
 describe('assistant request envelope', () => {
@@ -12,6 +13,7 @@ describe('assistant request envelope', () => {
       'runConfig',
       'unstable_assistantMessageId',
     ]);
+    expect(HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES).toBe(4 * 1024 * 1024);
   });
 
   it('creates only server-consumed fields and omits undefined optionals', () => {

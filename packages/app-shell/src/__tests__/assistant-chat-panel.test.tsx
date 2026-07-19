@@ -31,16 +31,67 @@ describe('AssistantChatPanel', () => {
     expect(screen.getByText('Checking assistant availability…')).toHaveClass('sr-only');
   });
 
-  it('renders disabled callout with optional reason', () => {
+  it('directs a missing API key to the current provider-key settings', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
-      reason: 'no_provider',
+      reason: 'missing_api_key',
       state: 'disabled',
     });
 
     render(<AssistantChatPanel />);
 
     expect(screen.getByText('Assistant disabled')).toBeInTheDocument();
-    expect(screen.getByText(/Reason: no_provider/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Configure an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('Reason: missing_api_key')).toBeInTheDocument();
+  });
+
+  it('explains the protected Preview or public auth and quota requirement', () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      reason: 'production_auth_required',
+      state: 'disabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(
+      screen.getByText(
+        'Use a protected Preview deployment, or add application authentication with distributed quota and cost controls before enabling the assistant publicly.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('Reason: production_auth_required')).toBeInTheDocument();
+  });
+
+  it('explains how to repair an invalid Hosted Web body-limit configuration', () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      reason: 'invalid_request_body_limit_config',
+      state: 'disabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(
+      screen.getByText(
+        'Set BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES to a positive safe integer no greater than 4194304, then restart or redeploy the server.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('Reason: invalid_request_body_limit_config')).toBeInTheDocument();
+  });
+
+  it('keeps an unknown disabled reason visible without guessing at remediation', () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      reason: 'future_server_reason',
+      state: 'disabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(
+      screen.getByText('The assistant status endpoint reported that the assistant is disabled.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Reason: future_server_reason')).toBeInTheDocument();
   });
 
   it('renders error callout when status fetch fails', () => {

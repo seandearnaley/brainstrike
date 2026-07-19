@@ -1,13 +1,12 @@
 import type http from 'node:http';
 import {
   AssistantRequestBodyTooLargeError,
-  assistantDataStreamSessions,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  resolveDataStreamSession,
   type StreamChunk,
   sanitizeStreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
+import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
@@ -16,12 +15,13 @@ import {
   resolveWebAssistantChatTurn,
   resolveWebAssistantTurn,
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+  WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
 } from './server/web-assistant-request';
 import {
   InvalidWebAssistantRuntimeDataError,
   resolveWebAssistantRuntime,
 } from './server/web-assistant-runtime';
-import { buildWebAssistantStream } from './server/web-mastra-storage';
+import { buildWebAssistantStream } from './server/web-assistant-stream';
 
 export type { StreamChunk };
 
@@ -181,12 +181,8 @@ export async function handleAssistantEndpoint(
   bodyText: string
 ): Promise<void> {
   const lastEventId = readLastEventId(req);
-  const existingSession = resolveDataStreamSession(lastEventId);
-  if (existingSession) {
-    const response = existingSession.createResponse(
-      lastEventId ? { resumeFromEventId: lastEventId } : undefined
-    );
-    await streamResponse(res, response, req);
+  if (lastEventId) {
+    sendJsonResponse(res, 409, WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE);
     return;
   }
 
@@ -199,6 +195,20 @@ export async function handleAssistantEndpoint(
     }
     throw error;
   }
+  if (turn.toolApprovalAction) {
+    sendJsonResponse(res, 409, {
+      error: 'tool_approval_unavailable',
+      message: 'Hosted Web tool approval requires durable workflow storage.',
+    });
+    return;
+  }
+  if (turn.toolResumeAction) {
+    sendJsonResponse(res, 409, {
+      error: 'tool_resume_unavailable',
+      message: 'Hosted Web tool resume requires durable workflow storage.',
+    });
+    return;
+  }
 
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
@@ -207,28 +217,17 @@ export async function handleAssistantEndpoint(
   }
 
   const abortController = new AbortController();
-  const onAbort = () => abortController.abort();
-  if (req) {
-    req.on('close', onAbort);
-    req.on('aborted', onAbort);
-  }
-  const removeAbortListeners = (): void => {
-    if (req) {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
-    }
-  };
+  const removeAbortListeners = listenForAssistantCancellation(req, res, abortController);
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    // The seam admits only explicit request metadata and resolves the trusted
-    // permission policy; server-only runtime fields fail visibly.
+    // The seam admits only explicit request metadata. Hosted Web has no tool
+    // registry; permission-policy and server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
       agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
       data: turn.payload.data,
       signal: abortController.signal,
-      ...(turn.toolApprovalAction ? { toolApprovalAction: turn.toolApprovalAction } : {}),
     });
   } catch (error) {
     removeAbortListeners();
@@ -248,10 +247,9 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  const session = assistantDataStreamSessions.create(agentStream);
-  const response = session.createResponse();
+  const response = createStatelessAssistantDataStreamResponse(agentStream);
   try {
-    await streamResponse(res, response, req);
+    await streamResponse(res, response, abortController.signal);
   } finally {
     removeAbortListeners();
   }
@@ -333,11 +331,61 @@ function flushResponse(res: http.ServerResponse): void {
   }
 }
 
-async function writeChunkToResponse(value: Uint8Array, res: http.ServerResponse): Promise<void> {
+function listenForAssistantCancellation(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  controller: AbortController
+): () => void {
+  const abort = (): void => controller.abort();
+  const abortIncompleteRequest = (): void => {
+    if (!req.complete) {
+      abort();
+    }
+  };
+  const abortIncompleteResponse = (): void => {
+    if (!res.writableEnded) {
+      abort();
+    }
+  };
+
+  req.on('close', abortIncompleteRequest);
+  res.on('close', abortIncompleteResponse);
+
+  if ((req.destroyed && !req.complete) || (res.destroyed && !res.writableEnded)) {
+    abort();
+  }
+
+  return (): void => {
+    req.removeListener('close', abortIncompleteRequest);
+    res.removeListener('close', abortIncompleteResponse);
+  };
+}
+
+function waitForDrain(res: http.ServerResponse, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    const settle = (): void => {
+      res.removeListener('drain', settle);
+      signal.removeEventListener('abort', settle);
+      resolve();
+    };
+    res.once('drain', settle);
+    signal.addEventListener('abort', settle, { once: true });
+  });
+}
+
+async function writeChunkToResponse(
+  value: Uint8Array,
+  res: http.ServerResponse,
+  signal: AbortSignal
+): Promise<void> {
   const writeResult = res.write(value);
   flushResponse(res);
   if (!writeResult) {
-    await new Promise<void>((resolve) => res.once('drain', resolve));
+    await waitForDrain(res, signal);
   }
 }
 
@@ -353,7 +401,7 @@ async function pipeStreamToResponse(
         break;
       }
       if (value?.length > 0) {
-        await writeChunkToResponse(value, res);
+        await writeChunkToResponse(value, res, signal);
       }
     }
   } catch (error) {
@@ -366,7 +414,7 @@ async function pipeStreamToResponse(
 async function streamResponse(
   res: http.ServerResponse,
   response: Response,
-  req?: http.IncomingMessage
+  signal: AbortSignal
 ): Promise<void> {
   writeResponseHeaders(res, response);
 
@@ -377,16 +425,9 @@ async function streamResponse(
   }
 
   const reader = body.getReader();
-  const abortController = new AbortController();
-  const abort = () => abortController.abort();
-
-  if (req) {
-    req.on('close', abort);
-    req.on('aborted', abort);
-  }
 
   try {
-    await pipeStreamToResponse(reader, res, abortController.signal);
+    await pipeStreamToResponse(reader, res, signal);
   } finally {
     try {
       await reader.cancel();
@@ -394,9 +435,5 @@ async function streamResponse(
       // Ignore cancel errors
     }
     res.end();
-    if (req) {
-      req.removeListener('close', abort);
-      req.removeListener('aborted', abort);
-    }
   }
 }

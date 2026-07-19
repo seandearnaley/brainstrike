@@ -1,28 +1,28 @@
-import type { AgentMessage, AssistantToolApprovalAction, StreamChunk } from '@brainstrike/agent';
+import type { AgentMessage, StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
-  assistantDataStreamSessions,
+  createStatelessAssistantDataStreamResponse,
   readRequestBodyText,
-  resolveAssistantRequestBodyLimitBytes,
-  resolveDataStreamSession,
-} from '@brainstrike/agent';
+} from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
 import {
   describeWebAssistantInputError,
   resolveWebAssistantTurn,
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+  WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
   type WebAssistantInputError,
 } from '../../../server/web-assistant-request';
 import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
-import { buildWebAssistantStream } from '../../../server/web-mastra-storage';
+import { buildWebAssistantStream } from '../../../server/web-assistant-stream';
 
 const logger = createLogger('WebAssistantRoute');
 const JSON_ERROR_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
 } as const;
-const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+const assistantRequestBodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
 
@@ -35,10 +35,11 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const lastEventId = req.headers.get('last-event-id');
-  const sessionFromResume = resolveDataStreamSession(lastEventId);
-  if (sessionFromResume) {
-    return sessionFromResume.createResponse(
-      lastEventId ? { resumeFromEventId: lastEventId } : undefined
+  if (lastEventId) {
+    return jsonError(
+      409,
+      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.error,
+      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.message
     );
   }
 
@@ -47,6 +48,20 @@ export async function POST(req: Request): Promise<Response> {
     turn = resolveWebAssistantTurn(bodyText);
   } catch (error) {
     return createAssistantRequestReadErrorResponse(error);
+  }
+  if (turn.toolApprovalAction) {
+    return jsonError(
+      409,
+      'tool_approval_unavailable',
+      'Hosted Web tool approval requires durable workflow storage.'
+    );
+  }
+  if (turn.toolResumeAction) {
+    return jsonError(
+      409,
+      'tool_resume_unavailable',
+      'Hosted Web tool resume requires durable workflow storage.'
+    );
   }
 
   const provider = resolveAssistantProviderConfig();
@@ -68,10 +83,9 @@ export async function POST(req: Request): Promise<Response> {
       agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
       data: turn.payload.data,
-      ...(turn.toolApprovalAction ? { toolApprovalAction: turn.toolApprovalAction } : {}),
+      signal: req.signal,
     });
-    const session = assistantDataStreamSessions.create(agentStream);
-    return session.createResponse();
+    return createStatelessAssistantDataStreamResponse(agentStream);
   } catch (error) {
     return createAssistantExecutionErrorResponse(error);
   }
@@ -107,10 +121,10 @@ async function initializeAssistantStream(options: {
   agentMessages: AgentMessage[];
   apiKey: string;
   data: unknown;
-  toolApprovalAction?: AssistantToolApprovalAction;
+  signal: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
-  // The seam admits only explicit request metadata and resolves the trusted
-  // permission policy; server-only runtime fields fail visibly.
+  // The seam admits only explicit request metadata. Hosted Web has no tool
+  // registry, so permission-policy and server-only runtime fields fail visibly.
   return await buildWebAssistantStream(options);
 }
 

@@ -61,6 +61,27 @@ describe('readToolApprovalRunConfigAction', () => {
     ).toEqual({ invalid: true });
   });
 
+  it('rejects an inherited optional tool name', () => {
+    const action = Object.assign(Object.create({ toolName: 'workspace.writeFile' }), {
+      action: 'approve',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+    });
+
+    expect(isAssistantToolApprovalAction(action)).toBe(false);
+  });
+
+  it('rejects an explicitly undefined optional tool name', () => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: undefined,
+      })
+    ).toBe(false);
+  });
+
   it('accepts identifiers exactly at the shared approval-action limits', () => {
     expect(
       isAssistantToolApprovalAction({

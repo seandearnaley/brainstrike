@@ -1,4 +1,8 @@
-import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import {
+  type AssistantRunEvent,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  type LocalLlmBackendFactory,
+} from '@brainstrike/assistant-contract';
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   getProviderModelDefinitions,
@@ -791,13 +795,14 @@ export function AssistantUiPanelWrapper({
   );
   const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
+  const desktopRuntimeBridgeAvailable = hasDesktopRuntimeBridge();
   const hostedMemoryBackendAvailable =
     selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
   // Desktop routes built-in local chat through the assistant server (real
   // Mastra loop with persistence/run events; inference proxied to the hidden
   // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
   const localChatTransport: 'data-stream' | 'local-runtime' =
-    hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
+    desktopRuntimeBridgeAvailable && desktopAssistantBackendAvailable && hasDesktopLlmHost()
       ? 'data-stream'
       : 'local-runtime';
 
@@ -1584,6 +1589,9 @@ export function AssistantUiPanelWrapper({
               providerGroups={providerGroups}
               providerSettings={effectiveProviderSettings}
               recentModels={validRecentModels}
+              {...(desktopAssistantBackendAvailable
+                ? {}
+                : { requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES })}
               requestData={requestData}
               slashCommands={slashCommands}
               {...(desktopAssistantBackendAvailable

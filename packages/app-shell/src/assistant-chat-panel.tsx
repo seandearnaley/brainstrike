@@ -1,4 +1,8 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+} from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import type { ReactElement } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
@@ -30,7 +34,7 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
         {status.state === 'disabled' && (
           <div className="p-4">
             <AssistantStatusCallout
-              description="Configure an AI provider in Settings → LLM Provider Keys to enable the assistant."
+              description={getAssistantDisabledDescription(status.reason)}
               title="Assistant disabled"
               variant="warning"
               {...(status.reason ? { detail: `Reason: ${status.reason}` } : {})}
@@ -43,6 +47,19 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
       </div>
     </div>
   );
+}
+
+function getAssistantDisabledDescription(reason: string | undefined): string {
+  switch (reason) {
+    case 'missing_api_key':
+      return 'Configure an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+    case 'production_auth_required':
+      return 'Use a protected Preview deployment, or add application authentication with distributed quota and cost controls before enabling the assistant publicly.';
+    case 'invalid_request_body_limit_config':
+      return `Set ${ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR} to a positive safe integer no greater than ${HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES}, then restart or redeploy the server.`;
+    default:
+      return 'The assistant status endpoint reported that the assistant is disabled.';
+  }
 }
 
 function AssistantStatusCallout({

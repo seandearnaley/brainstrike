@@ -359,6 +359,8 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    * Already filtered to currently valid options by the app-shell wrapper.
    */
   recentModels?: readonly string[];
+  /** Exact UTF-8 request-body ceiling for this deployment's data-stream transport. */
+  requestBodyLimitBytes?: number;
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
@@ -747,6 +749,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   recentModels: readonly string[] | undefined;
+  requestBodyLimitBytes?: number | undefined;
   requestData?: Record<string, unknown> | undefined;
   selectedModel: string | undefined;
   selectedProvider: string | undefined;
@@ -928,6 +931,7 @@ const DataStreamRuntimeChat = ({
   api,
   completePreparedRequest,
   historyAdapter,
+  requestBodyLimitBytes,
   requestData,
   prepareRequestData,
   prepareLocalModel,
@@ -1005,10 +1009,10 @@ const DataStreamRuntimeChat = ({
           },
         }
       : {};
-
   const runtime = useBrainstrikeDataStreamRuntime({
     api,
     ...runtimeAdapters,
+    ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
@@ -1389,6 +1393,7 @@ export const AssistantUiPanel = ({
   selectedProvider,
   selectedModel,
   requestData,
+  requestBodyLimitBytes,
   prepareRequestData,
   onModelChange,
   onExitPlanMode,
@@ -1550,6 +1555,7 @@ export const AssistantUiPanel = ({
             providerGroups={groupedProviders}
             providerSettings={providerSettings}
             recentModels={recentModels}
+            requestBodyLimitBytes={requestBodyLimitBytes}
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}

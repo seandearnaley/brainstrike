@@ -1,5 +1,9 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { DESKTOP_NATIVE_TOOL_IDS, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import {
   useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
@@ -107,6 +111,7 @@ describe('AssistantUiPanelWrapper', () => {
       await renderAssistantPanel(['openai'], () =>
         waitFor(() => {
           expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('data-stream');
+          expect(screen.getByTestId('request-body-limit')).toBeEmptyDOMElement();
         })
       );
     } finally {
@@ -124,6 +129,9 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
           '"state":"enabled"'
+        );
+        expect(screen.getByTestId('request-body-limit')).toHaveTextContent(
+          String(HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES)
         );
       })
     );

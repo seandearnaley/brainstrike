@@ -39,10 +39,11 @@ describe('assistant request helpers', () => {
     '0',
     '-1',
     '1.5',
+    String(Number.MAX_SAFE_INTEGER + 1),
     'not-a-number',
   ])('throws for invalid request body byte limit override %s', (value) => {
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
-      'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive integer byte count'
+      'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive safe integer byte count'
     );
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
       AssistantRequestBodyLimitConfigError

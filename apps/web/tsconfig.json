@@ -22,6 +22,12 @@
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/src/local-llm.ts"
       ],
+      "@brainstrike/agent/hosted-web": [
+        "../../packages/agent/src/hosted-web.ts"
+      ],
+      "@brainstrike/agent/request-boundary": [
+        "../../packages/agent/src/request-boundary.ts"
+      ],
       "@brainstrike/utils": [
         "../../packages/utils/src/index.ts"
       ],

@@ -1,4 +1,5 @@
 import { ASSISTANT_REQUEST_ENVELOPE_KEYS } from '@brainstrike/assistant-contract';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import {
   AssistantMessageValidationError,
   assertAssistantMessageGraphWithinLimits,
@@ -6,18 +7,13 @@ import {
 } from './assistant-message-boundary';
 import type { AgentMessage, AssistantUiMessageStrict, RuntimeData } from './types';
 
-export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
-  'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES';
-/**
- * Default request body cap. Sized against the attachment contract: the 10MB
- * combined per-message attachment cap base64-encodes to ~13.4MB, leaving
- * prompt/history headroom. The UI transport keeps that sizing true on EVERY
- * turn by bounding the whole request's inline images to the same combined cap
- * (packages/ui data-stream-runtime `boundResentImageHistory` elides older
- * history image bodies newest-first, loudly). Overridable via
- * BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow throws loudly.
- */
-export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+export {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantRequestBodyLimitConfigError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  resolveAssistantRequestBodyLimitBytes,
+} from '@brainstrike/assistant-contract/assistant-request-body-limit';
+
 const ASSISTANT_REQUEST_ENVELOPE_KEY_SET = new Set<string>(ASSISTANT_REQUEST_ENVELOPE_KEYS);
 
 export interface AssistantRequestPayload {
@@ -70,26 +66,6 @@ export class AssistantRequestBodyTooLargeError extends Error {
     super(`Assistant request body exceeds ${maxBodyBytes} bytes.`);
     this.name = 'AssistantRequestBodyTooLargeError';
   }
-}
-
-export class AssistantRequestBodyLimitConfigError extends Error {
-  constructor(value: string) {
-    super(
-      `${ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR} must be a positive integer byte count; received ${JSON.stringify(value)}.`
-    );
-    this.name = 'AssistantRequestBodyLimitConfigError';
-  }
-}
-
-export function resolveAssistantRequestBodyLimitBytes(value: string | undefined): number {
-  if (value === undefined || value.trim() === '') {
-    return DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new AssistantRequestBodyLimitConfigError(value);
-  }
-  return parsed;
 }
 
 export async function readRequestBodyText(

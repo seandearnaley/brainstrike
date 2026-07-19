@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent';
+import type { RuntimeData } from '@brainstrike/agent/hosted-web';
 import { z } from 'zod';
 
 const MAX_COUNT = 100_000_000;
@@ -9,7 +9,6 @@ const MAX_JSON_NODES = 5000;
 const MAX_JSON_OBJECT_KEYS = 100;
 const MAX_LIST_ITEMS = 5000;
 const MAX_PATH_CHARS = 4096;
-const MAX_POLICY_OVERRIDES = 1000;
 const MAX_TEXT_CHARS = 4096;
 
 const countSchema = z.number().int().min(0).max(MAX_COUNT);
@@ -17,10 +16,6 @@ const finiteNumberSchema = z.number().finite().min(-MAX_COUNT).max(MAX_COUNT);
 const idSchema = z.string().min(1).max(MAX_ID_CHARS);
 const pathSchema = z.string().min(1).max(MAX_PATH_CHARS);
 const textSchema = z.string().max(MAX_TEXT_CHARS);
-const permissionDecisionSchema = z.enum(['allow', 'ask', 'deny']);
-const permissionDecisions = new Set(['allow', 'ask', 'deny']);
-const unsafeOverrideKeys = new Set(['__proto__', 'constructor', 'prototype']);
-const toolRiskSchema = z.enum(['read', 'edit', 'execute', 'mcp']);
 // Keep in sync with desktop's ALLOWED_WORKSPACE_INDEXING_MODES.
 const workspaceIndexingModeSchema = z.literal('root-folder-cache');
 
@@ -56,47 +51,6 @@ const workspaceContextSchema = z
     tokenBudget: z.number().int().positive().max(MAX_COUNT).optional(),
   })
   .strict();
-
-const permissionPoliciesSchema = z
-  .object({
-    edit: permissionDecisionSchema,
-    execute: permissionDecisionSchema,
-    mcp: permissionDecisionSchema,
-    read: permissionDecisionSchema,
-  })
-  .strict();
-
-function isPermissionOverrides(value: unknown): value is Record<string, 'allow' | 'ask' | 'deny'> {
-  if (!isPlainRecord(value)) {
-    return false;
-  }
-  const entries = Object.entries(value);
-  if (entries.length > MAX_POLICY_OVERRIDES) {
-    return false;
-  }
-  return entries.every(
-    ([key, decision]) =>
-      key.length > 0 &&
-      key.length <= MAX_ID_CHARS &&
-      !unsafeOverrideKeys.has(key) &&
-      typeof decision === 'string' &&
-      permissionDecisions.has(decision)
-  );
-}
-
-const permissionOverridesSchema =
-  z.custom<Record<string, 'allow' | 'ask' | 'deny'>>(isPermissionOverrides);
-
-const permissionPolicyRequestSchema = z
-  .object({
-    enforce: z.boolean().optional(),
-    perToolOverrides: permissionOverridesSchema.optional(),
-    policies: permissionPoliciesSchema.optional(),
-    sessionGrants: z.array(toolRiskSchema).max(4).optional(),
-    yolo: z.boolean().optional(),
-  })
-  .strict()
-  .refine((request) => request.enforce !== true || request.policies !== undefined);
 
 const queueProgressSchema = z
   .object({
@@ -211,7 +165,6 @@ const FORWARDED_REQUEST_SCHEMAS = {
   contextTokenCount: countSchema,
   mainRootId: idSchema,
   mainRootPath: pathSchema,
-  permissionPolicyRequest: permissionPolicyRequestSchema,
   projectId: idSchema,
   selectionFilePaths: z.array(pathSchema).max(MAX_LIST_ITEMS),
   selectionFilePathsFromOtherRoots: countSchema.max(MAX_LIST_ITEMS),

@@ -684,6 +684,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     prepareRequestData,
     contextMenu,
     localChatTransport,
+    requestBodyLimitBytes,
     requestData,
     disabled,
     disabledReason,
@@ -717,6 +718,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
     localChatTransport?: string;
+    requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
     disabledReason?: string;
@@ -778,6 +780,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
+        <div data-testid="request-body-limit">{requestBodyLimitBytes ?? ''}</div>
         <div data-testid="attachments-availability">
           {JSON.stringify(attachmentsAvailability ?? null)}
         </div>

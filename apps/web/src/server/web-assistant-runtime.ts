@@ -1,4 +1,4 @@
-import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/agent';
+import type { RuntimeData } from '@brainstrike/agent/hosted-web';
 import { parseWebAssistantRuntimeData } from './web-assistant-runtime-schema';
 
 export class InvalidWebAssistantRuntimeDataError extends Error {
@@ -28,15 +28,12 @@ export function resolveWebAssistantRuntime(
   apiKey: string,
   signal?: AbortSignal
 ): RuntimeData {
-  const clientRuntime = readClientRuntime(data);
-  const { permissionPolicyRequest, ...requestRuntime } = clientRuntime;
-  const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
+  const requestRuntime = readClientRuntime(data);
   return {
     ...requestRuntime,
     apiKey,
     provider: 'openai',
     ...(signal ? { signal } : {}),
-    ...(permissionPolicy ? { permissionPolicy } : {}),
   };
 }
 

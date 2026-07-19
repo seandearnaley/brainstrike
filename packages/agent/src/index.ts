@@ -1,5 +1,11 @@
 // Types — all inline type definitions live in types.ts
 
+// The broad entrypoint supports in-process browser inference. Server-safe
+// subpaths intentionally omit this registration and its Transformers graph.
+import { registerBrowserLocalLanguageModelFactory } from './providers/local-provider-registration';
+
+registerBrowserLocalLanguageModelFactory();
+
 export {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
@@ -381,6 +387,7 @@ export {
   AssistantDataStreamSessionManager,
   assistantDataStreamSessions,
   createRandomId,
+  createStatelessAssistantDataStreamResponse,
   resolveDataStreamSession,
 } from './stream/data-stream';
 export {

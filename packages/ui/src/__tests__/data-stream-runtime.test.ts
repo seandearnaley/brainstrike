@@ -663,6 +663,31 @@ describe('assistant-stream integration', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('rejects an oversized serialized request before fetch', async () => {
+    const onError = vi.fn();
+    globalThis.fetch = vi.fn() as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: '/api/assistant',
+      onError,
+      requestBodyLimitBytes: 128,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(
+        runOptions({ messages: [message('x'.repeat(256), 'user')] })
+      )) {
+        // The request fails before yielding.
+      }
+    }).rejects.toThrow('Assistant request body exceeds the 128-byte transport limit.');
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Assistant request body exceeds the 128-byte transport limit.',
+      })
+    );
+  });
+
   it('preserves the original transport error when onError throws', async () => {
     globalThis.fetch = vi.fn(
       async () =>

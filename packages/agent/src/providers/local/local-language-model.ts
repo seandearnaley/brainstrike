@@ -22,7 +22,7 @@ import {
 } from './local-message-conversion';
 import type { LocalLlmToolDefinition } from './types';
 
-interface LocalLanguageModelSettings {
+export interface LocalLanguageModelSettings {
   maxNewTokens?: number;
   temperature?: number;
   thinking?: LocalProviderOptions['thinking'];

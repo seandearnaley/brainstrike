@@ -5,7 +5,8 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
-import { createLlmHostChatModel, createLocalLanguageModel } from './local';
+import { createLlmHostChatModel } from './local/llm-host-chat-model';
+import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
 import {
   assertSafeBearerToken,
@@ -18,6 +19,24 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from './types';
+
+export type LocalLanguageModelFactory = (
+  modelId: string,
+  settings?: LocalLanguageModelSettings
+) => unknown;
+
+let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
+
+/**
+ * Register the browser-only Transformers model factory.
+ *
+ * The root `@brainstrike/agent` entrypoint performs this registration. Narrow
+ * server entrypoints deliberately do not, so importing the hosted runtime can
+ * never pull Hugging Face/ONNX packages into a Node function trace.
+ */
+export function registerLocalLanguageModelFactory(factory: LocalLanguageModelFactory): void {
+  localLanguageModelFactory = factory;
+}
 
 function resolveLocalRuntimeBaseUrl(
   runtime: 'ollama' | 'lmstudio',
@@ -174,7 +193,14 @@ export function createProvider(
           runtime?.providerOptions?.local
         ) as MastraModelConfig;
       }
-      return createLocalLanguageModel(
+      if (!localLanguageModelFactory) {
+        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+          context: { model: modelName, provider: validatedProvider },
+          detail:
+            'The in-process local model factory is unavailable from this agent entrypoint. Import the root @brainstrike/agent entrypoint before selecting the local provider.',
+        });
+      }
+      return localLanguageModelFactory(
         modelName,
         runtime?.providerOptions?.local
       ) as MastraModelConfig;

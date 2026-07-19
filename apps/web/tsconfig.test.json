@@ -15,6 +15,7 @@
   },
   "include": [
     "../e2e-test-utils/**/*",
+    "api/**/*.ts",
     "src/**/*",
     "e2e/**/*",
     "**/*.test.*",

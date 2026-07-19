@@ -2,8 +2,7 @@ import type http from 'node:http';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantRequestBodyTooLargeError,
-  resolveAssistantRequestBodyLimitBytes,
-} from '@brainstrike/agent';
+} from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   handleAssistantEndpoint,
@@ -11,6 +10,11 @@ import {
   readBody,
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
+import { resolveWebAssistantRequestBodyLimitBytes } from './web-assistant-body-limit';
+import {
+  type LocalAssistantRequestBoundaryError,
+  resolveLocalAssistantRequestBoundaryError,
+} from './web-assistant-local-boundary';
 
 const logger = createLogger('WebAssistantApiMiddleware');
 const JSON_ERROR_HEADERS = {
@@ -48,8 +52,18 @@ function sendKnownRequestError(res: http.ServerResponse, error: unknown): boolea
   return false;
 }
 
+function rejectLocalAssistantRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  error: LocalAssistantRequestBoundaryError
+): void {
+  req.resume();
+  res.writeHead(error.status, JSON_ERROR_HEADERS);
+  res.end(JSON.stringify({ error: error.error, message: error.message }));
+}
+
 export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): AssistantApiMiddleware {
-  const bodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  const bodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
     process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
   );
 
@@ -63,6 +77,17 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
       next();
       return;
     }
+
+    const boundaryError = resolveLocalAssistantRequestBoundaryError(req);
+    if (boundaryError) {
+      logger.warn(`${mode} assistant API request rejected by local trust boundary`, {
+        error: boundaryError.error,
+        route,
+      });
+      rejectLocalAssistantRequest(req, res, boundaryError);
+      return;
+    }
+
     if (route === 'status') {
       sendAssistantStatusResponse(res);
       return;

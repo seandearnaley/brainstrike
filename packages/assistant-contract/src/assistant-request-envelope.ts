@@ -1,5 +1,7 @@
 const ASSISTANT_MESSAGE_ID_WIRE_KEY = 'unstable_assistantMessageId';
 
+export { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from './assistant-request-body-limit.js';
+
 export const ASSISTANT_REQUEST_ENVELOPE_KEYS = [
   'data',
   'messages',

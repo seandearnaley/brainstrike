@@ -4,6 +4,7 @@ import {
   AssistantDataStreamSession,
   assistantDataStreamSessions,
   createRandomId,
+  createStatelessAssistantDataStreamResponse,
   resolveDataStreamSession,
 } from '../stream/data-stream';
 import { SessionSubscription } from '../stream/session-subscription';
@@ -844,6 +845,24 @@ describe('AssistantDataStreamSession', () => {
     // Null/undefined should return undefined
     expect(resolveDataStreamSession(null)).toBeUndefined();
     expect(resolveDataStreamSession(undefined)).toBeUndefined();
+  });
+
+  it('creates a single response without registering replay state globally', async () => {
+    const response = createStatelessAssistantDataStreamResponse(
+      createAsyncStream([
+        { type: 'text-delta', value: 'Hosted response' },
+        { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+      ]),
+      {
+        messageId: 'hosted-message',
+        sessionId: 'hosted-stateless',
+      }
+    );
+
+    expect(resolveDataStreamSession('hosted-stateless:0')).toBeUndefined();
+    const lines = await readResponse(response);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(resolveDataStreamSession('hosted-stateless:0')).toBeUndefined();
   });
 
   it('resumes stream from specific event ID with flushExisting', async () => {

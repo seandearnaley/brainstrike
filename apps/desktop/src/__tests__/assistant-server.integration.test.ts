@@ -1829,6 +1829,118 @@ describe('assistant-server', () => {
       expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
     });
 
+    it('rejects conflicting approval and suspend-resume actions with a typed 400 before dispatch', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+              },
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'approved' },
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'conflicting_tool_continuation_actions',
+        message: 'Assistant request must contain at most one tool continuation action.',
+      });
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed suspend-resume action even when the approval action is valid', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+              },
+              brainstrikeToolSuspend: {
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('invalid_tool_resume_action');
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed approval action even when the suspend-resume action is valid', async () => {
+      const { streamMastraToolApprovalAction, streamMastraToolResumeAction } = await import(
+        '@brainstrike/agent'
+      );
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+              },
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'approved' },
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-2',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('invalid_tool_approval_action');
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
     it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
       const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
       // NAME-FORM CONTRACT: `listSuspendedMastraRuns` returns the ORIGINAL
