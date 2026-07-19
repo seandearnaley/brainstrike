@@ -266,6 +266,123 @@ describe('ElectronRendererFileSystemAdapter', () => {
   });
 });
 
+describe('watcher health capability (BST-568 slice 3)', () => {
+  const handle = {
+    kind: 'directory' as const,
+    name: 'root',
+    path: '/roots/alpha',
+    platform: 'electron' as const,
+  };
+
+  function makeHealthEvent(watchId: string, state: string) {
+    return {
+      backend: 'fs-events' as const,
+      state: state as 'healthy' | 'failed',
+      timestamp: 1,
+      watchId,
+    };
+  }
+
+  let adapter: ElectronRendererFileSystemAdapter;
+  let pushHealth: ((event: ReturnType<typeof makeHealthEvent>) => void) | null;
+
+  beforeEach(() => {
+    __resetFsWatchDispatcherForTest();
+    adapter = new ElectronRendererFileSystemAdapter();
+    vi.clearAllMocks();
+    pushHealth = null;
+    vi.mocked(mockElectronAPI.fileSystem.onWatchHealth).mockImplementation(
+      (callback: (event: unknown) => void) => {
+        pushHealth = callback;
+        return () => {
+          pushHealth = null;
+        };
+      }
+    );
+    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockResolvedValue({
+      watchId: 'watch-alpha',
+    });
+  });
+
+  it('resolves health events to the rootPath of the owning watch', async () => {
+    const stop = adapter.watchDirectory(handle, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+    const received: Array<{ rootPath: string; state: string }> = [];
+    const unsubscribe = adapter.onWatcherHealth((event) => {
+      received.push({ rootPath: event.rootPath, state: event.state });
+    });
+
+    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
+    expect(received).toContainEqual({
+      rootPath: '/roots/alpha',
+      state: 'failed',
+    });
+    unsubscribe();
+    stop();
+  });
+
+  it('replays the latest known state per root to a late subscriber', async () => {
+    const stop = adapter.watchDirectory(handle, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+    // Prime the health state BEFORE anyone subscribes: an early subscription
+    // captures pushHealth, then unsubscribes.
+    const prime = adapter.onWatcherHealth(() => undefined);
+    pushHealth?.(makeHealthEvent('watch-alpha', 'healthy'));
+    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
+    prime();
+
+    const received: Array<{ rootPath: string; state: string }> = [];
+    const unsubscribe = adapter.onWatcherHealth((event) => {
+      received.push({ rootPath: event.rootPath, state: event.state });
+    });
+    expect(received).toEqual([{ rootPath: '/roots/alpha', state: 'failed' }]);
+    unsubscribe();
+    stop();
+  });
+
+  it('retryWatcher maps the rootPath back to its watchId', async () => {
+    const stop = adapter.watchDirectory(handle, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+
+    const outcome = await adapter.retryWatcher('/roots/alpha');
+    expect(outcome).toEqual({ retried: true });
+    expect(mockElectronAPI.fileSystem.retryWatch).toHaveBeenCalledWith('watch-alpha');
+    stop();
+  });
+
+  it('retryWatcher reports unknown for a root without a live watch', async () => {
+    const outcome = await adapter.retryWatcher('/roots/never-watched');
+    expect(outcome).toEqual({ reason: 'unknown', retried: false });
+    expect(mockElectronAPI.fileSystem.retryWatch).not.toHaveBeenCalled();
+  });
+
+  it('disposing the watch clears its health state and mapping', async () => {
+    const stop = adapter.watchDirectory(handle, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+    const prime = adapter.onWatcherHealth(() => undefined);
+    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
+    prime();
+    stop();
+
+    const received: unknown[] = [];
+    const unsubscribe = adapter.onWatcherHealth((event) => {
+      received.push(event);
+    });
+    expect(received).toEqual([]);
+    const outcome = await adapter.retryWatcher('/roots/alpha');
+    expect(outcome).toEqual({ reason: 'unknown', retried: false });
+    unsubscribe();
+  });
+});
+
 describe('ElectronRendererStorageAdapter', () => {
   let adapter: ElectronRendererStorageAdapter;
 

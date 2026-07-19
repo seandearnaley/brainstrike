@@ -42,6 +42,9 @@ const FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL = 'fs:saveLastFolder' as const;
 const FILE_SYSTEM_UNWATCH_CHANNEL = 'fs:unwatch' as const;
 const FILE_SYSTEM_WATCH_CHANNEL = 'fs:watch' as const;
 const FILE_SYSTEM_WATCH_EVENT = 'fs:watch-event' as const;
+const FILE_SYSTEM_WATCH_HEALTH_EVENT = 'fs:watch-health' as const;
+const FILE_SYSTEM_WATCH_RETRY_CHANNEL = 'fs:watch-retry' as const;
+const FILE_SYSTEM_WATCH_TELEMETRY_CHANNEL = 'fs:watch-telemetry' as const;
 const LAYOUT_LOAD_CHANNEL = 'layout:load' as const;
 const LAYOUT_SAVE_CHANNEL = 'layout:save' as const;
 const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels' as const;
@@ -608,6 +611,7 @@ if (shouldExposeBridge('electronAPI')) {
     fileSystem: {
       addRoot: () => ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_CHANNEL),
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
+      getWatcherTelemetry: () => ipcRenderer.invoke(FILE_SYSTEM_WATCH_TELEMETRY_CHANNEL),
       // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
       // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
       onWatchEvent: (
@@ -620,6 +624,20 @@ if (shouldExposeBridge('electronAPI')) {
         ipcRenderer.on(FILE_SYSTEM_WATCH_EVENT, listener);
         return () => {
           ipcRenderer.removeListener(FILE_SYSTEM_WATCH_EVENT, listener);
+        };
+      },
+      // One-way main→renderer typed watcher health pushes (fs:watch-health,
+      // BST-568 slice 3).
+      onWatchHealth: (
+        callback: (event: import('@brainstrike/types').WatcherHealthEvent) => void
+      ) => {
+        const listener = (
+          _event: unknown,
+          payload: import('@brainstrike/types').WatcherHealthEvent
+        ) => callback(payload);
+        ipcRenderer.on(FILE_SYSTEM_WATCH_HEALTH_EVENT, listener);
+        return () => {
+          ipcRenderer.removeListener(FILE_SYSTEM_WATCH_HEALTH_EVENT, listener);
         };
       },
       readDirectory: (handle: DirectoryHandle) =>
@@ -640,6 +658,7 @@ if (shouldExposeBridge('electronAPI')) {
         ipcRenderer.invoke(FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL),
       restoreLastFolder: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL),
       restoreRoots: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_ROOTS_CHANNEL),
+      retryWatch: (watchId: string) => ipcRenderer.invoke(FILE_SYSTEM_WATCH_RETRY_CHANNEL, watchId),
       saveLastFolder: (folderPath: string) =>
         ipcRenderer.invoke(FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL, folderPath),
       unwatchDirectory: (watchId: string) =>

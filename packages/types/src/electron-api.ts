@@ -4,6 +4,7 @@ import type {
   FileSystemChange,
   IFileNode,
   RootDescriptor,
+  WatcherHealthEvent,
 } from './file-system';
 import type { TapestryColorName } from './tapestry-colors';
 
@@ -183,11 +184,24 @@ export interface ElectronFileSystemAPI {
    */
   addRoot: () => Promise<RootDescriptor>;
   exists: (path: string) => Promise<boolean>;
+  /** Compact main-process watcher telemetry snapshot. */
+  getWatcherTelemetry: () => Promise<{
+    activeWatchers: number;
+    cleanups: number;
+    failures: number;
+    healthPushes: number;
+    retries: number;
+  }>;
   /**
    * Subscribe to fs:watch-event pushes (batched changes from main-process
    * watchers). Returns an unsubscribe function.
    */
   onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
+  /**
+   * Subscribe to fs:watch-health pushes (typed watcher health transitions,
+   * BST-568 slice 3). Returns an unsubscribe function.
+   */
+  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   /**
@@ -209,12 +223,24 @@ export interface ElectronFileSystemAPI {
    * pruned and omitted from the result.
    */
   restoreRoots: () => Promise<RootDescriptor[]>;
+  /**
+   * Deliberate manual retry of a failed main-process watcher. Main enforces
+   * ownership, single-flight, and escalating minimum retry intervals.
+   */
+  retryWatch: (watchId: string) => Promise<
+    | { retried: true }
+    | {
+        reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown';
+        retried: false;
+        retryAfterMs?: number;
+      }
+  >;
   saveLastFolder: (folderPath: string) => Promise<void>;
   /** Stop a main-process watcher previously started via `watchDirectory`. */
   unwatchDirectory: (watchId: string) => Promise<void>;
   /**
-   * Start a recursive main-process watcher (chokidar) for a directory. Changes
-   * arrive via `onWatchEvent`, stamped with the returned watchId.
+   * Start a recursive main-process watcher for a directory. Changes arrive
+   * via `onWatchEvent`, stamped with the returned watchId.
    */
   watchDirectory: (handle: DirectoryHandle) => Promise<{ watchId: string }>;
 }

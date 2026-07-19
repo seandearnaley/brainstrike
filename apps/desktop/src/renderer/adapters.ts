@@ -6,6 +6,9 @@ import type {
   FileSystemWatchEvent,
   IFileNode,
   RootDescriptor,
+  WatcherHealthEvent,
+  WatcherRetryOutcome,
+  WatcherRootHealthEvent,
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -62,10 +65,57 @@ function unregisterWatchCallback(watchId: string): void {
   }
 }
 
+/**
+ * Watcher health dispatcher (BST-568 slice 3). Mirrors the change dispatcher:
+ * ONE bridge fs:watch-health subscription total, fan-out to renderer
+ * subscribers. This renderer resolves watchIds back to the root paths of the
+ * watches IT created (paths never cross to other renderers), and retains the
+ * latest transition per root so late-mounting UI sees current status.
+ */
+const rootPathByWatchId = new Map<string, string>();
+const latestHealthByRootPath = new Map<string, WatcherRootHealthEvent>();
+const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
+let sharedHealthUnsubscribe: (() => void) | null = null;
+
+function ensureSharedHealthSubscription(
+  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void
+): void {
+  if (sharedHealthUnsubscribe) {
+    return;
+  }
+  sharedHealthUnsubscribe = onWatchHealth((event) => {
+    const rootPath = rootPathByWatchId.get(event.watchId);
+    if (!rootPath) {
+      return;
+    }
+    const resolved: WatcherRootHealthEvent = { ...event, rootPath };
+    latestHealthByRootPath.set(rootPath, resolved);
+    for (const subscriber of Array.from(healthSubscribers)) {
+      subscriber(resolved);
+    }
+  });
+}
+
+function forgetWatchHealth(watchId: string): void {
+  const rootPath = rootPathByWatchId.get(watchId);
+  rootPathByWatchId.delete(watchId);
+  if (rootPath) {
+    latestHealthByRootPath.delete(rootPath);
+  }
+  if (rootPathByWatchId.size === 0 && sharedHealthUnsubscribe) {
+    sharedHealthUnsubscribe();
+    sharedHealthUnsubscribe = null;
+  }
+}
+
 /** Test-only: reset the module-level shared dispatcher between test cases. */
 export function __resetFsWatchDispatcherForTest(): void {
   watchCallbacksById.clear();
   sharedWatchUnsubscribe = null;
+  rootPathByWatchId.clear();
+  latestHealthByRootPath.clear();
+  healthSubscribers.clear();
+  sharedHealthUnsubscribe = null;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -177,6 +227,11 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         // Route pushes for this id through the shared dispatcher (one bridge
         // subscription total, regardless of how many roots are watched).
         registerWatchCallback(api.onWatchEvent, id, callback);
+        // Health capability (older bridges may lack it — visibly absent).
+        if (typeof api.onWatchHealth === 'function') {
+          rootPathByWatchId.set(id, handle.path);
+          ensureSharedHealthSubscription(api.onWatchHealth);
+        }
       })
       .catch((error: unknown) => {
         // Visible capability failure (invalid path, watcher setup error) —
@@ -194,10 +249,46 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       closed = true;
       if (watchId !== null) {
         unregisterWatchCallback(watchId);
+        forgetWatchHealth(watchId);
         stopMainWatcher(watchId);
         watchId = null;
       }
     };
+  }
+
+  /**
+   * Watcher health capability (BST-568 slice 3). Replays the latest known
+   * state per root to the new subscriber, then streams live transitions.
+   * Renders nothing on older bridges without fs:watch-health — the folder's
+   * health is visibly unknown, never faked.
+   */
+  onWatcherHealth(callback: (event: WatcherRootHealthEvent) => void): () => void {
+    for (const event of latestHealthByRootPath.values()) {
+      callback(event);
+    }
+    healthSubscribers.add(callback);
+    return () => {
+      healthSubscribers.delete(callback);
+    };
+  }
+
+  /** Deliberate manual retry of a failed watcher for a watched root path. */
+  async retryWatcher(rootPath: string): Promise<WatcherRetryOutcome> {
+    const api = window.electronAPI?.fileSystem;
+    if (!api || typeof api.retryWatch !== 'function') {
+      return { reason: 'unsupported', retried: false };
+    }
+    let watchId: string | null = null;
+    for (const [id, path] of rootPathByWatchId) {
+      if (path === rootPath) {
+        watchId = id;
+        break;
+      }
+    }
+    if (!watchId) {
+      return { reason: 'unknown', retried: false };
+    }
+    return await api.retryWatch(watchId);
   }
 }
 

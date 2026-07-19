@@ -296,6 +296,14 @@ export interface FileSystemAdapter {
    */
   addRoot?(): Promise<RootDescriptor>;
   exists(path: string): Promise<boolean>;
+  /**
+   * Watcher health capability (BST-568 slice 3, desktop only today).
+   * Subscribe to per-root health transitions; the adapter replays the latest
+   * known state per root to a new subscriber so late-mounting UI shows
+   * current status. Absent on adapters without main-process watchers — the
+   * capability check IS the platform gate (never `isElectron()`).
+   */
+  onWatcherHealth?(callback: (event: WatcherRootHealthEvent) => void): () => void;
   /** Platform identifier for this adapter */
   readonly platform?: 'web' | 'electron';
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
@@ -396,8 +404,27 @@ export interface FileSystemAdapter {
    * them; nothing is pruned.
    */
   restoreRoots?(): Promise<RootDescriptor[]>;
+  /**
+   * Deliberate manual retry of a failed watcher for a root previously passed
+   * to `watchDirectory`. Main-process throttling applies (bounded backoff,
+   * single-flight); the outcome is reported, never silently coerced.
+   */
+  retryWatcher?(rootPath: string): Promise<WatcherRetryOutcome>;
   watchDirectory?(
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void;
 }
+
+/** A watcher health transition resolved to the renderer's own root path. */
+export interface WatcherRootHealthEvent extends WatcherHealthTransition {
+  rootPath: string;
+}
+
+export type WatcherRetryOutcome =
+  | { retried: true }
+  | {
+      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown' | 'unsupported';
+      retried: false;
+      retryAfterMs?: number;
+    };
