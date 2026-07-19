@@ -137,6 +137,22 @@ describe('forest section collapse vs Expand All / Collapse All (BST-571)', () =>
     });
   });
 
+  it('reserves clearance on the first section header for the floating tree actions cluster', async () => {
+    renderForest();
+    await waitForBothTrees();
+
+    // The floating Expand/Collapse cluster pins to the tree area's top-right
+    // (top-2 right-2, ~56px wide). At scrollTop 0 the FIRST root section
+    // header occupies that band, so its trailing controls (the hover-revealed
+    // disconnect X) would sit under the cluster and lose their pointer
+    // clicks. The first header alone reserves matching right clearance;
+    // later headers keep the full row (they only pass under the cluster
+    // transiently while scrolling).
+    const headerRows = screen.getAllByTestId('root-section-header-row');
+    expect(headerRows[0]).toHaveClass('pr-16');
+    expect(headerRows[1]).not.toHaveClass('pr-16');
+  });
+
   it('collapseAllSections closes every root section header', async () => {
     const actionsRef = renderForest();
     await waitForBothTrees();

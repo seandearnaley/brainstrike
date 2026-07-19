@@ -293,6 +293,7 @@ const PanelFloatingTreeActions = ({
   isExpandingAll,
   isLoading,
   isRefreshing,
+  isRestoring,
   onCollapseAll,
   onExpandAll,
 }: {
@@ -300,10 +301,16 @@ const PanelFloatingTreeActions = ({
   isExpandingAll: boolean;
   isLoading: boolean;
   isRefreshing: boolean;
+  /**
+   * True while expanded-paths restoration runs. Both overlays pin to the tree
+   * area's top band, so the cluster yields to RestorationStatus rather than
+   * drawing over its right-aligned percentage readout.
+   */
+  isRestoring: boolean;
   onCollapseAll: () => void;
   onExpandAll: () => void;
 }) => {
-  if (!hasRoot) {
+  if (!hasRoot || isRestoring) {
     return null;
   }
   return (
@@ -1293,6 +1300,7 @@ const FileExplorerPanelInner = React.memo(() => {
             isExpandingAll={isExpandingAll || isForestExpandingAll}
             isLoading={isLoading}
             isRefreshing={isRefreshing}
+            isRestoring={isRestoringExpandedPaths}
             onCollapseAll={collapseAll}
             onExpandAll={expandAll}
           />

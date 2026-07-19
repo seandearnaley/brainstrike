@@ -393,6 +393,26 @@ describe('FileExplorerPanel', () => {
     });
   });
 
+  it('hides the floating tree actions while expanded-paths restoration runs (BST-571)', () => {
+    // Both overlays pin to the tree area's top band; while RestorationStatus
+    // is showing, the floating cluster would draw over its right-aligned
+    // percentage readout — so the cluster yields for the (transient) restore.
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isRestoringExpandedPaths: true,
+      restorationProgress: {
+        currentPath: null,
+        loaded: 10,
+        omitted: 0,
+        total: 100,
+      },
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    expect(screen.queryByTestId('floating-tree-actions')).not.toBeInTheDocument();
+  });
+
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
     renderWithProviders(<FileExplorerPanel />);
 

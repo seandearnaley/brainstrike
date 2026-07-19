@@ -498,6 +498,11 @@ const PerRootTreePane = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
+  /**
+   * True for the FIRST forest section: its header reserves right clearance
+   * for the floating tree-actions cluster (see RootSectionHeader).
+   */
+  isFirstSection?: boolean | undefined;
   /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
   mainRootId?: string | undefined;
   onRemoveRoot?:
@@ -536,6 +541,7 @@ interface RootSectionInnerProps extends RootSectionProps {
  * the canonical treeContext.fileTree stays immediate for loading/selection.
  */
 const RootSectionInner = ({
+  isFirstSection,
   onRemoveRoot,
   rootDirectoryHandle,
   setFocusedRoot,
@@ -706,6 +712,7 @@ const RootSectionInner = ({
             ? rootDirectoryHandle.path
             : undefined
         }
+        reserveFloatingActionsClearance={isFirstSection}
         selectionControl={
           <RootSelectAllCheckbox
             displayName={rootDirectoryHandle.name}
@@ -838,8 +845,9 @@ const FileExplorerSidebar = memo(
             data-testid="forest-sections-scroll"
             ref={forestScrollRef}
           >
-            {forestHandles.map((handle) => (
+            {forestHandles.map((handle, sectionIndex) => (
               <RootSection
+                isFirstSection={sectionIndex === 0}
                 // Prefer the stamped rootId — same-named web roots share a path,
                 // so a path-keyed key would collide and React would reconcile
                 // the two sections as one.
