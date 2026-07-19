@@ -159,7 +159,7 @@ vi.mock('../db-main', () => ({
 }));
 
 describe('assistant-server', () => {
-  let server: { url: string; stop: () => Promise<void> } | undefined;
+  let server: { url: string; stop: () => Promise<void>; authToken?: string } | undefined;
   interface RequestInput {
     body?: string;
     headers?: http.IncomingHttpHeaders;
@@ -243,10 +243,13 @@ describe('assistant-server', () => {
     const res = new MockResponse();
     const finished = new Promise<void>((resolve) => res.once('finish', resolve));
 
+    // Auth is explicitly disabled by default so these tests stay focused on
+    // routing/CORS/stream behavior; the "auth token gate" describe block
+    // exercises the token path with explicit options.
     await handleAssistantRequest(
       req as unknown as http.IncomingMessage,
       res as unknown as http.ServerResponse,
-      serverOptions
+      { auth: 'disabled', ...serverOptions }
     );
     await finished;
 
@@ -427,7 +430,130 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-origin']).toBe('null');
       expect(response.headers['access-control-allow-credentials']).toBeUndefined();
     });
+  });
 
+  describe('auth token gate', () => {
+    const AUTH_TOKEN = 'a'.repeat(64);
+    const withToken = { auth: { token: AUTH_TOKEN } } as const;
+
+    it('rejects requests without a token with 401', async () => {
+      const response = await runRequest(
+        { headers: { origin: desktopRendererOrigin }, method: 'GET', url: '/assistant/status' },
+        withToken
+      );
+
+      expect(response.status).toBe(401);
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('unauthorized');
+    });
+
+    it('rejects requests with a wrong token with 401', async () => {
+      const response = await runRequest(
+        {
+          headers: {
+            origin: desktopRendererOrigin,
+            'x-brainstrike-assistant-token': 'b'.repeat(64),
+          },
+          method: 'GET',
+          url: '/assistant/status',
+        },
+        withToken
+      );
+
+      expect(response.status).toBe(401);
+    });
+
+    it('serves requests carrying the expected token', async () => {
+      const response = await runRequest(
+        {
+          headers: {
+            origin: desktopRendererOrigin,
+            'x-brainstrike-assistant-token': AUTH_TOKEN,
+          },
+          method: 'GET',
+          url: '/assistant/status',
+        },
+        withToken
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it('rejects null-origin (packaged-shape) requests without a token', async () => {
+      const response = await runRequest(
+        { headers: { origin: 'null' }, method: 'GET', url: '/assistant/status' },
+        withToken
+      );
+
+      expect(response.status).toBe(401);
+    });
+
+    it('allows CORS preflight without a token (preflights cannot carry custom headers)', async () => {
+      const response = await runRequest(
+        {
+          headers: {
+            'access-control-request-method': 'POST',
+            origin: desktopRendererOrigin,
+          },
+          method: 'OPTIONS',
+          url: '/assistant/status',
+        },
+        withToken
+      );
+
+      expect(response.status).toBe(204);
+      expect(response.headers['access-control-allow-headers']).toContain(
+        'X-Brainstrike-Assistant-Token'
+      );
+    });
+
+    it('still rejects disallowed origins even with a valid token', async () => {
+      const response = await runRequest(
+        {
+          headers: {
+            origin: 'https://evil.example',
+            'x-brainstrike-assistant-token': AUTH_TOKEN,
+          },
+          method: 'GET',
+          url: '/assistant/status',
+        },
+        withToken
+      );
+
+      expect(response.status).toBe(403);
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('throws loudly when auth is not configured at all', async () => {
+      const req = new MockRequest({
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      });
+      const res = new MockResponse();
+
+      await expect(
+        handleAssistantRequest(
+          req as unknown as http.IncomingMessage,
+          res as unknown as http.ServerResponse,
+          {}
+        )
+      ).rejects.toThrow(/auth/i);
+    });
+
+    it('startAssistantServer mints and returns a per-boot token by default', async () => {
+      server = await startAssistantServer(undefined, { listen: false });
+      expect(server.authToken).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('startAssistantServer returns no token when auth is explicitly disabled', async () => {
+      server = await startAssistantServer(undefined, { auth: 'disabled', listen: false });
+      expect(server.authToken).toBeUndefined();
+    });
+  });
+
+  describe('origin enforcement on assistant POST', () => {
     it('should reject assistant POST requests from disallowed origins', async () => {
       const response = await runRequest({
         body: JSON.stringify({
