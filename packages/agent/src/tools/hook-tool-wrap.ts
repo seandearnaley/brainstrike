@@ -13,6 +13,12 @@
  */
 
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import type {
+  ToolPayloadTransform,
+  ToolPayloadTransformContext,
+  ToolPayloadTransformTarget,
+  ToolPayloadTransformTargetConfig,
+} from '@mastra/core/tools';
 import { isGuardedToolError } from './guard-tool-execution';
 import {
   type AgentHookRunner,
@@ -20,11 +26,13 @@ import {
   HOOK_RESULT_ENVELOPE_FIELD,
   HOOK_RESULT_ENVELOPE_KIND,
   type HookBlockedToolError,
+  readHookResultEnvelope,
 } from './hook-runner';
 import type { ToolLogger } from './types';
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;
+  transform?: ToolPayloadTransform;
 }
 
 function hasExecute(tool: unknown): tool is ExecutableLike {
@@ -57,6 +65,72 @@ function mergeAdditionalContext(result: unknown, context: string): unknown {
       result,
     },
   };
+}
+
+function passthroughTransform(
+  phase: keyof ToolPayloadTransformTargetConfig
+): (context: ToolPayloadTransformContext) => unknown {
+  switch (phase) {
+    case 'approval':
+    case 'input':
+      return (context) => context.input;
+    case 'error':
+      return (context) => context.error;
+    case 'inputDelta':
+      return (context) => context.inputTextDelta;
+    case 'output':
+      return (context) => context.output;
+    case 'resume':
+      return (context) => context.resumeData;
+    case 'suspend':
+      return (context) => context.suspendPayload;
+    default:
+      throw new TypeError(`Unsupported tool payload transform phase: ${String(phase)}`);
+  }
+}
+
+function createTargetTransform(
+  existing: ToolPayloadTransformTargetConfig | undefined
+): ToolPayloadTransformTargetConfig {
+  const output = existing?.output;
+  if (existing) {
+    return {
+      ...existing,
+      output: (context) => {
+        const envelope = readHookResultEnvelope(context.output);
+        const domainOutput = envelope?.result ?? context.output;
+        if (!output) {
+          // Preserve Mastra's safe-placeholder behavior for an intentionally
+          // configured target that omitted its output transform.
+          return;
+        }
+        return output({ ...context, output: domainOutput });
+      },
+    };
+  }
+  return {
+    approval: passthroughTransform('approval'),
+    error: passthroughTransform('error'),
+    input: passthroughTransform('input'),
+    inputDelta: passthroughTransform('inputDelta'),
+    output: (context) => readHookResultEnvelope(context.output)?.result ?? context.output,
+    resume: passthroughTransform('resume'),
+    suspend: passthroughTransform('suspend'),
+  };
+}
+
+/**
+ * Mastra's target-aware payload transform is the raw/model split for hook
+ * carriers: the live display and persisted transcript receive the exact domain
+ * result, while `toModelOutput` still receives the internal carrier.
+ */
+function createHookPayloadTransform(
+  existing: ToolPayloadTransform | undefined
+): ToolPayloadTransform {
+  const targets: readonly ToolPayloadTransformTarget[] = ['display', 'transcript'];
+  return Object.fromEntries(
+    targets.map((target) => [target, createTargetTransform(existing?.[target])])
+  ) as ToolPayloadTransform;
 }
 
 export interface ApplyToolHooksOptions {
@@ -142,6 +216,12 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
 
     const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableLike;
     Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
+    Object.defineProperty(cloned, 'transform', {
+      configurable: true,
+      enumerable: true,
+      value: createHookPayloadTransform(tool.transform),
+      writable: true,
+    });
 
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const toolInput = extractToolInput(args);

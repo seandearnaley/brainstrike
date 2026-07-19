@@ -254,10 +254,12 @@ enforced deterministically on serialized chars at 4 chars/token (mirrors
 `countTokensHeuristic`). Native producers self-bound result lists to
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
 runtime then adds or composes `toModelOutput` on every execute-backed
-native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
-application consumers and Mastra persistence. Generated/default projections
-are bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized
-characters. Purpose-built domain projections have the stricter
+native/MCP tool. PostToolUse context travels only in an internal execution
+carrier: Mastra's `transform.display` and `transform.transcript` channels
+restore the exact domain result before live UI or durable persistence, while
+`toModelOutput` alone consumes the context. Generated/default projections are
+bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters.
+Purpose-built domain projections have the stricter
 `MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character contract so the
 remaining envelope can carry PostToolUse guidance. Domain projectors MUST
 self-fit a complete page; central code throws on overflow instead of
@@ -268,11 +270,15 @@ Guarded failures (`tool_timeout`, `tool_failed`, `tool_blocked_by_hook`) bypass
 domain projectors and retain the bounded structured failure. For successful
 hooked results, every original result shape and its control metadata travel in
 the explicitly discriminated internal `HOOK_RESULT_ENVELOPE_FIELD` protocol.
-The envelope is removed and the exact domain result restored before either a
-custom or default projector runs. The central composer then appends
-PostToolUse context without reordering authored content parts, truncating only
-that context when needed to keep the final non-media serialized envelope at or
-below 8000 characters. A nullish synchronous or asynchronous custom projection
+The official Mastra display/transcript transforms unwrap that protocol for
+application and persistence consumers; Brainstrike's PGlite store enforces the
+transcript projection at its write boundary because Mastra 1.51 otherwise
+stores the carrier alongside its transform metadata. The envelope is also
+removed and the exact domain result restored before either a custom or default
+projector runs. The central composer then appends PostToolUse context without
+reordering authored content parts, truncating only that context when needed to
+keep the final generic non-media serialized envelope at or below 8000
+characters. A nullish synchronous or asynchronous custom projection
 falls through to the bounded deterministic default over the clean domain
 result, while malformed non-callable projections throw. Serialized-character
 checks include JSON escaping; inline media bodies are excluded while their
@@ -287,13 +293,14 @@ ceilings still fail visibly before transport. The discovered output schema
 remains exposed for documentation, while the official MCP SDK owns
 structured-output validation and Mastra does not incorrectly re-validate the
 complete `CallToolResult` envelope against the inner schema.
-Mastra 1.51 invokes projections with `{toolCallId,input,output}` even though
-its `createTool` contract gives custom projectors the raw execute result.
-Brainstrike therefore extracts the exact
-envelope's raw `output` before both custom and generated projections while
-retaining direct raw-output invocation compatibility.
-`skill` is the explicit text exception (6000), because its instruction body is
-the payload and cannot be paged.
+Mastra 1.51's AI SDK v6 path invokes projections with
+`{toolCallId,input,output}`, while its agentic-loop/v5 paths pass the raw
+execute result. Brainstrike accepts both forms, extracting the exact SDK
+envelope before custom or generated projections. `skill` is the explicit text
+exception: its instruction body cannot be paged, so the complete 6000-token
+activation budget remains available and a separate bounded 2000-character
+PostToolUse allowance plus structural reserve expands only its final
+model-facing envelope.
 
 Mastra 1.51's stock `TokenLimiter` counts raw database-shaped
 `toolInvocation.result` before provider conversion. Brainstrike therefore

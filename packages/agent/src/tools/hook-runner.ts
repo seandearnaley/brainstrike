@@ -48,3 +48,51 @@ export const HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET = 2000;
  */
 export const HOOK_RESULT_ENVELOPE_FIELD = '__brainstrikeHookResultEnvelope';
 export const HOOK_RESULT_ENVELOPE_KIND = 'brainstrike.post-tool-result.v1';
+
+export interface HookResultEnvelope {
+  readonly additionalContext: string;
+  readonly result: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Read the exact internal PostToolUse carrier without interpreting a
+ * domain-owned lookalike. The carrier stays raw only inside Mastra: display
+ * and transcript transforms unwrap it, while `toModelOutput` consumes the
+ * context for the next model step.
+ */
+export function readHookResultEnvelope(value: unknown): HookResultEnvelope | undefined {
+  if (!isRecord(value)) {
+    return;
+  }
+  const outerKeys = Object.keys(value);
+  if (
+    outerKeys.length !== 1 ||
+    outerKeys[0] !== HOOK_RESULT_ENVELOPE_FIELD ||
+    !isRecord(value[HOOK_RESULT_ENVELOPE_FIELD])
+  ) {
+    return;
+  }
+  const envelope = value[HOOK_RESULT_ENVELOPE_FIELD];
+  const envelopeKeys = Object.keys(envelope);
+  const additionalContext = envelope['additionalContext'];
+  const isHookEnvelope =
+    envelopeKeys.length === 3 &&
+    envelopeKeys.every(
+      (key) => key === 'additionalContext' || key === 'kind' || key === 'result'
+    ) &&
+    envelope['kind'] === HOOK_RESULT_ENVELOPE_KIND &&
+    typeof additionalContext === 'string' &&
+    additionalContext.length > 0 &&
+    Object.hasOwn(envelope, 'result');
+  if (!isHookEnvelope) {
+    return;
+  }
+  return {
+    additionalContext,
+    result: envelope['result'],
+  };
+}

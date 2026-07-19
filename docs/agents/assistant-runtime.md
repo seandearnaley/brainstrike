@@ -81,10 +81,12 @@ below are LIVE.
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → model-output projection → Agent`. The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
-post-hook execution result without replacing it: native raw output remains
-available to stream/application consumers and is what Mastra persists; only
-the provider receives the bounded projection. Generated/default projections
-use the 2000-token / 8000-serialized-character ceiling. Purpose-built domain
+post-hook execution result without replacing it. A discriminated internal
+carrier takes PostToolUse context to `toModelOutput`; Mastra's official
+display/transcript transforms unwrap it so live application consumers and the
+durable transcript retain the exact domain result. Generated/default
+projections use the 2000-token / 8000-serialized-character ceiling.
+Purpose-built domain
 projectors MUST self-fit complete output within 1500 tokens / 6000 serialized
 characters and fail loudly on overflow; the central seam never truncates an
 opaque page after its continuation was computed. Guarded failures bypass custom
@@ -92,12 +94,13 @@ projectors. Successful PostToolUse metadata is stripped before projection
 (one explicit internal envelope preserves every original result shape),
 then its context is appended centrally without reordering content and fitted
 into the remaining final 8000-character envelope. Only hook context may be
-truncated at that composition stage. Persona agents receive the same
-projections before their independent permission gate. Mastra 1.51 passes
-`{toolCallId,input,output}` at the AI SDK boundary even though its `createTool`
-contract gives custom projectors the raw execute result. Brainstrike extracts
-the exact envelope's `output` before both custom and generated projections;
-direct raw-output calls remain supported.
+truncated at that composition stage. The `skill` activation exception keeps
+its complete 6000-token instruction budget and adds a dedicated bounded hook
+allowance plus structural reserve instead of rebinding to the generic
+1500-token domain budget. Persona agents receive the same projections before
+their independent permission gate. Mastra 1.51's AI SDK v6 boundary passes
+`{toolCallId,input,output}`, but its agentic-loop/v5 paths call the same
+projector with raw output. Brainstrike supports both exact forms.
 
 MCP is the temporary exception while artifact storage is absent: text/JSON is
 bounded inside `execute()` before inline persistence; image/audio stays raw
@@ -574,12 +577,14 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
   renders as a FAILED tool event. PostToolUse `additionalContext` is capped
   (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and carried beside the original
-  result in the explicitly discriminated raw hook envelope for persistence and
-  application consumers. The later model-projection seam consumes that reserved
-  envelope: domain projectors receive the clean original result, and the
-  provider view gets centrally composed context within the final model-output
-  budget. A hook-runner FAULT is allow-on-fault (a runner bug must not brick tool
-  calling).
+  result in the explicitly discriminated internal hook envelope. Mastra's
+  target-aware display/transcript transforms restore the exact domain result
+  before the live UI and persistence boundary; the envelope itself is never a
+  public or durable tool result. The later model-projection seam consumes that
+  reserved envelope: domain projectors receive the clean original result, and
+  the provider view gets centrally composed context within the final
+  model-output budget. A hook-runner FAULT is allow-on-fault (a runner bug must
+  not brick tool calling).
 - `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext

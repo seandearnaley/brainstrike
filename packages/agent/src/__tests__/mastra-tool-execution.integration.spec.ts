@@ -1870,9 +1870,11 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(runEventKinds).toContain('tool.completed');
-    // The raw tool event carries the explicit post-hook envelope.
-    expect(JSON.stringify(chunks)).toContain(HOOK_RESULT_ENVELOPE_FIELD);
-    expect(JSON.stringify(chunks)).toContain('lint: ok');
+    // Post-hook control metadata is model-only: live UI events keep the exact
+    // domain result and never expose the internal carrier or hook guidance.
+    expect(JSON.stringify(chunks)).toContain('"temperatureC":21');
+    expect(JSON.stringify(chunks)).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
+    expect(JSON.stringify(chunks)).not.toContain('lint: ok');
   });
 
   it('composes a custom domain projection with PostToolUse context in the next model step', async () => {

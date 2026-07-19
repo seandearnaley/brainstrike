@@ -1,3 +1,8 @@
+import {
+  getTransformedToolPayload,
+  hasTransformedToolPayload,
+  type ToolPayloadTransformPhase,
+} from '@mastra/core/tools';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import type { StreamChunk } from '../types';
 
@@ -103,9 +108,10 @@ function mapToolResultEvent(
   displayName: string,
   callId: string | undefined
 ): StreamChunk {
-  const result =
+  const rawResult =
     readMastraStreamPartValue(candidate, 'result') ??
     readMastraStreamPartValue(candidate, 'output');
+  const result = readDisplayToolPayload(candidate, 'output-available', rawResult);
   const errorResult =
     readMastraStreamPartValue(candidate, 'isError') === true || isGuardedToolError(result);
   return {
@@ -145,6 +151,16 @@ function mapToolOutputEvent(
     status: guardedError ? 'error' : 'success',
     type: 'tool-event',
   } satisfies StreamChunk;
+}
+
+function readDisplayToolPayload(
+  candidate: ToolEventPart,
+  phase: ToolPayloadTransformPhase,
+  fallback: unknown
+): unknown {
+  const metadata = readMastraStreamPartValue(candidate, 'metadata');
+  const transformed = getTransformedToolPayload(metadata, 'display', phase);
+  return hasTransformedToolPayload(transformed) ? transformed.transformed : fallback;
 }
 
 function progressEvent(

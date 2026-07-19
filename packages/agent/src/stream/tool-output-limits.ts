@@ -47,6 +47,21 @@ export const NATIVE_TOOL_RESULT_CHAR_BUDGET =
  * transport override below is a backstop, not the working bound.
  */
 export const SKILL_ACTIVATION_RESULT_TOKEN_BUDGET = 6000;
+/**
+ * A full activation plus bounded PostToolUse guidance needs a wider
+ * model-facing envelope than the activation payload alone. The fixed reserve
+ * covers the normalized `{type,value}` structure and its JSON escaping.
+ */
+const MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS = 64;
+export const SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET =
+  (SKILL_ACTIVATION_RESULT_TOKEN_BUDGET + MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS) *
+  APPROX_CHARS_PER_TOKEN;
+export const SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET =
+  SKILL_ACTIVATION_RESULT_TOKEN_BUDGET +
+  Math.ceil(HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET / APPROX_CHARS_PER_TOKEN) +
+  MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS;
+export const SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET =
+  SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
 
 /**
  * Per-tool transport-guard budget overrides. Explicit and enumerated — every

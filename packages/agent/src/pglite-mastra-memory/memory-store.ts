@@ -25,12 +25,18 @@ import type {
 } from '@mastra/core/storage';
 import { MemoryStorage } from '@mastra/core/storage';
 import {
+  getTransformedToolPayload,
+  hasTransformedToolPayload,
+  type ToolPayloadTransformPhase,
+} from '@mastra/core/tools';
+import {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventSink,
   type AssistantRunEventStatus,
   emitAssistantRunEventSafely,
 } from '../run-events';
+import { readHookResultEnvelope } from '../tools/hook-runner';
 import {
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
@@ -41,6 +47,124 @@ import {
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
 const logger = createLogger('PgliteMemoryStore');
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function unwrapHookResult(value: unknown): unknown {
+  return readHookResultEnvelope(value)?.result ?? value;
+}
+
+function readTranscriptToolPayload(
+  providerMetadata: unknown,
+  phase: ToolPayloadTransformPhase,
+  fallback: unknown
+): unknown {
+  const transformed = getTransformedToolPayload(providerMetadata, 'transcript', phase);
+  const value = hasTransformedToolPayload(transformed) ? transformed.transformed : fallback;
+  // The internal PostToolUse carrier must never cross the durable boundary,
+  // even if transform metadata is absent or malformed.
+  return unwrapHookResult(value);
+}
+
+interface PersistedInvocationProjection {
+  readonly args: unknown;
+  readonly errorText?: unknown;
+  readonly result?: unknown;
+}
+
+function projectToolInvocationPartForTranscript(part: Record<string, unknown>): {
+  readonly part: Record<string, unknown>;
+  readonly projection?: PersistedInvocationProjection;
+  readonly toolCallId?: string;
+} {
+  if (part['type'] !== 'tool-invocation' || !isRecord(part['toolInvocation'])) {
+    return { part };
+  }
+  const invocation = part['toolInvocation'];
+  const providerMetadata = part['providerMetadata'];
+  const args = readTranscriptToolPayload(providerMetadata, 'input-available', invocation['args']);
+  const toolCallId =
+    typeof invocation['toolCallId'] === 'string' ? invocation['toolCallId'] : undefined;
+  const state = invocation['state'];
+  if (state === 'result') {
+    const result = readTranscriptToolPayload(
+      providerMetadata,
+      'output-available',
+      invocation['result']
+    );
+    return {
+      part: {
+        ...part,
+        toolInvocation: { ...invocation, args, result },
+      },
+      projection: { args, result },
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+  }
+  if (state === 'output-error') {
+    const errorText = readTranscriptToolPayload(providerMetadata, 'error', invocation['errorText']);
+    return {
+      part: {
+        ...part,
+        toolInvocation: { ...invocation, args, errorText },
+      },
+      projection: { args, errorText },
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+  }
+  return {
+    part: {
+      ...part,
+      toolInvocation: { ...invocation, args },
+    },
+    projection: { args },
+    ...(toolCallId ? { toolCallId } : {}),
+  };
+}
+
+function projectMessageContentForTranscript(
+  content: MastraDBMessage['content']
+): MastraDBMessage['content'] {
+  if (!(isRecord(content) && content['format'] === 2 && Array.isArray(content['parts']))) {
+    return content;
+  }
+  const byToolCallId = new Map<string, PersistedInvocationProjection>();
+  let changed = false;
+  const parts = content['parts'].map((part) => {
+    if (!isRecord(part)) {
+      return part;
+    }
+    const projected = projectToolInvocationPartForTranscript(part);
+    if (!projected.projection) {
+      return part;
+    }
+    changed = true;
+    if (projected.toolCallId) {
+      byToolCallId.set(projected.toolCallId, projected.projection);
+    }
+    return projected.part;
+  });
+  if (!changed) {
+    return content;
+  }
+
+  const toolInvocations = Array.isArray(content['toolInvocations'])
+    ? content['toolInvocations'].map((invocation) => {
+        if (!isRecord(invocation) || typeof invocation['toolCallId'] !== 'string') {
+          return invocation;
+        }
+        const projected = byToolCallId.get(invocation['toolCallId']);
+        return projected ? { ...invocation, ...projected } : invocation;
+      })
+    : undefined;
+  return {
+    ...content,
+    parts,
+    ...(toolInvocations ? { toolInvocations } : {}),
+  } as MastraDBMessage['content'];
+}
 
 interface PgliteMemoryStoreOptions {
   database: PgliteDatabase;
@@ -841,8 +965,12 @@ export class PgliteMemoryStore extends MemoryStorage {
       return { messages: [] };
     }
 
+    const persistedMessages = args.messages.map((message) => ({
+      ...message,
+      content: projectMessageContentForTranscript(message.content),
+    }));
     const insertValues: PgliteQueryValue[] = [];
-    const insertRows = args.messages.map((message, index) => {
+    const insertRows = persistedMessages.map((message, index) => {
       const base = index * 7;
       insertValues.push(
         message.id,

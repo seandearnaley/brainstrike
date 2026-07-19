@@ -1,17 +1,41 @@
 import type { ToolsInput } from '@mastra/core/agent';
+import type { ToolPayloadTransform, ToolPayloadTransformTarget } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 
 import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
-import { HOOK_RESULT_ENVELOPE_FIELD } from '../tools/hook-runner';
+import { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '../stream/tool-output-limits';
+import {
+  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  HOOK_RESULT_ENVELOPE_FIELD,
+} from '../tools/hook-runner';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
 
 type TestTool = ToolsInput[string] & {
   execute?: (...args: unknown[]) => unknown;
   toModelOutput?: (output: unknown) => unknown;
+  transform?: ToolPayloadTransform;
 };
 
 function asTool(value: Record<string, unknown>): TestTool {
   return value as unknown as TestTool;
+}
+
+async function transformOutput(
+  tool: TestTool,
+  target: ToolPayloadTransformTarget,
+  output: unknown
+): Promise<unknown> {
+  const transform = tool.transform?.[target]?.output;
+  if (!transform) {
+    throw new Error(`Expected ${target} output transform`);
+  }
+  return transform({
+    output,
+    phase: 'output-available',
+    target,
+    toolCallId: `call-${target}`,
+    toolName: 'test-tool',
+  });
 }
 
 describe('applyToolModelOutputProjections', () => {
@@ -153,6 +177,10 @@ describe('applyToolModelOutputProjections', () => {
       value?: string;
     };
 
+    await expect(transformOutput(projectedTool, 'display', rawOutput)).resolves.toBe(domainOutput);
+    await expect(transformOutput(projectedTool, 'transcript', rawOutput)).resolves.toBe(
+      domainOutput
+    );
     expect(toModelOutput).toHaveBeenCalledWith(domainOutput);
     expect(modelOutput).toEqual({
       type: 'text',
@@ -256,6 +284,136 @@ describe('applyToolModelOutputProjections', () => {
       value: 'default primitive\nPost-tool context: Inspect default provenance.',
     });
     expect(JSON.stringify(modelOutput)).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
+  });
+
+  it('keeps near-limit skill activation instructions complete when hook context is present', async () => {
+    const activationTail = 'skill-activation-tail-sentinel';
+    const activation = `${'a'.repeat(
+      SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4 - 128
+    )}${activationTail}`;
+    const hookContext = `Inspect the activated skill before continuing.${'c'.repeat(
+      HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET - 48
+    )}`;
+    const tool = asTool({
+      execute: () => Promise.resolve(activation),
+      id: 'skill',
+    });
+    const toolNameMap = new Map([['skill', 'skill']]);
+    const hooked = applyToolHooks(
+      { skill: tool },
+      {
+        hookRunner: {
+          postToolUse: () => Promise.resolve({ additionalContext: hookContext }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+    const projectedTool = projected['skill'] as TestTool;
+
+    const rawOutput = await projectedTool.execute?.({});
+    const modelOutput = projectedTool.toModelOutput?.(rawOutput) as {
+      type?: string;
+      value?: string;
+    };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain(activationTail);
+    expect(modelOutput.value).toContain(`Post-tool context: ${hookContext}`);
+    expect(modelOutput.value).not.toContain('[model projection truncated]');
+    expect(modelOutput.value).not.toContain('[post-tool context truncated]');
+    expect(JSON.stringify(modelOutput).length).toBeLessThanOrEqual(
+      (SKILL_ACTIVATION_RESULT_TOKEN_BUDGET +
+        Math.ceil(HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET / 4) +
+        64) *
+        4
+    );
+  });
+
+  it('keeps concurrent primitive hook results isolated across model and transcript channels', async () => {
+    const toolNameMap = new Map([['primitive', 'primitive']]);
+    const hooked = applyToolHooks(
+      {
+        primitive: asTool({
+          execute: () => Promise.resolve('same-result'),
+          id: 'primitive',
+        }),
+      },
+      {
+        hookRunner: {
+          postToolUse: ({ toolInput }) =>
+            Promise.resolve({ additionalContext: `context-for-${String(toolInput)}` }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+    const projectedTool = projected['primitive'] as TestTool;
+
+    const [alphaRaw, betaRaw] = await Promise.all([
+      projectedTool.execute?.('alpha'),
+      projectedTool.execute?.('beta'),
+    ]);
+    const [alphaModel, betaModel, alphaTranscript, betaTranscript] = await Promise.all([
+      projectedTool.toModelOutput?.(alphaRaw),
+      projectedTool.toModelOutput?.(betaRaw),
+      transformOutput(projectedTool, 'transcript', alphaRaw),
+      transformOutput(projectedTool, 'transcript', betaRaw),
+    ]);
+
+    expect(alphaModel).toEqual({
+      type: 'text',
+      value: 'same-result\nPost-tool context: context-for-alpha',
+    });
+    expect(betaModel).toEqual({
+      type: 'text',
+      value: 'same-result\nPost-tool context: context-for-beta',
+    });
+    expect(alphaTranscript).toBe('same-result');
+    expect(betaTranscript).toBe('same-result');
+  });
+
+  it('passes the domain result through existing target-aware output transforms', async () => {
+    const domainOutput = { summary: 'domain result' };
+    const displayOutput = vi.fn(({ output }: { output?: unknown }) => ({
+      rendered: (output as { summary?: string }).summary,
+    }));
+    const tool = asTool({
+      execute: () => Promise.resolve(domainOutput),
+      id: 'existing-transform',
+      transform: {
+        display: {
+          output: displayOutput,
+        },
+      },
+    });
+    const toolNameMap = new Map([['existing_transform', 'existing.transform']]);
+    const hooked = applyToolHooks(
+      { existing_transform: tool },
+      {
+        hookRunner: {
+          postToolUse: () => Promise.resolve({ additionalContext: 'model-only context' }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+    const projectedTool = projected['existing_transform'] as TestTool;
+
+    const rawOutput = await projectedTool.execute?.({});
+
+    await expect(transformOutput(projectedTool, 'display', rawOutput)).resolves.toEqual({
+      rendered: 'domain result',
+    });
+    await expect(transformOutput(projectedTool, 'transcript', rawOutput)).resolves.toBe(
+      domainOutput
+    );
+    expect(displayOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ output: domainOutput, target: 'display' })
+    );
   });
 
   it('preserves an object result that owns the reserved hook-wrapper field', async () => {

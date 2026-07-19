@@ -8,13 +8,12 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
+  SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
+  SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
+  SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
-import {
-  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
-  HOOK_RESULT_ENVELOPE_FIELD,
-  HOOK_RESULT_ENVELOPE_KIND,
-} from '../tools/hook-runner';
+import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner';
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
@@ -38,6 +37,31 @@ interface McpMultimodalOutput {
 interface ModelContentOutput {
   readonly type: 'content';
   readonly value: readonly unknown[];
+}
+
+interface ModelProjectionBudget {
+  readonly domainSerializedChars: number;
+  readonly domainTokens: number;
+  readonly totalSerializedChars: number;
+  readonly totalTokens: number;
+}
+
+const DEFAULT_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
+  domainSerializedChars: MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  domainTokens: MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
+  totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
+};
+
+const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
+  domainSerializedChars: SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
+  domainTokens: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+  totalSerializedChars: SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
+  totalTokens: SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
+};
+
+function resolveModelProjectionBudget(toolName: string): ModelProjectionBudget {
+  return toolName === 'skill' ? SKILL_MODEL_PROJECTION_BUDGET : DEFAULT_MODEL_PROJECTION_BUDGET;
 }
 
 function isExecutableTool(tool: unknown): tool is ExecutableToolWithModelOutput {
@@ -200,12 +224,21 @@ function createMcpMultimodalModelOutput(
   return { type: 'content', value };
 }
 
-function createDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
+function createDefaultModelOutput(
+  toolName: string,
+  output: unknown,
+  domainBudget = false
+): Record<string, unknown> {
+  const budget = resolveModelProjectionBudget(toolName);
   const projected = createMcpMultimodalModelOutput(toolName, output) ?? {
     type: 'text',
     value: serializeBoundedOutput(toolName, output),
   };
-  return boundProjectedModelOutput(toolName, projected);
+  const tokenBudget = domainBudget ? budget.domainTokens : budget.totalTokens;
+  const serializedCharBudget = domainBudget
+    ? budget.domainSerializedChars
+    : budget.totalSerializedChars;
+  return boundProjectedModelOutput(toolName, projected, tokenBudget, serializedCharBudget);
 }
 
 function isModelContentOutput(output: unknown): output is ModelContentOutput {
@@ -390,6 +423,7 @@ function assertDomainProjectionWithinBudget(
   toolName: string,
   output: unknown
 ): Record<string, unknown> {
+  const budget = resolveModelProjectionBudget(toolName);
   let normalized: Record<string, unknown>;
   if (isModelContentOutput(output)) {
     normalized = output as unknown as Record<string, unknown>;
@@ -403,9 +437,9 @@ function assertDomainProjectionWithinBudget(
       value: typeof output === 'string' ? output : stringifyJsonSafe(output),
     };
   }
-  if (measureProjectedModelOutput(normalized) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (measureProjectedModelOutput(normalized) > budget.domainSerializedChars) {
     throw new RangeError(
-      `${toolName} domain model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character budget; purpose-built projectors must self-fit complete output`
+      `${toolName} domain model projection exceeds the ${budget.domainSerializedChars}-character budget; purpose-built projectors must self-fit complete output`
     );
   }
   return normalized;
@@ -481,53 +515,16 @@ function capHookContextForProjection(context: string): string {
     : capped;
 }
 
-interface HookProjectionMetadata {
-  readonly domainOutput: unknown;
-  readonly hookContext?: string;
-}
-
-function readHookProjectionMetadata(output: unknown): HookProjectionMetadata {
-  if (!isRecord(output)) {
-    return { domainOutput: output };
-  }
-  const outerKeys = Object.keys(output);
-  if (
-    outerKeys.length !== 1 ||
-    outerKeys[0] !== HOOK_RESULT_ENVELOPE_FIELD ||
-    !isRecord(output[HOOK_RESULT_ENVELOPE_FIELD])
-  ) {
-    return { domainOutput: output };
-  }
-  const envelope = output[HOOK_RESULT_ENVELOPE_FIELD];
-  const envelopeKeys = Object.keys(envelope);
-  const additionalContext = envelope['additionalContext'];
-  const isHookEnvelope =
-    envelopeKeys.length === 3 &&
-    envelopeKeys.every(
-      (key) => key === 'additionalContext' || key === 'kind' || key === 'result'
-    ) &&
-    envelope['kind'] === HOOK_RESULT_ENVELOPE_KIND &&
-    typeof additionalContext === 'string' &&
-    additionalContext.length > 0 &&
-    Object.hasOwn(envelope, 'result');
-  if (!isHookEnvelope) {
-    return { domainOutput: output };
-  }
-  return {
-    domainOutput: envelope['result'],
-    hookContext: additionalContext,
-  };
-}
-
 function composeHookContextWithProjection(
   toolName: string,
   domainProjection: Record<string, unknown>,
   hookContext: string
 ): Record<string, unknown> {
+  const budget = resolveModelProjectionBudget(toolName);
   const composition = readHookProjectionComposition(domainProjection);
   const context = capHookContextForProjection(hookContext);
   const fits = (candidate: Record<string, unknown>): boolean =>
-    measureProjectedModelOutput(candidate) <= MAX_MODEL_TOOL_RESULT_CHAR_BUDGET;
+    measureProjectedModelOutput(candidate) <= budget.totalSerializedChars;
 
   const full = composition.build(context);
   if (fits(full)) {
@@ -540,7 +537,7 @@ function composeHookContextWithProjection(
   );
   if (!fittedContext) {
     throw new RangeError(
-      `${toolName} model projection cannot retain its post-tool context within the ${MAX_MODEL_TOOL_RESULT_CHAR_BUDGET}-character budget`
+      `${toolName} model projection cannot retain its post-tool context within the ${budget.totalSerializedChars}-character budget`
     );
   }
   return composition.build(fittedContext);
@@ -550,18 +547,14 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
   if (isGuardedToolError(output)) {
     return createDefaultModelOutput(toolName, output);
   }
-  const { domainOutput, hookContext } = readHookProjectionMetadata(output);
-  const defaultProjection = createDefaultModelOutput(toolName, domainOutput);
+  const envelope = readHookResultEnvelope(output);
+  const domainOutput = envelope?.result ?? output;
+  const hookContext = envelope?.additionalContext;
+  const defaultProjection = createDefaultModelOutput(toolName, domainOutput, Boolean(hookContext));
   if (!hookContext) {
     return defaultProjection;
   }
-  const boundedDomainProjection = boundProjectedModelOutput(
-    toolName,
-    defaultProjection,
-    MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
-    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-  );
-  return composeHookContextWithProjection(toolName, boundedDomainProjection, hookContext);
+  return composeHookContextWithProjection(toolName, defaultProjection, hookContext);
 }
 
 function projectExistingModelOutput(
@@ -573,7 +566,9 @@ function projectExistingModelOutput(
   if (isGuardedToolError(output)) {
     return projectDefaultModelOutput(toolName, output);
   }
-  const { domainOutput, hookContext } = readHookProjectionMetadata(output);
+  const envelope = readHookResultEnvelope(output);
+  const domainOutput = envelope?.result ?? output;
+  const hookContext = envelope?.additionalContext;
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
       return projectDefaultModelOutput(toolName, output);
