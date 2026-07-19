@@ -195,12 +195,16 @@ fallback.
 
 - **Watch sources (capability-gated, NO polling fallback).** Desktop: the
   renderer adapter's `watchDirectory`
-  (`apps/desktop/src/renderer/adapters.ts`) starts a MAIN-process chokidar
+  (`apps/desktop/src/renderer/adapters.ts`) starts a MAIN-process recursive
   watcher over IPC — `fs:watch` / `fs:unwatch` invokes + one-way
   `fs:watch-event` pushes (`apps/desktop/src/ipc-domains/file-system-watch-ipc.ts`,
-  chokidar engine shared with notes-vault via
-  `@brainstrike/file-system/electron`: 150ms batch, `ignoreInitial`,
-  `fileFilter.shouldIgnorePath`). Watchers are keyed by `watchId`, owned by the
+  engine shared with notes-vault via `@brainstrike/file-system/electron`:
+  macOS uses Node's native recursive `fs.watch`/FSEvents up front so a large
+  workspace consumes one watcher per root instead of one chokidar watcher per
+  directory; other platforms use chokidar. Both paths apply a 150ms batch and
+  `fileFilter.shouldIgnorePath`; chokidar also uses `ignoreInitial`. A chokidar
+  runtime error stops that watcher and emits one structured error log — never
+  an unbounded main-process error loop. Watchers are keyed by `watchId`, owned by the
   requesting `WebContents` (push to owner only, non-owner unwatch rejected
   without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
   counts live PLUS reserved (in-flight) watchers — a slot is reserved before
@@ -257,5 +261,4 @@ fallback.
 When changing this flow, update this section and the paired tests.
 
 ---
-
 

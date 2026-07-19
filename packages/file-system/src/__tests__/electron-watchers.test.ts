@@ -23,7 +23,7 @@ const { chokidarClose, chokidarHandlers, chokidarWatch, loggerMock } = vi.hoiste
     warn: vi.fn(),
   };
   const hoistedChokidarHandlers = new Map<ChokidarEvent, ChokidarHandler>();
-  const hoistedChokidarClose = vi.fn();
+  const hoistedChokidarClose = vi.fn().mockResolvedValue(undefined);
   const hoistedChokidarWatcher = {
     close: hoistedChokidarClose,
     on: vi.fn((event: ChokidarEvent, handler: ChokidarHandler) => {
@@ -76,7 +76,7 @@ describe('startFsWatch', () => {
 
     vi.spyOn(fs, 'watch').mockImplementation(((...args: unknown[]) => {
       mockWatchCallback = args[2] as ((ev: string, filename: string | null) => void) | null;
-      return { close: mockClose } as unknown as FSWatcher;
+      return { close: mockClose, once: vi.fn() } as unknown as FSWatcher;
     }) as unknown as typeof fs.watch);
   });
 
@@ -126,11 +126,11 @@ describe('startFsWatch', () => {
       expect.any(Function)
     );
     expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Using recursive native fs.watch fallback',
+      'Started recursive native fs.watch',
       expect.objectContaining({
         path: mockHandle.path,
         platform: process.platform,
-        recursiveSupport: 'macos-windows-only',
+        role: 'fallback',
       })
     );
   });
@@ -336,10 +336,10 @@ describe('startFsWatch', () => {
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Failed to start recursive native fs.watch; folder will not be watched',
       expect.objectContaining({
-        error: expect.any(Error),
+        errorMessage: 'watch unavailable',
         path: mockHandle.path,
         platform: process.platform,
-        recursiveSupport: 'macos-windows-only',
+        role: 'fallback',
       })
     );
   });
@@ -429,7 +429,6 @@ describe('startChokidarWatch', () => {
     chokidarHandlers.get('change')?.('/test/dir/update.txt');
     chokidarHandlers.get('unlink')?.('/test/dir/remove.txt');
     chokidarHandlers.get('unlinkDir')?.('/test/dir/old-sub');
-    chokidarHandlers.get('error')?.(new Error('watch error'));
 
     await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
 
@@ -441,10 +440,30 @@ describe('startChokidarWatch', () => {
       { kind: 'file', path: '/test/dir/remove.txt', type: 'removed' },
       { kind: 'directory', path: '/test/dir/old-sub', type: 'removed' },
     ]);
-    expect(loggerMock.error).toHaveBeenCalledWith('Chokidar watcher reported an error', {
-      error: expect.any(Error),
-      path: mockHandle.path,
+
+    stop();
+    expect(chokidarClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops and reports only once when chokidar repeats a runtime error', async () => {
+    const stop = await startChokidarWatch(mockHandle, vi.fn());
+    const error = Object.assign(new Error('EMFILE: too many open files, watch'), {
+      code: 'EMFILE',
     });
+
+    chokidarHandlers.get('error')?.(error);
+    chokidarHandlers.get('error')?.(error);
+
+    expect(chokidarClose).toHaveBeenCalledTimes(1);
+    expect(loggerMock.error).toHaveBeenCalledTimes(1);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Chokidar watcher failed at runtime; watcher stopped',
+      {
+        code: 'EMFILE',
+        errorMessage: 'EMFILE: too many open files, watch',
+        path: mockHandle.path,
+      }
+    );
 
     stop();
     expect(chokidarClose).toHaveBeenCalledTimes(1);
@@ -457,7 +476,11 @@ describe('handleWatcherSetupError', () => {
   beforeEach(() => {
     fallbackClose = vi.fn();
     vi.spyOn(fs, 'watch').mockImplementation(
-      (() => ({ close: fallbackClose }) as unknown as FSWatcher) as unknown as typeof fs.watch
+      (() =>
+        ({
+          close: fallbackClose,
+          once: vi.fn(),
+        }) as unknown as FSWatcher) as unknown as typeof fs.watch
     );
     loggerMock.error.mockClear();
     loggerMock.warn.mockClear();
@@ -479,11 +502,11 @@ describe('handleWatcherSetupError', () => {
       }
     );
     expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Using recursive native fs.watch fallback',
+      'Started recursive native fs.watch',
       expect.objectContaining({
         path: mockHandle.path,
         platform: process.platform,
-        recursiveSupport: 'macos-windows-only',
+        role: 'fallback',
       })
     );
 
@@ -497,11 +520,11 @@ describe('handleWatcherSetupError', () => {
 
     expect(loggerMock.error).not.toHaveBeenCalled();
     expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Using recursive native fs.watch fallback',
+      'Started recursive native fs.watch',
       expect.objectContaining({
         path: mockHandle.path,
         platform: process.platform,
-        recursiveSupport: 'macos-windows-only',
+        role: 'fallback',
       })
     );
     stop();

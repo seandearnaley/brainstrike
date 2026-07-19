@@ -14,6 +14,24 @@ interface FileSystemChangeBatcher {
   enqueue: (change: FileSystemChange) => void;
 }
 
+type NativeWatchRole = 'fallback' | 'primary';
+
+function watcherErrorDetails(error: unknown): {
+  code?: string;
+  errorMessage: string;
+} {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+  ) {
+    return { code: error.code, errorMessage };
+  }
+  return { errorMessage };
+}
+
 function createFileSystemChangeBatcher(
   callback: (changes: FileSystemChange[]) => void
 ): FileSystemChangeBatcher {
@@ -69,7 +87,8 @@ function createFileSystemChangeBatcher(
 
 export function startFsWatch(
   handle: DirectoryHandle,
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[]) => void,
+  role: NativeWatchRole = 'fallback'
 ): () => void {
   const batcher = createFileSystemChangeBatcher(callback);
 
@@ -108,25 +127,46 @@ export function startFsWatch(
   };
 
   try {
-    // Node only supports recursive native fs.watch on macOS and Windows.
-    // Unsupported platforms throw synchronously and are reported below as unwatched.
+    // Electron 43 embeds Node 24, whose recursive watcher uses FSEvents for
+    // macOS directories. One native watcher per root avoids chokidar's
+    // one-fs.watch-per-directory handle growth on large workspaces.
     const native = fs.watch(handle.path, { recursive: true }, enqueueNativeEvent);
-    logger.warn('Using recursive native fs.watch fallback', {
-      path: handle.path,
-      platform: process.platform,
-      recursiveSupport: 'macos-windows-only',
-    });
-    return () => {
+    let stopped = false;
+    const stop = (): void => {
+      if (stopped) {
+        return;
+      }
+      stopped = true;
       native.close();
       batcher.dispose();
     };
-  } catch (error) {
-    logger.error('Failed to start recursive native fs.watch; folder will not be watched', {
-      error,
+    native.once('error', (error: unknown) => {
+      if (stopped) {
+        return;
+      }
+      logger.error('Recursive native fs.watch failed at runtime; watcher stopped', {
+        ...watcherErrorDetails(error),
+        path: handle.path,
+      });
+      stop();
+    });
+    logger[role === 'primary' ? 'info' : 'warn']('Started recursive native fs.watch', {
       path: handle.path,
       platform: process.platform,
-      recursiveSupport: 'macos-windows-only',
+      role,
     });
+    return stop;
+  } catch (error) {
+    batcher.dispose();
+    logger.error('Failed to start recursive native fs.watch; folder will not be watched', {
+      ...watcherErrorDetails(error),
+      path: handle.path,
+      platform: process.platform,
+      role,
+    });
+    if (role === 'primary') {
+      throw error;
+    }
     return () => {};
   }
 }
@@ -157,6 +197,20 @@ export async function startChokidarWatch(
   const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
     batcher.enqueue({ kind: isDir ? 'directory' : 'file', path: filePath, type });
   };
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    batcher.dispose();
+    void watcher.close().catch((error: unknown) => {
+      logger.error('Failed to close chokidar watcher', {
+        ...watcherErrorDetails(error),
+        path: handle.path,
+      });
+    });
+  };
 
   watcher
     .on('add', (file: string) => toChange('added', file, false))
@@ -165,13 +219,17 @@ export async function startChokidarWatch(
     .on('unlink', (file: string) => toChange('removed', file, false))
     .on('unlinkDir', (dir: string) => toChange('removed', dir, true))
     .on('error', (error: unknown) => {
-      logger.error('Chokidar watcher reported an error', { error, path: handle.path });
+      if (stopped) {
+        return;
+      }
+      logger.error('Chokidar watcher failed at runtime; watcher stopped', {
+        ...watcherErrorDetails(error),
+        path: handle.path,
+      });
+      stop();
     });
 
-  return () => {
-    watcher.close();
-    batcher.dispose();
-  };
+  return stop;
 }
 
 export function handleWatcherSetupError(
