@@ -15,6 +15,7 @@ import {
   describeWebAssistantInputError,
   resolveWebAssistantChatTurn,
   resolveWebAssistantTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
 } from './server/web-assistant-request';
 import {
   InvalidWebAssistantRuntimeDataError,
@@ -153,10 +154,11 @@ export async function handleChatEndpoint(
       return;
     }
     logger.error('Failed to initialize chat stream', { error });
-    sendJsonResponse(res, 502, {
-      error: 'agent_stream_init_failed',
-      message: 'Assistant stream initialization failed',
-    });
+    sendJsonResponse(
+      res,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
+    );
     return;
   }
 
@@ -238,10 +240,11 @@ export async function handleAssistantEndpoint(
       return;
     }
     logger.error('Failed to initialize assistant stream', { error });
-    sendJsonResponse(res, 502, {
-      error: 'agent_stream_init_failed',
-      message: 'Assistant stream initialization failed',
-    });
+    sendJsonResponse(
+      res,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
+    );
     return;
   }
 

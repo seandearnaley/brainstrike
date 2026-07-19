@@ -11,6 +11,7 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 import {
   describeWebAssistantInputError,
   resolveWebAssistantTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
   type WebAssistantInputError,
 } from '../../../server/web-assistant-request';
 import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
@@ -122,14 +123,8 @@ function createAssistantExecutionErrorResponse(error: unknown): Response {
     return jsonError(400, 'invalid_runtime_data', error.message);
   }
   logger.error('Failed to initialize assistant stream', { error });
-  return new Response(
-    JSON.stringify({
-      error: 'agent_stream_init_failed',
-      message: 'Assistant stream initialization failed',
-    }),
-    {
-      headers: JSON_ERROR_HEADERS,
-      status: 502,
-    }
-  );
+  return new Response(JSON.stringify(WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+  });
 }

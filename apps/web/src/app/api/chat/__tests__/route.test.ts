@@ -272,6 +272,13 @@ describe('chat route schema', () => {
         { id: 'm2', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
       ],
     ],
+    [
+      'history whose blank final user message would normalize away',
+      [
+        { id: 'm1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'm2', parts: [{ text: '   ', type: 'text' }], role: 'user' },
+      ],
+    ],
   ])('requires the final message to be a non-empty user prompt for %s', async (_case, messages) => {
     streamMock.mockResolvedValue(
       createStream({ type: 'text-delta', value: 'This must not stream.' })
@@ -684,5 +691,26 @@ describe('chat route schema', () => {
     expect(payload.error).toBe('agent_stream_init_failed');
     expect(payload.code).toBeUndefined();
     expect(payload.message).toBe('Assistant stream initialization failed');
+  });
+
+  it('returns the canonical 502 when assistant stream initialization throws a plain error', async () => {
+    streamMock.mockRejectedValue(new Error('adapter initialization failed'));
+
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    await expect(res.json()).resolves.toEqual({
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed',
+    });
   });
 });

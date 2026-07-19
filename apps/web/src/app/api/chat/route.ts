@@ -1,6 +1,5 @@
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
-  isMastraAgentError,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
   toAiSdkStyleStream,
@@ -11,6 +10,7 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 import {
   describeWebAssistantInputError,
   resolveWebAssistantChatTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
   type WebAssistantInputError,
 } from '../../../server/web-assistant-request';
 import {
@@ -62,10 +62,13 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const stream = await toAiSdkStyleStream(
-      agentMessages,
-      resolveWebAssistantRuntime(payload.data, provider.apiKey)
-    );
+    const runtime = resolveWebAssistantRuntime(payload.data, provider.apiKey);
+    let stream: Awaited<ReturnType<typeof toAiSdkStyleStream>>;
+    try {
+      stream = await toAiSdkStyleStream(agentMessages, runtime);
+    } catch (error) {
+      return createStreamInitializationFailureResponse(error);
+    }
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
@@ -244,22 +247,17 @@ function createErrorResponse(err: unknown): Response {
       status: 400,
     });
   }
-  if (isMastraAgentError(err)) {
-    logger.error('Failed to initialize chat stream', { code: err.code, error: err.message });
-    return new Response(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      }),
-      {
-        headers: JSON_ERROR_HEADERS,
-        status: 502,
-      }
-    );
-  }
   return new Response(JSON.stringify({ error: 'Failed to process chat request' }), {
     headers: JSON_ERROR_HEADERS,
     status: 500,
+  });
+}
+
+function createStreamInitializationFailureResponse(error: unknown): Response {
+  logger.error('Failed to initialize chat stream', { error });
+  return new Response(JSON.stringify(WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
   });
 }
 

@@ -21,6 +21,14 @@ export interface WebAssistantInputError {
   status: 400 | 413;
 }
 
+export const WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE = {
+  payload: {
+    error: 'agent_stream_init_failed',
+    message: 'Assistant stream initialization failed',
+  },
+  status: 502,
+} as const;
+
 export interface WebAssistantNormalTurn {
   agentMessages: AgentMessage[];
   payload: AssistantRequestPayload;
@@ -57,14 +65,15 @@ function resolveNormalTurn(payload: AssistantRequestPayload): WebAssistantNormal
     throw new EmptyAssistantPromptError();
   }
 
-  const agentMessages = convertAssistantUiMessages(payload.rawMessages);
-  const lastMessage = agentMessages.at(-1);
-  const hasNonEmptyText = lastMessage?.parts.some(
+  const finalAgentMessage = convertAssistantUiMessages(payload.rawMessages.slice(-1)).at(-1);
+  const hasNonEmptyText = finalAgentMessage?.parts.some(
     (part) => part.type === 'text' && part.text.trim().length > 0
   );
-  if (lastMessage?.role !== 'user' || !hasNonEmptyText) {
+  if (finalAgentMessage?.role !== 'user' || !hasNonEmptyText) {
     throw new EmptyAssistantPromptError();
   }
+
+  const agentMessages = convertAssistantUiMessages(payload.rawMessages);
   return { agentMessages, payload };
 }
 
