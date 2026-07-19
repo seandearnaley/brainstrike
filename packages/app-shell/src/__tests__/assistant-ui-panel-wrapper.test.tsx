@@ -1057,7 +1057,7 @@ describe('AssistantUiPanelWrapper', () => {
       });
     });
 
-    expect(fileExplorerMocks.clearSelectionRules).toHaveBeenCalledTimes(1);
+    expect(fileExplorerMocks.resetSelectionToExplicit).toHaveBeenCalledTimes(1);
     expect(fileExplorerMocks.setSelectedFiles).toHaveBeenCalledTimes(1);
     const nextSelection = fileExplorerMocks.setSelectedFiles.mock.calls[0]?.[0] as
       | Set<string>

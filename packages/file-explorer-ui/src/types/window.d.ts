@@ -7,7 +7,7 @@ interface FileExplorerTestSnapshot {
   rootDirectoryPath: string | null;
   selectedFilePathCount: number;
   selectedFilePathSamples: string[];
-  selectionMode: 'explicit' | 'query' | 'rules';
+  selectionMode: 'explicit' | 'query';
   treeRootCount: number;
   treeSamples: Array<{
     childCount: number;

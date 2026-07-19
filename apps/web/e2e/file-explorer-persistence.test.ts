@@ -275,7 +275,6 @@ async function seedPersistedSelectionState(
         materializedPaths: null,
         mode: 'explicit',
         queryDescriptor: null,
-        ruleSetJson: null,
       };
       const folderState = {
         excludeFilters: [],

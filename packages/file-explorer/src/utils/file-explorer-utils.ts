@@ -47,9 +47,6 @@ export const getFocusedSelectionCount = (
       0
     );
   }
-  if (state.selectionModel.mode === 'rules' && state.selectionModel.materializedPaths) {
-    return state.selectionModel.materializedPaths.size;
-  }
   return state.selectedFilePaths.size;
 };
 
@@ -69,10 +66,8 @@ export const getUnionSelectionCount = (
  * Query mode: the manifest lives in TOP-LEVEL state owned by the focused
  * root, so the snapshot would otherwise be an empty key set with a dead
  * manifest reference — materialize AND degrade the model to explicit.
- * Rules mode: the model itself carries the rule set + materializedPaths
- * (relative), so KEEP the model (the user's rules must survive refocus) and
- * only materialize the keys. Single-root keeps both models untouched: the
- * query resolver rebuilds its manifest from the persisted snapshotId.
+ * Single-root keeps the model untouched: the query resolver rebuilds its
+ * manifest from the persisted snapshotId.
  */
 function materializeSnapshotSelection(
   state: FileExplorerData,
@@ -95,13 +90,6 @@ function materializeSnapshotSelection(
       ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
     }
     return { ...createEmptySelectionModel(), explicitPaths: new Set(ownKeys) };
-  }
-  if (mode === 'rules' && state.selectionModel.materializedPaths) {
-    // materializedPaths are RELATIVE — encode them exactly like the selection
-    // manager does (encodeFileSelection shape) so keys are comparable.
-    for (const relativePath of state.selectionModel.materializedPaths) {
-      ownKeys.add(relativePath.includes('|@|') ? relativePath : `${folderId}|@|${relativePath}`);
-    }
   }
   return snapshotModel;
 }

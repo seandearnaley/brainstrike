@@ -15,7 +15,7 @@ Use `@brainstrike/file-explorer-ui/shell` for cross-package imports. `file-explo
 
 ## Allowed dependencies
 
-Allowed inward dependencies are tree, preview, indexing, file-explorer core, file-system, storage, selection-rules, shared UI, shared hooks, and React. Shell should not import app-shell, desktop, web, or assistant runtime internals.
+Allowed inward dependencies are tree, preview, indexing, file-explorer core, file-system, storage, shared UI, shared hooks, and React. Shell should not import app-shell, desktop, web, or assistant runtime internals.
 
 ## Focused local test
 

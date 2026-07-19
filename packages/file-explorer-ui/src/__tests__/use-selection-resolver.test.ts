@@ -61,7 +61,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 600,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -105,7 +104,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 600,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn(),
     };
@@ -151,7 +149,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 1,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn(),
     };
@@ -194,7 +191,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -251,7 +247,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 3,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -308,7 +303,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -357,7 +351,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 1,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn(),
     };
@@ -407,7 +400,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -458,7 +450,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -543,7 +534,6 @@ describe('useSelectionResolver', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;

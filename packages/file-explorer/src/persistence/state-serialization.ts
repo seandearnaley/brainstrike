@@ -176,7 +176,6 @@ function serializeSelectionModel(model: SelectionModel): SerializedSelectionMode
     materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
     mode: model.mode,
     queryDescriptor: model.queryDescriptor,
-    ruleSetJson: model.ruleSetJson,
   };
 }
 
@@ -197,22 +196,33 @@ function deserializeSelectionModel(
   if (shouldWarnOnMalformedQueryDescriptor) {
     logger.warn('Dropping malformed persisted query selection descriptor during deserialization');
   }
-  const mode =
-    serialized.mode === 'rules'
-      ? 'rules'
-      : serialized.mode === 'query' && queryDescriptor
-        ? 'query'
-        : 'explicit';
+  // Legacy migration: profiles persisted before the rules-based selection
+  // feature was removed can carry mode 'rules'. Rules mode always synced its
+  // materialized selection into selectedFilePaths at save time, so degrading
+  // the model to explicit preserves the user's effective selection.
+  if ((serialized as { mode?: unknown }).mode === 'rules') {
+    logger.warn(
+      'Persisted selection model uses removed rules mode; migrating to explicit selection'
+    );
+  }
+  const mode = serialized.mode === 'query' && queryDescriptor ? 'query' : 'explicit';
+
+  // The materialized-path cache (and its timestamp) is a query-mode display
+  // artifact — nothing in explicit mode reads it. Drop it whenever we resolve
+  // to explicit so migrated legacy 'rules' profiles (and any stray explicit
+  // model that carried a cache) converge to a clean explicit shape instead of
+  // re-persisting dead data on every save.
+  const isQueryMode = mode === 'query';
 
   return {
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
-    materializedAt: serialized.materializedAt ?? null,
-    materializedPaths: serialized.materializedPaths
-      ? new Set(coerceStringArray(serialized.materializedPaths))
-      : null,
+    materializedAt: isQueryMode ? (serialized.materializedAt ?? null) : null,
+    materializedPaths:
+      isQueryMode && serialized.materializedPaths
+        ? new Set(coerceStringArray(serialized.materializedPaths))
+        : null,
     mode,
     queryDescriptor,
-    ruleSetJson: serialized.ruleSetJson ?? null,
   };
 }
 

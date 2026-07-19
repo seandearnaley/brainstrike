@@ -13,7 +13,7 @@ import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
-import { createNewFolderState, getForeignSelectionCount } from '../utils/file-explorer-utils';
+import { createNewFolderState } from '../utils/file-explorer-utils';
 
 // Combine all action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &
@@ -42,9 +42,7 @@ describe('useFileExplorerStore Actions Integration', () => {
     clearFileContents: vi.fn(),
     clearQuickFilter: vi.fn(),
     clearSelectedFiles: vi.fn(),
-    clearSelectionRules: vi.fn(),
     collapseAllDirectories: vi.fn(),
-    commitRulesToExplicit: vi.fn(),
     currentFolderId: null,
     evictOldFileContents: vi.fn(),
     expandAllDirectories: vi.fn(),
@@ -58,6 +56,7 @@ describe('useFileExplorerStore Actions Integration', () => {
     removeActiveRoot: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
     removeSelectedFile: vi.fn(),
+    resetSelectionToExplicit: vi.fn(),
     selectedFilePaths: new Set<string>(),
     setActiveRoots: vi.fn(),
     // Add mock implementations for all actions
@@ -75,14 +74,12 @@ describe('useFileExplorerStore Actions Integration', () => {
     setIsAccessLoading: vi.fn(),
     setLastActiveTab: vi.fn(),
     setMainRoot: vi.fn(),
-    setMaterializedPaths: vi.fn(),
     setMaxSelectionCount: vi.fn(),
     setQuerySelection: vi.fn(),
     setQuerySelectionManifest: vi.fn(),
     setQuickFilter: vi.fn(),
     setSelectedFiles: vi.fn(),
     setSelectionMode: vi.fn(),
-    setSelectionRules: vi.fn(),
     setTokenBudget: vi.fn(),
     setUseRegex: vi.fn(),
     setViewFilterPresetId: vi.fn(),
@@ -448,7 +445,6 @@ describe('useFileExplorerStore Actions Integration', () => {
           materializedPaths: null,
           mode: 'query',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
       });
 
@@ -460,59 +456,6 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(snapshot?.selectionModel.explicitPaths).toEqual(
         new Set([keyA('/a/x.ts'), keyA('/a/y.ts')])
       );
-    });
-
-    it('focus switch materializes RULES selections into the snapshot keys but KEEPS the rules model', () => {
-      // Rules carry the user's rule set inside the model — destroying it on
-      // focus switch would silently delete their rules. The snapshot keys are
-      // still materialized so foreign counts/budgets/root checkboxes see the
-      // selection (folderState.selectedFilePaths is the counts contract).
-      store.setState({
-        selectionModel: {
-          explicitPaths: new Set<string>(),
-          materializedAt: '2026-06-12T00:00:00Z',
-          materializedPaths: new Set(['src/a.ts', 'src/b.ts']),
-          mode: 'rules',
-          queryDescriptor: null,
-          ruleSetJson: '{"include":["*.ts"]}',
-        },
-      });
-
-      store.setCurrentFolderId(ROOT_B);
-
-      const snapshot = store.getState().folderStates[ROOT_A];
-      expect(snapshot?.selectionModel.mode).toBe('rules');
-      expect(snapshot?.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
-      expect(snapshot?.selectedFilePaths).toEqual(new Set([keyA('src/a.ts'), keyA('src/b.ts')]));
-      // The foreign budget now SEES the rules selection.
-      expect(
-        getForeignSelectionCount({
-          activeRootIds: [ROOT_A, ROOT_B],
-          currentFolderId: ROOT_B,
-          folderStates: store.getState().folderStates,
-        })
-      ).toBe(2);
-    });
-
-    it('refocusing a root with a rules snapshot restores the RULES model intact', () => {
-      store.setState({
-        selectionModel: {
-          explicitPaths: new Set<string>(),
-          materializedAt: '2026-06-12T00:00:00Z',
-          materializedPaths: new Set(['src/a.ts']),
-          mode: 'rules',
-          queryDescriptor: null,
-          ruleSetJson: '{"include":["*.ts"]}',
-        },
-      });
-      store.setCurrentFolderId(ROOT_B);
-
-      store.setCurrentFolderId(ROOT_A);
-
-      const s = store.getState();
-      expect(s.selectionModel.mode).toBe('rules');
-      expect(s.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
-      expect(s.selectionModel.materializedPaths).toEqual(new Set(['src/a.ts']));
     });
 
     it('hydrating a stale query-mode snapshot in forest mode degrades it to explicit', () => {
@@ -531,7 +474,6 @@ describe('useFileExplorerStore Actions Integration', () => {
               materializedPaths: null,
               mode: 'query',
               queryDescriptor: null,
-              ruleSetJson: null,
             },
           },
         },

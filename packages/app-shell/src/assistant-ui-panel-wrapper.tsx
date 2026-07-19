@@ -472,7 +472,7 @@ export function AssistantUiPanelWrapper({
   const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
     (s) => s.removeMultipleSelectedFiles
   );
-  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
+  const resetSelectionToExplicit = useFileExplorerStoreSelector((s) => s.resetSelectionToExplicit);
   const { effectiveSelection } = useSelectionManager();
   const effectiveSelectionRef = useRef(effectiveSelection);
   const workspaceContextSnapshot = useWorkspaceContextCurationStore(
@@ -563,16 +563,16 @@ export function AssistantUiPanelWrapper({
         return;
       }
 
-      clearSelectionRules();
+      resetSelectionToExplicit();
       setSelectedFiles(
         computeReplacedSelection(effectiveSelectionRef.current, targetFolderId, normalizedPaths)
       );
     },
     [
       addMultipleSelectedFiles,
-      clearSelectionRules,
       pathToClientRootId,
       removeMultipleSelectedFiles,
+      resetSelectionToExplicit,
       setSelectedFiles,
     ]
   );

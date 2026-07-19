@@ -86,7 +86,7 @@ interface SelectionResolverStoreState {
     explicitPaths: Set<string>;
     materializedAt: string | null;
     materializedPaths: Set<string> | null;
-    mode: 'explicit' | 'query' | 'rules';
+    mode: 'explicit' | 'query';
     queryDescriptor: {
       coveredDirectoryPaths: string[];
       excludeFilters: string[];
@@ -101,7 +101,6 @@ interface SelectionResolverStoreState {
       totalSelectedCount: number;
       useRegex: boolean;
     } | null;
-    ruleSetJson: string | null;
   };
   setQuerySelectionManifest: (
     manifest: ReturnType<typeof buildQuerySelectionManifest> | null
@@ -312,13 +311,6 @@ export function useSelectionResolver(): SelectionResolverState {
         querySelectionManifest.snapshotId === selectionModel.queryDescriptor.manifestSnapshotId
     );
 
-  const sortedMaterializedPaths = useMemo(() => {
-    if (!(selectionModel.materializedPaths && selectionModel.materializedPaths.size > 0)) {
-      return EMPTY_RELATIVE_PATHS;
-    }
-    return Array.from(selectionModel.materializedPaths).sort(defaultCollator.compare);
-  }, [selectionModel.materializedPaths]);
-
   const queryMaterializedFallbackPaths = useMemo(() => {
     const descriptor = selectionModel.queryDescriptor;
     if (!(selectionModel.mode === 'query' && descriptor)) {
@@ -337,9 +329,6 @@ export function useSelectionResolver(): SelectionResolverState {
   ]);
 
   const effectiveRelativePaths = useMemo(() => {
-    if (selectionModel.mode === 'rules') {
-      return sortedMaterializedPaths;
-    }
     if (selectionModel.mode === 'query') {
       if (!isQuerySelectionReady && queryMaterializedFallbackPaths.length > 0) {
         return queryMaterializedFallbackPaths;
@@ -352,7 +341,6 @@ export function useSelectionResolver(): SelectionResolverState {
     queryMaterializedFallbackPaths,
     resolvedQuerySelection.filePaths,
     selectionModel.mode,
-    sortedMaterializedPaths,
   ]);
 
   const effectiveSelection = useMemo(() => {
@@ -375,9 +363,6 @@ export function useSelectionResolver(): SelectionResolverState {
   const selectedCount = useMemo(() => {
     if (selectionModel.mode === 'query' && selectionModel.queryDescriptor) {
       return resolvedQuerySelection.selectedCount;
-    }
-    if (selectionModel.mode === 'rules') {
-      return effectiveRelativePaths.length;
     }
     return selectedFilePaths.size;
   }, [

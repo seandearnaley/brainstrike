@@ -21,7 +21,6 @@ export * from './restoration-status';
 export * from './scanning-status';
 export * from './selection-counter';
 export * from './selection-mode-badge';
-export * from './selection-rules-editor';
 export * from './shell';
 export * from './tapestry/types';
 export * from './tree';

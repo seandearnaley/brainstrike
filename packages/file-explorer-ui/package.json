@@ -11,7 +11,6 @@
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
-    "@brainstrike/selection-rules": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/token-cache": "workspace:*",

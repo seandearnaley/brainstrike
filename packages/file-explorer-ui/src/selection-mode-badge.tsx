@@ -1,15 +1,11 @@
 /**
- * SelectionModeBadge - Displays selection mode state and exposes a unified settings popover.
+ * SelectionModeBadge - Displays selection state and exposes a unified settings popover.
  *
  * In wide layouts it can render as the legacy badge trigger.
  * In compact layouts it can render as a settings button that keeps the footer narrow.
  */
 
-import {
-  MAX_SELECTION_COUNT,
-  MIN_MAX_SELECTION_COUNT,
-  type SelectionMode,
-} from '@brainstrike/types';
+import { MAX_SELECTION_COUNT, MIN_MAX_SELECTION_COUNT } from '@brainstrike/types';
 import {
   Badge,
   Button,
@@ -23,10 +19,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { BookOpen, Check, CheckSquare, Settings2, Sparkles, X } from 'lucide-react';
-import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, CheckSquare, Settings2, X } from 'lucide-react';
+import { memo, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
-import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';
 
 export interface SelectionModeBadgeProps {
   compactValue?: {
@@ -35,10 +30,6 @@ export interface SelectionModeBadgeProps {
   };
   maxSelectionCount?: number;
   onMaxSelectionCountChange?: ((count: number) => void) | undefined;
-  /** Callback when rules editor should be opened */
-  onOpenRulesEditor?: () => void;
-  /** Whether the rules editor is available */
-  rulesEditorAvailable?: boolean;
   /** Whether to show the badge (handles conditional rendering internally) */
   show?: boolean;
   triggerVariant?: 'badge' | 'icon';
@@ -47,111 +38,28 @@ export interface SelectionModeBadgeProps {
 interface SelectionSettingsPanelProps {
   draft: string;
   error: string | null;
-  hasRules: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
-  isRulesMode: boolean;
-  materializedCount: number;
   maxSelectionCount: number | undefined;
-  onClearRules: () => void;
   onDraftChange: (value: string) => void;
   onMaxSelectionCountChange?: ((count: number) => void) | undefined;
-  onModeChange: (mode: SelectionMode) => void;
-  onOpenEditor: () => void;
   onSubmitMaxSelectionCount: () => void;
   onToggleOpen: (open: boolean) => void;
-  rulesEditorAvailable: boolean;
 }
 
 const SelectionSettingsPanel = ({
   draft,
   error,
-  hasRules,
   inputRef,
-  isRulesMode,
-  materializedCount,
   maxSelectionCount,
-  onClearRules,
   onDraftChange,
   onMaxSelectionCountChange,
-  onModeChange,
-  onOpenEditor,
   onSubmitMaxSelectionCount,
   onToggleOpen,
-  rulesEditorAvailable,
 }: SelectionSettingsPanelProps) => (
   <div className="space-y-4">
     <div className="space-y-1">
       <h4 className="font-medium text-sm">Selection Settings</h4>
-      <p className="text-muted-foreground text-xs">
-        Tune bulk selection and switch between manual and rules-driven workflows.
-      </p>
-    </div>
-
-    <div className="space-y-2">
-      <div className="space-y-1">
-        <p className="font-medium text-xs">Mode</p>
-        <div className="grid grid-cols-1 gap-2">
-          <Button
-            className={cn(
-              'h-auto w-full justify-start px-3 py-2',
-              !isRulesMode && 'border-primary bg-primary/10'
-            )}
-            onClick={() => onModeChange('explicit')}
-            variant="outline"
-          >
-            <CheckSquare className="mr-2 h-4 w-4" />
-            <div className="min-w-0 text-left">
-              <div className="font-medium text-sm">Manual Selection</div>
-              <div className="text-[11px] text-muted-foreground">Pick files yourself.</div>
-            </div>
-          </Button>
-
-          <Button
-            className={cn(
-              'h-auto w-full justify-start px-3 py-2',
-              isRulesMode && 'border-primary bg-primary/10'
-            )}
-            disabled={!(rulesEditorAvailable || hasRules)}
-            onClick={() => onModeChange('rules')}
-            variant="outline"
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            <div className="min-w-0 text-left">
-              <div className="font-medium text-sm">Rules-Based Selection</div>
-              <div className="text-[11px] text-muted-foreground">Auto-match glob rules.</div>
-            </div>
-          </Button>
-        </div>
-      </div>
-
-      {(isRulesMode || hasRules) && (
-        <div className="space-y-1 border-t pt-3">
-          <p className="font-medium text-xs">Rules</p>
-          <div className="flex gap-2">
-            {rulesEditorAvailable && (
-              <Button className="flex-1" onClick={onOpenEditor} size="sm" variant="outline">
-                <BookOpen className="mr-1.5 h-3 w-3" />
-                {hasRules ? 'Edit Rules' : 'Create Rules'}
-              </Button>
-            )}
-            {hasRules && (
-              <Button
-                className="flex-1 text-destructive hover:text-destructive"
-                onClick={onClearRules}
-                size="sm"
-                variant="ghost"
-              >
-                Clear Rules
-              </Button>
-            )}
-          </div>
-          {isRulesMode && materializedCount > 0 && (
-            <p className="text-[10px] text-muted-foreground">
-              {materializedCount} file{materializedCount === 1 ? '' : 's'} selected by current rules
-            </p>
-          )}
-        </div>
-      )}
+      <p className="text-muted-foreground text-xs">Tune bulk selection limits.</p>
     </div>
 
     {typeof maxSelectionCount === 'number' && (
@@ -239,24 +147,9 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   compactValue,
   maxSelectionCount,
   onMaxSelectionCountChange,
-  onOpenRulesEditor,
-  rulesEditorAvailable = true,
   show = true,
   triggerVariant = 'badge',
 }) {
-  // FIX: React Compiler + multiple selectors + optional chaining on Set causes React #311
-  // in Electron production builds. Solution: select entire selectionModel object ONCE
-  // (same pattern used successfully by SelectionRulesEditor), then derive values in render.
-  // This avoids multiple useSyncExternalStore subscriptions updating simultaneously.
-  const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
-  const setSelectionMode = useFileExplorerStoreSelector((s) => s.setSelectionMode);
-  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
-
-  // Derive values from selectionModel in render (not in selectors)
-  const isRulesMode = selectionModel.mode === 'rules';
-  const materializedCount = selectionModel.materializedPaths?.size ?? 0;
-  const hasRules = !!selectionModel.ruleSetJson;
-
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<string>(String(maxSelectionCount ?? ''));
   const [error, setError] = useState<string | null>(null);
@@ -292,23 +185,6 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
     [maxSelectionCount]
   );
 
-  const handleModeChange = useCallback(
-    (newMode: SelectionMode) => {
-      setSelectionMode(newMode);
-    },
-    [setSelectionMode]
-  );
-
-  const handleClearRules = useCallback(() => {
-    clearSelectionRules();
-    setIsOpen(false);
-  }, [clearSelectionRules]);
-
-  const handleOpenEditor = useCallback(() => {
-    setIsOpen(false);
-    onOpenRulesEditor?.();
-  }, [onOpenRulesEditor]);
-
   const handleDraftChange = useCallback((value: string) => {
     setDraft(value);
     setError(null);
@@ -339,34 +215,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
     setIsOpen(false);
   }, [draft, onMaxSelectionCountChange]);
 
-  const tooltipText = useMemo(() => {
-    if (triggerVariant === 'icon') {
-      return isRulesMode
-        ? `Selection settings. Rules are active for ${materializedCount} files.`
-        : 'Selection settings.';
-    }
-
-    return isRulesMode
-      ? `Rules-based selection (${materializedCount} files matched)`
-      : 'Manual selection mode';
-  }, [isRulesMode, materializedCount, triggerVariant]);
-
-  const badgeContent = isRulesMode ? (
-    <>
-      <Sparkles className="mr-1 h-3 w-3" />
-      <span className="text-xs">Rules</span>
-      {materializedCount > 0 && (
-        <span className="ml-1 rounded-full bg-primary/20 px-1.5 text-[10px] tabular-nums">
-          {materializedCount}
-        </span>
-      )}
-    </>
-  ) : (
-    <>
-      <CheckSquare className="mr-1 h-3 w-3" />
-      <span className="text-xs">Manual</span>
-    </>
-  );
+  const tooltipText = triggerVariant === 'icon' ? 'Selection settings.' : 'Manual selection mode';
 
   if (!show) {
     return null;
@@ -385,10 +234,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
                       ? `Selection settings. ${compactValue.accessibleLabel}`
                       : 'Selection settings'
                   }
-                  className={cn(
-                    compactValue && 'text-[10px] tabular-nums',
-                    isRulesMode && 'border-primary bg-primary/10 text-primary hover:bg-primary/15'
-                  )}
+                  className={cn(compactValue && 'text-[10px] tabular-nums')}
                   data-testid="selection-settings-button"
                   size="icon-xs"
                   variant="outline"
@@ -404,9 +250,10 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
                 <Badge
                   className="flex h-7 cursor-pointer items-center gap-1 px-2 transition-colors hover:bg-accent"
                   data-testid="selection-mode-badge"
-                  variant={isRulesMode ? 'default' : 'outline'}
+                  variant="outline"
                 >
-                  {badgeContent}
+                  <CheckSquare className="mr-1 h-3 w-3" />
+                  <span className="text-xs">Manual</span>
                 </Badge>
               )}
             </PopoverTrigger>
@@ -424,19 +271,12 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
         <SelectionSettingsPanel
           draft={draft}
           error={error}
-          hasRules={hasRules}
           inputRef={inputRef}
-          isRulesMode={isRulesMode}
-          materializedCount={materializedCount}
           maxSelectionCount={maxSelectionCount}
-          onClearRules={handleClearRules}
           onDraftChange={handleDraftChange}
           onMaxSelectionCountChange={onMaxSelectionCountChange}
-          onModeChange={handleModeChange}
-          onOpenEditor={handleOpenEditor}
           onSubmitMaxSelectionCount={commitMaxSelectionCount}
           onToggleOpen={setIsOpen}
-          rulesEditorAvailable={rulesEditorAvailable}
         />
       </PopoverContent>
     </Popover>

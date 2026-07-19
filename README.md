@@ -44,7 +44,6 @@ packages/
   file-explorer/      # Core file explorer state/logic
   file-explorer-ui/   # File explorer UI components
   file-explorer-hooks/# File explorer hooks
-  selection-rules/    # File selection rules engine + schema
   file-system/        # FS abstractions/adapters
   storage/            # Storage abstractions/adapters
   server-config/      # Server config utilities

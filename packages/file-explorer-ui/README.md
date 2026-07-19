@@ -6,10 +6,6 @@ React components for displaying and interacting with the file explorer state. Th
 
 The `FileTree` component uses a small in-house virtualization hook to render only the visible rows of very large trees. This dramatically improves performance when dealing with thousands of files.
 
-## Selection Rules
-
-`SelectionRulesEditor` provides a UI for building file selection logic. It uses the `@brainstrike/selection-rules` engine for validation and serialization.
-
 ## Installation
 
 This package ships as part of the Brainstrike Turborepo. Link it to another

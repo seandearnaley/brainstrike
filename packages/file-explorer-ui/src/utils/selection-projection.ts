@@ -180,10 +180,6 @@ export function isSelectionPathSelected(params: {
     );
   }
 
-  if (selectionModel.mode === 'rules') {
-    return selectionModel.materializedPaths?.has(path) ?? false;
-  }
-
   return currentFolderId ? isPathSelectedInFolder(selectedFilePaths, currentFolderId, path) : false;
 }
 
@@ -196,9 +192,6 @@ export function getSelectionCount(
     return resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest ?? null)
       .selectedCount;
   }
-  if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
-    return selectionModel.materializedPaths.size;
-  }
   return selectedFilePaths.size;
 }
 
@@ -209,14 +202,6 @@ export function materializeCompositeKeysForSelectionModel(params: {
   selectionModel: SelectionModel;
 }): Set<string> {
   const { currentFolderId, querySelectionManifest, selectedFilePaths, selectionModel } = params;
-
-  if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
-    const compositeKeys = new Set<string>();
-    for (const relativePath of selectionModel.materializedPaths) {
-      compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
-    }
-    return compositeKeys;
-  }
 
   if (selectionModel.mode === 'query' && currentFolderId) {
     const compositeKeys = new Set<string>();
