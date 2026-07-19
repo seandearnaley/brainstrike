@@ -12,7 +12,10 @@ vi.mock('electron', () => ({
 }));
 
 const { startParcelWatchMock } = vi.hoisted(() => ({
-  startParcelWatchMock: vi.fn(() => Promise.resolve(() => undefined)),
+  startParcelWatchMock: vi.fn((...args: unknown[]) => {
+    void args;
+    return Promise.resolve(() => undefined);
+  }),
 }));
 vi.mock('../adapters/parcel-watchers', () => ({
   startParcelWatch: startParcelWatchMock,
@@ -81,6 +84,35 @@ describe('watchDirectory backend routing', () => {
     const stop = adapter.watchDirectory(makeHandle(), vi.fn());
     expect(startParcelWatchMock).not.toHaveBeenCalled();
     stop();
+  });
+
+  it('passes onHealth through to the parcel engine', async () => {
+    process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'parcel';
+    const adapter = new ElectronFileSystemAdapter();
+    const onHealth = vi.fn();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), { onHealth });
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    const options = startParcelWatchMock.mock.calls[0]?.[2] as { onHealth?: unknown } | undefined;
+    expect(options?.onHealth).toBe(onHealth);
+    stop();
+  });
+
+  const itOnDarwin = process.platform === 'darwin' ? it : it.skip;
+  itOnDarwin('synthesizes coarse legacy health on the darwin native path', () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const health: Array<{ backend: string; state: string }> = [];
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), {
+      onHealth: (event) => health.push(event),
+    });
+    expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
+    expect(health[0]?.backend).toBe('legacy-fs-watch');
+    stop();
+    expect(health.map((event) => event.state)).toEqual(['starting', 'healthy', 'stopped']);
+    stop();
+    expect(health).toHaveLength(3);
   });
 
   it('throws synchronously on a malformed backend value', () => {

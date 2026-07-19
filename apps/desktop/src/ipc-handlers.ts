@@ -66,9 +66,10 @@ export function registerIpcHandlers(
     storage,
   });
   const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
-    // Chokidar-backed recursive watcher (batched, ignoreInitial, path-filtered)
-    // — the same engine the notes-vault watch channel uses.
-    startWatch: (directoryPath, onChanges) =>
+    // Recursive watcher (batched, ignoreInitial, path-filtered) — the same
+    // engine the notes-vault watch channel uses. Health transitions flow back
+    // over fs:watch-health (BST-568 slice 3).
+    startWatch: (directoryPath, onChanges, onHealth) =>
       fileSystem.watchDirectory(
         {
           kind: 'directory',
@@ -76,7 +77,8 @@ export function registerIpcHandlers(
           path: directoryPath,
           platform: 'electron',
         },
-        onChanges
+        onChanges,
+        { onHealth }
       ),
   });
   const unregisterDatabaseIpcHandlers = registerDatabaseIpcHandlers(options);

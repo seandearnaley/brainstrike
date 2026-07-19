@@ -60,6 +60,9 @@ export const DESKTOP_IPC_CHANNELS = {
     unwatch: 'fs:unwatch',
     watch: 'fs:watch',
     watchEvent: 'fs:watch-event',
+    watchHealth: 'fs:watch-health',
+    watchRetry: 'fs:watch-retry',
+    watchTelemetry: 'fs:watch-telemetry',
   },
   git: {
     aheadBehind: 'git:aheadBehind',
