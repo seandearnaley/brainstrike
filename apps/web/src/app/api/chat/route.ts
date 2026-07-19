@@ -1,6 +1,10 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import {
+  AssistantAttachmentValidationError,
+  AssistantInvalidJsonError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
+  assertAssistantMessageGraphWithinLimits,
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
   isMastraAgentError,
   readRequestBodyText,
@@ -84,6 +88,7 @@ export function __parseChatBodyForTests(body: unknown): {
     const issues = parsed.error.issues.map((issue) => formatZodIssue(issue));
     throw new Error(JSON.stringify({ code: 'invalid_body', issues }));
   }
+  assertAssistantMessageGraphWithinLimits(parsed.data.messages);
   return parsed.data as { messages: AgentMessage[]; data?: RuntimeData };
 }
 
@@ -275,7 +280,7 @@ function parseJsonRequestBody(body: string): unknown {
   try {
     return JSON.parse(body || '{}') as unknown;
   } catch {
-    return {};
+    throw new AssistantInvalidJsonError();
   }
 }
 
@@ -297,6 +302,22 @@ function createErrorResponse(err: unknown): Response {
       headers: JSON_ERROR_HEADERS,
       status: 413,
     });
+  }
+  if (err instanceof AssistantInvalidJsonError || err instanceof AssistantMessageValidationError) {
+    return new Response(JSON.stringify({ error: err.code, message: err.message }), {
+      headers: JSON_ERROR_HEADERS,
+      status: 400,
+    });
+  }
+  if (err instanceof AssistantAttachmentValidationError) {
+    return new Response(
+      JSON.stringify({
+        error: 'invalid_attachment',
+        message: 'Assistant attachment payload is invalid.',
+        reason: err.reason,
+      }),
+      { headers: JSON_ERROR_HEADERS, status: 400 }
+    );
   }
   if (err instanceof InvalidWebAssistantRuntimeDataError) {
     return new Response(JSON.stringify({ error: 'invalid_runtime_data', message: err.message }), {

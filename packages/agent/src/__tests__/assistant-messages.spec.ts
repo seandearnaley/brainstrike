@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
+import {
+  AssistantMessageValidationError,
+  assertAssistantMessageGraphWithinLimits,
+  MAX_ASSISTANT_MESSAGE_ARRAY_ITEMS,
+  MAX_ASSISTANT_MESSAGE_GRAPH_NODES,
+  MAX_ASSISTANT_MESSAGE_STRING_CHARS,
+  MAX_ASSISTANT_MESSAGES,
+} from '../assistant-message-boundary';
 import type { AgentMessage, RuntimeData } from '../index';
 import { convertAssistantUiMessages, toAiSdkStyleStream } from '../index';
 
@@ -159,7 +166,7 @@ describe('convertAssistantUiMessages', () => {
         ],
         id: 42,
         parts: {
-          messages: [{ text: 'Hello world' }, { value: 7n }],
+          messages: [{ text: 'Hello world' }, { value: 7 }],
         },
         role: 'User',
         text: '  Hello world  ',
@@ -179,6 +186,78 @@ describe('convertAssistantUiMessages', () => {
       { text: 'false', type: 'text' },
       { text: '7', type: 'text' },
     ]);
+  });
+
+  it('rejects deeply nested message graphs before recursive normalization', () => {
+    let nested: Record<string, unknown> = { text: 'hello' };
+    for (let depth = 0; depth < 3000; depth += 1) {
+      nested = { content: nested };
+    }
+
+    expect(() =>
+      convertAssistantUiMessages([{ content: nested, id: 'deep-1', role: 'user' }])
+    ).toThrow(AssistantMessageValidationError);
+    expect(() =>
+      convertAssistantUiMessages([{ content: nested, id: 'deep-1', role: 'user' }])
+    ).toThrow('Assistant message payload exceeds the nesting depth limit.');
+  });
+
+  it('rejects cyclic object graphs but permits repeated JSON-safe values', () => {
+    const cyclic: Record<string, unknown> = { text: 'hello' };
+    cyclic['self'] = cyclic;
+
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits([{ content: cyclic, role: 'user' }])
+    ).toThrow('Assistant message payload contains a cyclic object graph.');
+
+    const shared = { text: 'shared' };
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits([{ children: [shared, shared], role: 'user' }])
+    ).not.toThrow();
+  });
+
+  it('rejects bigint because it cannot cross the JSON message boundary', () => {
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits([
+        { content: { value: 7n }, id: 'bigint-1', role: 'user' },
+      ])
+    ).toThrow('Assistant message payload contains an unsupported value.');
+  });
+
+  it('bounds message and part array cardinality before normalization', () => {
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits(
+        Array.from({ length: MAX_ASSISTANT_MESSAGES + 1 }, () => null)
+      )
+    ).toThrow('Assistant message payload exceeds the message count limit.');
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits([
+        {
+          parts: Array.from({ length: MAX_ASSISTANT_MESSAGE_ARRAY_ITEMS + 1 }, () => null),
+          role: 'user',
+        },
+      ])
+    ).toThrow('Assistant message payload exceeds the array item limit.');
+  });
+
+  it('bounds total message graph nodes even when each collection stays under its cap', () => {
+    const messages = Array.from({ length: MAX_ASSISTANT_MESSAGES }, () => ({
+      parts: Array.from({ length: 25 }, () => ({ text: 'x' })),
+      role: 'assistant',
+    }));
+
+    expect(messages.length * 53).toBeGreaterThan(MAX_ASSISTANT_MESSAGE_GRAPH_NODES);
+    expect(() => assertAssistantMessageGraphWithinLimits(messages)).toThrow(
+      'Assistant message payload exceeds the node count limit.'
+    );
+  });
+
+  it('bounds individual message strings', () => {
+    expect(() =>
+      assertAssistantMessageGraphWithinLimits([
+        { role: 'user', text: 'x'.repeat(MAX_ASSISTANT_MESSAGE_STRING_CHARS + 1) },
+      ])
+    ).toThrow('Assistant message payload contains an oversized string.');
   });
 
   it('does not extract assistant-ui part discriminators as prompt text', () => {

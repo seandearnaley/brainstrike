@@ -81,6 +81,58 @@ afterEach(() => {
 });
 
 describe('chat route schema', () => {
+  it('returns canonical typed 400 for malformed JSON', async () => {
+    const req = new Request('http://localhost/api/chat', {
+      body: '{"messages":[',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_json',
+      message: 'Request body must be valid JSON.',
+    });
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for deeply nested tool input before streaming', async () => {
+    let nested: Record<string, unknown> = { value: true };
+    for (let depth = 0; depth < 3000; depth += 1) {
+      nested = { content: nested };
+    }
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'm1',
+            parts: [
+              {
+                input: nested,
+                state: 'input-available',
+                type: 'tool-test',
+              },
+            ],
+            role: 'assistant',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message payload exceeds the nesting depth limit.',
+    });
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid bodies with 400', async () => {
     const req = new Request('http://localhost/api/chat', {
       body: JSON.stringify({ messages: [{ id: '', parts: [], role: 'user' }] }),

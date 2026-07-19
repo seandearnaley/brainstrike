@@ -81,6 +81,38 @@ describe('assistant route', () => {
     expect(await res.text()).toBe('resume');
   });
 
+  it('enforces the request body cap before resuming an existing session', async () => {
+    const createResponse = vi.fn(() => new Response('unexpected', { status: 200 }));
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse,
+    } as unknown as AssistantDataStreamSession);
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+    const req = new Request('http://localhost/api/assistant', {
+      body: stream,
+      duplex: 'half',
+      headers: {
+        'last-event-id': 'evt-1',
+      },
+      method: 'POST',
+    } as RequestInit & { duplex: 'half' });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toEqual({
+      error: 'request_body_too_large',
+      message: `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`,
+    });
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
   it('returns 503 when provider is disabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       apiKey: '',
@@ -125,6 +157,89 @@ describe('assistant route', () => {
     expect(payload).toEqual({
       error: 'invalid_json',
       message: 'Request body must be valid JSON.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 when the assistant message id is malformed', async () => {
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        messages: [{ role: 'user', text: 'hello' }],
+        unstable_assistantMessageId: 42,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message id must be a non-empty bounded string.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for a deeply nested message graph before normalization', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    let nested: Record<string, unknown> = { text: 'hello' };
+    for (let depth = 0; depth < 3000; depth += 1) {
+      nested = { content: nested };
+    }
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        messages: [{ content: nested, id: 'deep-1', role: 'user' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message payload exceeds the nesting depth limit.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for an invalid attachment', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        messages: [
+          {
+            content: [
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
     });
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });

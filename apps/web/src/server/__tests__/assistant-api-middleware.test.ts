@@ -97,4 +97,32 @@ describe('assistant API middleware request body limit', () => {
     });
     expect(next).not.toHaveBeenCalled();
   });
+
+  it('returns typed 400 for a malformed assistant message id', async () => {
+    const middleware = createAssistantApiMiddleware('dev');
+    const req = createRequest({});
+    req.url = '/api/assistant';
+    const res = new ResponseSink();
+    const next = vi.fn();
+    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+
+    req.emit(
+      'data',
+      Buffer.from(
+        JSON.stringify({
+          messages: [{ role: 'user', text: 'hello' }],
+          unstable_assistantMessageId: false,
+        })
+      )
+    );
+    req.emit('end');
+    await responsePromise;
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message id must be a non-empty bounded string.',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
 });

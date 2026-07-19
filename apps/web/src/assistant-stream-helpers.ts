@@ -1,5 +1,7 @@
 import type http from 'node:http';
 import {
+  AssistantAttachmentValidationError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
   type AssistantUiMessage,
   assistantDataStreamSessions,
@@ -122,17 +124,26 @@ export async function handleChatEndpoint(
     return;
   }
 
-  const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
-  const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = body?.data ?? undefined;
 
   let stream: AsyncIterable<StreamChunk>;
   try {
+    if (!Array.isArray(body?.messages)) {
+      throw new AssistantMessageValidationError('invalid-messages');
+    }
+    if (body.messages.length === 0) {
+      throw new AssistantMessageValidationError('empty-messages');
+    }
+    const rawMessages = body.messages as AssistantUiMessage[];
+    const agentMessages = convertAssistantUiMessages(rawMessages);
     stream = await toAiSdkStyleStream(
       agentMessages,
       resolveWebAssistantRuntime(data, provider.apiKey)
     );
   } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
     if (error instanceof InvalidWebAssistantRuntimeDataError) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
@@ -232,6 +243,9 @@ export async function handleAssistantEndpoint(
     });
   } catch (error) {
     removeAbortListeners();
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
     if (error instanceof InvalidWebAssistantRuntimeDataError) {
       res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
@@ -280,6 +294,32 @@ function sendAssistantDisabledResponse(
       reason: assistantStatusPayload(provider).reason,
     })
   );
+}
+
+function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
+  if (error instanceof AssistantMessageValidationError) {
+    res.writeHead(400, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
+    });
+    res.end(JSON.stringify({ error: error.code, message: error.message }));
+    return true;
+  }
+  if (error instanceof AssistantAttachmentValidationError) {
+    res.writeHead(400, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
+    });
+    res.end(
+      JSON.stringify({
+        error: 'invalid_attachment',
+        message: 'Assistant attachment payload is invalid.',
+        reason: error.reason,
+      })
+    );
+    return true;
+  }
+  return false;
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {

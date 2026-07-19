@@ -337,7 +337,7 @@ describe('assistant-stream-helpers', () => {
           provider: 'ollama',
           providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
         },
-        messages: [],
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       },
       res as unknown as http.ServerResponse
     );
@@ -364,7 +364,10 @@ describe('assistant-stream-helpers', () => {
 
     const res = new ResponseSink();
     await handleChatEndpoint(
-      { data: { mcpConfig: { servers: [] } }, messages: [] },
+      {
+        data: { mcpConfig: { servers: [] } },
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      },
       res as unknown as http.ServerResponse
     );
 
@@ -374,6 +377,75 @@ describe('assistant-stream-helpers', () => {
       message: 'Unsupported web assistant runtime field: mcpConfig',
     });
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing', {}, 'Assistant messages must be an array.'],
+    ['empty', { messages: [] }, 'Assistant chat requests must contain at least one message.'],
+  ])('returns typed 400 when chat messages are %s', async (_case, body, message) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(body, res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_messages',
+      message,
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for a deeply nested chat message graph', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    let nested: Record<string, unknown> = { text: 'hello' };
+    for (let depth = 0; depth < 3000; depth += 1) {
+      nested = { content: nested };
+    }
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      { messages: [{ content: nested, id: 'deep-1', role: 'user' }] },
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message payload exceeds the nesting depth limit.',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed 400 for an invalid assistant attachment', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [
+        {
+          content: [
+            {
+              data: 'data:application/pdf;base64,AAAA',
+              mediaType: 'application/pdf',
+              type: 'file',
+            },
+          ],
+          id: 'attachment-1',
+          role: 'user',
+        },
+      ],
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -387,7 +459,13 @@ describe('assistant-stream-helpers', () => {
     );
 
     const res = new ResponseSink();
-    await handleChatEndpoint({ data, messages: [] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      {
+        data,
+        messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      },
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({

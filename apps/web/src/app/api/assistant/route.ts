@@ -1,11 +1,15 @@
 import type {
   AgentMessage,
+  AssistantRequestPayload,
+  AssistantToolApprovalAction,
   AssistantUiMessageStrict as AssistantUiMessage,
   StreamChunk,
 } from '@brainstrike/agent';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
@@ -30,7 +34,16 @@ const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
 
+class EmptyAssistantPromptError extends Error {}
+
 export async function POST(req: Request): Promise<Response> {
+  let bodyText: string;
+  try {
+    bodyText = await readAssistantRequestBodyText(req);
+  } catch (error) {
+    return createAssistantRequestReadErrorResponse(error);
+  }
+
   const lastEventId = req.headers.get('last-event-id');
   const sessionFromResume = resolveDataStreamSession(lastEventId);
   if (sessionFromResume) {
@@ -39,28 +52,16 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  let rawMessages: AssistantUiMessage[];
-  let data: unknown;
-  let runConfig: unknown;
+  let payload: AssistantRequestPayload;
   try {
-    const body = await readRequestBodyText(req, assistantRequestBodyLimitBytes);
-    const payload = parseAssistantRequestPayloadText(body);
-    rawMessages = payload.rawMessages;
-    data = payload.data;
-    runConfig = payload.runConfig;
+    payload = parseAssistantRequestPayloadText(bodyText);
   } catch (error) {
-    if (error instanceof AssistantInvalidJsonError) {
-      return jsonError(400, error.code, error.message);
-    }
-    if (error instanceof AssistantRequestBodyTooLargeError) {
-      return jsonError(413, error.code, error.message);
-    }
-    throw error;
+    return createAssistantRequestReadErrorResponse(error);
   }
   // A tool-approval action resumes a SUSPENDED run (no new user turn). Validate
   // its shape here; the resume itself runs below with workflow storage, like the
   // desktop assistant server — no longer a 501 (web has in-process storage now).
-  const approvalResult = readToolApprovalRunConfigAction(runConfig);
+  const approvalResult = readToolApprovalRunConfigAction(payload.runConfig);
   if (approvalResult && 'invalid' in approvalResult) {
     return jsonError(
       400,
@@ -84,44 +85,19 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  // Only a normal turn carries user messages; the approval-resume path has none.
-  let agentMessages: AgentMessage[] = [];
-  if (!toolApprovalAction) {
-    agentMessages = convertAssistantUiMessages(rawMessages);
-    if (!hasNonEmptyAssistantPrompt(agentMessages)) {
-      return jsonError(400, 'empty_prompt');
-    }
-  }
-
-  let agentStream: AsyncIterable<StreamChunk>;
   try {
-    // The seam admits only explicit request metadata and resolves the trusted
-    // permission policy; server-only runtime fields fail visibly.
-    agentStream = await buildWebAssistantStream({
+    const agentMessages = resolveAgentMessages(payload.rawMessages, toolApprovalAction);
+    const agentStream = await initializeAssistantStream({
       agentMessages,
       apiKey: provider.apiKey,
-      data,
+      data: payload.data,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
+    const session = assistantDataStreamSessions.create(agentStream);
+    return session.createResponse();
   } catch (error) {
-    if (error instanceof InvalidWebAssistantRuntimeDataError) {
-      return jsonError(400, 'invalid_runtime_data', error.message);
-    }
-    logger.error('Failed to initialize assistant stream', { error });
-    return new Response(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      }),
-      {
-        headers: JSON_ERROR_HEADERS,
-        status: 502,
-      }
-    );
+    return createAssistantExecutionErrorResponse(error);
   }
-
-  const session = assistantDataStreamSessions.create(agentStream);
-  return session.createResponse();
 }
 
 function jsonError(status: number, error: string, message?: string): Response {
@@ -129,4 +105,88 @@ function jsonError(status: number, error: string, message?: string): Response {
     headers: JSON_ERROR_HEADERS,
     status,
   });
+}
+
+function createAssistantInputErrorResponse(error: unknown): Response | null {
+  if (error instanceof AssistantMessageValidationError) {
+    return jsonError(400, error.code, error.message);
+  }
+  if (error instanceof AssistantAttachmentValidationError) {
+    return new Response(
+      JSON.stringify({
+        error: 'invalid_attachment',
+        message: 'Assistant attachment payload is invalid.',
+        reason: error.reason,
+      }),
+      { headers: JSON_ERROR_HEADERS, status: 400 }
+    );
+  }
+  return null;
+}
+
+async function readAssistantRequestBodyText(req: Request): Promise<string> {
+  return await readRequestBodyText(req, assistantRequestBodyLimitBytes);
+}
+
+function createAssistantRequestReadErrorResponse(error: unknown): Response {
+  if (error instanceof AssistantInvalidJsonError) {
+    return jsonError(400, error.code, error.message);
+  }
+  if (error instanceof AssistantRequestBodyTooLargeError) {
+    return jsonError(413, error.code, error.message);
+  }
+  const inputErrorResponse = createAssistantInputErrorResponse(error);
+  if (inputErrorResponse) {
+    return inputErrorResponse;
+  }
+  throw error;
+}
+
+function resolveAgentMessages(
+  rawMessages: AssistantUiMessage[],
+  toolApprovalAction: AssistantToolApprovalAction | undefined
+): AgentMessage[] {
+  if (toolApprovalAction) {
+    return [];
+  }
+  const agentMessages = convertAssistantUiMessages(rawMessages);
+  if (!hasNonEmptyAssistantPrompt(agentMessages)) {
+    throw new EmptyAssistantPromptError();
+  }
+  return agentMessages;
+}
+
+async function initializeAssistantStream(options: {
+  agentMessages: AgentMessage[];
+  apiKey: string;
+  data: unknown;
+  toolApprovalAction?: AssistantToolApprovalAction;
+}): Promise<AsyncIterable<StreamChunk>> {
+  // The seam admits only explicit request metadata and resolves the trusted
+  // permission policy; server-only runtime fields fail visibly.
+  return await buildWebAssistantStream(options);
+}
+
+function createAssistantExecutionErrorResponse(error: unknown): Response {
+  if (error instanceof EmptyAssistantPromptError) {
+    return jsonError(400, 'empty_prompt');
+  }
+  const inputErrorResponse = createAssistantInputErrorResponse(error);
+  if (inputErrorResponse) {
+    return inputErrorResponse;
+  }
+  if (error instanceof InvalidWebAssistantRuntimeDataError) {
+    return jsonError(400, 'invalid_runtime_data', error.message);
+  }
+  logger.error('Failed to initialize assistant stream', { error });
+  return new Response(
+    JSON.stringify({
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed',
+    }),
+    {
+      headers: JSON_ERROR_HEADERS,
+      status: 502,
+    }
+  );
 }

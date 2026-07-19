@@ -63,7 +63,7 @@ export interface AgentMessage {
   role: 'user' | 'assistant' | 'system';
 }
 
-export type AssistantUiScalar = string | number | bigint | boolean | null;
+export type AssistantUiScalar = string | number | boolean | null;
 
 export interface AssistantUiNodeObject {
   children?: AssistantUiNode;

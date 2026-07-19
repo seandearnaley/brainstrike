@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AssistantMessageValidationError } from '../assistant-message-boundary';
 import {
   AssistantInvalidJsonError,
   AssistantRequestBodyLimitConfigError,
@@ -132,8 +133,8 @@ describe('assistant request helpers', () => {
     });
   });
 
-  it('ignores non-array messages while preserving data and run config', () => {
-    expect(
+  it('rejects a non-array messages field instead of silently dropping it', () => {
+    expect(() =>
       parseAssistantRequestPayloadText(
         JSON.stringify({
           data: { provider: 'openai' },
@@ -141,16 +142,25 @@ describe('assistant request helpers', () => {
           runConfig: false,
         })
       )
-    ).toEqual({
-      data: { provider: 'openai' },
-      rawMessages: [],
-      runConfig: false,
-    });
+    ).toThrow(AssistantMessageValidationError);
   });
 
   it('throws a typed invalid-json error for malformed request JSON', () => {
     expect(() => parseAssistantRequestPayloadText('{')).toThrow(AssistantInvalidJsonError);
     expect(() => parseAssistantRequestPayloadText('{')).toThrow('Request body must be valid JSON.');
+  });
+
+  it('throws a typed message validation error for an invalid assistant message id', () => {
+    const parseInvalidId = () =>
+      parseAssistantRequestPayloadText(
+        JSON.stringify({
+          messages: [{ role: 'user', text: 'hello' }],
+          unstable_assistantMessageId: 42,
+        })
+      );
+
+    expect(parseInvalidId).toThrow(AssistantMessageValidationError);
+    expect(parseInvalidId).toThrow('Assistant message id must be a non-empty bounded string.');
   });
 
   it('detects whether the latest assistant prompt has non-empty text', () => {

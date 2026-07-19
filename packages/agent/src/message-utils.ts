@@ -5,6 +5,7 @@ import {
   dataUrlByteLength,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
+import { assertAssistantMessageGraphWithinLimits } from './assistant-message-boundary';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
 import { createRandomId } from './stream/data-stream';
@@ -166,7 +167,7 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
       pushText(value);
       return;
     }
-    if (typeof value === 'number' || typeof value === 'bigint') {
+    if (typeof value === 'number') {
       pushText(String(value));
       return;
     }
@@ -179,7 +180,6 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     value === null ||
     typeof value === 'string' ||
     typeof value === 'number' ||
-    typeof value === 'bigint' ||
     typeof value === 'boolean';
 
   const visitArray = (nodes: readonly AssistantUiNode[]): void => {
@@ -286,6 +286,7 @@ export function convertAssistantUiMessages(
 export function convertAssistantUiMessages(
   messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
 ): AgentMessage[] {
+  assertAssistantMessageGraphWithinLimits(messages);
   const converted: AgentMessage[] = [];
   for (const message of messages) {
     const agentMessage = toAgentMessage(message);

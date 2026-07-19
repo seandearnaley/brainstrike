@@ -67,7 +67,19 @@
     declared and streamed/chunked overflow is byte-counted before JSON parsing
     and fails visibly with `request_body_too_large` / HTTP 413 while the Node
     stream drains. Malformed JSON fails without logging its value as
-    `invalid_json` / HTTP 400.
+    `invalid_json` / HTTP 400. Before recursive assistant-ui compatibility
+    normalization, the shared iterative message boundary caps message and part
+    counts, graph nodes/depth, object fields, and string sizes. It rejects
+    cycles, non-plain objects, and non-JSON scalars (including bigint and
+    non-finite numbers) while permitting `undefined` for optional in-memory
+    fields. Violations fail as `invalid_messages` / HTTP 400. Chat requests
+    require at least one message, and assistant resume requests consume the
+    bounded body before session lookup so reconnects cannot bypass the cap.
+    Attachment validation failures likewise return a safe
+    `invalid_attachment` / HTTP 400 response. Wire-compatible provider/model/tool
+    hints are strictly bounded and validated before they are discarded,
+    including iterative depth/cardinality/string/number limits for arbitrary
+    provider options.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

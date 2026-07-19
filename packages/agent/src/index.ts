@@ -5,6 +5,8 @@ export {
   ASSISTANT_EDIT_CHECKPOINT_OPS,
   ASSISTANT_EDIT_CHECKPOINT_REVERTIBLE_STATUSES,
   ASSISTANT_TASK_STATUSES,
+  AssistantAttachmentValidationError,
+  type AssistantAttachmentValidationReason,
   type AssistantCheckpointRevertResult,
   type AssistantCheckpointRevertRunResult,
   type AssistantEditCheckpointCaptureStatus,
@@ -76,6 +78,18 @@ export {
 } from '@brainstrike/assistant-contract/tool-suspend';
 export type { WorkspaceSkills } from '@mastra/core/skills';
 export { formatSkillActivation } from '@mastra/core/workspace';
+export {
+  AssistantMessageValidationError,
+  type AssistantMessageValidationReason,
+  assertAssistantMessageGraphWithinLimits,
+  MAX_ASSISTANT_MESSAGE_ARRAY_ITEMS,
+  MAX_ASSISTANT_MESSAGE_GRAPH_DEPTH,
+  MAX_ASSISTANT_MESSAGE_GRAPH_NODES,
+  MAX_ASSISTANT_MESSAGE_ID_CHARS,
+  MAX_ASSISTANT_MESSAGE_OBJECT_FIELDS,
+  MAX_ASSISTANT_MESSAGE_STRING_CHARS,
+  MAX_ASSISTANT_MESSAGES,
+} from './assistant-message-boundary';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,

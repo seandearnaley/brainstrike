@@ -2,6 +2,7 @@ import type http from 'node:http';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantInvalidJsonError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
   parseAssistantRequestPayloadText,
   resolveAssistantRequestBodyLimitBytes,
@@ -26,6 +27,38 @@ type AssistantApiMiddleware = (
   next: () => void
 ) => Promise<void>;
 
+type AssistantApiRoute = 'assistant' | 'chat' | 'status';
+
+function resolveAssistantApiRoute(req: http.IncomingMessage): AssistantApiRoute | null {
+  if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
+    return 'status';
+  }
+  if (req.method !== 'POST') {
+    return null;
+  }
+  if (req.url?.startsWith('/api/chat')) {
+    return 'chat';
+  }
+  return req.url?.startsWith('/api/assistant') ? 'assistant' : null;
+}
+
+function sendKnownRequestError(res: http.ServerResponse, error: unknown): boolean {
+  if (error instanceof AssistantRequestBodyTooLargeError) {
+    res.writeHead(413, JSON_ERROR_HEADERS);
+    res.end(JSON.stringify({ error: error.code, message: error.message }));
+    return true;
+  }
+  if (
+    error instanceof AssistantInvalidJsonError ||
+    error instanceof AssistantMessageValidationError
+  ) {
+    res.writeHead(400, JSON_ERROR_HEADERS);
+    res.end(JSON.stringify({ error: error.code, message: error.message }));
+    return true;
+  }
+  return false;
+}
+
 export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): AssistantApiMiddleware {
   const bodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
     process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
@@ -36,20 +69,13 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
     res: http.ServerResponse,
     next: () => void
   ): Promise<void> => {
-    if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
+    const route = resolveAssistantApiRoute(req);
+    if (!route) {
+      next();
+      return;
+    }
+    if (route === 'status') {
       sendAssistantStatusResponse(res);
-      return;
-    }
-
-    if (req.method !== 'POST') {
-      next();
-      return;
-    }
-
-    const isChatRequest = req.url?.startsWith('/api/chat') === true;
-    const isAssistantRequest = req.url?.startsWith('/api/assistant') === true;
-    if (!(isChatRequest || isAssistantRequest)) {
-      next();
       return;
     }
 
@@ -57,7 +83,7 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
       const bodyText = await readBody(req, bodyLimitBytes);
       const payload = parseAssistantRequestPayloadText(bodyText);
 
-      if (isChatRequest) {
+      if (route === 'chat') {
         await handleChatEndpoint({ data: payload.data, messages: payload.rawMessages }, res);
         return;
       }
@@ -68,14 +94,7 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
         runConfig: payload.runConfig,
       });
     } catch (error) {
-      if (error instanceof AssistantRequestBodyTooLargeError) {
-        res.writeHead(413, JSON_ERROR_HEADERS);
-        res.end(JSON.stringify({ error: error.code, message: error.message }));
-        return;
-      }
-      if (error instanceof AssistantInvalidJsonError) {
-        res.writeHead(400, JSON_ERROR_HEADERS);
-        res.end(JSON.stringify({ error: error.code, message: error.message }));
+      if (sendKnownRequestError(res, error)) {
         return;
       }
 

@@ -1,3 +1,8 @@
+import {
+  AssistantMessageValidationError,
+  assertAssistantMessageGraphWithinLimits,
+  MAX_ASSISTANT_MESSAGE_ID_CHARS,
+} from './assistant-message-boundary';
 import type { AgentMessage, AssistantUiMessageStrict, RuntimeData } from './types';
 
 export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
@@ -130,11 +135,17 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
   const assistantMessageId = maybePayload.unstable_assistantMessageId;
   if (
     assistantMessageId !== undefined &&
-    (typeof assistantMessageId !== 'string' || assistantMessageId.trim().length === 0)
+    (typeof assistantMessageId !== 'string' ||
+      assistantMessageId.trim().length === 0 ||
+      assistantMessageId.length > MAX_ASSISTANT_MESSAGE_ID_CHARS)
   ) {
-    throw new Error('Assistant message id must be a non-empty string.');
+    throw new AssistantMessageValidationError('invalid-message-id');
+  }
+  if (maybePayload.messages !== undefined && !Array.isArray(maybePayload.messages)) {
+    throw new AssistantMessageValidationError('invalid-messages');
   }
   const rawMessages = Array.isArray(maybePayload.messages) ? maybePayload.messages : [];
+  assertAssistantMessageGraphWithinLimits(rawMessages);
   return {
     data: maybePayload.data,
     rawMessages,
