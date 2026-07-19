@@ -398,8 +398,12 @@ searches back onto the ANN index without re-running that benchmark.
 
 Tool output budget (anti-thrash contract): budgets are token-denominated and
 enforced deterministically on serialized chars at 4 chars/token (mirrors
-`countTokensHeuristic`). Native producers self-bound result lists to
-`NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
+`countTokensHeuristic`). Native producers self-bound result lists via
+`fitItemsToCharBudget`; `readWorkspaceFile` binary-searches its content prefix
+against the complete metadata-bearing result. Its optional range, root, and
+character-cap fields accept provider-emitted `null` as omission; invalid
+non-null values still fail schema validation. Both fit
+`NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) before settlement. The Mastra
 runtime then adds or composes `toModelOutput` on every execute-backed
 native/MCP tool. PostToolUse context travels only in an internal execution
 carrier: Mastra's `transform.display` and `transform.transcript` channels
