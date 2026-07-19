@@ -283,6 +283,13 @@ describe('assistant route', () => {
         { id: 'assistant-1', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
       ],
     ],
+    [
+      'blank trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
+      ],
+    ],
   ])('requires the final message to be a non-empty user prompt, not %s', async (_case, messages) => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       apiKey: 'test-key',

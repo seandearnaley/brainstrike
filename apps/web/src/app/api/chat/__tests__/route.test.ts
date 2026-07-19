@@ -265,6 +265,13 @@ describe('chat route schema', () => {
         { id: 'm2', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
       ],
     ],
+    [
+      'history whose blank final assistant message would normalize away',
+      [
+        { id: 'm1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'm2', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
+      ],
+    ],
   ])('requires the final message to be a non-empty user prompt for %s', async (_case, messages) => {
     streamMock.mockResolvedValue(
       createStream({ type: 'text-delta', value: 'This must not stream.' })

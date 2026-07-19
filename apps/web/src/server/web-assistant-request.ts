@@ -44,7 +44,19 @@ export class InvalidToolApprovalActionError extends Error {
   }
 }
 
+function isUserMessage(value: unknown): boolean {
+  if (!(value && typeof value === 'object' && 'role' in value)) {
+    return false;
+  }
+  return typeof value.role === 'string' && value.role.toLowerCase() === 'user';
+}
+
 function resolveNormalTurn(payload: AssistantRequestPayload): WebAssistantNormalTurn {
+  const lastRawMessage = payload.rawMessages.at(-1) as unknown;
+  if (!isUserMessage(lastRawMessage)) {
+    throw new EmptyAssistantPromptError();
+  }
+
   const agentMessages = convertAssistantUiMessages(payload.rawMessages);
   const lastMessage = agentMessages.at(-1);
   const hasNonEmptyText = lastMessage?.parts.some(

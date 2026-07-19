@@ -25,6 +25,10 @@ import { buildWebAssistantStream } from './server/web-mastra-storage';
 export type { StreamChunk };
 
 const logger = createLogger('WebAssistantStream');
+const JSON_RESPONSE_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Type': 'application/json; charset=utf-8',
+} as const;
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
@@ -145,21 +149,14 @@ export async function handleChatEndpoint(
       return;
     }
     if (error instanceof InvalidWebAssistantRuntimeDataError) {
-      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
+      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
       return;
     }
     logger.error('Failed to initialize chat stream', { error });
-    res.writeHead(502, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
+    sendJsonResponse(res, 502, {
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed',
     });
-    res.end(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      })
-    );
     return;
   }
 
@@ -237,18 +234,14 @@ export async function handleAssistantEndpoint(
       return;
     }
     if (error instanceof InvalidWebAssistantRuntimeDataError) {
-      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
+      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
       return;
     }
     logger.error('Failed to initialize assistant stream', { error });
-    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      })
-    );
+    sendJsonResponse(res, 502, {
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed',
+    });
     return;
   }
 
@@ -274,16 +267,10 @@ function sendAssistantDisabledResponse(
   res: http.ServerResponse,
   provider: AssistantProviderConfig
 ): void {
-  res.writeHead(503, {
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/json; charset=utf-8',
+  sendJsonResponse(res, 503, {
+    error: 'assistant_disabled',
+    reason: assistantStatusPayload(provider).reason,
   });
-  res.end(
-    JSON.stringify({
-      error: 'assistant_disabled',
-      reason: assistantStatusPayload(provider).reason,
-    })
-  );
 }
 
 function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
@@ -291,12 +278,17 @@ function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknow
   if (!inputError) {
     return false;
   }
-  res.writeHead(inputError.status, {
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/json; charset=utf-8',
-  });
-  res.end(JSON.stringify(inputError.payload));
+  sendJsonResponse(res, inputError.status, inputError.payload);
   return true;
+}
+
+function sendJsonResponse(
+  res: http.ServerResponse,
+  status: number,
+  payload: Record<string, unknown>
+): void {
+  res.writeHead(status, JSON_RESPONSE_HEADERS);
+  res.end(JSON.stringify(payload));
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {

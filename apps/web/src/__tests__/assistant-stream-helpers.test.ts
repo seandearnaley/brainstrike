@@ -560,6 +560,13 @@ describe('assistant-stream-helpers', () => {
         { id: 'assistant-1', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
       ],
     ],
+    [
+      'blank trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
+      ],
+    ],
   ])('rejects a normal assistant turn whose final prompt role is %s', async (_case, messages) => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const req = new EventEmitter() as http.IncomingMessage;
