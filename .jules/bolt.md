@@ -126,3 +126,7 @@
 ## 2026-07-15 - Import completion summaries use one result pass
 **Learning:** `packages/db-explorer/src/hooks/use-import-completion.ts` built one completion summary with four full-array filters and two reductions. Over 100,000 representative import results x 100 rounds on Node 24.16.0, repeated passes took a 305.63ms median while one-pass accumulation took 29.37ms with identical count checksums.
 **Action:** Keep import completion outcome and chunk counts in one accumulation pass; do not reintroduce independent filters or reductions for each summary field.
+
+## 2026-07-18 - Queue telemetry percentiles share one sort
+**Learning:** `packages/queue/src/telemetry.ts` sorted the same completed-task latency distribution independently for p50 and p95 on every snapshot. Over 5,000 completed events x 300 snapshots on Node 24.16.0, two sorts took a 280.75ms median while one shared sort took 161.61ms with an identical percentile checksum.
+**Action:** Keep queue telemetry percentile reads on one sorted latency array per snapshot; do not sort independently for each percentile.

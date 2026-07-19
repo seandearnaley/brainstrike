@@ -330,6 +330,33 @@ describe('createQueueTelemetryAggregator', () => {
     aggregator.dispose();
   });
 
+  it('should sort completed latencies once per snapshot', () => {
+    const now = Date.now();
+    const aggregator = createQueueTelemetryAggregator();
+
+    for (const latency of [300, 100, 200]) {
+      emitQueueTelemetry({
+        adapter: 'workerpool',
+        elapsedMs: latency,
+        event: 'complete',
+        taskId: `task-${latency}`,
+        timestamp: now,
+      });
+    }
+
+    const sortSpy = vi.spyOn(Array.prototype, 'sort');
+    try {
+      const snapshot = aggregator.snapshot(now);
+
+      expect(snapshot.latencyP50Ms).toBe(200);
+      expect(snapshot.latencyP95Ms).toBe(300);
+      expect(sortSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      sortSpy.mockRestore();
+      aggregator.dispose();
+    }
+  });
+
   it('should count errors correctly', () => {
     const now = Date.now();
     const aggregator = createQueueTelemetryAggregator();
