@@ -24,8 +24,17 @@ const STATE_TABLE = 'brainstrike_thread_search_state';
 const DEFAULT_SYNC_BATCH_SIZE = 500;
 const DEFAULT_SYNC_MAX_BATCHES = 20;
 const DEFAULT_SYNC_GC_LIMIT = 1000;
+/** Max threads re-extracted per refresh pass (keeps the statement bounded). */
+const DEFAULT_REFRESH_THREAD_BATCH = 200;
 /** Threads active within this trailing window are re-extracted every pass. */
 const LIVE_THREAD_WINDOW_MS = 120_000;
+/**
+ * An errored row becomes eligible for a re-attempt this long after the failed
+ * attempt — so a transient failure (worker crash, model still initializing,
+ * document-hidden invalidation) self-heals instead of parking the message in
+ * the "could not be embedded" state forever on immutable assistant history.
+ */
+const EMBEDDING_ERROR_RETRY_MS = 300_000;
 const DEFAULT_VECTOR_THRESHOLD = 0.35;
 /** Bound on extracted text per message; search-relevant prose fits well under it. */
 const MAX_CONTENT_TEXT_CHARS = 8000;
@@ -187,10 +196,12 @@ export class ThreadSearchRepository {
    *    delete+insert pair can defer both arms for one pass; the next count
    *    divergence heals it, and thread deletion clears its rows eagerly.
    * 2. missing rows are inserted in bounded batches,
-   * 3. threads with activity NEWER than their per-thread refresh state (or
-   *    within the trailing live window) are re-extracted with the hash CAS,
-   *    resetting changed rows' embeddings to pending,
-   * 4. orphaned index rows are garbage-collected (bounded).
+   * 3. a bounded batch of threads whose content changed (or are within the
+   *    trailing live window) is re-extracted with the hash CAS, resetting
+   *    changed rows' embeddings to pending (never the whole corpus — see
+   *    refreshActiveThreads),
+   * 4. errored rows whose failed attempt has aged out are revived to pending,
+   * 5. orphaned index rows are garbage-collected (bounded).
    * Every statement is bounded, so a pass never monopolizes the single
    * PGlite connection.
    */
@@ -232,46 +243,99 @@ export class ThreadSearchRepository {
       }
     }
 
-    const refreshed = await this.refreshActiveThreads();
+    const refreshed = await this.refreshActiveThreads(options.refreshThreadBatch);
+    await this.reviveAgedEmbeddingErrors(gcLimit);
     const deletedOrphans = membershipInSync ? 0 : await this.collectOrphans(gcLimit);
     return { deletedOrphans, inserted, refreshed };
   }
 
   /**
-   * Re-extracts messages of threads whose `updatedAt` is STRICTLY newer than
-   * that thread's recorded refresh state, plus any thread active within the
-   * trailing live window (same-id progressive saves during a run can land
-   * without advancing `updatedAt` past an equal timestamp; re-extracting the
-   * still-active thread each pass is bounded by activity and made idempotent
-   * by the hash CAS). Per-thread state — never a global watermark — so one
-   * busy thread can never push a quiet thread's pending changes out of the
-   * refresh window.
+   * Re-extracts messages of threads whose content changed, WITHOUT ever
+   * extracting the whole corpus in one statement:
+   *
+   * 1. A never-seen thread is SEEDED into the refresh state WITHOUT
+   *    extraction — its rows were just inserted with current content by the
+   *    anti-join, so it has nothing to re-extract (missing rows are always
+   *    handled by the insert arm, never this one). This is the fix for the
+   *    unbounded first-sync / post-reset scan: an empty state table no longer
+   *    means "re-extract every message".
+   * 2. Then a BOUNDED batch of threads whose `updatedAt` advanced past their
+   *    recorded state (genuinely changed content), plus threads within the
+   *    trailing live window (same-id progressive saves can land without
+   *    advancing `updatedAt` past an equal timestamp), is re-extracted with
+   *    the hash CAS. Changed threads are ordered ahead of live-window-only
+   *    threads so a busy live thread can never starve a genuinely-changed one;
+   *    the cap keeps the statement bounded even under a bulk content change.
+   *
+   * Per-thread state — never a global watermark — so one busy thread can never
+   * push a quiet thread's pending change out of the refresh window.
    */
-  private async refreshActiveThreads(): Promise<number> {
-    const result = await this.db.query<{ message_id: string }>(
-      `INSERT INTO ${INDEX_TABLE} (
-         message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
-       )
-       ${SYNC_SELECT_SQL}
-       LEFT JOIN ${STATE_TABLE} s ON s.thread_id = t.id
-       WHERE s.thread_id IS NULL
-          OR t."updatedAt" > s.last_activity_at
-          OR t."updatedAt" >= CURRENT_TIMESTAMP - make_interval(secs => ${LIVE_THREAD_WINDOW_MS / 1000})
-       ${UPSERT_CONFLICT_SQL}
-       RETURNING message_id`
-    );
+  private async refreshActiveThreads(threadBatch = DEFAULT_REFRESH_THREAD_BATCH): Promise<number> {
+    requirePositiveInteger(threadBatch, 'refreshThreadBatch');
 
+    // (1) Seed never-seen threads at their current activity — no extraction.
     await this.db.query(
       `INSERT INTO ${STATE_TABLE} (thread_id, last_activity_at, updated_at)
        SELECT t.id, t."updatedAt", CURRENT_TIMESTAMP
        FROM mastra_threads t
        LEFT JOIN ${STATE_TABLE} s ON s.thread_id = t.id
-       WHERE s.thread_id IS NULL OR t."updatedAt" > s.last_activity_at
-       ON CONFLICT (thread_id) DO UPDATE SET
-         last_activity_at = EXCLUDED.last_activity_at,
-         updated_at = CURRENT_TIMESTAMP`
+       WHERE s.thread_id IS NULL
+       ON CONFLICT (thread_id) DO NOTHING`
     );
 
+    // (2) Re-extract a bounded batch of changed / live-window threads.
+    const result = await this.db.query<{ message_id: string }>(
+      `WITH threads_to_refresh AS (
+         SELECT t.id, t."updatedAt"
+         FROM mastra_threads t
+         JOIN ${STATE_TABLE} s ON s.thread_id = t.id
+         WHERE t."updatedAt" > s.last_activity_at
+            OR t."updatedAt" >= CURRENT_TIMESTAMP - make_interval(secs => ${LIVE_THREAD_WINDOW_MS / 1000})
+         ORDER BY (t."updatedAt" > s.last_activity_at) DESC, t."updatedAt" DESC
+         LIMIT $1
+       ), refreshed AS (
+         INSERT INTO ${INDEX_TABLE} (
+           message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
+         )
+         ${SYNC_SELECT_SQL}
+         JOIN threads_to_refresh tr ON tr.id = t.id
+         ${UPSERT_CONFLICT_SQL}
+         RETURNING message_id
+       ), advanced AS (
+         UPDATE ${STATE_TABLE} s
+         SET last_activity_at = tr."updatedAt", updated_at = CURRENT_TIMESTAMP
+         FROM threads_to_refresh tr
+         WHERE s.thread_id = tr.id AND tr."updatedAt" > s.last_activity_at
+       )
+       SELECT message_id FROM refreshed`,
+      [threadBatch]
+    );
+
+    return result.rows.length;
+  }
+
+  /**
+   * Bounded revive of errored rows whose failed attempt has aged past the
+   * retry cooldown: clears the error so the row returns to the pending set and
+   * the backlog drain re-attempts it. Index-backed
+   * (`idx_thread_message_index_errored_embedding`) so it is cheap even when no
+   * rows have errored.
+   */
+  private async reviveAgedEmbeddingErrors(limit: number): Promise<number> {
+    const result = await this.db.query<{ message_id: string }>(
+      `UPDATE ${INDEX_TABLE}
+       SET embedding_error = NULL,
+           embedding_updated_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE message_id IN (
+         SELECT message_id FROM ${INDEX_TABLE}
+         WHERE embedding_error IS NOT NULL
+           AND embedding_updated_at < CURRENT_TIMESTAMP - make_interval(secs => ${EMBEDDING_ERROR_RETRY_MS / 1000})
+         LIMIT $1
+       )
+       RETURNING message_id`,
+      [limit]
+    );
     return result.rows.length;
   }
 

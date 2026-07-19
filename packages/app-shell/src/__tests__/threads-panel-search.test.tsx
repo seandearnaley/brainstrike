@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantMemoryThread } from '../assistant-memory-repository';
+import { renderMarkedText } from '../thread-search-headline';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
-import { renderMarkedText, ThreadsPanelSearch } from '../threads-panel-search';
+import { ThreadsPanelSearch } from '../threads-panel-search';
 
 const THREAD: AssistantMemoryThread = {
   createdAt: new Date('2026-07-01T00:00:00Z'),

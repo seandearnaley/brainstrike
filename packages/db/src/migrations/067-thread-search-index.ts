@@ -115,6 +115,13 @@ export const migration067ThreadSearchIndex: Migration = {
       ON brainstrike_thread_message_index USING hnsw (embedding vector_cosine_ops)
       WHERE embedding IS NOT NULL;
     --> statement-breakpoint
+    -- Errored rows only, keyed by attempt time: makes the aged-error revive
+    -- scan indexed + bounded (cheap even when zero rows have errored) so a
+    -- transient embed failure can be retried without a full-table scan.
+    CREATE INDEX IF NOT EXISTS idx_thread_message_index_errored_embedding
+      ON brainstrike_thread_message_index (embedding_updated_at)
+      WHERE embedding_error IS NOT NULL;
+    --> statement-breakpoint
 
     CREATE TABLE IF NOT EXISTS brainstrike_thread_search_state (
       thread_id TEXT PRIMARY KEY,

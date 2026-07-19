@@ -280,6 +280,67 @@ describe('ThreadSearchRepository', () => {
       );
       expect(Number(rows.rows[0]?.count)).toBe(0);
     });
+
+    it('seeds refresh state for every thread on first sync without re-extracting', async () => {
+      // Regression for the unbounded first-sync scan: a never-seen thread is
+      // seeded into the refresh state (so a later sync sees it as up to date)
+      // rather than triggering full corpus re-extraction.
+      for (let i = 0; i < 3; i += 1) {
+        await seedThread(`thread-${i}`, `Thread ${i}`);
+        await seedMessage({
+          content: v2Content(`body ${i}`),
+          id: `msg-${i}`,
+          role: 'user',
+          threadId: `thread-${i}`,
+        });
+      }
+
+      const first = await repository.sync();
+      expect(first.inserted).toBe(3);
+
+      const state = await db.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM brainstrike_thread_search_state'
+      );
+      expect(Number(state.rows[0]?.count)).toBe(3);
+
+      // An unchanged second sync does zero refresh work (nothing re-extracted).
+      const second = await repository.sync();
+      expect(second.inserted).toBe(0);
+      expect(second.refreshed).toBe(0);
+    });
+
+    it('bounds the refresh to the thread batch, making progress across passes', async () => {
+      const changedAt = new Date();
+      for (let i = 0; i < 3; i += 1) {
+        await seedThread(`thread-${i}`, `Thread ${i}`, new Date(Date.now() - 60 * 60_000));
+        await seedMessage({
+          content: v2Content(`original ${i}`),
+          id: `msg-${i}`,
+          role: 'user',
+          threadId: `thread-${i}`,
+        });
+      }
+      await repository.sync();
+
+      // All three threads change well outside the live window.
+      for (let i = 0; i < 3; i += 1) {
+        await db.query(`UPDATE mastra_messages SET content = $1::jsonb WHERE id = 'msg-${i}'`, [
+          v2Content(`rewritten ${i}`),
+        ]);
+        await db.query(`UPDATE mastra_threads SET "updatedAt" = $1 WHERE id = 'thread-${i}'`, [
+          changedAt,
+        ]);
+      }
+
+      // A refresh batch of 2 handles two threads this pass...
+      const pass1 = await repository.sync({ refreshThreadBatch: 2 });
+      expect(pass1.refreshed).toBe(2);
+      // ...and the remaining thread on the next pass.
+      const pass2 = await repository.sync({ refreshThreadBatch: 2 });
+      expect(pass2.refreshed).toBe(1);
+      const pass3 = await repository.sync({ refreshThreadBatch: 2 });
+      expect(pass3.refreshed).toBe(0);
+    });
   });
 
   async function currentHash(messageId: string): Promise<string> {
@@ -462,6 +523,42 @@ describe('ThreadSearchRepository', () => {
 
       const coverage = await repository.getCoverage(RESOURCE_ID);
       expect(coverage.erroredMessages).toBe(1);
+    });
+
+    it('revives an aged errored row on sync so a transient failure self-heals', async () => {
+      await seedThread('thread-1', 'Aged error');
+      await seedMessage({
+        content: v2Content('transiently failed'),
+        id: 'msg-1',
+        role: 'user',
+        threadId: 'thread-1',
+      });
+      await repository.sync();
+      await repository.markEmbeddingError({
+        contentHash: await currentHash('msg-1'),
+        error: 'model still initializing',
+        messageId: 'msg-1',
+      });
+
+      // A fresh error is NOT revived (still within the cooldown).
+      await repository.sync();
+      expect(
+        await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID })
+      ).toHaveLength(0);
+
+      // Age the failed attempt past the cooldown (5 min).
+      await db.query(
+        `UPDATE brainstrike_thread_message_index
+         SET embedding_updated_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+         WHERE message_id = 'msg-1'`
+      );
+      await repository.sync();
+
+      // The row is back in the pending set; coverage no longer counts it errored.
+      const pending = await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID });
+      expect(pending.map((row) => row.messageId)).toEqual(['msg-1']);
+      const coverage = await repository.getCoverage(RESOURCE_ID);
+      expect(coverage.erroredMessages).toBe(0);
     });
 
     it('refuses to store a vector produced by a different model than the profile', async () => {

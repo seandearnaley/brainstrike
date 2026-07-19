@@ -138,6 +138,20 @@ describe('migration 067: thread search index tables', () => {
     ).rejects.toThrow();
   });
 
+  it('has a partial index over errored rows for the aged-error revive', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.runMigration(getMigration067());
+
+    const indexes = await db.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+       WHERE tablename = 'brainstrike_thread_message_index'
+         AND indexdef ILIKE '%errored_embedding%'`
+    );
+    expect(indexes.rows).toHaveLength(1);
+    expect(indexes.rows[0]?.indexdef).toContain('embedding_error IS NOT NULL');
+  });
+
   it('tracks refresh state per thread', { timeout: 60_000 }, async () => {
     await runner.runMigration(getMigration067());
 

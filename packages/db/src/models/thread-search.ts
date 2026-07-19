@@ -29,6 +29,8 @@ export interface ThreadSearchSyncOptions {
   gcLimit?: number;
   /** Max insert batches per sync call (default 20). */
   maxBatches?: number;
+  /** Max threads re-extracted per refresh pass (default 200). */
+  refreshThreadBatch?: number;
 }
 
 export interface ThreadSearchSyncResult {

@@ -1,39 +1,10 @@
 import type { ThreadSearchResultItem } from '@brainstrike/db';
 import { Button } from '@brainstrike/ui';
 import { Loader2, Search, TriangleAlert, X } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import type { AssistantMemoryThread } from './assistant-memory-repository';
+import { renderMarkedText } from './thread-search-headline';
 import { useThreadSearchStore } from './thread-search-store';
-
-const MARK_PATTERN = /<mark>(.*?)<\/mark>/gs;
-
-/**
- * Renders a ts_headline snippet: `<mark>` tokens become real highlight
- * elements, everything else stays plain TEXT — persisted message content is
- * never interpreted as HTML.
- */
-export function renderMarkedText(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-  for (const match of text.matchAll(MARK_PATTERN)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex) {
-      nodes.push(text.slice(lastIndex, index));
-    }
-    nodes.push(
-      <mark className="rounded-[2px] bg-primary/20 px-px text-inherit" key={`mark-${key}`}>
-        {match[1]}
-      </mark>
-    );
-    key += 1;
-    lastIndex = index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes;
-}
 
 function formatMatchDate(date: Date): string {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
@@ -208,14 +179,18 @@ export function ThreadsPanelSearch({
   const clearSearch = useThreadSearchStore((state) => state.clearSearch);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  // A new result set restarts keyboard navigation at the top. Adjusting the
+  // state during render (React's "storing information from previous renders"
+  // pattern) instead of in an effect keeps it compiler-optimizable and avoids
+  // the extra commit an effect would cost.
+  const [prevResults, setPrevResults] = useState(results);
+  if (results !== prevResults) {
+    setPrevResults(results);
+    setActiveIndex(0);
+  }
 
   const visibleResults = results ?? [];
   const resultCount = visibleResults.length;
-
-  // A new result set restarts keyboard navigation at the top.
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [results]);
 
   const pendingEmbeddings = useMemo(() => {
     if (!coverage) {
