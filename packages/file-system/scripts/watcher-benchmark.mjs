@@ -68,9 +68,7 @@ export async function generateSyntheticTree(root, { dirs, filesPerDir }) {
     await Promise.all(childrenOfParent.map((dirPath) => mkdir(dirPath)));
     await Promise.all(
       childrenOfParent.flatMap((dirPath) =>
-        Array.from({ length: filesPerDir }, (_, i) =>
-          writeFile(join(dirPath, `f${i}.txt`), 'x')
-        )
+        Array.from({ length: filesPerDir }, (_, i) => writeFile(join(dirPath, `f${i}.txt`), 'x'))
       )
     );
   }
@@ -228,8 +226,7 @@ async function main() {
   }
 }
 
-const isDirectRun =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
