@@ -551,6 +551,30 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(second.rootId).not.toBe(first.rootId);
   });
 
+  it('rejects a declared fixture rootId that is not a well-formed UUID (no silent fallback)', async () => {
+    // A declared id becomes the canonical identity; downstream dedup reads
+    // `rootId !== undefined` as "already stamped", so an empty/malformed id
+    // would corrupt folder state silently. It must throw at load instead.
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    await expect(
+      adapter.loadInlineFixture({ name: 'bad-empty', rootId: '', tree: { 'a.ts': '' } })
+    ).rejects.toThrow(/invalid durable rootId/);
+    await expect(
+      adapter.loadInlineFixture({ name: 'bad-shape', rootId: 'not-a-uuid', tree: { 'a.ts': '' } })
+    ).rejects.toThrow(/invalid durable rootId/);
+    expect(adapter.isInlineFixtureActive()).toBe(false);
+  });
+
+  it('rejects an added fixture root that reuses an active root’s declared rootId', async () => {
+    // Two roots sharing an id merge in the rootId-only reducer — fail loud.
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const sharedId = 'f1e2d3c4-b5a6-4789-8abc-0123456789ab';
+    await adapter.loadInlineFixture({ name: 'primary', rootId: sharedId, tree: { 'a.ts': '' } });
+    await expect(
+      adapter.addInlineFixtureRoot({ name: 'secondary', rootId: sharedId, tree: { 'b.ts': '' } })
+    ).rejects.toThrow(/already active on another root/);
+  });
+
   it('ships the dev inline fixture with a durable rootId so selections survive reloads', async () => {
     // Guards the actual shipped fixture: dropping its rootId reintroduces the
     // cross-reload selection loss this fix addresses.

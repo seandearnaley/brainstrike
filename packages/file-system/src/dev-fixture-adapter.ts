@@ -236,6 +236,26 @@ function resolveFixtureLookupPath(fixtureState: FixtureState, path: string): str
   return path;
 }
 
+const FIXTURE_ROOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A fixture-DECLARED durable rootId becomes the root's canonical identity, and
+ * the reducer dedupes roots by rootId ALONE. An empty or malformed id would
+ * otherwise pass silently — `rootId !== undefined` reads as "already stamped",
+ * so `''` resets the focused folder state and a bad value can collide/merge two
+ * roots. Reject it loudly instead of degrading (NO SILENT FALLBACKS). Only the
+ * declared path needs this; `crypto.randomUUID()` is always well-formed.
+ */
+function assertDeclaredFixtureRootId(rootId: string, fixtureName: string): void {
+  if (!FIXTURE_ROOT_ID_PATTERN.test(rootId)) {
+    throw new Error(
+      `Fixture "${fixtureName}" declared an invalid durable rootId ${JSON.stringify(
+        rootId
+      )} — it must be a UUID (e.g. crypto.randomUUID()). See FixtureDefinition.rootId.`
+    );
+  }
+}
+
 export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   adapter: T,
   options: FixtureAdapterOptions
@@ -432,6 +452,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     //  2. The per-session name map keeps ad-hoc fixtures stable WITHIN one
     //     adapter (inject + restore reconcile to one root, HMR re-load reuse).
     //  3. A fresh UUID for a never-before-seen ad-hoc fixture.
+    if (fixture.rootId !== undefined) {
+      assertDeclaredFixtureRootId(fixture.rootId, fixture.name);
+    }
     const rootId = fixture.rootId ?? fixtureRootIdsByName.get(fixture.name) ?? crypto.randomUUID();
     fixtureRootIdsByName.set(fixture.name, rootId);
     return buildFixtureState(fixture, platform, rootId);
@@ -453,6 +476,17 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     }
     if (fixtureStates.some((state) => state.rootHandle.path === fixture.name)) {
       throw new Error(`Fixture root "${fixture.name}" is already active`);
+    }
+    // A declared rootId shared with an already-active DIFFERENT root would make
+    // the reducer (identity is rootId-only) merge the two into one — the #1200
+    // "two treegrids" class in reverse. Surface the bad harness config instead.
+    if (
+      fixture.rootId &&
+      fixtureStates.some((state) => state.rootHandle.rootId === fixture.rootId)
+    ) {
+      throw new Error(
+        `Fixture root "${fixture.name}" declares rootId ${fixture.rootId}, already active on another root`
+      );
     }
     const state = buildStampedFixtureState(fixture);
     fixtureStates.push(state);

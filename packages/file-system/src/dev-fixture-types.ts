@@ -13,8 +13,12 @@ export interface FixtureDefinition {
    * keeps ONE identity so the reload reconciles and selections survive. Must be
    * a stable value generated ONCE (a hardcoded crypto.randomUUID), never
    * derived from `name` — see the RootId contract in
-   * `packages/types/src/file-system.ts`. Omit for throwaway/ad-hoc fixtures
-   * (multi-root harness roots, unit-test fixtures) that are never persisted.
+   * `packages/types/src/file-system.ts`. Must be a well-formed UUID and unique
+   * per fixture: it is validated at load and rejected if malformed, and a
+   * duplicate across active roots is rejected (the reducer's identity is
+   * rootId-only, so a shared id merges two roots). Omit for throwaway/ad-hoc
+   * fixtures (multi-root harness roots, unit-test fixtures) that are never
+   * persisted.
    */
   rootId?: string;
   tree: FixtureTree;
