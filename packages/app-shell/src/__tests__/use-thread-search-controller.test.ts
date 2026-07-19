@@ -177,6 +177,34 @@ describe('useThreadSearchController', () => {
     expect(state.semantic).toEqual({ kind: 'unavailable', reason: 'embedder offline' });
   });
 
+  it('caches an embedding failure so later searches resolve immediately lexical-only', async () => {
+    const repository = createRepository();
+    const embedder = createEmbedder(new Error('embedder offline'));
+    renderController(
+      repository,
+      embedder,
+      vi.fn(async () => ({}) as never)
+    );
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+    expect(embedder.embedQueryWithRecovery).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw tuning');
+    });
+    await flushAsync();
+
+    // Within the retry window the slow re-attempt is skipped, but the reason
+    // stays visible on the fresh results.
+    expect(embedder.embedQueryWithRecovery).toHaveBeenCalledTimes(1);
+    const state = useThreadSearchStore.getState();
+    expect(state.status).toBe('results');
+    expect(state.semantic).toEqual({ kind: 'unavailable', reason: 'embedder offline' });
+  });
+
   it('clears results when the query shrinks below the minimum length', async () => {
     const repository = createRepository();
     renderController(repository);

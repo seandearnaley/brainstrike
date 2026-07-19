@@ -41,6 +41,13 @@ const EMBEDDING_PASS_LIMIT = 16;
 export const THREAD_SEARCH_SYNC_TTL_MS = 5000;
 /** Hard cap on backlog passes per drain trigger (16 rows each). */
 const MAX_EMBEDDING_PASSES_PER_DRAIN = 50;
+/**
+ * After a query-embedding failure, later searches skip the (potentially
+ * multi-second) re-attempt for this long and resolve lexical-only immediately
+ * with the SAME visible reason. Bounded so a recovered embedder (model
+ * finished downloading, document became visible) is retried automatically.
+ */
+export const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
 
 export interface UseThreadSearchControllerOptions {
   readonly embedder: ThreadSearchEmbedder;
@@ -87,6 +94,7 @@ export function useThreadSearchController({
   /** Serializes embedding passes so overlapping searches never double-drain. */
   const embeddingTailRef = useRef<Promise<void> | null>(null);
   const lastSyncAtRef = useRef<number | null>(null);
+  const semanticFailureRef = useRef<{ at: number; reason: string } | null>(null);
 
   const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
     if (!repository) {
@@ -103,6 +111,14 @@ export function useThreadSearchController({
       | { embedding: readonly number[]; semantic: ThreadSearchSemanticState }
       | { embedding: null; semantic: ThreadSearchSemanticState }
     > => {
+      const recentFailure = semanticFailureRef.current;
+      if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
+        // Skip the (potentially slow) re-attempt; the reason stays visible.
+        return {
+          embedding: null,
+          semantic: { kind: 'unavailable', reason: recentFailure.reason },
+        };
+      }
       try {
         if (!loadEmbeddingQueue) {
           throw new Error('No embedding queue is registered for this platform.');
@@ -110,11 +126,14 @@ export function useThreadSearchController({
         await loadEmbeddingQueue();
         const modelInfo = await resolveModelInfo();
         const embedding = await embedder.embedQueryWithRecovery(modelInfo, trimmedQuery);
+        semanticFailureRef.current = null;
         return { embedding, semantic: { kind: 'used' } };
       } catch (error) {
+        const reason = toThreadSearchErrorMessage(error);
+        semanticFailureRef.current = { at: Date.now(), reason };
         return {
           embedding: null,
-          semantic: { kind: 'unavailable', reason: toThreadSearchErrorMessage(error) },
+          semantic: { kind: 'unavailable', reason },
         };
       }
     },
@@ -132,6 +151,11 @@ export function useThreadSearchController({
           const coverage = await repository.getCoverage(resourceId);
           useThreadSearchStore.getState().recordCoverage(coverage);
           if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
+            return;
+          }
+          const recentFailure = semanticFailureRef.current;
+          if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
+            // A broken embedder would fail per row; wait out the retry window.
             return;
           }
           await loadEmbeddingQueue();
