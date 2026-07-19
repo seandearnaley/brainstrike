@@ -248,12 +248,13 @@ native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
 application consumers and Mastra persistence, while the provider receives a
 text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
 domain projections keep their semantics but pass through the same final text
-ceiling; a nullish conditional projection remains nullish so Mastra can use
-its native raw-result fallback, while malformed non-callable projections
-throw. MCP image/audio results use Mastra `content` output so base64 media
-remains model-native while companion text is bounded. Mastra 1.51 invokes projections with
-`{toolCallId,input,output}` even though its `createTool` contract gives custom
-projectors the raw execute result. Brainstrike therefore extracts the exact
+ceiling; a nullish synchronous or asynchronous custom projection falls
+through to Brainstrike's bounded deterministic default, while malformed
+non-callable projections throw. MCP image/audio results use Mastra `content`
+output so base64 media remains model-native while companion text is bounded.
+Mastra 1.51 invokes projections with `{toolCallId,input,output}` even though
+its `createTool` contract gives custom projectors the raw execute result.
+Brainstrike therefore extracts the exact
 envelope's raw `output` before both custom and generated projections while
 retaining direct raw-output invocation compatibility.
 `skill` is the explicit text exception (6000), because its instruction body is
