@@ -472,6 +472,26 @@ malformed and throw before persistence accounting. Exceeding either ceiling
 throws visibly—never drops media. The artifact-store PR must replace this
 temporary compromise.
 
+The browser-safe `@brainstrike/assistant-contract/tool-output-artifact`
+subpath defines the versioned foundation for that replacement: an opaque
+artifact reference, a bounded provider-facing preview envelope, and contiguous
+UTF-8 byte-addressed continuation pages. Artifact ids and cursors accept only
+bounded opaque tokens—never filesystem paths, URLs, thread ids, or storage
+locations. Preview and page fields are capped at 8000 UTF-8 bytes after outer
+JSON string serialization as well as 8000 decoded UTF-8 bytes, so ordinary JSON
+escaping or persistence-safe encoding cannot expand the provider-facing field
+past its budget. Page guards decode that bounded content before verifying the
+declared byte span, require a continuation cursor exactly when bytes remain,
+and reject gaps, overlaps, extra fields, unsupported encodings, and malformed
+versions instead of guessing. U+0000 content uses an explicit reversible
+`json-string` encoding because PostgreSQL jsonb cannot represent it directly.
+This shared contract does **not** enable artifact storage or a reader tool by
+itself. Until a later PR atomically retains complete output during settlement,
+scopes resolution to the active thread/run, applies expiry, and exposes the
+reader, the temporary MCP inline ceilings above remain authoritative. The
+settlement implementation must fail visibly if complete retention fails; it
+must never emit an artifact envelope for data that was not durably stored.
+
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections
 (matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
