@@ -24,6 +24,7 @@ import {
 import {
   getProviderDefaultModel,
   getProviderDefinition,
+  getProviderModelDefinitions,
   isSupportedProvider,
   type ModelVisionSupport,
   type ProviderModelDefinition,
@@ -741,6 +742,7 @@ export function buildEnabledModelIdSet(options: {
   readonly shouldFallbackToPreferences: boolean;
   readonly configuredProviders: readonly SupportedProvider[];
   readonly enabledModelsByProvider: Record<SupportedProvider, string[]>;
+  readonly fixedProviderModels?: FixedProviderModels | undefined;
   readonly registryEnabledModelIds: ReadonlySet<string>;
   readonly localRuntimeModels: LocalRuntimeModelCatalogMap | null;
 }): Set<string> {
@@ -764,7 +766,30 @@ export function buildEnabledModelIdSet(options: {
     );
   }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
+  for (const modelIds of Object.values(options.fixedProviderModels ?? {})) {
+    addValuesToSet(enabledIds, modelIds ?? []);
+  }
   return enabledIds;
+}
+
+export type FixedProviderModels = Partial<Record<SupportedProvider, readonly string[]>>;
+
+export function getRuntimeProviderLlmModels(
+  provider: SupportedProvider,
+  runtimeModels: Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>,
+  fixedModels: readonly string[] | undefined
+): readonly LlmProviderModelDefinition[] {
+  if (isLocalRuntimeProvider(provider)) {
+    return runtimeModels[provider] ?? [];
+  }
+  const modelDefinitions = getProviderModelDefinitions(provider).filter(
+    (model): model is LlmProviderModelDefinition => model.type === 'llm'
+  );
+  if (!fixedModels) {
+    return modelDefinitions;
+  }
+  const fixedModelIds = new Set(fixedModels);
+  return modelDefinitions.filter((model) => fixedModelIds.has(model.id));
 }
 
 function resolveLocalRuntimeProviderDisabledReason(

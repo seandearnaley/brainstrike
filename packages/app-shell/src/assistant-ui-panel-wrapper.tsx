@@ -1,9 +1,7 @@
 import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
-  getProviderModelDefinitions,
   isSupportedProvider,
-  type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import {
@@ -93,10 +91,12 @@ import {
   buildModelSettings,
   buildProviderOptions,
   copyProviderSettingsMap,
+  type FixedProviderModels,
   findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
+  getRuntimeProviderLlmModels,
   getToolDescription,
   hasContextBreakdownChannel,
   hasValidProviderModelSelection,
@@ -133,13 +133,12 @@ import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
-  fixedProviderModels?: Partial<Record<SupportedProvider, readonly string[]>>;
+  fixedProviderModels?: FixedProviderModels;
   initialProviders?: SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
 }
-
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
 declare global {
@@ -249,26 +248,25 @@ export function AssistantUiPanelWrapper({
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(() => {
-    const enabledIds = buildEnabledModelIdSet({
+  const enabledModelIds = useMemo(
+    () =>
+      buildEnabledModelIdSet({
+        configuredProviders,
+        enabledModelsByProvider,
+        fixedProviderModels,
+        localRuntimeModels,
+        registryEnabledModelIds,
+        shouldFallbackToPreferences,
+      }),
+    [
       configuredProviders,
       enabledModelsByProvider,
+      fixedProviderModels,
       localRuntimeModels,
       registryEnabledModelIds,
       shouldFallbackToPreferences,
-    });
-    for (const modelIds of Object.values(fixedProviderModels ?? {})) {
-      addValuesToSet(enabledIds, modelIds ?? []);
-    }
-    return enabledIds;
-  }, [
-    configuredProviders,
-    enabledModelsByProvider,
-    fixedProviderModels,
-    localRuntimeModels,
-    registryEnabledModelIds,
-    shouldFallbackToPreferences,
-  ]);
+    ]
+  );
   const enabledBuiltInLocalModelIds = useMemo(() => {
     const modelIds = new Set<string>();
     addValuesToSet(
@@ -295,21 +293,12 @@ export function AssistantUiPanelWrapper({
   );
 
   const getProviderLlmModels = useCallback(
-    (provider: SupportedProvider): readonly LlmProviderModelDefinition[] => {
-      if (isLocalRuntimeProvider(provider)) {
-        return runtimeLlmModelsByProvider[provider] ?? [];
-      }
-      const modelDefinitions = getProviderModelDefinitions(provider).filter(
-        (model: ProviderModelDefinition): model is LlmProviderModelDefinition =>
-          model.type === 'llm'
-      );
-      const fixedModels = fixedProviderModels?.[provider];
-      if (!fixedModels) {
-        return modelDefinitions;
-      }
-      const fixedModelIds = new Set(fixedModels);
-      return modelDefinitions.filter((model) => fixedModelIds.has(model.id));
-    },
+    (provider: SupportedProvider): readonly LlmProviderModelDefinition[] =>
+      getRuntimeProviderLlmModels(
+        provider,
+        runtimeLlmModelsByProvider,
+        fixedProviderModels?.[provider]
+      ),
     [fixedProviderModels, runtimeLlmModelsByProvider]
   );
 
