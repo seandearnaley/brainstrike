@@ -211,9 +211,9 @@ Watcher-driven refresh of the Explorer tree and background index (added
   (deduped per root within the debounce window so a burst can't storm). The
   sync provider parses watcher+full+named-roots into a per-root FULL resync —
   other roots keep their state; overflow never fans out workspace-wide.
-- **`errored` = the watch is dead.** WICG `errored` records (and async
-  `observe()` rejections) disconnect the observer INSIDE the adapter, then
-  signal. The context handler error-logs and raises a destructive toast
+- **`errored` = the watch is dead.** WICG `errored` records (and `observe()`
+  setup failures — both async rejection and synchronous throw) disconnect the
+  observer INSIDE the adapter, then signal. The context handler error-logs and raises a destructive toast
   ("Folder watching stopped") — the root stays connected but unwatched, and
   there is NO auto-restart (a silent retry loop would hide the failure).
   Manual Refresh remains the recovery path. **NO SILENT FALLBACKS:** both

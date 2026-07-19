@@ -876,11 +876,19 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         });
       }
     } catch (err) {
-      // Permission revoked or handle invalid: log a visible warn and return a
-      // no-op disposer. This is a capability failure — it must not be silent.
+      // Permission revoked or handle invalid: log a visible warn, signal the
+      // dead watch, and return a no-op disposer. This is a capability failure —
+      // it must not be silent. Mirrors the async observe() rejection path above
+      // so a synchronous throw surfaces identically (toast, not console-only).
       logger.warn('watchDirectory: FileSystemObserver.observe() threw, folder is unwatched', {
         error: err instanceof Error ? err.message : String(err),
         path: handle.path,
+      });
+      onSignal?.({
+        message: `File watching could not start for ${handle.path}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        type: 'errored',
       });
       return () => {};
     }

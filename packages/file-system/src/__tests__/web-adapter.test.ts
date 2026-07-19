@@ -1569,7 +1569,7 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     }
   });
 
-  it('falls back to a no-op disposer and logs a warn when observe() throws (e.g. permission revoked)', () => {
+  it('falls back to a no-op disposer, logs a warn, and emits an errored signal when observe() throws synchronously (parity with the async rejection path)', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
       _internal: internalHandle,
@@ -1596,9 +1596,10 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
       const adapter = new WebFileSystemAdapter();
       const callback = vi.fn();
+      const onSignal = vi.fn();
 
       // Must not throw
-      const disposer = adapter.watchDirectory?.(dirHandle, callback);
+      const disposer = adapter.watchDirectory?.(dirHandle, callback, onSignal);
       expect(disposer).toBeDefined();
       // disposer must be callable without throw
       expect(() => disposer!()).not.toThrow();
@@ -1606,6 +1607,13 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
       expect(callback).not.toHaveBeenCalled();
       // warn must have been logged via the logger
       expect(warnRecords.length).toBeGreaterThan(0);
+      // The dead watch is signalled — a synchronous throw must surface
+      // identically to the async rejection path (toast, not console-only).
+      expect(onSignal).toHaveBeenCalledOnce();
+      const [signal] = onSignal.mock.calls[0] as [{ message: string; type: string }];
+      expect(signal.type).toBe('errored');
+      expect(signal.message).toContain('project');
+      expect(signal.message).toContain('permission revoked');
     } finally {
       removeListener();
     }
