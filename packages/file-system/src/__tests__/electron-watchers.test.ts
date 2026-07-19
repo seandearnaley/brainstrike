@@ -292,18 +292,24 @@ describe('startFsWatch', () => {
     statMock.mockRestore();
   });
 
-  it('ignores events with null filename', async () => {
+  it('invalidates the watched root when a native event omits its filename', async () => {
     const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => false,
     } as Stats);
     const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
+    startFsWatch(mockHandle, callback, 'primary');
 
     mockWatchCallback?.('change', null);
 
     await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).not.toHaveBeenCalled();
     expect(statMock).not.toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledWith([
+      {
+        kind: 'directory',
+        path: mockHandle.path,
+        type: 'modified',
+      },
+    ]);
 
     statMock.mockRestore();
   });

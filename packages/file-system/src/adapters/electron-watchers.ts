@@ -97,6 +97,7 @@ export function startFsWatch(
     filename: string | Buffer | null
   ): Promise<void> => {
     if (!filename) {
+      batcher.enqueue({ kind: 'directory', path: handle.path, type: 'modified' });
       return;
     }
     const full = path.join(handle.path, filename.toString());
