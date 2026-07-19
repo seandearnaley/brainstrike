@@ -238,4 +238,35 @@ describe('tool output artifact contracts', () => {
       })
     ).toBe(false);
   });
+
+  it('caps provider fields after outer JSON string escaping', () => {
+    const escaped = '\\'.repeat(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES / 2);
+    const escapedReference = {
+      ...reference,
+      byteLength: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES / 2 + 1,
+    };
+
+    expect(
+      isToolOutputArtifactEnvelope({
+        artifactRef: escapedReference,
+        code: TOOL_OUTPUT_ARTIFACT_CODE,
+        hint: 'Continue.',
+        nextCursor: cursor,
+        preview: escaped,
+        truncated: true,
+        version: TOOL_OUTPUT_ARTIFACT_VERSION,
+      })
+    ).toBe(false);
+    expect(
+      isToolOutputArtifactPage({
+        artifactRef: {
+          ...escapedReference,
+          byteLength: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES / 2,
+        },
+        content: escaped,
+        endByte: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES / 2,
+        offsetByte: 0,
+      })
+    ).toBe(false);
+  });
 });

@@ -172,9 +172,13 @@ function readDecodedContent(content: unknown, contentEncoding: unknown): string 
   ) {
     return;
   }
+  if (content.length + 2 > TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES) {
+    return;
+  }
+  const serializedContent = JSON.stringify(content);
   if (
-    content.length > TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES ||
-    utf8ByteLength(content) > TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES
+    serializedContent === undefined ||
+    utf8ByteLength(serializedContent) > TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES
   ) {
     return;
   }
