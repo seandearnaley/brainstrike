@@ -611,6 +611,18 @@ Where state lives (do not relitigate):
   a STORED generated column (034 precedent) + GIN; deliberately NO
   pg_textsearch BM25 index (the 065/066 durability-gate burden is not
   re-paid for a second hot-write table; ts_rank_cd orders the lexical arm).
+- Semantic arm HNSW tuning (BST-576): `searchSimilar` runs its filtered ANN
+  SELECT inside ONE transaction with `SET LOCAL hnsw.ef_search` +
+  `iterative_scan='strict_order'` (`SET LOCAL` outside a transaction is a
+  silent no-op → pgvector default ef_search=40, the #1141 filtered-ANN
+  under-return class). Desktop runs the `ThreadSearchDatabase.runTransaction`
+  atomic primitive (the DbHandle `db:transaction` shape — named to avoid
+  colliding with PGlite's callback-style `transaction`); WEB production and
+  raw test handles run the BEGIN/COMMIT-over-`query` fallback (the web
+  ScheduledDbHandle exposes no `runTransaction`): tuned, but without the
+  connection lock a concurrent sibling arm can interleave in-transaction —
+  tolerable because all search arms are read-only. Paired tests: the mock-db
+  describe in `packages/db/__tests__/search-thread-message-index.test.ts`.
 - Embeddings: per-message inline `vector(384)` column (typed to the
   singleton profile; a partial HNSW index serves the semantic arm) with the
   singleton `brainstrike_thread_search_profiles` row — the prompt-library

@@ -15,6 +15,7 @@ import type {
   ThreadTitleSearchOptions,
 } from '../models/thread-search.js';
 import { escapeLikeLiteral } from '../search/grep-pattern.js';
+import { hnswSearchTuningStatements } from './_shared.js';
 
 const PROFILE_ID = 'default';
 const INDEX_TABLE = 'brainstrike_thread_message_index';
@@ -432,7 +433,7 @@ export class ThreadSearchRepository {
     }
     const queryVector = toVectorLiteral(queryEmbedding, profile.dimensions);
 
-    const result = await this.db.query<VectorRow>(
+    const result = await this.runVectorSearchInTransaction<VectorRow>(
       `SELECT
          i.message_id AS "messageId",
          i.thread_id AS "threadId",
@@ -459,6 +460,49 @@ export class ThreadSearchRepository {
       snippet: row.snippet,
       threadId: row.threadId,
     }));
+  }
+
+  /**
+   * Run the pgvector ANN search with HNSW tuning (`SET LOCAL hnsw.ef_search` +
+   * `iterative_scan`) applied inside a single transaction — `SET LOCAL` outside
+   * a transaction is a silent no-op, leaving filtered ANN at the pgvector
+   * default `ef_search=40` (the under-return failure mode from #1141). Mirrors
+   * `ElectronFileChunkRepository.runVectorSearchInTransaction`: prefers the
+   * atomic `runTransaction` primitive (one main-process `pglite.transaction()`,
+   * connection-lock isolated) — the DESKTOP DbHandle path. The raw
+   * BEGIN/COMMIT fallback over `query` is what WEB production runs (the
+   * ScheduledDbHandle exposes no `runTransaction`) and what raw PGlite test
+   * handles use: tuning still applies, but without the connection lock a
+   * concurrent read-only sibling arm from the service's `Promise.all` can
+   * interleave inside the open transaction (#1141 residual — tolerable here
+   * because all arms are read-only).
+   */
+  private async runVectorSearchInTransaction<T>(
+    searchSql: string,
+    params: unknown[]
+  ): Promise<{ rows: T[] }> {
+    const tuning = hnswSearchTuningStatements().map((sql) => ({ sql }));
+    const statements = [...tuning, { params, sql: searchSql }];
+
+    if (this.db.runTransaction) {
+      const result = await this.db.runTransaction(statements, statements.length - 1);
+      return { rows: result.rows as T[] };
+    }
+
+    await this.db.query('BEGIN');
+    try {
+      for (const statement of tuning) {
+        await this.db.query(statement.sql);
+      }
+      const result = await this.db.query<T>(searchSql, params);
+      await this.db.query('COMMIT');
+      return result;
+    } catch (err) {
+      await this.db.query('ROLLBACK').catch(() => {
+        // Surface the original failure, not a secondary rollback error.
+      });
+      throw err;
+    }
   }
 
   /**
