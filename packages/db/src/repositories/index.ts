@@ -60,6 +60,6 @@ export {
   type PromptItemDatabase,
   PromptItemRepository,
 } from './prompt-item-repository.js';
-
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export { ThreadSearchRepository } from './thread-search-repository.js';

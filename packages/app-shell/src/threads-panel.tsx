@@ -4,11 +4,16 @@ import {
   type TargetOf,
 } from '@brainstrike/context-actions';
 import {
+  ThreadSearchRepository,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionContextMenu,
   Button,
@@ -23,6 +28,7 @@ import {
   type TreeTableColumn,
   useContextMenuTarget,
 } from '@brainstrike/ui';
+import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   ArrowLeft,
   Bug,
@@ -83,6 +89,7 @@ import {
   THREAD_PANEL_UNGROUPED_NODE_ID,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
+import { useThreadSearchStore } from './thread-search-store';
 import {
   resolveThreadsPanelDrop,
   type ThreadsPanelDragSource,
@@ -95,6 +102,8 @@ import {
   UngroupedSectionDndShell,
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
+import { ThreadsPanelSearch } from './threads-panel-search';
+import { useThreadSearchController } from './use-thread-search-controller';
 
 // Stable fallback so `threads` keeps referential identity across renders when
 // the resource has no entry yet (the membership/view useMemos depend on it).
@@ -2444,7 +2453,16 @@ function ThreadsPanelContent({
   );
 }
 
-export function ThreadsPanel(): ReactElement {
+export interface ThreadsPanelProps {
+  /**
+   * Application embedding queue for the search feature's semantic arm (same
+   * seam as ConnectedPromptManager). Absent = semantic search is visibly
+   * unavailable; lexical search still works.
+   */
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+}
+
+export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
@@ -2460,6 +2478,10 @@ export function ThreadsPanel(): ReactElement {
   );
   const groupsRepository = useMemo(
     () => (database ? createPgliteAssistantThreadGroupsRepository(database) : null),
+    [database]
+  );
+  const threadSearchRepository = useMemo(
+    () => (database ? new ThreadSearchRepository(database) : null),
     [database]
   );
   const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
@@ -2544,6 +2566,41 @@ export function ThreadsPanel(): ReactElement {
     [groups]
   );
 
+  // Thread hybrid search: repository + controller (debounce, sync, embedding
+  // backlog) + honest semantic availability. See use-thread-search-controller.
+  const embedder = useSharedSearchEmbedder();
+  useEnsureModelRegistry({ db: database });
+  const registryModels = useModelRegistryStore((state) => state.models);
+  const localModelConfigMap = useMemo(
+    () => buildLocalEmbeddingModelConfigMap(registryModels),
+    [registryModels]
+  );
+  const { retrySearch } = useThreadSearchController({
+    embedder,
+    loadEmbeddingQueue,
+    localModelConfigMap,
+    repository: threadSearchRepository,
+    resourceId,
+  });
+  const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
+  const threadsById = useMemo(
+    () => new Map(threads.map((thread) => [thread.id, thread])),
+    [threads]
+  );
+  const groupNameByThreadId = useMemo(() => {
+    const nameByGroupId = new Map(groups.map((group) => [group.id, group.name]));
+    const names = new Map<string, string>();
+    for (const placement of placements) {
+      if (placement.groupId) {
+        const name = nameByGroupId.get(placement.groupId);
+        if (name) {
+          names.set(placement.threadId, name);
+        }
+      }
+    }
+    return names;
+  }, [groups, placements]);
+
   const handleSelectThread = (threadId: string): void => {
     selectThread(resourceId, threadId);
   };
@@ -2562,6 +2619,11 @@ export function ThreadsPanel(): ReactElement {
     // placements table does not accumulate orphans.
     if (groupsRepository && placementsByThreadId[threadId]) {
       await removeThreadPlacement(groupsRepository, threadId);
+    }
+    // Search-index rows for a deleted thread are inert (query-time join by
+    // id) and swept by the sync GC, but clear them eagerly like placements.
+    if (threadSearchRepository) {
+      await threadSearchRepository.deleteThreads([threadId]);
     }
   };
   const handleUpdateThreadMetadata = async (
@@ -2588,6 +2650,9 @@ export function ThreadsPanel(): ReactElement {
     }
     await deleteThreads(repository, resourceId, threadIds);
     pruneDeletedThreadPlacements(threadIds);
+    if (threadSearchRepository) {
+      await threadSearchRepository.deleteThreads(threadIds);
+    }
   };
   const handleBulkMove = async (
     threadIds: readonly string[],
@@ -2777,6 +2842,13 @@ export function ThreadsPanel(): ReactElement {
         </div>
       </div>
 
+      <ThreadsPanelSearch
+        groupNameByThreadId={groupNameByThreadId}
+        onRetry={retrySearch}
+        onSelectThread={handleSelectThread}
+        threadsById={threadsById}
+      />
+
       {groupActionError ? (
         <p
           className="px-3 pb-2 text-[11px] text-destructive"
@@ -2794,7 +2866,7 @@ export function ThreadsPanel(): ReactElement {
         </p>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
         <ThreadsPanelContent
           databaseError={databaseError}
           databaseStartupLoading={databaseStartupLoading}

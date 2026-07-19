@@ -7,6 +7,7 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { resetThreadSearchStore } from './thread-search-store';
 
 /**
  * Wire session-only Zustand stores into the factory-reset pipeline per the
@@ -60,4 +61,10 @@ registerFactoryResetSessionStore(() => {
   // handle database (brainstrike-notes-vault) is wiped via the IndexedDB
   // fallback list in factory-reset-helpers.ts.
   resetNotesVaultSessionState();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Thread search results/query are session-only; the durable index rows
+  // (brainstrike_thread_message_index/_state) are cleared with the DB.
+  resetThreadSearchStore();
 });

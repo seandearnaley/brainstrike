@@ -81,6 +81,8 @@ type OptionalRelationTable =
   | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
+  | 'brainstrike_thread_message_index'
+  | 'brainstrike_thread_search_state'
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
@@ -747,6 +749,13 @@ export function registerDatabaseIpcHandlers(
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');
+            // Thread search index rows are derived from mastra messages, but a
+            // factory reset must wipe extracted text + the sync watermark so
+            // conversation content cannot survive a "true fresh start" (FACTORY
+            // RESET CONTRACT). The singleton search profile is app
+            // configuration and remains, like the prompt profile.
+            await clearOptionalRelation(tx, 'brainstrike_thread_message_index');
+            await clearOptionalRelation(tx, 'brainstrike_thread_search_state');
 
             return {
               deletedChunks,
