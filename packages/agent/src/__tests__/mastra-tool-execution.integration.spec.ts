@@ -478,6 +478,65 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     });
   });
 
+  it('preserves a domain result shaped exactly like an AI SDK tool-output envelope', async () => {
+    const rawOutput = {
+      input: { evidence: 'domain input' },
+      output: { evidence: 'domain output' },
+      toolCallId: 'domain-owned-call-id',
+    };
+    const domainTool = createTool({
+      description: 'Return domain evidence whose public shape overlaps an adapter envelope.',
+      execute: () => Promise.resolve(rawOutput),
+      id: 'domain_envelope_shape',
+      inputSchema: z.object({}),
+      outputSchema: z.object({
+        input: z.object({ evidence: z.string() }),
+        output: z.object({ evidence: z.string() }),
+        toolCallId: z.string(),
+      }),
+    });
+    const toModelOutput = vi.fn((output: unknown) => ({
+      type: 'text',
+      value: JSON.stringify(output),
+    }));
+    Object.defineProperty(domainTool, 'toModelOutput', {
+      configurable: true,
+      value: toModelOutput,
+    });
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'All domain evidence reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-domain-envelope-shape-1',
+      toolName: 'domain_envelope_shape',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-domain-envelope-shape',
+          parts: [{ text: 'return the domain envelope-shaped evidence', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { domain_envelope_shape: domainTool },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the tool and the next provider step.
+    }
+
+    expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
+    expect(modelFacingToolOutput).toBe(JSON.stringify(rawOutput));
+  });
+
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
     const server = await startStreamableMcpServer();
     modelHolder.current = createScriptedToolCallModel({

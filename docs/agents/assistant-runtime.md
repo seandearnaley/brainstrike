@@ -98,9 +98,11 @@ truncated at that composition stage. The `skill` activation exception keeps
 its complete 6000-token instruction budget and adds a dedicated bounded hook
 allowance plus structural reserve instead of rebinding to the generic
 1500-token domain budget. Persona agents receive the same projections before
-their independent permission gate. Mastra 1.51's AI SDK v6 boundary passes
-`{toolCallId,input,output}`, but its agentic-loop/v5 paths call the same
-projector with raw output. Brainstrike supports both exact forms.
+their independent permission gate. Mastra 1.51's documented CoreTool
+projection callback receives the raw execute output. Brainstrike never
+shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
+object is valid domain evidence; a future direct AI SDK adapter belongs at a
+separately typed boundary.
 
 MCP is the temporary exception while artifact storage is absent: text/JSON is
 bounded inside `execute()` before inline persistence; image/audio stays raw

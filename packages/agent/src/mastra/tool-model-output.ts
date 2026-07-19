@@ -76,22 +76,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function readProjectionOutput(value: unknown): unknown {
-  if (
-    !isRecord(value) ||
-    typeof value['toolCallId'] !== 'string' ||
-    !Object.hasOwn(value, 'input') ||
-    !Object.hasOwn(value, 'output')
-  ) {
-    return value;
-  }
-  const keys = Object.keys(value);
-  const isMastraEnvelope =
-    keys.length === 3 &&
-    keys.every((key) => key === 'input' || key === 'output' || key === 'toolCallId');
-  return isMastraEnvelope ? value['output'] : value;
-}
-
 function stringifyJsonSafe(value: unknown): string {
   const serialized = JSON.stringify(toJsonSafe(value));
   if (serialized === undefined) {
@@ -624,12 +608,7 @@ export function applyToolModelOutputProjections(
         configurable: true,
         enumerable: true,
         value: (output: unknown) =>
-          projectExistingModelOutput(
-            originalToolName,
-            originalProjection,
-            cloned,
-            readProjectionOutput(output)
-          ),
+          projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
         writable: true,
       });
       projected[toolId] = cloned;
@@ -639,8 +618,7 @@ export function applyToolModelOutputProjections(
     Object.defineProperty(cloned, 'toModelOutput', {
       configurable: true,
       enumerable: true,
-      value: (output: unknown) =>
-        projectDefaultModelOutput(originalToolName, readProjectionOutput(output)),
+      value: (output: unknown) => projectDefaultModelOutput(originalToolName, output),
       writable: true,
     });
     projected[toolId] = cloned;

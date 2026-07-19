@@ -293,14 +293,17 @@ ceilings still fail visibly before transport. The discovered output schema
 remains exposed for documentation, while the official MCP SDK owns
 structured-output validation and Mastra does not incorrectly re-validate the
 complete `CallToolResult` envelope against the inner schema.
-Mastra 1.51's AI SDK v6 path invokes projections with
-`{toolCallId,input,output}`, while its agentic-loop/v5 paths pass the raw
-execute result. Brainstrike accepts both forms, extracting the exact SDK
-envelope before custom or generated projections. `skill` is the explicit text
-exception: its instruction body cannot be paged, so the complete 6000-token
-activation budget remains available and a separate bounded 2000-character
-PostToolUse allowance plus structural reserve expands only its final
-model-facing envelope.
+Brainstrike's projection contract is Mastra 1.51's documented CoreTool
+`toModelOutput(output)` callback: `output` is the raw execute result. Do not
+reinterpret a public `{toolCallId,input,output}` object by shape; those keys are
+valid domain data, and Mastra owns AI SDK adapter normalization at its known
+boundary. Any future standalone AI SDK v6 adapter must be a separately named
+boundary with an explicit input type, not an ambiguous branch inside the
+one-argument Mastra projector. The real Mastra loop regression pins this with
+an exact three-key domain result. `skill` is the explicit text exception: its
+instruction body cannot be paged, so the complete 6000-token activation budget
+remains available and a separate bounded 2000-character PostToolUse allowance
+plus structural reserve expands only its final model-facing envelope.
 
 Mastra 1.51's stock `TokenLimiter` counts raw database-shaped
 `toolInvocation.result` before provider conversion. Brainstrike therefore

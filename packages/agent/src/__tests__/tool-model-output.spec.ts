@@ -87,7 +87,7 @@ describe('applyToolModelOutputProjections', () => {
     expect(toModelOutput).toHaveBeenCalledOnce();
   });
 
-  it('passes the raw result from a Mastra envelope to an existing projection', () => {
+  it('passes the raw result to an existing projection', () => {
     const rawOutput = { summary: 'compact result' };
     const toModelOutput = vi.fn((output: unknown) => ({
       type: 'text',
@@ -103,14 +103,42 @@ describe('applyToolModelOutputProjections', () => {
       { custom_envelope: tool },
       new Map([['custom_envelope', 'custom.envelope']])
     );
-    const modelOutput = (projected['custom_envelope'] as TestTool).toModelOutput?.({
-      input: { query: 'summary' },
-      output: rawOutput,
-      toolCallId: 'call-custom-envelope',
-    });
+    const modelOutput = (projected['custom_envelope'] as TestTool).toModelOutput?.(rawOutput);
 
     expect(modelOutput).toEqual({ type: 'text', value: 'compact result' });
     expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
+  });
+
+  it('does not unwrap a domain result shaped exactly like a Mastra envelope', async () => {
+    const domainOutput = {
+      input: { domain: 'input evidence' },
+      output: { domain: 'output evidence' },
+      toolCallId: 'domain-call-id',
+    };
+    const toModelOutput = vi.fn((output: unknown) => ({
+      type: 'text',
+      value: JSON.stringify(output),
+    }));
+    const tool = asTool({
+      execute: () => Promise.resolve(domainOutput),
+      id: 'domain-envelope-shape',
+      toModelOutput,
+    });
+    const projected = applyToolModelOutputProjections(
+      { domain_envelope_shape: tool },
+      new Map([['domain_envelope_shape', 'domain.envelope-shape']])
+    );
+    const projectedTool = projected['domain_envelope_shape'] as TestTool;
+
+    const rawOutput = await projectedTool.execute?.({});
+    const modelOutput = projectedTool.toModelOutput?.(rawOutput);
+
+    expect(rawOutput).toBe(domainOutput);
+    expect(toModelOutput).toHaveBeenCalledWith(domainOutput);
+    expect(modelOutput).toEqual({
+      type: 'text',
+      value: JSON.stringify(domainOutput),
+    });
   });
 
   it.each([
@@ -891,7 +919,7 @@ describe('applyToolModelOutputProjections', () => {
     expect(JSON.stringify(modelOutput)).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
   });
 
-  it('extracts MCP media from the Mastra execution envelope', () => {
+  it('extracts MCP media from the raw tool result', () => {
     const rawOutput = {
       content: [
         { text: 'Inspect both attachments.', type: 'text' },
@@ -905,11 +933,7 @@ describe('applyToolModelOutputProjections', () => {
       { multimodal: tool },
       new Map([['multimodal', 'remote.multimodal']])
     );
-    const modelOutput = (projected['multimodal'] as TestTool).toModelOutput?.({
-      input: { query: 'attachments' },
-      output: rawOutput,
-      toolCallId: 'call-multimodal',
-    }) as {
+    const modelOutput = (projected['multimodal'] as TestTool).toModelOutput?.(rawOutput) as {
       type?: string;
       value?: Record<string, unknown>[];
     };
