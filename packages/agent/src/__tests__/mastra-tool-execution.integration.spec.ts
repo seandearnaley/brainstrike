@@ -35,7 +35,11 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { AgentHookRunner, HookToolGateResult } from '../tools/hook-runner';
+import {
+  type AgentHookRunner,
+  HOOK_RESULT_ENVELOPE_FIELD,
+  type HookToolGateResult,
+} from '../tools/hook-runner';
 import { ManageTaskListInputSchema } from '../tools/schemas';
 import type { StreamChunk } from '../types';
 
@@ -1779,6 +1783,13 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
       Promise.resolve({ city: input.city, temperatureC: 21 })
     );
     const weatherTool = makeWeatherTool(executeSpy);
+    const toModelOutput = vi.fn(() => {
+      throw new Error('domain projector must not receive a guarded hook failure');
+    });
+    Object.defineProperty(weatherTool, 'toModelOutput', {
+      configurable: true,
+      value: toModelOutput,
+    });
 
     const hookRunner: AgentHookRunner = {
       postToolUse: () => Promise.resolve({}),
@@ -1813,6 +1824,7 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
 
     // The hook blocked the tool BEFORE execute.
     expect(executeSpy).not.toHaveBeenCalled();
+    expect(toModelOutput).not.toHaveBeenCalled();
     // The block surfaces as the shared guarded-error code + a FAILED tool event.
     expect(JSON.stringify(chunks)).toContain('tool_blocked_by_hook');
     expect(JSON.stringify(chunks)).toContain('weather is off-limits');
@@ -1858,9 +1870,66 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(runEventKinds).toContain('tool.completed');
-    // The tool result the model sees carries the hook-injected context.
-    expect(JSON.stringify(chunks)).toContain('hookAdditionalContext');
+    // The raw tool event carries the explicit post-hook envelope.
+    expect(JSON.stringify(chunks)).toContain(HOOK_RESULT_ENVELOPE_FIELD);
     expect(JSON.stringify(chunks)).toContain('lint: ok');
+  });
+
+  it('composes a custom domain projection with PostToolUse context in the next model step', async () => {
+    const rawOutput = { city: 'Paris', temperatureC: 21 };
+    const weatherTool = makeWeatherTool(() => Promise.resolve(rawOutput));
+    const toModelOutput = vi.fn((output: unknown) => {
+      const weather = output as { city?: unknown; temperatureC?: unknown };
+      return {
+        type: 'text',
+        value: `weather: ${String(weather.city)} ${String(weather.temperatureC)}C`,
+      };
+    });
+    Object.defineProperty(weatherTool, 'toModelOutput', {
+      configurable: true,
+      value: toModelOutput,
+    });
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () =>
+        Promise.resolve({ additionalContext: 'Verify the forecast source before answering.' }),
+      preToolUse: (): Promise<HookToolGateResult> => Promise.resolve({ decision: 'allow' }),
+    };
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      input: JSON.stringify({ city: 'Paris' }),
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-hook-custom-projection-1',
+      toolName: 'get_weather',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-hook-custom-projection',
+          parts: [{ text: 'weather?', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the tool and second model step.
+    }
+
+    expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
+    expect(modelFacingToolOutput).toBe(
+      'weather: Paris 21C\nPost-tool context: Verify the forecast source before answering.'
+    );
+    expect(modelFacingToolOutput).not.toContain('hookAdditionalContext');
   });
 
   it('retains PostToolUse context in the bounded model projection of an oversized result', async () => {
@@ -1916,8 +1985,9 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(modelFacingToolOutput).toContain('output was truncated');
-    expect(modelFacingToolOutput).toContain('hookAdditionalContext');
-    expect(modelFacingToolOutput).toContain(hookContext);
+    expect(modelFacingToolOutput).toContain(`Post-tool context: ${hookContext}`);
+    expect(modelFacingToolOutput).not.toContain('hookAdditionalContext');
+    expect(modelFacingToolOutput).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
     expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
     expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
   });

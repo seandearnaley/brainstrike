@@ -17,6 +17,15 @@ const APPROX_CHARS_PER_TOKEN = 4;
 export const MAX_TOOL_RESULT_TOKENS = 3000;
 /** Default ceiling for the compact value repeated into the next model step. */
 export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
+export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
+  MAX_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
+/**
+ * Purpose-built domain projections must leave deterministic room for bounded
+ * PostToolUse guidance inside the total model-result envelope.
+ */
+export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
+export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =
+  MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
 
 /**

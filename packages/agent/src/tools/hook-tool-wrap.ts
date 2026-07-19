@@ -12,10 +12,13 @@
  * the block path is an explicit decision, not an exception).
  */
 
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import { isGuardedToolError } from './guard-tool-execution';
 import {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  HOOK_RESULT_ENVELOPE_FIELD,
+  HOOK_RESULT_ENVELOPE_KIND,
   type HookBlockedToolError,
 } from './hook-runner';
 import type { ToolLogger } from './types';
@@ -29,27 +32,31 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
 }
 
 function capContext(context: string): string {
-  if (context.length <= HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET) {
+  const capped = sliceCodePoints(context, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET);
+  if (capped.length === context.length) {
     return context;
   }
-  return `${context.slice(0, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET)}…`;
+  return `${sliceCodePoints(context, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET - 1)}…`;
 }
 
 /**
- * Merge PostToolUse `additionalContext` into a tool result within the budget:
- * an object result gains a `hookAdditionalContext` field; a primitive result is
- * wrapped as `{ value, hookAdditionalContext }`. A guarded-error result is left
- * untouched (never annotate a failure).
+ * Carry PostToolUse `additionalContext` beside the original result in one
+ * explicitly discriminated internal envelope. Every successful result shape
+ * uses the same protocol, so the projection layer never guesses based on a
+ * domain-owned field. A guarded-error result is left untouched.
  */
 function mergeAdditionalContext(result: unknown, context: string): unknown {
   if (isGuardedToolError(result)) {
     return result;
   }
   const capped = capContext(context);
-  if (result && typeof result === 'object' && !Array.isArray(result)) {
-    return { ...(result as Record<string, unknown>), hookAdditionalContext: capped };
-  }
-  return { hookAdditionalContext: capped, value: result };
+  return {
+    [HOOK_RESULT_ENVELOPE_FIELD]: {
+      additionalContext: capped,
+      kind: HOOK_RESULT_ENVELOPE_KIND,
+      result,
+    },
+  };
 }
 
 export interface ApplyToolHooksOptions {

@@ -41,3 +41,10 @@ export interface HookBlockedToolError {
 
 /** Cap on PostToolUse `additionalContext` merged into a tool result (chars). */
 export const HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET = 2000;
+/**
+ * Explicit serializable envelope used to keep PostToolUse control metadata
+ * separate from every domain result shape until the projection layer consumes
+ * it. Both values are reserved internal protocol identifiers.
+ */
+export const HOOK_RESULT_ENVELOPE_FIELD = '__brainstrikeHookResultEnvelope';
+export const HOOK_RESULT_ENVELOPE_KIND = 'brainstrike.post-tool-result.v1';

@@ -1,19 +1,28 @@
+import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
+  MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
+import {
+  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  HOOK_RESULT_ENVELOPE_FIELD,
+  HOOK_RESULT_ENVELOPE_KIND,
+} from '../tools/hook-runner';
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
   readonly toModelOutput?: (output: unknown) => unknown;
 };
 
-const APPROX_CHARS_PER_TOKEN = 4;
-const MAX_MODEL_OUTPUT_SERIALIZED_CHARS = MAX_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
+const POST_TOOL_CONTEXT_LABEL = 'Post-tool context: ';
+const POST_TOOL_CONTEXT_TRUNCATION_SUFFIX = '… [post-tool context truncated]';
 
 interface McpContentPart {
   readonly data?: unknown;
@@ -24,7 +33,6 @@ interface McpContentPart {
 
 interface McpMultimodalOutput {
   readonly content: readonly McpContentPart[];
-  readonly hookAdditionalContext?: unknown;
 }
 
 interface ModelContentOutput {
@@ -68,9 +76,14 @@ function stringifyJsonSafe(value: unknown): string {
   return serialized;
 }
 
-function serializeBoundedOutput(toolName: string, output: unknown): string {
+function serializeBoundedOutput(
+  toolName: string,
+  output: unknown,
+  modelTokenBudgetOverride?: number
+): string {
   const modelTokenBudget =
-    toolName === 'skill' ? SKILL_ACTIVATION_RESULT_TOKEN_BUDGET : MAX_MODEL_TOOL_RESULT_TOKENS;
+    modelTokenBudgetOverride ??
+    (toolName === 'skill' ? SKILL_ACTIVATION_RESULT_TOKEN_BUDGET : MAX_MODEL_TOOL_RESULT_TOKENS);
   const bounded = boundToolOutputForModel(toolName, output, modelTokenBudget).output;
   if (typeof bounded === 'string') {
     return bounded;
@@ -98,15 +111,7 @@ export function readMcpMultimodalOutput(output: unknown): McpMultimodalOutput | 
   if (parts.length !== content.length) {
     throw new TypeError('MCP multimodal content must contain only object parts');
   }
-  return {
-    content: parts,
-    ...('hookAdditionalContext' in output
-      ? {
-          hookAdditionalContext: (output as { hookAdditionalContext?: unknown })
-            .hookAdditionalContext,
-        }
-      : {}),
-  };
+  return { content: parts };
 }
 
 export function measureMcpMultimodalOutput(output: unknown):
@@ -158,12 +163,6 @@ function createMcpMultimodalModelOutput(
     .filter((part) => !isMcpMediaPart(part))
     .map(stringifyMcpTextPart);
   const textSegments: string[] = [];
-  if (
-    typeof multimodal.hookAdditionalContext === 'string' &&
-    multimodal.hookAdditionalContext.length > 0
-  ) {
-    textSegments.push(`Post-tool context: ${multimodal.hookAdditionalContext}`);
-  }
   if (isRecord(output) && output['structuredContent'] !== undefined) {
     textSegments.push(`Structured content: ${stringifyJsonSafe(output['structuredContent'])}`);
   }
@@ -267,39 +266,33 @@ function maskMediaDataForMeasurement(output: ModelContentOutput): Record<string,
 function fitContentTextToModelBudget(
   toolName: string,
   text: string,
-  preservedParts: readonly Record<string, unknown>[]
+  preservedParts: readonly Record<string, unknown>[],
+  maxSerializedChars: number
 ): Record<string, unknown> {
   const build = (value: string): ModelContentOutput => ({
     type: 'content',
     value: [...(value ? [{ text: value, type: 'text' }] : []), ...preservedParts],
   });
   const empty = build('');
-  if (
-    stringifyJsonSafe(maskMediaDataForMeasurement(empty)).length > MAX_MODEL_OUTPUT_SERIALIZED_CHARS
-  ) {
+  if (stringifyJsonSafe(maskMediaDataForMeasurement(empty)).length > maxSerializedChars) {
     throw new RangeError(
-      `${toolName} model projection media metadata exceeds the ${MAX_MODEL_OUTPUT_SERIALIZED_CHARS}-character budget`
+      `${toolName} model projection media metadata exceeds the ${maxSerializedChars}-character budget`
     );
   }
 
   const full = build(text);
-  if (
-    stringifyJsonSafe(maskMediaDataForMeasurement(full)).length <= MAX_MODEL_OUTPUT_SERIALIZED_CHARS
-  ) {
+  if (stringifyJsonSafe(maskMediaDataForMeasurement(full)).length <= maxSerializedChars) {
     return full as unknown as Record<string, unknown>;
   }
 
   const suffix = '\n[model projection truncated]';
   let low = 0;
-  let high = Math.min(text.length, MAX_MODEL_OUTPUT_SERIALIZED_CHARS);
+  let high = Math.min(text.length, maxSerializedChars);
   let best = empty;
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
     const candidate = build(`${sliceCodePoints(text, kept)}${suffix}`);
-    if (
-      stringifyJsonSafe(maskMediaDataForMeasurement(candidate)).length <=
-      MAX_MODEL_OUTPUT_SERIALIZED_CHARS
-    ) {
+    if (stringifyJsonSafe(maskMediaDataForMeasurement(candidate)).length <= maxSerializedChars) {
       best = candidate;
       low = kept + 1;
     } else {
@@ -311,45 +304,264 @@ function fitContentTextToModelBudget(
 
 function boundContentModelOutput(
   toolName: string,
-  output: ModelContentOutput
+  output: ModelContentOutput,
+  modelTokenBudget: number,
+  maxSerializedChars: number
 ): Record<string, unknown> {
-  if (
-    stringifyJsonSafe(maskMediaDataForMeasurement(output)).length <=
-    MAX_MODEL_OUTPUT_SERIALIZED_CHARS
-  ) {
+  if (stringifyJsonSafe(maskMediaDataForMeasurement(output)).length <= maxSerializedChars) {
     return output as unknown as Record<string, unknown>;
   }
 
   const preservedParts = output.value.filter(isModelPreservedContentPart);
   const textAndUnknownParts = output.value.filter((part) => !isModelPreservedContentPart(part));
-  const boundedText = serializeBoundedOutput(toolName, textAndUnknownParts);
-  return fitContentTextToModelBudget(toolName, boundedText, preservedParts);
+  const boundedText = serializeBoundedOutput(toolName, textAndUnknownParts, modelTokenBudget);
+  return fitContentTextToModelBudget(toolName, boundedText, preservedParts, maxSerializedChars);
 }
 
-function boundProjectedModelOutput(toolName: string, output: unknown): Record<string, unknown> {
+function fitTextModelOutput(
+  toolName: string,
+  text: string,
+  modelTokenBudget: number,
+  maxSerializedChars: number
+): Record<string, unknown> {
+  const build = (value: string): Record<string, unknown> => ({ type: 'text', value });
+  if (stringifyJsonSafe(build(text)).length <= maxSerializedChars) {
+    return build(text);
+  }
+  const boundedText = serializeBoundedOutput(toolName, text, modelTokenBudget);
+  if (stringifyJsonSafe(build(boundedText)).length <= maxSerializedChars) {
+    return build(boundedText);
+  }
+  const suffix = '\n[model projection truncated]';
+  const best = findLargestFittingCandidate(
+    Math.min(boundedText.length, maxSerializedChars),
+    (kept) => build(`${sliceCodePoints(boundedText, kept)}${suffix}`),
+    (candidate) => stringifyJsonSafe(candidate).length <= maxSerializedChars
+  );
+  if (!best) {
+    throw new RangeError(
+      `${toolName} model projection cannot fit the ${maxSerializedChars}-character budget`
+    );
+  }
+  return best;
+}
+
+function boundProjectedModelOutput(
+  toolName: string,
+  output: unknown,
+  modelTokenBudget: number = MAX_MODEL_TOOL_RESULT_TOKENS,
+  maxSerializedChars: number = MAX_MODEL_TOOL_RESULT_CHAR_BUDGET
+): Record<string, unknown> {
   if (isModelContentOutput(output)) {
-    return boundContentModelOutput(toolName, output);
+    return boundContentModelOutput(toolName, output, modelTokenBudget, maxSerializedChars);
   }
   if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
-    if (stringifyJsonSafe(output).length <= MAX_MODEL_OUTPUT_SERIALIZED_CHARS) {
-      return output;
+    return fitTextModelOutput(toolName, output['value'], modelTokenBudget, maxSerializedChars);
+  }
+  if (isRecord(output) && output['type'] === 'json') {
+    const projected = {
+      type: 'json',
+      value: boundToolOutputForModel(toolName, output['value'], modelTokenBudget).output,
+    };
+    if (stringifyJsonSafe(projected).length <= maxSerializedChars) {
+      return projected;
     }
-    return {
+    return fitTextModelOutput(
+      toolName,
+      stringifyJsonSafe(projected['value']),
+      modelTokenBudget,
+      maxSerializedChars
+    );
+  }
+  return fitTextModelOutput(
+    toolName,
+    serializeBoundedOutput(toolName, output, modelTokenBudget),
+    modelTokenBudget,
+    maxSerializedChars
+  );
+}
+
+function measureProjectedModelOutput(output: Record<string, unknown>): number {
+  const measured = isModelContentOutput(output) ? maskMediaDataForMeasurement(output) : output;
+  return stringifyJsonSafe(measured).length;
+}
+
+function assertDomainProjectionWithinBudget(
+  toolName: string,
+  output: unknown
+): Record<string, unknown> {
+  let normalized: Record<string, unknown>;
+  if (isModelContentOutput(output)) {
+    normalized = output as unknown as Record<string, unknown>;
+  } else if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
+    normalized = { type: 'text', value: output['value'] };
+  } else if (isRecord(output) && output['type'] === 'json') {
+    normalized = { type: 'json', value: toJsonSafe(output['value']) };
+  } else {
+    normalized = {
       type: 'text',
-      value: serializeBoundedOutput(toolName, output['value']),
+      value: typeof output === 'string' ? output : stringifyJsonSafe(output),
+    };
+  }
+  if (measureProjectedModelOutput(normalized) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    throw new RangeError(
+      `${toolName} domain model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character budget; purpose-built projectors must self-fit complete output`
+    );
+  }
+  return normalized;
+}
+
+interface HookProjectionComposition {
+  readonly build: (context: string) => Record<string, unknown>;
+}
+
+function readHookProjectionComposition(output: unknown): HookProjectionComposition {
+  if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
+    const domainText = output['value'];
+    return {
+      build: (context) => ({
+        type: 'text',
+        value:
+          domainText.length > 0
+            ? `${domainText}\n${POST_TOOL_CONTEXT_LABEL}${context}`
+            : `${POST_TOOL_CONTEXT_LABEL}${context}`,
+      }),
+    };
+  }
+  if (isModelContentOutput(output)) {
+    return {
+      build: (context) => ({
+        type: 'content',
+        value: [...output.value, { text: `${POST_TOOL_CONTEXT_LABEL}${context}`, type: 'text' }],
+      }),
     };
   }
   if (isRecord(output) && output['type'] === 'json') {
+    const domainText = stringifyJsonSafe(output['value']);
     return {
-      type: 'json',
-      value: boundToolOutputForModel(toolName, output['value'], MAX_MODEL_TOOL_RESULT_TOKENS)
-        .output,
+      build: (context) => ({
+        type: 'text',
+        value: `${domainText}\n${POST_TOOL_CONTEXT_LABEL}${context}`,
+      }),
     };
   }
+  throw new TypeError('Bounded domain projection has an unsupported output type');
+}
+
+function contextCandidate(context: string, keptCodePoints: number, truncated: boolean): string {
+  const kept = sliceCodePoints(context, keptCodePoints);
+  return truncated ? `${kept}${POST_TOOL_CONTEXT_TRUNCATION_SUFFIX}` : kept;
+}
+
+function findLargestFittingCandidate<T>(
+  maximum: number,
+  createCandidate: (kept: number) => T,
+  fits: (candidate: T) => boolean
+): T | undefined {
+  let low = 0;
+  let high = maximum;
+  let best: T | undefined;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = createCandidate(kept);
+    if (fits(candidate)) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
+}
+
+function capHookContextForProjection(context: string): string {
+  const capped = sliceCodePoints(context, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET);
+  return capped.length < context.length
+    ? `${capped}${POST_TOOL_CONTEXT_TRUNCATION_SUFFIX}`
+    : capped;
+}
+
+interface HookProjectionMetadata {
+  readonly domainOutput: unknown;
+  readonly hookContext?: string;
+}
+
+function readHookProjectionMetadata(output: unknown): HookProjectionMetadata {
+  if (!isRecord(output)) {
+    return { domainOutput: output };
+  }
+  const outerKeys = Object.keys(output);
+  if (
+    outerKeys.length !== 1 ||
+    outerKeys[0] !== HOOK_RESULT_ENVELOPE_FIELD ||
+    !isRecord(output[HOOK_RESULT_ENVELOPE_FIELD])
+  ) {
+    return { domainOutput: output };
+  }
+  const envelope = output[HOOK_RESULT_ENVELOPE_FIELD];
+  const envelopeKeys = Object.keys(envelope);
+  const additionalContext = envelope['additionalContext'];
+  const isHookEnvelope =
+    envelopeKeys.length === 3 &&
+    envelopeKeys.every(
+      (key) => key === 'additionalContext' || key === 'kind' || key === 'result'
+    ) &&
+    envelope['kind'] === HOOK_RESULT_ENVELOPE_KIND &&
+    typeof additionalContext === 'string' &&
+    additionalContext.length > 0 &&
+    Object.hasOwn(envelope, 'result');
+  if (!isHookEnvelope) {
+    return { domainOutput: output };
+  }
   return {
-    type: 'text',
-    value: serializeBoundedOutput(toolName, output),
+    domainOutput: envelope['result'],
+    hookContext: additionalContext,
   };
+}
+
+function composeHookContextWithProjection(
+  toolName: string,
+  domainProjection: Record<string, unknown>,
+  hookContext: string
+): Record<string, unknown> {
+  const composition = readHookProjectionComposition(domainProjection);
+  const context = capHookContextForProjection(hookContext);
+  const fits = (candidate: Record<string, unknown>): boolean =>
+    measureProjectedModelOutput(candidate) <= MAX_MODEL_TOOL_RESULT_CHAR_BUDGET;
+
+  const full = composition.build(context);
+  if (fits(full)) {
+    return full;
+  }
+  const fittedContext = findLargestFittingCandidate(
+    HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+    (kept) => contextCandidate(hookContext, kept, true),
+    (candidate) => fits(composition.build(candidate))
+  );
+  if (!fittedContext) {
+    throw new RangeError(
+      `${toolName} model projection cannot retain its post-tool context within the ${MAX_MODEL_TOOL_RESULT_CHAR_BUDGET}-character budget`
+    );
+  }
+  return composition.build(fittedContext);
+}
+
+function projectDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
+  if (isGuardedToolError(output)) {
+    return createDefaultModelOutput(toolName, output);
+  }
+  const { domainOutput, hookContext } = readHookProjectionMetadata(output);
+  const defaultProjection = createDefaultModelOutput(toolName, domainOutput);
+  if (!hookContext) {
+    return defaultProjection;
+  }
+  const boundedDomainProjection = boundProjectedModelOutput(
+    toolName,
+    defaultProjection,
+    MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
+    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  );
+  return composeHookContextWithProjection(toolName, boundedDomainProjection, hookContext);
 }
 
 function projectExistingModelOutput(
@@ -358,13 +570,21 @@ function projectExistingModelOutput(
   receiver: ExecutableToolWithModelOutput,
   output: unknown
 ): unknown {
+  if (isGuardedToolError(output)) {
+    return projectDefaultModelOutput(toolName, output);
+  }
+  const { domainOutput, hookContext } = readHookProjectionMetadata(output);
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
-      return createDefaultModelOutput(toolName, output);
+      return projectDefaultModelOutput(toolName, output);
     }
-    return boundProjectedModelOutput(toolName, resolved);
+    const domainProjection = assertDomainProjectionWithinBudget(toolName, resolved);
+    if (hookContext) {
+      return composeHookContextWithProjection(toolName, domainProjection, hookContext);
+    }
+    return domainProjection;
   };
-  const projected = Reflect.apply(projector, receiver, [output]);
+  const projected = Reflect.apply(projector, receiver, [domainOutput]);
   if (
     projected &&
     (typeof projected === 'object' || typeof projected === 'function') &&
@@ -425,7 +645,7 @@ export function applyToolModelOutputProjections(
       configurable: true,
       enumerable: true,
       value: (output: unknown) =>
-        createDefaultModelOutput(originalToolName, readProjectionOutput(output)),
+        projectDefaultModelOutput(originalToolName, readProjectionOutput(output)),
       writable: true,
     });
     projected[toolId] = cloned;

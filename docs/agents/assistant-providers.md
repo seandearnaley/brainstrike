@@ -255,13 +255,29 @@ enforced deterministically on serialized chars at 4 chars/token (mirrors
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
 runtime then adds or composes `toModelOutput` on every execute-backed
 native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
-application consumers and Mastra persistence, while the provider receives a
-text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
-domain projections keep their semantics but pass through the same final text
-ceiling; a nullish synchronous or asynchronous custom projection falls
-through to Brainstrike's bounded deterministic default, while malformed
-non-callable projections throw. MCP image/audio results use Mastra `content`
-output so base64 media remains model-native while companion text is bounded.
+application consumers and Mastra persistence. Generated/default projections
+are bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized
+characters. Purpose-built domain projections have the stricter
+`MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character contract so the
+remaining envelope can carry PostToolUse guidance. Domain projectors MUST
+self-fit a complete page; central code throws on overflow instead of
+prefix-truncating a page whose continuation/provenance it cannot understand.
+Only generated/default projections may use the generic truncation path.
+
+Guarded failures (`tool_timeout`, `tool_failed`, `tool_blocked_by_hook`) bypass
+domain projectors and retain the bounded structured failure. For successful
+hooked results, every original result shape and its control metadata travel in
+the explicitly discriminated internal `HOOK_RESULT_ENVELOPE_FIELD` protocol.
+The envelope is removed and the exact domain result restored before either a
+custom or default projector runs. The central composer then appends
+PostToolUse context without reordering authored content parts, truncating only
+that context when needed to keep the final non-media serialized envelope at or
+below 8000 characters. A nullish synchronous or asynchronous custom projection
+falls through to the bounded deterministic default over the clean domain
+result, while malformed non-callable projections throw. Serialized-character
+checks include JSON escaping; inline media bodies are excluded while their
+metadata is counted. MCP image/audio results use Mastra `content` output so
+base64 media remains model-native while companion text is bounded.
 When a valid MCP result includes both `structuredContent` and image/audio
 `content`, the transport-owned MCP runtime preserves the canonical result envelope
 through persistence bounding instead of collapsing to the structured object.
