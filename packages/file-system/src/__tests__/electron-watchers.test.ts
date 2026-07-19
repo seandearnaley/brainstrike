@@ -1,539 +1,80 @@
-import type { FSWatcher, Stats } from 'node:fs';
-import fs from 'node:fs';
-import path from 'node:path';
+// The shared change batcher (BST-568): 150ms trailing coalescing with a
+// bounded batch size. Engine-level behavior (event normalization, ignore
+// rules, health) lives in parcel-watchers.test.ts — the legacy chokidar /
+// fs.watch engines were removed in slice 4.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createFileSystemChangeBatcher,
   FS_WATCH_BATCH_WINDOW_MS,
   FS_WATCH_MAX_BATCH_SIZE,
-  handleWatcherSetupError,
-  startChokidarWatch,
-  startFsWatch,
 } from '../adapters/electron-watchers';
-import type { DirectoryHandle, FileSystemChange } from '../types';
+import type { FileSystemChange } from '../types';
 
-type ChokidarEvent = 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir' | 'error';
-type ChokidarHandler = (value: unknown) => void;
-type ChokidarWatchOptions = Record<string, unknown>;
-
-const { chokidarClose, chokidarHandlers, chokidarWatch, loggerMock } = vi.hoisted(() => {
-  const hoistedLoggerMock = {
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-  };
-  const hoistedChokidarHandlers = new Map<ChokidarEvent, ChokidarHandler>();
-  const hoistedChokidarClose = vi.fn().mockResolvedValue(undefined);
-  const hoistedChokidarWatcher = {
-    close: hoistedChokidarClose,
-    on: vi.fn((event: ChokidarEvent, handler: ChokidarHandler) => {
-      hoistedChokidarHandlers.set(event, handler);
-      return hoistedChokidarWatcher;
-    }),
-  };
-  const hoistedChokidarWatch = vi.fn(() => hoistedChokidarWatcher);
-  return {
-    chokidarClose: hoistedChokidarClose,
-    chokidarHandlers: hoistedChokidarHandlers,
-    chokidarWatch: hoistedChokidarWatch,
-    loggerMock: hoistedLoggerMock,
-  };
-});
-
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => loggerMock,
-}));
-
-const mockHandle: DirectoryHandle = {
-  kind: 'directory',
-  name: 'dir',
-  path: '/test/dir',
-  platform: 'electron',
-};
-
-vi.mock('chokidar', () => ({
-  watch: chokidarWatch,
-}));
-
-function getChokidarWatchOptions(): ChokidarWatchOptions {
-  const calls = chokidarWatch.mock.calls as unknown as [string, ChokidarWatchOptions][];
-  const options = calls[0]?.[1];
-  expect(options).toBeDefined();
-  return options as ChokidarWatchOptions;
+function change(pathSuffix: number): FileSystemChange {
+  return { kind: 'file', path: `/root/f${pathSuffix}.txt`, type: 'added' };
 }
 
-describe('startFsWatch', () => {
-  let mockWatchCallback: ((ev: string, filename: string | null) => void) | null;
-  let mockClose: ReturnType<typeof vi.fn>;
+describe('createFileSystemChangeBatcher', () => {
+  let batches: FileSystemChange[][] = [];
+  const collect = (changes: FileSystemChange[]) => {
+    batches.push(changes);
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
-    mockWatchCallback = null;
-    mockClose = vi.fn();
-    chokidarHandlers.clear();
-    loggerMock.error.mockClear();
-    loggerMock.warn.mockClear();
-
-    vi.spyOn(fs, 'watch').mockImplementation(((...args: unknown[]) => {
-      mockWatchCallback = args[2] as ((ev: string, filename: string | null) => void) | null;
-      return { close: mockClose, once: vi.fn() } as unknown as FSWatcher;
-    }) as unknown as typeof fs.watch);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it('coalesces multiple events within 150ms into one callback invocation', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    // Fire 3 events rapidly
-    mockWatchCallback?.('change', 'a.txt');
-    mockWatchCallback?.('change', 'b.txt');
-    mockWatchCallback?.('rename', 'c.txt');
-
-    // Let the async stat() calls resolve
-    await vi.advanceTimersByTimeAsync(0);
-    expect(callback).not.toHaveBeenCalled();
-
-    // Advance past the 150ms batch window
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).toHaveBeenCalledTimes(1);
-
-    const changes: FileSystemChange[] = callback.mock.calls[0]![0];
-    expect(changes).toHaveLength(3);
-    expect(changes.map((c) => c.path)).toEqual([
-      path.join(mockHandle.path, 'a.txt'),
-      path.join(mockHandle.path, 'b.txt'),
-      path.join(mockHandle.path, 'c.txt'),
-    ]);
-
-    statMock.mockRestore();
-  });
-
-  it('starts the native fallback recursively and logs visible degraded behavior', () => {
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    expect(fs.watch).toHaveBeenCalledWith(
-      mockHandle.path,
-      { recursive: true },
-      expect.any(Function)
-    );
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Started recursive native fs.watch',
-      expect.objectContaining({
-        path: mockHandle.path,
-        platform: process.platform,
-        role: 'fallback',
-      })
-    );
-  });
-
-  it('uses project ignore rules before statting native fallback events', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('change', '.git/config');
-    mockWatchCallback?.('change', 'node_modules/react/index.js');
-    mockWatchCallback?.('change', 'dist/app.js');
-    mockWatchCallback?.('change', '.github/workflows/ci.yml');
-
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(statMock).toHaveBeenCalledTimes(1);
-    expect(statMock).toHaveBeenCalledWith(path.join(mockHandle.path, '.github/workflows/ci.yml'));
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith([
-      {
-        kind: 'file',
-        path: path.join(mockHandle.path, '.github/workflows/ci.yml'),
-        type: 'modified',
-      },
-    ]);
-
-    statMock.mockRestore();
-  });
-
-  it('flushes immediately when the batch reaches max size', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    for (let index = 0; index < FS_WATCH_MAX_BATCH_SIZE; index += 1) {
-      mockWatchCallback?.('change', `file-${index}.txt`);
-    }
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(callback).toHaveBeenCalledTimes(1);
-
-    const firstBatch: FileSystemChange[] = callback.mock.calls[0]![0];
-    expect(firstBatch).toHaveLength(FS_WATCH_MAX_BATCH_SIZE);
-
-    // Reaching the cap clears the pending timer and avoids duplicate flushes.
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).toHaveBeenCalledTimes(1);
-
-    statMock.mockRestore();
-  });
-
-  it('starts a new batch after an immediate max-size flush', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    for (let index = 0; index < FS_WATCH_MAX_BATCH_SIZE + 1; index += 1) {
-      mockWatchCallback?.('change', `file-${index}.txt`);
-    }
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback.mock.calls[0]?.[0]).toHaveLength(FS_WATCH_MAX_BATCH_SIZE);
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).toHaveBeenCalledTimes(2);
-    expect(callback.mock.calls[1]?.[0]).toHaveLength(1);
-
-    statMock.mockRestore();
-  });
-
-  it('pushes directory removed event when stat rejects on rename', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('rename', 'deleted.txt');
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith([
-      expect.objectContaining({
-        kind: 'directory',
-        path: path.join(mockHandle.path, 'deleted.txt'),
-        type: 'removed',
-      }),
-    ]);
-
-    statMock.mockRestore();
-  });
-
-  it('does NOT push removed event for change events that fail stat', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('change', 'transient.txt');
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    // change event with failed stat and ev !== 'rename' is silently dropped
-    expect(callback).not.toHaveBeenCalled();
-
-    statMock.mockRestore();
-  });
-
-  it('stop function flushes remaining batch immediately', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    const stop = startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('change', 'file.txt');
-
-    // Let stat() resolve but don't advance timer
-    await vi.advanceTimersByTimeAsync(0);
-
-    // Stop before the 150ms timer fires
-    stop();
-
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(mockClose).toHaveBeenCalled();
-
-    statMock.mockRestore();
-  });
-
-  it('does not emit native fallback events that resolve after stop', async () => {
-    let resolveStat: ((stat: Stats) => void) | undefined;
-    const statMock = vi.spyOn(fs.promises, 'stat').mockImplementation(
-      () =>
-        new Promise<Stats>((resolve) => {
-          resolveStat = resolve;
-        })
-    );
-    const callback = vi.fn();
-    const stop = startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('change', 'late.txt');
-    await vi.advanceTimersByTimeAsync(0);
-    expect(resolveStat).toBeDefined();
-
-    stop();
-    resolveStat?.({ isDirectory: () => false } as Stats);
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-
-    expect(callback).not.toHaveBeenCalled();
-
-    statMock.mockRestore();
-  });
-
-  it('invalidates the watched root when a native event omits its filename', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => false,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback, 'primary');
-
-    mockWatchCallback?.('change', null);
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(statMock).not.toHaveBeenCalled();
-    expect(callback).toHaveBeenCalledWith([
-      {
-        kind: 'directory',
-        path: mockHandle.path,
-        type: 'modified',
-      },
-    ]);
-
-    statMock.mockRestore();
-  });
-
-  it('detects directories via stat isDirectory', async () => {
-    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-      isDirectory: () => true,
-    } as Stats);
-    const callback = vi.fn();
-    startFsWatch(mockHandle, callback);
-
-    mockWatchCallback?.('rename', 'new-folder');
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-    expect(callback).toHaveBeenCalledWith([
-      expect.objectContaining({ kind: 'directory', type: 'added' }),
-    ]);
-
-    statMock.mockRestore();
-  });
-
-  it('returns a no-op stop function and logs when recursive native fs.watch fails', () => {
-    vi.spyOn(fs, 'watch').mockImplementation(() => {
-      throw new Error('watch unavailable');
-    });
-
-    const stop = startFsWatch(mockHandle, vi.fn());
-    expect(typeof stop).toBe('function');
-    expect(() => stop()).not.toThrow();
-    expect(loggerMock.error).toHaveBeenCalledWith(
-      'Failed to start recursive native fs.watch; folder will not be watched',
-      expect.objectContaining({
-        errorMessage: 'watch unavailable',
-        path: mockHandle.path,
-        platform: process.platform,
-        role: 'fallback',
-      })
-    );
-  });
-});
-
-describe('startChokidarWatch', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    chokidarHandlers.clear();
-    chokidarWatch.mockClear();
-    chokidarClose.mockClear();
-    loggerMock.error.mockClear();
-    loggerMock.warn.mockClear();
+    batches = [];
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('configures chokidar for recursive watching with project ignore rules', async () => {
-    const callback = vi.fn();
-    const stop = await startChokidarWatch(mockHandle, callback);
-
-    expect(chokidarWatch).toHaveBeenCalledWith(
-      mockHandle.path,
-      expect.objectContaining({
-        atomic: true,
-        awaitWriteFinish: { pollInterval: 100, stabilityThreshold: 100 },
-        followSymlinks: false,
-        ignored: expect.any(Function),
-        ignoreInitial: true,
-        persistent: true,
-      })
-    );
-
-    const options = getChokidarWatchOptions();
-    expect(options).not.toHaveProperty('depth');
-
-    stop();
+  it('coalesces changes within the 150ms window into one batch', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    batcher.enqueue(change(1));
+    batcher.enqueue(change(2));
+    expect(batches).toEqual([]);
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS);
+    expect(batches).toEqual([[change(1), change(2)]]);
+    batcher.dispose();
   });
 
-  it('uses project ignore rules without blanket-ignoring dot-prefixed paths', async () => {
-    const callback = vi.fn();
-    const stop = await startChokidarWatch(mockHandle, callback);
-
-    const options = getChokidarWatchOptions();
-    const ignored = options['ignored'] as (filePath: string) => boolean;
-
-    expect(ignored('/repo/.git/config')).toBe(true);
-    expect(ignored('/repo/node_modules/react/index.js')).toBe(true);
-    expect(ignored('/repo/dist/app.js')).toBe(true);
-    expect(ignored('/repo/build/app.js')).toBe(true);
-    expect(ignored('/repo/.pnpm-store/v10/files/00')).toBe(true);
-    expect(ignored('/repo/.next/server/app.js')).toBe(true);
-    expect(ignored('/repo/.DS_Store')).toBe(true);
-    expect(ignored('/repo/.github/workflows/ci.yml')).toBe(false);
-
-    stop();
+  it('flushes immediately when the bounded batch size is reached', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    for (let i = 0; i < FS_WATCH_MAX_BATCH_SIZE; i += 1) {
+      batcher.enqueue(change(i));
+    }
+    // No timer advance needed: the cap forces a synchronous flush.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(FS_WATCH_MAX_BATCH_SIZE);
+    // The window restarts cleanly for subsequent changes.
+    batcher.enqueue(change(9999));
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS);
+    expect(batches).toHaveLength(2);
+    expect(batches[1]).toEqual([change(9999)]);
+    batcher.dispose();
   });
 
-  it('batches nested chokidar add/change/unlink events in order after 150ms', async () => {
-    const callback = vi.fn();
-    await startChokidarWatch(mockHandle, callback);
-
-    chokidarHandlers.get('add')?.('/test/dir/src/new.ts');
-    chokidarHandlers.get('change')?.('/test/dir/src/nested/update.ts');
-    chokidarHandlers.get('unlink')?.('/test/dir/src/nested/remove.ts');
-
-    expect(callback).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith([
-      { kind: 'file', path: '/test/dir/src/new.ts', type: 'added' },
-      { kind: 'file', path: '/test/dir/src/nested/update.ts', type: 'modified' },
-      { kind: 'file', path: '/test/dir/src/nested/remove.ts', type: 'removed' },
-    ]);
+  it('dispose flushes the pending batch synchronously', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    batcher.enqueue(change(1));
+    batcher.dispose();
+    expect(batches).toEqual([[change(1)]]);
   });
 
-  it('maps chokidar events to FileSystemChange payloads', async () => {
-    const callback = vi.fn();
-    const stop = await startChokidarWatch(mockHandle, callback);
-
-    chokidarHandlers.get('add')?.('/test/dir/new.txt');
-    chokidarHandlers.get('addDir')?.('/test/dir/sub');
-    chokidarHandlers.get('change')?.('/test/dir/update.txt');
-    chokidarHandlers.get('unlink')?.('/test/dir/remove.txt');
-    chokidarHandlers.get('unlinkDir')?.('/test/dir/old-sub');
-
-    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
-
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith([
-      { kind: 'file', path: '/test/dir/new.txt', type: 'added' },
-      { kind: 'directory', path: '/test/dir/sub', type: 'added' },
-      { kind: 'file', path: '/test/dir/update.txt', type: 'modified' },
-      { kind: 'file', path: '/test/dir/remove.txt', type: 'removed' },
-      { kind: 'directory', path: '/test/dir/old-sub', type: 'removed' },
-    ]);
-
-    stop();
-    expect(chokidarClose).toHaveBeenCalledTimes(1);
+  it('drops changes enqueued after dispose and never double-flushes', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    batcher.enqueue(change(1));
+    batcher.dispose();
+    batcher.enqueue(change(2));
+    batcher.dispose();
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS * 2);
+    expect(batches).toEqual([[change(1)]]);
   });
 
-  it('stops and reports only once when chokidar repeats a runtime error', async () => {
-    const stop = await startChokidarWatch(mockHandle, vi.fn());
-    const error = Object.assign(new Error('EMFILE: too many open files, watch'), {
-      code: 'EMFILE',
-    });
-
-    chokidarHandlers.get('error')?.(error);
-    chokidarHandlers.get('error')?.(error);
-
-    expect(chokidarClose).toHaveBeenCalledTimes(1);
-    expect(loggerMock.error).toHaveBeenCalledTimes(1);
-    expect(loggerMock.error).toHaveBeenCalledWith(
-      'Chokidar watcher failed at runtime; watcher stopped',
-      {
-        code: 'EMFILE',
-        errorMessage: 'EMFILE: too many open files, watch',
-        path: mockHandle.path,
-      }
-    );
-
-    stop();
-    expect(chokidarClose).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('handleWatcherSetupError', () => {
-  let fallbackClose: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    fallbackClose = vi.fn();
-    vi.spyOn(fs, 'watch').mockImplementation(
-      (() =>
-        ({
-          close: fallbackClose,
-          once: vi.fn(),
-        }) as unknown as FSWatcher) as unknown as typeof fs.watch
-    );
-    loggerMock.error.mockClear();
-    loggerMock.warn.mockClear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('logs non-module errors before falling back to fs.watch', () => {
-    const callback = vi.fn();
-    const stop = handleWatcherSetupError(new Error('boom'), mockHandle, callback);
-
-    expect(loggerMock.error).toHaveBeenCalledWith(
-      'Failed to set up chokidar watcher, falling back to fs.watch',
-      {
-        error: expect.any(Error),
-        path: mockHandle.path,
-      }
-    );
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Started recursive native fs.watch',
-      expect.objectContaining({
-        path: mockHandle.path,
-        platform: process.platform,
-        role: 'fallback',
-      })
-    );
-
-    stop();
-  });
-
-  it('logs visible fallback behavior for MODULE_NOT_FOUND and still falls back to fs.watch', () => {
-    const callback = vi.fn();
-    const moduleError = Object.assign(new Error('missing'), { code: 'MODULE_NOT_FOUND' });
-    const stop = handleWatcherSetupError(moduleError, mockHandle, callback);
-
-    expect(loggerMock.error).not.toHaveBeenCalled();
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Started recursive native fs.watch',
-      expect.objectContaining({
-        path: mockHandle.path,
-        platform: process.platform,
-        role: 'fallback',
-      })
-    );
-    stop();
-    expect(fallbackClose).toHaveBeenCalledTimes(1);
+  it('emits nothing when disposed with an empty batch', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    batcher.dispose();
+    expect(batches).toEqual([]);
   });
 });

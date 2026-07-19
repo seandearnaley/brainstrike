@@ -236,12 +236,7 @@ export interface FileSystemChange {
  */
 export type WatcherHealthState = 'starting' | 'healthy' | 'degraded' | 'failed' | 'stopped';
 
-export type WatcherBackendKind =
-  | 'fs-events'
-  | 'inotify'
-  | 'windows'
-  | 'legacy-chokidar'
-  | 'legacy-fs-watch';
+export type WatcherBackendKind = 'fs-events' | 'inotify' | 'windows';
 
 export interface WatcherFailure {
   /** Stable machine-readable cause, e.g. 'subscribe-timeout', 'backend-error'. */

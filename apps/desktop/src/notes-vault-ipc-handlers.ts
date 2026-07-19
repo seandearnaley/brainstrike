@@ -25,7 +25,7 @@
  * `writeContainedFileBytes`), scoped to the owning approved root.
  *
  * Watching: `watch` starts a recursive, debounced watcher (the shared
- * chokidar-backed electron watcher from `@brainstrike/file-system/electron`,
+ * @parcel/watcher-backed electron watcher from `@brainstrike/file-system/electron`,
  * injected by `ipc-notes-vault.ts`). Change pushes go one-way to the OWNING
  * renderer's WebContents on `notes-vault:changed` ({@link
  * DESKTOP_IPC_CHANNELS.notesVault.changed}) — never a broadcast. Watchers are
@@ -450,7 +450,7 @@ function toEntry(name: string, stats: { isDirectory(): boolean; mtimeMs: number;
 
 /**
  * Build the dependency-injected notes-vault handlers. Production wiring (native
- * dialog, `app.getPath`, the shared chokidar-backed watcher) lives in
+ * dialog, `app.getPath`, the shared parcel-backed watcher) lives in
  * `ipc-notes-vault.ts`; tests inject fakes.
  */
 export interface NotesVaultIpcHandlersOptions {

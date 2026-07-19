@@ -50,10 +50,10 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * dependencies: `app.getPath` for the default vault location, the native
  * directory picker, `shell.trashItem` for recoverable deletes (deleteEntry
  * never hard-unlinks), the shared `ElectronStorageAdapter` (passed by
- * main.ts) for the persisted approved-roots list, and the shared chokidar-backed
+ * main.ts) for the persisted approved-roots list, and the shared parcel-backed
  * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
- * — batched at 150 ms, `ignoreInitial`, symlinks not followed; falls back to
- * native `fs.watch` only if chokidar cannot load, logging the failure). The
+ * — batched at 150 ms, ignore-filtered; setup failure surfaces via the typed
+ * health protocol, never a silent fallback engine — BST-568 slice 4). The
  * returned disposer unregisters the channels and reaps every live watcher.
  */
 export function registerNotesVaultIpc(
