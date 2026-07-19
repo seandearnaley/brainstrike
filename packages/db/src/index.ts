@@ -107,6 +107,22 @@ export {
   type StorePromptItemEmbeddingInput,
   type UpdatePromptItemInput,
 } from './models/prompt-item.js';
+export type {
+  MarkThreadMessageEmbeddingErrorInput,
+  StoreThreadMessageEmbeddingInput,
+  ThreadMessageFtsMatch,
+  ThreadMessageFtsOptions,
+  ThreadMessagePendingEmbedding,
+  ThreadMessageVectorMatch,
+  ThreadMessageVectorOptions,
+  ThreadSearchCoverage,
+  ThreadSearchDatabase,
+  ThreadSearchEmbeddingProfile,
+  ThreadSearchSyncOptions,
+  ThreadSearchSyncResult,
+  ThreadTitleMatch,
+  ThreadTitleSearchOptions,
+} from './models/thread-search.js';
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,

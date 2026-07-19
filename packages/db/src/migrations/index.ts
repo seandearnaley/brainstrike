@@ -65,6 +65,7 @@ import { migration063IndexConsolidation } from './063-index-consolidation.js';
 import { migration064JobQueueOutcomeMetrics } from './064-job-queue-outcome-metrics.js';
 import { migration065QuarantinePgTextsearch } from './065-quarantine-pg-textsearch.js';
 import { migration066RestorePgTextsearch } from './066-restore-pg-textsearch.js';
+import { migration067ThreadSearchIndex } from './067-thread-search-index.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -136,6 +137,7 @@ export const migrations: Migration[] = [
   migration064JobQueueOutcomeMetrics,
   migration065QuarantinePgTextsearch,
   migration066RestorePgTextsearch,
+  migration067ThreadSearchIndex,
 ];
 
 // Export base migrations (without chunks table) for test environments
