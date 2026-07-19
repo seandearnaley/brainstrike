@@ -98,7 +98,7 @@ function createTargetTransform(
       ...existing,
       output: (context) => {
         const envelope = readHookResultEnvelope(context.output);
-        const domainOutput = envelope?.result ?? context.output;
+        const domainOutput = envelope ? envelope.result : context.output;
         if (!output) {
           // Preserve Mastra's safe-placeholder behavior for an intentionally
           // configured target that omitted its output transform.
@@ -113,7 +113,10 @@ function createTargetTransform(
     error: passthroughTransform('error'),
     input: passthroughTransform('input'),
     inputDelta: passthroughTransform('inputDelta'),
-    output: (context) => readHookResultEnvelope(context.output)?.result ?? context.output,
+    output: (context) => {
+      const envelope = readHookResultEnvelope(context.output);
+      return envelope ? envelope.result : context.output;
+    },
     resume: passthroughTransform('resume'),
     suspend: passthroughTransform('suspend'),
   };

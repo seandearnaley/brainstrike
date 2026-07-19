@@ -53,7 +53,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function unwrapHookResult(value: unknown): unknown {
-  return readHookResultEnvelope(value)?.result ?? value;
+  const envelope = readHookResultEnvelope(value);
+  return envelope ? envelope.result : value;
 }
 
 function readTranscriptToolPayload(

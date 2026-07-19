@@ -548,7 +548,7 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
     return createDefaultModelOutput(toolName, output);
   }
   const envelope = readHookResultEnvelope(output);
-  const domainOutput = envelope?.result ?? output;
+  const domainOutput = envelope ? envelope.result : output;
   const hookContext = envelope?.additionalContext;
   const defaultProjection = createDefaultModelOutput(toolName, domainOutput, Boolean(hookContext));
   if (!hookContext) {
@@ -567,7 +567,7 @@ function projectExistingModelOutput(
     return projectDefaultModelOutput(toolName, output);
   }
   const envelope = readHookResultEnvelope(output);
-  const domainOutput = envelope?.result ?? output;
+  const domainOutput = envelope ? envelope.result : output;
   const hookContext = envelope?.additionalContext;
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {

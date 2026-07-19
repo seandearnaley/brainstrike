@@ -375,6 +375,50 @@ describe('applyToolModelOutputProjections', () => {
     expect(betaTranscript).toBe('same-result');
   });
 
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['false', false],
+    ['zero', 0],
+  ])('preserves an exact %s result across every hook carrier channel', async (_label, result) => {
+    const toModelOutput = vi.fn((output: unknown) => ({
+      type: 'text',
+      value: String(output),
+    }));
+    const toolNameMap = new Map([['primitive', 'primitive']]);
+    const hooked = applyToolHooks(
+      {
+        primitive: asTool({
+          execute: () => Promise.resolve(result),
+          id: 'primitive',
+          toModelOutput,
+        }),
+      },
+      {
+        hookRunner: {
+          postToolUse: () => Promise.resolve({ additionalContext: 'model-only context' }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+    const projectedTool = projected['primitive'] as TestTool;
+
+    const rawOutput = await projectedTool.execute?.({});
+    const modelOutput = projectedTool.toModelOutput?.(rawOutput);
+    const displayOutput = await transformOutput(projectedTool, 'display', rawOutput);
+    const transcriptOutput = await transformOutput(projectedTool, 'transcript', rawOutput);
+
+    expect(toModelOutput).toHaveBeenCalledWith(result);
+    expect(modelOutput).toEqual({
+      type: 'text',
+      value: `${String(result)}\nPost-tool context: model-only context`,
+    });
+    expect(displayOutput).toBe(result);
+    expect(transcriptOutput).toBe(result);
+  });
+
   it('passes the domain result through existing target-aware output transforms', async () => {
     const domainOutput = { summary: 'domain result' };
     const displayOutput = vi.fn(({ output }: { output?: unknown }) => ({
