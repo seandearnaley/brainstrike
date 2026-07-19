@@ -22,6 +22,15 @@ const ARTIFACT_ENVELOPE_KEYS = new Set([
   'truncated',
   'version',
 ]);
+const ARTIFACT_ENVELOPE_REQUIRED_KEYS = new Set([
+  'artifactRef',
+  'code',
+  'hint',
+  'nextCursor',
+  'preview',
+  'truncated',
+  'version',
+]);
 const ARTIFACT_PAGE_KEYS = new Set([
   'artifactRef',
   'content',
@@ -30,6 +39,7 @@ const ARTIFACT_PAGE_KEYS = new Set([
   'nextCursor',
   'offsetByte',
 ]);
+const ARTIFACT_PAGE_REQUIRED_KEYS = new Set(['artifactRef', 'content', 'endByte', 'offsetByte']);
 
 export type ToolOutputArtifactFormat = 'json' | 'text';
 export type ToolOutputArtifactContentEncoding = typeof TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING;
@@ -83,8 +93,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: ReadonlySet<string>): boolean {
-  return Object.keys(value).every((key) => allowedKeys.has(key));
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+  requiredKeys: ReadonlySet<string> = allowedKeys
+): boolean {
+  return (
+    Object.keys(value).every((key) => allowedKeys.has(key)) &&
+    [...requiredKeys].every((key) => Object.hasOwn(value, key))
+  );
 }
 
 function isNonEmptyBoundedString(value: unknown, maximum: number): value is string {
@@ -199,7 +216,11 @@ export function isToolOutputArtifactReference(
 }
 
 export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutputArtifactEnvelope {
-  if (!(isRecord(value) && hasOnlyKeys(value, ARTIFACT_ENVELOPE_KEYS))) {
+  if (
+    !(
+      isRecord(value) && hasOnlyKeys(value, ARTIFACT_ENVELOPE_KEYS, ARTIFACT_ENVELOPE_REQUIRED_KEYS)
+    )
+  ) {
     return false;
   }
   if (
@@ -213,7 +234,10 @@ export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutpu
     return false;
   }
 
-  const preview = readDecodedContent(value['preview'], value['contentEncoding']);
+  const contentEncoding = Object.hasOwn(value, 'contentEncoding')
+    ? value['contentEncoding']
+    : undefined;
+  const preview = readDecodedContent(value['preview'], contentEncoding);
   if (preview === undefined) {
     return false;
   }
@@ -226,7 +250,7 @@ export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutpu
 }
 
 export function isToolOutputArtifactPage(value: unknown): value is ToolOutputArtifactPage {
-  if (!(isRecord(value) && hasOnlyKeys(value, ARTIFACT_PAGE_KEYS))) {
+  if (!(isRecord(value) && hasOnlyKeys(value, ARTIFACT_PAGE_KEYS, ARTIFACT_PAGE_REQUIRED_KEYS))) {
     return false;
   }
   if (!isToolOutputArtifactReference(value['artifactRef'])) {
@@ -247,7 +271,10 @@ export function isToolOutputArtifactPage(value: unknown): value is ToolOutputArt
     return false;
   }
 
-  const content = readDecodedContent(value['content'], value['contentEncoding']);
+  const contentEncoding = Object.hasOwn(value, 'contentEncoding')
+    ? value['contentEncoding']
+    : undefined;
+  const content = readDecodedContent(value['content'], contentEncoding);
   if (content === undefined) {
     return false;
   }
@@ -261,7 +288,6 @@ export function isToolOutputArtifactPage(value: unknown): value is ToolOutputArt
   }
 
   const hasMore = endByte < value['artifactRef'].byteLength;
-  return hasMore
-    ? isToolOutputArtifactCursor(value['nextCursor'])
-    : value['nextCursor'] === undefined;
+  const nextCursor = Object.hasOwn(value, 'nextCursor') ? value['nextCursor'] : undefined;
+  return hasMore ? isToolOutputArtifactCursor(nextCursor) : nextCursor === undefined;
 }

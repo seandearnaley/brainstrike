@@ -69,6 +69,29 @@ describe('tool output artifact contracts', () => {
     ).toBe(false);
   });
 
+  it('rejects required artifact fields inherited from a prototype', () => {
+    const inheritedReference: unknown = Object.create(reference);
+    const inheritedEnvelope: unknown = Object.create({
+      artifactRef: reference,
+      code: TOOL_OUTPUT_ARTIFACT_CODE,
+      hint: 'Continue.',
+      nextCursor: cursor,
+      preview: 'HEAD',
+      truncated: true,
+      version: TOOL_OUTPUT_ARTIFACT_VERSION,
+    });
+    const inheritedPage: unknown = Object.create({
+      artifactRef: reference,
+      content: 'tail',
+      endByte: 9,
+      offsetByte: 5,
+    });
+
+    expect(isToolOutputArtifactReference(inheritedReference)).toBe(false);
+    expect(isToolOutputArtifactEnvelope(inheritedEnvelope)).toBe(false);
+    expect(isToolOutputArtifactPage(inheritedPage)).toBe(false);
+  });
+
   it('uses explicit reversible encoding for PostgreSQL JSON-unsafe content', () => {
     const raw = '\u0000🙂"\\\n';
     const encoded = encodeToolOutputArtifactContent(raw);
