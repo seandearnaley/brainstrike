@@ -19,6 +19,7 @@ cleanupUnusedCatalogs: true
 # this file, and a rewrite DELETES comments indented inside the catalog: block
 # (verified). Column-0 comments above a block survive.
 catalog:
+  '@parcel/watcher': ^2.5.6
   '@playwright/test': ^1.61.1
   '@testing-library/jest-dom': ^6.9.1
   '@testing-library/react': ^16.3.2
@@ -57,6 +58,7 @@ allowBuilds:
   protobufjs: true
   puppeteer: true
   sharp: true
+  '@parcel/watcher': false
 # These two exact versions are pinned exceptions to any future minimumReleaseAge
 # policy: @mastra/memory@1.22.1's tool-approval 'output-denied' state handling
 # (the fix this repo's upgrade specifically needed, see docs/dependency-updates-

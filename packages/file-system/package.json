@@ -6,6 +6,7 @@
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@parcel/watcher": "catalog:",
     "idb": "^8.0.3"
   },
   "devDependencies": {
@@ -48,8 +49,9 @@
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
     "mutation": "npx @stryker-mutator/core run",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
