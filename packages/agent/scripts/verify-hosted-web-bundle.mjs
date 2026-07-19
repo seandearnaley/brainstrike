@@ -12,8 +12,7 @@ const hostedOutputs = [
 const forbiddenRuntimeImports = [
   {
     label: '@brainstrike/assistant-contract runtime import',
-    pattern:
-      /(?:from\s+|require\()['"]@brainstrike\/assistant-contract(?:\/[^'"]*)?['"]/u,
+    pattern: /(?:from\s+|require\()['"]@brainstrike\/assistant-contract(?:\/[^'"]*)?['"]/u,
   },
   {
     label: 'Hugging Face runtime import',
