@@ -1765,19 +1765,24 @@ describe('FileExplorerPanel', () => {
       expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
     });
 
-    it('hosts refresh/expand/collapse on the toolbar so tree actions survive collapsing filters', async () => {
+    it('hosts refresh on the toolbar and expand/collapse in the floating tree cluster (BST-571)', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
       const toolbar = await screen.findByTestId('file-explorer-toolbar');
       const collapsible = document.getElementById('view-filters-content');
-      for (const testId of [
-        'refresh-button-small',
-        'expand-all-button-small',
-        'collapse-all-button-small',
-      ]) {
+      // Refresh stays on the toolbar (its disabled/spin state pairs with the
+      // inline scanning indicator), outside the collapsible filter block.
+      const refresh = screen.getByTestId('refresh-button-small');
+      expect(toolbar).toContainElement(refresh);
+      expect(collapsible).not.toContainElement(refresh);
+
+      // Expand/Collapse All moved OFF the crowded toolbar into the floating
+      // cluster pinned over the tree area's top-right.
+      const floating = screen.getByTestId('floating-tree-actions');
+      for (const testId of ['expand-all-button-small', 'collapse-all-button-small']) {
         const button = screen.getByTestId(testId);
-        expect(toolbar).toContainElement(button);
-        expect(collapsible).not.toContainElement(button);
+        expect(floating).toContainElement(button);
+        expect(toolbar).not.toContainElement(button);
       }
     });
 

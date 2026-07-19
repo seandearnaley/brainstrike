@@ -6,8 +6,11 @@
  * section's own tree context — routing it through the focused root's provider
  * silently expands the invisible panel tree (the recurring forest disease).
  *
- * Each PerRootTreePane registers its section-scoped actions here; the panel
- * toolbar runs them across every section.
+ * Each RootSectionInner registers its section-scoped actions here — ABOVE the
+ * section's collapse branch, so a collapsed section (pane unmounted) stays
+ * registered and Expand All / Select All still reach it (BST-571). The panel
+ * actions run them across every section, and section headers open/close
+ * through each registration's setCollapsed.
  *
  * PERF SPLIT (PR #1734 audit): the registry callbacks are STABLE and live in
  * their own context, while the high-frequency expand-all progress aggregate is

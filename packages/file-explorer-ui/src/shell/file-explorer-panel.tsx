@@ -42,6 +42,7 @@ import {
 } from 'react';
 import ActionButtons from '../action-buttons-array-facade';
 import { ExpandAllConfirmDialog } from '../components/expand-all-confirm-dialog';
+import { FloatingTreeActions } from '../components/floating-tree-actions';
 import { RestoreAccessModal } from '../components/restore-access-modal';
 import { TreeActionButtons } from '../components/tree-action-buttons';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -218,8 +219,6 @@ const PanelTreeActionButtons = React.memo(
     isLoading,
     isRefreshing,
     loadingProgress,
-    onCollapseAll,
-    onExpandAll,
     onRefresh,
   }: {
     cancellable: boolean;
@@ -233,8 +232,6 @@ const PanelTreeActionButtons = React.memo(
     isLoading: boolean;
     isRefreshing: boolean;
     loadingProgress: { isInitialLoading?: boolean } | null | undefined;
-    onCollapseAll: () => void;
-    onExpandAll: () => void;
     onRefresh: () => void;
   }) => {
     const forestExpandAllProgress = useForestExpandAllProgress();
@@ -277,8 +274,6 @@ const PanelTreeActionButtons = React.memo(
         isExpandingAll={isExpandingAll || isForestExpandingAll}
         isLoading={isLoading}
         isRefreshing={isRefreshing}
-        onCollapseAll={onCollapseAll}
-        onExpandAll={onExpandAll}
         onRefresh={onRefresh}
         scanningStatus={scanningStatus}
       />
@@ -287,6 +282,40 @@ const PanelTreeActionButtons = React.memo(
 );
 
 PanelTreeActionButtons.displayName = 'PanelTreeActionButtons';
+
+/**
+ * Mounts the floating Expand/Collapse All cluster over the tree area once a
+ * workspace root exists (same gate as the toolbar's tree-actions cluster).
+ * Kept as its own leaf so the gating branch lives outside the panel body.
+ */
+const PanelFloatingTreeActions = ({
+  hasRoot,
+  isExpandingAll,
+  isLoading,
+  isRefreshing,
+  onCollapseAll,
+  onExpandAll,
+}: {
+  hasRoot: boolean;
+  isExpandingAll: boolean;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
+}) => {
+  if (!hasRoot) {
+    return null;
+  }
+  return (
+    <FloatingTreeActions
+      isExpandingAll={isExpandingAll}
+      isLoading={isLoading}
+      isRefreshing={isRefreshing}
+      onCollapseAll={onCollapseAll}
+      onExpandAll={onExpandAll}
+    />
+  );
+};
 
 /**
  * Staged forest expand-all: sweeping every root's full subtree is I/O-heavy
@@ -1176,8 +1205,6 @@ const FileExplorerPanelInner = React.memo(() => {
                   isLoading={isLoading}
                   isRefreshing={isRefreshing}
                   loadingProgress={loadingProgress}
-                  onCollapseAll={collapseAll}
-                  onExpandAll={expandAll}
                   onRefresh={handleRefresh}
                 />
               ) : null
@@ -1258,6 +1285,17 @@ const FileExplorerPanelInner = React.memo(() => {
               progress={restorationProgress}
             />
           </div>
+          {/* Expand/Collapse All float over the tree's (usually empty)
+              top-right corner instead of crowding the toolbar (BST-571).
+              Same overlay contract as RestorationStatus: never shifts rows. */}
+          <PanelFloatingTreeActions
+            hasRoot={Boolean(rootDirectoryHandle)}
+            isExpandingAll={isExpandingAll || isForestExpandingAll}
+            isLoading={isLoading}
+            isRefreshing={isRefreshing}
+            onCollapseAll={collapseAll}
+            onExpandAll={expandAll}
+          />
           {/* Scrollable content — scroll root for session scroll restore */}
           <div
             className="h-full overflow-y-auto"
