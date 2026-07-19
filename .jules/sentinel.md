@@ -51,5 +51,5 @@
 
 ## 2026-07-18 - Bound project hook configs before trust checks
 **Vulnerability:** The desktop hook loader read project-controlled hooks files fully into Electron main before checking their approval hash, allowing oversized or special files to exhaust or pin the main process even though their hooks were rejected.
-**Learning:** A post-read trust gate protects execution but cannot bound work already performed while acquiring the untrusted bytes.
-**Prevention:** Open project hook configs once, require a regular file within the byte cap, and read only the descriptor's initially observed size before hashing or parsing.
+**Learning:** A post-read trust gate protects execution but cannot bound work already performed while acquiring the untrusted bytes, and every approval/load consumer must enforce the same bound.
+**Prevention:** Share one nonblocking, descriptor-owned reader across review and load paths; require a regular file within the byte cap and read only its initially observed size before hashing or parsing.

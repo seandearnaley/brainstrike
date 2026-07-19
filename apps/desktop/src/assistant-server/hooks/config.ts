@@ -7,7 +7,7 @@
  * surfaced through the result's `errors`.
  */
 
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { sha256OfBuffer } from './trust';
@@ -34,6 +34,7 @@ const VALID_EVENTS: readonly HookEventName[] = [
 ];
 
 export const MAX_HOOKS_CONFIG_BYTES = 1024 * 1024;
+export const INVALID_PROJECT_HOOK_CONFIG = `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`;
 
 export interface HookConfigRootInput {
   readonly absPath: string;
@@ -67,8 +68,6 @@ export interface HookConfigInput {
   readonly roots: readonly HookConfigRootInput[];
 }
 
-const OVERSIZED_HOOKS_CONFIG = Symbol('oversized-hooks-config');
-
 /** Single raw-byte read; null = missing/unreadable. */
 function readFileBytesOrNull(path: string): Buffer | null {
   try {
@@ -78,25 +77,19 @@ function readFileBytesOrNull(path: string): Buffer | null {
   }
 }
 
-/** Bounded project-file read; the opened descriptor owns size and type checks. */
-function readProjectHookConfig(path: string): Buffer | null | typeof OVERSIZED_HOOKS_CONFIG {
+export function readProjectHookConfig(
+  path: string
+): Buffer | null | typeof INVALID_PROJECT_HOOK_CONFIG {
   try {
-    const fd = openSync(path, 'r');
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.size > MAX_HOOKS_CONFIG_BYTES) {
-        return OVERSIZED_HOOKS_CONFIG;
+        return INVALID_PROJECT_HOOK_CONFIG;
       }
       const bytes = Buffer.allocUnsafe(stat.size);
-      let offset = 0;
-      while (offset < bytes.length) {
-        const bytesRead = readSync(fd, bytes, offset, bytes.length - offset, null);
-        if (bytesRead === 0) {
-          break;
-        }
-        offset += bytesRead;
-      }
-      return bytes.subarray(0, offset);
+      const bytesRead = readSync(fd, bytes, 0, bytes.length, null);
+      return bytes.subarray(0, bytesRead);
     } finally {
       closeSync(fd);
     }
@@ -308,18 +301,13 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
   for (const root of input.roots) {
     const filePath = getProjectHooksPath(root.absPath);
     const bytes = readProjectHookConfig(filePath);
-    sources.push({
-      exists: bytes !== null,
-      path: filePath,
-      rootId: root.rootId,
-      scope: 'project',
-    });
+    sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
     if (bytes === null) {
       continue;
     }
-    if (bytes === OVERSIZED_HOOKS_CONFIG) {
+    if (typeof bytes === 'string') {
       errors.push({
-        message: `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`,
+        message: bytes,
         path: filePath,
         rootId: root.rootId,
         scope: 'project',
