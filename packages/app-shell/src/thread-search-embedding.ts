@@ -31,6 +31,7 @@ interface ThreadSearchEmbeddingDependencies {
   readonly limit: number;
   readonly modelInfo: EmbeddingSetModelInfo;
   readonly repository: ThreadSearchEmbeddingRepository;
+  readonly resourceId: string;
 }
 
 function assertModelMatchesProfile(
@@ -72,10 +73,11 @@ export async function embedPendingThreadMessages({
   limit,
   modelInfo,
   repository,
+  resourceId,
 }: ThreadSearchEmbeddingDependencies): Promise<ThreadMessageEmbeddingOutcome[]> {
   const profile = await repository.getEmbeddingProfile();
   assertModelMatchesProfile(profile, modelInfo);
-  const pending = await repository.listNeedingEmbedding({ limit });
+  const pending = await repository.listNeedingEmbedding({ limit, resourceId });
   const outcomes: ThreadMessageEmbeddingOutcome[] = [];
 
   for (const row of pending) {
@@ -85,6 +87,7 @@ export async function embedPendingThreadMessages({
         contentHash: row.contentHash,
         embedding,
         messageId: row.messageId,
+        modelKey: profile.modelKey,
       });
       outcomes.push({ messageId: row.messageId, status: stored ? 'embedded' : 'stale' });
     } catch (error) {

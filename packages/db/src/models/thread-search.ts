@@ -29,8 +29,6 @@ export interface ThreadSearchSyncOptions {
   gcLimit?: number;
   /** Max insert batches per sync call (default 20). */
   maxBatches?: number;
-  /** Activity watermark overlap in ms (default 60_000). */
-  overlapMs?: number;
 }
 
 export interface ThreadSearchSyncResult {
@@ -93,6 +91,8 @@ export interface StoreThreadMessageEmbeddingInput {
   contentHash: string;
   embedding: readonly number[];
   messageId: string;
+  /** CAS guard: the profile model that produced this vector. */
+  modelKey: string;
 }
 
 export interface MarkThreadMessageEmbeddingErrorInput {

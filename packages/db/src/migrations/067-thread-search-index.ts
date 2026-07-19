@@ -21,8 +21,12 @@ import type { Migration } from './migration-runner';
  *   (051): a singleton renderer-local embedding profile, kept separate from
  *   both the prompt profile and the file-collection `embedding_sets`
  *   lifecycle so each feature's index can evolve independently.
- * - `brainstrike_thread_search_state` is the sync watermark singleton
- *   (last observed `mastra_threads."updatedAt"` activity).
+ * - `brainstrike_thread_search_state` tracks refresh progress PER THREAD
+ *   (`last_activity_at` = the `mastra_threads."updatedAt"` value through
+ *   which that thread's messages were last re-extracted). A single global
+ *   watermark would permanently skip a thread whose final same-id content
+ *   save does not advance its own `updatedAt` once other threads push the
+ *   global maximum past it.
  *
  * CREATE TABLE IF NOT EXISTS because the dual migration runner (numbered
  * runner for tests, drizzle customMigrations for the real app) creates tables
@@ -80,7 +84,7 @@ export const migration067ThreadSearchIndex: Migration = {
         to_tsvector('english', content_text)
       ) STORED,
       message_created_at TIMESTAMPTZ NOT NULL,
-      embedding VECTOR,
+      embedding VECTOR(384),
       embedding_profile_id TEXT REFERENCES brainstrike_thread_search_profiles(id) ON DELETE SET NULL,
       embedding_error TEXT,
       embedding_updated_at TIMESTAMPTZ,
@@ -104,12 +108,18 @@ export const migration067ThreadSearchIndex: Migration = {
       ON brainstrike_thread_message_index (resource_id, message_created_at DESC)
       WHERE embedding IS NULL AND embedding_error IS NULL AND content_text <> '';
     --> statement-breakpoint
+    -- ANN index for the semantic arm (embedded rows only). The dimension is
+    -- fixed by the singleton profile (384); a future profile dimension change
+    -- is a migration that rebuilds the column + index together.
+    CREATE INDEX IF NOT EXISTS idx_thread_message_index_embedding_hnsw
+      ON brainstrike_thread_message_index USING hnsw (embedding vector_cosine_ops)
+      WHERE embedding IS NOT NULL;
+    --> statement-breakpoint
 
     CREATE TABLE IF NOT EXISTS brainstrike_thread_search_state (
-      id TEXT PRIMARY KEY,
-      last_thread_activity_at TIMESTAMPTZ,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT thread_search_state_singleton_check CHECK (id = 'default')
+      thread_id TEXT PRIMARY KEY,
+      last_activity_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `,
   version: 67,

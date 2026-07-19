@@ -119,6 +119,72 @@ function SearchResultRow({
   );
 }
 
+interface SearchStatusNoticesProps {
+  readonly coverage: ReturnType<typeof useThreadSearchStore.getState>['coverage'];
+  readonly error: string | null;
+  readonly onRetry: () => void;
+  readonly pendingEmbeddings: number;
+  readonly semantic: ReturnType<typeof useThreadSearchStore.getState>['semantic'];
+  readonly status: ReturnType<typeof useThreadSearchStore.getState>['status'];
+}
+
+/** Honesty banners: semantic availability, indexing progress, failures. */
+function SearchStatusNotices({
+  coverage,
+  error,
+  onRetry,
+  pendingEmbeddings,
+  semantic,
+  status,
+}: SearchStatusNoticesProps) {
+  return (
+    <>
+      {semantic.kind === 'unavailable' ? (
+        <p
+          className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-muted-foreground"
+          data-testid="thread-search-semantic-unavailable"
+          title={semantic.reason}
+        >
+          <TriangleAlert className="h-3 w-3 shrink-0" />
+          Semantic search unavailable — showing keyword matches only.
+        </p>
+      ) : null}
+      {pendingEmbeddings > 0 && coverage ? (
+        <p
+          className="px-2 pb-1 text-[11px] text-muted-foreground"
+          data-testid="thread-search-indexing-progress"
+        >
+          Indexing message embeddings… {coverage.embeddedMessages} of {coverage.embeddableMessages}
+        </p>
+      ) : null}
+      {coverage && coverage.erroredMessages > 0 ? (
+        <p
+          className="px-2 pb-1 text-[11px] text-muted-foreground"
+          data-testid="thread-search-embedding-errors"
+        >
+          {coverage.erroredMessages} {coverage.erroredMessages === 1 ? 'message' : 'messages'} could
+          not be embedded — keyword search still covers{' '}
+          {coverage.erroredMessages === 1 ? 'it' : 'them'}.
+        </p>
+      ) : null}
+      {status === 'error' ? (
+        <div className="px-2 py-2" data-testid="thread-search-error">
+          <p className="text-[12px] text-destructive">{error}</p>
+          <Button
+            className="mt-1.5 h-7 px-2 text-xs"
+            onClick={onRetry}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Search box + results for the Threads panel. Debounce, generation guarding,
  * and the hybrid query live in `useThreadSearchController`; this component
@@ -238,40 +304,14 @@ export function ThreadsPanelSearch({
 
       {searchActive ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {semantic.kind === 'unavailable' ? (
-            <p
-              className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-muted-foreground"
-              data-testid="thread-search-semantic-unavailable"
-              title={semantic.reason}
-            >
-              <TriangleAlert className="h-3 w-3 shrink-0" />
-              Semantic search unavailable — showing keyword matches only.
-            </p>
-          ) : null}
-          {pendingEmbeddings > 0 && coverage ? (
-            <p
-              className="px-2 pb-1 text-[11px] text-muted-foreground"
-              data-testid="thread-search-indexing-progress"
-            >
-              Indexing message embeddings… {coverage.embeddedMessages} of{' '}
-              {coverage.embeddableMessages}
-            </p>
-          ) : null}
-
-          {status === 'error' ? (
-            <div className="px-2 py-2" data-testid="thread-search-error">
-              <p className="text-[12px] text-destructive">{error}</p>
-              <Button
-                className="mt-1.5 h-7 px-2 text-xs"
-                onClick={onRetry}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                Retry
-              </Button>
-            </div>
-          ) : null}
+          <SearchStatusNotices
+            coverage={coverage}
+            error={error}
+            onRetry={onRetry}
+            pendingEmbeddings={pendingEmbeddings}
+            semantic={semantic}
+            status={status}
+          />
 
           {status === 'results' && resultCount === 0 ? (
             <p

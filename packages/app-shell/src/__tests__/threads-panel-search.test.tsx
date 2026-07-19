@@ -145,6 +145,27 @@ describe('ThreadsPanelSearch', () => {
     expect(screen.getByTestId('thread-search-indexing-progress')).toHaveTextContent('4 of 10');
   });
 
+  it('surfaces embedding failures instead of silently shrinking coverage', () => {
+    useThreadSearchStore.setState({
+      coverage: {
+        embeddableMessages: 10,
+        embeddedMessages: 7,
+        erroredMessages: 3,
+        indexedMessages: 12,
+        totalMessages: 12,
+      },
+      query: 'hnsw',
+      results: [RESULT],
+      semantic: { kind: 'used' },
+      status: 'results',
+    });
+    renderSearch();
+
+    expect(screen.getByTestId('thread-search-embedding-errors')).toHaveTextContent(
+      '3 messages could not be embedded'
+    );
+  });
+
   it('renders the empty state honestly', () => {
     useThreadSearchStore.setState({
       query: 'zzz',

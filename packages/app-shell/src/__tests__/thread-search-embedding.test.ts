@@ -46,16 +46,22 @@ describe('embedPendingThreadMessages', () => {
       limit: 10,
       modelInfo: MODEL_INFO,
       repository,
+      resourceId: 'workspace-memory',
     });
 
     expect(outcomes).toEqual([
       { messageId: 'msg-1', status: 'embedded' },
       { messageId: 'msg-2', status: 'embedded' },
     ]);
+    expect(repository.listNeedingEmbedding).toHaveBeenCalledWith({
+      limit: 10,
+      resourceId: 'workspace-memory',
+    });
     expect(repository.storeEmbedding).toHaveBeenCalledWith({
       contentHash: 'hash-1',
       embedding: [0.1, 0.2, 0.3],
       messageId: 'msg-1',
+      modelKey: 'local::test-model',
     });
   });
 
@@ -75,6 +81,7 @@ describe('embedPendingThreadMessages', () => {
       limit: 10,
       modelInfo: MODEL_INFO,
       repository,
+      resourceId: 'workspace-memory',
     });
 
     expect(outcomes).toEqual([{ messageId: 'msg-1', status: 'stale' }]);
@@ -96,6 +103,7 @@ describe('embedPendingThreadMessages', () => {
       limit: 10,
       modelInfo: MODEL_INFO,
       repository,
+      resourceId: 'workspace-memory',
     });
 
     expect(outcomes[0]?.status).toBe('error');
@@ -113,6 +121,7 @@ describe('embedPendingThreadMessages', () => {
         limit: 10,
         modelInfo: { dimensions: 999, modelConfig: null, modelKey: 'local::other-model' },
         repository,
+        resourceId: 'workspace-memory',
       })
     ).rejects.toThrow(/does not match profile/);
     expect(repository.listNeedingEmbedding).not.toHaveBeenCalled();

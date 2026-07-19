@@ -8,6 +8,13 @@ interface CountRow {
   count: number | string;
 }
 
+/** 384-dim vector literal matching the seeded profile dimensions. */
+function vectorLiteral(hot: number): string {
+  const values = new Array<number>(384).fill(0);
+  values[hot] = 1;
+  return `[${values.join(',')}]`;
+}
+
 describe('migration 067: thread search index tables', () => {
   let db: PGlite;
   let runner: MigrationRunner;
@@ -107,6 +114,43 @@ describe('migration 067: thread search index tables', () => {
     expect(indexes.rows).toHaveLength(1);
   });
 
+  it('has a partial HNSW index over the typed embedding column', { timeout: 60_000 }, async () => {
+    await runner.runMigration(getMigration067());
+
+    const indexes = await db.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+       WHERE tablename = 'brainstrike_thread_message_index'
+         AND indexdef ILIKE '%USING hnsw%embedding%'`
+    );
+    expect(indexes.rows).toHaveLength(1);
+    expect(indexes.rows[0]?.indexdef).toContain('IS NOT NULL');
+
+    // The column is typed to the profile dimensions; a mismatched vector is rejected.
+    await db.query(
+      `INSERT INTO brainstrike_thread_message_index (
+         message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
+       ) VALUES ('msg-dim', 'thread-1', 'workspace', 'user', 'text', 'hash', NOW())`
+    );
+    await expect(
+      db.query(
+        `UPDATE brainstrike_thread_message_index SET embedding = '[1,2,3]'::vector WHERE message_id = 'msg-dim'`
+      )
+    ).rejects.toThrow();
+  });
+
+  it('tracks refresh state per thread', { timeout: 60_000 }, async () => {
+    await runner.runMigration(getMigration067());
+
+    await db.query(
+      `INSERT INTO brainstrike_thread_search_state (thread_id, last_activity_at)
+       VALUES ('thread-1', NOW()), ('thread-2', NOW())`
+    );
+    const rows = await db.query<CountRow>(
+      'SELECT COUNT(*)::int AS count FROM brainstrike_thread_search_state'
+    );
+    expect(Number(rows.rows[0]?.count)).toBe(2);
+  });
+
   it('supports the content-hash CAS upsert that resets a stale embedding', {
     timeout: 60_000,
   }, async () => {
@@ -118,7 +162,7 @@ describe('migration 067: thread search index tables', () => {
          message_created_at, embedding, embedding_profile_id, embedding_updated_at
        ) VALUES (
          'msg-1', 'thread-1', 'workspace', 'assistant',
-         'original words', 'hash-old', NOW(), '[1,2,3]'::vector, 'default', NOW()
+         'original words', 'hash-old', NOW(), '${vectorLiteral(1)}'::vector, 'default', NOW()
        )`
     );
 

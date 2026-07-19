@@ -8,6 +8,7 @@ import { createPGliteTestDataDir } from './test-data-dir';
 
 const RESOURCE_ID = 'workspace-memory';
 const PROFILE_DIMENSIONS = 384;
+const PROFILE_MODEL_KEY = 'local::Xenova/all-MiniLM-L6-v2';
 
 /** Deterministic unit-ish vector for similarity assertions. */
 function vec(hot: number): number[] {
@@ -181,6 +182,7 @@ describe('ThreadSearchRepository', () => {
         contentHash: await currentHash('msg-1'),
         embedding: vec(1),
         messageId: 'msg-1',
+        modelKey: PROFILE_MODEL_KEY,
       });
 
       // Progressive per-step save: same id, new content; the thread activity bumps.
@@ -198,6 +200,65 @@ describe('ThreadSearchRepository', () => {
       );
       expect(rows.rows[0]?.content_text).toBe('partial answer plus the final resolution');
       expect(rows.rows[0]?.has_embedding).toBe(false);
+    });
+
+    it('refreshes a quiet thread even when another thread is far ahead (per-thread state)', async () => {
+      // Regression for the global-watermark design: thread A's pending change
+      // must not be skippable because thread B pushed activity far past it.
+      const past = new Date(Date.now() - 30 * 60_000);
+      await seedThread('thread-a', 'Quiet', past);
+      await seedThread('thread-b', 'Busy', past);
+      await seedMessage({
+        content: v2Content('original quiet content'),
+        createdAt: past,
+        id: 'msg-a',
+        role: 'user',
+        threadId: 'thread-a',
+      });
+      await repository.sync();
+
+      // Thread B races far ahead; the sweep records its activity.
+      await db.query(`UPDATE mastra_threads SET "updatedAt" = NOW() WHERE id = 'thread-b'`);
+      await repository.sync();
+
+      // Thread A's same-id content changes with only a TINY updatedAt bump —
+      // still far behind B, and outside the trailing live window.
+      await db.query(`UPDATE mastra_messages SET content = $1::jsonb WHERE id = 'msg-a'`, [
+        v2Content('rewritten quiet content'),
+      ]);
+      await db.query(
+        `UPDATE mastra_threads SET "updatedAt" = "updatedAt" + INTERVAL '1 second' WHERE id = 'thread-a'`
+      );
+
+      const result = await repository.sync();
+      expect(result.refreshed).toBe(1);
+      const rows = await db.query<{ content_text: string }>(
+        `SELECT content_text FROM brainstrike_thread_message_index WHERE message_id = 'msg-a'`
+      );
+      expect(rows.rows[0]?.content_text).toBe('rewritten quiet content');
+    });
+
+    it('refreshes when only the role changes (role is part of the source hash)', async () => {
+      await seedThread('thread-1', 'Roles change');
+      await seedMessage({
+        content: v2Content('same content either way'),
+        id: 'msg-1',
+        role: 'user',
+        threadId: 'thread-1',
+      });
+      await repository.sync();
+
+      // Same content, but the role flips to a non-conversational one: the
+      // previously searchable text must be withdrawn.
+      await db.query(`UPDATE mastra_messages SET role = 'system' WHERE id = 'msg-1'`);
+      await db.query(`UPDATE mastra_threads SET "updatedAt" = NOW() WHERE id = 'thread-1'`);
+      await repository.sync();
+
+      const rows = await db.query<{ content_text: string; role: string }>(
+        `SELECT content_text, role FROM brainstrike_thread_message_index WHERE message_id = 'msg-1'`
+      );
+      expect(rows.rows[0]?.role).toBe('system');
+      expect(rows.rows[0]?.content_text).toBe('');
     });
 
     it('garbage-collects index rows whose message is gone', async () => {
@@ -300,11 +361,13 @@ describe('ThreadSearchRepository', () => {
         contentHash: await currentHash('msg-close'),
         embedding: vec(1),
         messageId: 'msg-close',
+        modelKey: PROFILE_MODEL_KEY,
       });
       await repository.storeEmbedding({
         contentHash: await currentHash('msg-far'),
         embedding: vec(2),
         messageId: 'msg-far',
+        modelKey: PROFILE_MODEL_KEY,
       });
 
       const matches = await repository.searchSimilar(vec(1), {
@@ -350,13 +413,14 @@ describe('ThreadSearchRepository', () => {
       });
       await repository.sync();
 
-      const pending = await repository.listNeedingEmbedding({ limit: 10 });
+      const pending = await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID });
       expect(pending.map((row) => row.messageId)).toEqual(['msg-new', 'msg-old']);
 
       const stored = await repository.storeEmbedding({
         contentHash: pending[0]?.contentHash ?? '',
         embedding: vec(1),
         messageId: 'msg-new',
+        modelKey: PROFILE_MODEL_KEY,
       });
       expect(stored).toBe(true);
 
@@ -365,10 +429,14 @@ describe('ThreadSearchRepository', () => {
         contentHash: 'stale-hash',
         embedding: vec(1),
         messageId: 'msg-old',
+        modelKey: PROFILE_MODEL_KEY,
       });
       expect(stale).toBe(false);
 
-      const remaining = await repository.listNeedingEmbedding({ limit: 10 });
+      const remaining = await repository.listNeedingEmbedding({
+        limit: 10,
+        resourceId: RESOURCE_ID,
+      });
       expect(remaining.map((row) => row.messageId)).toEqual(['msg-old']);
     });
 
@@ -388,15 +456,67 @@ describe('ThreadSearchRepository', () => {
         messageId: 'msg-1',
       });
       expect(marked).toBe(true);
-      expect(await repository.listNeedingEmbedding({ limit: 10 })).toHaveLength(0);
+      expect(
+        await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID })
+      ).toHaveLength(0);
 
       const coverage = await repository.getCoverage(RESOURCE_ID);
       expect(coverage.erroredMessages).toBe(1);
     });
 
+    it('refuses to store a vector produced by a different model than the profile', async () => {
+      await seedThread('thread-1', 'Model swap');
+      await seedMessage({
+        content: v2Content('embed me'),
+        id: 'msg-1',
+        role: 'user',
+        threadId: 'thread-1',
+      });
+      await repository.sync();
+
+      const stored = await repository.storeEmbedding({
+        contentHash: await currentHash('msg-1'),
+        embedding: vec(1),
+        messageId: 'msg-1',
+        modelKey: 'local::some-other-model',
+      });
+      expect(stored).toBe(false);
+      expect(
+        await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID })
+      ).toHaveLength(1);
+    });
+
+    it('scopes the pending-embedding list by resource', async () => {
+      await seedThread('thread-1', 'Mine');
+      await seedMessage({
+        content: v2Content('mine'),
+        id: 'msg-mine',
+        role: 'user',
+        threadId: 'thread-1',
+      });
+      await db.query(
+        `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+         VALUES ('thread-other', 'other-resource', 'Other', NOW(), NOW())`
+      );
+      await db.query(
+        `INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ('msg-other', 'thread-other', $1::jsonb, 'user', 'v2', NOW(), 'other-resource')`,
+        [v2Content('someone elses')]
+      );
+      await repository.sync();
+
+      const pending = await repository.listNeedingEmbedding({ limit: 10, resourceId: RESOURCE_ID });
+      expect(pending.map((row) => row.messageId)).toEqual(['msg-mine']);
+    });
+
     it('rejects embeddings that do not match the profile dimensions', async () => {
       await expect(
-        repository.storeEmbedding({ contentHash: 'x', embedding: [1, 2], messageId: 'msg' })
+        repository.storeEmbedding({
+          contentHash: 'x',
+          embedding: [1, 2],
+          messageId: 'msg',
+          modelKey: PROFILE_MODEL_KEY,
+        })
       ).rejects.toThrow(/dimension/i);
     });
   });
@@ -446,6 +566,7 @@ describe('ThreadSearchRepository', () => {
         contentHash: await currentHash('msg-1'),
         embedding: vec(1),
         messageId: 'msg-1',
+        modelKey: PROFILE_MODEL_KEY,
       });
       const embedded = await repository.getCoverage(RESOURCE_ID);
       expect(embedded.embeddedMessages).toBe(1);

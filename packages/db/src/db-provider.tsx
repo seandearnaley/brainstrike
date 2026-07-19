@@ -73,10 +73,23 @@ async function clearPromptItemsIfPresent(
   }
 }
 
+function isMissingNamedRelationError(error: unknown, tableName: string): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new RegExp(
+    `\\b(?:relation|table)\\s+(?:"?[\\w$]*"?\\.)?"?${tableName}"?\\s+does not exist\\b`,
+    'iu'
+  ).test(message);
+}
+
 /**
  * Thread search index (migration 067): derived conversation text + sync
- * watermark must not survive a clear/reset; the singleton search profile is
- * configuration and intentionally survives, like the prompt profile.
+ * state must not survive a clear/reset; the singleton search profile is
+ * configuration and intentionally survives, like the prompt profile. Only a
+ * MISSING table (pre-067 store) is tolerated — any other failure rethrows so
+ * a reset can never silently leave conversation text behind.
  */
 async function clearThreadSearchIndexIfPresent(tx: {
   query: (sql: string) => Promise<unknown>;
@@ -85,7 +98,10 @@ async function clearThreadSearchIndexIfPresent(tx: {
     try {
       await tx.query(`DELETE FROM ${table}`);
     } catch (error) {
-      logger.warn(`[DbProvider] Failed to clear ${table} (table may not exist):`, error);
+      if (!isMissingNamedRelationError(error, table)) {
+        throw error;
+      }
+      logger.warn(`[DbProvider] Skipped missing ${table} table during clear:`, error);
     }
   }
 }

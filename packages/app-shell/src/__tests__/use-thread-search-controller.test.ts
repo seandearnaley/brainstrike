@@ -205,6 +205,54 @@ describe('useThreadSearchController', () => {
     expect(state.semantic).toEqual({ kind: 'unavailable', reason: 'embedder offline' });
   });
 
+  it('does not let a superseded slow failure blind later searches to a healthy embedder', async () => {
+    let failFirst: ((error: Error) => void) | null = null;
+    const embedder = {
+      embedDocumentWithRecovery: vi.fn(async () => [0.1, 0.2, 0.3]),
+      embedQueryWithRecovery: vi
+        .fn(async () => [0.1, 0.2, 0.3])
+        .mockImplementationOnce(
+          () =>
+            new Promise<number[]>((_resolve, reject) => {
+              failFirst = reject;
+            })
+        ),
+    };
+    const repository = createRepository();
+    renderController(
+      repository,
+      embedder,
+      vi.fn(async () => ({}) as never)
+    );
+
+    // Query A: its embedding attempt hangs.
+    act(() => {
+      useThreadSearchStore.getState().setQuery('first query');
+    });
+    await flushAsync();
+
+    // Query B starts later and succeeds while A is still pending.
+    act(() => {
+      useThreadSearchStore.getState().setQuery('second query');
+    });
+    await flushAsync();
+    expect(useThreadSearchStore.getState().semantic).toEqual({ kind: 'used' });
+
+    // A's failure lands late: it must NOT poison the failure cache.
+    await act(async () => {
+      failFirst?.(new Error('stale failure'));
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    act(() => {
+      useThreadSearchStore.getState().setQuery('third query');
+    });
+    await flushAsync();
+
+    // The third search attempted the embedder again (no cached failure).
+    expect(embedder.embedQueryWithRecovery).toHaveBeenCalledTimes(3);
+    expect(useThreadSearchStore.getState().semantic).toEqual({ kind: 'used' });
+  });
+
   it('clears results when the query shrinks below the minimum length', async () => {
     const repository = createRepository();
     renderController(repository);

@@ -94,7 +94,10 @@ export function useThreadSearchController({
   /** Serializes embedding passes so overlapping searches never double-drain. */
   const embeddingTailRef = useRef<Promise<void> | null>(null);
   const lastSyncAtRef = useRef<number | null>(null);
+  const syncInFlightRef = useRef<Promise<void> | null>(null);
   const semanticFailureRef = useRef<{ at: number; reason: string } | null>(null);
+  /** A success recorded after a failing attempt STARTED invalidates it. */
+  const lastSemanticSuccessAtRef = useRef<number | null>(null);
 
   const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
     if (!repository) {
@@ -119,6 +122,7 @@ export function useThreadSearchController({
           semantic: { kind: 'unavailable', reason: recentFailure.reason },
         };
       }
+      const attemptStartedAt = Date.now();
       try {
         if (!loadEmbeddingQueue) {
           throw new Error('No embedding queue is registered for this platform.');
@@ -127,10 +131,17 @@ export function useThreadSearchController({
         const modelInfo = await resolveModelInfo();
         const embedding = await embedder.embedQueryWithRecovery(modelInfo, trimmedQuery);
         semanticFailureRef.current = null;
+        lastSemanticSuccessAtRef.current = Date.now();
         return { embedding, semantic: { kind: 'used' } };
       } catch (error) {
         const reason = toThreadSearchErrorMessage(error);
-        semanticFailureRef.current = { at: Date.now(), reason };
+        // A slow superseded failure must not blind later searches to a
+        // healthy embedder: only record it if no attempt SUCCEEDED after
+        // this one started.
+        const lastSuccessAt = lastSemanticSuccessAtRef.current;
+        if (lastSuccessAt === null || lastSuccessAt < attemptStartedAt) {
+          semanticFailureRef.current = { at: Date.now(), reason };
+        }
         return {
           embedding: null,
           semantic: { kind: 'unavailable', reason },
@@ -165,6 +176,7 @@ export function useThreadSearchController({
             limit: EMBEDDING_PASS_LIMIT,
             modelInfo,
             repository,
+            resourceId,
           });
           if (outcomes.length === 0) {
             return;
@@ -193,14 +205,26 @@ export function useThreadSearchController({
         try {
           // Incremental sync first: every statement is bounded, so the single
           // PGlite connection is never monopolized ahead of the query. A TTL
-          // keeps keystroke-pause searches from re-running extraction.
+          // keeps keystroke-pause searches from re-running extraction, and
+          // overlapping searches share one in-flight sync instead of
+          // duplicating it.
           const now = Date.now();
-          if (
+          if (syncInFlightRef.current) {
+            await syncInFlightRef.current;
+          } else if (
             lastSyncAtRef.current === null ||
             now - lastSyncAtRef.current >= THREAD_SEARCH_SYNC_TTL_MS
           ) {
-            await repository.sync();
-            lastSyncAtRef.current = now;
+            const syncRun = repository
+              .sync()
+              .then(() => {
+                lastSyncAtRef.current = Date.now();
+              })
+              .finally(() => {
+                syncInFlightRef.current = null;
+              });
+            syncInFlightRef.current = syncRun;
+            await syncRun;
           }
           drainEmbeddingBacklog();
           const { embedding, semantic } = await resolveQueryEmbedding(trimmed);

@@ -17,7 +17,6 @@ import type {
 import { escapeLikeLiteral } from '../search/grep-pattern.js';
 
 const PROFILE_ID = 'default';
-const STATE_ID = 'default';
 const INDEX_TABLE = 'brainstrike_thread_message_index';
 const PROFILES_TABLE = 'brainstrike_thread_search_profiles';
 const STATE_TABLE = 'brainstrike_thread_search_state';
@@ -25,7 +24,8 @@ const STATE_TABLE = 'brainstrike_thread_search_state';
 const DEFAULT_SYNC_BATCH_SIZE = 500;
 const DEFAULT_SYNC_MAX_BATCHES = 20;
 const DEFAULT_SYNC_GC_LIMIT = 1000;
-const DEFAULT_WATERMARK_OVERLAP_MS = 60_000;
+/** Threads active within this trailing window are re-extracted every pass. */
+const LIVE_THREAD_WINDOW_MS = 120_000;
 const DEFAULT_VECTOR_THRESHOLD = 0.35;
 /** Bound on extracted text per message; search-relevant prose fits well under it. */
 const MAX_CONTENT_TEXT_CHARS = 8000;
@@ -65,7 +65,11 @@ const CONTENT_TEXT_SQL = `
   )
 `;
 
-/** Shared SELECT list for the sync INSERT ... SELECT statements. */
+/**
+ * Shared SELECT list for the sync INSERT ... SELECT statements. The hash
+ * covers role + raw content because extraction depends on BOTH (a same-id
+ * resave that only flips the role must still refresh the row).
+ */
 const SYNC_SELECT_SQL = `
   SELECT
     m.id,
@@ -73,7 +77,7 @@ const SYNC_SELECT_SQL = `
     COALESCE(m."resourceId", t."resourceId"),
     m.role,
     ${CONTENT_TEXT_SQL},
-    md5(m.content::text),
+    md5(m.role || ':' || m.content::text),
     m."createdAt"
   FROM mastra_messages m
   JOIN mastra_threads t ON t.id = m.thread_id
@@ -84,6 +88,9 @@ const UPSERT_CONFLICT_SQL = `
     content_text = EXCLUDED.content_text,
     content_hash = EXCLUDED.content_hash,
     role = EXCLUDED.role,
+    thread_id = EXCLUDED.thread_id,
+    resource_id = EXCLUDED.resource_id,
+    message_created_at = EXCLUDED.message_created_at,
     embedding = NULL,
     embedding_profile_id = NULL,
     embedding_error = NULL,
@@ -173,92 +180,105 @@ export class ThreadSearchRepository {
   }
 
   /**
-   * One bounded sync pass: insert missing index rows (newest first), refresh
-   * rows in recently-active threads whose content hash changed (resetting
-   * their embedding to pending), and garbage-collect orphans. Every statement
-   * is bounded, so a pass never monopolizes the single PGlite connection.
+   * One bounded sync pass:
+   * 1. membership fast path — when source and index row counts agree, the
+   *    missing-row anti-join and orphan GC are skipped entirely (the common
+   *    idle case pays two COUNTs, not two full scans). A same-count
+   *    delete+insert pair can defer both arms for one pass; the next count
+   *    divergence heals it, and thread deletion clears its rows eagerly.
+   * 2. missing rows are inserted in bounded batches,
+   * 3. threads with activity NEWER than their per-thread refresh state (or
+   *    within the trailing live window) are re-extracted with the hash CAS,
+   *    resetting changed rows' embeddings to pending,
+   * 4. orphaned index rows are garbage-collected (bounded).
+   * Every statement is bounded, so a pass never monopolizes the single
+   * PGlite connection.
    */
   async sync(options: ThreadSearchSyncOptions = {}): Promise<ThreadSearchSyncResult> {
     const batchSize = options.batchSize ?? DEFAULT_SYNC_BATCH_SIZE;
     const maxBatches = options.maxBatches ?? DEFAULT_SYNC_MAX_BATCHES;
     const gcLimit = options.gcLimit ?? DEFAULT_SYNC_GC_LIMIT;
-    const overlapMs = options.overlapMs ?? DEFAULT_WATERMARK_OVERLAP_MS;
     requirePositiveInteger(batchSize, 'batchSize');
     requirePositiveInteger(maxBatches, 'maxBatches');
     requirePositiveInteger(gcLimit, 'gcLimit');
-    requirePositiveInteger(overlapMs, 'overlapMs');
+
+    const counts = await this.db.query<{ indexed: number | string; source: number | string }>(
+      `SELECT
+         (SELECT COUNT(*) FROM mastra_messages) AS source,
+         (SELECT COUNT(*) FROM ${INDEX_TABLE}) AS indexed`
+    );
+    const membershipInSync =
+      Number(counts.rows[0]?.source ?? 0) === Number(counts.rows[0]?.indexed ?? -1);
 
     let inserted = 0;
-    for (let batch = 0; batch < maxBatches; batch += 1) {
-      const result = await this.db.query<{ message_id: string }>(
-        `INSERT INTO ${INDEX_TABLE} (
-           message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
-         )
-         ${SYNC_SELECT_SQL}
-         LEFT JOIN ${INDEX_TABLE} i ON i.message_id = m.id
-         WHERE i.message_id IS NULL
-         ORDER BY m."createdAt" DESC
-         LIMIT $1
-         ON CONFLICT (message_id) DO NOTHING
-         RETURNING message_id`,
-        [batchSize]
-      );
-      inserted += result.rows.length;
-      if (result.rows.length < batchSize) {
-        break;
+    if (!membershipInSync) {
+      for (let batch = 0; batch < maxBatches; batch += 1) {
+        const result = await this.db.query<{ message_id: string }>(
+          `INSERT INTO ${INDEX_TABLE} (
+             message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
+           )
+           ${SYNC_SELECT_SQL}
+           LEFT JOIN ${INDEX_TABLE} i ON i.message_id = m.id
+           WHERE i.message_id IS NULL
+           LIMIT $1
+           ON CONFLICT (message_id) DO NOTHING
+           RETURNING message_id`,
+          [batchSize]
+        );
+        inserted += result.rows.length;
+        if (result.rows.length < batchSize) {
+          break;
+        }
       }
     }
 
-    const refreshed = await this.refreshActiveThreads(overlapMs);
-    const deletedOrphans = await this.collectOrphans(gcLimit);
+    const refreshed = await this.refreshActiveThreads();
+    const deletedOrphans = membershipInSync ? 0 : await this.collectOrphans(gcLimit);
     return { deletedOrphans, inserted, refreshed };
   }
 
   /**
-   * Re-extracts messages of threads active since the stored watermark and
-   * upserts rows whose raw content hash changed. Content changes always bump
-   * `mastra_threads."updatedAt"` (Mastra save behavior), and the new watermark
-   * is the max activity value itself, so the overlap window closes the
-   * in-flight race without rescanning quiet threads.
+   * Re-extracts messages of threads whose `updatedAt` is STRICTLY newer than
+   * that thread's recorded refresh state, plus any thread active within the
+   * trailing live window (same-id progressive saves during a run can land
+   * without advancing `updatedAt` past an equal timestamp; re-extracting the
+   * still-active thread each pass is bounded by activity and made idempotent
+   * by the hash CAS). Per-thread state — never a global watermark — so one
+   * busy thread can never push a quiet thread's pending changes out of the
+   * refresh window.
    */
-  private async refreshActiveThreads(overlapMs: number): Promise<number> {
-    const stateResult = await this.db.query<{ watermark: Date | string | null }>(
-      `SELECT last_thread_activity_at AS watermark FROM ${STATE_TABLE} WHERE id = $1`,
-      [STATE_ID]
+  private async refreshActiveThreads(): Promise<number> {
+    const result = await this.db.query<{ message_id: string }>(
+      `INSERT INTO ${INDEX_TABLE} (
+         message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
+       )
+       ${SYNC_SELECT_SQL}
+       LEFT JOIN ${STATE_TABLE} s ON s.thread_id = t.id
+       WHERE s.thread_id IS NULL
+          OR t."updatedAt" > s.last_activity_at
+          OR t."updatedAt" >= CURRENT_TIMESTAMP - make_interval(secs => ${LIVE_THREAD_WINDOW_MS / 1000})
+       ${UPSERT_CONFLICT_SQL}
+       RETURNING message_id`
     );
-    const watermark = stateResult.rows[0]?.watermark ?? null;
-
-    let refreshed = 0;
-    if (watermark !== null) {
-      const result = await this.db.query<{ message_id: string }>(
-        `INSERT INTO ${INDEX_TABLE} (
-           message_id, thread_id, resource_id, role, content_text, content_hash, message_created_at
-         )
-         ${SYNC_SELECT_SQL}
-         WHERE t."updatedAt" >= $1::timestamptz - make_interval(secs => $2::float8 / 1000.0)
-         ${UPSERT_CONFLICT_SQL}
-         RETURNING message_id`,
-        [watermark, overlapMs]
-      );
-      refreshed = result.rows.length;
-    }
 
     await this.db.query(
-      `INSERT INTO ${STATE_TABLE} (id, last_thread_activity_at, updated_at)
-       SELECT $1, MAX("updatedAt"), CURRENT_TIMESTAMP FROM mastra_threads
-       ON CONFLICT (id) DO UPDATE SET
-         last_thread_activity_at = GREATEST(
-           COALESCE(EXCLUDED.last_thread_activity_at, ${STATE_TABLE}.last_thread_activity_at),
-           COALESCE(${STATE_TABLE}.last_thread_activity_at, EXCLUDED.last_thread_activity_at)
-         ),
-         updated_at = CURRENT_TIMESTAMP`,
-      [STATE_ID]
+      `INSERT INTO ${STATE_TABLE} (thread_id, last_activity_at, updated_at)
+       SELECT t.id, t."updatedAt", CURRENT_TIMESTAMP
+       FROM mastra_threads t
+       LEFT JOIN ${STATE_TABLE} s ON s.thread_id = t.id
+       WHERE s.thread_id IS NULL OR t."updatedAt" > s.last_activity_at
+       ON CONFLICT (thread_id) DO UPDATE SET
+         last_activity_at = EXCLUDED.last_activity_at,
+         updated_at = CURRENT_TIMESTAMP`
     );
 
-    return refreshed;
+    return result.rows.length;
   }
 
-  /** Bounded delete of index rows whose source message no longer exists. */
+  /**
+   * Bounded delete of index rows (and refresh-state rows) whose source no
+   * longer exists.
+   */
   private async collectOrphans(limit: number): Promise<number> {
     const result = await this.db.query<{ message_id: string }>(
       `DELETE FROM ${INDEX_TABLE}
@@ -270,6 +290,17 @@ export class ThreadSearchRepository {
          LIMIT $1
        )
        RETURNING message_id`,
+      [limit]
+    );
+    await this.db.query(
+      `DELETE FROM ${STATE_TABLE}
+       WHERE thread_id IN (
+         SELECT s.thread_id
+         FROM ${STATE_TABLE} s
+         LEFT JOIN mastra_threads t ON t.id = s.thread_id
+         WHERE t.id IS NULL
+         LIMIT $1
+       )`,
       [limit]
     );
     return result.rows.length;
@@ -412,7 +443,10 @@ export class ThreadSearchRepository {
     }));
   }
 
-  async listNeedingEmbedding(options: { limit: number }): Promise<ThreadMessagePendingEmbedding[]> {
+  async listNeedingEmbedding(options: {
+    limit: number;
+    resourceId: string;
+  }): Promise<ThreadMessagePendingEmbedding[]> {
     requirePositiveInteger(options.limit, 'limit');
     const result = await this.db.query<ThreadMessagePendingEmbedding>(
       `SELECT
@@ -420,12 +454,13 @@ export class ThreadSearchRepository {
          content_hash AS "contentHash",
          content_text AS "contentText"
        FROM ${INDEX_TABLE}
-       WHERE embedding IS NULL
+       WHERE resource_id = $1
+         AND embedding IS NULL
          AND embedding_error IS NULL
          AND content_text <> ''
        ORDER BY message_created_at DESC
-       LIMIT $1`,
-      [options.limit]
+       LIMIT $2`,
+      [options.resourceId, options.limit]
     );
     return result.rows.map((row) => ({ ...row }));
   }
@@ -433,10 +468,16 @@ export class ThreadSearchRepository {
   /**
    * Stores an embedding iff the row's content hash still matches (a changed
    * hash means the text was re-extracted since listing — the stale vector is
-   * discarded and the row stays pending). Returns whether the store landed.
+   * discarded and the row stays pending) AND the singleton profile still
+   * names the model that produced the vector (a mid-flight profile swap to a
+   * same-dimension model must not land a cross-space vector). Returns
+   * whether the store landed.
    */
   async storeEmbedding(input: StoreThreadMessageEmbeddingInput): Promise<boolean> {
     const profile = await this.getEmbeddingProfile();
+    if (input.modelKey !== profile.modelKey) {
+      return false;
+    }
     const vector = toVectorLiteral(input.embedding, profile.dimensions);
     const result = await this.db.query<{ message_id: string }>(
       `UPDATE ${INDEX_TABLE}
@@ -445,9 +486,14 @@ export class ThreadSearchRepository {
            embedding_error = NULL,
            embedding_updated_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
-       WHERE message_id = $3 AND content_hash = $4
+       WHERE message_id = $3
+         AND content_hash = $4
+         AND EXISTS (
+           SELECT 1 FROM ${PROFILES_TABLE}
+           WHERE id = $2 AND model_key = $5
+         )
        RETURNING message_id`,
-      [vector, profile.id, input.messageId, input.contentHash]
+      [vector, profile.id, input.messageId, input.contentHash, input.modelKey]
     );
     return result.rows.length > 0;
   }
@@ -508,13 +554,19 @@ export class ThreadSearchRepository {
     };
   }
 
-  /** Removes index rows for deleted threads (called from thread deletion). */
+  /**
+   * Removes index + refresh-state rows for deleted threads (called from
+   * thread deletion).
+   */
   async deleteThreads(threadIds: readonly string[]): Promise<void> {
     if (threadIds.length === 0) {
       return;
     }
     const placeholders = threadIds.map((_, index) => `$${index + 1}`).join(', ');
     await this.db.query(`DELETE FROM ${INDEX_TABLE} WHERE thread_id IN (${placeholders})`, [
+      ...threadIds,
+    ]);
+    await this.db.query(`DELETE FROM ${STATE_TABLE} WHERE thread_id IN (${placeholders})`, [
       ...threadIds,
     ]);
   }
