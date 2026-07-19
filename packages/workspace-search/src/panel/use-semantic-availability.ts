@@ -59,7 +59,10 @@ export interface SemanticAvailability {
  *
  * A missing stats row (still loading, or set not found) is treated as available
  * (optimistic) so semantic mode never false-gates on a transient empty read —
- * the error card remains the backstop if a search then fails.
+ * the error card remains the backstop if a search then fails. The same applies
+ * to a set row whose LEFT-JOINed stats columns are NULL (no
+ * collection_indexing_stats row yet): that is "unknown", not a confirmed zero
+ * — `Number(null)` would otherwise silently read as 0 and false-gate.
  */
 export function useSemanticAvailability(collectionId: string | null): SemanticAvailability {
   const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
@@ -74,7 +77,11 @@ export function useSemanticAvailability(collectionId: string | null): SemanticAv
     if (!statsRow) {
       return { available: true, reason: null };
     }
-    if (toStatsNumber(statsRow.embeddedChunkCount) === 0) {
+    const embeddedChunkCount = statsRow.embeddedChunkCount;
+    if (embeddedChunkCount === null || embeddedChunkCount === undefined) {
+      return { available: true, reason: null };
+    }
+    if (toStatsNumber(embeddedChunkCount) === 0) {
       return { available: false, reason: SEMANTIC_UNAVAILABLE_NO_CHUNKS };
     }
     return { available: true, reason: null };

@@ -1,7 +1,6 @@
 import { cn, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { FileText, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { useSemanticAvailability } from './use-semantic-availability';
 
@@ -31,6 +30,17 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
  * reason (a natively-disabled button drops out of the a11y tree and swallows
  * the pointer/focus events the tooltip needs — the gate must SHOW its reason,
  * never fail silently).
+ *
+ * The selected mode is user intent and is NEVER auto-rewritten from
+ * availability: the toggle stays mounted while other tabs are active
+ * (forceMount latch), and availability is a live async signal that transiently
+ * reads unavailable during re-embed cycles (clearEmbeddings writes
+ * embedded_chunk_count = 0 to collection_indexing_stats until the queue
+ * re-embeds). An auto-revert here silently flipped semantic → text in the
+ * background and nothing restored it — a silent fallback. Instead the gate
+ * only blocks ENTERING semantic; an already-selected gated semantic mode
+ * surfaces through the gated button + tooltip, and a run against an empty set
+ * fails visibly via the search error card.
  */
 export function SearchModeToggle(): ReactNode {
   const mode = useWorkspaceSearchStore((state) => state.mode);
@@ -38,16 +48,6 @@ export function SearchModeToggle(): ReactNode {
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
   const { available: semanticAvailable, reason: semanticReason } =
     useSemanticAvailability(collectionId);
-
-  // Never leave the UI in an impossible mode: if the selected set can no longer
-  // do semantic search, fall back to text. An effect (not render-phase) so it
-  // runs after commit and doesn't set state during render.
-  // biome-ignore lint/plugin: async live-query availability must be mirrored into the shared store to repair an impossible (gated-semantic) mode.
-  useEffect(() => {
-    if (mode === 'semantic' && !semanticAvailable) {
-      setMode('text');
-    }
-  }, [mode, semanticAvailable, setMode]);
 
   const semanticGated = !semanticAvailable;
 

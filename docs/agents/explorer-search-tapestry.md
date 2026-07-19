@@ -80,6 +80,19 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   reconcile (clamp to the real total) once content lands; there is no
   default-range stretch step (see TAPESTRY below — rangeless files stay
   rangeless).
+- **Mode is user intent — never auto-rewritten.** The semantic gate
+  (`use-semantic-availability.ts`, sole honest precondition: confirmed-zero
+  `embeddedChunkCount` on the effective set) only blocks ENTERING semantic
+  (aria-disabled button + named tooltip reason). It must NOT silently revert an
+  already-selected semantic mode: the toggle stays mounted behind inactive tabs
+  (forceMount latch) and availability is a live async signal that transiently
+  reads unavailable mid re-embed (`clearEmbeddings` writes
+  `embedded_chunk_count = 0` to `collection_indexing_stats` until the queue
+  re-embeds) — an auto-revert flipped semantic → text in the background with
+  nothing restoring it. NULL joined stats (no `collection_indexing_stats` row)
+  are "unknown", optimistic-available — never coerced to 0. A gated-semantic
+  run failing stays the visible error-card backstop. Pinned in
+  `search-mode-gating.test.tsx`.
 - **Session-only.** The store is not persisted; it is reset on factory reset via
   the `registerFactoryResetSessionStore` seam (app-shell registers it — see
   FACTORY RESET CONTRACT). The active Explorer|Search tab persists in
