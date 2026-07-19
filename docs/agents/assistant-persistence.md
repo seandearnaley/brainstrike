@@ -24,7 +24,17 @@ contracts keep reloaded threads identical to live ones:
    Tool output uses a deliberate dual channel: Mastra persists
    `toolInvocation.result`, while `toModelOutput` supplies the bounded text or
    multimodal projection repeated into provider requests. Native tools keep the
-   raw result. MCP results remain inline only within the explicit temporary
+   raw domain result. PostToolUse context is model-only: hook execution uses a
+   discriminated internal carrier, `transform.display` unwraps it for the live
+   UI, and `transform.transcript` unwraps it for storage. Mastra 1.51 attaches
+   the correct transcript transform metadata but still hands its raw in-memory
+   message to `MemoryStorage.saveMessages`; `PgliteMemoryStore.saveMessages`
+   therefore applies that official transcript projection again at the durable
+   boundary, returns the projected messages from `saveMessages`, and
+   independently refuses to store or return a surviving internal carrier.
+   The real-memory hook regression proves the stored invocation is the exact
+   domain result while `providerMetadata.mastra.modelOutput` retains the
+   model-only guidance. MCP results remain inline only within the explicit temporary
    persistence ceilings documented in `assistant-providers.md`; text-only MCP
    output is preview-bounded until the artifact store exists. Never replace a
    native result inside `execute()` merely to save prompt tokens; that destroys

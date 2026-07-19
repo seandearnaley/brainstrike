@@ -47,6 +47,7 @@ import type {
   LocalLlmHostClient,
   LocalLlmHostGenerateRequest,
 } from '../providers/local/llm-host-client';
+import type { AgentHookRunner } from '../tools/hook-runner';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -264,6 +265,7 @@ async function runTurnWithMemory(args: {
   database: PGlite;
   memorySettings: RuntimeAssistantMemorySettings;
   threadId: string;
+  hookRunner?: AgentHookRunner;
   signal?: AbortSignal;
   observationDelayMs?: number;
   observationalMemoryModel?: LanguageModelV2;
@@ -319,6 +321,7 @@ async function runTurnWithMemory(args: {
       },
     ],
     {
+      ...(args.hookRunner ? { hookRunner: args.hookRunner } : {}),
       memory,
       runtime: {
         apiKey: 'test-key',
@@ -505,6 +508,38 @@ describe('mastra memory persistence through the live stream path', () => {
 
     expect(replayedModelOutput).toContain('output was truncated');
     expect(replayedModelOutput).not.toContain(rawOnlyTail);
+  });
+
+  it('persists the exact domain result while PostToolUse context remains model-only', async () => {
+    const threadId = 'thread-hook-domain-result';
+    let modelFacingOutput = '';
+    await runTurnWithMemory({
+      database,
+      hookRunner: {
+        postToolUse: () => Promise.resolve({ additionalContext: 'model-only hook context' }),
+        preToolUse: () => Promise.resolve({ decision: 'allow' }),
+      },
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        modelFacingOutput = readToolResultTextFromPrompt(prompt);
+      },
+      threadId,
+    });
+
+    const rows = await listThreadMessages(database, threadId);
+    const invocationPart = rows
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .find((part) => part.type === 'tool-invocation');
+    const invocation = invocationPart?.toolInvocation;
+
+    expect(invocation?.result).toEqual({
+      city: 'Paris',
+      temperatureC: 21,
+    });
+    expect(JSON.stringify(invocation?.result)).not.toContain('brainstrikeHookResultEnvelope');
+    expect(JSON.stringify(invocation?.result)).not.toContain('model-only hook context');
+    expect(modelFacingOutput).toContain('Post-tool context: model-only hook context');
   });
 
   it('persists a user image attachment part with its media type and data-URL body', async () => {

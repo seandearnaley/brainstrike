@@ -12,16 +12,26 @@
  * the block path is an explicit decision, not an exception).
  */
 
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import type {
+  ToolPayloadTransform,
+  ToolPayloadTransformContext,
+  ToolPayloadTransformTarget,
+  ToolPayloadTransformTargetConfig,
+} from '@mastra/core/tools';
 import { isGuardedToolError } from './guard-tool-execution';
 import {
   type AgentHookRunner,
+  createHookResultEnvelope,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
   type HookBlockedToolError,
+  readHookResultEnvelope,
 } from './hook-runner';
 import type { ToolLogger } from './types';
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;
+  transform?: ToolPayloadTransform;
 }
 
 function hasExecute(tool: unknown): tool is ExecutableLike {
@@ -29,27 +39,94 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
 }
 
 function capContext(context: string): string {
-  if (context.length <= HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET) {
+  const capped = sliceCodePoints(context, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET);
+  if (capped.length === context.length) {
     return context;
   }
-  return `${context.slice(0, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET)}…`;
+  return `${sliceCodePoints(context, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET - 1)}…`;
 }
 
 /**
- * Merge PostToolUse `additionalContext` into a tool result within the budget:
- * an object result gains a `hookAdditionalContext` field; a primitive result is
- * wrapped as `{ value, hookAdditionalContext }`. A guarded-error result is left
- * untouched (never annotate a failure).
+ * Carry PostToolUse `additionalContext` beside the original result in one
+ * explicitly discriminated internal envelope. Every successful result shape
+ * uses the same protocol, so the projection layer never guesses based on a
+ * domain-owned field. A guarded-error result is left untouched.
  */
 function mergeAdditionalContext(result: unknown, context: string): unknown {
   if (isGuardedToolError(result)) {
     return result;
   }
   const capped = capContext(context);
-  if (result && typeof result === 'object' && !Array.isArray(result)) {
-    return { ...(result as Record<string, unknown>), hookAdditionalContext: capped };
+  return createHookResultEnvelope(result, capped);
+}
+
+function passthroughTransform(
+  phase: keyof ToolPayloadTransformTargetConfig
+): (context: ToolPayloadTransformContext) => unknown {
+  switch (phase) {
+    case 'approval':
+    case 'input':
+      return (context) => context.input;
+    case 'error':
+      return (context) => context.error;
+    case 'inputDelta':
+      return (context) => context.inputTextDelta;
+    case 'output':
+      return (context) => context.output;
+    case 'resume':
+      return (context) => context.resumeData;
+    case 'suspend':
+      return (context) => context.suspendPayload;
+    default:
+      throw new TypeError(`Unsupported tool payload transform phase: ${String(phase)}`);
   }
-  return { hookAdditionalContext: capped, value: result };
+}
+
+function createTargetTransform(
+  existing: ToolPayloadTransformTargetConfig | undefined
+): ToolPayloadTransformTargetConfig {
+  const output = existing?.output;
+  if (existing) {
+    return {
+      ...existing,
+      output: (context) => {
+        const envelope = readHookResultEnvelope(context.output);
+        const domainOutput = envelope ? envelope.result : context.output;
+        if (!output) {
+          // Preserve Mastra's safe-placeholder behavior for an intentionally
+          // configured target that omitted its output transform.
+          return;
+        }
+        return output({ ...context, output: domainOutput });
+      },
+    };
+  }
+  return {
+    approval: passthroughTransform('approval'),
+    error: passthroughTransform('error'),
+    input: passthroughTransform('input'),
+    inputDelta: passthroughTransform('inputDelta'),
+    output: (context) => {
+      const envelope = readHookResultEnvelope(context.output);
+      return envelope ? envelope.result : context.output;
+    },
+    resume: passthroughTransform('resume'),
+    suspend: passthroughTransform('suspend'),
+  };
+}
+
+/**
+ * Mastra's target-aware payload transform is the raw/model split for hook
+ * carriers: the live display and persisted transcript receive the exact domain
+ * result, while `toModelOutput` still receives the internal carrier.
+ */
+function createHookPayloadTransform(
+  existing: ToolPayloadTransform | undefined
+): ToolPayloadTransform {
+  const targets: readonly ToolPayloadTransformTarget[] = ['display', 'transcript'];
+  return Object.fromEntries(
+    targets.map((target) => [target, createTargetTransform(existing?.[target])])
+  ) as ToolPayloadTransform;
 }
 
 export interface ApplyToolHooksOptions {
@@ -102,6 +179,7 @@ async function runPostHook(
   result: unknown,
   logger?: ToolLogger
 ): Promise<unknown> {
+  let additionalContext: string | undefined;
   try {
     const post = await runner.postToolUse({
       toolError: isGuardedToolError(result),
@@ -109,13 +187,20 @@ async function runPostHook(
       toolName,
       toolOutput: result,
     });
-    if (post.additionalContext) {
-      return mergeAdditionalContext(result, post.additionalContext);
-    }
+    additionalContext = post.additionalContext;
   } catch (error) {
     logger?.error('PostToolUse hook runner threw; keeping tool result', { error, toolName });
+    return result;
   }
-  return result;
+  if (!additionalContext) {
+    return result;
+  }
+  if (result === undefined) {
+    throw new TypeError(
+      `${toolName} returned undefined and cannot carry PostToolUse context; tools must return a JSON-serializable result`
+    );
+  }
+  return mergeAdditionalContext(result, additionalContext);
 }
 
 export function applyToolHooks<TMap extends Record<string, unknown>>(
@@ -135,6 +220,12 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
 
     const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableLike;
     Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
+    Object.defineProperty(cloned, 'transform', {
+      configurable: true,
+      enumerable: true,
+      value: createHookPayloadTransform(tool.transform),
+      writable: true,
+    });
 
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const toolInput = extractToolInput(args);

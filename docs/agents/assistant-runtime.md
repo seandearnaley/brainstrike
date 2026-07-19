@@ -81,15 +81,28 @@ below are LIVE.
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → model-output projection → Agent`. The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
-post-hook execution result without replacing it: native raw output remains
-available to stream/application consumers and is what Mastra persists; only
-the provider receives the bounded projection. Existing custom projections are
-composed with the final ceiling, not allowed to bypass it. Persona agents
-receive the same projections before their independent permission gate. Mastra
-1.51 passes `{toolCallId,input,output}` at the AI SDK boundary even though its
-`createTool` contract gives custom projectors the raw execute result. Brainstrike
-extracts the exact envelope's `output` before both custom and generated
-projections; direct raw-output calls remain supported.
+post-hook execution result without replacing it. A discriminated internal
+carrier takes PostToolUse context to `toModelOutput`; Mastra's official
+display/transcript transforms unwrap it so live application consumers and the
+durable transcript retain the exact domain result. Generated/default
+projections use the 2000-token / 8000-serialized-character ceiling.
+Purpose-built domain
+projectors MUST self-fit complete output within 1500 tokens / 6000 serialized
+characters and fail loudly on overflow; the central seam never truncates an
+opaque page after its continuation was computed. Guarded failures bypass custom
+projectors. Successful PostToolUse metadata is stripped before projection
+(one explicit internal envelope preserves every original result shape),
+then its context is appended centrally without reordering content and fitted
+into the remaining final 8000-character envelope. Only hook context may be
+truncated at that composition stage. The `skill` activation exception keeps
+its complete 6000-token instruction budget and adds a dedicated bounded hook
+allowance plus structural reserve instead of rebinding to the generic
+1500-token domain budget. Persona agents receive the same projections before
+their independent permission gate. Mastra 1.51's documented CoreTool
+projection callback receives the raw execute output. Brainstrike never
+shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
+object is valid domain evidence; a future direct AI SDK adapter belongs at a
+separately typed boundary.
 
 MCP is the temporary exception while artifact storage is absent: text/JSON is
 bounded inside `execute()` before inline persistence; image/audio stays raw
@@ -565,8 +578,25 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   never allow a denied/ask tool. A block returns a `HookBlockedToolError`
   (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
   renders as a FAILED tool event. PostToolUse `additionalContext` is capped
-  (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and merged into the tool result.
-  A hook-runner FAULT is allow-on-fault (a runner bug must not brick tool calling).
+  (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and carried beside the original
+  result in the explicitly discriminated internal hook envelope. The reserved
+  JSON shape is NOT sufficient proof of provenance: every consumer also
+  requires membership in a private in-memory WeakSet, registered only after a
+  successful PostToolUse hook. A native/MCP result that copies the reserved
+  field/kind or reflective object properties is ordinary visible domain
+  evidence and can never inject model-only context or be stripped from
+  UI/persistence. Losing the in-memory provenance through cloning or
+  serialization likewise fails closed as visible data. Mastra's target-aware
+  display/transcript transforms restore the exact domain result before the live
+  UI and persistence boundary; the trusted envelope itself is never a public
+  or durable tool result. Because JSON persistence and Mastra's
+  transform protocol cannot represent an exact `undefined` result, a tool that
+  returns `undefined` while PostToolUse requests context fails visibly instead
+  of dropping the guidance or substituting a placeholder. The later
+  model-projection seam consumes that reserved envelope: domain projectors
+  receive the clean original result, and the provider view gets centrally
+  composed context within the final model-output budget. A hook-runner FAULT is
+  allow-on-fault (a runner bug must not brick tool calling).
 - `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext
