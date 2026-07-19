@@ -14,6 +14,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
 } from '../types';
 import {
@@ -726,7 +727,13 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
    *   - Constructs a `FileSystemObserver` with a callback that maps WICG observer
    *     records to the existing `FileSystemChange[]` shape expected by callers.
    *     `moved` records map to a removed+added pair (old path from
-   *     `relativePathMovedFrom`); `errored`/`unknown` records are dropped.
+   *     `relativePathMovedFrom`).
+   *   - `unknown` records (events may have been missed) emit an `overflow`
+   *     signal on `onSignal` — consumers must fully refresh the root.
+   *   - `errored` records (observation no longer valid) disconnect the
+   *     observer and emit an `errored` signal — the root is unwatched from
+   *     that point. Both are also warn-logged so the condition is never
+   *     silent even without an `onSignal` handler.
    *   - Calls `observe(handle._internal, { recursive: true })`. In shipping
    *     Chrome `observe()` returns a Promise — a rejection (e.g. permission
    *     revoked asynchronously) is caught, warn-logged, and the observer is
@@ -746,7 +753,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     // Feature gate: FileSystemObserver is only available in Chrome 133+ with the
     // experimental flag or Origin Trial enabled. When absent, return a no-op
@@ -756,7 +764,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       return () => {};
     }
 
-    const observer = new FileSystemObserver((records) => {
+    const observer = new FileSystemObserver((records, activeObserver) => {
+      let overflowed = false;
+      let errored = false;
       const changes: FileSystemChange[] = records.flatMap((r): FileSystemChange[] => {
         // Build a path by joining the root handle path with the relative components.
         const relPath = r.relativePathComponents.join('/');
@@ -786,16 +796,48 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
             }
             return [{ kind, path: fullPath, type: 'added' }];
           }
+          case 'unknown':
+            // Events may have been missed — flag for an overflow signal below;
+            // there is no per-path change to emit.
+            overflowed = true;
+            return [];
+          case 'errored':
+            // Observation is no longer valid — flag for teardown below.
+            errored = true;
+            return [];
           default:
-            // 'errored' and 'unknown' have no FileSystemChange equivalent;
-            // errored conditions are surfaced via the observe() rejection
-            // handler below, not as change events.
             return [];
         }
       });
 
       if (changes.length > 0) {
         callback(changes);
+      }
+
+      if (errored) {
+        // The watch is dead: disconnect so no phantom observer lingers, warn
+        // visibly, and signal consumers so the dead watch is reported in UI.
+        // NO SILENT FALLBACKS — this must never be absorbed quietly.
+        activeObserver.disconnect();
+        logger.warn(
+          'watchDirectory: FileSystemObserver reported an errored record, folder is unwatched',
+          { path: handle.path }
+        );
+        onSignal?.({
+          message: `File watching stopped for ${handle.path}: the observer reported the observation is no longer valid.`,
+          type: 'errored',
+        });
+        return;
+      }
+
+      if (overflowed) {
+        // Events may have been missed: the incremental change stream is no
+        // longer trustworthy for this root — consumers must fully refresh.
+        logger.warn(
+          'watchDirectory: FileSystemObserver reported unknown records, events may have been missed',
+          { path: handle.path }
+        );
+        onSignal?.({ type: 'overflow' });
       }
     });
 
@@ -825,6 +867,12 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
             }
           );
           observer.disconnect();
+          onSignal?.({
+            message: `File watching could not start for ${handle.path}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            type: 'errored',
+          });
         });
       }
     } catch (err) {

@@ -1,4 +1,8 @@
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type {
+  DirectoryHandle,
+  FileSystemAdapter,
+  FileSystemWatchSignal,
+} from '@brainstrike/file-system';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useEffect, useRef } from 'react';
 
@@ -15,6 +19,13 @@ export interface UseFileSystemWatcherParams {
    * unnecessary watcher restarts.
    */
   onChanges: (rootId: string, changes: FileSystemChange[]) => void;
+  /**
+   * Called when a watched root reports an out-of-band health signal
+   * ('overflow' = events may have been missed, full refresh required;
+   * 'errored' = the watch is dead and already disconnected, must be surfaced
+   * visibly). Callers should stabilize this reference (e.g. useCallback).
+   */
+  onSignal?: (rootId: string, signal: FileSystemWatchSignal) => void;
   /**
    * The set of roots to watch. Keyed by rootId (never by path).
    * Callers should stabilize this array reference (e.g. useMemo) to avoid
@@ -49,6 +60,7 @@ export function useFileSystemWatcher({
   adapter,
   roots,
   onChanges,
+  onSignal,
 }: UseFileSystemWatcherParams): void {
   // Map<rootId, disposer> — operational infrastructure, never drives UI.
   const watchersRef = useRef<Map<string, () => void>>(new Map());
@@ -59,6 +71,8 @@ export function useFileSystemWatcher({
   adapterRef.current = adapter;
   const onChangesRef = useRef(onChanges);
   onChangesRef.current = onChanges;
+  const onSignalRef = useRef(onSignal);
+  onSignalRef.current = onSignal;
 
   // Diff effect: runs whenever roots/adapter/onChanges changes.
   // Does NOT return a cleanup — disposed roots are handled inline.
@@ -85,9 +99,19 @@ export function useFileSystemWatcher({
     // Start watchers for roots that are new.
     for (const { rootId, handle } of roots) {
       if (!watchers.has(rootId)) {
-        const dispose = watchDirectory(handle, (changes) => {
-          onChangesRef.current(rootId, changes);
-        });
+        const dispose = watchDirectory(
+          handle,
+          (changes) => {
+            onChangesRef.current(rootId, changes);
+          },
+          (signal) => {
+            // 'errored' means the adapter already disconnected the watch; the
+            // dead disposer stays in the map deliberately — no auto-restart
+            // (a silent retry loop would hide the failure). The signal handler
+            // is responsible for making the dead watch visible.
+            onSignalRef.current?.(rootId, signal);
+          }
+        );
         watchers.set(rootId, dispose);
       }
     }

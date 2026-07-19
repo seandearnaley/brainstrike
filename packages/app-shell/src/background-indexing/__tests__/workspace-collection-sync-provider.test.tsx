@@ -1204,6 +1204,76 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it("scopes a watcher overflow event (scope 'full' with named roots) to a full resync of ONLY the affected root", async () => {
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [
+      rootA,
+      {
+        kind: 'directory',
+        name: 'root-b',
+        path: '/workspace/root-b',
+        platform: 'electron',
+        rootId: 'root-b-id',
+      },
+    ];
+    fileSystemState.rootIdByPath = new Map([
+      ['/workspace/root-a', 'root-a-id'],
+      ['/workspace/root-b', 'root-b-id'],
+    ]);
+    resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
+      rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
+    );
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+
+      // Watcher overflow: 'unknown' observer records mean events may have been
+      // missed for root-b — dispatched as scope 'full' with the affected root.
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:file-explorer-refreshed', {
+            detail: {
+              roots: [{ changes: [], rootId: 'root-b-id', rootPath: '/workspace/root-b' }],
+              scope: 'full',
+              source: 'watcher',
+            },
+          })
+        );
+      });
+
+      // Exactly ONE sync — for root-b, with a FULL per-root scope. Root-a is
+      // untouched: overflow must not fan out workspace-wide.
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dbRootId: 'db-root-b-id',
+          rootDirectoryHandle: expect.objectContaining({
+            path: '/workspace/root-b',
+            rootId: 'root-b-id',
+          }),
+          scope: { mode: 'full' },
+        })
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('treats payloadless and invalid refresh events as full all-root recovery syncs', async () => {
     const rootA = {
       kind: 'directory',

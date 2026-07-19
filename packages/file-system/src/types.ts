@@ -5,5 +5,6 @@ export type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
 } from '@brainstrike/types';

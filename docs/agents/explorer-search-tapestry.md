@@ -188,3 +188,44 @@ When changing this flow, update this section and the related tests.
 ---
 
 
+
+## EXPLORER TREE LIVE REFRESH
+
+Watcher-driven refresh of the Explorer tree and background index (added
+2026-07-19). The chain: adapter `watchDirectory` →
+`use-file-system-watcher.ts` (per-root lifecycle) →
+`use-file-system-context.ts` (debounce + dispatch) →
+`FILE_EXPLORER_REFRESH_EVENT` (`file-explorer-refresh-event.ts`) →
+`workspace-collection-sync-provider.tsx` (background index sync).
+
+- **Change events are debounced; signals are not.** Incremental
+  `FileSystemChange[]` batches collapse per-root through a 300ms trailing
+  debounce into one `scope:'incremental'` / `source:'watcher'` event. Watcher
+  HEALTH travels on a separate channel: `FileSystemWatchSignal`
+  (`packages/types/src/file-system.ts`), the optional third argument to
+  `watchDirectory`.
+- **`overflow` = events may have been missed.** The web adapter maps WICG
+  `FileSystemObserver` `unknown` records to it. The context handler drops that
+  root's pending incremental changes and IMMEDIATELY dispatches a one-shot
+  `scope:'full'` / `source:'watcher'` event naming only the affected root
+  (deduped per root within the debounce window so a burst can't storm). The
+  sync provider parses watcher+full+named-roots into a per-root FULL resync —
+  other roots keep their state; overflow never fans out workspace-wide.
+- **`errored` = the watch is dead.** WICG `errored` records (and async
+  `observe()` rejections) disconnect the observer INSIDE the adapter, then
+  signal. The context handler error-logs and raises a destructive toast
+  ("Folder watching stopped") — the root stays connected but unwatched, and
+  there is NO auto-restart (a silent retry loop would hide the failure).
+  Manual Refresh remains the recovery path. **NO SILENT FALLBACKS:** both
+  conditions are always warn-logged in the adapter even when no signal
+  handler is attached; never revert to dropping these records.
+- **Feature gate, not fallback.** `watchDirectory` is always present on the
+  web adapter and no-ops when `FileSystemObserver` (Chrome 133+) is absent;
+  capability detection is the caller's job.
+- **Paired tests:** `packages/file-system/src/__tests__/web-adapter.test.ts`
+  (record mapping + signals), `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`
+  (signal threading), `packages/file-explorer-ui/src/__tests__/use-file-system-context.test.ts`
+  (overflow one-shot / errored toast), `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`
+  (per-root full resync scoping).
+
+When changing this flow, update this section and the paired tests.

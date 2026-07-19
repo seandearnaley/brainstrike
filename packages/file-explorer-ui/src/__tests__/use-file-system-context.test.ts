@@ -2,6 +2,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { FileSystemChange } from '@brainstrike/types';
+import { useToast } from '@brainstrike/ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1023,6 +1024,151 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     expect(dispatchSpy.mock.calls.length).toBe(dispatchCountBefore);
 
     dispatchSpy.mockRestore();
+  });
+});
+
+describe('useFileSystem — watcher health signals (overflow / errored)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  type WatchSignal = import('@brainstrike/file-system').FileSystemWatchSignal;
+
+  async function setupWatchedRoot() {
+    let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
+    let capturedOnSignal: ((signal: WatchSignal) => void) | null = null;
+
+    const handle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'signal-root',
+      path: '/signal-root',
+      platform: 'web',
+      rootId: 'signal-root-id',
+    } as DirectoryHandle;
+
+    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => handle),
+      watchDirectory: vi.fn(
+        (
+          _h: DirectoryHandle,
+          cb: (changes: FileSystemChange[]) => void,
+          onSignal?: (signal: WatchSignal) => void
+        ) => {
+          capturedCallback = cb;
+          capturedOnSignal = onSignal ?? null;
+          return vi.fn();
+        }
+      ),
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockFileSystemAdapter: adapterWithWatch,
+      });
+
+    const rendered = renderHook(() => ({ ...useExposed(), toastState: useToast() }), { wrapper });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    if (!(capturedCallback && capturedOnSignal)) {
+      throw new Error('watchDirectory callback/onSignal was not registered');
+    }
+    return {
+      onSignal: capturedOnSignal as (signal: WatchSignal) => void,
+      rendered,
+      rootId: rendered.result.current.store.getState().currentFolderId as string,
+      watcherCallback: capturedCallback as (changes: FileSystemChange[]) => void,
+    };
+  }
+
+  it('overflow dispatches an immediate one-shot full refresh for the affected root, superseding pending incremental changes', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    try {
+      const { onSignal, rootId, watcherCallback } = await setupWatchedRoot();
+
+      // Queue an incremental change, then overflow before the debounce fires.
+      act(() => {
+        watcherCallback([{ kind: 'file', path: 'src/a.ts', type: 'modified' }]);
+      });
+      act(() => {
+        onSignal({ type: 'overflow' });
+      });
+
+      // The full refresh is IMMEDIATE (no 300ms debounce wait).
+      expect(refreshCapture.events).toHaveLength(1);
+      expect(refreshCapture.events[0]?.detail).toEqual({
+        roots: [{ changes: [], rootId, rootPath: '/signal-root' }],
+        scope: 'full',
+        source: 'watcher',
+      });
+
+      // Repeated overflow within the dedupe window is one-shot: no second dispatch.
+      act(() => {
+        onSignal({ type: 'overflow' });
+      });
+      expect(refreshCapture.events).toHaveLength(1);
+
+      // The queued incremental change was dropped (superseded by the full
+      // refresh) — the debounce timer must not fire a second, stale event.
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(refreshCapture.events).toHaveLength(1);
+
+      // After the dedupe window a NEW overflow refreshes again.
+      act(() => {
+        onSignal({ type: 'overflow' });
+      });
+      expect(refreshCapture.events).toHaveLength(2);
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('errored raises a destructive toast and dispatches NO refresh event', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    try {
+      const { onSignal, rendered } = await setupWatchedRoot();
+
+      act(() => {
+        onSignal({ message: 'File watching stopped for /signal-root: dead.', type: 'errored' });
+      });
+
+      expect(refreshCapture.events).toHaveLength(0);
+      const toasts = rendered.result.current.toastState.toasts;
+      const errorToast = toasts.find((t) => t.title === 'Folder watching stopped');
+      expect(errorToast).toBeDefined();
+      expect(errorToast?.variant).toBe('destructive');
+      expect(String(errorToast?.description)).toContain('/signal-root');
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('ignores signals from roots that are no longer active', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    try {
+      const { onSignal, rendered, rootId } = await setupWatchedRoot();
+
+      await act(async () => {
+        await rendered.result.current.fs.removeRootDirectory(rootId);
+      });
+
+      act(() => {
+        onSignal({ type: 'overflow' });
+      });
+      expect(refreshCapture.events).toHaveLength(0);
+    } finally {
+      refreshCapture.cleanup();
+    }
   });
 });
 
