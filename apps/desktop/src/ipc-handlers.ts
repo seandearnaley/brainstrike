@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -13,6 +14,7 @@ import {
 } from './ipc-domains/db-ipc';
 import { registerEmbeddingBackfillIpcHandlers } from './ipc-domains/embedding-backfill-ipc';
 import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
+import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import type { RuntimeDatabaseCorruptionHandler } from './ipc-domains/runtime-database-corruption';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
 import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
@@ -63,6 +65,20 @@ export function registerIpcHandlers(
     getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
     storage,
   });
+  const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
+    // Chokidar-backed recursive watcher (batched, ignoreInitial, path-filtered)
+    // — the same engine the notes-vault watch channel uses.
+    startWatch: (directoryPath, onChanges) =>
+      fileSystem.watchDirectory(
+        {
+          kind: 'directory',
+          name: path.basename(directoryPath),
+          path: directoryPath,
+          platform: 'electron',
+        },
+        onChanges
+      ),
+  });
   const unregisterDatabaseIpcHandlers = registerDatabaseIpcHandlers(options);
   const unregisterEmbeddingBackfillIpcHandlers = registerEmbeddingBackfillIpcHandlers({
     embeddingHostManager: options?.embeddingHostManager,
@@ -78,6 +94,7 @@ export function registerIpcHandlers(
   return () => {
     unregisterEmbeddingBackfillIpcHandlers();
     unregisterDatabaseIpcHandlers();
+    unregisterFileSystemWatchIpcHandlers();
     unregisterFileSystemIpcHandlers();
     unregisterStoragePreferencesIpcHandlers();
   };

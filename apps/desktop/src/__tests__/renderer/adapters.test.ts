@@ -344,3 +344,103 @@ describe('ElectronRendererStorageAdapter', () => {
     });
   });
 });
+
+describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
+  const handle = {
+    kind: 'directory' as const,
+    name: 'workspace',
+    path: '/workspace',
+    platform: 'electron' as const,
+  };
+  const sampleChanges = [
+    { kind: 'file' as const, path: '/workspace/a.ts', type: 'added' as const },
+  ];
+
+  let adapter: ElectronRendererFileSystemAdapter;
+  let pushEvent: ((event: { changes: typeof sampleChanges; watchId: string }) => void) | null;
+  let unsubscribe: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    adapter = new ElectronRendererFileSystemAdapter();
+    vi.clearAllMocks();
+    pushEvent = null;
+    unsubscribe = vi.fn();
+    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(
+      (callback: (event: { changes: typeof sampleChanges; watchId: string }) => void) => {
+        pushEvent = callback;
+        return unsubscribe;
+      }
+    );
+    mockElectronAPI.fileSystem.watchDirectory.mockResolvedValue({ watchId: 'watch-1' });
+  });
+
+  it('starts a bridge watch for the handle and forwards matching change events', async () => {
+    const onChanges = vi.fn();
+
+    adapter.watchDirectory(handle, onChanges);
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledWith(handle);
+    });
+
+    pushEvent?.({ changes: sampleChanges, watchId: 'watch-1' });
+    expect(onChanges).toHaveBeenCalledWith(sampleChanges);
+  });
+
+  it('ignores change events stamped with a different watchId', async () => {
+    const onChanges = vi.fn();
+
+    adapter.watchDirectory(handle, onChanges);
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+
+    pushEvent?.({ changes: sampleChanges, watchId: 'someone-else' });
+    expect(onChanges).not.toHaveBeenCalled();
+  });
+
+  it('disposer unsubscribes from the push channel and unwatches in main', async () => {
+    const dispose = adapter.watchDirectory(handle, vi.fn());
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+
+    dispose();
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-1');
+  });
+
+  it('disposing before the watch resolves still unwatches once the id arrives', async () => {
+    let resolveWatch: (value: { watchId: string }) => void = () => {};
+    mockElectronAPI.fileSystem.watchDirectory.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveWatch = resolve;
+        })
+    );
+
+    const onChanges = vi.fn();
+    const dispose = adapter.watchDirectory(handle, onChanges);
+    dispose();
+    resolveWatch({ watchId: 'watch-late' });
+
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-late');
+    });
+    pushEvent?.({ changes: sampleChanges, watchId: 'watch-late' });
+    expect(onChanges).not.toHaveBeenCalled();
+  });
+
+  it('returns a no-op disposer when the bridge lacks the watch capability', () => {
+    const original = mockElectronAPI.fileSystem.watchDirectory;
+    // Simulate an older preload without the watch bridge.
+    (mockElectronAPI.fileSystem as { watchDirectory?: unknown }).watchDirectory = undefined;
+    try {
+      const dispose = adapter.watchDirectory(handle, vi.fn());
+      expect(() => dispose()).not.toThrow();
+      expect(mockElectronAPI.fileSystem.onWatchEvent).not.toHaveBeenCalled();
+    } finally {
+      mockElectronAPI.fileSystem.watchDirectory = original;
+    }
+  });
+});

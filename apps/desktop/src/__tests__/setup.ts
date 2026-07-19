@@ -76,6 +76,7 @@ const mockElectronAPI = {
       rootId: 'mock-root-id',
     }),
     exists: vi.fn().mockResolvedValue(true),
+    onWatchEvent: vi.fn(() => () => {}),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
@@ -88,6 +89,8 @@ const mockElectronAPI = {
     restoreLastFolder: vi.fn().mockResolvedValue(null),
     restoreRoots: vi.fn().mockResolvedValue([]),
     saveLastFolder: vi.fn().mockResolvedValue(undefined),
+    unwatchDirectory: vi.fn().mockResolvedValue(undefined),
+    watchDirectory: vi.fn().mockResolvedValue({ watchId: 'mock-watch-id' }),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
   storage: {

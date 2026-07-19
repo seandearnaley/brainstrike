@@ -1,6 +1,6 @@
-# Explorer Surfaces: Workspace Search, Markdown Viewer, Tapestry
+# Explorer Surfaces: Workspace Search, Markdown Viewer, Tapestry, Live Refresh
 
-> Extracted from AGENTS.md (2026-07-12). Read before changing the Explorer|Search panel, file-tab markdown preview, or per-file range model. Keep updated with the code.
+> Extracted from AGENTS.md (2026-07-12). Read before changing the Explorer|Search panel, file-tab markdown preview, per-file range model, or the tree live-refresh pipeline. Keep updated with the code.
 
 ## WORKSPACE SEARCH
 
@@ -184,6 +184,57 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   `detail: true` gate for per-file ranges).
 
 When changing this flow, update this section and the related tests.
+
+---
+
+## EXPLORER TREE LIVE REFRESH
+
+One pipeline keeps the visible tree, forest roots, and the background indexer
+in sync with on-disk changes. Do not add a second event channel or a polling
+fallback.
+
+- **Watch sources (capability-gated, NO polling fallback).** Desktop: the
+  renderer adapter's `watchDirectory`
+  (`apps/desktop/src/renderer/adapters.ts`) starts a MAIN-process chokidar
+  watcher over IPC — `fs:watch` / `fs:unwatch` invokes + one-way
+  `fs:watch-event` pushes (`apps/desktop/src/ipc-domains/file-system-watch-ipc.ts`,
+  chokidar engine shared with notes-vault via
+  `@brainstrike/file-system/electron`: 150ms batch, `ignoreInitial`,
+  `fileFilter.shouldIgnorePath`). Watchers are keyed by `watchId`, owned by the
+  requesting `WebContents` (push to owner only, non-owner unwatch rejected
+  without an ownership oracle, destroyed-renderer reaper). E2E mock paths get
+  inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
+  `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). A missing
+  capability always means "visibly unwatched", never a silent poll.
+- **Event shaping.** `useFileSystemWatcher` (file-explorer-hooks) watches every
+  mounted root; `use-file-system-context.ts` debounces 300ms and dispatches ONE
+  `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`, `scope:'incremental'`,
+  per-root `FileSystemChange[]`).
+- **Consumers.** (1) Background indexer
+  (`workspace-collection-sync-provider.tsx`) — path-scoped DB re-index
+  (mtime+hash skip). (2) Tree: `use-file-tree-refresh-events.ts`, mounted by
+  EVERY `FileTreeProvider` (focused root AND each forest RootSection):
+  watcher/incremental → re-enumerate only the LOADED parent directories of
+  added/removed changes in that provider's root (deduped; unloaded dirs skip —
+  they enumerate on expand; root-level membership changes use `refreshTree`);
+  `modified` changes never touch the tree (content freshness is the indexer's
+  job). Manual/full → `refreshTree()` on every provider — this is what makes
+  the toolbar Refresh reach forest roots.
+- **Manual refresh contract.** `file-explorer-panel.tsx` `handleRefresh`
+  awaits `refreshFileExplorer()` (focused root) and dispatches the full event
+  only on SUCCESS — a cancelled or failed refresh must not trigger downstream
+  full syncs (pinned by the panel tests). The event carries
+  `refreshedRootIds` (focused root's RootId + path) so per-provider tree
+  listeners skip the root the panel already refreshed instead of enumerating
+  it twice.
+- **Paired tests:**
+  `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`,
+  `apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`,
+  `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
+  `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`,
+  `packages/file-system/src/__tests__/electron-watchers.test.ts`.
+
+When changing this flow, update this section and the paired tests.
 
 ---
 

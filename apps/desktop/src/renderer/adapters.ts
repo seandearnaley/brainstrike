@@ -1,6 +1,9 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { ElectronAPI, IFileNode, RootDescriptor } from '@brainstrike/types';
+import type { ElectronAPI, FileSystemChange, IFileNode, RootDescriptor } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
+
+const logger = createLogger('ElectronRendererAdapters');
 
 function requireElectronAPI(): ElectronAPI {
   const api = window.electronAPI;
@@ -63,6 +66,89 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {
     return requireElectronAPI().fileSystem.restoreLastFolder();
+  }
+
+  /**
+   * Watch a directory via the main-process watcher bridge (fs:watch →
+   * chokidar in main → fs:watch-event pushes → callback).
+   *
+   * Capability-gated, mirroring the web adapter's FileSystemObserver gate:
+   * when the preload bridge lacks the watch methods (older build), this
+   * warn-logs and returns a no-op disposer — the folder is visibly unwatched,
+   * never silently polled.
+   *
+   * The returned disposer is synchronous while the watch start is async; a
+   * `closed` flag bridges the gap so disposing before the watchId arrives
+   * still unwatches once it does (no orphaned main-process watcher).
+   */
+  watchDirectory(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void {
+    const api = window.electronAPI?.fileSystem;
+    if (
+      !api ||
+      typeof api.watchDirectory !== 'function' ||
+      typeof api.unwatchDirectory !== 'function' ||
+      typeof api.onWatchEvent !== 'function'
+    ) {
+      logger.warn(
+        'watchDirectory: desktop bridge lacks the fs watch capability; folder is unwatched',
+        { path: handle.path }
+      );
+      return () => {};
+    }
+
+    let closed = false;
+    let watchId: string | null = null;
+
+    const unsubscribe = api.onWatchEvent((event) => {
+      if (closed || watchId === null || event.watchId !== watchId) {
+        return;
+      }
+      if (event.changes.length > 0) {
+        callback(event.changes);
+      }
+    });
+
+    const stopMainWatcher = (id: string): void => {
+      api.unwatchDirectory(id).catch((error: unknown) => {
+        logger.warn('watchDirectory: failed to stop main-process watcher', {
+          error: error instanceof Error ? error.message : String(error),
+          watchId: id,
+        });
+      });
+    };
+
+    api
+      .watchDirectory(handle)
+      .then(({ watchId: id }) => {
+        if (closed) {
+          stopMainWatcher(id);
+          return;
+        }
+        watchId = id;
+      })
+      .catch((error: unknown) => {
+        // Visible capability failure (invalid path, watcher setup error) —
+        // the folder stays unwatched, never a silent fallback.
+        logger.warn('watchDirectory: failed to start main-process watcher; folder is unwatched', {
+          error: error instanceof Error ? error.message : String(error),
+          path: handle.path,
+        });
+      });
+
+    return () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      unsubscribe();
+      if (watchId !== null) {
+        stopMainWatcher(watchId);
+        watchId = null;
+      }
+    };
   }
 }
 

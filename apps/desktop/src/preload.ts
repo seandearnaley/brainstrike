@@ -39,6 +39,9 @@ const FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL = 'fs:requestDirectoryAccess'
 const FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL = 'fs:restoreLastFolder' as const;
 const FILE_SYSTEM_RESTORE_ROOTS_CHANNEL = 'fs:restoreRoots' as const;
 const FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL = 'fs:saveLastFolder' as const;
+const FILE_SYSTEM_UNWATCH_CHANNEL = 'fs:unwatch' as const;
+const FILE_SYSTEM_WATCH_CHANNEL = 'fs:watch' as const;
+const FILE_SYSTEM_WATCH_EVENT = 'fs:watch-event' as const;
 const LAYOUT_LOAD_CHANNEL = 'layout:load' as const;
 const LAYOUT_SAVE_CHANNEL = 'layout:save' as const;
 const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels' as const;
@@ -604,6 +607,20 @@ if (shouldExposeBridge('electronAPI')) {
     fileSystem: {
       addRoot: () => ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_CHANNEL),
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
+      // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
+      // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
+      onWatchEvent: (
+        callback: (event: import('@brainstrike/types').FileSystemWatchEvent) => void
+      ) => {
+        const listener = (
+          _event: unknown,
+          payload: import('@brainstrike/types').FileSystemWatchEvent
+        ) => callback(payload);
+        ipcRenderer.on(FILE_SYSTEM_WATCH_EVENT, listener);
+        return () => {
+          ipcRenderer.removeListener(FILE_SYSTEM_WATCH_EVENT, listener);
+        };
+      },
       readDirectory: (handle: DirectoryHandle) =>
         ipcRenderer.invoke(FILE_SYSTEM_READ_DIRECTORY_CHANNEL, handle),
       readFile: async (handle: FileHandle) => {
@@ -624,6 +641,10 @@ if (shouldExposeBridge('electronAPI')) {
       restoreRoots: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_ROOTS_CHANNEL),
       saveLastFolder: (folderPath: string) =>
         ipcRenderer.invoke(FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL, folderPath),
+      unwatchDirectory: (watchId: string) =>
+        ipcRenderer.invoke(FILE_SYSTEM_UNWATCH_CHANNEL, watchId),
+      watchDirectory: (handle: DirectoryHandle) =>
+        ipcRenderer.invoke(FILE_SYSTEM_WATCH_CHANNEL, handle),
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: () => ipcRenderer.invoke(DB_GET_USER_DATA_PATH_CHANNEL),
