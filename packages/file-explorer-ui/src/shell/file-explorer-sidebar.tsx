@@ -592,6 +592,12 @@ const RootSectionInner = ({
   const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
     (s) => s.addMultipleSelectedFilesChunked
   );
+  // Deliberately NO `currentFolderId` fallback here, unlike the pane's
+  // tree-render folderId: that value is the FOCUSED root's id, so keying a
+  // non-focused section's registration on it would misroute section-scoped
+  // select-all/progress to the wrong root. Both fallback tails are
+  // unreachable in forest mode anyway (getRootFolderId only returns null for
+  // a null handle, and sections always render from a real handle).
   const folderId = resolvedRootId ?? getRootFolderId(rootDirectoryHandle) ?? '';
   // The registry callbacks fire later than this render — read the LATEST
   // section state at call time, not what was captured at registration.
