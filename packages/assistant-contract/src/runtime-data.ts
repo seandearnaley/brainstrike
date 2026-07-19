@@ -185,6 +185,20 @@ export interface RuntimeMemoryContext {
   threadId: string;
 }
 
+/**
+ * Client-authored observability metadata for history images elided from one
+ * wire request. A trust boundary may validate and discard it, but must never
+ * interpret it as runtime configuration or forward it to the model.
+ */
+export interface RuntimeTransportImageElision {
+  readonly elidedImageBytes: number;
+  readonly elidedImageCount: number;
+  readonly keptImageBytes: number;
+  readonly strategy: 'newest-first-combined-image-budget';
+  /** Counted in elidedImageCount but excluded from elidedImageBytes. */
+  readonly unmeasurableImageCount?: number;
+}
+
 export interface RuntimeData {
   agentLoop?: RuntimeAgentLoopSettings;
   apiKey?: string;
@@ -268,6 +282,7 @@ export interface RuntimeData {
    */
   taskList?: readonly AssistantTaskItem[];
   tokenBudget?: number | null;
+  transportImageElision?: RuntimeTransportImageElision;
   workspaceContext?: RuntimeWorkspaceContextMetadata;
   workspaceIndexBlockedReason?: string | null;
   workspaceIndexEmbeddingSetId?: string;

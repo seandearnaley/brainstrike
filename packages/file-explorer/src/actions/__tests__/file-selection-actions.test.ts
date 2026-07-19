@@ -272,7 +272,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -317,7 +316,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -367,7 +365,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 1,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -415,7 +412,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 1,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -460,7 +456,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -509,7 +504,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -557,7 +551,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(baseState);
@@ -611,7 +604,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 2,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -755,7 +747,6 @@ describe('file-selection-actions', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
         selectionVersion: 5,
       });
@@ -1180,7 +1171,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 1,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);
@@ -1242,7 +1232,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 1,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);
@@ -1311,7 +1300,6 @@ describe('file-selection-actions', () => {
             totalSelectedCount: 1,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);

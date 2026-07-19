@@ -23,7 +23,6 @@ describe('perf-timing', () => {
       expect(PERF_BUDGETS.collapseDirectory).toBe(50);
       expect(PERF_BUDGETS.listDirectory).toBe(200);
       expect(PERF_BUDGETS.flattenTree).toBe(50);
-      expect(PERF_BUDGETS.materializeRules).toBe(100);
       expect(PERF_BUDGETS.expandBatch).toBe(500);
       expect(PERF_BUDGETS.treeSnapshot).toBe(100);
     });

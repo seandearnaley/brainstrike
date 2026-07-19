@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  isAssistantToolApprovalAction,
   isRediscoveredToolApproval,
   type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
@@ -41,6 +44,80 @@ describe('readToolApprovalRunConfigAction', () => {
         },
       })
     ).toEqual({ invalid: true });
+  });
+
+  it('rejects approval actions with extra own fields', () => {
+    expect(
+      readToolApprovalRunConfigAction({
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'approve',
+            injected: true,
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+          },
+        },
+      })
+    ).toEqual({ invalid: true });
+  });
+
+  it('rejects an inherited optional tool name', () => {
+    const action = Object.assign(Object.create({ toolName: 'workspace.writeFile' }), {
+      action: 'approve',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+    });
+
+    expect(isAssistantToolApprovalAction(action)).toBe(false);
+  });
+
+  it('rejects an explicitly undefined optional tool name', () => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: undefined,
+      })
+    ).toBe(false);
+  });
+
+  it('accepts identifiers exactly at the shared approval-action limits', () => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'decline',
+        runId: 'r'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS),
+        toolCallId: 'c'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS),
+        toolName: 't'.repeat(ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS),
+      })
+    ).toBe(true);
+  });
+
+  it.each([
+    ['runId', ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS],
+    ['toolCallId', ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS],
+    ['toolName', ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS],
+  ] as const)('rejects an oversized %s', (field, maxChars) => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+        [field]: 'x'.repeat(maxChars + 1),
+      })
+    ).toBe(false);
+  });
+
+  it('rejects a blank optional tool name', () => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: '   ',
+      })
+    ).toBe(false);
   });
 });
 

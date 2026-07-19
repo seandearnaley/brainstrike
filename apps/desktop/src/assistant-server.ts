@@ -7,6 +7,7 @@ import type {
   AssistantTaskItem,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  AssistantUiMessageConversionResult,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -15,16 +16,19 @@ import type {
 } from '@brainstrike/agent';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
+  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
   assistantDataStreamSessions,
   buildNativeToolRiskMap,
-  convertAssistantUiMessages,
+  convertAssistantUiMessagesWithFinalInput,
   createEmbeddingProvider,
   createLocalHostEmbeddingModel,
   createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  hasNonEmptyAssistantPrompt,
+  hasAssistantPromptContent,
   isSupportedProvider,
   listSuspendedMastraRuns,
   PROVIDER_DEFAULT_MODELS,
@@ -683,6 +687,76 @@ function withTrustedAssistantMessageId(
   };
 }
 
+function convertAssistantMessagesOrRespond(
+  rawMessages: readonly AssistantUiMessage[],
+  res: http.ServerResponse
+): AssistantUiMessageConversionResult | undefined {
+  try {
+    return convertAssistantUiMessagesWithFinalInput(rawMessages);
+  } catch (error) {
+    if (!(error instanceof AssistantAttachmentValidationError)) {
+      throw error;
+    }
+    respondJson(res, 400, {
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: error.reason,
+    });
+    return;
+  }
+}
+
+function hasAssistantPromptOrAction(
+  finalInputMessage: AgentMessage | null,
+  toolApprovalAction: AssistantToolApprovalAction | undefined,
+  toolResumeAction: AssistantToolResumeAction | undefined
+): boolean {
+  if (toolApprovalAction || toolResumeAction) {
+    return true;
+  }
+  return Boolean(finalInputMessage && hasPromptContent([finalInputMessage]));
+}
+
+interface ParsedToolContinuationActions {
+  readonly toolApprovalAction: AssistantToolApprovalAction | undefined;
+  readonly toolApprovalActionInvalid: boolean;
+  readonly toolResumeAction: AssistantToolResumeAction | undefined;
+  readonly toolResumeActionInvalid: boolean;
+}
+
+function respondToToolContinuationInputError(
+  res: http.ServerResponse,
+  actions: ParsedToolContinuationActions
+): boolean {
+  if (actions.toolApprovalActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_approval_action',
+      message:
+        'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    return true;
+  }
+
+  if (actions.toolResumeActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_resume_action',
+      message:
+        'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    return true;
+  }
+
+  if (actions.toolApprovalAction && actions.toolResumeAction) {
+    respondJson(res, 400, {
+      error: 'conflicting_tool_continuation_actions',
+      message: 'Assistant request must contain at most one tool continuation action.',
+    });
+    return true;
+  }
+
+  return false;
+}
+
 async function prepareAssistantPostRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
@@ -704,7 +778,11 @@ async function prepareAssistantPostRequest(
     toolResumeAction = payload.toolResumeAction;
     toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
-    if (error instanceof AssistantInvalidJsonError) {
+    if (
+      error instanceof AssistantInvalidJsonError ||
+      error instanceof AssistantMessageValidationError ||
+      error instanceof AssistantRequestEnvelopeValidationError
+    ) {
       respondJson(res, 400, {
         error: error.code,
         message: error.message,
@@ -722,22 +800,21 @@ async function prepareAssistantPostRequest(
     throw error;
   }
 
-  const messages = convertAssistantUiMessages(rawMessages);
-  const provider = resolveRequestedProvider(data);
-
-  if (toolApprovalActionInvalid) {
-    respondJson(res, 400, {
-      error: 'invalid_tool_approval_action',
-      message: 'Tool approval action must include action, runId, and toolCallId.',
-    });
+  const conversion = convertAssistantMessagesOrRespond(rawMessages, res);
+  if (!conversion) {
     return;
   }
+  const { finalInputMessage, messages } = conversion;
+  const provider = resolveRequestedProvider(data);
 
-  if (toolResumeActionInvalid) {
-    respondJson(res, 400, {
-      error: 'invalid_tool_resume_action',
-      message: 'Tool resume action must include runId, toolCallId, and resumeData.',
-    });
+  if (
+    respondToToolContinuationInputError(res, {
+      toolApprovalAction,
+      toolApprovalActionInvalid,
+      toolResumeAction,
+      toolResumeActionInvalid,
+    })
+  ) {
     return;
   }
 
@@ -777,7 +854,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!(toolApprovalAction || toolResumeAction || hasNonEmptyPrompt(messages))) {
+  if (!hasAssistantPromptOrAction(finalInputMessage, toolApprovalAction, toolResumeAction)) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -1141,8 +1218,8 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
   };
 }
 
-function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  return hasNonEmptyAssistantPrompt(messages);
+function hasPromptContent(messages: AgentMessage[]): boolean {
+  return hasAssistantPromptContent(messages);
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
@@ -1189,7 +1266,7 @@ function respondNotFound(res: http.ServerResponse): void {
 function respondJson(
   res: http.ServerResponse,
   status: number,
-  payload: { error: string; message: string }
+  payload: { error: string; message: string; reason?: string }
 ): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.statusCode = status;
@@ -1214,21 +1291,26 @@ async function parseAssistantRequestPayload(
   });
   const payload = parseAssistantRequestPayloadText(body);
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
+  const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
+  const parsedPayload: AssistantRequestPayload = { ...payload };
+
   if (toolApprovalActionResult) {
     if ('invalid' in toolApprovalActionResult) {
-      return { ...payload, toolApprovalActionInvalid: true };
+      parsedPayload.toolApprovalActionInvalid = true;
+    } else {
+      parsedPayload.toolApprovalAction = toolApprovalActionResult.action;
     }
-    return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
   }
-  // Suspend/resume transport (submitPlan/askUser), parallel to approval.
-  const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
+
   if (toolResumeActionResult) {
     if ('invalid' in toolResumeActionResult) {
-      return { ...payload, toolResumeActionInvalid: true };
+      parsedPayload.toolResumeActionInvalid = true;
+    } else {
+      parsedPayload.toolResumeAction = toolResumeActionResult.action;
     }
-    return { ...payload, toolResumeAction: toolResumeActionResult.action };
   }
-  return payload;
+
+  return parsedPayload;
 }
 
 async function resumeStreamIfAvailable(

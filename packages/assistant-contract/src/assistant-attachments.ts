@@ -39,6 +39,9 @@ export type SupportedImageAttachmentMediaType =
   (typeof SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES)[number];
 
 export type AssistantAttachmentValidationReason =
+  | 'invalid-base64'
+  | 'invalid-file-part'
+  | 'media-type-mismatch'
   | 'not-a-data-url'
   | 'oversized'
   | 'oversized-combined'
@@ -60,7 +63,69 @@ export function isSupportedImageAttachmentMediaType(mediaType: string): boolean 
   return (SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES as readonly string[]).includes(normalized);
 }
 
-const BASE64_MARKER = ';base64,';
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const DATA_URL_PREFIX_PATTERN = /^data:([A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+);base64,/;
+
+interface ParsedBase64DataUrl {
+  bytes: number;
+  mediaType: string;
+}
+
+function isCanonicalBase64(body: string): boolean {
+  if (body.length === 0 || body.length % 4 !== 0) {
+    return false;
+  }
+  const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0;
+  const dataLength = body.length - padding;
+  for (let index = 0; index < dataLength; index += 1) {
+    const character = body[index];
+    if (!(character && BASE64_ALPHABET.includes(character))) {
+      return false;
+    }
+  }
+  for (let index = dataLength; index < body.length; index += 1) {
+    if (body[index] !== '=') {
+      return false;
+    }
+  }
+  if (padding === 2) {
+    const finalDataCharacter = body.at(-3);
+    if (!finalDataCharacter) {
+      return false;
+    }
+    return (BASE64_ALPHABET.indexOf(finalDataCharacter) & 15) === 0;
+  }
+  if (body.endsWith('=')) {
+    const finalDataCharacter = body.at(-2);
+    if (!finalDataCharacter) {
+      return false;
+    }
+    return (BASE64_ALPHABET.indexOf(finalDataCharacter) & 3) === 0;
+  }
+  return true;
+}
+
+function parseBase64DataUrl(dataUrl: string): ParsedBase64DataUrl {
+  const prefix = DATA_URL_PREFIX_PATTERN.exec(dataUrl);
+  if (!prefix?.[1]) {
+    throw new AssistantAttachmentValidationError(
+      'not-a-data-url',
+      'Attachment payload must be an inline data:<media-type>;base64,<data> URL.'
+    );
+  }
+  const body = dataUrl.slice(prefix[0].length);
+  if (!isCanonicalBase64(body)) {
+    throw new AssistantAttachmentValidationError(
+      'invalid-base64',
+      'Attachment data must use canonical base64 with required terminal padding and no whitespace or non-base64 characters.'
+    );
+  }
+  const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0;
+  return {
+    bytes: (body.length / 4) * 3 - padding,
+    mediaType: prefix[1].toLowerCase(),
+  };
+}
 
 /**
  * Decoded byte length of a base64 `data:` URL, computed arithmetically (never
@@ -69,46 +134,36 @@ const BASE64_MARKER = ';base64,';
  * inline by contract, so an unmeasurable payload is invalid, not "unknown".
  */
 export function dataUrlByteLength(dataUrl: string): number {
-  if (!dataUrl.startsWith('data:')) {
-    throw new AssistantAttachmentValidationError(
-      'not-a-data-url',
-      'Attachment payload must be an inline base64 data: URL.'
-    );
-  }
-  const markerIndex = dataUrl.indexOf(BASE64_MARKER);
-  if (markerIndex < 0) {
-    throw new AssistantAttachmentValidationError(
-      'not-a-data-url',
-      'Attachment data URL must be base64-encoded.'
-    );
-  }
-  const body = dataUrl.slice(markerIndex + BASE64_MARKER.length);
-  let padding = 0;
-  if (body.endsWith('==')) {
-    padding = 2;
-  } else if (body.endsWith('=')) {
-    padding = 1;
-  }
-  return Math.floor((body.length * 3) / 4) - padding;
+  return parseBase64DataUrl(dataUrl).bytes;
 }
 
 /**
  * Validate one inline image attachment part against the shared allowlist and
- * size cap. Throws {@link AssistantAttachmentValidationError}; returns void on
- * success.
+ * size cap. Throws {@link AssistantAttachmentValidationError}; returns the
+ * decoded byte count on success so callers can enforce a combined budget
+ * without reparsing the base64 body.
  */
-export function validateImageAttachmentPart(part: { data: string; mediaType: string }): void {
-  if (!isSupportedImageAttachmentMediaType(part.mediaType)) {
+export function validateImageAttachmentPart(part: { data: string; mediaType: string }): number {
+  const normalizedMediaType = part.mediaType.trim().toLowerCase();
+  if (!isSupportedImageAttachmentMediaType(normalizedMediaType)) {
     throw new AssistantAttachmentValidationError(
       'unsupported-media-type',
       `Unsupported attachment media type "${part.mediaType}". Supported image types: ${SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES.join(', ')}.`
     );
   }
-  const bytes = dataUrlByteLength(part.data);
+  const parsedDataUrl = parseBase64DataUrl(part.data);
+  if (parsedDataUrl.mediaType !== normalizedMediaType) {
+    throw new AssistantAttachmentValidationError(
+      'media-type-mismatch',
+      `Attachment data URL media type "${parsedDataUrl.mediaType}" does not match declared media type "${normalizedMediaType}".`
+    );
+  }
+  const bytes = parsedDataUrl.bytes;
   if (bytes > ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES) {
     throw new AssistantAttachmentValidationError(
       'oversized',
       `Image attachment is ${bytes} bytes; the limit is ${ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES} bytes.`
     );
   }
+  return bytes;
 }

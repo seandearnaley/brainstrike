@@ -1,9 +1,16 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
   "outputDirectory": "dist",
   "installCommand": "cd ../.. && pnpm install",
   "ignoreCommand": "exit 1",
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 300,
+      "supportsCancellation": true
+    }
+  },
   "headers": [
     {
       "source": "/assets/(.*)",

@@ -24,11 +24,11 @@ const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
 const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
-    clearSelectionRules: vi.fn<() => void>(),
     currentFolderId: 'test-folder' as string | null,
     effectiveSelection: new Set<string>(),
     includeProjectTree: false,
     removeMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
+    resetSelectionToExplicit: vi.fn<() => void>(),
     rootDirectoryHandle: {
       name: 'test-workspace',
       path: '/tmp/test-workspace',
@@ -486,10 +486,10 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
     // tests so the mention query yields no candidates.
     activeRootIds: stableActiveRootIds,
     addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
-    clearSelectionRules: fileExplorerMocks.clearSelectionRules,
     currentFolderId: fileExplorerMocks.currentFolderId,
     includeProjectTree: fileExplorerMocks.includeProjectTree,
     removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
+    resetSelectionToExplicit: fileExplorerMocks.resetSelectionToExplicit,
     rootDescriptors: stableRootDescriptors,
     rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
@@ -684,6 +684,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     prepareRequestData,
     contextMenu,
     localChatTransport,
+    requestBodyLimitBytes,
     requestData,
     disabled,
     disabledReason,
@@ -717,6 +718,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
     localChatTransport?: string;
+    requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
     disabledReason?: string;
@@ -778,6 +780,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
+        <div data-testid="request-body-limit">{requestBodyLimitBytes ?? ''}</div>
         <div data-testid="attachments-availability">
           {JSON.stringify(attachmentsAvailability ?? null)}
         </div>
@@ -1020,7 +1023,7 @@ beforeEach(() => {
   fileExplorerMocks.workspaceContextSnapshot = null;
   fileExplorerMocks.tapestryRangesByKey = {};
   fileExplorerMocks.addMultipleSelectedFiles.mockReset();
-  fileExplorerMocks.clearSelectionRules.mockReset();
+  fileExplorerMocks.resetSelectionToExplicit.mockReset();
   fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
   fileExplorerMocks.setTapestryRangesForKey.mockReset();
   fileExplorerMocks.setIncludeProjectTree.mockReset();

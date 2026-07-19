@@ -70,10 +70,88 @@ function parseMetadataObject(value: unknown): Record<string, unknown> {
 }
 
 vi.mock('@brainstrike/db', () => ({
+  // Inert search doubles: these suites never type a query, so the search
+  // controller only constructs the service and (on delete) clears index rows.
+  createThreadSearchService: () => ({
+    searchThreads: () =>
+      Promise.resolve({
+        metadata: {
+          ftsResultCount: 0,
+          semanticArmUsed: false,
+          titleResultCount: 0,
+          totalMs: 0,
+          vectorResultCount: 0,
+        },
+        results: [],
+      }),
+  }),
+  ThreadSearchRepository: class {
+    deleteThreads(): Promise<void> {
+      return Promise.resolve();
+    }
+    fullTextSearch(): Promise<never[]> {
+      return Promise.resolve([]);
+    }
+    getCoverage(): Promise<Record<string, number>> {
+      return Promise.resolve({
+        embeddableMessages: 0,
+        embeddedMessages: 0,
+        erroredMessages: 0,
+        indexedMessages: 0,
+        totalMessages: 0,
+      });
+    }
+    getEmbeddingProfile(): Promise<Record<string, unknown>> {
+      return Promise.resolve({
+        dimensions: 384,
+        distance: 'cosine',
+        id: 'default',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      });
+    }
+    listNeedingEmbedding(): Promise<never[]> {
+      return Promise.resolve([]);
+    }
+    markEmbeddingError(): Promise<boolean> {
+      return Promise.resolve(true);
+    }
+    searchSimilar(): Promise<never[]> {
+      return Promise.resolve([]);
+    }
+    searchThreadTitles(): Promise<never[]> {
+      return Promise.resolve([]);
+    }
+    storeEmbedding(): Promise<boolean> {
+      return Promise.resolve(true);
+    }
+    sync(): Promise<Record<string, number>> {
+      return Promise.resolve({ deletedOrphans: 0, inserted: 0, refreshed: 0 });
+    }
+  },
   useDbInitializationStatus: () => dbMocks.initializationStatus,
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+}));
+
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
+
+vi.mock('@brainstrike/preferences/stores/model-registry-store', () => {
+  const registryState = { models: [], providers: [] };
+  return {
+    useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>
+      selector ? selector(registryState) : registryState,
+  };
+});
+
+vi.mock('@brainstrike/vector-management', () => ({
+  useSharedSearchEmbedder: () => ({
+    embedDocumentWithRecovery: vi.fn(() => Promise.resolve([])),
+    embedQueryWithRecovery: vi.fn(() => Promise.resolve([])),
+  }),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({

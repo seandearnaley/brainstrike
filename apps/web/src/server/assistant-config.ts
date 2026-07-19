@@ -1,3 +1,5 @@
+import { PROVIDER_DEFAULT_MODELS } from '@brainstrike/agent/hosted-web';
+
 const API_KEY_ENV_VARS = [
   'BRAINSTRIKE_OPENAI_API_KEY',
   'BS_OPENAI_API_KEY',
@@ -5,6 +7,16 @@ const API_KEY_ENV_VARS = [
 ] as const;
 
 type ApiKeyEnvVar = (typeof API_KEY_ENV_VARS)[number];
+
+export const HOSTED_WEB_ASSISTANT_PROVIDER = 'openai' as const;
+
+export function resolveHostedWebAssistantModel(): string {
+  const model = PROVIDER_DEFAULT_MODELS[HOSTED_WEB_ASSISTANT_PROVIDER];
+  if (!model) {
+    throw new Error('Hosted Web OpenAI provider has no default model');
+  }
+  return model;
+}
 
 export interface AssistantProviderConfig {
   apiKey?: string;

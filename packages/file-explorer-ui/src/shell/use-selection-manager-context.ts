@@ -6,13 +6,12 @@
  *
  * Supports two selection modes:
  * - 'explicit': Traditional manual file selection
- * - 'rules': Rule-based selection using materialized paths
+ * - 'query': Query-backed recursive selection
  */
 
 import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
 import type { FolderState } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
 import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
@@ -83,24 +82,17 @@ function partitionSelectionByRoot(
 }
 
 export const useSelectionManager = () => {
-  const [
-    selectedFilePaths,
-    maxSelectionCount,
-    setSelectedFiles,
-    selectionModel,
-    currentFolderId,
-    clearSelectionRules,
-  ] = useFileExplorerStoreSelector(
-    (s) =>
-      [
-        s.selectedFilePaths,
-        s.maxSelectionCount,
-        s.setSelectedFiles,
-        s.selectionModel,
-        s.currentFolderId,
-        s.clearSelectionRules,
-      ] as const
-  );
+  const [selectedFilePaths, maxSelectionCount, setSelectedFiles, selectionModel, currentFolderId] =
+    useFileExplorerStoreSelector(
+      (s) =>
+        [
+          s.selectedFilePaths,
+          s.maxSelectionCount,
+          s.setSelectedFiles,
+          s.selectionModel,
+          s.currentFolderId,
+        ] as const
+    );
   const {
     effectiveSelection: resolvedSelection,
     isQuerySelectionReady,
@@ -132,19 +124,11 @@ export const useSelectionManager = () => {
    * Effective selection based on current mode.
    *
    * In 'explicit' mode: Returns selectedFilePaths (composite keys)
-   * In 'rules' mode: Converts materializedPaths to composite keys
+   * In 'query' mode: Returns the resolved query selection
    */
   const effectiveSelection = useMemo(() => {
     if (selectionModel.mode === 'query') {
       return resolvedSelection;
-    }
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
-      // Convert materialized paths (relative) to composite keys
-      const compositeKeys = new Set<string>();
-      for (const relativePath of selectionModel.materializedPaths) {
-        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
-      }
-      return compositeKeys;
     }
     // Explicit mode: cross-root union (Phase 6) — see unionSelectionAcrossRoots.
     return unionSelectionAcrossRoots(
@@ -159,7 +143,6 @@ export const useSelectionManager = () => {
     folderStates,
     resolvedSelection,
     selectedFilePaths,
-    selectionModel.materializedPaths,
     selectionModel.mode,
   ]);
 
@@ -181,9 +164,6 @@ export const useSelectionManager = () => {
     if (selectionModel.mode === 'query') {
       return resolvedSelectedCount + foreignCount;
     }
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
-      return selectionModel.materializedPaths.size + foreignCount;
-    }
     return effectiveSelection.size;
   }, [
     activeRootIds,
@@ -191,20 +171,11 @@ export const useSelectionManager = () => {
     effectiveSelection.size,
     folderStates,
     resolvedSelectedCount,
-    selectionModel.materializedPaths,
     selectionModel.mode,
   ]);
 
   const setSelectedFilesFromList = useCallback(
     (list: readonly string[]) => {
-      // When clearing all selections (Deselect All) in rules mode,
-      // also clear the rules and switch back to explicit mode.
-      // This provides intuitive UX: "Deselect All" means "start fresh".
-      if (list.length === 0 && selectionModel.mode === 'rules') {
-        clearSelectionRules();
-        return;
-      }
-
       // Phase 6 cross-root partition: keys belonging to OTHER active roots
       // must not funnel into the focused top-level set — route each root's
       // subset to its folderState. Roots that had a selection in the union
@@ -228,15 +199,7 @@ export const useSelectionManager = () => {
       }
       core.handleSelectionChange(focusedKeys);
     },
-    [
-      activeRootIds,
-      core.handleSelectionChange,
-      currentFolderId,
-      folderStates,
-      selectionModel.mode,
-      clearSelectionRules,
-      setFolderSelection,
-    ]
+    [activeRootIds, core.handleSelectionChange, currentFolderId, folderStates, setFolderSelection]
   );
 
   return {
@@ -246,8 +209,6 @@ export const useSelectionManager = () => {
     /** Whether we're in query-backed large selection mode */
     isQueryMode: selectionModel.mode === 'query',
     isQuerySelectionReady,
-    /** Whether we're in rules mode */
-    isRulesMode: selectionModel.mode === 'rules',
     selectedCount,
     selectedFilePaths: effectiveSelection,
     selectedFilesList,

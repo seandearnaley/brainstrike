@@ -73,8 +73,10 @@ declare global {
    * arise when combining `class` + `var` in the same declare-global block.
    */
   interface FileSystemObserverRecord {
-    readonly changedHandle: FileSystemHandle;
-    readonly relativePathComponents: readonly string[];
+    /** Null for records that cannot surface a handle (gone entries, errored/unknown). */
+    readonly changedHandle: FileSystemHandle | null;
+    /** Null for errored/unknown records that carry no location. */
+    readonly relativePathComponents: readonly string[] | null;
     /** For 'moved' records: the previous path relative to root, else null. */
     readonly relativePathMovedFrom: readonly string[] | null;
     readonly root: FileSystemDirectoryHandle;
@@ -768,11 +770,21 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       let overflowed = false;
       let errored = false;
       const changes: FileSystemChange[] = records.flatMap((r): FileSystemChange[] => {
+        // Errored/unknown records carry no location — drop them here so they
+        // can never crash the batch they arrive in (errored conditions are
+        // surfaced via the observe() rejection handler below).
+        if (r.relativePathComponents === null) {
+          return [];
+        }
         // Build a path by joining the root handle path with the relative components.
         const relPath = r.relativePathComponents.join('/');
         const fullPath = relPath ? `${handle.path}/${relPath}` : handle.path;
+        // Chrome reports changedHandle as null for entries it cannot hand out
+        // a handle for (disappeared records). Directory is the safe
+        // invalidation shape then — it invalidates the same-path record plus
+        // any stale descendants (mirrors the electron fs.watch fallback).
         const kind: FileSystemChange['kind'] =
-          r.changedHandle.kind === 'directory' ? 'directory' : 'file';
+          r.changedHandle === null || r.changedHandle.kind === 'directory' ? 'directory' : 'file';
 
         switch (r.type) {
           case 'appeared':

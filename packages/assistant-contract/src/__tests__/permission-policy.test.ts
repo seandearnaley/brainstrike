@@ -160,6 +160,31 @@ describe('resolvePermissionDecision', () => {
     ).toBe('ask');
   });
 
+  it('ignores inherited override properties instead of treating them as tool decisions', () => {
+    const inheritedOverrides = Object.create({
+      'brainstrike.inherited': 'deny',
+    }) as Record<string, 'allow' | 'ask' | 'deny'>;
+
+    expect(
+      resolvePermissionDecision(
+        makeInput({
+          perToolOverrides: inheritedOverrides,
+          riskCategory: 'edit',
+          toolId: 'brainstrike.inherited',
+        })
+      )
+    ).toBe('ask');
+    expect(
+      resolvePermissionDecision(
+        makeInput({
+          perToolOverrides: {},
+          riskCategory: 'edit',
+          toolId: 'toString',
+        })
+      )
+    ).toBe('ask');
+  });
+
   it('throws InvalidPermissionPolicyError for an unknown category policy value (no silent fallback)', () => {
     const malformed = {
       ...DEFAULT_PERMISSION_POLICIES,

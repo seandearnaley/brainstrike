@@ -112,7 +112,11 @@ function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
 }
 
-async function resolveFileSystemIpcPath(
+/**
+ * Shared by this domain and the fs watch domain (file-system-watch-ipc.ts):
+ * one validation path for every fs:* channel that accepts renderer paths.
+ */
+export async function resolveFileSystemIpcPath(
   requestedPath: unknown,
   operation: string
 ): Promise<string> {
@@ -138,6 +142,25 @@ async function resolveDirectoryHandle(handle: DirectoryHandle): Promise<Director
 async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
   const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'file handle');
   return { ...handle, path: resolvedPath };
+}
+
+/**
+ * True when a path is owned by the e2e mock file system (mock prefix or a
+ * registered fixture) and must never touch the real disk. Shared with the fs
+ * watch domain so mock roots get inert watchers instead of chokidar on
+ * nonexistent paths.
+ */
+export function isMockFileSystemIpcPath(requestedPath: string): boolean {
+  const fixture = getElectronE2eFileSystemFixture();
+  if (
+    fixture &&
+    (requestedPath === fixture.rootHandle.path ||
+      requestedPath in fixture.directoriesByPath ||
+      requestedPath in fixture.fileContentsByPath)
+  ) {
+    return true;
+  }
+  return requestedPath.startsWith(MOCK_PATH_PREFIX);
 }
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {

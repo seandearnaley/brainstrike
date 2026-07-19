@@ -1,16 +1,22 @@
-import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import {
-  AssistantRequestBodyTooLargeError,
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
-  isMastraAgentError,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
-import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import {
+  describeWebAssistantInputError,
+  resolveWebAssistantChatTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+  type WebAssistantInputError,
+} from '../../../server/web-assistant-request';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from '../../../server/web-assistant-runtime';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
@@ -31,58 +37,6 @@ interface RateLimitEntry {
 
 const rateLimitState = new Map<string, RateLimitEntry>();
 
-// zod schemas for `{ messages, data }`
-const TextPartSchema = z.object({
-  text: z.string().min(1).max(16_000),
-  type: z.literal('text'),
-});
-const ToolPartSchema = z.object({
-  errorText: z.string().optional(),
-  input: z.unknown().optional(),
-  output: z.unknown().optional(),
-  state: z.enum(['input-available', 'input-streaming', 'output-available', 'output-error']),
-  type: z.string().regex(/^tool-/),
-});
-
-const AgentMessageSchema = z.object({
-  id: z.string().min(1),
-  parts: z.array(z.union([TextPartSchema, ToolPartSchema])).min(1),
-  role: z.enum(['user', 'assistant', 'system']),
-});
-
-const RuntimeDataSchema = z
-  .object({
-    mcpEnabled: z.boolean().optional(),
-    model: z.string().optional(),
-    projectId: z.string().optional(),
-    provider: z.string().optional(),
-  })
-  .strict()
-  .optional();
-
-const ChatBodySchema = z.object({
-  data: RuntimeDataSchema,
-  messages: z.array(AgentMessageSchema).min(1),
-});
-
-function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
-  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  return { message: issue.message, path };
-}
-
-// Export helper for tests
-export function __parseChatBodyForTests(body: unknown): {
-  messages: AgentMessage[];
-  data?: RuntimeData;
-} {
-  const parsed = ChatBodySchema.safeParse(body);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((issue) => formatZodIssue(issue));
-    throw new Error(JSON.stringify({ code: 'invalid_body', issues }));
-  }
-  return parsed.data as { messages: AgentMessage[]; data?: RuntimeData };
-}
-
 export async function POST(req: Request): Promise<Response> {
   try {
     const clientIdentifier = resolveClientIdentifier(req);
@@ -91,8 +45,8 @@ export async function POST(req: Request): Promise<Response> {
       return createRateLimitResponse(limitResult.retryAfterMs);
     }
 
-    const body = parseJsonRequestBody(await readRequestBodyText(req, chatRequestBodyLimitBytes));
-    const { messages, data } = __parseChatBodyForTests(body);
+    const bodyText = await readRequestBodyText(req, chatRequestBodyLimitBytes);
+    const { agentMessages, payload } = resolveWebAssistantChatTurn(bodyText);
 
     const provider = resolveAssistantProviderConfig();
     if (!providerHasApiKey(provider)) {
@@ -108,10 +62,13 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const stream = await toAiSdkStyleStream(messages, {
-      ...(data ?? {}),
-      apiKey: provider.apiKey,
-    });
+    const runtime = resolveWebAssistantRuntime(payload.data, provider.apiKey);
+    let stream: Awaited<ReturnType<typeof toAiSdkStyleStream>>;
+    try {
+      stream = await toAiSdkStyleStream(agentMessages, runtime);
+    } catch (error) {
+      return createStreamInitializationFailureResponse(error);
+    }
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
@@ -267,14 +224,6 @@ function createRateLimitResponse(retryAfterMs: number): Response {
   );
 }
 
-function parseJsonRequestBody(body: string): unknown {
-  try {
-    return JSON.parse(body || '{}') as unknown;
-  } catch {
-    return {};
-  }
-}
-
 export function __resetRateLimiterForTests(): void {
   rateLimitState.clear();
   lastRateLimitSaturationWarnAt = 0;
@@ -288,31 +237,15 @@ export function __setRateLimiterEntryForTests(
 }
 
 function createErrorResponse(err: unknown): Response {
-  if (err instanceof AssistantRequestBodyTooLargeError) {
-    return new Response(JSON.stringify({ error: err.code, message: err.message }), {
+  const inputError = describeWebAssistantInputError(err);
+  if (inputError) {
+    return createInputErrorResponse(inputError);
+  }
+  if (err instanceof InvalidWebAssistantRuntimeDataError) {
+    return new Response(JSON.stringify({ error: 'invalid_runtime_data', message: err.message }), {
       headers: JSON_ERROR_HEADERS,
-      status: 413,
+      status: 400,
     });
-  }
-  if (isMastraAgentError(err)) {
-    logger.error('Failed to initialize chat stream', { code: err.code, error: err.message });
-    return new Response(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      }),
-      {
-        headers: JSON_ERROR_HEADERS,
-        status: 502,
-      }
-    );
-  }
-  if (err instanceof Error) {
-    const message = err.message ?? '';
-    const parsed = parseInvalidBodyError(message);
-    if (parsed) {
-      return parsed;
-    }
   }
   return new Response(JSON.stringify({ error: 'Failed to process chat request' }), {
     headers: JSON_ERROR_HEADERS,
@@ -320,15 +253,17 @@ function createErrorResponse(err: unknown): Response {
   });
 }
 
-function parseInvalidBodyError(message: string): Response | null {
-  try {
-    const payload = JSON.parse(message) as { code?: string; issues?: unknown };
-    if (payload?.code === 'invalid_body') {
-      return new Response(JSON.stringify(payload), {
-        headers: JSON_ERROR_HEADERS,
-        status: 400,
-      });
-    }
-  } catch {}
-  return null;
+function createStreamInitializationFailureResponse(error: unknown): Response {
+  logger.error('Failed to initialize chat stream', { error });
+  return new Response(JSON.stringify(WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+  });
+}
+
+function createInputErrorResponse(error: WebAssistantInputError): Response {
+  return new Response(JSON.stringify(error.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: error.status,
+  });
 }

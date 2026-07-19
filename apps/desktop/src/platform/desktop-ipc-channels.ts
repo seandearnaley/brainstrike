@@ -56,6 +56,9 @@ export const DESKTOP_IPC_CHANNELS = {
     restoreLastFolder: 'fs:restoreLastFolder',
     restoreRoots: 'fs:restoreRoots',
     saveLastFolder: 'fs:saveLastFolder',
+    unwatch: 'fs:unwatch',
+    watch: 'fs:watch',
+    watchEvent: 'fs:watch-event',
   },
   git: {
     aheadBehind: 'git:aheadBehind',

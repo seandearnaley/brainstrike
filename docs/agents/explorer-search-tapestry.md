@@ -1,6 +1,6 @@
-# Explorer Surfaces: Workspace Search, Markdown Viewer, Tapestry
+# Explorer Surfaces: Workspace Search, Markdown Viewer, Tapestry, Live Refresh
 
-> Extracted from AGENTS.md (2026-07-12). Read before changing the Explorer|Search panel, file-tab markdown preview, or per-file range model. Keep updated with the code.
+> Extracted from AGENTS.md (2026-07-12). Read before changing the Explorer|Search panel, file-tab markdown preview, per-file range model, or the tree live-refresh pipeline. Keep updated with the code.
 
 ## WORKSPACE SEARCH
 
@@ -187,6 +187,80 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## EXPLORER TREE LIVE REFRESH
+
+One pipeline keeps the visible tree, forest roots, and the background indexer
+in sync with on-disk changes. Do not add a second event channel or a polling
+fallback.
+
+- **Watch sources (capability-gated, NO polling fallback).** Desktop: the
+  renderer adapter's `watchDirectory`
+  (`apps/desktop/src/renderer/adapters.ts`) starts a MAIN-process recursive
+  watcher over IPC — `fs:watch` / `fs:unwatch` invokes + one-way
+  `fs:watch-event` pushes (`apps/desktop/src/ipc-domains/file-system-watch-ipc.ts`,
+  engine shared with notes-vault via `@brainstrike/file-system/electron`:
+  macOS uses Node's native recursive `fs.watch`/FSEvents up front so a large
+  workspace consumes one watcher per root instead of one chokidar watcher per
+  directory; other platforms use chokidar. Both paths apply a 150ms batch and
+  `fileFilter.shouldIgnorePath`; chokidar also uses `ignoreInitial`. A chokidar
+  runtime error stops that watcher and emits one structured error log — never
+  an unbounded main-process error loop. Watchers are keyed by `watchId`, owned by the
+  requesting `WebContents` (push to owner only, non-owner unwatch rejected
+  without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
+  counts live PLUS reserved (in-flight) watchers — a slot is reserved before
+  the `stat` await so concurrent `fs:watch` calls can't race past the cap. The
+  owner reaper is attached BEFORE any async setup and covers all three teardown
+  shapes — `destroyed`, `render-process-gone` (crash; WebContents survives),
+  and `did-navigate` (reload); because `did-navigate` leaves the WebContents
+  alive, the reap removes ALL three listeners when any one fires (else they
+  pile up across reloads → MaxListenersExceededWarning). A post-setup
+  `isDestroyed` re-check stops a watcher whose renderer died mid-setup.
+  On the RENDERER side, every `watchDirectory` funnels through ONE shared
+  `onWatchEvent` subscription that fans out by `watchId` — a per-watch listener
+  would put O(roots) listeners on the single channel. E2E mock paths get
+  inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
+  `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
+  emits `changedHandle: null` for `disappeared` records — the adapter maps
+  those to `kind:'directory'` removals (the safe invalidation shape) and drops
+  location-less `errored`/`unknown` records without crashing the batch. A
+  missing capability always means "visibly unwatched", never a silent poll.
+- **Event shaping.** `useFileSystemWatcher` (file-explorer-hooks) watches every
+  mounted root; `use-file-system-context.ts` debounces dispatches (300ms
+  trailing + 1s max-wait so a continuously-busy root cannot starve dispatch)
+  into ONE `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`,
+  `scope:'incremental'`, per-root `FileSystemChange[]`).
+- **Consumers.** (1) Background indexer
+  (`workspace-collection-sync-provider.tsx`) — path-scoped DB re-index
+  (mtime+hash skip). (2) Tree: `use-file-tree-refresh-events.ts`, mounted by
+  EVERY `FileTreeProvider` (focused root AND each forest RootSection):
+  watcher/incremental → re-enumerate only the LOADED parent directories of
+  added/removed changes in that provider's root (deduped; unloaded dirs skip —
+  they enumerate on expand). Root-level membership changes (including a change
+  reported for the root path itself) use `refreshTree`, and that root reload
+  is AWAITED before per-directory refreshes (no clobber races); `modified`
+  changes never touch the tree (content freshness is the indexer's job). Root
+  matching is durable-id-first: the path fallback applies only when the
+  provider has no RootId — two same-named web roots share a path, so a path
+  match across durable ids would refresh the wrong root.
+- **Manual refresh contract.** `file-explorer-panel.tsx` `handleRefresh`
+  awaits `refreshFileExplorer()` (the OUTER provider) and dispatches the full
+  event only on SUCCESS — a cancelled or failed refresh must not trigger
+  downstream full syncs (pinned by the panel tests). The outer, non-nested
+  provider is the panel's direct refresh authority and sets
+  `skipManualFullEvents` (nested detection via the inherited forest index
+  registry), so it ignores the event it just caused; every nested forest
+  RootSection provider reacts — that is what makes the toolbar Refresh reach
+  every forest root, including the focused root's VISIBLE section.
+- **Paired tests:**
+  `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`,
+  `apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`,
+  `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
+  `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`,
+  `packages/file-system/src/__tests__/electron-watchers.test.ts`.
+
+When changing this flow, update this section and the paired tests.
+
+---
 
 
 ## EXPLORER TREE LIVE REFRESH

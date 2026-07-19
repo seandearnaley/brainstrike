@@ -663,6 +663,31 @@ describe('assistant-stream integration', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('rejects an oversized serialized request before fetch', async () => {
+    const onError = vi.fn();
+    globalThis.fetch = vi.fn() as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: '/api/assistant',
+      onError,
+      requestBodyLimitBytes: 128,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(
+        runOptions({ messages: [message('x'.repeat(256), 'user')] })
+      )) {
+        // The request fails before yielding.
+      }
+    }).rejects.toThrow('Assistant request body exceeds the 128-byte transport limit.');
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Assistant request body exceeds the 128-byte transport limit.',
+      })
+    );
+  });
+
   it('preserves the original transport error when onError throws', async () => {
     globalThis.fetch = vi.fn(
       async () =>
@@ -1012,7 +1037,71 @@ describe('assistant-stream integration', () => {
     );
   });
 
-  it('rejects runtime config fields that would override transport protocol data', async () => {
+  it('sends only the exact Brainstrike server request envelope', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        runConfig: { custom: { action: 'resume' } },
+        unstable_assistantMessageId: 'assistant-message',
+        unstable_parentId: null,
+        unstable_threadId: 'assistant-ui-thread',
+      },
+      MEMORY_BODY
+    );
+
+    expect(Object.keys(requestBody).sort()).toEqual([
+      'data',
+      'messages',
+      'runConfig',
+      'unstable_assistantMessageId',
+    ]);
+  });
+
+  it('fails visibly before fetch for unsupported assistant-ui model context or state', async () => {
+    const onError = vi.fn();
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(
+        runOptions({
+          context: {
+            callSettings: { temperature: 0.2 },
+            config: { apiKey: 'must-not-cross-the-wire' },
+            system: 'unsupported client system prompt',
+            tools: {
+              client_tool: {
+                description: 'unsupported client tool',
+                parameters: { type: 'object' },
+              },
+            },
+          },
+          unstable_getMessage: () =>
+            ({
+              ...message('assistant-state', 'assistant'),
+              metadata: { unstable_state: { private: 'state' } },
+            }) as unknown as ThreadMessage,
+        })
+      )) {
+        // Unsupported context must fail before a request is issued.
+      }
+    }).rejects.toThrow(
+      'Brainstrike assistant transport does not support assistant-ui field(s): callSettings, config, state, system, tools'
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          'Brainstrike assistant transport does not support assistant-ui field(s): callSettings, config, state, system, tools.',
+      })
+    );
+  });
+
+  it('rejects non-empty call settings instead of forwarding transport/model fields', async () => {
     const onError = vi.fn();
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test/api/assistant',
@@ -1033,20 +1122,21 @@ describe('assistant-stream integration', () => {
           metadata: {},
         }),
       } as unknown as Parameters<typeof adapter.run>[0])) {
-        // The request fails before fetch because config collides with transport fields.
+        // The request fails before fetch because the custom server does not consume call settings.
       }
     }).rejects.toThrow(
-      'Assistant runtime callSettings cannot override transport field(s): messages'
+      'Brainstrike assistant transport does not support assistant-ui field(s): callSettings.'
     );
 
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Assistant runtime callSettings cannot override transport field(s): messages.',
+        message:
+          'Brainstrike assistant transport does not support assistant-ui field(s): callSettings.',
       })
     );
   });
 
-  it('rejects runtime config collisions separately from call settings', async () => {
+  it('rejects non-empty model config instead of forwarding provider secrets', async () => {
     const onError = vi.fn();
     const collidingConfig = { threadId: 'override' } as unknown as Parameters<
       BrainstrikeDataStreamRuntimeAdapter['run']
@@ -1066,13 +1156,15 @@ describe('assistant-stream integration', () => {
           },
         })
       )) {
-        // The request fails before fetch because config collides with transport fields.
+        // The request fails before fetch because the custom server does not consume model config.
       }
-    }).rejects.toThrow('Assistant runtime config cannot override transport field(s): threadId');
+    }).rejects.toThrow(
+      'Brainstrike assistant transport does not support assistant-ui field(s): config.'
+    );
 
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Assistant runtime config cannot override transport field(s): threadId.',
+        message: 'Brainstrike assistant transport does not support assistant-ui field(s): config.',
       })
     );
   });
@@ -1106,9 +1198,6 @@ describe('assistant-stream integration', () => {
     const oldUser = message('old-user', 'user');
     const currentUser = message('current-user', 'user');
     const finishMessage = message('finished', 'assistant');
-    const providerConfig = { temperature: 0.2 } as unknown as Parameters<
-      BrainstrikeDataStreamRuntimeAdapter['run']
-    >[0]['context']['config'];
     const runConfig = { maxTokens: 128 } as unknown as Parameters<
       BrainstrikeDataStreamRuntimeAdapter['run']
     >[0]['runConfig'];
@@ -1117,18 +1206,13 @@ describe('assistant-stream integration', () => {
       runOptions({
         context: {
           callSettings: {},
-          config: providerConfig,
-          system: 'System prompt',
+          config: {},
           tools: {},
         },
         messages: [oldUser, currentUser],
         runConfig,
         unstable_assistantMessageId: 'assistant-message',
-        unstable_getMessage: () =>
-          ({
-            ...finishMessage,
-            metadata: { ...finishMessage.metadata, unstable_state: { mode: 'debug' } },
-          }) as unknown as ThreadMessage,
+        unstable_getMessage: () => finishMessage,
         unstable_parentId: null,
         unstable_threadId: 'thread-id',
       })
@@ -1145,7 +1229,7 @@ describe('assistant-stream integration', () => {
         id: 'finished',
       })
     );
-    expect(requestBody).toMatchObject({
+    expect(requestBody).toEqual({
       data: {
         memory: { resourceId: 'workspace', threadId: 'thread' },
         transportCompaction: {
@@ -1154,24 +1238,16 @@ describe('assistant-stream integration', () => {
           strategy: 'mastra-memory-current-turn',
         },
       },
-      parentId: null,
+      messages: [
+        {
+          content: [{ text: 'current-user' }],
+          id: 'current-user',
+          role: 'user',
+        },
+      ],
       runConfig: { maxTokens: 128 },
-      state: { mode: 'debug' },
-      system: 'System prompt',
-      temperature: 0.2,
-      threadId: 'thread-id',
       unstable_assistantMessageId: 'assistant-message',
     });
-    expect(
-      (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
-    ).toEqual(['user']);
-    expect(requestBody?.['messages']).toEqual([
-      {
-        content: [{ text: 'current-user' }],
-        id: 'current-user',
-        role: 'user',
-      },
-    ]);
   });
 
   it('reports null response bodies as transport failures', async () => {

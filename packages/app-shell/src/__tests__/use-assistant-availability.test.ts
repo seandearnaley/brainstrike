@@ -162,6 +162,60 @@ describe('fetchAssistantStatusState', () => {
     expect(result).toEqual<AssistantAvailabilityStatus>({ state: 'enabled' });
   });
 
+  it('preserves an explicit hosted provider from the status endpoint', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        model: 'gpt-5.6-terra',
+        provider: 'openai',
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      state: 'enabled',
+    });
+  });
+
+  it('rejects incomplete hosted runtime metadata', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, provider: 'openai' }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Assistant status must advertise provider and model together');
+  });
+
+  it('rejects an unknown provider advertised by the status endpoint', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        model: 'unknown-model',
+        provider: 'unknown-provider',
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Unsupported assistant provider: unknown-provider');
+  });
+
   it('returns disabled state with reason', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({ enabled: false, reason: 'missing_key' }),

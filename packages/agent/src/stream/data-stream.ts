@@ -244,6 +244,22 @@ export class AssistantDataStreamSessionManager {
 
 const assistantDataStreamSessions = new AssistantDataStreamSessionManager();
 
+/**
+ * Create one response without adding the stream to the process-local replay
+ * registry. Hosted functions reject Last-Event-ID and cannot promise affinity,
+ * so retaining their full output in the global session map only wastes memory.
+ */
+export function createStatelessAssistantDataStreamResponse(
+  source: AsyncIterable<StreamChunk>,
+  options: Omit<AssistantDataStreamSessionOptions, 'cleanupDelayMs'> = {}
+): Response {
+  const session = new AssistantDataStreamSession(source, () => {}, {
+    ...options,
+    cleanupDelayMs: 0,
+  });
+  return session.createResponse();
+}
+
 export function resolveDataStreamSession(
   eventId: string | null | undefined
 ): AssistantDataStreamSession | undefined {

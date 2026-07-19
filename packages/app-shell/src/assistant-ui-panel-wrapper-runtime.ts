@@ -24,6 +24,7 @@ import {
 import {
   getProviderDefaultModel,
   getProviderDefinition,
+  getProviderModelDefinitions,
   isSupportedProvider,
   type ModelVisionSupport,
   type ProviderModelDefinition,
@@ -522,9 +523,10 @@ export function hasValidProviderModelSelection(args: {
   currentProvider: SupportedProvider;
   currentSelectedModel: string | null;
   isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
+  providerModelIds: readonly string[];
 }): boolean {
   const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
-  if (!currentModelName) {
+  if (!(currentModelName && args.providerModelIds.includes(currentModelName))) {
     return false;
   }
   return args.isModelEnabled(args.currentProvider, currentModelName);
@@ -741,6 +743,7 @@ export function buildEnabledModelIdSet(options: {
   readonly shouldFallbackToPreferences: boolean;
   readonly configuredProviders: readonly SupportedProvider[];
   readonly enabledModelsByProvider: Record<SupportedProvider, string[]>;
+  readonly fixedProviderModels?: FixedProviderModels | undefined;
   readonly registryEnabledModelIds: ReadonlySet<string>;
   readonly localRuntimeModels: LocalRuntimeModelCatalogMap | null;
 }): Set<string> {
@@ -764,7 +767,55 @@ export function buildEnabledModelIdSet(options: {
     );
   }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
+  for (const modelIds of Object.values(options.fixedProviderModels ?? {})) {
+    addValuesToSet(enabledIds, modelIds ?? []);
+  }
   return enabledIds;
+}
+
+export type FixedProviderModels = Partial<Record<SupportedProvider, readonly string[]>>;
+
+export function resolveFixedProviderModelSelection(args: {
+  currentModel: string | null | undefined;
+  fixedProviderModels: FixedProviderModels | undefined;
+}): string | undefined {
+  if (!args.fixedProviderModels) {
+    return;
+  }
+  const currentProvider = resolveProviderFromComposite(args.currentModel);
+  const currentModelName = resolveModelNameFromComposite(args.currentModel);
+  if (
+    currentProvider &&
+    currentModelName &&
+    args.fixedProviderModels[currentProvider]?.includes(currentModelName)
+  ) {
+    return `${currentProvider}::${currentModelName}`;
+  }
+  for (const [provider, models] of Object.entries(args.fixedProviderModels)) {
+    const model = models?.[0];
+    if (model && isSupportedProvider(provider)) {
+      return `${provider}::${model}`;
+    }
+  }
+  return;
+}
+
+export function getRuntimeProviderLlmModels(
+  provider: SupportedProvider,
+  runtimeModels: Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>,
+  fixedModels: readonly string[] | undefined
+): readonly LlmProviderModelDefinition[] {
+  if (isLocalRuntimeProvider(provider)) {
+    return runtimeModels[provider] ?? [];
+  }
+  const modelDefinitions = getProviderModelDefinitions(provider).filter(
+    (model): model is LlmProviderModelDefinition => model.type === 'llm'
+  );
+  if (!fixedModels) {
+    return modelDefinitions;
+  }
+  const fixedModelIds = new Set(fixedModels);
+  return modelDefinitions.filter((model) => fixedModelIds.has(model.id));
 }
 
 function resolveLocalRuntimeProviderDisabledReason(

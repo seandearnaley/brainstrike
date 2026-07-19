@@ -34,6 +34,7 @@ import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
+import { useFileTreeRefreshEvents } from './use-file-tree-refresh-events';
 
 type FileTreeContextType = CancellableFileTreeHook & {
   isRestorationSettled: boolean;
@@ -259,6 +260,23 @@ export function FileTreeProvider({
   const fallbackNormalizedTreeRef = useRef<NormalizedFileTreeState>(
     createEmptyNormalizedFileTreeState()
   );
+
+  // Live-refresh bridge: every provider (focused root AND forest sections)
+  // reacts to FILE_EXPLORER_REFRESH_EVENT — watcher changes re-enumerate only
+  // the loaded parent directories of this root; manual full refreshes reload
+  // the whole tree. The OUTER (non-nested) provider is the panel refresh
+  // button's direct authority, so it skips manual/full events — nested forest
+  // RootSection providers react to them. See use-file-tree-refresh-events.ts.
+  const refreshEventsNormalizedTreeRef =
+    fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef;
+  useFileTreeRefreshEvents({
+    getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
+    refreshDirectory: fileTreeState.refreshDirectory,
+    refreshTree: fileTreeState.refreshTree,
+    rootId: rootId ?? null,
+    rootPath: currentRootPath,
+    skipManualFullEvents: inheritedRegistry === null,
+  });
 
   const normalizedContextValue = useMemo<FileTreeNormalizedContextValue>(
     () => ({

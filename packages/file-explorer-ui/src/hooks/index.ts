@@ -8,7 +8,6 @@ export * from './use-keyboard-cancellation';
 export * from './use-loading-progress';
 export * from './use-recursive-folder-select';
 export * from './use-recursive-select-all';
-export * from './use-rule-materialization';
 export * from './use-tab-manager';
 export * from './use-view-filter-presets';
 export * from './use-worker-flattened-tree';

@@ -2,9 +2,9 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   AssistantAttachmentValidationError,
-  dataUrlByteLength,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
+import { assertAssistantMessageGraphWithinLimits } from './assistant-message-boundary';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
 import { createRandomId } from './stream/data-stream';
@@ -23,17 +23,14 @@ import type {
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
-function normalizeRole(
-  role: AssistantUiMessage['role'],
-  fallback?: NormalizedRole
-): NormalizedRole | undefined {
+function normalizeRole(role: AssistantUiMessage['role']): NormalizedRole | undefined {
   if (typeof role === 'string') {
     const lower = role.toLowerCase();
     if (lower === 'user' || lower === 'assistant' || lower === 'system') {
       return lower;
     }
   }
-  return fallback;
+  return;
 }
 
 function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStrict['id']): string {
@@ -46,70 +43,42 @@ function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStr
   return createRandomId('msg');
 }
 
-/**
- * A wire `file` content part (the shape assistant-stream produces for
- * composer attachments and inline image parts alike). Detected STRUCTURALLY so
- * the text walk can refuse to flatten its base64 body into prompt text even on
- * roles/paths that do not collect attachments.
- */
-function isWireFileAttachmentPart(
-  record: AssistantUiNodeObject
-): record is AssistantUiNodeObject & { data: string; mediaType: string } {
-  return (
-    record['type'] === 'file' &&
-    typeof record['data'] === 'string' &&
-    typeof record['mediaType'] === 'string'
-  );
+interface ExtractedMessageContent {
+  fileParts: AgentMessagePartFile[];
+  segments: string[];
 }
 
-/**
- * Collect wire file parts from a USER message, mirroring the container keys
- * the text walk traverses. Validates against the shared attachment contract —
- * an unsupported media type, an oversized payload, or too many attachments
- * THROWS (surfaced as a request failure), never a silent drop.
- */
-function collectFileAttachmentParts(
-  source: AssistantUiMessage | AssistantUiMessageStrict
-): AgentMessagePartFile[] {
-  const collected: AgentMessagePartFile[] = [];
-  const seenObjects = new Set<AssistantUiNodeObject>();
+function readWireFileAttachmentCandidate(
+  record: AssistantUiNodeObject
+): AgentMessagePartFile | null {
+  if (record['type'] !== 'file') {
+    return null;
+  }
 
-  const visit = (value: AssistantUiNode | undefined): void => {
-    if (value === null || value === undefined || typeof value !== 'object') {
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        visit(item);
-      }
-      return;
-    }
-    const record = value as AssistantUiNodeObject;
-    if (seenObjects.has(record)) {
-      return;
-    }
-    seenObjects.add(record);
-    if (isWireFileAttachmentPart(record)) {
-      const filename = typeof record['filename'] === 'string' ? record['filename'] : undefined;
-      collected.push({
-        data: record.data,
-        ...(filename === undefined ? {} : { filename }),
-        mediaType: record.mediaType,
-        type: 'file',
-      });
-      return;
-    }
-    visit(record.content);
-    visit(record.parts);
-    visit(record.children);
-    visit(record.values);
-    visit(record.message);
-    visit(record.messages);
+  const data = record['data'];
+  const filename = record['filename'];
+  const mediaType = record['mediaType'];
+  if (
+    typeof data !== 'string' ||
+    typeof mediaType !== 'string' ||
+    (filename !== undefined && typeof filename !== 'string')
+  ) {
+    throw new AssistantAttachmentValidationError(
+      'invalid-file-part',
+      'Assistant file parts require string data and mediaType fields plus an optional string filename.'
+    );
+  }
+
+  const part: AgentMessagePartFile = {
+    data,
+    ...(filename === undefined ? {} : { filename }),
+    mediaType,
+    type: 'file',
   };
+  return part;
+}
 
-  visit((source as { content?: AssistantUiNode }).content);
-  visit((source as { parts?: AssistantUiNode }).parts);
-
+function assertAttachmentCollectionWithinLimits(collected: AgentMessagePartFile[]): void {
   if (collected.length > ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE) {
     throw new AssistantAttachmentValidationError(
       'too-many-attachments',
@@ -118,8 +87,7 @@ function collectFileAttachmentParts(
   }
   let combinedBytes = 0;
   for (const part of collected) {
-    validateImageAttachmentPart(part);
-    combinedBytes += dataUrlByteLength(part.data);
+    combinedBytes += validateImageAttachmentPart(part);
   }
   if (combinedBytes > ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES) {
     throw new AssistantAttachmentValidationError(
@@ -127,13 +95,22 @@ function collectFileAttachmentParts(
       `Combined attachments are ${combinedBytes} bytes; the limit is ${ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES} bytes per message.`
     );
   }
-  return collected;
 }
 
-function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStrict): string[] {
+/**
+ * Parse only the assistant transport's documented message/part positions.
+ * User attachments are direct `content`/`parts` file parts. Tool inputs,
+ * outputs, data parts, and other nested domain payloads stay opaque: a domain
+ * object that happens to use `type: "file"` is not an image attachment and its
+ * scalar fields are never flattened into prompt text.
+ */
+function extractMessageContent(
+  source: AssistantUiMessage | AssistantUiMessageStrict,
+  role: NormalizedRole
+): ExtractedMessageContent {
+  const fileParts: AgentMessagePartFile[] = [];
   const segments: string[] = [];
   const seenValues = new Set<string>();
-  const seenObjects = new Set<AssistantUiNodeObject>();
 
   const pushText = (raw: string): void => {
     const text = raw.trim();
@@ -144,20 +121,6 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     segments.push(text);
   };
 
-  const knownObjectKeys: ReadonlySet<string> = new Set([
-    'text',
-    'type',
-    'value',
-    'content',
-    'parts',
-    'children',
-    'values',
-    'result',
-    'message',
-    'messages',
-    'type',
-  ]);
-
   const pushScalar = (value: AssistantUiScalar | undefined): void => {
     if (value === null || value === undefined) {
       return;
@@ -166,7 +129,7 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
       pushText(value);
       return;
     }
-    if (typeof value === 'number' || typeof value === 'bigint') {
+    if (typeof value === 'number') {
       pushText(String(value));
       return;
     }
@@ -175,103 +138,87 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     }
   };
 
-  const isScalarValue = (value: AssistantUiNode | undefined): value is AssistantUiScalar =>
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'bigint' ||
-    typeof value === 'boolean';
-
-  const visitArray = (nodes: readonly AssistantUiNode[]): void => {
-    for (const item of nodes) {
-      visit(item);
-    }
-  };
-
-  const visitObject = (record: AssistantUiNodeObject): void => {
-    if (seenObjects.has(record)) {
-      return;
-    }
-    seenObjects.add(record);
-
-    // A file part's `data` is a base64 body and its `mediaType` is transport
-    // metadata — neither is prompt text. Handled by
-    // collectFileAttachmentParts (user messages); on every other role the
-    // part is deliberately ignored rather than leaked as text.
-    if (isWireFileAttachmentPart(record)) {
-      return;
-    }
-
-    pushScalar(record.text);
-    pushScalar(record.value);
-
-    visit(record.content);
-    visit(record.parts);
-    visit(record.children);
-    visit(record.values);
-    visit(record.result);
-    visit(record.message);
-    visit(record.messages);
-
-    for (const [key, nested] of Object.entries(record)) {
-      if (knownObjectKeys.has(key)) {
-        continue;
-      }
-      if (isScalarValue(nested as AssistantUiNode | undefined)) {
-        pushScalar(nested as AssistantUiScalar | undefined);
-      } else {
-        visit(nested as AssistantUiNode);
-      }
-    }
-  };
-
-  const visit = (value: AssistantUiNode | undefined): void => {
-    if (value === null || value === undefined) {
-      return;
-    }
-    if (isScalarValue(value)) {
-      pushScalar(value);
+  const visitDirectPart = (value: AssistantUiNode): void => {
+    if (value === null || typeof value !== 'object') {
+      pushScalar(value as AssistantUiScalar);
       return;
     }
     if (Array.isArray(value)) {
-      visitArray(value);
+      // Nested arrays are not assistant message parts. Keeping them opaque
+      // avoids manufacturing a second, undocumented attachment position.
       return;
     }
-    visitObject(value as AssistantUiNodeObject);
+    const record = value as AssistantUiNodeObject;
+    const partType = record['type'];
+    if (partType === 'file') {
+      if (role === 'user') {
+        const filePart = readWireFileAttachmentCandidate(record);
+        if (filePart) {
+          fileParts.push(filePart);
+        }
+      }
+      return;
+    }
+    if (partType === 'text') {
+      pushScalar(record.text);
+      return;
+    }
+    if (partType !== undefined) {
+      // Tool calls/results, data parts, near-miss file discriminators, and all
+      // other typed parts are opaque at this conversion boundary.
+      return;
+    }
+    // Compatibility for the legacy untyped text/value part dialect. Only the
+    // two explicit scalar fields are read; nested objects remain opaque.
+    pushScalar(record.text);
+    pushScalar(record.value);
+  };
+
+  const visitDirectParts = (value: AssistantUiNode | undefined): void => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (!Array.isArray(value)) {
+      visitDirectPart(value);
+      return;
+    }
+    for (const part of value) {
+      visitDirectPart(part);
+    }
   };
 
   // source.text may be string in strict or scalar in permissive shape
   pushScalar(source.text as AssistantUiScalar | undefined);
   const maybeContent = (source as { content?: AssistantUiNode }).content;
   const maybeParts = (source as { parts?: AssistantUiNode }).parts;
-  visit(maybeContent);
-  visit(maybeParts);
+  visitDirectParts(maybeContent);
+  visitDirectParts(maybeParts);
 
-  return segments;
+  assertAttachmentCollectionWithinLimits(fileParts);
+  return { fileParts, segments };
 }
 
 function toAgentMessage(
-  message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined,
-  fallbackRole?: NormalizedRole
+  message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined
 ): AgentMessage | null {
   if (!message) {
     return null;
   }
-  const role = normalizeRole(message.role, fallbackRole);
-  const segments = extractTextSegments(message);
-  // Attachments are a USER-message concept (composer-sent images); file parts
-  // on other roles are excluded from the text walk but not forwarded.
-  const fileParts = role === 'user' ? collectFileAttachmentParts(message) : [];
-  if (segments.length === 0 && fileParts.length === 0) {
+  const role = normalizeRole(message.role);
+  if (!role) {
     return null;
   }
-  if (!role) {
+  const content = extractMessageContent(message, role);
+  // Attachments are a USER-message concept (composer-sent images); file parts
+  // on other roles stay opaque and are not forwarded.
+  const fileParts = role === 'user' ? content.fileParts : [];
+  if (content.segments.length === 0 && fileParts.length === 0) {
     return null;
   }
   return {
     id: ensureMessageId(message.id),
     parts: [
-      ...segments.map((text) => ({ text, type: 'text' }) satisfies AgentMessagePartText),
+      ...content.segments.map((text) => ({ text, type: 'text' }) satisfies AgentMessagePartText),
       ...fileParts,
     ],
     role,
@@ -286,19 +233,30 @@ export function convertAssistantUiMessages(
 export function convertAssistantUiMessages(
   messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
 ): AgentMessage[] {
+  return convertAssistantUiMessagesWithFinalInput(messages).messages;
+}
+
+export interface AssistantUiMessageConversionResult {
+  finalInputMessage: AgentMessage | null;
+  messages: AgentMessage[];
+}
+
+export function convertAssistantUiMessagesWithFinalInput(
+  messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
+): AssistantUiMessageConversionResult {
+  assertAssistantMessageGraphWithinLimits(messages);
   const converted: AgentMessage[] = [];
-  for (const message of messages) {
+  let finalInputMessage: AgentMessage | null = null;
+  for (const [index, message] of messages.entries()) {
     const agentMessage = toAgentMessage(message);
+    if (index === messages.length - 1) {
+      finalInputMessage = agentMessage;
+    }
     if (agentMessage) {
       converted.push(agentMessage);
     }
   }
-  if (converted.length > 0) {
-    return converted;
-  }
-  const last = messages.length > 0 ? messages.at(-1) : undefined;
-  const fallback = toAgentMessage(last ?? null, 'user');
-  return fallback ? [fallback] : [];
+  return { finalInputMessage, messages: converted };
 }
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes

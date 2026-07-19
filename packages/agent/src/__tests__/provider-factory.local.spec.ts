@@ -18,6 +18,10 @@ describe('provider-factory local provider', () => {
   });
 
   it('uses Gemma 4 E2B as the default local model', async () => {
+    const { registerBrowserLocalLanguageModelFactory } = await import(
+      '../providers/local-provider-registration'
+    );
+    registerBrowserLocalLanguageModelFactory();
     const { createProvider } = await import('../providers/provider-factory');
 
     const model = createProvider('local') as { modelId: string };
@@ -30,6 +34,10 @@ describe('provider-factory local provider', () => {
   });
 
   it('forwards local thinking settings into the local language model', async () => {
+    const { registerBrowserLocalLanguageModelFactory } = await import(
+      '../providers/local-provider-registration'
+    );
+    registerBrowserLocalLanguageModelFactory();
     const { createProvider } = await import('../providers/provider-factory');
 
     createProvider('local', undefined, 'onnx-community/gemma-4-E2B-it-ONNX', {
@@ -50,5 +58,14 @@ describe('provider-factory local provider', () => {
         },
       })
     );
+  });
+
+  it('registers in-process local inference from the broad package entrypoint', async () => {
+    const { createProvider } = await import('../index');
+
+    const model = createProvider('local') as { modelId: string };
+
+    expect(model.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
+    expect(createLocalLanguageModelMock).toHaveBeenCalledOnce();
   });
 });

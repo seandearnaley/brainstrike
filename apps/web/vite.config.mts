@@ -405,43 +405,6 @@ function devHfProxyPlugin() {
 }
 
 async function createApiMiddleware(mode: 'dev' | 'preview') {
-  const { readBody, handleChatEndpoint, handleAssistantEndpoint, sendAssistantStatusResponse } =
-    await import('./src/assistant-stream-helpers.ts');
-
-  return async (
-    req: import('http').IncomingMessage,
-    res: import('http').ServerResponse,
-    next: () => void
-  ) => {
-    try {
-      if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
-        sendAssistantStatusResponse(res);
-        return;
-      }
-
-      if (req.method !== 'POST') {
-        return next();
-      }
-
-      const bodyStr = await readBody(req);
-      const body = JSON.parse(bodyStr || '{}');
-
-      if (req.url?.startsWith('/api/chat')) {
-        await handleChatEndpoint(body, res);
-        return;
-      }
-
-      if (req.url?.startsWith('/api/assistant')) {
-        await handleAssistantEndpoint(req, res, body);
-        return;
-      }
-
-      return next();
-    } catch (error) {
-      viteLogger.error(`[dev-chat-api] ${mode} handler error`, { error });
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ error: `${mode} chat route failed` }));
-    }
-  };
+  const { createAssistantApiMiddleware } = await import('./src/server/assistant-api-middleware.ts');
+  return createAssistantApiMiddleware(mode);
 }

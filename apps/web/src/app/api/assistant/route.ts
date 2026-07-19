@@ -1,74 +1,68 @@
-import type {
-  AgentMessage,
-  AssistantUiMessageStrict as AssistantUiMessage,
-  RuntimeData,
-  StreamChunk,
-} from '@brainstrike/agent';
+import type { AgentMessage, StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
-  AssistantInvalidJsonError,
-  AssistantRequestBodyTooLargeError,
-  assistantDataStreamSessions,
-  convertAssistantUiMessages,
-  hasNonEmptyAssistantPrompt,
-  parseAssistantRequestPayloadText,
+  createStatelessAssistantDataStreamResponse,
   readRequestBodyText,
-  readToolApprovalRunConfigAction,
-  resolveAssistantRequestBodyLimitBytes,
-  resolveDataStreamSession,
-} from '@brainstrike/agent';
+} from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
-import { buildWebAssistantStream } from '../../../server/web-mastra-storage';
+import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
+import {
+  describeWebAssistantInputError,
+  resolveWebAssistantTurn,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+  WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
+  type WebAssistantInputError,
+} from '../../../server/web-assistant-request';
+import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
+import { buildWebAssistantStream } from '../../../server/web-assistant-stream';
 
 const logger = createLogger('WebAssistantRoute');
 const JSON_ERROR_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
 } as const;
-const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+const assistantRequestBodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
 
 export async function POST(req: Request): Promise<Response> {
+  let bodyText: string;
+  try {
+    bodyText = await readAssistantRequestBodyText(req);
+  } catch (error) {
+    return createAssistantRequestReadErrorResponse(error);
+  }
+
   const lastEventId = req.headers.get('last-event-id');
-  const sessionFromResume = resolveDataStreamSession(lastEventId);
-  if (sessionFromResume) {
-    return sessionFromResume.createResponse(
-      lastEventId ? { resumeFromEventId: lastEventId } : undefined
+  if (lastEventId) {
+    return jsonError(
+      409,
+      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.error,
+      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.message
     );
   }
 
-  let rawMessages: AssistantUiMessage[];
-  let data: RuntimeData | undefined;
-  let runConfig: unknown;
+  let turn: ReturnType<typeof resolveWebAssistantTurn>;
   try {
-    const body = await readRequestBodyText(req, assistantRequestBodyLimitBytes);
-    const payload = parseAssistantRequestPayloadText(body);
-    rawMessages = payload.rawMessages;
-    data = payload.data;
-    runConfig = payload.runConfig;
+    turn = resolveWebAssistantTurn(bodyText);
   } catch (error) {
-    if (error instanceof AssistantInvalidJsonError) {
-      return jsonError(400, error.code, error.message);
-    }
-    if (error instanceof AssistantRequestBodyTooLargeError) {
-      return jsonError(413, error.code, error.message);
-    }
-    throw error;
+    return createAssistantRequestReadErrorResponse(error);
   }
-  // A tool-approval action resumes a SUSPENDED run (no new user turn). Validate
-  // its shape here; the resume itself runs below with workflow storage, like the
-  // desktop assistant server — no longer a 501 (web has in-process storage now).
-  const approvalResult = readToolApprovalRunConfigAction(runConfig);
-  if (approvalResult && 'invalid' in approvalResult) {
+  if (turn.toolApprovalAction) {
     return jsonError(
-      400,
-      'invalid_tool_approval_action',
-      'Tool approval action must include action, runId, and toolCallId.'
+      409,
+      'tool_approval_unavailable',
+      'Hosted Web tool approval requires durable workflow storage.'
     );
   }
-  const toolApprovalAction = approvalResult?.action;
+  if (turn.toolResumeAction) {
+    return jsonError(
+      409,
+      'tool_resume_unavailable',
+      'Hosted Web tool resume requires durable workflow storage.'
+    );
+  }
 
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
@@ -84,46 +78,67 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  // Only a normal turn carries user messages; the approval-resume path has none.
-  let agentMessages: AgentMessage[] = [];
-  if (!toolApprovalAction) {
-    agentMessages = convertAssistantUiMessages(rawMessages);
-    if (!hasNonEmptyAssistantPrompt(agentMessages)) {
-      return jsonError(400, 'empty_prompt');
-    }
-  }
-
-  let agentStream: AsyncIterable<StreamChunk>;
   try {
-    // The seam resolves the TRUSTED permission policy from `data` (strips any
-    // client-supplied policy) so ask tools actually suspend on a normal turn.
-    agentStream = await buildWebAssistantStream({
-      agentMessages,
+    const agentStream = await initializeAssistantStream({
+      agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
-      data,
-      ...(toolApprovalAction ? { toolApprovalAction } : {}),
+      data: turn.payload.data,
+      signal: req.signal,
     });
+    return createStatelessAssistantDataStreamResponse(agentStream);
   } catch (error) {
-    logger.error('Failed to initialize assistant stream', { error });
-    return new Response(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed',
-      }),
-      {
-        headers: JSON_ERROR_HEADERS,
-        status: 502,
-      }
-    );
+    return createAssistantExecutionErrorResponse(error);
   }
-
-  const session = assistantDataStreamSessions.create(agentStream);
-  return session.createResponse();
 }
 
 function jsonError(status: number, error: string, message?: string): Response {
   return new Response(JSON.stringify(message ? { error, message } : { error }), {
     headers: JSON_ERROR_HEADERS,
     status,
+  });
+}
+
+async function readAssistantRequestBodyText(req: Request): Promise<string> {
+  return await readRequestBodyText(req, assistantRequestBodyLimitBytes);
+}
+
+function createAssistantRequestReadErrorResponse(error: unknown): Response {
+  const inputError = describeWebAssistantInputError(error);
+  if (inputError) {
+    return createAssistantInputErrorResponse(inputError);
+  }
+  throw error;
+}
+
+function createAssistantInputErrorResponse(error: WebAssistantInputError): Response {
+  return new Response(JSON.stringify(error.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: error.status,
+  });
+}
+
+async function initializeAssistantStream(options: {
+  agentMessages: AgentMessage[];
+  apiKey: string;
+  data: unknown;
+  signal: AbortSignal;
+}): Promise<AsyncIterable<StreamChunk>> {
+  // The seam admits only explicit request metadata. Hosted Web has no tool
+  // registry, so permission-policy and server-only runtime fields fail visibly.
+  return await buildWebAssistantStream(options);
+}
+
+function createAssistantExecutionErrorResponse(error: unknown): Response {
+  const inputError = describeWebAssistantInputError(error);
+  if (inputError) {
+    return createAssistantInputErrorResponse(inputError);
+  }
+  if (error instanceof InvalidWebAssistantRuntimeDataError) {
+    return jsonError(400, 'invalid_runtime_data', error.message);
+  }
+  logger.error('Failed to initialize assistant stream', { error });
+  return new Response(JSON.stringify(WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
   });
 }

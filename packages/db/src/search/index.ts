@@ -58,3 +58,15 @@ export {
   type RRFContribution,
   type RRFOptions,
 } from './rrf.js';
+// Thread hybrid search (thread-native binding of the shared RRF core)
+export {
+  createThreadSearchService,
+  type ThreadMessageMatchResult,
+  type ThreadMessageMatchSource,
+  type ThreadSearchMetadata,
+  type ThreadSearchQueryOptions,
+  type ThreadSearchResponse,
+  type ThreadSearchResultItem,
+  ThreadSearchService,
+  type ThreadSearchServiceRepository,
+} from './thread-search-service.js';

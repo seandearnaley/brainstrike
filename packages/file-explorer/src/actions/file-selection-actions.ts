@@ -331,7 +331,6 @@ function resolveSelectionModelAfterExplicitMutation(
       materializedAt: null,
       materializedPaths: null,
       queryDescriptor: null,
-      ruleSetJson: null,
     };
   }
   return createExplicitSelectionModel(newSelectedFiles);

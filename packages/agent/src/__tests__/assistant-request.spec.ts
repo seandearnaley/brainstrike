@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { AssistantMessageValidationError } from '../assistant-message-boundary';
 import {
   AssistantInvalidJsonError,
   AssistantRequestBodyLimitConfigError,
   AssistantRequestBodyTooLargeError,
+  AssistantRequestEnvelopeValidationError,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  hasNonEmptyAssistantPrompt,
+  hasAssistantPromptContent,
   parseAssistantRequestPayloadText,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
@@ -37,10 +39,11 @@ describe('assistant request helpers', () => {
     '0',
     '-1',
     '1.5',
+    String(Number.MAX_SAFE_INTEGER + 1),
     'not-a-number',
   ])('throws for invalid request body byte limit override %s', (value) => {
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
-      'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive integer byte count'
+      'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive safe integer byte count'
     );
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
       AssistantRequestBodyLimitConfigError
@@ -101,17 +104,59 @@ describe('assistant request helpers', () => {
     );
   });
 
-  it('parses empty and non-object request payloads to an empty transport payload', () => {
-    expect(parseAssistantRequestPayloadText('')).toEqual({
+  it.each(['', '   '])('rejects an empty request body as invalid JSON', (payload) => {
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(AssistantInvalidJsonError);
+  });
+
+  it('requires an own messages field while allowing an empty action-leg array', () => {
+    expect(() => parseAssistantRequestPayloadText('{}')).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
+    expect(() => parseAssistantRequestPayloadText('{}')).toThrow(
+      'Assistant request payload must include its own messages array.'
+    );
+    expect(parseAssistantRequestPayloadText('{"messages":[]}')).toEqual({
       data: undefined,
       rawMessages: [],
       runConfig: undefined,
     });
-    expect(parseAssistantRequestPayloadText('null')).toEqual({
-      data: undefined,
-      rawMessages: [],
-      runConfig: undefined,
-    });
+  });
+
+  it.each(['null', '[]', '42', '"text"'])('rejects non-object request envelope %s', (payload) => {
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
+    expect(() => parseAssistantRequestPayloadText(payload)).toThrow(
+      'Assistant request payload must be a JSON object.'
+    );
+  });
+
+  it.each([
+    'apiKey',
+    'system',
+    'temperature',
+    'threadId',
+    'tools',
+  ])('rejects unsupported top-level request field %s', (field) => {
+    const parse = () =>
+      parseAssistantRequestPayloadText(
+        JSON.stringify({
+          [field]: field === 'tools' ? {} : 'attacker-controlled',
+          messages: [],
+        })
+      );
+
+    expect(parse).toThrow(AssistantRequestEnvelopeValidationError);
+    expect(parse).toThrow('Assistant request payload contains an unsupported top-level field.');
+  });
+
+  it.each([
+    ['data', 'false'],
+    ['runConfig', '"resume"'],
+  ])('rejects non-object %s', (field, value) => {
+    expect(() => parseAssistantRequestPayloadText(`{"messages":[],"${field}":${value}}`)).toThrow(
+      AssistantRequestEnvelopeValidationError
+    );
   });
 
   it('extracts runtime data, messages, and run config from valid payload JSON', () => {
@@ -132,20 +177,16 @@ describe('assistant request helpers', () => {
     });
   });
 
-  it('ignores non-array messages while preserving data and run config', () => {
-    expect(
+  it('rejects a non-array messages field instead of silently dropping it', () => {
+    expect(() =>
       parseAssistantRequestPayloadText(
         JSON.stringify({
           data: { provider: 'openai' },
           messages: { role: 'user' },
-          runConfig: false,
+          runConfig: {},
         })
       )
-    ).toEqual({
-      data: { provider: 'openai' },
-      rawMessages: [],
-      runConfig: false,
-    });
+    ).toThrow(AssistantMessageValidationError);
   });
 
   it('throws a typed invalid-json error for malformed request JSON', () => {
@@ -153,7 +194,20 @@ describe('assistant request helpers', () => {
     expect(() => parseAssistantRequestPayloadText('{')).toThrow('Request body must be valid JSON.');
   });
 
-  it('detects whether the latest assistant prompt has non-empty text', () => {
+  it('throws a typed message validation error for an invalid assistant message id', () => {
+    const parseInvalidId = () =>
+      parseAssistantRequestPayloadText(
+        JSON.stringify({
+          messages: [{ role: 'user', text: 'hello' }],
+          unstable_assistantMessageId: 42,
+        })
+      );
+
+    expect(parseInvalidId).toThrow(AssistantMessageValidationError);
+    expect(parseInvalidId).toThrow('Assistant message id must be a non-empty bounded string.');
+  });
+
+  it('detects whether the latest assistant prompt has text or an image attachment', () => {
     const emptyPrompt: AgentMessage = {
       id: 'prompt-empty',
       parts: [{ text: '   ', type: 'text' }],
@@ -161,7 +215,13 @@ describe('assistant request helpers', () => {
     };
     const nonTextPrompt: AgentMessage = {
       id: 'prompt-non-text',
-      parts: [{ data: 'abc', mediaType: 'text/plain', type: 'file' }],
+      parts: [
+        {
+          data: 'data:image/png;base64,aGVsbG8=',
+          mediaType: 'image/png',
+          type: 'file',
+        },
+      ],
       role: 'user',
     };
     const nonEmptyPrompt: AgentMessage = {
@@ -169,10 +229,16 @@ describe('assistant request helpers', () => {
       parts: [{ text: '  summarize this  ', type: 'text' }],
       role: 'user',
     };
+    const toolOnlyPrompt: AgentMessage = {
+      id: 'prompt-tool-only',
+      parts: [{ state: 'output-available', type: 'tool-example' }],
+      role: 'user',
+    };
 
-    expect(hasNonEmptyAssistantPrompt([])).toBe(false);
-    expect(hasNonEmptyAssistantPrompt([nonEmptyPrompt, emptyPrompt])).toBe(false);
-    expect(hasNonEmptyAssistantPrompt([nonTextPrompt])).toBe(false);
-    expect(hasNonEmptyAssistantPrompt([emptyPrompt, nonEmptyPrompt])).toBe(true);
+    expect(hasAssistantPromptContent([])).toBe(false);
+    expect(hasAssistantPromptContent([nonEmptyPrompt, emptyPrompt])).toBe(false);
+    expect(hasAssistantPromptContent([nonTextPrompt])).toBe(true);
+    expect(hasAssistantPromptContent([toolOnlyPrompt])).toBe(false);
+    expect(hasAssistantPromptContent([emptyPrompt, nonEmptyPrompt])).toBe(true);
   });
 });

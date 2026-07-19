@@ -25,15 +25,12 @@ export interface FileTreeSelectionInputs {
 }
 
 /**
- * Everything a cell renders that is SELECTION-DERIVED — the checkbox tri-state,
- * whether adding would exceed the cap, and the rules-mode "selected by rule"
- * marker. Folding `isRuleSelected` in here (rather than letting the cell read
- * `selectionModel`) keeps the cell off any input whose identity changes per
- * toggle.
+ * Everything a cell renders that is SELECTION-DERIVED — the checkbox tri-state
+ * and whether adding would exceed the cap. Deriving this here (rather than
+ * letting the cell read `selectionModel`) keeps the cell off any input whose
+ * identity changes per toggle.
  */
-export interface FileTreeNodeCellState extends NodeSelectionState {
-  isRuleSelected: boolean;
-}
+export type FileTreeNodeCellState = NodeSelectionState;
 
 export interface FileTreeSelectionStore {
   /**
@@ -54,11 +51,7 @@ export interface FileTreeSelectionStore {
 }
 
 function nodeStateEquals(a: FileTreeNodeCellState, b: FileTreeNodeCellState): boolean {
-  return (
-    a.checkboxState === b.checkboxState &&
-    a.wouldExceedLimit === b.wouldExceedLimit &&
-    a.isRuleSelected === b.isRuleSelected
-  );
+  return a.checkboxState === b.checkboxState && a.wouldExceedLimit === b.wouldExceedLimit;
 }
 
 export function createFileTreeSelectionStore(
@@ -84,11 +77,7 @@ export function createFileTreeSelectionStore(
         inputs.selectedCount,
         inputs.maxSelectionCount
       );
-      const isRuleSelected =
-        rowData.fileNode.type === 'file' &&
-        inputs.selectionModel.mode === 'rules' &&
-        (inputs.selectionModel.materializedPaths?.has(rowData.fileNode.path) ?? false);
-      const computed: FileTreeNodeCellState = { ...selectionState, isRuleSelected };
+      const computed: FileTreeNodeCellState = { ...selectionState };
       const key = rowData.fileNode.path;
       const cached = nodeStateCache.get(key);
       if (cached && nodeStateEquals(cached, computed)) {

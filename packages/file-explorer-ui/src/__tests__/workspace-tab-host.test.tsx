@@ -36,7 +36,6 @@ vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(() => ({
     effectiveSelection: new Set<string>(),
     handleSelectionChange: vi.fn(),
-    isRulesMode: false,
     selectedFilePaths: new Set<string>(),
     selectedFilesList: [],
     setSelectedFilesFromList: vi.fn(),

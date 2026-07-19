@@ -19,6 +19,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./assistant-request-body-limit": {
+      "types": "./dist/assistant-request-body-limit.d.ts",
+      "import": "./dist/assistant-request-body-limit.js",
+      "require": "./dist/assistant-request-body-limit.js"
+    },
     "./hook-trust-request": {
       "types": "./dist/hook-trust-request.d.ts",
       "import": "./dist/hook-trust-request.js",

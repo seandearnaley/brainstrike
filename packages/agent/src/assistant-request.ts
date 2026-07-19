@@ -1,17 +1,20 @@
+import { ASSISTANT_REQUEST_ENVELOPE_KEYS } from '@brainstrike/assistant-contract';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import {
+  AssistantMessageValidationError,
+  assertAssistantMessageGraphWithinLimits,
+  MAX_ASSISTANT_MESSAGE_ID_CHARS,
+} from './assistant-message-boundary';
 import type { AgentMessage, AssistantUiMessageStrict, RuntimeData } from './types';
 
-export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
-  'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES';
-/**
- * Default request body cap. Sized against the attachment contract: the 10MB
- * combined per-message attachment cap base64-encodes to ~13.4MB, leaving
- * prompt/history headroom. The UI transport keeps that sizing true on EVERY
- * turn by bounding the whole request's inline images to the same combined cap
- * (packages/ui data-stream-runtime `boundResentImageHistory` elides older
- * history image bodies newest-first, loudly). Overridable via
- * BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow throws loudly.
- */
-export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+export {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantRequestBodyLimitConfigError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  resolveAssistantRequestBodyLimitBytes,
+} from '@brainstrike/assistant-contract/assistant-request-body-limit';
+
+const ASSISTANT_REQUEST_ENVELOPE_KEY_SET = new Set<string>(ASSISTANT_REQUEST_ENVELOPE_KEYS);
 
 export interface AssistantRequestPayload {
   assistantMessageId?: string;
@@ -29,6 +32,33 @@ export class AssistantInvalidJsonError extends Error {
   }
 }
 
+export type AssistantRequestEnvelopeValidationReason =
+  | 'invalid-data'
+  | 'invalid-root'
+  | 'invalid-run-config'
+  | 'missing-messages'
+  | 'unsupported-field';
+
+const REQUEST_ENVELOPE_VALIDATION_MESSAGES: Record<
+  AssistantRequestEnvelopeValidationReason,
+  string
+> = {
+  'invalid-data': 'Assistant request data must be a JSON object.',
+  'invalid-root': 'Assistant request payload must be a JSON object.',
+  'invalid-run-config': 'Assistant request runConfig must be a JSON object.',
+  'missing-messages': 'Assistant request payload must include its own messages array.',
+  'unsupported-field': 'Assistant request payload contains an unsupported top-level field.',
+};
+
+export class AssistantRequestEnvelopeValidationError extends Error {
+  readonly code = 'invalid_request_payload';
+
+  constructor(readonly reason: AssistantRequestEnvelopeValidationReason) {
+    super(REQUEST_ENVELOPE_VALIDATION_MESSAGES[reason]);
+    this.name = 'AssistantRequestEnvelopeValidationError';
+  }
+}
+
 export class AssistantRequestBodyTooLargeError extends Error {
   readonly code = 'request_body_too_large';
 
@@ -36,26 +66,6 @@ export class AssistantRequestBodyTooLargeError extends Error {
     super(`Assistant request body exceeds ${maxBodyBytes} bytes.`);
     this.name = 'AssistantRequestBodyTooLargeError';
   }
-}
-
-export class AssistantRequestBodyLimitConfigError extends Error {
-  constructor(value: string) {
-    super(
-      `${ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR} must be a positive integer byte count; received ${JSON.stringify(value)}.`
-    );
-    this.name = 'AssistantRequestBodyLimitConfigError';
-  }
-}
-
-export function resolveAssistantRequestBodyLimitBytes(value: string | undefined): number {
-  if (value === undefined || value.trim() === '') {
-    return DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new AssistantRequestBodyLimitConfigError(value);
-  }
-  return parsed;
 }
 
 export async function readRequestBodyText(
@@ -111,13 +121,22 @@ export async function readRequestBodyText(
 export function parseAssistantRequestPayloadText(body: string): AssistantRequestPayload {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(body || '{}');
+    parsed = JSON.parse(body);
   } catch {
     throw new AssistantInvalidJsonError();
   }
 
-  if (!(parsed && typeof parsed === 'object')) {
-    return { data: undefined, rawMessages: [], runConfig: undefined };
+  if (!(parsed && typeof parsed === 'object') || Array.isArray(parsed)) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-root');
+  }
+  const hasUnsupportedField = Object.keys(parsed).some(
+    (key) => !ASSISTANT_REQUEST_ENVELOPE_KEY_SET.has(key)
+  );
+  if (hasUnsupportedField) {
+    throw new AssistantRequestEnvelopeValidationError('unsupported-field');
+  }
+  if (!Object.hasOwn(parsed, 'messages')) {
+    throw new AssistantRequestEnvelopeValidationError('missing-messages');
   }
 
   const maybePayload = parsed as Partial<{
@@ -127,14 +146,40 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
     // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
     unstable_assistantMessageId: unknown;
   }>;
+  if (
+    Object.hasOwn(maybePayload, 'data') &&
+    !(
+      maybePayload.data &&
+      typeof maybePayload.data === 'object' &&
+      !Array.isArray(maybePayload.data)
+    )
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-data');
+  }
+  if (
+    Object.hasOwn(maybePayload, 'runConfig') &&
+    !(
+      maybePayload.runConfig &&
+      typeof maybePayload.runConfig === 'object' &&
+      !Array.isArray(maybePayload.runConfig)
+    )
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-run-config');
+  }
   const assistantMessageId = maybePayload.unstable_assistantMessageId;
   if (
     assistantMessageId !== undefined &&
-    (typeof assistantMessageId !== 'string' || assistantMessageId.trim().length === 0)
+    (typeof assistantMessageId !== 'string' ||
+      assistantMessageId.trim().length === 0 ||
+      assistantMessageId.length > MAX_ASSISTANT_MESSAGE_ID_CHARS)
   ) {
-    throw new Error('Assistant message id must be a non-empty string.');
+    throw new AssistantMessageValidationError('invalid-message-id');
+  }
+  if (maybePayload.messages !== undefined && !Array.isArray(maybePayload.messages)) {
+    throw new AssistantMessageValidationError('invalid-messages');
   }
   const rawMessages = Array.isArray(maybePayload.messages) ? maybePayload.messages : [];
+  assertAssistantMessageGraphWithinLimits(rawMessages);
   return {
     data: maybePayload.data,
     rawMessages,
@@ -143,9 +188,18 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
   };
 }
 
-export function hasNonEmptyAssistantPrompt(messages: readonly AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
-  const lastText =
-    lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
-  return Boolean(lastText.trim().length > 0);
+export function hasAssistantPromptContent(messages: readonly AgentMessage[]): boolean {
+  const finalMessage = messages.at(-1);
+  if (finalMessage?.role !== 'user') {
+    return false;
+  }
+  return finalMessage.parts.some((part: AgentMessage['parts'][number]) => {
+    if (part.type === 'file') {
+      return true;
+    }
+    if (part.type !== 'text') {
+      return false;
+    }
+    return part.text.trim().length > 0;
+  });
 }

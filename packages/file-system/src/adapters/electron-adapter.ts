@@ -21,7 +21,7 @@ import type {
 } from '../types';
 import { validateDirectoryPath } from '../utils';
 import { normalizeDirectoryReadOptions } from '../utils-browser';
-import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
+import { handleWatcherSetupError, startChokidarWatch, startFsWatch } from './electron-watchers';
 
 /** Default batch size for streaming directory reads */
 const DEFAULT_STREAMING_BATCH_SIZE = 50;
@@ -556,6 +556,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       // Call original callback
       callback(changes);
     };
+
+    if (process.platform === 'darwin') {
+      return startFsWatch(handle, callbackWithCacheInvalidation, 'primary');
+    }
 
     startChokidarWatch(handle, callbackWithCacheInvalidation)
       .then((stop) => {

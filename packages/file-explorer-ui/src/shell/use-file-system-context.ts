@@ -25,6 +25,15 @@ import { useOptionalRootDataDeletion } from './root-data-deletion-context';
 
 const logger = createLogger('FileSystemContext');
 
+/** Trailing debounce for watcher-change dispatches. */
+const WATCHER_DISPATCH_DEBOUNCE_MS = 300;
+/**
+ * Hard bound on how long pending watcher changes can accumulate: a
+ * continuously-busy root resets the trailing window on every batch, so
+ * without this cap nothing would ever dispatch while a build keeps writing.
+ */
+const WATCHER_DISPATCH_MAX_WAIT_MS = 1000;
+
 /**
  * Type guard to check if the store has the Zustand persist API.
  */
@@ -432,10 +441,40 @@ export function useFileSystemInstance() {
     prunePendingRefreshRoots(new Set(nextMetadata.keys()));
   }, [prunePendingRefreshRoots, watcherRoots]);
 
-  // Debounced watcher callback: 300ms trailing. Multiple rapid change
-  // notifications from the same or different roots collapse into a single
-  // FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree reloads
-  // during a burst of file-system activity (e.g. a build writing many files).
+  // First-pending timestamp for the max-wait bound (null = nothing pending).
+  const firstPendingAtRef = useRef<number | null>(null);
+
+  // Debounced watcher callback: 300ms trailing with a 1s max-wait. Multiple
+  // rapid change notifications from the same or different roots collapse into
+  // a single FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree
+  // reloads during a burst of file-system activity. The max-wait bound keeps a
+  // continuously-busy root (a build writing every <300ms) from resetting the
+  // trailing window forever and starving every root's refresh.
+  const flushPendingWatcherChanges = useCallback((): void => {
+    if (refreshTimerRef.current !== null) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    firstPendingAtRef.current = null;
+    prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
+    const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
+      changes: root.changes,
+      rootId: root.rootId,
+      rootPath: root.rootPath,
+    }));
+    pendingRefreshRootsRef.current.clear();
+    if (roots.length === 0) {
+      return;
+    }
+    window.dispatchEvent(
+      createFileExplorerRefreshEvent({
+        roots,
+        scope: 'incremental',
+        source: 'watcher',
+      })
+    );
+  }, [prunePendingRefreshRoots]);
+
   const handleWatcherChanges = useCallback(
     (rootId: string, changes: FileSystemChange[]): void => {
       const watcherRoot = watcherRootMetadataRef.current.get(rootId);
@@ -455,31 +494,23 @@ export function useFileSystemInstance() {
         });
       }
 
+      const now = Date.now();
+      if (firstPendingAtRef.current === null) {
+        firstPendingAtRef.current = now;
+      } else if (now - firstPendingAtRef.current >= WATCHER_DISPATCH_MAX_WAIT_MS) {
+        flushPendingWatcherChanges();
+        return;
+      }
+
       if (refreshTimerRef.current !== null) {
         clearTimeout(refreshTimerRef.current);
       }
-      refreshTimerRef.current = setTimeout(() => {
-        refreshTimerRef.current = null;
-        prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
-        const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
-          changes: root.changes,
-          rootId: root.rootId,
-          rootPath: root.rootPath,
-        }));
-        pendingRefreshRootsRef.current.clear();
-        if (roots.length === 0) {
-          return;
-        }
-        window.dispatchEvent(
-          createFileExplorerRefreshEvent({
-            roots,
-            scope: 'incremental',
-            source: 'watcher',
-          })
-        );
-      }, 300);
+      refreshTimerRef.current = setTimeout(
+        flushPendingWatcherChanges,
+        WATCHER_DISPATCH_DEBOUNCE_MS
+      );
     },
-    [prunePendingRefreshRoots]
+    [flushPendingWatcherChanges]
   );
 
   // Watcher health signals (overflow / errored) — see FileSystemWatchSignal.

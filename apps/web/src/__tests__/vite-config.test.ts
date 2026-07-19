@@ -27,6 +27,14 @@ const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
 
 describe('web vite config alias contract', () => {
+  it('delegates assistant API requests to the bounded Node middleware', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toMatch(/import\(\s*'\.\/src\/server\/assistant-api-middleware\.ts'\s*\)/);
+    expect(config).toContain('createAssistantApiMiddleware(mode)');
+    expect(config).not.toContain('const bodyStr = await readBody(req)');
+  });
+
   it('spreads the shared workspace-src-alias registry', () => {
     expect(readWebViteConfig()).toContain('workspaceSrcAliases(');
   });
@@ -39,13 +47,6 @@ describe('web vite config alias contract', () => {
       resolveThroughAliases('@brainstrike/token-cache/background-indexer', registryEntries)
     ).toBe(path.resolve(PACKAGES_DIR, 'token-cache/src/background-indexer.ts'));
     expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
-  });
-
-  it('resolves selection-rules to the workspace source entry via the registry', () => {
-    expect(resolveThroughAliases('@brainstrike/selection-rules', registryEntries)).toBe(
-      path.resolve(PACKAGES_DIR, 'selection-rules/src/index.ts')
-    );
-    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/selection-rules'/);
   });
 
   it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {

@@ -73,6 +73,39 @@ async function clearPromptItemsIfPresent(
   }
 }
 
+function isMissingNamedRelationError(error: unknown, tableName: string): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new RegExp(
+    `\\b(?:relation|table)\\s+(?:"?[\\w$]*"?\\.)?"?${tableName}"?\\s+does not exist\\b`,
+    'iu'
+  ).test(message);
+}
+
+/**
+ * Thread search index (migration 067): derived conversation text + sync
+ * state must not survive a clear/reset; the singleton search profile is
+ * configuration and intentionally survives, like the prompt profile. Only a
+ * MISSING table (pre-067 store) is tolerated — any other failure rethrows so
+ * a reset can never silently leave conversation text behind.
+ */
+async function clearThreadSearchIndexIfPresent(tx: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  for (const table of ['brainstrike_thread_message_index', 'brainstrike_thread_search_state']) {
+    try {
+      await tx.query(`DELETE FROM ${table}`);
+    } catch (error) {
+      if (!isMissingNamedRelationError(error, table)) {
+        throw error;
+      }
+      logger.warn(`[DbProvider] Skipped missing ${table} table during clear:`, error);
+    }
+  }
+}
+
 /**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
@@ -840,6 +873,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           error
         );
       }
+      await clearThreadSearchIndexIfPresent(tx);
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -883,6 +917,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('Failed to clear brainstrike_assistant_run_outcomes during reset:', err);
     }
+    await clearThreadSearchIndexIfPresent(tx);
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {

@@ -1,4 +1,10 @@
-import type { DirectoryHandle, FileHandle, IFileNode, RootDescriptor } from './file-system';
+import type {
+  DirectoryHandle,
+  FileHandle,
+  FileSystemChange,
+  IFileNode,
+  RootDescriptor,
+} from './file-system';
 import type { TapestryColorName } from './tapestry-colors';
 
 /**
@@ -160,6 +166,16 @@ export interface ElectronStorageAPI {
 /**
  * File system API exposed via Electron IPC
  */
+/**
+ * A batched watcher push from Electron main (fs:watch-event), stamped with the
+ * watchId returned by `watchDirectory` so a renderer holding multiple watches
+ * can route changes to the right subscription.
+ */
+export interface FileSystemWatchEvent {
+  changes: FileSystemChange[];
+  watchId: string;
+}
+
 export interface ElectronFileSystemAPI {
   /**
    * Multi-root: pick a directory and persist it as a new root with a generated
@@ -167,6 +183,11 @@ export interface ElectronFileSystemAPI {
    */
   addRoot: () => Promise<RootDescriptor>;
   exists: (path: string) => Promise<boolean>;
+  /**
+   * Subscribe to fs:watch-event pushes (batched changes from main-process
+   * watchers). Returns an unsubscribe function.
+   */
+  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   /**
@@ -189,6 +210,13 @@ export interface ElectronFileSystemAPI {
    */
   restoreRoots: () => Promise<RootDescriptor[]>;
   saveLastFolder: (folderPath: string) => Promise<void>;
+  /** Stop a main-process watcher previously started via `watchDirectory`. */
+  unwatchDirectory: (watchId: string) => Promise<void>;
+  /**
+   * Start a recursive main-process watcher (chokidar) for a directory. Changes
+   * arrive via `onWatchEvent`, stamped with the returned watchId.
+   */
+  watchDirectory: (handle: DirectoryHandle) => Promise<{ watchId: string }>;
 }
 
 /**

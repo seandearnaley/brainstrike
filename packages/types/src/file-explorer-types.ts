@@ -12,10 +12,9 @@
 /**
  * Selection mode determines how files are selected.
  * - 'explicit': Traditional manual file selection (Set of composite keys)
- * - 'rules': Rule-based selection using SelectionRuleSet
  * - 'query': Query-backed recursive selection for large folder/root selections
  */
-export type SelectionMode = 'explicit' | 'query' | 'rules';
+export type SelectionMode = 'explicit' | 'query';
 
 export interface SelectionQueryDescriptor {
   coveredDirectoryPaths: string[];
@@ -55,12 +54,12 @@ export interface QuerySelectionManifest {
 }
 
 /**
- * Selection model that supports explicit, rule-based, and query-backed selection.
+ * Selection model that supports explicit and query-backed selection.
  */
 export interface SelectionModel {
   /**
    * Explicit selection paths (composite keys: folderId|@|path).
-   * Used when mode is 'explicit' or as the committed result of rules.
+   * Used when mode is 'explicit'.
    */
   explicitPaths: Set<string>;
 
@@ -70,8 +69,8 @@ export interface SelectionModel {
   materializedAt: string | null;
 
   /**
-   * Cached materialized paths from rules (for display without re-evaluation).
-   * These are relative paths, not composite keys.
+   * Cached materialized paths for query selections (for display without
+   * re-resolution). These are relative paths, not composite keys.
    */
   materializedPaths: Set<string> | null;
   /** Current selection mode */
@@ -82,12 +81,6 @@ export interface SelectionModel {
    * Only used when mode is 'query'.
    */
   queryDescriptor: SelectionQueryDescriptor | null;
-
-  /**
-   * Rule set for rule-based selection.
-   * Only used when mode is 'rules'.
-   */
-  ruleSetJson: string | null;
 }
 
 /**
@@ -99,7 +92,6 @@ export interface SerializedSelectionModel {
   materializedPaths: string[] | null;
   mode: SelectionMode;
   queryDescriptor: SelectionQueryDescriptor | null;
-  ruleSetJson: string | null;
 }
 
 /**
@@ -112,7 +104,6 @@ export function createEmptySelectionModel(): SelectionModel {
     materializedPaths: null,
     mode: 'explicit',
     queryDescriptor: null,
-    ruleSetJson: null,
   };
 }
 
@@ -195,7 +186,7 @@ export interface SerializedState {
   rootDescriptors?: Record<string, StoredRootDescriptor>;
   selectedFilePaths: string[];
   /**
-   * Selection model for rule-based selection.
+   * Selection model for explicit/query selection.
    * Optional for backward compatibility with existing persisted state.
    */
   selectionModel?: SerializedSelectionModel;
@@ -338,8 +329,7 @@ export interface FileExplorerData {
   rootDescriptors: Record<string, StoredRootDescriptor>;
   selectedFilePaths: Set<string>;
   /**
-   * Selection model supporting both explicit paths and rule-based selection.
-   * Enables migration from explicit to rules while maintaining backward compatibility.
+   * Selection model supporting explicit paths and query-backed selection.
    */
   selectionModel: SelectionModel;
   /**
@@ -390,13 +380,7 @@ export interface FileExplorerState extends FileExplorerData {
   clearFileContents: (compositeKeys: string[]) => void;
   clearQuickFilter: () => void;
   clearSelectedFiles: () => void;
-  clearSelectionRules: () => void;
   collapseAllDirectories: () => void;
-  /**
-   * Commit rule-based selection to explicit paths.
-   * Converts materialized paths to explicit selection and switches to explicit mode.
-   */
-  commitRulesToExplicit: () => void;
   evictOldFileContents: (count?: number) => void;
 
   // New actions
@@ -414,6 +398,12 @@ export interface FileExplorerState extends FileExplorerData {
   removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
+  /**
+   * Reset the selection model to explicit mode: clears any query selection
+   * (descriptor + manifest) and materialized-path cache. Used by write-back
+   * "replace" flows that must exit query mode before setting explicit paths.
+   */
+  resetSelectionToExplicit: () => void;
   /**
    * Replace both activeRootIds and rootDescriptors atomically.
    * activeRootIds = roots.map(r => r.rootId) (ordered).
@@ -460,11 +450,6 @@ export interface FileExplorerState extends FileExplorerData {
    * focused root (currentFolderId).
    */
   setMainRoot: (rootId: string) => void;
-  /**
-   * Update materialized paths cache from rule evaluation.
-   * Called after rules are evaluated against the file tree.
-   */
-  setMaterializedPaths: (paths: Set<string>) => void;
   setMaxSelectionCount: (count: number) => void;
   setQuerySelection: (
     descriptor: SelectionQueryDescriptor,
@@ -479,9 +464,8 @@ export interface FileExplorerState extends FileExplorerData {
   // File selection actions
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
 
-  // Selection model actions (rule-based selection)
+  // Selection model actions
   setSelectionMode: (mode: SelectionMode) => void;
-  setSelectionRules: (ruleSetJson: string) => void;
   setTokenBudget: (budget: number) => void;
   setUseRegex: (useRegex: boolean) => void;
   /**

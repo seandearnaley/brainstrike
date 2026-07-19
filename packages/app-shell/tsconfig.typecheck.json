@@ -119,12 +119,6 @@
       "@brainstrike/queue/*": [
         "../queue/dist/*.d.ts"
       ],
-      "@brainstrike/selection-rules": [
-        "../selection-rules/dist/index.d.ts"
-      ],
-      "@brainstrike/selection-rules/*": [
-        "../selection-rules/dist/*.d.ts"
-      ],
       "@brainstrike/workers": [
         "../workers"
       ],
