@@ -40,6 +40,7 @@ import {
   disposeAllFileSystemWatchers,
   type FileSystemWatchEventPayload,
   liveFileSystemWatcherCountForTest,
+  MAX_FS_WATCHERS_PER_OWNER,
   registerFileSystemWatchIpcHandlers,
 } from '../../ipc-domains/file-system-watch-ipc';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
@@ -67,7 +68,7 @@ class FakeWebContents {
   readonly id: number;
   readonly watchEvents: FileSystemWatchEventPayload[] = [];
   private destroyed = false;
-  private destroyedListeners: (() => void)[] = [];
+  private readonly onceListeners = new Map<string, (() => void)[]>();
 
   constructor(id: number) {
     this.id = id;
@@ -84,19 +85,33 @@ class FakeWebContents {
   }
 
   once(event: string, listener: () => void): void {
-    if (event === 'destroyed') {
-      this.destroyedListeners.push(listener);
+    const listeners = this.onceListeners.get(event) ?? [];
+    listeners.push(listener);
+    this.onceListeners.set(event, listeners);
+  }
+
+  private fire(event: string): void {
+    const listeners = this.onceListeners.get(event) ?? [];
+    this.onceListeners.delete(event);
+    for (const listener of listeners) {
+      listener();
     }
   }
 
   /** Test helper: simulate the renderer being destroyed. */
   fireDestroyed(): void {
     this.destroyed = true;
-    const listeners = this.destroyedListeners;
-    this.destroyedListeners = [];
-    for (const listener of listeners) {
-      listener();
-    }
+    this.fire('destroyed');
+  }
+
+  /** Test helper: simulate a renderer crash (WebContents survives). */
+  fireRenderProcessGone(): void {
+    this.fire('render-process-gone');
+  }
+
+  /** Test helper: simulate a main-frame navigation/reload. */
+  fireDidNavigate(): void {
+    this.fire('did-navigate');
   }
 }
 
@@ -279,6 +294,58 @@ describe('file-system watch IPC domain', () => {
     harness.fireAllChanges(SAMPLE_CHANGES);
     expect(owner.watchEvents).toEqual([]);
     expect(survivorOwner.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: survivorId }]);
+  });
+
+  it('rejects a watch from an already-destroyed renderer without leaking a watcher', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    owner.fireDestroyed();
+
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/destroyed/i);
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    for (const stop of harness.stops) {
+      expect(stop).toHaveBeenCalled();
+    }
+  });
+
+  it('reaps watchers when the renderer process crashes (WebContents survives)', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    await invokeWatch(owner, dir);
+
+    owner.fireRenderProcessGone();
+
+    expect(harness.stops[0]).toHaveBeenCalledOnce();
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+  });
+
+  it('reaps watchers when the renderer navigates/reloads', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    await invokeWatch(owner, dir);
+
+    owner.fireDidNavigate();
+
+    expect(harness.stops[0]).toHaveBeenCalledOnce();
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+
+    // A reloaded renderer can start fresh watches (reaper re-attaches).
+    const { watchId } = await invokeWatch(owner, dir);
+    expect(watchId).toBeTruthy();
+    expect(liveFileSystemWatcherCountForTest()).toBe(1);
+  });
+
+  it('caps the number of live watchers per renderer', async () => {
+    const owner = new FakeWebContents(1);
+    const other = new FakeWebContents(2);
+    const dir = await makeDir();
+
+    for (let index = 0; index < MAX_FS_WATCHERS_PER_OWNER; index += 1) {
+      await invokeWatch(owner, dir);
+    }
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/limit/i);
+    // The cap is per-owner: another renderer can still watch.
+    await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
   });
 
   it('the registrar disposer reaps every live watcher and unregisters the channels', async () => {

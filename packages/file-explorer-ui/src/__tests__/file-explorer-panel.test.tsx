@@ -755,7 +755,6 @@ describe('FileExplorerPanel', () => {
       expect(refreshEvents).toHaveLength(1);
       expect(downstreamFullSync).toHaveBeenCalledOnce();
       expect(refreshEvents[0]?.detail).toEqual({
-        refreshedRootIds: ['/root'],
         roots: [],
         scope: 'full',
         source: 'manual',

@@ -1,9 +1,10 @@
 /**
  * The per-provider bridge from FILE_EXPLORER_REFRESH_EVENT to the lazy tree:
  * watcher incremental events refresh only the LOADED parent directories of
- * structural changes in THIS provider's root; manual full events refresh the
- * whole tree (every provider — forest roots included). See the hook's JSDoc
- * for the filtering contract.
+ * structural changes in THIS provider's root (root reload awaited before any
+ * per-directory refresh); manual full events refresh every provider EXCEPT
+ * the panel's direct refresh authority (skipManualFullEvents). See the hook's
+ * JSDoc for the filtering contract.
  */
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
@@ -42,8 +43,10 @@ function buildNormalizedTree(): NormalizedFileTreeState {
   ]);
 }
 
-function dispatchRefresh(detail: Parameters<typeof createFileExplorerRefreshEvent>[0]): void {
-  act(() => {
+async function dispatchRefresh(
+  detail: Parameters<typeof createFileExplorerRefreshEvent>[0]
+): Promise<void> {
+  await act(async () => {
     window.dispatchEvent(createFileExplorerRefreshEvent(detail));
   });
 }
@@ -66,42 +69,31 @@ describe('useFileTreeRefreshEvents', () => {
       refreshTree,
       rootId: ROOT_ID,
       rootPath: ROOT_PATH,
+      skipManualFullEvents: false,
     };
   });
 
-  it('refreshes the whole tree on a manual full refresh (forest roots included)', () => {
+  it('refreshes the whole tree on a manual full refresh (forest sections)', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
+    await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
 
     expect(refreshTree).toHaveBeenCalledOnce();
     expect(refreshDirectory).not.toHaveBeenCalled();
   });
 
-  it('skips the manual full refresh when the dispatcher already refreshed this root', () => {
-    renderHook(() => useFileTreeRefreshEvents(params));
+  it('ignores manual full refreshes as the panel refresh authority (outer provider)', async () => {
+    renderHook(() => useFileTreeRefreshEvents({ ...params, skipManualFullEvents: true }));
 
-    dispatchRefresh({
-      refreshedRootIds: [ROOT_ID],
-      roots: [],
-      scope: 'full',
-      source: 'manual',
-    });
+    await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
+
     expect(refreshTree).not.toHaveBeenCalled();
-
-    dispatchRefresh({
-      refreshedRootIds: ['some-other-root'],
-      roots: [],
-      scope: 'full',
-      source: 'manual',
-    });
-    expect(refreshTree).toHaveBeenCalledOnce();
   });
 
-  it('refreshes only the loaded parent directory of watcher changes, deduped', () => {
+  it('refreshes only the loaded parent directory of watcher changes, deduped', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({
+    await dispatchRefresh({
       roots: [
         {
           changes: [
@@ -121,10 +113,10 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('skips changes whose parent directory is not loaded in the tree', () => {
+  it('skips changes whose parent directory is not loaded in the tree', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({
+    await dispatchRefresh({
       roots: [
         {
           changes: [
@@ -143,13 +135,17 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('refreshes the tree root when a root-level entry appears or disappears', () => {
+  it('refreshes the tree root when a root-level entry appears or disappears', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({
+    await dispatchRefresh({
       roots: [
         {
-          changes: [{ kind: 'file', path: `${ROOT_PATH}/new-root-file.ts`, type: 'added' }],
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/new-root-file.ts`, type: 'added' },
+            // A change reported for the root itself is also a root refresh.
+            { kind: 'directory', path: ROOT_PATH, type: 'added' },
+          ],
           rootId: ROOT_ID,
           rootPath: ROOT_PATH,
         },
@@ -162,10 +158,35 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshDirectory).not.toHaveBeenCalled();
   });
 
-  it('ignores watcher changes that belong to a different root', () => {
+  it('awaits the root reload before re-enumerating changed directories', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/root-file.ts`, type: 'added' },
+            { kind: 'file', path: `${ROOT_PATH}/src/new.ts`, type: 'added' },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshTree).toHaveBeenCalledOnce();
+    expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(`${ROOT_PATH}/src`);
+    const treeOrder = refreshTree.mock.invocationCallOrder[0] ?? Number.NaN;
+    const directoryOrder = refreshDirectory.mock.invocationCallOrder[0] ?? Number.NaN;
+    expect(treeOrder).toBeLessThan(directoryOrder);
+  });
+
+  it('ignores watcher changes that belong to a different root', async () => {
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
       roots: [
         {
           changes: [{ kind: 'file', path: '/elsewhere/src/a.ts', type: 'added' }],
@@ -181,10 +202,48 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('ignores pure content modifications (no structural change)', () => {
+  it('never path-matches across durable root ids (same-named web roots)', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
-    dispatchRefresh({
+    // Same rootPath, different durable id — a sibling web root sharing a name.
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: `${ROOT_PATH}/src/a.ts`, type: 'added' }],
+          rootId: 'root-uuid-2',
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshDirectory).not.toHaveBeenCalled();
+    expect(refreshTree).not.toHaveBeenCalled();
+  });
+
+  it('path-matches only for legacy roots without a durable id', async () => {
+    renderHook(() => useFileTreeRefreshEvents({ ...params, rootId: null }));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: `${ROOT_PATH}/src/a.ts`, type: 'added' }],
+          rootId: 'watcher-side-id',
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(`${ROOT_PATH}/src`);
+  });
+
+  it('ignores pure content modifications (no structural change)', async () => {
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
       roots: [
         {
           changes: [{ kind: 'file', path: `${ROOT_PATH}/src/existing.ts`, type: 'modified' }],
@@ -200,24 +259,24 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('does nothing without a mounted root', () => {
+  it('does nothing without a mounted root', async () => {
     renderHook(() => useFileTreeRefreshEvents({ ...params, rootId: null, rootPath: null }));
 
-    dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
+    await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
 
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('stops listening after unmount', () => {
+  it('stops listening after unmount', async () => {
     const { unmount } = renderHook(() => useFileTreeRefreshEvents(params));
     unmount();
 
-    dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
+    await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
 
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
-  it('matches windows-style separators when deriving the parent directory', () => {
+  it('matches windows-style separators when deriving the parent directory', async () => {
     const winRoot = String.raw`C:\workspace`;
     const winTree = createNormalizedFileTreeState([
       {
@@ -234,7 +293,7 @@ describe('useFileTreeRefreshEvents', () => {
       })
     );
 
-    dispatchRefresh({
+    await dispatchRefresh({
       roots: [
         {
           changes: [{ kind: 'file', path: String.raw`C:\workspace\src\new.ts`, type: 'added' }],

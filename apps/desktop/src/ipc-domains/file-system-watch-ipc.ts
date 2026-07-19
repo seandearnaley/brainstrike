@@ -39,6 +39,12 @@ export interface RegisterFileSystemWatchIpcHandlersOptions {
   readonly startWatch: StartFileSystemWatch;
 }
 
+/**
+ * Upper bound on live watchers per renderer — a DoS guard, not a functional
+ * limit (real usage is one watcher per mounted workspace root).
+ */
+export const MAX_FS_WATCHERS_PER_OWNER = 32;
+
 interface LiveFileSystemWatcher {
   readonly ownerId: number;
   readonly stop: () => void;
@@ -76,18 +82,36 @@ export function liveFileSystemWatcherCountForTest(): number {
   return liveWatchers.size;
 }
 
-function registerLiveWatcher(watchId: string, owner: WebContents, stop: () => void): void {
-  liveWatchers.set(watchId, { ownerId: owner.id, stop });
-
-  // Reap every watcher this renderer owns when it is destroyed (window closed
-  // / navigated away). ONE reaper per WebContents.
-  if (!reaperAttachedOwners.has(owner)) {
-    reaperAttachedOwners.add(owner);
-    owner.once('destroyed', () => {
-      reaperAttachedOwners.delete(owner);
-      disposeFileSystemWatchersForWebContents(owner.id);
-    });
+function liveWatcherCountForOwner(ownerId: number): number {
+  let count = 0;
+  for (const entry of liveWatchers.values()) {
+    if (entry.ownerId === ownerId) {
+      count += 1;
+    }
   }
+  return count;
+}
+
+/**
+ * Reap every watcher this renderer owns when its context goes away. Attached
+ * BEFORE any async setup work so a mid-setup teardown can never miss it.
+ * Covers all three teardown shapes: window closed ('destroyed'), renderer
+ * crash ('render-process-gone' — the WebContents survives), and main-frame
+ * reload/navigation ('did-navigate' — the old context's disposers are gone).
+ * `once` listeners are re-attached on the next fs:watch after a reap.
+ */
+function attachOwnerReaper(owner: WebContents): void {
+  if (reaperAttachedOwners.has(owner)) {
+    return;
+  }
+  reaperAttachedOwners.add(owner);
+  const reap = (): void => {
+    reaperAttachedOwners.delete(owner);
+    disposeFileSystemWatchersForWebContents(owner.id);
+  };
+  owner.once('destroyed', reap);
+  owner.once('render-process-gone', reap);
+  owner.once('did-navigate', reap);
 }
 
 export function registerFileSystemWatchIpcHandlers({
@@ -104,13 +128,24 @@ export function registerFileSystemWatchIpcHandlers({
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
         throw new Error('fs:watch requires a directory handle with a non-empty path.');
       }
+      if (owner.isDestroyed()) {
+        throw new Error('fs:watch: the requesting renderer is already destroyed.');
+      }
+      if (liveWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
+        throw new Error(
+          `fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`
+        );
+      }
+      // Attach the teardown reaper BEFORE any await — a renderer destroyed
+      // mid-setup must still be reaped.
+      attachOwnerReaper(owner);
 
       const watchId = `fs-watch-${randomUUID()}`;
 
       // E2E mock roots have no on-disk directory: register an inert watcher so
       // unwatch/reaping stays uniform without pointing chokidar at nothing.
       if (isMockFileSystemIpcPath(requestedPath)) {
-        registerLiveWatcher(watchId, owner, () => {});
+        liveWatchers.set(watchId, { ownerId: owner.id, stop: () => {} });
         return { watchId };
       }
 
@@ -128,7 +163,13 @@ export function registerFileSystemWatchIpcHandlers({
         const payload: FileSystemWatchEventPayload = { changes, watchId };
         owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
       });
-      registerLiveWatcher(watchId, owner, stop);
+      // The awaits above raced renderer teardown: if the owner is gone, its
+      // reaper has already fired — stop immediately instead of leaking.
+      if (owner.isDestroyed()) {
+        stop();
+        throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
+      }
+      liveWatchers.set(watchId, { ownerId: owner.id, stop });
       logger.debug('Started file system watcher', { path: resolvedPath, watchId });
       return { watchId };
     }

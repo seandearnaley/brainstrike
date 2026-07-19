@@ -12,13 +12,6 @@ export interface FileExplorerRefreshRootDetail {
 }
 
 export interface FileExplorerRefreshEventDetail {
-  /**
-   * Root identities (RootId UUID and/or root path) the DISPATCHER already
-   * refreshed itself. Tree consumers skip these so a manual full refresh
-   * doesn't enumerate the focused root twice; the background indexer ignores
-   * the field (its full sync is identity-agnostic).
-   */
-  readonly refreshedRootIds?: readonly string[];
   readonly roots: readonly FileExplorerRefreshRootDetail[];
   readonly scope: FileExplorerRefreshScope;
   readonly source: FileExplorerRefreshSource;

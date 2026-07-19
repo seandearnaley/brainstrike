@@ -264,15 +264,18 @@ export function FileTreeProvider({
   // Live-refresh bridge: every provider (focused root AND forest sections)
   // reacts to FILE_EXPLORER_REFRESH_EVENT — watcher changes re-enumerate only
   // the loaded parent directories of this root; manual full refreshes reload
-  // the whole tree. See use-file-tree-refresh-events.ts for the contract.
+  // the whole tree. The OUTER (non-nested) provider is the panel refresh
+  // button's direct authority, so it skips manual/full events — nested forest
+  // RootSection providers react to them. See use-file-tree-refresh-events.ts.
   const refreshEventsNormalizedTreeRef =
     fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef;
   useFileTreeRefreshEvents({
     getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
     refreshDirectory: fileTreeState.refreshDirectory,
     refreshTree: fileTreeState.refreshTree,
-    rootId: restorationFolderId,
+    rootId: rootId ?? null,
     rootPath: currentRootPath,
+    skipManualFullEvents: inheritedRegistry === null,
   });
 
   const normalizedContextValue = useMemo<FileTreeNormalizedContextValue>(

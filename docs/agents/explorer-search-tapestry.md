@@ -202,31 +202,44 @@ fallback.
   `@brainstrike/file-system/electron`: 150ms batch, `ignoreInitial`,
   `fileFilter.shouldIgnorePath`). Watchers are keyed by `watchId`, owned by the
   requesting `WebContents` (push to owner only, non-owner unwatch rejected
-  without an ownership oracle, destroyed-renderer reaper). E2E mock paths get
+  without an ownership oracle, per-owner cap `MAX_FS_WATCHERS_PER_OWNER`).
+  The owner reaper is attached BEFORE any async setup and covers all three
+  teardown shapes — `destroyed`, `render-process-gone` (crash; WebContents
+  survives), and `did-navigate` (reload) — plus a post-setup `isDestroyed`
+  re-check so mid-setup teardown can't leak a watcher. E2E mock paths get
   inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
-  `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). A missing
-  capability always means "visibly unwatched", never a silent poll.
+  `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
+  emits `changedHandle: null` for `disappeared` records — the adapter maps
+  those to `kind:'directory'` removals (the safe invalidation shape) and drops
+  location-less `errored`/`unknown` records without crashing the batch. A
+  missing capability always means "visibly unwatched", never a silent poll.
 - **Event shaping.** `useFileSystemWatcher` (file-explorer-hooks) watches every
-  mounted root; `use-file-system-context.ts` debounces 300ms and dispatches ONE
-  `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`, `scope:'incremental'`,
-  per-root `FileSystemChange[]`).
+  mounted root; `use-file-system-context.ts` debounces dispatches (300ms
+  trailing + 1s max-wait so a continuously-busy root cannot starve dispatch)
+  into ONE `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`,
+  `scope:'incremental'`, per-root `FileSystemChange[]`).
 - **Consumers.** (1) Background indexer
   (`workspace-collection-sync-provider.tsx`) — path-scoped DB re-index
   (mtime+hash skip). (2) Tree: `use-file-tree-refresh-events.ts`, mounted by
   EVERY `FileTreeProvider` (focused root AND each forest RootSection):
   watcher/incremental → re-enumerate only the LOADED parent directories of
   added/removed changes in that provider's root (deduped; unloaded dirs skip —
-  they enumerate on expand; root-level membership changes use `refreshTree`);
-  `modified` changes never touch the tree (content freshness is the indexer's
-  job). Manual/full → `refreshTree()` on every provider — this is what makes
-  the toolbar Refresh reach forest roots.
+  they enumerate on expand). Root-level membership changes (including a change
+  reported for the root path itself) use `refreshTree`, and that root reload
+  is AWAITED before per-directory refreshes (no clobber races); `modified`
+  changes never touch the tree (content freshness is the indexer's job). Root
+  matching is durable-id-first: the path fallback applies only when the
+  provider has no RootId — two same-named web roots share a path, so a path
+  match across durable ids would refresh the wrong root.
 - **Manual refresh contract.** `file-explorer-panel.tsx` `handleRefresh`
-  awaits `refreshFileExplorer()` (focused root) and dispatches the full event
-  only on SUCCESS — a cancelled or failed refresh must not trigger downstream
-  full syncs (pinned by the panel tests). The event carries
-  `refreshedRootIds` (focused root's RootId + path) so per-provider tree
-  listeners skip the root the panel already refreshed instead of enumerating
-  it twice.
+  awaits `refreshFileExplorer()` (the OUTER provider) and dispatches the full
+  event only on SUCCESS — a cancelled or failed refresh must not trigger
+  downstream full syncs (pinned by the panel tests). The outer, non-nested
+  provider is the panel's direct refresh authority and sets
+  `skipManualFullEvents` (nested detection via the inherited forest index
+  registry), so it ignores the event it just caused; every nested forest
+  RootSection provider reacts — that is what makes the toolbar Refresh reach
+  every forest root, including the focused root's VISIBLE section.
 - **Paired tests:**
   `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`,
   `apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`,

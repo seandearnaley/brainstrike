@@ -869,16 +869,10 @@ const FileExplorerPanelInner = React.memo(() => {
       }
       // Dispatch only after a SUCCESSFUL refresh (cancelled/failed refreshes
       // must not trigger downstream full syncs — pinned by the panel tests).
-      // refreshedRootIds excludes the focused root just refreshed above so the
-      // per-provider tree listeners (forest roots) don't enumerate it twice.
+      // The outer provider ignores this event (skipManualFullEvents — it was
+      // just refreshed above); forest RootSection providers react to it.
       window.dispatchEvent(
         createFileExplorerRefreshEvent({
-          refreshedRootIds: Array.from(
-            new Set([
-              getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? rootDirectoryHandle.path,
-              rootDirectoryHandle.path,
-            ])
-          ),
           roots: [],
           scope: 'full',
           source: 'manual',
@@ -892,7 +886,7 @@ const FileExplorerPanelInner = React.memo(() => {
       handleRefreshError(error);
     }
     setIsRefreshing(false);
-  }, [rootDirectoryHandle, rootIdByPath, refreshFileExplorer, showToast, handleRefreshError]);
+  }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
 
   const handleDirectorySelect = useCallback(async () => {
     const { supported, reason } = isFileSystemAccessSupported();
