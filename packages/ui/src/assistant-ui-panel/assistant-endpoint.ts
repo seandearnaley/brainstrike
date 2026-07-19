@@ -63,6 +63,13 @@ export async function resolveAssistantEndpoint(): Promise<AssistantEndpoint | un
  * headers. A stable module-level function so it never churns runtime options.
  */
 export async function resolveAssistantAuthHeaders(): Promise<Record<string, string>> {
-  const endpoint = await resolveAssistantEndpoint();
-  return endpoint?.headers ?? {};
+  try {
+    const endpoint = await resolveAssistantEndpoint();
+    return endpoint?.headers ?? {};
+  } catch (error) {
+    // Mirror the app-shell resolver: proceed header-less so the server's 401
+    // surfaces the failure loudly instead of failing the send client-side.
+    assistantEndpointLogger.error('Failed to resolve assistant auth headers', { error });
+    return {};
+  }
 }

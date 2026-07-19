@@ -78,4 +78,10 @@ describe('resolveAssistantAuthHeaders', () => {
     setBridge({ getUrl: () => Promise.resolve('http://127.0.0.1:5123') });
     await expect(resolveAssistantAuthHeaders()).resolves.toEqual({});
   });
+
+  it('returns an empty object when the bridge rejects, so the send proceeds and the server 401 surfaces', async () => {
+    setBridge({ getAuth: () => Promise.reject(new Error('ipc dead')) });
+
+    await expect(resolveAssistantAuthHeaders()).resolves.toEqual({});
+  });
 });
