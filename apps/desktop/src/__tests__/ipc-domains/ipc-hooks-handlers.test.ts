@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MAX_HOOKS_CONFIG_BYTES } from '../../assistant-server/hooks/config';
 import { sha256OfFile } from '../../assistant-server/hooks/trust';
 import {
   type DbRootLite,
@@ -67,7 +68,7 @@ describe('getProjectHooksForReview', () => {
     expect(result.content).toBeUndefined();
   });
 
-  it('reports exists:false when the file is missing (but the root resolved)', () => {
+  it('surfaces a visible error when an existing hooks file cannot be read', () => {
     const result = getProjectHooksForReview('r1', '/abs/root', {
       readFile: () => {
         throw new Error('ENOENT');
@@ -75,7 +76,8 @@ describe('getProjectHooksForReview', () => {
       realpath: (p) => p,
       resolveDbRoot: resolveTo('db-root', '/abs/root'),
     });
-    expect(result.exists).toBe(false);
+    expect(result.exists).toBe(true);
+    expect(result.error).toMatch(/could not be read/);
     expect(result.path).toBe('/abs/root/.brainstrike/hooks.json');
     expect(result.dbRootId).toBe('db-root');
     expect(result.content).toBeUndefined();
@@ -93,6 +95,18 @@ describe('getProjectHooksForReview', () => {
     expect(result.sha256).toBe(sha256(content));
     expect(result.dbRootId).toBe('db-root');
     expect(result.parseError).toBeUndefined();
+  });
+
+  it('refuses an oversized project hooks file with a visible error', () => {
+    writeProjectHooksBytes(tmpRoot, Buffer.alloc(MAX_HOOKS_CONFIG_BYTES + 1));
+
+    const result = getProjectHooksForReview('r1', tmpRoot, {
+      resolveDbRoot: resolveTo('db-root', tmpRoot),
+    });
+
+    expect(result.exists).toBe(true);
+    expect(result.error).toContain(`no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`);
+    expect(result.content).toBeUndefined();
   });
 
   it('refuses a hooks file that symlinks out of its root (info-disclosure guard)', () => {

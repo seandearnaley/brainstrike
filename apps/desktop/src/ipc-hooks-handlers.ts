@@ -16,10 +16,12 @@
  *   dead adapter-id entry while the server keeps trusting a live grant.
  */
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve, sep } from 'node:path';
-import { getProjectHooksPath } from './assistant-server/hooks/config';
+import { getProjectHooksPath, readProjectHookConfig } from './assistant-server/hooks/config';
 import { sha256OfBuffer } from './assistant-server/hooks/trust';
+
+const HOOKS_READ_ERROR = 'hooks.json could not be read';
 
 export interface DbRootLite {
   readonly id: string;
@@ -44,7 +46,7 @@ export interface HooksReviewDeps {
    * hash — a utf8-decoded-string hash would diverge for BOM/non-utf8 bytes and
    * an approval would silently never take.
    */
-  readonly readFile?: (path: string) => Buffer;
+  readonly readFile?: (path: string) => ReturnType<typeof readProjectHookConfig>;
   /**
    * Resolves an absolute path to its realpath. Used to detect a hooks file that
    * symlinks out of its workspace root. Injectable for tests.
@@ -128,7 +130,7 @@ export function getProjectHooksForReview(
   absPath: unknown,
   deps: HooksReviewDeps
 ): ProjectHooksReview {
-  const read = deps.readFile ?? ((path: string) => readFileSync(path));
+  const read = deps.readFile ?? readProjectHookConfig;
   const realpath = deps.realpath ?? realpathSync;
   if (typeof rootId !== 'string' || rootId.length === 0) {
     return { error: 'rootId must be a non-empty string', exists: false, path: '', rootId: '' };
@@ -182,9 +184,14 @@ export function getProjectHooksForReview(
   // here (permissions, TOCTOU unlink) is "does not exist".
   let bytes: Buffer;
   try {
-    bytes = read(realHooks);
+    const result = read(realHooks);
+    if (!Buffer.isBuffer(result)) {
+      const error = result ?? HOOKS_READ_ERROR;
+      return { dbRootId: dbRoot.id, error, exists: true, path, rootId };
+    }
+    bytes = result;
   } catch {
-    return { dbRootId: dbRoot.id, exists: false, path, rootId };
+    return { dbRootId: dbRoot.id, error: HOOKS_READ_ERROR, exists: true, path, rootId };
   }
 
   // Hash the RAW bytes (byte-identical to the server trust hash), then decode

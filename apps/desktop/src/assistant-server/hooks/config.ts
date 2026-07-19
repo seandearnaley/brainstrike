@@ -7,7 +7,7 @@
  * surfaced through the result's `errors`.
  */
 
-import { readFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { sha256OfBuffer } from './trust';
@@ -32,6 +32,9 @@ const VALID_EVENTS: readonly HookEventName[] = [
   'SessionEnd',
   'Notification',
 ];
+
+export const MAX_HOOKS_CONFIG_BYTES = 1024 * 1024;
+export const INVALID_PROJECT_HOOK_CONFIG = `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`;
 
 export interface HookConfigRootInput {
   readonly absPath: string;
@@ -65,10 +68,31 @@ export interface HookConfigInput {
   readonly roots: readonly HookConfigRootInput[];
 }
 
-/** Single raw-byte read; null = missing/unreadable (no throw, no separate stat). */
+/** Single raw-byte read; null = missing/unreadable. */
 function readFileBytesOrNull(path: string): Buffer | null {
   try {
     return readFileSync(path);
+  } catch {
+    return null;
+  }
+}
+
+export function readProjectHookConfig(
+  path: string
+): Buffer | null | typeof INVALID_PROJECT_HOOK_CONFIG {
+  try {
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_HOOKS_CONFIG_BYTES) {
+        return INVALID_PROJECT_HOOK_CONFIG;
+      }
+      const bytes = Buffer.allocUnsafe(stat.size);
+      const bytesRead = readSync(fd, bytes, 0, bytes.length, null);
+      return bytes.subarray(0, bytesRead);
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return null;
   }
@@ -274,15 +298,20 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
 
   // Then each root, in input order. Trust + parse from ONE read: hash the bytes,
   // compare to the approval, and parse those SAME bytes only when trusted.
-  // KNOWN ASYMMETRY: unlike the review IPC (`getProjectHooksForReview`), this
-  // read is NOT containment-checked — a hooks.json symlinking outside the root
-  // is read and hashed here before failing the trust compare (an escaping file
-  // can never be approved, so the bytes go nowhere, but they ARE loaded).
   for (const root of input.roots) {
     const filePath = getProjectHooksPath(root.absPath);
-    const bytes = readFileBytesOrNull(filePath);
+    const bytes = readProjectHookConfig(filePath);
     sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
     if (bytes === null) {
+      continue;
+    }
+    if (typeof bytes === 'string') {
+      errors.push({
+        message: bytes,
+        path: filePath,
+        rootId: root.rootId,
+        scope: 'project',
+      });
       continue;
     }
     const trusted =

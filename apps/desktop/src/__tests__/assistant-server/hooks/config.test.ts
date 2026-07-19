@@ -7,6 +7,7 @@ import {
   getGlobalHooksPath,
   getProjectHooksPath,
   loadHooksConfig,
+  MAX_HOOKS_CONFIG_BYTES,
 } from '../../../assistant-server/hooks/config';
 
 const MAX_HOOK_TIMEOUT_MS = 60_000;
@@ -221,6 +222,26 @@ describe('loadHooksConfig', () => {
     expect(result.errors).toEqual([]);
     expect(result.hooks.PreToolUse ?? []).toHaveLength(0);
     expect(result.sources.every((s) => s.exists === false)).toBe(true);
+  });
+
+  it('rejects an oversized project hooks file with a visible error', () => {
+    const rootA = join(tmpRoot, 'a');
+    mkdirSync(rootA, { recursive: true });
+    writeProjectHooks(rootA, 'x'.repeat(MAX_HOOKS_CONFIG_BYTES + 1));
+
+    const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
+      maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      primaryRootCwd: rootA,
+      roots: [{ absPath: rootA, rootId: 'root-a' }],
+    });
+
+    expect(result.hooks.PreToolUse ?? []).toHaveLength(0);
+    expect(result.sources.at(-1)?.exists).toBe(true);
+    expect(result.errors[0]?.message).toBe(
+      `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`
+    );
   });
 
   it('precompiles the tool_name matcher into a RegExp', () => {

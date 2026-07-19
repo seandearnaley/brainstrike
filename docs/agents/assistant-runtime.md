@@ -639,7 +639,11 @@ hash is over the RAW file BYTES (`sha256OfBuffer`), and the approve-time review
 which would diverge for BOM/non-utf8 bytes and silently void an approval. Trust
 + parse come from ONE read (`loadHooksConfig` reads the bytes once, hashes them,
 and parses those same bytes only when trusted — no read-vs-hash TOCTOU window). A
-changed file → untrusted (re-approve). Keyed by durable `rootId`, never raw path.
+changed file → untrusted (re-approve). A project config's descriptor is accepted
+only after a nonblocking open proves it is a regular file of at most
+`MAX_HOOKS_CONFIG_BYTES`; its initially observed bytes are the only bytes read.
+The loader and approve-time review share this reader, so oversized/special files
+produce a visible error before hashing. Keyed by durable `rootId`, never raw path.
 Stdin payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`,
 mirrors the logger redact key set). NOTE: redaction covers ONLY the stdin JSON —
 it does NOT extend to the hook's inherited `process.env` (hooks inherit the full
