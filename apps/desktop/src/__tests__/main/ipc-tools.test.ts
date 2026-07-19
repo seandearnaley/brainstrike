@@ -12,11 +12,18 @@ vi.mock('electron', () => ({
 
 // Mock @brainstrike/agent/client
 vi.mock('@brainstrike/agent/client', () => ({
+  DESKTOP_NATIVE_TOOL_IDS: ['brainstrike.readWorkspaceContext'],
   isNativeTool: vi.fn(),
   NATIVE_TOOL_DEFAULTS: {
     'brainstrike.readWorkspaceContext': {
       category: 'retrieval',
       estimatedTokens: 180,
+      loadingTier: 'critical',
+      requiresApproval: false,
+    },
+    skill_read: {
+      category: 'retrieval',
+      estimatedTokens: 120,
       loadingTier: 'critical',
       requiresApproval: false,
     },
@@ -427,6 +434,7 @@ describe('ipc-tools', () => {
           },
           enabledNativeToolIds: [
             ' brainstrike.readWorkspaceContext ',
+            'skill_read',
             null,
             '',
             'brainstrike.unknownNativeTool',

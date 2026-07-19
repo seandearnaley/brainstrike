@@ -1,4 +1,5 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
   AskUserOption,
   AskUserPayload,
@@ -14,8 +15,8 @@ import { Button } from '../button';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
-const SUBMIT_PLAN_TOOL_ID = 'brainstrike.submitPlan';
-const ASK_USER_TOOL_ID = 'brainstrike.askUser';
+const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
+const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
 /**
  * Callback that clears the persisted plan-mode toggle. Provided by the

@@ -521,6 +521,52 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## MODEL-FACING WORKSPACE TOOL GUIDANCE
+
+Hosted default instructions are intentionally a compact routing layer, not a
+second copy of every tool description and input schema. Per-tool mechanics live
+in the canonical description and Zod schema registries documented in
+`docs/agents/assistant-providers.md`; the instructions state the cross-tool
+workflow and invariants below once. The complete resolved instruction + native
+tool payload is guarded at no more than 7,900 `o200k_base` tokens in its
+canonical authored form and 11,500 tokens after the current Mastra/OpenRouter
+conversion. Both use the real hosted registry, a default-enabled representative
+workspace skill, resolved conditional guidance, and first-turn
+`SkillsProcessor` metadata; see `docs/agents/assistant-providers.md` for the
+exact measurement boundary.
+
+Prompt compaction MUST preserve these semantics:
+- **Main vs Focused:** `listWorkspaceContext.workspaceRootPath` is the MAIN
+  operating root. Selected context and the default target for selection
+  write-back belong to the FOCUSED root. Neither identity may be relabelled or
+  silently substituted for the other.
+- **Multi-root qualification:** a workspace-relative path is ambiguous when
+  several roots are open, so path-bearing read/search/edit/shell calls must
+  name the owning root. A rootless search means an intentional all-roots
+  search only where its schema promises that behavior; it never means “guess
+  Main.” Results carry root identity for follow-up calls.
+- **Tapestry precision:** ranges are 1-based and inclusive. When the user names
+  a symbol, section, or line range, select its exact verified span and report
+  the exact range applied. Never silently fall back to whole-file selection;
+  use a whole file only when the user requests it or the whole file is
+  genuinely required.
+- **Progressive reads:** use the cheapest discovery verb first, then read only
+  the needed ranges. Continue bounded/truncated results with their advertised
+  offset or range, and issue independent reads in parallel where safe.
+- **Command safety:** `executeCommand` is unsandboxed. Prefer read-only
+  commands, and run destructive commands only when the user explicitly asks
+  for that exact action.
+- **Web privacy:** web search/extraction is for public external information and
+  sends queries or URLs to an external service. Never include secrets or
+  private workspace content, and never use web retrieval as a substitute for
+  local workspace tools.
+
+Conditional assembly still advertises only tools that survived runtime gates.
+Remove duplicated prose to recover prompt budget; do not remove or weaken the
+invariants above.
+
+---
+
 ## READ-BEFORE-WRITE STALENESS GUARD (LOST-UPDATE PROTECTION)
 
 The compare layer of core 1.51's workspace `requireReadBeforeWrite` contract

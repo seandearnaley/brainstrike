@@ -1,5 +1,5 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { NATIVE_TOOL_DEFAULTS, type SupportedProvider } from '@brainstrike/assistant-contract';
+import { DESKTOP_NATIVE_TOOL_IDS, type SupportedProvider } from '@brainstrike/assistant-contract';
 import {
   useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
@@ -1243,10 +1243,11 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       const enabledNativeToolIds = readPanelRequestData()['enabledNativeToolIds'];
       expect(enabledNativeToolIds).toEqual(
-        Object.keys(NATIVE_TOOL_DEFAULTS).filter(
-          (toolId) => toolId !== 'brainstrike.readWorkspaceFile'
-        )
+        DESKTOP_NATIVE_TOOL_IDS.filter((toolId) => toolId !== 'brainstrike.readWorkspaceFile')
       );
+      expect(enabledNativeToolIds).not.toContain('skill');
+      expect(enabledNativeToolIds).not.toContain('skill_read');
+      expect(enabledNativeToolIds).not.toContain('skill_search');
     });
   });
 

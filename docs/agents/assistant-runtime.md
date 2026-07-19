@@ -107,6 +107,37 @@ configured-limit path reaches the next provider step and preserves MCP media;
 `mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
 replays the stored projection rather than the raw sentinel.
 
+**Hosted native-tool definition and prompt budget (LIVE):**
+The runtime does not maintain a parallel provider-tool catalog.
+`@brainstrike/assistant-contract` supplies canonical ids and descriptions;
+`NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts` supplies
+the exact Zod input object for each desktop native id. The desktop registry
+uses those objects directly, `validateToolInput` parses with the same map, and
+Mastra performs the Standard Schema → provider JSON Schema conversion. The
+browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display
+metadata and MUST NOT enter execution, validation, or provider registration.
+
+The hosted surface is guarded at both sides of Mastra's conversion boundary.
+Resolved default instructions plus every registered native function's name,
+description, and canonical Standard-Schema input must fit within 7,900
+`o200k_base` tokens. The actual OpenRouter payload extracted from Mastra's
+public `agent.getToolsForExecution({})` boundary must fit within 11,500 tokens.
+The production-equivalent fixture enables a representative workspace skill so
+both numbers include the three default skill tools, conditional skills
+guidance, and first-turn `SkillsProcessor` metadata; a registry measured
+without `workspaceSkills` is an undercount.
+Mastra 1.51 currently expands optional fields for the routed `openai/*` model;
+the authored guard is therefore not evidence for the provider payload. The
+regression constructs the real desktop registry and real hosted runtime
+(`apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`);
+an isolated description, schema estimate, or hand-built provider payload is
+not sufficient evidence.
+
+Default instructions should state cross-tool routing and non-negotiable
+invariants once, while canonical descriptions/schemas carry per-tool mechanics.
+See `docs/agents/workspace-context.md` for the instruction invariants that
+cannot be compacted away.
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these

@@ -1,5 +1,7 @@
 import {
-  LSP_INSPECT_TOOL_ID,
+  type DesktopNativeToolId,
+  isDesktopNativeToolId,
+  NATIVE_TOOL_ID,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
@@ -143,24 +145,18 @@ export const ReembedCollectionInputSchema = z
 // ============================================================================
 
 const ROOT_QUALIFIER_DESCRIPTION =
-  'Which open folder the path is in: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one.';
+  'Open-folder name/id for this path. Required only when multiple folders are open.';
 
 const ROOT_WRITE_GUARD_DESCRIPTION =
-  'Which open folder to curate: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one. The selection is applied to that folder even if it is not the focused one.';
+  'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
 export const ReadWorkspaceFileInputSchema = z
   .object({
-    endLine: z.number().int().positive().optional().describe('Optional ending line (1-based)'),
-    maxChars: z
-      .number()
-      .int()
-      .positive()
-      .max(50_000)
-      .optional()
-      .describe('Maximum characters to return before truncation'),
+    endLine: z.number().int().positive().optional().describe('Last 1-based line'),
+    maxChars: z.number().int().positive().max(50_000).optional().describe('Output character cap'),
     path: z.string().min(1).describe('Workspace-relative file path'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    startLine: z.number().int().positive().optional().describe('Optional starting line (1-based)'),
+    startLine: z.number().int().positive().optional().describe('First 1-based line'),
   })
   .strict();
 
@@ -173,13 +169,8 @@ export const WriteWorkspaceFileInputSchema = z
       // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
       .string()
       .max(8_000_000)
-      .describe('Full UTF-8 file content to write (up to ~2 MB). Overwrites any existing file.'),
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
-      ),
+      .describe('Full UTF-8 content (up to ~2 MB); overwrites an existing file'),
+    path: z.string().min(1).describe('Workspace-relative path; creates missing parent directories'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -188,10 +179,7 @@ export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSche
 
 export const StringReplaceWorkspaceFileInputSchema = z
   .object({
-    newStr: z
-      .string()
-      .max(8_000_000)
-      .describe('The replacement text. Use an empty string to delete the matched block.'),
+    newStr: z.string().max(8_000_000).describe('Replacement text; empty deletes the matched block'),
     oldStr: z
       // Outer DoS guard only; the desktop tool reads the file under the same
       // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
@@ -199,14 +187,9 @@ export const StringReplaceWorkspaceFileInputSchema = z
       .min(1)
       .max(8_000_000)
       .describe(
-        'The exact block of existing text to replace. Pass WHOLE LINES with enough surrounding context that the block uniquely identifies ONE location: a block that matches more than once is REFUSED (re-call with more context), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings.'
+        'Existing text block. Use whole lines and enough context to identify one location; ambiguous matches are refused.'
       ),
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        'Workspace-relative file path to edit (same path convention as readWorkspaceFile). The file must already exist.'
-      ),
+    path: z.string().min(1).describe('Existing workspace-relative file path'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -215,12 +198,7 @@ export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorksp
 
 export const DeleteWorkspaceFileInputSchema = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        'Workspace-relative file path to delete (same path convention as readWorkspaceFile). Must be a FILE, not a directory — directory deletes are refused.'
-      ),
+    path: z.string().min(1).describe('Workspace-relative file path; directories are refused'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -229,19 +207,12 @@ export type DeleteWorkspaceFileInput = z.infer<typeof DeleteWorkspaceFileInputSc
 
 export const RenameWorkspaceFileInputSchema = z
   .object({
-    fromPath: z
-      .string()
-      .min(1)
-      .describe(
-        'Existing workspace-relative file path to rename/move FROM (same path convention as readWorkspaceFile). Must be a FILE.'
-      ),
+    fromPath: z.string().min(1).describe('Existing workspace-relative source file'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     toPath: z
       .string()
       .min(1)
-      .describe(
-        'Destination workspace-relative file path to rename/move TO, within the SAME workspace root. Must NOT already exist (no overwrite); missing parent directories are created.'
-      ),
+      .describe('Destination path in the same root; no overwrite; creates missing parents'),
   })
   .strict();
 
@@ -249,29 +220,14 @@ export type RenameWorkspaceFileInput = z.infer<typeof RenameWorkspaceFileInputSc
 
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
-    depth: z.number().int().min(0).max(5).optional().describe('Maximum traversal depth'),
-    detail: z
-      .boolean()
-      .optional()
-      .describe('Include per-entry size and depth metadata (default false: path + type only)'),
-    includeDirectories: z.boolean().optional().describe('Include directories in the listing'),
-    includeFiles: z.boolean().optional().describe('Include files in the listing'),
-    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
-    maxEntries: z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .optional()
-      .describe('Maximum entries to return'),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .max(5000)
-      .optional()
-      .describe('Skip this many entries to continue a truncated listing'),
-    path: z.string().optional().describe('Directory path (defaults to root)'),
+    depth: z.number().int().min(0).max(5).optional().describe('Traversal depth (max 5)'),
+    detail: z.boolean().optional().describe('Include entry size/depth (default false)'),
+    includeDirectories: z.boolean().optional().describe('Include directories'),
+    includeFiles: z.boolean().optional().describe('Include files'),
+    includeHidden: z.boolean().optional().describe('Include hidden entries'),
+    maxEntries: z.number().int().positive().max(500).optional().describe('Entry cap'),
+    offset: z.number().int().min(0).max(5000).optional().describe('Pagination offset'),
+    path: z.string().optional().describe('Directory path (default root)'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -334,14 +290,8 @@ export const ReadWorkspaceContextInputSchema = z
       .positive()
       .max(50_000)
       .optional()
-      .describe('Maximum characters to return per file before truncation'),
-    maxFiles: z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .optional()
-      .describe('Maximum number of files to include'),
+      .describe('Per-file character cap'),
+    maxFiles: z.number().int().positive().max(500).optional().describe('File count cap'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     tokenBudget: z
       .number()
@@ -349,7 +299,7 @@ export const ReadWorkspaceContextInputSchema = z
       .positive()
       .max(200_000)
       .optional()
-      .describe('Maximum approximate output tokens for all returned file contents'),
+      .describe('Total output token cap'),
     useTapestrySelections: z
       .boolean()
       .optional()
@@ -384,9 +334,7 @@ const WorkspaceTapestryRangeInputSchema = z
     color: z
       .enum(TAPESTRY_COLOR_NAMES)
       .optional()
-      .describe(
-        'Optional named color to group related ranges (red, orange, yellow, green, cyan, blue, purple, pink, gray). Reuse the same color for the same concept. Omit to auto-assign.'
-      ),
+      .describe('Group color; reuse per concept; omit to auto-assign'),
     endLine: z.number().int().positive().describe('1-based inclusive ending line'),
     isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
     startLine: z.number().int().positive().describe('1-based inclusive starting line'),
@@ -483,8 +431,6 @@ export const UpdatePreviewContextFilesInputSchema = z
 /** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
-const EchoInput = z.object({ text: z.string().min(1) }).strict();
-
 export const RetrievalContextInputSchema = z
   .object({
     embeddingSetId: z.string().min(1).optional(),
@@ -495,9 +441,7 @@ export const RetrievalContextInputSchema = z
     root: z
       .string()
       .optional()
-      .describe(
-        'Optional: scope retrieval to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are labelled with their root.'
-      ),
+      .describe('Open-folder name/id; omit to search all. Results include their root.'),
     selectionSnapshotId: z.string().min(1).optional(),
     threshold: z.number().min(0).max(1).optional(),
     tokenBudget: z.number().int().positive().max(200_000).optional(),
@@ -516,56 +460,39 @@ export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSc
 
 export const GrepSearchInputSchema = z
   .object({
-    caseSensitive: z.boolean().optional().describe('Case-sensitive matching (default false)'),
+    caseSensitive: z.boolean().optional().describe('Case-sensitive (default false)'),
     contextLines: z
       .number()
       .int()
       .min(0)
       .max(5)
       .optional()
-      .describe("Lines of context before/after each match in 'content' mode (default 1)"),
+      .describe("Context lines in 'content' mode (default 1)"),
     filePaths: z
       .array(z.string().min(1))
       .max(1000)
       .optional()
-      .describe('Restrict the search to specific indexed file paths'),
-    isRegex: z
-      .boolean()
-      .optional()
-      .describe('Treat pattern as a JavaScript regular expression (default false)'),
+      .describe('Restrict to these file paths'),
+    isRegex: z.boolean().optional().describe('Use JavaScript regex (default false)'),
     maxResults: z
       .number()
       .int()
       .positive()
       .max(200)
       .optional()
-      .describe("Maximum 'content' matches to return (default 50)"),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .max(2000)
-      .optional()
-      .describe(
-        'Skip this many files/matches to continue a truncated result instead of re-querying'
-      ),
+      .describe("'content' match cap (default 50)"),
+    offset: z.number().int().min(0).max(2000).optional().describe('Pagination offset'),
     outputMode: z
       .enum(['files', 'content'])
       .optional()
       .describe(
-        "'files' (default) lists matching file paths with per-file match counts — a cheap survey for narrowing. 'content' returns line-level matches with context; scope it with filePaths."
+        "'files' (default): paths + match counts. 'content': line matches + context; narrow with filePaths."
       ),
-    pattern: z
-      .string()
-      .min(2)
-      .max(500)
-      .describe('Exact text (default) or JavaScript regex to find in indexed file content'),
+    pattern: z.string().min(2).max(500).describe('Exact text (default) or JavaScript regex'),
     root: z
       .string()
       .optional()
-      .describe(
-        'Optional: scope the search to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are always labelled with their root.'
-      ),
+      .describe('Open-folder name/id; omit to search all. Results include their root.'),
   })
   .strict()
   // Fail-fast: when the caller asks for regex matching, reject an invalid pattern
@@ -596,36 +523,18 @@ export const GlobWorkspaceInputSchema = z
     includeIgnored: z
       .boolean()
       .optional()
-      .describe(
-        'Include files normally excluded (.git, node_modules, dist/build output, lockfiles, minified/generated artifacts). Default false: the same exclusions the workspace indexer applies.'
-      ),
-    limit: z
-      .number()
-      .int()
-      .positive()
-      .max(1000)
-      .optional()
-      .describe('Maximum matching paths to return (default 200)'),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .max(100_000)
-      .optional()
-      .describe('Skip this many matches to continue a truncated result instead of re-querying'),
+      .describe('Include normally excluded/generated paths (default false)'),
+    limit: z.number().int().positive().max(1000).optional().describe('Match cap (default 200)'),
+    offset: z.number().int().min(0).max(100_000).optional().describe('Pagination offset'),
     pattern: z
       .string()
       .min(1)
       .max(500)
-      .describe(
-        'Glob pattern matched against workspace-relative paths, e.g. "**/*.test.ts", "src/**/*.tsx", "**/package.json". A bare pattern with no leading "**/" or "/" matches at any depth (so "*.ts" behaves like "**/*.ts").'
-      ),
+      .describe('Workspace-relative glob; bare patterns match at any depth'),
     root: z
       .string()
       .optional()
-      .describe(
-        'Optional: scope the walk to one open folder by its name or id (from listWorkspaceContext or a result). Omit to enumerate every open folder; results are always labelled with their root.'
-      ),
+      .describe('Open-folder name/id; omit to enumerate all. Results include their root.'),
   })
   .strict();
 
@@ -692,7 +601,7 @@ export const LspInspectInputSchema = z
       .min(3)
       .max(2000)
       .describe(
-        "The target line's text — or a fragment that occurs exactly once on that line — with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`. Refused if the text (marker removed) is not found on that line."
+        'Target line or unique fragment with exactly one `<<<` before the symbol; refused when marker-stripped text is absent'
       ),
     path: z.string().min(1).describe('Workspace-relative file path to inspect'),
     root: z
@@ -710,30 +619,22 @@ export const ExecuteCommandInputSchema = z
       .string()
       .min(1)
       .max(10_000)
-      .describe(
-        'The shell command line to run, passed verbatim to the shell as `-c command`. Arbitrary execution — there is NO sandbox.'
-      ),
+      .describe('Shell command passed verbatim to `-c`; NO sandbox'),
     cwd: z
       .string()
       .optional()
-      .describe(
-        'Optional start directory. Absolute, or relative to the chosen root. MUST resolve inside an open workspace folder (the command itself is unrestricted; only the start dir is pinned). Defaults to the workspace root.'
-      ),
+      .describe('Start directory, absolute or root-relative; must resolve inside an open folder'),
     root: z
       .string()
       .optional()
-      .describe(
-        'Optional: which open folder to start in, by name or id (from listWorkspaceContext). Omit when only one folder is open; required to disambiguate when several are.'
-      ),
+      .describe('Open-folder name/id; required only with multiple folders'),
     timeoutMs: z
       .number()
       .int()
       .positive()
       .max(600_000)
       .optional()
-      .describe(
-        'Kill the whole process tree after this many milliseconds (default 120000, max 600000). On timeout the result reports timedOut: true.'
-      ),
+      .describe('Process-tree timeout ms (default 120000, max 600000)'),
   })
   .strict();
 
@@ -846,34 +747,31 @@ export const AskUserInputSchema = z
 
 export type AskUserInput = z.infer<typeof AskUserInputSchema>;
 
-const schemaMap: Record<string, z.ZodSchema> = {
-  'brainstrike.askUser': AskUserInputSchema,
-  'brainstrike.deleteWorkspaceFile': DeleteWorkspaceFileInputSchema,
-  'brainstrike.executeCommand': ExecuteCommandInputSchema,
-  // Minimal BrainStrike native tools
-  'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
-  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
-  'brainstrike.grepSearch': GrepSearchInputSchema,
-  'brainstrike.hybridSearch': HybridSearchInputSchema,
-  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
-  'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
-  'brainstrike.manageTaskList': ManageTaskListInputSchema,
-  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
-  'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
-  'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
-  'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
-  'brainstrike.renameWorkspaceFile': RenameWorkspaceFileInputSchema,
-  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
-  'brainstrike.submitPlan': SubmitPlanInputSchema,
-  'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
-  'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
-  [LSP_INSPECT_TOOL_ID]: LspInspectInputSchema,
+export const NATIVE_TOOL_INPUT_SCHEMAS = {
+  [NATIVE_TOOL_ID.askUser]: AskUserInputSchema,
+  [NATIVE_TOOL_ID.deleteWorkspaceFile]: DeleteWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.executeCommand]: ExecuteCommandInputSchema,
+  [NATIVE_TOOL_ID.findWorkspaceSymbol]: FindWorkspaceSymbolInputSchema,
+  [NATIVE_TOOL_ID.globWorkspace]: GlobWorkspaceInputSchema,
+  [NATIVE_TOOL_ID.grepSearch]: GrepSearchInputSchema,
+  [NATIVE_TOOL_ID.hybridSearch]: HybridSearchInputSchema,
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ListEmbeddingSetsInputSchema,
+  [NATIVE_TOOL_ID.listWorkspaceContext]: ListWorkspaceContextInputSchema,
+  [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
+  [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
+  [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceContext]: ReadWorkspaceContextInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
+  [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.renameWorkspaceFile]: RenameWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: StringReplaceWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.submitPlan]: SubmitPlanInputSchema,
+  [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: UpdateWorkspaceContextSelectionInputSchema,
+  [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: UpdateWorkspaceTapestrySelectionsInputSchema,
   [WEB_EXTRACT_TOOL_ID]: WebExtractInputSchema,
   [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
-  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
-  // Web tools
-  'web.echo': EchoInput,
-};
+  [NATIVE_TOOL_ID.writeWorkspaceFile]: WriteWorkspaceFileInputSchema,
+} as const satisfies Record<DesktopNativeToolId, z.ZodSchema>;
 
 function formatZodIssue(issue: z.ZodIssue): string {
   const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
@@ -900,7 +798,7 @@ export function validateToolInput(
   params: Record<string, unknown> | undefined
 ): { ok: true; data: unknown } | { ok: false; issues: string[] } {
   try {
-    const schema = schemaMap[name];
+    const schema = isDesktopNativeToolId(name) ? NATIVE_TOOL_INPUT_SCHEMAS[name] : undefined;
     if (schema) {
       return parseWithSchema(schema, params);
     }

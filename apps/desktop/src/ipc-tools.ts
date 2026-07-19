@@ -6,7 +6,7 @@
  */
 
 import type { RuntimeData } from '@brainstrike/agent';
-import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
+import { DESKTOP_NATIVE_TOOL_IDS, isNativeTool } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
@@ -29,7 +29,7 @@ const MAX_INPUT_SIZE = 1_000_000;
 // Keep this boundary allowlist in sync with BackgroundIndexingMode in
 // @brainstrike/preferences when additional workspace indexing modes are added.
 const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
-const ALLOWED_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
+const ALLOWED_NATIVE_TOOL_IDS = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {

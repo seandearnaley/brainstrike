@@ -3,7 +3,7 @@ import type {
   AssistantCheckpointRevertRunResult,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
-import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
+import { isRevertibleCaptureStatus, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createContext, type ReactNode, use, useMemo } from 'react';
 
 /**
@@ -12,10 +12,10 @@ import { createContext, type ReactNode, use, useMemo } from 'react';
  * desktop tool registry.
  */
 export const REVERTIBLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'brainstrike.deleteWorkspaceFile',
-  'brainstrike.renameWorkspaceFile',
-  'brainstrike.stringReplaceWorkspaceFile',
-  'brainstrike.writeWorkspaceFile',
+  NATIVE_TOOL_ID.deleteWorkspaceFile,
+  NATIVE_TOOL_ID.renameWorkspaceFile,
+  NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+  NATIVE_TOOL_ID.writeWorkspaceFile,
 ]);
 
 export interface EditCheckpointContextValue {

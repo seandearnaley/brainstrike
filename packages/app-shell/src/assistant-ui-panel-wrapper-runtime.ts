@@ -30,8 +30,8 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import {
+  getNativeToolDescription,
   getToolSchemaDisplay,
-  TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   type TapestryRange,
@@ -104,7 +104,7 @@ export function formatToolLabel(toolId: string): string {
 }
 
 export function getToolDescription(toolId: string): string {
-  return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
+  return getNativeToolDescription(toolId) ?? `Tool: ${toolId}`;
 }
 
 function resolveSemanticRecallDisabledReason(

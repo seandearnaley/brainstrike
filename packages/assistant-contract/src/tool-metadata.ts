@@ -1,4 +1,16 @@
 export {
+  DESKTOP_NATIVE_TOOL_IDS,
+  type DesktopNativeToolId,
+  isDesktopNativeToolId,
+  isNativeToolId,
+  isSkillNativeToolId,
+  NATIVE_TOOL_ID,
+  NATIVE_TOOL_IDS,
+  type NativeToolId,
+  SKILL_NATIVE_TOOL_IDS,
+  type SkillNativeToolId,
+} from './native-tool-catalog.js';
+export {
   DEFAULT_PERMISSION_POLICIES,
   InvalidPermissionPolicyError,
   isPermissionDecision,
@@ -31,7 +43,7 @@ export {
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from './tool-categories.js';
-export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';
+export { getNativeToolDescription, TOOL_DESCRIPTIONS } from './tool-descriptions.js';
 export {
   isToolRiskCategory,
   resolveToolRiskCategory,

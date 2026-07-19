@@ -7,6 +7,7 @@ import type {
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import {
   isToolRiskCategory,
+  NATIVE_TOOL_ID,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -43,8 +44,8 @@ export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
  * ids the approval chunk carries (see `makeApprovalRequiredChunks` in the agent
  * runtime), NOT the model-facing names.
  */
-const STRING_REPLACE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile';
-const WRITE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
+const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
+const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;

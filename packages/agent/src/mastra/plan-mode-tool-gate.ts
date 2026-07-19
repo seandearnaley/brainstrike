@@ -20,10 +20,13 @@
  * v1 tools for registry/UX purposes.
  */
 
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  NATIVE_TOOL_ID,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract/tool-metadata';
 
-export const SUBMIT_PLAN_TOOL_ID = 'brainstrike.submitPlan';
-export const ASK_USER_TOOL_ID = 'brainstrike.askUser';
+export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
+export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
 /** The v1 suspending native tools (kept in plan mode; omitted without storage). */
 export const SUSPENDING_NATIVE_TOOL_IDS: readonly string[] = [

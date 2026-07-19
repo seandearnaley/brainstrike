@@ -16,6 +16,7 @@ import {
   RetrievalContextInputSchema,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
@@ -62,7 +63,7 @@ function redactErrorForLog(error: unknown): {
 }
 
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
-const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
+const QUERY_EMBEDDING_SPACE_TOOL_ID = NATIVE_TOOL_ID.queryEmbeddingSpace;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;

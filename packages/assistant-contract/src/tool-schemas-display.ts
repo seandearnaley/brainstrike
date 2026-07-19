@@ -5,6 +5,7 @@
  * These are simplified representations of the Zod schemas for UI display.
  */
 
+import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
 import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 
 /**
@@ -36,14 +37,14 @@ export interface ToolSchemaDisplay {
   description: string;
   parameters: ToolParameterDisplay[];
   returns: string;
-  toolId: string;
+  toolId: NativeToolId;
 }
 
 /**
  * Native tool schema display information.
  * This is a browser-safe representation of the Zod schemas.
  */
-export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
+export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
   'brainstrike.askUser': {
     description:
       'Ask the user a clarifying question and wait for their answer; the run pauses until they respond. Provide options for a structured choice (set selectionMode to multi_select to allow several), or omit options for a free-text question.',
@@ -468,7 +469,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
-  'brainstrike.lspInspect': {
+  [NATIVE_TOOL_ID.lspInspect]: {
     description:
       "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript). Returns the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Read-only. Returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available.",
     parameters: [
@@ -503,7 +504,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     ],
     returns:
       'Up to four groups: hover (type/docs), diagnostics (the inspected line), definition (declaration locations with a one-line preview), and implementation (usage/implementation locations). An available:false note for unsupported file types or when no server is available.',
-    toolId: 'brainstrike.lspInspect',
+    toolId: NATIVE_TOOL_ID.lspInspect,
   },
 
   'brainstrike.manageTaskList': {
@@ -1128,7 +1129,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
  * Get schema display info for a tool.
  */
 export function getToolSchemaDisplay(toolId: string): ToolSchemaDisplay | undefined {
-  return NATIVE_TOOL_SCHEMAS[toolId];
+  return isNativeToolId(toolId) ? NATIVE_TOOL_SCHEMAS[toolId] : undefined;
 }
 
 /**

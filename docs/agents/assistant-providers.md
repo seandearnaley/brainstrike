@@ -310,6 +310,48 @@ active budget. Proofs:
 `data-stream-session.spec.ts`. `listWorkspaceContext` is concise by default
 (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
-Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.
+Native-tool catalog ownership is deliberately split at the browser/runtime
+boundary:
+- `packages/assistant-contract/src/native-tool-catalog.ts` owns the canonical
+  ids and the exact desktop/skill partitions. The browser-safe
+  `TOOL_DESCRIPTIONS` and `NATIVE_TOOL_DEFAULTS` registries are exact
+  `NativeToolId` maps. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
+  documentation only; it is NEVER an execution or provider-schema source.
+- `packages/agent/src/tools/schemas.ts` owns the exact
+  `NATIVE_TOOL_INPUT_SCHEMAS` map from every `DesktopNativeToolId` to its
+  canonical Zod schema. Desktop provider registration and `validateToolInput`
+  reuse those same schema objects. Mastra converts them to provider JSON Schema
+  through the Standard Schema input protocol; never reconstruct validation or
+  provider schemas from the lossy display metadata.
+- Agent Skills (`skill`/`skill_read`/`skill_search`) remain canonical native ids
+  for metadata parity, but their execution schemas are Mastra-owned and are not
+  entries in `NATIVE_TOOL_INPUT_SCHEMAS`.
+
+Adding or renaming a native tool must update the canonical catalog first, then
+the exact metadata/schema maps, live desktop registry, exports, and conditional
+model-facing guidance. The parity tests fail on stale, missing, or extra keys;
+there is no fallback alias or partially registered tool.
+
+The full hosted desktop tool surface has two measured prompt budgets:
+`apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`
+builds the real registry and resolved hosted instructions with the default
+skills engine enabled. That means both guards include `skill`, `skill_read`,
+and `skill_search`, the conditional skills guidance, and a representative
+first-turn `SkillsProcessor` metadata block. The canonical authored
+representation converts the real Zod inputs through the Standard Schema input
+protocol and must remain at or below 7,900 `o200k_base` tokens. The actual
+OpenRouter representation comes from Mastra's public
+`agent.getToolsForExecution({})` boundary and must remain at or below 11,500
+tokens. Mastra 1.51 currently expands optional fields for the routed
+`openai/*` model, so the actual-provider guard is intentionally higher and
+must not be replaced with the authored estimate.
+
+Both are whole-surface regressions, not estimates from descriptions alone.
+Recover budget by removing duplicated prose and preserving one canonical
+definition. Do not weaken validation constraints, spoof provider/model
+identity, or remove cross-tool safety/workspace invariants to make either
+number pass. Changing Mastra compatibility behavior requires a supported
+upstream contract plus captured-request tests proving omitted optionals and
+invalid/null inputs retain their authored semantics.
 
 ---

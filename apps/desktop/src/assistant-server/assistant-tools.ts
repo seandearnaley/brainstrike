@@ -1,44 +1,28 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
-  ASK_USER_TOOL_ID,
   applyStringReplace,
   createAskUserTool,
   createSubmitPlanTool,
   type DeleteWorkspaceFileInput,
-  DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
-  ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
-  FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
   forgetKnownFile,
   type GlobWorkspaceInput,
-  GlobWorkspaceInputSchema,
   type GrepSearchInput,
-  GrepSearchInputSchema,
   getKnownFileMtime,
   type HybridSearchInput,
-  HybridSearchInputSchema,
   type ListEmbeddingSetsInput,
-  ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
-  ListWorkspaceContextInputSchema,
-  LSP_INSPECT_TOOL_ID,
   type LspInspectInput,
-  LspInspectInputSchema,
   type ManageTaskListInput,
-  ManageTaskListInputSchema,
+  NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
-  QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
-  ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,
-  ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
-  ReadWorkspaceFileInputSchema,
   type RenameWorkspaceFileInput,
-  RenameWorkspaceFileInputSchema,
   type RuntimeData,
   type RuntimeWorkspaceContextFileMetadata,
   type RuntimeWorkspaceContextMetadata,
@@ -47,21 +31,15 @@ import {
   recordKnownFileMtime,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
-  StringReplaceWorkspaceFileInputSchema,
-  SUBMIT_PLAN_TOOL_ID,
   type UpdateWorkspaceContextSelectionInput,
-  UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
-  UpdateWorkspaceTapestrySelectionsInputSchema,
   type WebExtractInput,
-  WebExtractInputSchema,
   type WebSearchInput,
-  WebSearchInputSchema,
   type WriteWorkspaceFileInput,
-  WriteWorkspaceFileInputSchema,
   withFileLock,
   writeShellOutputChunk,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   EmbeddingSetsRepository,
   type EmbeddingSpaceListing,
@@ -92,34 +70,22 @@ import {
   recordEditCheckpointForTool,
 } from './edit-checkpoint-capture';
 import { sha256Hex } from './edit-checkpoint-journal';
-import {
-  EXECUTE_COMMAND_TOOL_ID,
-  runExecuteCommand,
-  type ShellOutputStreamer,
-} from './execute-command-tool';
+import { runExecuteCommand, type ShellOutputStreamer } from './execute-command-tool';
 import { findSymbolMatches } from './find-workspace-symbol';
-import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
-import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
-import { HYBRID_SEARCH_TOOL_ID, runHybridSearch } from './hybrid-search-tool';
+import { runGlobWorkspace } from './glob-workspace-tool';
+import { runGrepSearch } from './grep-search-tool';
+import { runHybridSearch } from './hybrid-search-tool';
 import {
   type EditDiagnosticsResult,
   getEditDiagnostics,
   getLspInspection,
   type LspInspectionResult,
 } from './lsp-diagnostics';
-import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
+import { runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
-import {
-  runWebExtract,
-  WEB_EXTRACT_TOOL_ID,
-  type WebExtractToolDependencies,
-} from './web-extract-tool';
-import {
-  runWebSearch,
-  WEB_SEARCH_TOOL_ID,
-  type WebSearchToolDependencies,
-} from './web-search-tool';
+import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
+import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool';
 import {
   isHiddenPath,
   isWithinRoot,
@@ -156,21 +122,6 @@ export interface DesktopAssistantToolDependencies {
 
 const logger = createLogger('DesktopAssistantTools');
 
-const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const;
-const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
-const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
-const STRING_REPLACE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile' as const;
-const DELETE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.deleteWorkspaceFile' as const;
-const RENAME_WORKSPACE_FILE_TOOL_ID = 'brainstrike.renameWorkspaceFile' as const;
-const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
-const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
-const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
-const UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID =
-  'brainstrike.updateWorkspaceContextSelection' as const;
-const UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID =
-  'brainstrike.updateWorkspaceTapestrySelections' as const;
-const LIST_EMBEDDING_SPACES_TOOL_ID = 'brainstrike.listEmbeddingSpaces' as const;
-const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
 const WORKSPACE_CONTEXT_SELECTION_EVENT =
   DESKTOP_IPC_CHANNELS.agent.workspaceContextSelectionUpdate;
 const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate;
@@ -870,7 +821,7 @@ async function runWriteWorkspaceFile(
       rootId: root.rootId,
       runtimeData,
       toolCallId,
-      toolName: WRITE_WORKSPACE_FILE_TOOL_ID,
+      toolName: NATIVE_TOOL_ID.writeWorkspaceFile,
     });
     return writeResult;
   });
@@ -972,7 +923,7 @@ async function runStringReplaceWorkspaceFile(
       rootId: root.rootId,
       runtimeData,
       toolCallId,
-      toolName: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+      toolName: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
     });
 
     // Keep the RAG index coherent: re-index the edited file INSIDE the same
@@ -1216,7 +1167,7 @@ async function runDeleteWorkspaceFile(
       rootId: root.rootId,
       runtimeData,
       toolCallId,
-      toolName: DELETE_WORKSPACE_FILE_TOOL_ID,
+      toolName: NATIVE_TOOL_ID.deleteWorkspaceFile,
     });
 
     return {
@@ -1372,7 +1323,7 @@ async function runRenameWorkspaceFile(
       rootId: root.rootId,
       runtimeData,
       toolCallId,
-      toolName: RENAME_WORKSPACE_FILE_TOOL_ID,
+      toolName: NATIVE_TOOL_ID.renameWorkspaceFile,
     });
 
     return {
@@ -2562,10 +2513,10 @@ function resolveQueryEmbeddingSpaceInput(
   input: ToolExecuteInput<QueryEmbeddingSpaceInput>
 ): QueryEmbeddingSpaceInput {
   const raw = resolveToolExecuteInputCandidate(
-    QueryEmbeddingSpaceInputSchema,
+    NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
     input
   ) as Partial<QueryEmbeddingSpaceInput>;
-  return QueryEmbeddingSpaceInputSchema.parse(raw);
+  return NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace].parse(raw);
 }
 
 /**
@@ -2594,11 +2545,13 @@ export function buildDesktopAssistantTools(
   // it will never see reflected back.
   const isLocalProvider = isLocalProviderRuntime(runtimeData);
   const tools: MastraTools = {
-    [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
-      description:
-        "Find a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content. Matching is substring-based, so verify the returned range. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
+    [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.findWorkspaceSymbol],
       execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
-        const resolvedInput = parseToolExecuteInput(FindWorkspaceSymbolInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
+          input
+        );
         try {
           return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
         } catch (error) {
@@ -2606,14 +2559,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
-      inputSchema: FindWorkspaceSymbolInputSchema,
+      id: NATIVE_TOOL_ID.findWorkspaceSymbol,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
     },
-    [LSP_INSPECT_TOOL_ID]: {
-      description:
-        "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript): the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, the 1-based line, and a `match` string that is that line's text with a `<<<` marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`. Read-only. Returns a clear available:false note (not an error) for unsupported file types or when no server is available — relay it rather than retrying.",
+    [NATIVE_TOOL_ID.lspInspect]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
       execute: async (input: ToolExecuteInput<LspInspectInput>) => {
-        const resolvedInput = parseToolExecuteInput(LspInspectInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
+          input
+        );
         try {
           return await runLspInspect(resolvedInput, runtimeData);
         } catch (error) {
@@ -2621,14 +2576,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: LSP_INSPECT_TOOL_ID,
-      inputSchema: LspInspectInputSchema,
+      id: NATIVE_TOOL_ID.lspInspect,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
     },
-    [GREP_SEARCH_TOOL_ID]: {
-      description:
-        "Grep file content for an exact string (default) or JavaScript regex. HYBRID: searches BOTH the index AND the live on-disk files and merges, so just-edited / not-yet-reindexed files are found fresh (each match is labelled source: 'index' | 'live' | 'both'; re-grep after an edit to confirm your change is on disk). Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
+    [NATIVE_TOOL_ID.grepSearch]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
-        const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
+          input
+        );
         try {
           return await runGrepSearch(resolvedInput, runtimeData);
         } catch (error) {
@@ -2636,14 +2593,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: GREP_SEARCH_TOOL_ID,
-      inputSchema: GrepSearchInputSchema,
+      id: NATIVE_TOOL_ID.grepSearch,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
     },
-    [GLOB_WORKSPACE_TOOL_ID]: {
-      description:
-        'Enumerate workspace files by glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Use this to find files by NAME/PATH shape when you do not know their content — complementary to grepSearch (content) and readWorkspaceDirectory (one level). Skips .git/node_modules/build output by default (includeIgnored to override). Results are truncated to a fixed budget — follow the returned hint (offset, narrower pattern) to continue.',
+    [NATIVE_TOOL_ID.globWorkspace]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace],
       execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
-        const resolvedInput = parseToolExecuteInput(GlobWorkspaceInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
+          input
+        );
         try {
           return await runGlobWorkspace(resolvedInput, runtimeData);
         } catch (error) {
@@ -2651,16 +2610,18 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: GLOB_WORKSPACE_TOOL_ID,
-      inputSchema: GlobWorkspaceInputSchema,
+      id: NATIVE_TOOL_ID.globWorkspace,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
     },
-    [WEB_SEARCH_TOOL_ID]: {
-      description:
-        'Search the web for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. When no provider-native search is available and no Tavily API key is configured (Settings → API Keys), the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results are truncated to a fixed budget.',
+    [NATIVE_TOOL_ID.webSearch]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
       // The Tavily key is resolved server-side inside runWebSearch and never
       // returned to the model. No injected deps here → real fetch + keychain.
       execute: async (input: ToolExecuteInput<WebSearchInput>) => {
-        const resolvedInput = parseToolExecuteInput(WebSearchInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
+          input
+        );
         try {
           return await runWebSearch(resolvedInput, dependencies.webSearch);
         } catch (error) {
@@ -2668,16 +2629,18 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: WEB_SEARCH_TOOL_ID,
-      inputSchema: WebSearchInputSchema,
+      id: NATIVE_TOOL_ID.webSearch,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
     },
-    [WEB_EXTRACT_TOOL_ID]: {
-      description:
-        'Fetch the readable content of up to 5 PUBLIC web pages as markdown — the natural follow-up to webSearch results, or for a URL the user pasted. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass URLs carrying secrets or pointing at private/internal hosts; non-http(s), credentialed, and private/loopback URLs are refused before anything is sent and reported per-URL. When no Tavily API key is configured (Settings → API Keys), returns a non-fatal "unavailable, add a key" result rather than failing. Content is bounded per page and to a fixed overall budget.',
+    [NATIVE_TOOL_ID.webExtract]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
       // The Tavily key is resolved server-side inside runWebExtract and never
       // returned to the model. No injected deps here → real fetch + keychain.
       execute: async (input: ToolExecuteInput<WebExtractInput>) => {
-        const resolvedInput = parseToolExecuteInput(WebExtractInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
+          input
+        );
         try {
           return await runWebExtract(resolvedInput, dependencies.webExtract);
         } catch (error) {
@@ -2685,14 +2648,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: WEB_EXTRACT_TOOL_ID,
-      inputSchema: WebExtractInputSchema,
+      id: NATIVE_TOOL_ID.webExtract,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
     },
-    [READ_WORKSPACE_FILE_TOOL_ID]: {
-      description:
-        'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
+    [NATIVE_TOOL_ID.readWorkspaceFile]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceFile],
       execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
-        const resolvedInput = parseToolExecuteInput(ReadWorkspaceFileInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
+          input
+        );
         try {
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
@@ -2700,17 +2665,19 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: READ_WORKSPACE_FILE_TOOL_ID,
-      inputSchema: ReadWorkspaceFileInputSchema,
+      id: NATIVE_TOOL_ID.readWorkspaceFile,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
     },
-    [WRITE_WORKSPACE_FILE_TOOL_ID]: {
-      description:
-        'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
+    [NATIVE_TOOL_ID.writeWorkspaceFile]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.writeWorkspaceFile],
       execute: async (
         input: ToolExecuteInput<WriteWorkspaceFileInput>,
         context?: ToolExecuteRunContext
       ) => {
-        const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.writeWorkspaceFile],
+          input
+        );
         try {
           return await runWriteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
@@ -2718,17 +2685,19 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: WRITE_WORKSPACE_FILE_TOOL_ID,
-      inputSchema: WriteWorkspaceFileInputSchema,
+      id: NATIVE_TOOL_ID.writeWorkspaceFile,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.writeWorkspaceFile],
     },
-    [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
-      description:
-        'Surgically edit an existing workspace file: replace one oldStr block with newStr. Read the file first, then pass an oldStr with enough surrounding context to identify ONE location (a single line matching several places is refused), and the newStr (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
+    [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
       execute: async (
         input: ToolExecuteInput<StringReplaceWorkspaceFileInput>,
         context?: ToolExecuteRunContext
       ) => {
-        const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
+          input
+        );
         try {
           return await runStringReplaceWorkspaceFile(
             resolvedInput,
@@ -2740,17 +2709,19 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
-      inputSchema: StringReplaceWorkspaceFileInputSchema,
+      id: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.stringReplaceWorkspaceFile],
     },
-    [DELETE_WORKSPACE_FILE_TOOL_ID]: {
-      description:
-        'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). The path is clamped to the workspace root and can never escape it. Removes the file from the workspace index when it was indexed. Requires user approval (edit-risk).',
+    [NATIVE_TOOL_ID.deleteWorkspaceFile]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.deleteWorkspaceFile],
       execute: async (
         input: ToolExecuteInput<DeleteWorkspaceFileInput>,
         context?: ToolExecuteRunContext
       ) => {
-        const resolvedInput = parseToolExecuteInput(DeleteWorkspaceFileInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.deleteWorkspaceFile],
+          input
+        );
         try {
           return await runDeleteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
@@ -2758,17 +2729,19 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: DELETE_WORKSPACE_FILE_TOOL_ID,
-      inputSchema: DeleteWorkspaceFileInputSchema,
+      id: NATIVE_TOOL_ID.deleteWorkspaceFile,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.deleteWorkspaceFile],
     },
-    [RENAME_WORKSPACE_FILE_TOOL_ID]: {
-      description:
-        'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (rename never overwrites — delete the target first). Both paths stay inside ONE open folder (cross-root moves refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires user approval (edit-risk).',
+    [NATIVE_TOOL_ID.renameWorkspaceFile]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.renameWorkspaceFile],
       execute: async (
         input: ToolExecuteInput<RenameWorkspaceFileInput>,
         context?: ToolExecuteRunContext
       ) => {
-        const resolvedInput = parseToolExecuteInput(RenameWorkspaceFileInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
+          input
+        );
         try {
           return await runRenameWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
@@ -2776,14 +2749,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: RENAME_WORKSPACE_FILE_TOOL_ID,
-      inputSchema: RenameWorkspaceFileInputSchema,
+      id: NATIVE_TOOL_ID.renameWorkspaceFile,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
     },
-    [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
-      description:
-        'List workspace directory entries (path + type by default; detail: true adds sizes). Prefer specific subdirectories over the root. Truncated listings include a hint with the offset to continue from.',
+    [NATIVE_TOOL_ID.readWorkspaceDirectory]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceDirectory],
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
-        const resolvedInput = parseToolExecuteInput(ReadWorkspaceDirectoryInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
+          input
+        );
         try {
           return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
         } catch (error) {
@@ -2791,14 +2766,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
-      inputSchema: ReadWorkspaceDirectoryInputSchema,
+      id: NATIVE_TOOL_ID.readWorkspaceDirectory,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
     },
-    [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
-      description:
-        'Inspect the current workspace root, selected context paths, token budgets, and workspace index hint without returning file contents. Compact summary by default; set detail: true for per-file Tapestry ranges. Use before reading selected context.',
+    [NATIVE_TOOL_ID.listWorkspaceContext]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listWorkspaceContext],
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
-        const resolvedInput = parseToolExecuteInput(ListWorkspaceContextInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
+          input
+        );
         try {
           return runListWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
@@ -2806,14 +2783,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
-      inputSchema: ListWorkspaceContextInputSchema,
+      id: NATIVE_TOOL_ID.listWorkspaceContext,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
     },
-    [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
-      description:
-        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Uses curated Tapestry ranges by default when available. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
+    [NATIVE_TOOL_ID.readWorkspaceContext]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
-        const resolvedInput = parseToolExecuteInput(ReadWorkspaceContextInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
+          input
+        );
         try {
           return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
@@ -2821,15 +2800,14 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
-      inputSchema: ReadWorkspaceContextInputSchema,
+      id: NATIVE_TOOL_ID.readWorkspaceContext,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
     },
-    [UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID]: {
-      description:
-        'Bulk add, remove, or replace files selected in the workspace context explorer. Use this to curate reusable context for the user; listWorkspaceContext reports token counts afterward.',
+    [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
       execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
         const resolvedInput = parseToolExecuteInput(
-          UpdateWorkspaceContextSelectionInputSchema,
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
           input
         );
         try {
@@ -2839,15 +2817,14 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
-      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
+      id: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
     },
-    [UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID]: {
-      description:
-        'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search and file reads to keep only verified source ranges.',
+    [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
       execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
         const resolvedInput = parseToolExecuteInput(
-          UpdateWorkspaceTapestrySelectionsInputSchema,
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
           input
         );
         try {
@@ -2857,14 +2834,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
-      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
+      id: NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
     },
-    [LIST_EMBEDDING_SPACES_TOOL_ID]: {
-      description:
-        'List available embedding spaces, identify the configured Workspace Index, and optionally include coverage stats. Use this when you need to inspect non-default embedding spaces or index coverage.',
+    [NATIVE_TOOL_ID.listEmbeddingSpaces]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listEmbeddingSpaces],
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
-        const resolvedInput = parseToolExecuteInput(ListEmbeddingSetsInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],
+          input
+        );
         try {
           return await runListEmbeddingSpaces(resolvedInput, runtimeData);
         } catch (error) {
@@ -2872,8 +2851,8 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: LIST_EMBEDDING_SPACES_TOOL_ID,
-      inputSchema: ListEmbeddingSetsInputSchema,
+      id: NATIVE_TOOL_ID.listEmbeddingSpaces,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],
     },
     ...(isLocalProvider
       ? {}
@@ -2885,13 +2864,15 @@ export function buildDesktopAssistantTools(
           // hasSuspendSchema fail-safe/plan-mode keep-rule. Excluded for the
           // built-in local provider (same WebGPU-prefill reasoning as the task-list
           // tool and the plan-mode gate).
-          [ASK_USER_TOOL_ID]: createAskUserTool(),
-          [SUBMIT_PLAN_TOOL_ID]: createSubmitPlanTool(),
-          [MANAGE_TASK_LIST_TOOL_ID]: {
-            description:
-              'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the FULL desired list every call. When a task is multi-step, break it into tasks up front; keep exactly one task in_progress at a time and mark tasks completed as you finish them. Each task is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. The list is re-injected into your instructions each turn (so it survives context truncation) and shown to the user as a progress checklist.',
+          [NATIVE_TOOL_ID.askUser]: createAskUserTool(),
+          [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
+          [NATIVE_TOOL_ID.manageTaskList]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
             execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
-              const resolvedInput = parseToolExecuteInput(ManageTaskListInputSchema, input);
+              const resolvedInput = parseToolExecuteInput(
+                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
+                input
+              );
               try {
                 return await runManageTaskList(resolvedInput, runtimeData);
               } catch (error) {
@@ -2899,13 +2880,12 @@ export function buildDesktopAssistantTools(
                 throw error;
               }
             },
-            id: MANAGE_TASK_LIST_TOOL_ID,
-            inputSchema: ManageTaskListInputSchema,
+            id: NATIVE_TOOL_ID.manageTaskList,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
           },
         }),
-    [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
-      description:
-        'Query semantic workspace context and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, omit embeddingSetId to use the Workspace Index. Provide embeddingSetId only for a specific non-default embedding space; use tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+    [NATIVE_TOOL_ID.queryEmbeddingSpace]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryEmbeddingSpace],
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
         try {
@@ -2917,14 +2897,16 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
-      inputSchema: QueryEmbeddingSpaceInputSchema,
+      id: NATIVE_TOOL_ID.queryEmbeddingSpace,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
     },
-    [HYBRID_SEARCH_TOOL_ID]: {
-      description:
-        'Hybrid workspace search over the embedding index: runs semantic (vector) AND exact-term (BM25 keyword) search in parallel and fuses the rankings with reciprocal rank fusion. BEST DEFAULT for code/doc retrieval when the query mixes conceptual intent with distinctive terms (identifiers, error fragments, domain jargon). Use queryEmbeddingSpace instead for purely conceptual queries with unknown wording, and grepSearch for exact strings/regex needing path:line matches. Omit embeddingSetId to use the Workspace Index. Fails visibly if the keyword index is unavailable — it never silently degrades to vector-only results.',
+    [NATIVE_TOOL_ID.hybridSearch]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
       execute: async (input: ToolExecuteInput<HybridSearchInput>) => {
-        const resolvedInput = parseToolExecuteInput(HybridSearchInputSchema, input);
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
+          input
+        );
         try {
           return await runHybridSearch(resolvedInput, runtimeData, {
             embeddingHostManager: dependencies.embeddingHostManager,
@@ -2934,8 +2916,8 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
-      id: HYBRID_SEARCH_TOOL_ID,
-      inputSchema: HybridSearchInputSchema,
+      id: NATIVE_TOOL_ID.hybridSearch,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
     },
   };
 
@@ -2945,9 +2927,8 @@ export function buildDesktopAssistantTools(
   // before the command runs (approve → execute, decline → skip). A user can set
   // execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it — that is
   // the permission gate's job now, not a registration-time conditional.
-  tools[EXECUTE_COMMAND_TOOL_ID] = {
-    description:
-      "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
+  tools[NATIVE_TOOL_ID.executeCommand] = {
+    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.executeCommand],
     // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
     // we thread into the run so a cancelled run kills the process tree, and whose
     // stream writer + tool-call id we use to stream incremental stdout/stderr to
@@ -2958,7 +2939,10 @@ export function buildDesktopAssistantTools(
     // the command still runs and returns its full captured result — only the
     // live slices are skipped (capability presence, not a policy fallback).
     execute: async (input: ToolExecuteInput<ExecuteCommandInput>, options?: ToolExecuteContext) => {
-      const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+      const resolvedInput = parseToolExecuteInput(
+        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
+        input
+      );
       const stream = resolveShellOutputStreamer(options, (error) => {
         logToolFailure('executeCommand output streaming failed', error, resolvedInput);
       });
@@ -2972,8 +2956,8 @@ export function buildDesktopAssistantTools(
         throw error;
       }
     },
-    id: EXECUTE_COMMAND_TOOL_ID,
-    inputSchema: ExecuteCommandInputSchema,
+    id: NATIVE_TOOL_ID.executeCommand,
+    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
   };
 
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;

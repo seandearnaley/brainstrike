@@ -1,7 +1,8 @@
 import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  getNativeToolDescription,
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
-  TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
@@ -46,29 +47,32 @@ configureModelRuntimeServices({
 });
 
 /**
- * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.
- * Native tools are always enabled by default (can be toggled in settings).
+ * Transform the desktop-owned native tools into ToolDisplayMetadata format.
+ * Mastra skill tools have their own preferences and are not desktop toggles.
  */
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
-  return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
-    category: metadata.category,
-    description: getToolDescription(id),
-    enabled: isToolEnabled(id),
-    estimatedTokens: metadata.estimatedTokens,
-    id,
-    loadingTier: metadata.loadingTier,
-    requiresApproval: metadata.requiresApproval,
-    source: 'native' as const,
-  }));
+  return DESKTOP_NATIVE_TOOL_IDS.map((id) => {
+    const metadata = NATIVE_TOOL_DEFAULTS[id];
+    return {
+      category: metadata.category,
+      description: getToolDescription(id),
+      enabled: isToolEnabled(id),
+      estimatedTokens: metadata.estimatedTokens,
+      id,
+      loadingTier: metadata.loadingTier,
+      requiresApproval: metadata.requiresApproval,
+      source: 'native' as const,
+    };
+  });
 }
 
 /**
  * Get human-readable description for native tools.
  */
 function getToolDescription(toolId: string): string {
-  return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
+  return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
 }
 
 function EmbeddingModelsCategory() {

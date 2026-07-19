@@ -12,6 +12,7 @@
  * here at build time — a user persona can never name a mutation tool.
  */
 
+import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   type AssistantPersonaDefinition,
   type AssistantPersonaModelPin,
@@ -44,12 +45,12 @@ export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;
  * delegated child.
  */
 export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
-  'brainstrike.queryEmbeddingSpace',
-  'brainstrike.grepSearch',
-  'brainstrike.globWorkspace',
-  'brainstrike.findWorkspaceSymbol',
-  'brainstrike.readWorkspaceFile',
-  'brainstrike.readWorkspaceDirectory',
+  NATIVE_TOOL_ID.queryEmbeddingSpace,
+  NATIVE_TOOL_ID.grepSearch,
+  NATIVE_TOOL_ID.globWorkspace,
+  NATIVE_TOOL_ID.findWorkspaceSymbol,
+  NATIVE_TOOL_ID.readWorkspaceFile,
+  NATIVE_TOOL_ID.readWorkspaceDirectory,
 ];
 
 const NATIVE_TOOL_ID_PREFIX = 'brainstrike.';
@@ -73,10 +74,10 @@ export const MAX_USER_PERSONA_ID_LENGTH =
  * parent-scoped. The default toolset already excludes them; this blocks the
  * explicit-allowlist path too.
  */
-const USER_PERSONA_DISALLOWED_TOOL_IDS = new Set([
-  'brainstrike.askUser',
-  'brainstrike.manageTaskList',
-  'brainstrike.submitPlan',
+const USER_PERSONA_DISALLOWED_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.askUser,
+  NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.submitPlan,
 ]);
 
 const MODEL_PIN_SEPARATOR = '::';

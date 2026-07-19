@@ -1,11 +1,16 @@
-import type { GlobWorkspaceInput, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
-import { fitItemsToCharBudget } from '@brainstrike/agent';
+import {
+  fitItemsToCharBudget,
+  type GlobWorkspaceInput,
+  type RuntimeData,
+  type RuntimeWorkspaceRoot,
+} from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
 import { walkWorkspaceRoot } from './workspace-file-walk';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
-export const GLOB_WORKSPACE_TOOL_ID = 'brainstrike.globWorkspace' as const;
+export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 
 const DEFAULT_LIMIT = 200;
 

@@ -2247,9 +2247,11 @@ describe('mastra streaming integration', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(instructions).toContain('without embeddingSetId so it uses the Workspace Index');
+    expect(instructions).toContain(
+      'without embeddingSetId for purely conceptual Workspace Index queries'
+    );
     expect(instructions).toContain('semantic chunks with persisted source line ranges');
-    expect(instructions).toContain('surrounding lines are needed');
+    expect(instructions).toContain('Read only the needed source ranges afterward');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 
@@ -2265,12 +2267,11 @@ describe('mastra streaming integration', () => {
     });
 
     const instructions = agentInstances[0]?.config.instructions ?? '';
-    expect(instructions).toContain('Registered Brainstrike native context tools in this run');
     expect(instructions).toContain('brainstrike_readWorkspaceFile');
-    expect(instructions).toContain('Workspace-selection inspection is unavailable in this run.');
-    expect(instructions).toContain(
-      'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.'
-    );
+    expect(instructions).toContain('If an expected native tool is unavailable, name its ID');
+    expect(instructions).not.toContain('Registered Brainstrike native context tools in this run');
+    expect(instructions).not.toContain('Workspace-selection inspection is unavailable');
+    expect(instructions).not.toContain('Semantic workspace search is unavailable');
     expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
     expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
