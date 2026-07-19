@@ -207,12 +207,20 @@ function deserializeSelectionModel(
   }
   const mode = serialized.mode === 'query' && queryDescriptor ? 'query' : 'explicit';
 
+  // The materialized-path cache (and its timestamp) is a query-mode display
+  // artifact — nothing in explicit mode reads it. Drop it whenever we resolve
+  // to explicit so migrated legacy 'rules' profiles (and any stray explicit
+  // model that carried a cache) converge to a clean explicit shape instead of
+  // re-persisting dead data on every save.
+  const isQueryMode = mode === 'query';
+
   return {
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
-    materializedAt: serialized.materializedAt ?? null,
-    materializedPaths: serialized.materializedPaths
-      ? new Set(coerceStringArray(serialized.materializedPaths))
-      : null,
+    materializedAt: isQueryMode ? (serialized.materializedAt ?? null) : null,
+    materializedPaths:
+      isQueryMode && serialized.materializedPaths
+        ? new Set(coerceStringArray(serialized.materializedPaths))
+        : null,
     mode,
     queryDescriptor,
   };

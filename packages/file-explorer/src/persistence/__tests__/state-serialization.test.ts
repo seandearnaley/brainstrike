@@ -682,8 +682,10 @@ describe('state-serialization', () => {
 
       expect(result.selectionModel.mode).toBe('explicit');
       expect(result.selectionModel.explicitPaths).toEqual(new Set(['a', 'b']));
-      expect(result.selectionModel.materializedPaths).toEqual(new Set(['m1']));
-      expect(result.selectionModel.materializedAt).toBe('2024-01-01');
+      // The rules-era materialized cache is query-mode-only display data; the
+      // migrated explicit model converges clean rather than re-persisting it.
+      expect(result.selectionModel.materializedPaths).toBeNull();
+      expect(result.selectionModel.materializedAt).toBeNull();
     });
 
     it('should deserialize query-backed selection descriptors', () => {
