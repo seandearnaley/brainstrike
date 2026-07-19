@@ -47,6 +47,12 @@ at both read and write boundaries, and every new presentation column must be
 registered in the numbered runner plus Drizzle's append-only
 `customMigrations` ledger.
 
+Migration 067 owns the thread hybrid-search index
+(`brainstrike_thread_message_index` + `_search_profiles` + `_search_state`)
+under the same Mastra-ownership ruling — no FKs to the Mastra tables, joined
+by id, factory-reset-cleared except the singleton profile. Full contract:
+`docs/agents/assistant-persistence.md` § THREADS PANEL HYBRID SEARCH.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

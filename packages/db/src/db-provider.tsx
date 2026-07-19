@@ -74,6 +74,23 @@ async function clearPromptItemsIfPresent(
 }
 
 /**
+ * Thread search index (migration 067): derived conversation text + sync
+ * watermark must not survive a clear/reset; the singleton search profile is
+ * configuration and intentionally survives, like the prompt profile.
+ */
+async function clearThreadSearchIndexIfPresent(tx: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  for (const table of ['brainstrike_thread_message_index', 'brainstrike_thread_search_state']) {
+    try {
+      await tx.query(`DELETE FROM ${table}`);
+    } catch (error) {
+      logger.warn(`[DbProvider] Failed to clear ${table} (table may not exist):`, error);
+    }
+  }
+}
+
+/**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
  * Direct mode: renderer owns a PGlite instance (must close on teardown).
@@ -840,6 +857,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           error
         );
       }
+      await clearThreadSearchIndexIfPresent(tx);
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -883,6 +901,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('Failed to clear brainstrike_assistant_run_outcomes during reset:', err);
     }
+    await clearThreadSearchIndexIfPresent(tx);
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {

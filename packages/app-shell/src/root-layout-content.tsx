@@ -368,7 +368,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 />
               </Suspense>
             )}
-            threadsContent={<ThreadsPanel />}
+            threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
           />
         }
         workspaceContent={
