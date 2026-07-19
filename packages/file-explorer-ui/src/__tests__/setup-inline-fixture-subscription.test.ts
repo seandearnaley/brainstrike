@@ -103,6 +103,42 @@ function createFixtureStore(initialEnabled: boolean) {
   }));
 }
 
+/**
+ * Wrap a vanilla fixture store with a controllable Zustand persist API so a
+ * test can drive the ASYNC hydration ordering the real store exhibits (its
+ * persist `getItem` returns a Promise, so hydration completes AFTER
+ * useEffect-time setup). The store starts at the pre-hydration default
+ * (`false`); `finishHydration` later installs the persisted value and fires the
+ * `onFinishHydration` listeners exactly once — the edge-triggered contract the
+ * production persist middleware honors.
+ */
+function createHydratingFixtureStore(persistedEnabled: boolean) {
+  const store = createFixtureStore(false);
+  let hydrated = false;
+  const finishListeners = new Set<() => void>();
+  const persist = {
+    hasHydrated: () => hydrated,
+    onFinishHydration: (callback: () => void) => {
+      finishListeners.add(callback);
+      return () => {
+        finishListeners.delete(callback);
+      };
+    },
+  };
+  (store as unknown as { persist: typeof persist }).persist = persist;
+
+  const finishHydration = (): void => {
+    // The persist merge installs the persisted flag, THEN listeners fire.
+    store.setState({ devInlineFixtureEnabled: persistedEnabled });
+    hydrated = true;
+    for (const callback of Array.from(finishListeners)) {
+      callback();
+    }
+  };
+
+  return { finishHydration, store };
+}
+
 describe('setup-inline-fixture-subscription', () => {
   beforeEach(() => {
     import.meta.env.DEV = true;
@@ -610,5 +646,96 @@ describe('setup-inline-fixture-subscription', () => {
     await Promise.resolve();
     expect(loadInlineFixture).toHaveBeenCalledTimes(1);
     unsubscribe();
+  });
+
+  it('defers the resurrection guard until persist hydration completes (async worker-backed storage)', async () => {
+    // Regression: with the async worker-backed persist storage, hydration
+    // completes AFTER useEffect-time setup. If the guard/subscription arm
+    // synchronously, the baseline reads the pre-hydration default (false), the
+    // guard is a no-op, and the hydration-driven false→true flip is mistaken
+    // for a user toggle — loading the fixture in mode 'replace' and dropping
+    // the user's restored roots. Arming must be deferred until hydration.
+    const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
+    const adapter = createFixtureCapableAdapter({
+      isInlineFixtureActive: () => false,
+      loadInlineFixture,
+    });
+    const { store, finishHydration } = createHydratingFixtureStore(true);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+
+    // Pre-hydration: nothing is armed, so the not-yet-hydrated flag cannot
+    // trigger a load, and the guard has not touched state.
+    expect(loadInlineFixture).not.toHaveBeenCalled();
+    expect(store.getState().devInlineFixtureEnabled).toBe(false);
+
+    // Hydration installs the persisted `true`, then notifies finish listeners.
+    finishHydration();
+    await Promise.resolve();
+
+    // The guard fires post-hydration: the flag resets and — crucially — the
+    // fixture is NEVER loaded in mode 'replace'.
+    expect(loadInlineFixture).not.toHaveBeenCalled();
+    expect(store.getState().devInlineFixtureEnabled).toBe(false);
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      'Inline fixture was enabled in persisted state — resetting to keep the restored workspace; re-enable it from settings for this session'
+    );
+
+    // A genuine in-session toggle AFTER hydration still applies.
+    store.getState().setDevInlineFixtureEnabled(true);
+    await Promise.resolve();
+    expect(loadInlineFixture).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+  });
+
+  it('arms a post-hydration in-session toggle when the persisted flag was disabled', async () => {
+    // The common cold-boot case: nothing persisted enabled. Deferred arming
+    // must still wire the subscription so a later toggle loads the fixture.
+    const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
+    const adapter = createFixtureCapableAdapter({
+      isInlineFixtureActive: () => false,
+      loadInlineFixture,
+    });
+    const { store, finishHydration } = createHydratingFixtureStore(false);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    finishHydration();
+    await Promise.resolve();
+
+    // No persisted enable → guard silent, no reset warning.
+    expect(loggerMocks.warn).not.toHaveBeenCalled();
+    expect(loadInlineFixture).not.toHaveBeenCalled();
+
+    store.getState().setDevInlineFixtureEnabled(true);
+    await Promise.resolve();
+    expect(loadInlineFixture).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+  });
+
+  it('does not arm the subscription when disposed before hydration finishes', async () => {
+    // HMR/unmount can tear the setup down before the async hydration resolves.
+    // A late onFinishHydration must not arm a subscription on a dead setup.
+    const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
+    const adapter = createFixtureCapableAdapter({
+      isInlineFixtureActive: () => false,
+      loadInlineFixture,
+    });
+    const { store, finishHydration } = createHydratingFixtureStore(true);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    // Dispose BEFORE hydration completes.
+    unsubscribe();
+
+    finishHydration();
+    await Promise.resolve();
+
+    // Guard never ran (no reset), and no post-dispose toggle can reach a load.
+    expect(store.getState().devInlineFixtureEnabled).toBe(true);
+    store.getState().setDevInlineFixtureEnabled(false);
+    store.getState().setDevInlineFixtureEnabled(true);
+    await Promise.resolve();
+    expect(loadInlineFixture).not.toHaveBeenCalled();
   });
 });
