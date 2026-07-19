@@ -203,4 +203,39 @@ describe('tool output artifact contracts', () => {
     encodeSpy.mockRestore();
     parseSpy.mockRestore();
   });
+
+  it('caps encoded provider fields as well as their decoded byte spans', () => {
+    const inflated = encodeToolOutputArtifactContent(
+      '\u0000'.repeat(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES)
+    );
+    const inflatedReference = {
+      ...reference,
+      byteLength: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES + 1,
+    };
+
+    expect(
+      isToolOutputArtifactEnvelope({
+        artifactRef: inflatedReference,
+        code: TOOL_OUTPUT_ARTIFACT_CODE,
+        contentEncoding: inflated.contentEncoding,
+        hint: 'Continue.',
+        nextCursor: cursor,
+        preview: inflated.content,
+        truncated: true,
+        version: TOOL_OUTPUT_ARTIFACT_VERSION,
+      })
+    ).toBe(false);
+    expect(
+      isToolOutputArtifactPage({
+        artifactRef: {
+          ...inflatedReference,
+          byteLength: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
+        },
+        content: inflated.content,
+        contentEncoding: inflated.contentEncoding,
+        endByte: TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
+        offsetByte: 0,
+      })
+    ).toBe(false);
+  });
 });
