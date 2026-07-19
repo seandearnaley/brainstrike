@@ -1,7 +1,7 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
-import type { MCPClient } from '@mastra/mcp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { McpRuntimeClient } from '../mastra/mcp-runtime-client';
 import { collectCombinedTools } from '../mastra/mcp-tool-loader';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 
@@ -49,7 +49,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: {} as MCPClient,
+        mcpClient: {} as McpRuntimeClient,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
         timeoutOverrideMs: undefined,
@@ -81,7 +81,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: { servers: [] },
         sanitizedLocalTools: localTools,
         timeoutOverrideMs: undefined,
@@ -107,7 +107,7 @@ describe('mcp-tool-loader', () => {
       const toolNameMap = new Map<string, string>();
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -144,7 +144,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -179,7 +179,7 @@ describe('mcp-tool-loader', () => {
 
       try {
         const result = await collectCombinedTools({
-          mcpClient: mockMcpClient as unknown as MCPClient,
+          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
           mcpConfig: {
             servers: [
               {
@@ -233,7 +233,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -278,7 +278,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -318,7 +318,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -349,7 +349,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -387,7 +387,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -432,7 +432,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -472,7 +472,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -513,7 +513,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -555,7 +555,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -613,7 +613,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -671,7 +671,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -725,7 +725,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -760,7 +760,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -790,7 +790,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -820,7 +820,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -849,7 +849,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -877,7 +877,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -905,7 +905,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -938,7 +938,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const resultPromise = collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -971,7 +971,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -999,7 +999,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1025,7 +1025,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1059,7 +1059,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1096,7 +1096,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1124,7 +1124,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1153,7 +1153,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1185,7 +1185,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1231,7 +1231,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1270,7 +1270,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1308,7 +1308,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1344,7 +1344,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {
@@ -1384,7 +1384,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
-        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [
             {

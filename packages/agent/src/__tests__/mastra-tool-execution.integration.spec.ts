@@ -16,6 +16,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -67,6 +68,10 @@ const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
 const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
 const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
+const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
+const MIXED_MEDIA_STDIO_SERVER_PATH = fileURLToPath(
+  new URL('./fixtures/mcp-mixed-media-stdio-server.mjs', import.meta.url)
+);
 
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
@@ -603,6 +608,132 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(text).toContain('mixed-structured-media-fixture');
     expect(text).not.toContain(MCP_TEXT_RAW_ONLY_TAIL);
     expect(text.length).toBeLessThanOrEqual(8000);
+  });
+
+  it('preserves mixed structured MCP media from a real stdio server', async () => {
+    let modelFacingToolOutput: unknown;
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The stdio media reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-stdio-multimodal-1',
+      toolName: 'stdio_multimodal',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-stdio-multimodal',
+          parts: [{ text: 'return stdio media', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        mcpConfig: {
+          servers: [
+            {
+              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+              command: process.execPath,
+              env: {},
+              name: 'stdio',
+              transport: 'stdio',
+            },
+          ],
+        },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the child-process MCP tool and second model step.
+    }
+
+    expect(modelFacingToolOutput).toMatchObject({ type: 'content' });
+    const value = (modelFacingToolOutput as { value?: unknown }).value;
+    expect(Array.isArray(value)).toBe(true);
+    const modelParts = value as Record<string, unknown>[];
+    expect(modelParts).toEqual(
+      expect.arrayContaining([
+        {
+          data: MCP_IMAGE_DATA,
+          mediaType: 'image/png',
+          type: 'media',
+        },
+        {
+          data: MCP_AUDIO_DATA,
+          mediaType: 'audio/wav',
+          type: 'media',
+        },
+      ])
+    );
+    const text = modelParts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('');
+    expect(text).toContain('output was truncated');
+    expect(text).toContain('mixed-structured-stdio-media-fixture');
+    expect(text).not.toContain(MCP_STDIO_TEXT_RAW_ONLY_TAIL);
+    expect(text.length).toBeLessThanOrEqual(8000);
+  });
+
+  it('keeps structured-only stdio MCP results on the established structured shape', async () => {
+    let modelFacingToolOutput: unknown;
+    const chunks: StreamChunk[] = [];
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The stdio structured result reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-stdio-structured-only-1',
+      toolName: 'stdio_structured_only',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-stdio-structured-only',
+          parts: [{ text: 'return structured stdio output', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        mcpConfig: {
+          servers: [
+            {
+              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+              command: process.execPath,
+              env: {},
+              name: 'stdio',
+              transport: 'stdio',
+            },
+          ],
+        },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        name: 'stdio.structured_only',
+        payload: expect.objectContaining({
+          output: { value: 'structured-stdio-only' },
+        }),
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(modelFacingToolOutput).toMatchObject({ type: 'text' });
+    expect((modelFacingToolOutput as { value?: unknown }).value).toContain('structured-stdio-only');
+    expect((modelFacingToolOutput as { value?: unknown }).value).not.toContain(
+      'legacy unstructured duplicate'
+    );
   });
 
   // Live-loop proof for the SHAPE of brainstrike.executeCommand (an execute-risk

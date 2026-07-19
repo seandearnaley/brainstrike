@@ -129,6 +129,11 @@ discriminator is one of `stdio`, `streamable-http`, or legacy `sse`; it is never
 omitted, inferred from a URL path, or changed after a failed connection.
 
 Remote transport rules:
+- `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
+  inherits its documented safe environment allowlist and overlays only the
+  explicitly configured `env`; spawn/connect failures remain visible. An
+  unexpected child exit invalidates only that owned connection: the interrupted
+  request fails without replay, and the next operation may start a fresh child.
 - `streamable-http` is the modern MCP transport and normally targets one `/mcp`
   endpoint. It constructs only the official SDK's
   `StreamableHTTPClientTransport`.
@@ -145,20 +150,25 @@ Ownership and flow:
 1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
    boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
    contract. Public renderer status exposes only server name + transport.
-2. Official client — `packages/agent/src/mcp/explicit-http-client.ts`, exported
-   only from `@brainstrike/agent/mcp-client`, owns the SDK 1.29 HTTP transports,
-   lazy/concurrency-safe connection, header composition, request forwarding,
-   session termination, and idempotent close. Keep the SDK package external in
-   the agent build; do not pull this edge into browser-safe/root exports.
+2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
+   `explicit-http-client.ts`, exported only from
+   `@brainstrike/agent/mcp-client`, own the SDK 1.29 transports,
+   lazy/concurrency-safe connection, request forwarding, and idempotent close.
+   The HTTP client additionally owns header composition and Streamable HTTP
+   session termination. Keep the SDK package external in the agent build; do
+   not pull this edge into browser-safe/root exports.
 3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
    the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
    compatibility factory delegating to the canonical adapter; no bespoke SSE
    framing, endpoint rewriting, or environment-selected call path remains.
-4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` partitions
-   servers. Mastra `MCPClient` handles `stdio` ONLY; explicit HTTP clients are
-   converted into Mastra tools and combined through the existing pipeline:
-   discovery → namespace/sanitize → output bound → guard → hooks → permission.
-   Remote progress uses the distinct transient
+4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
+   the selected official-SDK client for every server and converts every
+   discovered tool through one shared Mastra-tool adapter. This preserves the
+   complete `CallToolResult` until the adapter deliberately selects
+   structured-only output or retains mixed structured+media output; upstream
+   wrappers may not collapse either transport first. All tools then use the
+   existing pipeline: discovery → namespace/sanitize → output bound → guard →
+   hooks → permission. Remote progress uses the distinct transient
    `brainstrike.mcp-progress.chunk` `writer.custom` part and maps back to a
    `tool-event`; progress-channel failure is warning-only and never replaces a
    completed tool result or the remote tool's primary error.
@@ -253,14 +263,14 @@ through to Brainstrike's bounded deterministic default, while malformed
 non-callable projections throw. MCP image/audio results use Mastra `content`
 output so base64 media remains model-native while companion text is bounded.
 When a valid MCP result includes both `structuredContent` and image/audio
-`content`, the explicit-HTTP runtime preserves the canonical result envelope
+`content`, the transport-owned MCP runtime preserves the canonical result envelope
 through persistence bounding instead of collapsing to the structured object.
 The structured JSON joins the bounded model-facing companion text while the
 media remains model-native; both the inline-media and non-media persistence
-ceilings still fail visibly before transport. As in Mastra MCPClient 1.13, the
-discovered output schema remains exposed for documentation, while the official
-MCP SDK owns structured-output validation and Mastra does not incorrectly
-re-validate the complete `CallToolResult` envelope against the inner schema.
+ceilings still fail visibly before transport. The discovered output schema
+remains exposed for documentation, while the official MCP SDK owns
+structured-output validation and Mastra does not incorrectly re-validate the
+complete `CallToolResult` envelope against the inner schema.
 Mastra 1.51 invokes projections with `{toolCallId,input,output}` even though
 its `createTool` contract gives custom projectors the raw execute result.
 Brainstrike therefore extracts the exact

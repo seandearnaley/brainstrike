@@ -29,7 +29,7 @@ function requireExecutableTool(tool: ToolsInput[string] | undefined): Executable
 describe('MCP runtime client', () => {
   it('rejects duplicate server names before constructing any transport client', () => {
     const createExplicitHttpClient = vi.fn();
-    const createMastraClient = vi.fn();
+    const createExplicitStdioClient = vi.fn();
 
     expect(() =>
       createMcpRuntimeClient({
@@ -43,27 +43,28 @@ describe('MCP runtime client', () => {
             },
           ],
         },
-        dependencies: { createExplicitHttpClient, createMastraClient },
-        id: 'duplicate-test',
+        dependencies: { createExplicitHttpClient, createExplicitStdioClient },
       })
     ).toThrow('duplicate server name');
-    expect(createMastraClient).not.toHaveBeenCalled();
+    expect(createExplicitStdioClient).not.toHaveBeenCalled();
     expect(createExplicitHttpClient).not.toHaveBeenCalled();
   });
 
-  it('partitions stdio into Mastra while explicit HTTP clients keep their selected transports', async () => {
+  it('constructs one official SDK client for each explicitly selected transport', async () => {
     const stdioClient = {
-      disconnect: vi.fn().mockResolvedValue(undefined),
-      listToolsetsWithErrors: vi.fn().mockResolvedValue({
-        errors: {},
-        toolsets: {
-          local: {
-            inspect: { description: 'Inspect locally', id: 'inspect' },
+      callTool: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {
+            description: 'Inspect locally',
+            inputSchema: { type: 'object' },
+            name: 'inspect',
           },
-        },
+        ],
       }),
     };
-    const createMastraClient = vi.fn(() => stdioClient);
+    const createExplicitStdioClient = vi.fn(() => stdioClient);
     const streamableClient = {
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
@@ -102,21 +103,16 @@ describe('MCP runtime client', () => {
           },
         ],
       },
-      dependencies: { createExplicitHttpClient, createMastraClient },
-      id: 'partition-test',
+      dependencies: { createExplicitHttpClient, createExplicitStdioClient },
     });
 
     expect(runtimeClient).toBeDefined();
-    expect(createMastraClient).toHaveBeenCalledOnce();
-    expect(createMastraClient).toHaveBeenCalledWith({
-      id: 'partition-test-stdio',
-      servers: {
-        local: {
-          args: ['server.js'],
-          command: 'node',
-          env: { NODE_ENV: 'test' },
-        },
-      },
+    expect(createExplicitStdioClient).toHaveBeenCalledOnce();
+    expect(createExplicitStdioClient).toHaveBeenCalledWith({
+      args: ['server.js'],
+      command: 'node',
+      env: { NODE_ENV: 'test' },
+      name: 'local',
     });
     expect(createExplicitHttpClient).toHaveBeenNthCalledWith(1, {
       headers: { Authorization: 'Bearer streamable' },
@@ -131,8 +127,19 @@ describe('MCP runtime client', () => {
       url: 'https://example.com/mcp',
     });
 
+    await expect(runtimeClient?.listToolsetsWithErrors()).resolves.toMatchObject({
+      errors: {},
+      toolsets: {
+        local: {
+          inspect: expect.objectContaining({
+            description: 'Inspect locally',
+            id: 'local_inspect',
+          }),
+        },
+      },
+    });
     await runtimeClient?.disconnect();
-    expect(stdioClient.disconnect).toHaveBeenCalledOnce();
+    expect(stdioClient.close).toHaveBeenCalledOnce();
     expect(streamableClient.close).toHaveBeenCalledOnce();
     expect(sseClient.close).toHaveBeenCalledOnce();
   });
@@ -169,11 +176,10 @@ describe('MCP runtime client', () => {
         createExplicitHttpClient: vi.fn((options: { name: string }) =>
           options.name === 'broken' ? brokenClient : healthyClient
         ),
-        createMastraClient: vi.fn(() => {
-          throw new Error('Mastra must not receive HTTP servers');
+        createExplicitStdioClient: vi.fn(() => {
+          throw new Error('stdio client was not expected');
         }),
       },
-      id: 'disconnect-test',
     });
 
     try {
@@ -246,11 +252,10 @@ describe('MCP runtime client', () => {
       },
       dependencies: {
         createExplicitHttpClient: vi.fn(() => explicitClient),
-        createMastraClient: vi.fn(() => {
-          throw new Error('Mastra must not receive HTTP servers');
+        createExplicitStdioClient: vi.fn(() => {
+          throw new Error('stdio client was not expected');
         }),
       },
-      id: 'conversion-test',
     });
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();
@@ -420,11 +425,10 @@ describe('MCP runtime client', () => {
         createExplicitHttpClient: vi.fn((options: { name: string }) =>
           options.name === 'healthy' ? healthyClient : brokenClient
         ),
-        createMastraClient: vi.fn(() => {
-          throw new Error('Mastra must not receive HTTP servers');
+        createExplicitStdioClient: vi.fn(() => {
+          throw new Error('stdio client was not expected');
         }),
       },
-      id: 'error-test',
     });
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();

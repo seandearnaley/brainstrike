@@ -557,10 +557,8 @@ export async function createMastraAgentRuntime(
   const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
-  // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
   const mcpClient = createMcpRuntimeClient({
     config: resolvedMcpConfig,
-    id: `mcp-client-${Date.now()}-${generateUUID()}`,
   });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical

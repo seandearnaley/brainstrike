@@ -41,7 +41,7 @@ pnpm add @brainstrike/agent --filter @brainstrike/desktop
 Ensure you have the following peer dependencies installed:
 
 ```bash
-pnpm add zod @ai-sdk/openai @mastra/core @mastra/mcp --filter <workspace>
+pnpm add zod @ai-sdk/openai @mastra/core --filter <workspace>
 ```
 
 ## Quick Start
