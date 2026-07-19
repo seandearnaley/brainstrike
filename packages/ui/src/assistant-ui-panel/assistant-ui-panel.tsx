@@ -359,7 +359,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    * Already filtered to currently valid options by the app-shell wrapper.
    */
   recentModels?: readonly string[];
-  /** Exact UTF-8 request-body ceiling for this deployment's data-stream transport. */
   requestBodyLimitBytes?: number;
   requestData?: Record<string, unknown>;
   selectedModel?: string;
