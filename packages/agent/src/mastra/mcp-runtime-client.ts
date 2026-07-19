@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
+import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
@@ -14,6 +15,7 @@ import {
 } from '../mcp/explicit-http-client';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
+import { readMcpMultimodalOutput } from './tool-model-output';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 
@@ -230,13 +232,33 @@ function createHttpTool(
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
     inputSchema: tool.inputSchema,
-    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+    ...(tool.outputSchema
+      ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
+      : {}),
     ...(mcp ? { mcp } : {}),
     ...(strict === undefined ? {} : { strict }),
     execute: async (input, context) =>
       executeHttpTool(client, server.name, tool.name, requireToolArguments(input), context),
     mcpMetadata: { serverName: server.name },
   });
+}
+
+/**
+ * Match Mastra MCPClient 1.13's ownership boundary: the official MCP SDK has
+ * already validated structuredContent against the advertised output schema.
+ * Mastra still needs the JSON schema for discovery/documentation, but must not
+ * re-validate the complete CallToolResult envelope against the inner schema.
+ */
+function createDocumentationOnlyMcpOutputSchema(
+  outputSchema: NonNullable<ExplicitHttpMcpTool['outputSchema']>
+): StandardSchemaWithJSON<unknown> {
+  const standardSchema = toStandardSchema(outputSchema)['~standard'];
+  return {
+    '~standard': {
+      ...standardSchema,
+      validate: (value: unknown) => ({ value }),
+    },
+  };
 }
 
 async function executeHttpTool(
@@ -305,7 +327,13 @@ async function executeHttpTool(
   if (result.isError) {
     throw new Error(extractMcpToolError(result));
   }
-  return result.structuredContent === undefined ? result : result.structuredContent;
+  if (result.structuredContent === undefined) {
+    return result;
+  }
+  if (readMcpMultimodalOutput(result)) {
+    return result;
+  }
+  return result.structuredContent;
 }
 
 function readToolCallMeta(context: ToolExecutionContext): Record<string, unknown> | undefined {

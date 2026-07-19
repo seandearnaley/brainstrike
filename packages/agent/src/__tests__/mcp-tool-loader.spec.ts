@@ -1329,6 +1329,44 @@ describe('mcp-tool-loader', () => {
       );
     });
 
+    it('fails visibly when MCP media accompanies oversized structured content', async () => {
+      const mockMcpClient = createMockMcpClient({
+        remote: {
+          oversized_structured_content: {
+            description: 'return media with oversized structured content',
+            execute: vi.fn(async () => ({
+              content: [{ data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' }],
+              structuredContent: { payload: 'x'.repeat(13_000) },
+            })),
+            id: 'oversized_structured_content',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'remote',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['remote_oversized_structured_content'] as {
+        execute: () => Promise<unknown>;
+      };
+      await expect(tool.execute()).rejects.toThrow(
+        /MCP tool remote\.oversized_structured_content returned \d+ non-media serialized characters/
+      );
+    });
+
     it('fails visibly when malformed MCP content would escape persistence accounting', async () => {
       const mockMcpClient = createMockMcpClient({
         remote: {

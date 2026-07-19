@@ -252,6 +252,15 @@ ceiling; a nullish synchronous or asynchronous custom projection falls
 through to Brainstrike's bounded deterministic default, while malformed
 non-callable projections throw. MCP image/audio results use Mastra `content`
 output so base64 media remains model-native while companion text is bounded.
+When a valid MCP result includes both `structuredContent` and image/audio
+`content`, the explicit-HTTP runtime preserves the canonical result envelope
+through persistence bounding instead of collapsing to the structured object.
+The structured JSON joins the bounded model-facing companion text while the
+media remains model-native; both the inline-media and non-media persistence
+ceilings still fail visibly before transport. As in Mastra MCPClient 1.13, the
+discovered output schema remains exposed for documentation, while the official
+MCP SDK owns structured-output validation and Mastra does not incorrectly
+re-validate the complete `CallToolResult` envelope against the inner schema.
 Mastra 1.51 invokes projections with `{toolCallId,input,output}` even though
 its `createTool` contract gives custom projectors the raw execute result.
 Brainstrike therefore extracts the exact

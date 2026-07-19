@@ -331,6 +331,17 @@ describe('MCP runtime client', () => {
       type: 'tool-event',
     });
 
+    const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
+      content: [
+        { text: 'A bounded caption.', type: 'text' },
+        { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+        { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
+      ],
+      structuredContent: { echoed: 'hello' },
+    };
+    callTool.mockResolvedValueOnce(mixedStructuredMediaResult);
+    await expect(tool.execute({ value: 'hello' })).resolves.toEqual(mixedStructuredMediaResult);
+
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
     try {

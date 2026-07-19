@@ -154,15 +154,20 @@ function createMcpMultimodalModelOutput(
   if (!multimodal) {
     return;
   }
-  const textSegments = multimodal.content
+  const companionTextSegments = multimodal.content
     .filter((part) => !isMcpMediaPart(part))
     .map(stringifyMcpTextPart);
+  const textSegments: string[] = [];
   if (
     typeof multimodal.hookAdditionalContext === 'string' &&
     multimodal.hookAdditionalContext.length > 0
   ) {
-    textSegments.unshift(`Post-tool context: ${multimodal.hookAdditionalContext}`);
+    textSegments.push(`Post-tool context: ${multimodal.hookAdditionalContext}`);
   }
+  if (isRecord(output) && output['structuredContent'] !== undefined) {
+    textSegments.push(`Structured content: ${stringifyJsonSafe(output['structuredContent'])}`);
+  }
+  textSegments.push(...companionTextSegments);
   const projectedText =
     textSegments.length > 0 ? serializeBoundedOutput(toolName, textSegments.join('\n')) : undefined;
   let textInserted = false;

@@ -207,6 +207,10 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
       {
         description: 'Return bounded text with image and audio through a real remote MCP server.',
         inputSchema: {},
+        outputSchema: {
+          mediaCount: z.number(),
+          provenance: z.string(),
+        },
       },
       async () => {
         executions.push('multimodal');
@@ -227,6 +231,10 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
               type: 'audio',
             },
           ],
+          structuredContent: {
+            mediaCount: 2,
+            provenance: 'mixed-structured-media-fixture',
+          },
         };
       }
     );
@@ -592,6 +600,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       .map((part) => part.text)
       .join('');
     expect(text).toContain('output was truncated');
+    expect(text).toContain('mixed-structured-media-fixture');
     expect(text).not.toContain(MCP_TEXT_RAW_ONLY_TAIL);
     expect(text.length).toBeLessThanOrEqual(8000);
   });
