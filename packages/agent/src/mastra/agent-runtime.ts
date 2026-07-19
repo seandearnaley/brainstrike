@@ -49,6 +49,10 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
+import {
+  type CacheAwareInstructions,
+  composeCacheAwareInstructions,
+} from './anthropic-instruction-cache';
 import { buildPersonaSubAgents } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
@@ -460,7 +464,7 @@ function composeRuntimeInstructions(params: {
   provider: string;
   taskListNote: string | null;
   toolNameMap: ReadonlyMap<string, string>;
-}): string {
+}): { agentInstructions: CacheAwareInstructions; combinedText: string } {
   const resolvedInstructions =
     params.instructionsOverride ??
     (params.provider === 'local'
@@ -469,9 +473,20 @@ function composeRuntimeInstructions(params: {
           planMode: params.planModeActive,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
         }));
-  return [resolvedInstructions, params.budgetNote, params.taskListNote]
+  const stableText = [resolvedInstructions, params.budgetNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
+  const combinedText = [stableText, params.taskListNote]
+    .filter((part): part is string => Boolean(part))
+    .join('\n');
+  return {
+    agentInstructions: composeCacheAwareInstructions({
+      provider: params.provider,
+      stableText,
+      volatileText: params.taskListNote,
+    }),
+    combinedText,
+  };
 }
 
 function registerAgentWithMastra(
@@ -722,7 +737,7 @@ export async function createMastraAgentRuntime(
   // this is the only seam where the task list note and the final composed
   // instructions are both in scope. Message-side counts join at stream start.
   const instructionBreakdown = computeInstructionBreakdown({
-    composedInstructions,
+    composedInstructions: composedInstructions.combinedText,
     taskListNote,
   });
 
@@ -737,7 +752,7 @@ export async function createMastraAgentRuntime(
   const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
   const agent = new Agent({
     id: 'brainstrike-assistant',
-    instructions: composedInstructions,
+    instructions: composedInstructions.agentInstructions,
     model: languageModel,
     name: 'Brainstrike Assistant',
     tools: modelProjectedTools,
