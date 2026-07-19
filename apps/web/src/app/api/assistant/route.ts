@@ -1,27 +1,18 @@
-import type {
-  AgentMessage,
-  AssistantRequestPayload,
-  AssistantToolApprovalAction,
-  AssistantUiMessageStrict as AssistantUiMessage,
-  StreamChunk,
-} from '@brainstrike/agent';
+import type { AgentMessage, AssistantToolApprovalAction, StreamChunk } from '@brainstrike/agent';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
-  AssistantAttachmentValidationError,
-  AssistantInvalidJsonError,
-  AssistantMessageValidationError,
-  AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
-  convertAssistantUiMessages,
-  hasNonEmptyAssistantPrompt,
-  parseAssistantRequestPayloadText,
   readRequestBodyText,
-  readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import {
+  describeWebAssistantInputError,
+  resolveWebAssistantTurn,
+  type WebAssistantInputError,
+} from '../../../server/web-assistant-request';
 import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../../../server/web-mastra-storage';
 
@@ -33,8 +24,6 @@ const JSON_ERROR_HEADERS = {
 const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
-
-class EmptyAssistantPromptError extends Error {}
 
 export async function POST(req: Request): Promise<Response> {
   let bodyText: string;
@@ -52,24 +41,12 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  let payload: AssistantRequestPayload;
+  let turn: ReturnType<typeof resolveWebAssistantTurn>;
   try {
-    payload = parseAssistantRequestPayloadText(bodyText);
+    turn = resolveWebAssistantTurn(bodyText);
   } catch (error) {
     return createAssistantRequestReadErrorResponse(error);
   }
-  // A tool-approval action resumes a SUSPENDED run (no new user turn). Validate
-  // its shape here; the resume itself runs below with workflow storage, like the
-  // desktop assistant server — no longer a 501 (web has in-process storage now).
-  const approvalResult = readToolApprovalRunConfigAction(payload.runConfig);
-  if (approvalResult && 'invalid' in approvalResult) {
-    return jsonError(
-      400,
-      'invalid_tool_approval_action',
-      'Tool approval action must include action, runId, and toolCallId.'
-    );
-  }
-  const toolApprovalAction = approvalResult?.action;
 
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
@@ -86,12 +63,11 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    const agentMessages = resolveAgentMessages(payload.rawMessages, toolApprovalAction);
     const agentStream = await initializeAssistantStream({
-      agentMessages,
+      agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
-      data: payload.data,
-      ...(toolApprovalAction ? { toolApprovalAction } : {}),
+      data: turn.payload.data,
+      ...(turn.toolApprovalAction ? { toolApprovalAction: turn.toolApprovalAction } : {}),
     });
     const session = assistantDataStreamSessions.create(agentStream);
     return session.createResponse();
@@ -107,53 +83,23 @@ function jsonError(status: number, error: string, message?: string): Response {
   });
 }
 
-function createAssistantInputErrorResponse(error: unknown): Response | null {
-  if (error instanceof AssistantMessageValidationError) {
-    return jsonError(400, error.code, error.message);
-  }
-  if (error instanceof AssistantAttachmentValidationError) {
-    return new Response(
-      JSON.stringify({
-        error: 'invalid_attachment',
-        message: 'Assistant attachment payload is invalid.',
-        reason: error.reason,
-      }),
-      { headers: JSON_ERROR_HEADERS, status: 400 }
-    );
-  }
-  return null;
-}
-
 async function readAssistantRequestBodyText(req: Request): Promise<string> {
   return await readRequestBodyText(req, assistantRequestBodyLimitBytes);
 }
 
 function createAssistantRequestReadErrorResponse(error: unknown): Response {
-  if (error instanceof AssistantInvalidJsonError) {
-    return jsonError(400, error.code, error.message);
-  }
-  if (error instanceof AssistantRequestBodyTooLargeError) {
-    return jsonError(413, error.code, error.message);
-  }
-  const inputErrorResponse = createAssistantInputErrorResponse(error);
-  if (inputErrorResponse) {
-    return inputErrorResponse;
+  const inputError = describeWebAssistantInputError(error);
+  if (inputError) {
+    return createAssistantInputErrorResponse(inputError);
   }
   throw error;
 }
 
-function resolveAgentMessages(
-  rawMessages: AssistantUiMessage[],
-  toolApprovalAction: AssistantToolApprovalAction | undefined
-): AgentMessage[] {
-  if (toolApprovalAction) {
-    return [];
-  }
-  const agentMessages = convertAssistantUiMessages(rawMessages);
-  if (!hasNonEmptyAssistantPrompt(agentMessages)) {
-    throw new EmptyAssistantPromptError();
-  }
-  return agentMessages;
+function createAssistantInputErrorResponse(error: WebAssistantInputError): Response {
+  return new Response(JSON.stringify(error.payload), {
+    headers: JSON_ERROR_HEADERS,
+    status: error.status,
+  });
 }
 
 async function initializeAssistantStream(options: {
@@ -168,12 +114,9 @@ async function initializeAssistantStream(options: {
 }
 
 function createAssistantExecutionErrorResponse(error: unknown): Response {
-  if (error instanceof EmptyAssistantPromptError) {
-    return jsonError(400, 'empty_prompt');
-  }
-  const inputErrorResponse = createAssistantInputErrorResponse(error);
-  if (inputErrorResponse) {
-    return inputErrorResponse;
+  const inputError = describeWebAssistantInputError(error);
+  if (inputError) {
+    return createAssistantInputErrorResponse(inputError);
   }
   if (error instanceof InvalidWebAssistantRuntimeDataError) {
     return jsonError(400, 'invalid_runtime_data', error.message);

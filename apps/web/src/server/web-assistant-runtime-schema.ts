@@ -18,6 +18,8 @@ const idSchema = z.string().min(1).max(MAX_ID_CHARS);
 const pathSchema = z.string().min(1).max(MAX_PATH_CHARS);
 const textSchema = z.string().max(MAX_TEXT_CHARS);
 const permissionDecisionSchema = z.enum(['allow', 'ask', 'deny']);
+const permissionDecisions = new Set(['allow', 'ask', 'deny']);
+const unsafeOverrideKeys = new Set(['__proto__', 'constructor', 'prototype']);
 const toolRiskSchema = z.enum(['read', 'edit', 'execute', 'mcp']);
 // Keep in sync with desktop's ALLOWED_WORKSPACE_INDEXING_MODES.
 const workspaceIndexingModeSchema = z.literal('root-folder-cache');
@@ -64,9 +66,26 @@ const permissionPoliciesSchema = z
   })
   .strict();
 
-const permissionOverridesSchema = z
-  .record(idSchema, permissionDecisionSchema)
-  .refine((overrides) => Object.keys(overrides).length <= MAX_POLICY_OVERRIDES);
+function isPermissionOverrides(value: unknown): value is Record<string, 'allow' | 'ask' | 'deny'> {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  const entries = Object.entries(value);
+  if (entries.length > MAX_POLICY_OVERRIDES) {
+    return false;
+  }
+  return entries.every(
+    ([key, decision]) =>
+      key.length > 0 &&
+      key.length <= MAX_ID_CHARS &&
+      !unsafeOverrideKeys.has(key) &&
+      typeof decision === 'string' &&
+      permissionDecisions.has(decision)
+  );
+}
+
+const permissionOverridesSchema =
+  z.custom<Record<string, 'allow' | 'ask' | 'deny'>>(isPermissionOverrides);
 
 const permissionPolicyRequestSchema = z
   .object({

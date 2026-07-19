@@ -29,12 +29,7 @@ import {
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import {
-  __parseChatBodyForTests,
-  __resetRateLimiterForTests,
-  __setRateLimiterEntryForTests,
-  POST,
-} from '../route';
+import { __resetRateLimiterForTests, __setRateLimiterEntryForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
 
@@ -133,6 +128,160 @@ describe('chat route schema', () => {
     expect(streamMock).not.toHaveBeenCalled();
   });
 
+  it('bounds unknown message fields before any schema can strip them', async () => {
+    let nested: Record<string, unknown> = { value: true };
+    for (let depth = 0; depth < 100; depth += 1) {
+      nested = { child: nested };
+    }
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'm1',
+            parts: [
+              {
+                hidden: nested,
+                state: 'input-available',
+                type: 'tool-test',
+              },
+            ],
+            role: 'assistant',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant message payload exceeds the nesting depth limit.',
+    });
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts the same valid image file parts as the Vite assistant boundary', async () => {
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'I can inspect that image.' })
+    );
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'm1',
+            parts: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,iVBORw0KGgo=',
+                filename: 'pixel.png',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(streamMock).toHaveBeenCalledWith(
+      [
+        {
+          id: 'm1',
+          parts: [
+            { text: 'Describe this image', type: 'text' },
+            {
+              data: 'data:image/png;base64,iVBORw0KGgo=',
+              filename: 'pixel.png',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      expect.any(Object)
+    );
+  });
+
+  it('returns the canonical attachment error for malformed file parts', async () => {
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'm1',
+            parts: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
+    });
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'a whitespace-only user prompt',
+      [{ id: 'm1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+    ],
+    [
+      'an assistant prompt',
+      [{ id: 'm1', parts: [{ text: 'continue', type: 'text' }], role: 'assistant' }],
+    ],
+    [
+      'a system prompt',
+      [{ id: 'm1', parts: [{ text: 'continue', type: 'text' }], role: 'system' }],
+    ],
+    [
+      'history whose final message is not the user',
+      [
+        { id: 'm1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'm2', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
+      ],
+    ],
+  ])('requires the final message to be a non-empty user prompt for %s', async (_case, messages) => {
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'This must not stream.' })
+    );
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({ messages }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: 'empty_prompt' });
+    expect(streamMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid bodies with 400', async () => {
     const req = new Request('http://localhost/api/chat', {
       body: JSON.stringify({ messages: [{ id: '', parts: [], role: 'user' }] }),
@@ -143,7 +292,7 @@ describe('chat route schema', () => {
     expect(res.status).toBe(400);
     expect(res.headers.get('cache-control')).toBe('no-store');
     const data = await res.json();
-    expect(data.code).toBe('invalid_body');
+    expect(data).toEqual({ error: 'empty_prompt' });
   });
 
   it('accepts valid bodies and streams', async () => {
@@ -151,10 +300,6 @@ describe('chat route schema', () => {
       data: { model: 'attacker-model', projectId: 'p1', provider: 'ollama' },
       messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
-
-    // ensure parser passes
-    const parsed = __parseChatBodyForTests(body);
-    expect(parsed.messages[0]?.role).toBe('user');
 
     streamMock.mockResolvedValue(
       createStream({ type: 'text-delta', value: 'Hello from mock stream' })

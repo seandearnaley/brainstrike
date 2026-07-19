@@ -63,6 +63,29 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(runtime.permissionPolicy).toBe(trusted);
   });
 
+  it.each([
+    '__proto__',
+    'constructor',
+    'prototype',
+  ])('rejects the special per-tool override key %s instead of stripping or inheriting it', (specialKey) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+    const perToolOverrides = JSON.parse(`{"${specialKey}":"deny"}`) as Record<string, unknown>;
+
+    expect(() =>
+      resolveWebAssistantRuntime(
+        asRuntimeData({
+          permissionPolicyRequest: {
+            enforce: true,
+            perToolOverrides,
+            policies: validPolicies,
+          },
+        }),
+        'key-special'
+      )
+    ).toThrow('Invalid web assistant runtime field: permissionPolicyRequest');
+    expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
+  });
+
   it('keeps server-owned cost, provider, model, and tool policy out of client control', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const signal = new AbortController().signal;

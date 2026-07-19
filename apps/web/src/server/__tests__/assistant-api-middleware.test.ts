@@ -1,12 +1,24 @@
 import { EventEmitter } from 'node:events';
 import type http from 'node:http';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@brainstrike/agent', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+  return {
+    ...actual,
+    resolveDataStreamSession: vi.fn(),
+  };
+});
+
+import type { AssistantDataStreamSession } from '@brainstrike/agent';
+import { resolveDataStreamSession } from '@brainstrike/agent';
 import { createAssistantApiMiddleware } from '../assistant-api-middleware';
 
 class ResponseSink extends EventEmitter {
   body = '';
   headers: Record<string, string> = {};
   statusCode = 200;
+  destroyed = false;
 
   setHeader(name: string, value: string): void {
     this.headers[name] = value;
@@ -15,6 +27,11 @@ class ResponseSink extends EventEmitter {
   writeHead(status: number, headers: Record<string, string>): void {
     this.statusCode = status;
     this.headers = headers;
+  }
+
+  write(chunk: Uint8Array | string): boolean {
+    this.body += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+    return true;
   }
 
   end(chunk?: string): void {
@@ -36,6 +53,10 @@ function createRequest(headers: http.IncomingHttpHeaders): http.IncomingMessage 
 }
 
 describe('assistant API middleware request body limit', () => {
+  beforeEach(() => {
+    vi.mocked(resolveDataStreamSession).mockReset();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -55,6 +76,27 @@ describe('assistant API middleware request body limit', () => {
       message: 'Assistant request body exceeds 5 bytes.',
     });
     expect(req.resume).toHaveBeenCalledOnce();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('enforces the bounded body before looking up an assistant resume session', async () => {
+    vi.stubEnv('BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES', '5');
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse: () => new Response('must-not-resume'),
+    } as unknown as AssistantDataStreamSession);
+    const middleware = createAssistantApiMiddleware('dev');
+    const req = createRequest({
+      'content-length': '6',
+      'last-event-id': 'evt-oversized',
+    });
+    req.url = '/api/assistant';
+    const res = new ResponseSink();
+    const next = vi.fn();
+
+    await middleware(req, res as unknown as http.ServerResponse, next);
+
+    expect(res.statusCode).toBe(413);
+    expect(resolveDataStreamSession).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -95,6 +137,27 @@ describe('assistant API middleware request body limit', () => {
       error: 'invalid_json',
       message: 'Request body must be valid JSON.',
     });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('resumes an existing assistant session before parsing its bounded body', async () => {
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse: () => new Response('resumed-without-json'),
+    } as unknown as AssistantDataStreamSession);
+    const middleware = createAssistantApiMiddleware('preview');
+    const req = createRequest({ 'last-event-id': 'evt-1' });
+    req.url = '/api/assistant';
+    const res = new ResponseSink();
+    const next = vi.fn();
+    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+
+    req.emit('data', Buffer.from('{"messages":'));
+    req.emit('end');
+    await responsePromise;
+
+    expect(resolveDataStreamSession).toHaveBeenCalledWith('evt-1');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('resumed-without-json');
     expect(next).not.toHaveBeenCalled();
   });
 

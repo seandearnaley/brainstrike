@@ -90,6 +90,10 @@ class ResponseSink extends EventEmitter {
   }
 }
 
+function requestBody(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 describe('assistant-stream-helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -156,7 +160,12 @@ describe('assistant-stream-helpers', () => {
     });
 
     const res = new ResponseSink();
-    await handleChatEndpoint({ messages: [] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(503);
     expect(JSON.parse(res.body)).toMatchObject({ error: 'assistant_disabled' });
@@ -164,7 +173,11 @@ describe('assistant-stream-helpers', () => {
 
   it('streams assistant response using existing session', async () => {
     const response = new Response('resume');
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: '',
+      disabledReason: 'missing_api_key',
+      enabled: false,
+    });
     vi.mocked(resolveDataStreamSession).mockReturnValue({
       createResponse: () => response,
     } as unknown as AssistantDataStreamSession);
@@ -173,7 +186,7 @@ describe('assistant-stream-helpers', () => {
     req.headers = { 'last-event-id': 'evt-1' } as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('resume');
@@ -187,9 +200,13 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(res.status).toBe(502);
     expect(JSON.parse(res.body)).toMatchObject({
@@ -208,10 +225,14 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      data: { mcpConfig: { servers: [] } },
-      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        data: { mcpConfig: { servers: [] } },
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
@@ -241,9 +262,13 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
@@ -274,10 +299,14 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', parts: [], role: 'user' }],
-      runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: '1', parts: [], role: 'user' }],
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
+      })
+    );
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('resumed');
@@ -293,17 +322,21 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', parts: [], role: 'user' }],
-      runConfig: {
-        custom: {
-          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
-            action: 'decline',
-            runId: 'run-approval-1',
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: '1', parts: [], role: 'user' }],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'decline',
+              runId: 'run-approval-1',
+            },
           },
         },
-      },
-    });
+      })
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toMatchObject({
@@ -332,7 +365,7 @@ describe('assistant-stream-helpers', () => {
 
     const res = new ResponseSink();
     await handleChatEndpoint(
-      {
+      requestBody({
         data: {
           agentLoop: { inputTokenLimit: 1_000_000, maxSteps: 999 },
           mcpEnabled: true,
@@ -342,7 +375,7 @@ describe('assistant-stream-helpers', () => {
           providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
         },
         messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      },
+      }),
       res as unknown as http.ServerResponse
     );
 
@@ -360,6 +393,90 @@ describe('assistant-stream-helpers', () => {
     expect(JSON.parse(lines[1]!)).toEqual(chunks[1]);
   });
 
+  it('forwards valid image file parts through the Vite chat boundary', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {
+        yield { type: 'text-delta', value: 'image received' } as StreamChunk;
+      })()
+    );
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'chat-image-1',
+            parts: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,iVBORw0KGgo=',
+                filename: 'pixel.png',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(200);
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+      [
+        {
+          id: 'chat-image-1',
+          parts: [
+            { text: 'Describe this image', type: 'text' },
+            {
+              data: 'data:image/png;base64,iVBORw0KGgo=',
+              filename: 'pixel.png',
+              mediaType: 'image/png',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      { apiKey: 'key', provider: 'openai' }
+    );
+  });
+
+  it('returns the canonical attachment error from the Vite chat boundary', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint(
+      requestBody({
+        messages: [
+          {
+            id: 'chat-image-1',
+            parts: [
+              { text: 'Describe this file', type: 'text' },
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'unsupported-media-type',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
   it('rejects server-only runtime data on the chat endpoint', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(
@@ -368,10 +485,10 @@ describe('assistant-stream-helpers', () => {
 
     const res = new ResponseSink();
     await handleChatEndpoint(
-      {
+      requestBody({
         data: { mcpConfig: { servers: [] } },
         messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      },
+      }),
       res as unknown as http.ServerResponse
     );
 
@@ -384,19 +501,16 @@ describe('assistant-stream-helpers', () => {
   });
 
   it.each([
-    ['missing', {}, 'Assistant messages must be an array.'],
-    ['empty', { messages: [] }, 'Assistant chat requests must contain at least one message.'],
-  ])('returns typed 400 when chat messages are %s', async (_case, body, message) => {
+    ['missing', {}],
+    ['empty', { messages: [] }],
+  ])('returns typed 400 when chat messages are %s', async (_case, body) => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const res = new ResponseSink();
 
-    await handleChatEndpoint(body, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(requestBody(body), res as unknown as http.ServerResponse);
 
     expect(res.status).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'invalid_messages',
-      message,
-    });
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
@@ -404,13 +518,13 @@ describe('assistant-stream-helpers', () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const res = new ResponseSink();
 
-    await handleChatEndpoint({ messages: [null] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      requestBody({ messages: [null] }),
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(400);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'invalid_messages',
-      message: 'Assistant chat requests must contain at least one message.',
-    });
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
@@ -420,9 +534,43 @@ describe('assistant-stream-helpers', () => {
     req.headers = {};
     const res = new ResponseSink();
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: 'empty-1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'empty-1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'assistant',
+      [{ id: 'assistant-1', parts: [{ text: 'continue', type: 'text' }], role: 'assistant' }],
+    ],
+    ['system', [{ id: 'system-1', parts: [{ text: 'continue', type: 'text' }], role: 'system' }]],
+    [
+      'trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
+      ],
+    ],
+  ])('rejects a normal assistant turn whose final prompt role is %s', async (_case, messages) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({ messages })
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
@@ -438,7 +586,7 @@ describe('assistant-stream-helpers', () => {
     const res = new ResponseSink();
 
     await handleChatEndpoint(
-      { messages: [{ content: nested, id: 'deep-1', role: 'user' }] },
+      requestBody({ messages: [{ content: nested, id: 'deep-1', role: 'user' }] }),
       res as unknown as http.ServerResponse
     );
 
@@ -456,21 +604,25 @@ describe('assistant-stream-helpers', () => {
     req.headers = {};
     const res = new ResponseSink();
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [
-        {
-          content: [
-            {
-              data: 'data:application/pdf;base64,AAAA',
-              mediaType: 'application/pdf',
-              type: 'file',
-            },
-          ],
-          id: 'attachment-1',
-          role: 'user',
-        },
-      ],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            content: [
+              {
+                data: 'data:application/pdf;base64,AAAA',
+                mediaType: 'application/pdf',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      })
+    );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({
@@ -493,10 +645,10 @@ describe('assistant-stream-helpers', () => {
 
     const res = new ResponseSink();
     await handleChatEndpoint(
-      {
+      requestBody({
         data,
         messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      },
+      }),
       res as unknown as http.ServerResponse
     );
 
@@ -523,7 +675,7 @@ describe('assistant-stream-helpers', () => {
     req.headers = { 'last-event-id': ['evt-1', 'evt-2'] } as unknown as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
     expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith('evt-2');
     expect(res.status).toBe(200);
@@ -551,9 +703,13 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-    });
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      })
+    );
 
     expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith(undefined);
     expect(vi.mocked(assistantDataStreamSessions.create)).toHaveBeenCalled();
@@ -572,7 +728,7 @@ describe('assistant-stream-helpers', () => {
     const res = new ResponseSink();
     const endSpy = vi.spyOn(res, 'end');
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
     expect(endSpy).toHaveBeenCalled();
     expect(res.status).toBe(200);
@@ -611,7 +767,7 @@ describe('assistant-stream-helpers', () => {
       return false; // signal backpressure
     };
 
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
     expect(drainResolved).toBe(true);
     expect(res.body).toContain('chunk-data');
@@ -648,9 +804,7 @@ describe('assistant-stream-helpers', () => {
     const res = new ResponseSink();
     const endSpy = vi.spyOn(res, 'end');
 
-    const streamPromise = handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [],
-    });
+    const streamPromise = handleAssistantEndpoint(req, res as unknown as http.ServerResponse, '{');
 
     // Wait for the first chunk to be read, then simulate client disconnect
     await chunkReady;

@@ -1,10 +1,7 @@
 import type http from 'node:http';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
-  AssistantInvalidJsonError,
-  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
-  parseAssistantRequestPayloadText,
   resolveAssistantRequestBodyLimitBytes,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -48,14 +45,6 @@ function sendKnownRequestError(res: http.ServerResponse, error: unknown): boolea
     res.end(JSON.stringify({ error: error.code, message: error.message }));
     return true;
   }
-  if (
-    error instanceof AssistantInvalidJsonError ||
-    error instanceof AssistantMessageValidationError
-  ) {
-    res.writeHead(400, JSON_ERROR_HEADERS);
-    res.end(JSON.stringify({ error: error.code, message: error.message }));
-    return true;
-  }
   return false;
 }
 
@@ -81,18 +70,13 @@ export function createAssistantApiMiddleware(mode: 'dev' | 'preview'): Assistant
 
     try {
       const bodyText = await readBody(req, bodyLimitBytes);
-      const payload = parseAssistantRequestPayloadText(bodyText);
 
       if (route === 'chat') {
-        await handleChatEndpoint({ data: payload.data, messages: payload.rawMessages }, res);
+        await handleChatEndpoint(bodyText, res);
         return;
       }
 
-      await handleAssistantEndpoint(req, res, {
-        data: payload.data,
-        messages: payload.rawMessages,
-        runConfig: payload.runConfig,
-      });
+      await handleAssistantEndpoint(req, res, bodyText);
     } catch (error) {
       if (sendKnownRequestError(res, error)) {
         return;

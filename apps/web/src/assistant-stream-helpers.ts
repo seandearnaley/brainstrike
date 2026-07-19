@@ -1,14 +1,8 @@
 import type http from 'node:http';
 import {
-  AssistantAttachmentValidationError,
-  AssistantMessageValidationError,
   AssistantRequestBodyTooLargeError,
-  type AssistantUiMessage,
   assistantDataStreamSessions,
-  convertAssistantUiMessages,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  hasNonEmptyAssistantPrompt,
-  readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   type StreamChunk,
   sanitizeStreamChunk,
@@ -18,6 +12,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
 import {
+  describeWebAssistantInputError,
+  resolveWebAssistantChatTurn,
+  resolveWebAssistantTurn,
+} from './server/web-assistant-request';
+import {
   InvalidWebAssistantRuntimeDataError,
   resolveWebAssistantRuntime,
 } from './server/web-assistant-runtime';
@@ -26,13 +25,6 @@ import { buildWebAssistantStream } from './server/web-mastra-storage';
 export type { StreamChunk };
 
 const logger = createLogger('WebAssistantStream');
-
-class EmptyAssistantPromptError extends Error {
-  constructor() {
-    super('Assistant request has no non-empty prompt.');
-    this.name = 'EmptyAssistantPromptError';
-  }
-}
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
@@ -123,33 +115,30 @@ export async function readBody(
 }
 
 export async function handleChatEndpoint(
-  body: { messages?: unknown; data?: unknown },
+  bodyText: string,
   res: http.ServerResponse
 ): Promise<void> {
+  let turn: ReturnType<typeof resolveWebAssistantChatTurn>;
+  let stream: AsyncIterable<StreamChunk>;
+  try {
+    turn = resolveWebAssistantChatTurn(bodyText);
+  } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    throw error;
+  }
+
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
     sendAssistantDisabledResponse(res, provider);
     return;
   }
 
-  const data = body?.data ?? undefined;
-
-  let stream: AsyncIterable<StreamChunk>;
   try {
-    if (!Array.isArray(body?.messages)) {
-      throw new AssistantMessageValidationError('invalid-messages');
-    }
-    if (body.messages.length === 0) {
-      throw new AssistantMessageValidationError('empty-messages');
-    }
-    const rawMessages = body.messages as AssistantUiMessage[];
-    const agentMessages = convertAssistantUiMessages(rawMessages);
-    if (agentMessages.length === 0) {
-      throw new AssistantMessageValidationError('empty-messages');
-    }
     stream = await toAiSdkStyleStream(
-      agentMessages,
-      resolveWebAssistantRuntime(data, provider.apiKey)
+      turn.agentMessages,
+      resolveWebAssistantRuntime(turn.payload.data, provider.apiKey)
     );
   } catch (error) {
     if (sendAssistantInputErrorResponse(res, error)) {
@@ -190,14 +179,8 @@ export async function handleChatEndpoint(
 export async function handleAssistantEndpoint(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: { messages?: unknown; data?: unknown; runConfig?: unknown }
+  bodyText: string
 ): Promise<void> {
-  const provider = resolveAssistantProviderConfig();
-  if (!(provider.enabled && provider.apiKey)) {
-    sendAssistantDisabledResponse(res, provider);
-    return;
-  }
-
   const lastEventId = readLastEventId(req);
   const existingSession = resolveDataStreamSession(lastEventId);
   if (existingSession) {
@@ -208,23 +191,22 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  // Validate any approval action up front (400 on malformed). A valid action
-  // resumes a SUSPENDED run below with workflow storage — no longer a 501. Only a
-  // normal turn carries user messages; the resume path has none.
-  const approvalResult = readToolApprovalRunConfigAction(body?.runConfig);
-  if (approvalResult && 'invalid' in approvalResult) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'invalid_tool_approval_action',
-        message: 'Tool approval action must include action, runId, and toolCallId.',
-      })
-    );
+  let turn: ReturnType<typeof resolveWebAssistantTurn>;
+  try {
+    turn = resolveWebAssistantTurn(bodyText);
+  } catch (error) {
+    if (sendAssistantInputErrorResponse(res, error)) {
+      return;
+    }
+    throw error;
+  }
+
+  const provider = resolveAssistantProviderConfig();
+  if (!(provider.enabled && provider.apiKey)) {
+    sendAssistantDisabledResponse(res, provider);
     return;
   }
-  const toolApprovalAction = approvalResult?.action;
 
-  const data = body?.data ?? undefined;
   const abortController = new AbortController();
   const onAbort = () => abortController.abort();
   if (req) {
@@ -240,21 +222,14 @@ export async function handleAssistantEndpoint(
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    const rawMessages = Array.isArray(body?.messages)
-      ? (body.messages as AssistantUiMessage[])
-      : [];
-    const agentMessages = toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages);
-    if (!(toolApprovalAction || hasNonEmptyAssistantPrompt(agentMessages))) {
-      throw new EmptyAssistantPromptError();
-    }
     // The seam admits only explicit request metadata and resolves the trusted
     // permission policy; server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
-      agentMessages,
+      agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
-      data,
+      data: turn.payload.data,
       signal: abortController.signal,
-      ...(toolApprovalAction ? { toolApprovalAction } : {}),
+      ...(turn.toolApprovalAction ? { toolApprovalAction: turn.toolApprovalAction } : {}),
     });
   } catch (error) {
     removeAbortListeners();
@@ -312,37 +287,16 @@ function sendAssistantDisabledResponse(
 }
 
 function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
-  if (error instanceof EmptyAssistantPromptError) {
-    res.writeHead(400, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
-    });
-    res.end(JSON.stringify({ error: 'empty_prompt' }));
-    return true;
+  const inputError = describeWebAssistantInputError(error);
+  if (!inputError) {
+    return false;
   }
-  if (error instanceof AssistantMessageValidationError) {
-    res.writeHead(400, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
-    });
-    res.end(JSON.stringify({ error: error.code, message: error.message }));
-    return true;
-  }
-  if (error instanceof AssistantAttachmentValidationError) {
-    res.writeHead(400, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
-    });
-    res.end(
-      JSON.stringify({
-        error: 'invalid_attachment',
-        message: 'Assistant attachment payload is invalid.',
-        reason: error.reason,
-      })
-    );
-    return true;
-  }
-  return false;
+  res.writeHead(inputError.status, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
+  });
+  res.end(JSON.stringify(inputError.payload));
+  return true;
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {

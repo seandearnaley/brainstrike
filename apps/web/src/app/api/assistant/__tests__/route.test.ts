@@ -72,6 +72,7 @@ describe('assistant route', () => {
     } as unknown as AssistantDataStreamSession);
 
     const req = new Request('http://localhost/api/assistant', {
+      body: '{',
       headers: { 'last-event-id': 'evt-1' },
       method: 'POST',
     });
@@ -266,6 +267,38 @@ describe('assistant route', () => {
     expect(res.status).toBe(400);
     const payload = await res.json();
     expect(payload).toEqual({ error: 'empty_prompt' });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'assistant',
+      [{ id: 'assistant-1', parts: [{ text: 'continue', type: 'text' }], role: 'assistant' }],
+    ],
+    ['system', [{ id: 'system-1', parts: [{ text: 'continue', type: 'text' }], role: 'system' }]],
+    [
+      'trailing assistant history',
+      [
+        { id: 'user-1', parts: [{ text: 'question', type: 'text' }], role: 'user' },
+        { id: 'assistant-1', parts: [{ text: 'answer', type: 'text' }], role: 'assistant' },
+      ],
+    ],
+  ])('requires the final message to be a non-empty user prompt, not %s', async (_case, messages) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({ messages }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: 'empty_prompt' });
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
