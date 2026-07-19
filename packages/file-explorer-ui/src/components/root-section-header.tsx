@@ -49,6 +49,12 @@ export interface RootSectionHeaderProps {
    * collapse the section (and buttons never nest — invalid HTML).
    */
   selectionControl?: React.ReactNode | undefined;
+  /**
+   * Optional status affordance (the watcher health chip, BST-568) rendered as
+   * a SIBLING of the toggle button, before the disconnect control, for the
+   * same never-nest-interactive-elements reason as selectionControl.
+   */
+  statusControl?: React.ReactNode | undefined;
 }
 
 /**
@@ -75,6 +81,7 @@ export const RootSectionHeader = ({
   path,
   reserveFloatingActionsClearance,
   selectionControl,
+  statusControl,
 }: RootSectionHeaderProps) => {
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown;
   const chevronLabel = isCollapsed ? 'Expand section' : 'Collapse section';
@@ -128,6 +135,7 @@ export const RootSectionHeader = ({
           </span>
         )}
       </button>
+      {statusControl && <span className="mr-1 flex shrink-0 items-center">{statusControl}</span>}
       {onDisconnect && (
         <button
           aria-label="Disconnect folder"
