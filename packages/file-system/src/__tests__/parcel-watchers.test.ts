@@ -309,7 +309,7 @@ describe('startParcelWatch', () => {
       onHealth: (event) => health.push(event),
     });
     expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
-    expect(health[0]?.backend).toBe('fs-events');
+    expect(health[0]?.backend).toBe(selectParcelBackend(process.platform));
     expect(health[1]?.failure).toBeUndefined();
     stop();
   });
