@@ -58,7 +58,7 @@ export function App() {
 
 Heavy components (Database and Assistant) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while keeping the app-wide assistant workspace mounted across route switches.
 
-**Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`).
+**Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`). An enabled Hosted Web response includes its registry-validated fixed server provider and model so the shell can seed an honest picker without renderer-side key discovery; Desktop may omit both and retain encrypted-key discovery.
 
 **MCP tools:** MCP discovery remains part of the assistant runtime, but the shell intentionally has no standalone MCP status banner. Dedicated settings/diagnostics surfaces may show server names and the explicitly selected transport (`stdio`, `streamable-http`, or legacy `sse`), but must never expose URLs, headers, environment values, or credentials.
 
@@ -126,7 +126,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 
 ## Shell contracts (for host apps & tools)
 
-* **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
+* **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
 * **Threads:** `ThreadsPanel` is a placeholder-only shell surface for now. Keep it DB-free until thread persistence lands.
 * **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabasePanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.

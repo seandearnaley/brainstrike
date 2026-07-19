@@ -1,5 +1,9 @@
 import { ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR } from '@brainstrike/agent/request-boundary';
-import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
+import {
+  HOSTED_WEB_ASSISTANT_PROVIDER,
+  resolveAssistantProviderConfig,
+  resolveHostedWebAssistantModel,
+} from '../../../../server/assistant-config';
 import {
   isWebAssistantRequestBodyLimitConfigError,
   resolveWebAssistantRequestBodyLimitBytes,
@@ -22,7 +26,11 @@ export async function GET(): Promise<Response> {
   const provider = resolveAssistantProviderConfig();
   const enabled = Boolean(provider.enabled && provider.apiKey);
   const payload = enabled
-    ? { enabled }
+    ? {
+        enabled,
+        model: resolveHostedWebAssistantModel(),
+        provider: HOSTED_WEB_ASSISTANT_PROVIDER,
+      }
     : {
         enabled,
         reason: provider.disabledReason ?? 'missing_api_key',
@@ -31,7 +39,12 @@ export async function GET(): Promise<Response> {
   return createStatusResponse(payload);
 }
 
-function createStatusResponse(payload: { enabled: boolean; reason?: string }): Response {
+function createStatusResponse(payload: {
+  enabled: boolean;
+  model?: string;
+  provider?: 'openai';
+  reason?: string;
+}): Response {
   return new Response(JSON.stringify(payload), {
     headers: {
       'Cache-Control': 'no-store',

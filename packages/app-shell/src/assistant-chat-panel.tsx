@@ -42,7 +42,15 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
           </div>
         )}
         {status.state === 'enabled' && (
-          <AssistantUiPanelWrapperLazy {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+          <AssistantUiPanelWrapperLazy
+            {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+            {...(status.provider && status.model
+              ? {
+                  fixedProviderModels: { [status.provider]: [status.model] },
+                  initialProviders: [status.provider],
+                }
+              : {})}
+          />
         )}
       </div>
     </div>

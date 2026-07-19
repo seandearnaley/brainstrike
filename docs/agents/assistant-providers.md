@@ -253,6 +253,15 @@ Assistant status endpoint resolution (in order):
 2. window.assistant.url       (static)
 3. /api/assistant/status      (fallback)
 
+An enabled Hosted Web status response advertises its trusted server runtime as
+`{enabled:true,provider:"openai",model:<registry default>}`. The app shell
+validates both values against the shared provider registry and exposes only
+that fixed server model in the picker; it must not attempt renderer-side key
+discovery or pretend client model toggles control a server-owned runtime.
+Desktop status may omit both fields, in which case its encrypted-key discovery
+remains authoritative. The pair is atomic, and incomplete or unknown runtime
+metadata fails visibly.
+
 Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts
 

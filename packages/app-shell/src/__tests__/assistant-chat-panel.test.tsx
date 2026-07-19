@@ -2,12 +2,16 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel } from '../assistant-chat-panel';
 
+const { assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
+  assistantUiPanelWrapperLazyMock: vi.fn(() => <div>Assistant UI Panel</div>),
+}));
+
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
   useAssistantAvailabilityWithLocal: vi.fn(),
 }));
 
 vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
-  AssistantUiPanelWrapperLazy: () => <div>Assistant UI Panel</div>,
+  AssistantUiPanelWrapperLazy: assistantUiPanelWrapperLazyMock,
   preloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
 }));
 
@@ -18,6 +22,7 @@ const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailability
 
 describe('AssistantChatPanel', () => {
   beforeEach(() => {
+    assistantUiPanelWrapperLazyMock.mockClear();
     useAssistantAvailabilityWithLocalMock.mockReset();
   });
 
@@ -114,5 +119,24 @@ describe('AssistantChatPanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('MCP banner')).not.toBeInTheDocument();
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+  });
+
+  it('seeds the model picker with the provider advertised by Hosted Web', async () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fixedProviderModels: { openai: ['gpt-5.6-terra'] },
+        initialProviders: ['openai'],
+      }),
+      undefined
+    );
   });
 });

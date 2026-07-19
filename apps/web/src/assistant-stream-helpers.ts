@@ -9,7 +9,11 @@ import {
 import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
-import { resolveAssistantProviderConfig } from './server/assistant-config';
+import {
+  HOSTED_WEB_ASSISTANT_PROVIDER,
+  resolveAssistantProviderConfig,
+  resolveHostedWebAssistantModel,
+} from './server/assistant-config';
 import {
   describeWebAssistantInputError,
   resolveWebAssistantChatTurn,
@@ -294,10 +298,16 @@ function sendJsonResponse(
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {
   enabled: boolean;
+  model?: string;
+  provider?: 'openai';
   reason?: string;
 } {
   if (provider.enabled && provider.apiKey) {
-    return { enabled: true };
+    return {
+      enabled: true,
+      model: resolveHostedWebAssistantModel(),
+      provider: HOSTED_WEB_ASSISTANT_PROVIDER,
+    };
   }
   return {
     enabled: false,

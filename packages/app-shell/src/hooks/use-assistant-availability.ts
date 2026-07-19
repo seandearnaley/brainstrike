@@ -1,9 +1,14 @@
+import {
+  isSupportedProvider,
+  isValidModelForProvider,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
-  | { state: 'enabled' }
+  | { state: 'enabled'; model?: string; provider?: SupportedProvider }
   | { state: 'disabled'; reason?: string }
   | { state: 'error'; message: string };
 
@@ -228,10 +233,36 @@ export async function fetchAssistantStatusState({
     throw new Error(`status ${response.status}`);
   }
 
-  const payload = (await response.json()) as { enabled: boolean; reason?: string };
+  const payload = (await response.json()) as {
+    enabled: boolean;
+    model?: string;
+    provider?: string;
+    reason?: string;
+  };
 
   if (payload.enabled) {
-    return { state: 'enabled' };
+    const hasProvider = payload.provider !== undefined;
+    const hasModel = payload.model !== undefined;
+    if (hasProvider !== hasModel) {
+      throw new Error('Assistant status must advertise provider and model together');
+    }
+    if (!(hasProvider && hasModel)) {
+      return { state: 'enabled' };
+    }
+    if (!isSupportedProvider(payload.provider)) {
+      throw new Error(`Unsupported assistant provider: ${payload.provider}`);
+    }
+    if (
+      typeof payload.model !== 'string' ||
+      !isValidModelForProvider(payload.provider, payload.model)
+    ) {
+      throw new Error(`Unsupported assistant model: ${payload.provider}/${String(payload.model)}`);
+    }
+    return {
+      model: payload.model,
+      provider: payload.provider,
+      state: 'enabled',
+    };
   }
 
   if (payload.reason) {

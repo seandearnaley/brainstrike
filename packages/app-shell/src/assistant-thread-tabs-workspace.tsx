@@ -147,11 +147,13 @@ function useReducedMotionPreference(): boolean {
 }
 
 export interface AssistantThreadTabsWorkspaceProps {
+  readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
   readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
   readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
 }
 
 export function AssistantThreadTabsWorkspace({
+  fixedProviderModels,
   initialProviders,
   loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
@@ -782,6 +784,7 @@ export function AssistantThreadTabsWorkspace({
                 role="tabpanel"
               >
                 <AssistantUiPanelWrapper
+                  {...(fixedProviderModels ? { fixedProviderModels } : {})}
                   {...(initialProviders ? { initialProviders } : {})}
                   {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                   memoryResourceId={resourceId}

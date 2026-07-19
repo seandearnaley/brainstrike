@@ -7,6 +7,7 @@
  */
 
 export { AssistantAttachmentValidationError } from '@brainstrike/assistant-contract';
+export { PROVIDER_DEFAULT_MODELS } from '@brainstrike/assistant-contract/provider-metadata';
 export type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,

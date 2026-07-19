@@ -133,6 +133,7 @@ import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
+  fixedProviderModels?: Partial<Record<SupportedProvider, readonly string[]>>;
   initialProviders?: SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
@@ -172,6 +173,7 @@ function hasDesktopAssistantBackend(): boolean {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
+  fixedProviderModels,
   initialProviders,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
@@ -247,23 +249,26 @@ export function AssistantUiPanelWrapper({
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(
-    () =>
-      buildEnabledModelIdSet({
-        configuredProviders,
-        enabledModelsByProvider,
-        localRuntimeModels,
-        registryEnabledModelIds,
-        shouldFallbackToPreferences,
-      }),
-    [
+  const enabledModelIds = useMemo(() => {
+    const enabledIds = buildEnabledModelIdSet({
       configuredProviders,
       enabledModelsByProvider,
       localRuntimeModels,
       registryEnabledModelIds,
       shouldFallbackToPreferences,
-    ]
-  );
+    });
+    for (const modelIds of Object.values(fixedProviderModels ?? {})) {
+      addValuesToSet(enabledIds, modelIds ?? []);
+    }
+    return enabledIds;
+  }, [
+    configuredProviders,
+    enabledModelsByProvider,
+    fixedProviderModels,
+    localRuntimeModels,
+    registryEnabledModelIds,
+    shouldFallbackToPreferences,
+  ]);
   const enabledBuiltInLocalModelIds = useMemo(() => {
     const modelIds = new Set<string>();
     addValuesToSet(
@@ -294,12 +299,18 @@ export function AssistantUiPanelWrapper({
       if (isLocalRuntimeProvider(provider)) {
         return runtimeLlmModelsByProvider[provider] ?? [];
       }
-      return getProviderModelDefinitions(provider).filter(
+      const modelDefinitions = getProviderModelDefinitions(provider).filter(
         (model: ProviderModelDefinition): model is LlmProviderModelDefinition =>
           model.type === 'llm'
       );
+      const fixedModels = fixedProviderModels?.[provider];
+      if (!fixedModels) {
+        return modelDefinitions;
+      }
+      const fixedModelIds = new Set(fixedModels);
+      return modelDefinitions.filter((model) => fixedModelIds.has(model.id));
     },
-    [runtimeLlmModelsByProvider]
+    [fixedProviderModels, runtimeLlmModelsByProvider]
   );
 
   const selectedThreadDraftRuntime = memoryThreadId

@@ -1500,6 +1500,10 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('application/json');
-    expect(JSON.parse(res.body)).toEqual({ enabled: true });
+    expect(JSON.parse(res.body)).toEqual({
+      enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+    });
   });
 });

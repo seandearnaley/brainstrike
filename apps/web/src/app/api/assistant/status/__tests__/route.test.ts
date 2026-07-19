@@ -31,7 +31,11 @@ describe('assistant status route', () => {
     const res = await GET();
     expect(res.status).toBe(200);
     const payload = await res.json();
-    expect(payload).toEqual({ enabled: true });
+    expect(payload).toEqual({
+      enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+    });
   });
 
   it('returns disabled status with reason when missing key', async () => {
