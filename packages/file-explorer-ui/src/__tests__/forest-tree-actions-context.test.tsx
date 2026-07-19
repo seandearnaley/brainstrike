@@ -63,11 +63,15 @@ function setup() {
   return { actionsRef, isExpandingRef, progressRef, renderCounts };
 }
 
-const sectionStub = (expandAll: () => Promise<void>) => ({
+const sectionStub = (
+  expandAll: () => Promise<void>,
+  setCollapsed: (collapsed: boolean) => void = vi.fn()
+) => ({
   cancelExpandAll: vi.fn(),
   expandAll,
   getVisibleQuickFilterKeys: () => [],
   selectAll: vi.fn().mockResolvedValue({ limitReached: false, selected: 0 }),
+  setCollapsed,
 });
 
 describe('ForestTreeActionsProvider expand-all progress aggregation', () => {
@@ -272,6 +276,93 @@ describe('ForestTreeActionsProvider expand-all progress aggregation', () => {
 
     expect(progressRef.current).toEqual({ loaded: 4, total: 4 });
     expect(isExpandingRef.current).toBe(false);
+  });
+});
+
+describe('ForestTreeActionsProvider section collapse (BST-571)', () => {
+  it('collapseAllSections collapses every registered section', () => {
+    const { actionsRef } = setup();
+    const setCollapsedA = vi.fn();
+    const setCollapsedB = vi.fn();
+    act(() => {
+      actionsRef.current?.register(
+        'root-a',
+        sectionStub(async () => {}, setCollapsedA)
+      );
+      actionsRef.current?.register(
+        'root-b',
+        sectionStub(async () => {}, setCollapsedB)
+      );
+    });
+
+    act(() => {
+      actionsRef.current?.collapseAllSections();
+    });
+
+    expect(setCollapsedA).toHaveBeenCalledExactlyOnceWith(true);
+    expect(setCollapsedB).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it('runExpandAll un-collapses each section before expanding it', async () => {
+    const { actionsRef } = setup();
+    const events: string[] = [];
+    act(() => {
+      actionsRef.current?.register(
+        'root-a',
+        sectionStub(
+          async () => {
+            events.push('expand:a');
+          },
+          (collapsed) => events.push(`setCollapsed:a:${collapsed}`)
+        )
+      );
+      actionsRef.current?.register(
+        'root-b',
+        sectionStub(
+          async () => {
+            events.push('expand:b');
+          },
+          (collapsed) => events.push(`setCollapsed:b:${collapsed}`)
+        )
+      );
+    });
+
+    await act(async () => {
+      await actionsRef.current?.runExpandAll();
+    });
+
+    // A collapsed root section must OPEN when the forest sweep reaches it —
+    // expanding its directories underneath a closed header is invisible work.
+    // Sequential per section: each opens only when its turn starts.
+    expect(events).toEqual([
+      'setCollapsed:a:false',
+      'expand:a',
+      'setCollapsed:b:false',
+      'expand:b',
+    ]);
+  });
+
+  it('cancelling mid-run stops later sections from being un-collapsed', async () => {
+    const { actionsRef } = setup();
+    const setCollapsedB = vi.fn();
+    act(() => {
+      actionsRef.current?.register(
+        'root-a',
+        sectionStub(async () => {
+          actionsRef.current?.cancelExpandAll();
+        })
+      );
+      actionsRef.current?.register(
+        'root-b',
+        sectionStub(async () => {}, setCollapsedB)
+      );
+    });
+
+    await act(async () => {
+      await actionsRef.current?.runExpandAll();
+    });
+
+    expect(setCollapsedB).not.toHaveBeenCalled();
   });
 });
 

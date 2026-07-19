@@ -1198,6 +1198,30 @@ describe('FileExplorerPanel', () => {
     expect(collapseAllDirectories).toHaveBeenCalled();
   });
 
+  it('collapse all also collapses every forest root section (BST-571)', async () => {
+    const user = userEvent.setup();
+    const collapseAllSections = vi.fn();
+    const forestCancelExpandAll = vi.fn();
+    vi.mocked(useOptionalForestTreeActions).mockReturnValue({
+      cancelExpandAll: forestCancelExpandAll,
+      collapseAllSections,
+      collectVisibleQuickFilterKeys: vi.fn(() => []),
+      register: vi.fn(() => () => {}),
+      reportExpandAllProgress: vi.fn(),
+      runExpandAll: vi.fn().mockResolvedValue(undefined),
+      runSelectAll: vi.fn().mockResolvedValue({ limitReached: false, sections: 0, selected: 0 }),
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    await user.click(screen.getByTestId('collapse-all-button-small'));
+
+    // One click → fully compact: sections close AND the workspace-global
+    // directory expansion set clears (with any in-flight expand cancelled).
+    expect(forestCancelExpandAll).toHaveBeenCalled();
+    expect(collapseAllSections).toHaveBeenCalled();
+  });
+
   it('skips store expansion writes when expand-all returns the existing expanded set', async () => {
     const user = userEvent.setup();
     const cancelExpandAllMock = vi.fn();
@@ -1281,6 +1305,7 @@ describe('FileExplorerPanel', () => {
 
     const makeForestActions = () => ({
       cancelExpandAll: vi.fn(),
+      collapseAllSections: vi.fn(),
       collectVisibleQuickFilterKeys: vi.fn(() => []),
       register: vi.fn(() => () => {}),
       reportExpandAllProgress: vi.fn(),

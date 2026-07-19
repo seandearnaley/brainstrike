@@ -461,94 +461,6 @@ const PerRootTreePane = ({
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
   const sectionRecursiveSelect = useSectionRecursiveSelect(folderId);
 
-  // Register this section's expand-all AND select-all with the forest
-  // registry so the toolbar actions run INSIDE this root's tree context
-  // (routing them through the focused panel provider only touches the
-  // invisible top-level tree — the recurring forest disease, toolbar
-  // edition). Expansion paths land in the workspace-global expanded set.
-  const store = useFileExplorerStoreContext();
-  const forestActions = useOptionalForestTreeActions();
-  const sectionExpandAllProgressively = treeContext.expandAllProgressively;
-  const sectionCancelExpandAll = treeContext.cancelExpandAll;
-  // Registration depends on these STABLE registry callbacks, never on the
-  // whole context value — that value changes on every aggregate progress
-  // update, which would churn register/unregister mid-run.
-  const forestRegister = forestActions?.register;
-  const forestReportExpandAllProgress = forestActions?.reportExpandAllProgress;
-  const sectionSelectAll = treeContext.selectAllRecursively;
-  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
-  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
-    (s) => s.addMultipleSelectedFilesChunked
-  );
-  // The registry callbacks fire later than this render — read the LATEST
-  // section state at call time, not what was captured at registration.
-  const sectionTreeRef = useRef(treeContext.fileTree);
-  const displayedTreeRef = useRef(displayTree);
-  // Post-commit sync keeps render pure; the refs are only read from registry
-  // callbacks, which always fire after the commit that scheduled them.
-  useEffect(() => {
-    sectionTreeRef.current = treeContext.fileTree;
-    displayedTreeRef.current = displayTree;
-  });
-  useEffect(() => {
-    if (!(forestRegister && forestReportExpandAllProgress)) {
-      return;
-    }
-    return forestRegister(folderId, {
-      cancelExpandAll: sectionCancelExpandAll,
-      expandAll: async () => {
-        const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
-          const currentPaths = store.getState().expandedDirectoryPaths;
-          const nextPaths = updater(currentPaths);
-          if (nextPaths !== currentPaths) {
-            store.getState().setExpandedPaths(nextPaths);
-          }
-        };
-        await sectionExpandAllProgressively(
-          setExpandedPathsUpdater,
-          store.getState().expandedDirectoryPaths,
-          // Push progress at the event source: this section's counts live in
-          // ITS tree provider, which the panel toolbar cannot see.
-          (loaded, total) => forestReportExpandAllProgress(folderId, { loaded, total })
-        );
-      },
-      getVisibleQuickFilterKeys: () => {
-        // Composite keys of the files currently DISPLAYED in this section
-        // (view filters + quick filter applied) — quick-filter Select All
-        // selects exactly what the user sees, no scanning beyond it.
-        const visible = new Set<string>();
-        collectVisibleFiles(displayedTreeRef.current, visible);
-        return Array.from(visible, (path) => `${folderId}|@|${path}`);
-      },
-      selectAll: async () => {
-        // Quiet pass: the forest sweep owns aggregate feedback (per-root
-        // zero-match/limit toasts would fire once per section).
-        const result = await sectionSelectAll(
-          sectionTreeRef.current,
-          folderId,
-          addMultipleSelectedFiles,
-          store.getState().maxSelectionCount,
-          addMultipleSelectedFilesChunked,
-          { quiet: true }
-        );
-        return {
-          limitReached: result.limitReached === true,
-          selected: result.filePaths.length,
-        };
-      },
-    });
-  }, [
-    addMultipleSelectedFiles,
-    addMultipleSelectedFilesChunked,
-    forestRegister,
-    forestReportExpandAllProgress,
-    folderId,
-    sectionExpandAllProgressively,
-    sectionCancelExpandAll,
-    sectionSelectAll,
-    store,
-  ]);
-
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
@@ -648,6 +560,103 @@ const RootSectionInner = ({
     deferredTree: deferredFileTree,
     displayTree,
   });
+
+  // Register this section's expand-all AND select-all with the forest
+  // registry so the toolbar actions run INSIDE this root's tree context
+  // (routing them through the focused panel provider only touches the
+  // invisible top-level tree — the recurring forest disease, toolbar
+  // edition). Expansion paths land in the workspace-global expanded set.
+  //
+  // Registration lives HERE (above the collapse branch), not in
+  // PerRootTreePane: a collapsed section unmounts its pane, and a
+  // pane-scoped registration made Expand All / Select All silently skip
+  // every collapsed root (BST-571). The registry also drives the section's
+  // own collapse state through setCollapsed.
+  const store = useFileExplorerStoreContext();
+  const forestActions = useOptionalForestTreeActions();
+  const sectionExpandAllProgressively = treeContext.expandAllProgressively;
+  const sectionCancelExpandAll = treeContext.cancelExpandAll;
+  // Registration depends on these STABLE registry callbacks, never on the
+  // whole context value — that value changes on every aggregate progress
+  // update, which would churn register/unregister mid-run.
+  const forestRegister = forestActions?.register;
+  const forestReportExpandAllProgress = forestActions?.reportExpandAllProgress;
+  const sectionSelectAll = treeContext.selectAllRecursively;
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
+  const folderId = resolvedRootId ?? getRootFolderId(rootDirectoryHandle) ?? '';
+  // The registry callbacks fire later than this render — read the LATEST
+  // section state at call time, not what was captured at registration.
+  const sectionTreeRef = useRef(treeContext.fileTree);
+  const displayedTreeRef = useRef(displayTree);
+  // Post-commit sync keeps render pure; the refs are only read from registry
+  // callbacks, which always fire after the commit that scheduled them.
+  useEffect(() => {
+    sectionTreeRef.current = treeContext.fileTree;
+    displayedTreeRef.current = displayTree;
+  });
+  useEffect(() => {
+    if (!(forestRegister && forestReportExpandAllProgress)) {
+      return;
+    }
+    return forestRegister(folderId, {
+      cancelExpandAll: sectionCancelExpandAll,
+      expandAll: async () => {
+        const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
+          const currentPaths = store.getState().expandedDirectoryPaths;
+          const nextPaths = updater(currentPaths);
+          if (nextPaths !== currentPaths) {
+            store.getState().setExpandedPaths(nextPaths);
+          }
+        };
+        await sectionExpandAllProgressively(
+          setExpandedPathsUpdater,
+          store.getState().expandedDirectoryPaths,
+          // Push progress at the event source: this section's counts live in
+          // ITS tree provider, which the panel toolbar cannot see.
+          (loaded, total) => forestReportExpandAllProgress(folderId, { loaded, total })
+        );
+      },
+      getVisibleQuickFilterKeys: () => {
+        // Composite keys of the files currently DISPLAYED in this section
+        // (view filters + quick filter applied) — quick-filter Select All
+        // selects exactly what the user sees, no scanning beyond it.
+        const visible = new Set<string>();
+        collectVisibleFiles(displayedTreeRef.current, visible);
+        return Array.from(visible, (path) => `${folderId}|@|${path}`);
+      },
+      selectAll: async () => {
+        // Quiet pass: the forest sweep owns aggregate feedback (per-root
+        // zero-match/limit toasts would fire once per section).
+        const result = await sectionSelectAll(
+          sectionTreeRef.current,
+          folderId,
+          addMultipleSelectedFiles,
+          store.getState().maxSelectionCount,
+          addMultipleSelectedFilesChunked,
+          { quiet: true }
+        );
+        return {
+          limitReached: result.limitReached === true,
+          selected: result.filePaths.length,
+        };
+      },
+      // setState is identity-stable, so registration never churns on toggle.
+      setCollapsed: setIsCollapsed,
+    });
+  }, [
+    addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked,
+    forestRegister,
+    forestReportExpandAllProgress,
+    folderId,
+    sectionExpandAllProgressively,
+    sectionCancelExpandAll,
+    sectionSelectAll,
+    store,
+  ]);
 
   const handleToggle = useCallback(() => {
     // Header click: focus this root AND toggle collapse.

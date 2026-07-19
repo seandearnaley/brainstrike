@@ -1057,6 +1057,9 @@ const FileExplorerPanelInner = React.memo(() => {
     forestActions?.cancelExpandAll();
     cancelExpandAll();
     store.getState().collapseAllDirectories();
+    // Forest mode: one click means FULLY compact — the root section headers
+    // close too, not just the directories under them (BST-571).
+    forestActions?.collapseAllSections();
   }, [forestActions, store, cancelExpandAll]);
 
   const forestSelectAll = useCallback<typeof selectAllRecursively>(
