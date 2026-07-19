@@ -2,6 +2,7 @@ import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
+  registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
 import {
@@ -492,6 +493,39 @@ describe('DatabaseDemoPanel', () => {
     view.unmount();
 
     expect(getRegisteredEmbeddingQueueFactory()).toBeNull();
+  });
+
+  it('restores the previously registered embedding queue factory on unmount instead of clobbering the app-level registration', async () => {
+    // The app runtime (web root layout / desktop root layout) registers a
+    // durable queue factory at startup. Mounting the demo panel scopes its own
+    // factory over it; unmounting must RESTORE the app-level factory — a null
+    // reset would break every later semantic search ("Embedding queue factory
+    // is not registered").
+    const appLevelQueue = { id: 'app-level-queue' } as unknown as QueueAdapter;
+    const appLevelFactory = () => appLevelQueue;
+    registerEmbeddingQueueFactory(appLevelFactory);
+
+    const mockQueue = {
+      add: vi.fn(),
+      addBulk: vi.fn(),
+      cancel: vi.fn(),
+      drain: vi.fn(),
+      isPaused: false,
+      isProcessing: false,
+      onProgress: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    } as unknown as QueueAdapter;
+
+    const view = renderWithProviders(<DatabaseDemoPanel embeddingQueue={mockQueue} />);
+
+    await waitFor(() => {
+      expect(getRegisteredEmbeddingQueueFactory()?.()).toBe(mockQueue);
+    });
+
+    view.unmount();
+
+    expect(getRegisteredEmbeddingQueueFactory()).toBe(appLevelFactory);
   });
 
   describe('Store subscription scope (perf)', () => {

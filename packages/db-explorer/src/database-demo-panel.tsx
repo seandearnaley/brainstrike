@@ -482,11 +482,21 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       return;
     }
 
+    // Scope this panel's queue over the app-level registration, then RESTORE
+    // the previous factory on unmount. Resetting to null here would clobber the
+    // startup registration (web/desktop root layouts) and break every later
+    // semantic search with "Embedding queue factory is not registered".
+    const previousFactory = getRegisteredEmbeddingQueueFactory();
     const queueFactory = () => embeddingQueue;
     registerEmbeddingQueueFactory(queueFactory);
 
     return () => {
-      if (getRegisteredEmbeddingQueueFactory() === queueFactory) {
+      if (getRegisteredEmbeddingQueueFactory() !== queueFactory) {
+        return;
+      }
+      if (previousFactory) {
+        registerEmbeddingQueueFactory(previousFactory);
+      } else {
         resetEmbeddingQueueFactory();
       }
     };

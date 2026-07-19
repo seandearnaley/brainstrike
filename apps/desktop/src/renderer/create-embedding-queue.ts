@@ -8,11 +8,28 @@ import { resolveEmbeddingWorkerUrlHref } from './resolve-embedding-worker-url';
 
 let singletonQueue: QueueAdapter | null = null;
 
-function createSingletonQueue(): QueueAdapter {
+function registerEmbeddingWorkerRuntime(): string {
   const embeddingWorkerUrl: string = resolveEmbeddingWorkerUrlHref();
   registerEmbeddingRuntimeConfig({
     streamingWorkerUrl: embeddingWorkerUrl,
   });
+  return embeddingWorkerUrl;
+}
+
+/**
+ * Eager startup registration for the desktop visible renderer (mirrors web's
+ * `registerWebEmbeddingRuntimeConfig`): registers the streaming worker URL and
+ * a LAZY queue factory so a local-model semantic search can initialize the
+ * transformers backend before any database panel has loaded the queue. The
+ * workerpool itself is still only constructed on first use.
+ */
+export function registerDesktopEmbeddingRuntimeConfig(): void {
+  registerEmbeddingWorkerRuntime();
+  registerEmbeddingQueueFactory(() => getEmbeddingQueue());
+}
+
+function createSingletonQueue(): QueueAdapter {
+  const embeddingWorkerUrl = registerEmbeddingWorkerRuntime();
 
   const queue: QueueAdapter = createBrowserEmbeddingQueue({
     requireWorkerpool: true,
