@@ -775,6 +775,31 @@ export function buildEnabledModelIdSet(options: {
 
 export type FixedProviderModels = Partial<Record<SupportedProvider, readonly string[]>>;
 
+export function resolveFixedProviderModelSelection(args: {
+  currentModel: string | null | undefined;
+  fixedProviderModels: FixedProviderModels | undefined;
+}): string | undefined {
+  if (!args.fixedProviderModels) {
+    return;
+  }
+  const currentProvider = resolveProviderFromComposite(args.currentModel);
+  const currentModelName = resolveModelNameFromComposite(args.currentModel);
+  if (
+    currentProvider &&
+    currentModelName &&
+    args.fixedProviderModels[currentProvider]?.includes(currentModelName)
+  ) {
+    return;
+  }
+  for (const [provider, models] of Object.entries(args.fixedProviderModels)) {
+    const model = models?.[0];
+    if (model && isSupportedProvider(provider)) {
+      return `${provider}::${model}`;
+    }
+  }
+  return;
+}
+
 export function getRuntimeProviderLlmModels(
   provider: SupportedProvider,
   runtimeModels: Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>,

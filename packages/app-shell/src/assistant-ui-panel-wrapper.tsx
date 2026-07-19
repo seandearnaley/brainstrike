@@ -109,6 +109,7 @@ import {
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
+  resolveProviderModelSelection,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -122,7 +123,6 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
-import { useProviderModelSelector } from './hooks/use-provider-model-selector';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
@@ -188,6 +188,8 @@ export function AssistantUiPanelWrapper({
     getAvailableProviders,
     getLocalRuntimeStatuses,
     getLocalRuntimeModels,
+    getSelectedModel,
+    getSelectedProvider,
     setProviderSettings,
   } = useAssistantPreferencesStore();
   const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
@@ -1025,15 +1027,21 @@ export function AssistantUiPanelWrapper({
     [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
-  const selectModelForProvider = useProviderModelSelector({
-    enabledBuiltInLocalModelIds,
-    getProviderLlmModels,
-    isModelEnabled,
-    memoryThreadId,
-    selectedThreadDraftRuntime,
-    setModel,
-    setThreadDraftRuntime,
-  });
+  const selectModelForProvider = useCallback(
+    (provider: SupportedProvider) => {
+      const modelToSelect =
+        resolveProviderModelSelection({
+          getProviderLlmModels,
+          isModelEnabled,
+          provider,
+        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
+      if (!modelToSelect) {
+        return;
+      }
+      setModel(`${provider}::${modelToSelect}`);
+    },
+    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1069,23 +1077,23 @@ export function AssistantUiPanelWrapper({
     (currentProvider: SupportedProvider) =>
       hasValidProviderModelSelection({
         currentProvider,
-        currentSelectedModel: currentModel,
+        currentSelectedModel: getSelectedModel(),
         isModelEnabled,
         providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
       }),
-    [currentModel, getProviderLlmModels, isModelEnabled]
+    [getProviderLlmModels, getSelectedModel, isModelEnabled]
   );
 
   const handleLocalRuntimeSelection = useCallback(
     (currentProvider: SupportedProvider): boolean =>
       resolveLocalRuntimeSelection({
         currentProvider,
-        currentSelectedModel: currentModel,
+        currentSelectedModel: getSelectedModel(),
         isModelEnabled,
         providerHasEnabledModels,
         selectModelForProvider,
       }),
-    [currentModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
+    [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
   const seedBuiltInLocalModelSelection = useCallback((): boolean => {
@@ -1100,14 +1108,12 @@ export function AssistantUiPanelWrapper({
     return true;
   }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
-  // Reconcile selection whenever providers or enabled models change.
-  // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
     if (seedBuiltInLocalModelSelection()) {
       return;
     }
 
-    const currentProvider = selectedProvider;
+    const currentProvider = getSelectedProvider();
     if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
     }
@@ -1150,16 +1156,18 @@ export function AssistantUiPanelWrapper({
     enabledModelIds,
     handleLocalRuntimeSelection,
     hasValidCurrentModelSelection,
+    getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
     seedBuiltInLocalModelSelection,
-    selectedProvider,
     selectModelForProvider,
     shouldSkipSelectionReconcile,
   ]);
 
   const handleModelChange = useAssistantModelChange({
+    currentModel,
     draftRuntimeByThreadId,
+    fixedProviderModels,
     memoryThreadId,
     providerSettings,
     setModel,
