@@ -219,6 +219,32 @@ describe('assistant-tools', () => {
     }
   });
 
+  it('fails visibly when read metadata alone exceeds the native result envelope', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools({
+        workspaceRoots: [
+          {
+            displayName: 'r'.repeat(NATIVE_TOOL_RESULT_CHAR_BUDGET),
+            path: workspaceRootPath,
+            rootId: 'root-1',
+          },
+        ],
+      } as RuntimeData);
+
+      await expect(
+        tools['brainstrike.readWorkspaceFile'].execute({
+          path: '/src/main.ts',
+        })
+      ).rejects.toThrow(
+        `readWorkspaceFile metadata exceeds the ${NATIVE_TOOL_RESULT_CHAR_BUDGET}-character native result budget`
+      );
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it('rejects symlink escapes outside the workspace root', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const outsideRoot = await fsPromises.mkdtemp(
