@@ -452,8 +452,8 @@ export type FileSystemWatchSignal =
       type: 'errored';
     };
 
-/** A watcher health transition resolved to the renderer's own root path. */
-export interface WatcherRootHealthEvent extends WatcherHealthTransition {
+/** A watcher health event resolved to the renderer's own root path. */
+export interface WatcherRootHealthEvent extends WatcherHealthEvent {
   rootPath: string;
 }
 

@@ -6,6 +6,7 @@ import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
+import { WatcherHealthChip } from '../components/watcher-health-chip';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
@@ -726,6 +727,9 @@ const RootSectionInner = ({
             visibleFileTotals={visibleFileTotals}
           />
         }
+        // Watcher health surfaces per root (BST-568): renders nothing while
+        // healthy or on platforms without the capability.
+        statusControl={<WatcherHealthChip rootPath={rootDirectoryHandle.path} />}
       />
       <DisconnectRootDialog
         displayName={rootDirectoryHandle.name}
