@@ -50,6 +50,7 @@ vi.mock('../server/web-mastra-storage', () => ({
 
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   resolveDataStreamSession,
@@ -345,6 +346,47 @@ describe('assistant-stream-helpers', () => {
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'extra own fields',
+      {
+        action: 'decline',
+        injected: true,
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+      },
+    ],
+    [
+      'oversized identifiers',
+      {
+        action: 'decline',
+        runId: 'r'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1),
+        toolCallId: 'tool-call-1',
+      },
+    ],
+  ])('returns typed 400 for approval actions with %s on the Vite route', async (_case, action) => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'invalid_tool_approval_action',
+      message:
+        'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('streams chat response as JSON lines when provider is enabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
@@ -636,6 +678,42 @@ describe('assistant-stream-helpers', () => {
       error: 'invalid_attachment',
       message: 'Assistant attachment payload is invalid.',
       reason: 'unsupported-media-type',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it('returns typed invalid_attachment for an empty image on the Vite route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(
+      req,
+      res as unknown as http.ServerResponse,
+      requestBody({
+        messages: [
+          {
+            content: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'invalid-base64',
     });
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });

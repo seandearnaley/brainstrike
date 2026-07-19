@@ -72,7 +72,7 @@ interface ParsedBase64DataUrl {
 }
 
 function isCanonicalBase64(body: string): boolean {
-  if (body.length % 4 !== 0) {
+  if (body.length === 0 || body.length % 4 !== 0) {
     return false;
   }
   const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0;
@@ -122,7 +122,7 @@ function parseBase64DataUrl(dataUrl: string): ParsedBase64DataUrl {
   }
   const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0;
   return {
-    bytes: body.length === 0 ? 0 : (body.length / 4) * 3 - padding,
+    bytes: (body.length / 4) * 3 - padding,
     mediaType: prefix[1].toLowerCase(),
   };
 }

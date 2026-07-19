@@ -83,12 +83,19 @@
     other string remains under the normal graph budget. Attachment limits count
     wire occurrences rather than object identity. File parts require canonical
     base64 alphabet, length, and padding, and the data-URL media type must equal
-    the declared allowlisted image media type. Malformed direct file parts and
-    attachment validation failures return a safe `invalid_attachment` / HTTP 400
-    response. After normalization, chat requests require at least one effective
-    message and normal assistant turns require a non-empty prompt on both
-    production and Vite dev/preview routes. Assistant resume requests consume
-    the bounded body before session lookup so reconnects cannot bypass the cap.
+    the declared allowlisted image media type. An empty base64 body is invalid
+    (`invalid-base64`), never a canonical zero-byte image. Malformed direct file
+    parts and attachment validation failures return a safe `invalid_attachment`
+    / HTTP 400 response. Approval resume actions likewise cross a strict shared
+    boundary: only the exact `action`, `runId`, `toolCallId`, and optional
+    `toolName` own keys are accepted; identifiers must be non-empty and stay
+    within the documented 512-character transport ceilings. Extra keys and
+    oversized identifiers return `invalid_tool_approval_action` / HTTP 400 on
+    both production and Vite dev/preview routes. After normalization, chat
+    requests require at least one effective message and normal assistant turns
+    require a non-empty prompt on both production and Vite dev/preview routes.
+    Assistant resume requests consume the bounded body before session lookup so
+    reconnects cannot bypass the cap.
     Wire-compatible provider/model/tool hints are strictly bounded and validated
     before they are discarded, including iterative
     depth/cardinality/string/number limits for arbitrary provider options.

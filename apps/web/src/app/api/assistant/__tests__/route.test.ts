@@ -45,6 +45,7 @@ vi.mock('../../../../server/web-mastra-storage', () => ({
 
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   assistantDataStreamSessions,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   resolveDataStreamSession,
@@ -245,6 +246,39 @@ describe('assistant route', () => {
     expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
+  it('returns typed invalid_attachment for an empty image', async () => {
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        messages: [
+          {
+            content: [
+              { text: 'Describe this image', type: 'text' },
+              {
+                data: 'data:image/png;base64,',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            id: 'attachment-1',
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_attachment',
+      message: 'Assistant attachment payload is invalid.',
+      reason: 'invalid-base64',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when request body has no non-empty prompt', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       apiKey: 'test-key',
@@ -435,6 +469,43 @@ describe('assistant route', () => {
             },
           },
         },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'invalid_tool_approval_action',
+      message:
+        'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'extra own fields',
+      {
+        action: 'approve',
+        injected: true,
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+      },
+    ],
+    [
+      'oversized identifiers',
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'c'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1),
+      },
+    ],
+  ])('returns typed 400 for approval actions with %s', async (_case, action) => {
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } },
       }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',

@@ -47,7 +47,9 @@ export class EmptyAssistantPromptError extends Error {
 
 export class InvalidToolApprovalActionError extends Error {
   constructor() {
-    super('Tool approval action must include action, runId, and toolCallId.');
+    super(
+      'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.'
+    );
     this.name = 'InvalidToolApprovalActionError';
   }
 }

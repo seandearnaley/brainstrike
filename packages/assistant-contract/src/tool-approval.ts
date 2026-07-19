@@ -3,6 +3,21 @@ import type { ToolRiskCategory } from './tool-risk.js';
 export const TOOL_APPROVAL_DATA_NAME = 'brainstrike.tool-approval';
 export const TOOL_APPROVAL_RUN_CONFIG_KEY = 'brainstrikeToolApproval';
 
+/**
+ * Run ids and tool-call ids share the assistant transport's 512-character
+ * identifier ceiling. Keeping the number here makes approval actions safe to
+ * validate without importing the agent package back into this browser-safe
+ * contract.
+ */
+export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = 512;
+
+/**
+ * Approval actions carry a display-only tool identity. Bound it to the same
+ * transport identifier ceiling while allowing Brainstrike's namespaced tool
+ * ids (which are not limited to the provider-facing 64-character name form).
+ */
+export const ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS = 512;
+
 export interface AssistantToolApprovalRequest {
   args?: unknown;
   /**
@@ -69,8 +84,19 @@ export type ToolApprovalRunConfigActionReadResult =
   | { readonly action: AssistantToolApprovalAction }
   | { readonly invalid: true };
 
+const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'action',
+  'runId',
+  'toolCallId',
+  'toolName',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isBoundedIdentifier(value: unknown, maxChars: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxChars;
 }
 
 export function isAssistantToolApprovalAction(
@@ -78,12 +104,15 @@ export function isAssistantToolApprovalAction(
 ): value is AssistantToolApprovalAction {
   return (
     isRecord(value) &&
+    Reflect.ownKeys(value).every((key) => TOOL_APPROVAL_ACTION_OWN_KEYS.has(key)) &&
+    Object.hasOwn(value, 'action') &&
+    Object.hasOwn(value, 'runId') &&
+    Object.hasOwn(value, 'toolCallId') &&
     (value['action'] === 'approve' || value['action'] === 'decline') &&
-    typeof value['runId'] === 'string' &&
-    value['runId'].trim().length > 0 &&
-    typeof value['toolCallId'] === 'string' &&
-    value['toolCallId'].trim().length > 0 &&
-    (value['toolName'] === undefined || typeof value['toolName'] === 'string')
+    isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    (value['toolName'] === undefined ||
+      isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS))
   );
 }
 

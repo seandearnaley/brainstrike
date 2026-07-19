@@ -414,7 +414,13 @@ APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
 Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
 message whose `metadata.custom` + `runConfig.custom` carry the action under
 `TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
-text ("Approved <tool>." / "Approved the plan."). That message is THREAD-STATE
+text ("Approved <tool>." / "Approved the plan."). Approval actions are a strict
+wire object: exactly the own keys `action`, `runId`, `toolCallId`, and optional
+`toolName`; the two required ids and any present tool name are non-empty and
+bounded by the shared 512-character approval-transport constants. Extra own
+keys, blank identifiers, and oversized identifiers are malformed, so the Web
+production and Vite boundaries return `invalid_tool_approval_action` / HTTP 400
+instead of retaining attacker-controlled fields. That message is THREAD-STATE
 ONLY:
 - The panel renders it as a compact outcome chip
   (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a

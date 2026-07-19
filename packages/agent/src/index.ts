@@ -43,6 +43,8 @@ export {
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
 export {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,

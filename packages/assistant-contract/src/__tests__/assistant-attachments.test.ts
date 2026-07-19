@@ -44,6 +44,7 @@ describe('assistant attachment limits', () => {
   });
 
   it.each([
+    'data:image/png;base64,',
     'https://example.com/cat.png',
     'data:image/png;utf8,hello',
     'data:image/png;charset=utf-8;base64,aGVsbG8=',
@@ -57,6 +58,19 @@ describe('assistant attachment limits', () => {
     'data:image/png;base64,aGVs bG8=',
   ])('rejects malformed or non-canonical base64 data URL %s', (dataUrl) => {
     expect(() => dataUrlByteLength(dataUrl)).toThrow(AssistantAttachmentValidationError);
+  });
+
+  it('classifies an empty base64 attachment body as invalid base64', () => {
+    try {
+      validateImageAttachmentPart({
+        data: 'data:image/png;base64,',
+        mediaType: 'image/png',
+      });
+      expect.unreachable('empty attachment data must throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AssistantAttachmentValidationError);
+      expect((error as AssistantAttachmentValidationError).reason).toBe('invalid-base64');
+    }
   });
 
   it('validates a supported, in-budget image part', () => {
