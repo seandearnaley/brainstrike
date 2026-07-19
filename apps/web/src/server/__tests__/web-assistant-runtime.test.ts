@@ -89,6 +89,57 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
   });
 
   it.each([
+    ['agentLoop', { inputTokenLimit: '1000', maxSteps: '20' }],
+    ['enabledNativeToolIds', 'execute-anything'],
+    ['mcpEnabled', 'true'],
+    ['model', { id: 'attacker-model' }],
+    ['modelSettings', { maxOutputTokens: '1000000', temperature: '2' }],
+    ['provider', ['ollama']],
+    ['providerOptions', 'attacker-options'],
+  ])('validates the ignored wire hint %s before discarding it', (field, value) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ [field]: value }), 'server-key')
+    ).toThrow(`Invalid web assistant runtime field: ${field}`);
+  });
+
+  it('rejects deeply nested ignored provider options without recursively parsing them', () => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+    let nested: Record<string, unknown> = { value: true };
+    for (let depth = 0; depth < 20; depth += 1) {
+      nested = { child: nested };
+    }
+
+    expect(() =>
+      resolveWebAssistantRuntime(
+        asRuntimeData({ providerOptions: { attacker: nested } }),
+        'server-key'
+      )
+    ).toThrow('Invalid web assistant runtime field: providerOptions');
+  });
+
+  it.each([
+    ['nested string size', { custom: 'x'.repeat(4097) }],
+    ['nested number magnitude', { custom: 100_000_001 }],
+    ['nested array cardinality', { custom: Array.from({ length: 1001 }, () => null) }],
+    [
+      'nested object cardinality',
+      {
+        custom: Object.fromEntries(
+          Array.from({ length: 101 }, (_, index) => [`key-${index}`, true])
+        ),
+      },
+    ],
+  ])('bounds ignored provider options by %s', (_case, providerOptions) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ providerOptions }), 'server-key')
+    ).toThrow('Invalid web assistant runtime field: providerOptions');
+  });
+
+  it.each([
     ['contextTokenCount', '1200'],
     ['mainRootId', 42],
     ['mainRootPath', 'x'.repeat(4097)],
