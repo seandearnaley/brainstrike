@@ -7,6 +7,7 @@ import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  hasNonEmptyAssistantPrompt,
   readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   type StreamChunk,
@@ -25,6 +26,13 @@ import { buildWebAssistantStream } from './server/web-mastra-storage';
 export type { StreamChunk };
 
 const logger = createLogger('WebAssistantStream');
+
+class EmptyAssistantPromptError extends Error {
+  constructor() {
+    super('Assistant request has no non-empty prompt.');
+    this.name = 'EmptyAssistantPromptError';
+  }
+}
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
@@ -136,6 +144,9 @@ export async function handleChatEndpoint(
     }
     const rawMessages = body.messages as AssistantUiMessage[];
     const agentMessages = convertAssistantUiMessages(rawMessages);
+    if (agentMessages.length === 0) {
+      throw new AssistantMessageValidationError('empty-messages');
+    }
     stream = await toAiSdkStyleStream(
       agentMessages,
       resolveWebAssistantRuntime(data, provider.apiKey)
@@ -232,10 +243,14 @@ export async function handleAssistantEndpoint(
     const rawMessages = Array.isArray(body?.messages)
       ? (body.messages as AssistantUiMessage[])
       : [];
+    const agentMessages = toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages);
+    if (!(toolApprovalAction || hasNonEmptyAssistantPrompt(agentMessages))) {
+      throw new EmptyAssistantPromptError();
+    }
     // The seam admits only explicit request metadata and resolves the trusted
     // permission policy; server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
-      agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
+      agentMessages,
       apiKey: provider.apiKey,
       data,
       signal: abortController.signal,
@@ -297,6 +312,14 @@ function sendAssistantDisabledResponse(
 }
 
 function sendAssistantInputErrorResponse(res: http.ServerResponse, error: unknown): boolean {
+  if (error instanceof EmptyAssistantPromptError) {
+    res.writeHead(400, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
+    });
+    res.end(JSON.stringify({ error: 'empty_prompt' }));
+    return true;
+  }
   if (error instanceof AssistantMessageValidationError) {
     res.writeHead(400, {
       'Cache-Control': 'no-store',

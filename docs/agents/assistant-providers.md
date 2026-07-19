@@ -72,14 +72,19 @@
     counts, graph nodes/depth, object fields, and string sizes. It rejects
     cycles, non-plain objects, and non-JSON scalars (including bigint and
     non-finite numbers) while permitting `undefined` for optional in-memory
-    fields. Violations fail as `invalid_messages` / HTTP 400. Chat requests
-    require at least one message, and assistant resume requests consume the
-    bounded body before session lookup so reconnects cannot bypass the cap.
-    Attachment validation failures likewise return a safe
-    `invalid_attachment` / HTTP 400 response. Wire-compatible provider/model/tool
-    hints are strictly bounded and validated before they are discarded,
-    including iterative depth/cardinality/string/number limits for arbitrary
-    provider options.
+    fields. Violations fail as `invalid_messages` / HTTP 400. One shared
+    compatibility traversal extracts both text and attachments: every
+    `type: "file"` candidate is validated before scalar extraction, so malformed
+    candidates fail visibly and valid nested files cannot be flattened or
+    silently dropped. Attachment validation failures return a safe
+    `invalid_attachment` / HTTP 400 response. After normalization, chat requests
+    require at least one effective message and normal assistant turns require a
+    non-empty prompt on both production and Vite dev/preview routes. Assistant
+    resume requests consume the bounded body before session lookup so reconnects
+    cannot bypass the cap. Wire-compatible provider/model/tool hints are
+    strictly bounded and validated before they are discarded, including
+    iterative depth/cardinality/string/number limits for arbitrary provider
+    options.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

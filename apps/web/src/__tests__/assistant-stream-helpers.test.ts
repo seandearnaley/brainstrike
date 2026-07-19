@@ -187,7 +187,9 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+    });
 
     expect(res.status).toBe(502);
     expect(JSON.parse(res.body)).toMatchObject({
@@ -208,7 +210,7 @@ describe('assistant-stream-helpers', () => {
     const res = new ResponseSink();
     await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
       data: { mcpConfig: { servers: [] } },
-      messages: [],
+      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     });
 
     expect(res.status).toBe(400);
@@ -239,7 +241,9 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
@@ -396,6 +400,35 @@ describe('assistant-stream-helpers', () => {
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
+  it('returns typed 400 when a non-empty chat array normalizes to no messages', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const res = new ResponseSink();
+
+    await handleChatEndpoint({ messages: [null] }, res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_messages',
+      message: 'Assistant chat requests must contain at least one message.',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('returns empty_prompt when a normal assistant turn has no effective prompt', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {};
+    const res = new ResponseSink();
+
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: 'empty-1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('returns typed 400 for a deeply nested chat message graph', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     let nested: Record<string, unknown> = { text: 'hello' };
@@ -518,7 +551,9 @@ describe('assistant-stream-helpers', () => {
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
-    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+    });
 
     expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith(undefined);
     expect(vi.mocked(assistantDataStreamSessions.create)).toHaveBeenCalled();

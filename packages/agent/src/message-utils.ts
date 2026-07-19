@@ -47,70 +47,43 @@ function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStr
   return createRandomId('msg');
 }
 
-/**
- * A wire `file` content part (the shape assistant-stream produces for
- * composer attachments and inline image parts alike). Detected STRUCTURALLY so
- * the text walk can refuse to flatten its base64 body into prompt text even on
- * roles/paths that do not collect attachments.
- */
-function isWireFileAttachmentPart(
-  record: AssistantUiNodeObject
-): record is AssistantUiNodeObject & { data: string; mediaType: string } {
-  return (
-    record['type'] === 'file' &&
-    typeof record['data'] === 'string' &&
-    typeof record['mediaType'] === 'string'
-  );
+interface ExtractedMessageContent {
+  fileParts: AgentMessagePartFile[];
+  segments: string[];
 }
 
-/**
- * Collect wire file parts from a USER message, mirroring the container keys
- * the text walk traverses. Validates against the shared attachment contract —
- * an unsupported media type, an oversized payload, or too many attachments
- * THROWS (surfaced as a request failure), never a silent drop.
- */
-function collectFileAttachmentParts(
-  source: AssistantUiMessage | AssistantUiMessageStrict
-): AgentMessagePartFile[] {
-  const collected: AgentMessagePartFile[] = [];
-  const seenObjects = new Set<AssistantUiNodeObject>();
+function readWireFileAttachmentCandidate(
+  record: AssistantUiNodeObject
+): AgentMessagePartFile | null {
+  if (record['type'] !== 'file') {
+    return null;
+  }
 
-  const visit = (value: AssistantUiNode | undefined): void => {
-    if (value === null || value === undefined || typeof value !== 'object') {
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        visit(item);
-      }
-      return;
-    }
-    const record = value as AssistantUiNodeObject;
-    if (seenObjects.has(record)) {
-      return;
-    }
-    seenObjects.add(record);
-    if (isWireFileAttachmentPart(record)) {
-      const filename = typeof record['filename'] === 'string' ? record['filename'] : undefined;
-      collected.push({
-        data: record.data,
-        ...(filename === undefined ? {} : { filename }),
-        mediaType: record.mediaType,
-        type: 'file',
-      });
-      return;
-    }
-    visit(record.content);
-    visit(record.parts);
-    visit(record.children);
-    visit(record.values);
-    visit(record.message);
-    visit(record.messages);
+  const data = record['data'];
+  const filename = record['filename'];
+  const mediaType = record['mediaType'];
+  if (
+    typeof data !== 'string' ||
+    typeof mediaType !== 'string' ||
+    (filename !== undefined && typeof filename !== 'string')
+  ) {
+    throw new AssistantAttachmentValidationError(
+      'invalid-file-part',
+      'Assistant file parts require string data and mediaType fields plus an optional string filename.'
+    );
+  }
+
+  const part: AgentMessagePartFile = {
+    data,
+    ...(filename === undefined ? {} : { filename }),
+    mediaType,
+    type: 'file',
   };
+  validateImageAttachmentPart(part);
+  return part;
+}
 
-  visit((source as { content?: AssistantUiNode }).content);
-  visit((source as { parts?: AssistantUiNode }).parts);
-
+function assertAttachmentCollectionWithinLimits(collected: AgentMessagePartFile[]): void {
   if (collected.length > ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE) {
     throw new AssistantAttachmentValidationError(
       'too-many-attachments',
@@ -119,7 +92,6 @@ function collectFileAttachmentParts(
   }
   let combinedBytes = 0;
   for (const part of collected) {
-    validateImageAttachmentPart(part);
     combinedBytes += dataUrlByteLength(part.data);
   }
   if (combinedBytes > ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES) {
@@ -128,10 +100,20 @@ function collectFileAttachmentParts(
       `Combined attachments are ${combinedBytes} bytes; the limit is ${ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES} bytes per message.`
     );
   }
-  return collected;
 }
 
-function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStrict): string[] {
+/**
+ * Walk a message exactly once to extract text and attachments. Every object
+ * whose discriminator is `type: "file"` is an attachment candidate: validate
+ * it before returning from that branch so malformed data can never fall
+ * through into scalar text extraction. The generic unknown-key traversal is
+ * intentional compatibility behavior, so valid nested files are collected
+ * everywhere text extraction can reach instead of being silently dropped.
+ */
+function extractMessageContent(
+  source: AssistantUiMessage | AssistantUiMessageStrict
+): ExtractedMessageContent {
+  const fileParts: AgentMessagePartFile[] = [];
   const segments: string[] = [];
   const seenValues = new Set<string>();
   const seenObjects = new Set<AssistantUiNodeObject>();
@@ -156,7 +138,6 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     'result',
     'message',
     'messages',
-    'type',
   ]);
 
   const pushScalar = (value: AssistantUiScalar | undefined): void => {
@@ -194,11 +175,9 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     }
     seenObjects.add(record);
 
-    // A file part's `data` is a base64 body and its `mediaType` is transport
-    // metadata — neither is prompt text. Handled by
-    // collectFileAttachmentParts (user messages); on every other role the
-    // part is deliberately ignored rather than leaked as text.
-    if (isWireFileAttachmentPart(record)) {
+    const filePart = readWireFileAttachmentCandidate(record);
+    if (filePart) {
+      fileParts.push(filePart);
       return;
     }
 
@@ -247,7 +226,8 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
   visit(maybeContent);
   visit(maybeParts);
 
-  return segments;
+  assertAttachmentCollectionWithinLimits(fileParts);
+  return { fileParts, segments };
 }
 
 function toAgentMessage(
@@ -258,11 +238,11 @@ function toAgentMessage(
     return null;
   }
   const role = normalizeRole(message.role, fallbackRole);
-  const segments = extractTextSegments(message);
+  const content = extractMessageContent(message);
   // Attachments are a USER-message concept (composer-sent images); file parts
-  // on other roles are excluded from the text walk but not forwarded.
-  const fileParts = role === 'user' ? collectFileAttachmentParts(message) : [];
-  if (segments.length === 0 && fileParts.length === 0) {
+  // on other roles are still validated but are not forwarded.
+  const fileParts = role === 'user' ? content.fileParts : [];
+  if (content.segments.length === 0 && fileParts.length === 0) {
     return null;
   }
   if (!role) {
@@ -271,7 +251,7 @@ function toAgentMessage(
   return {
     id: ensureMessageId(message.id),
     parts: [
-      ...segments.map((text) => ({ text, type: 'text' }) satisfies AgentMessagePartText),
+      ...content.segments.map((text) => ({ text, type: 'text' }) satisfies AgentMessagePartText),
       ...fileParts,
     ],
     role,

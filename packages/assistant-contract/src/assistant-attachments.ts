@@ -39,6 +39,7 @@ export type SupportedImageAttachmentMediaType =
   (typeof SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES)[number];
 
 export type AssistantAttachmentValidationReason =
+  | 'invalid-file-part'
   | 'not-a-data-url'
   | 'oversized'
   | 'oversized-combined'

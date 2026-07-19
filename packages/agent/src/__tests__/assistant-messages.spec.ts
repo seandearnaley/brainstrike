@@ -8,7 +8,11 @@ import {
   MAX_ASSISTANT_MESSAGES,
 } from '../assistant-message-boundary';
 import type { AgentMessage, RuntimeData } from '../index';
-import { convertAssistantUiMessages, toAiSdkStyleStream } from '../index';
+import {
+  AssistantAttachmentValidationError,
+  convertAssistantUiMessages,
+  toAiSdkStyleStream,
+} from '../index';
 
 const { streamMastraAgentMock } = vi.hoisted(() => ({
   streamMastraAgentMock: vi.fn(),
@@ -98,6 +102,99 @@ describe('convertAssistantUiMessages image attachments', () => {
         },
       ])
     ).toThrow(/media type/i);
+  });
+
+  it.each([
+    [
+      'missing media type',
+      {
+        data: PNG_DATA_URL,
+        type: 'file',
+      },
+    ],
+    [
+      'non-string data',
+      {
+        data: 42,
+        mediaType: 'image/png',
+        type: 'file',
+      },
+    ],
+    [
+      'non-string filename',
+      {
+        data: PNG_DATA_URL,
+        filename: 42,
+        mediaType: 'image/png',
+        type: 'file',
+      },
+    ],
+  ])('rejects a malformed file candidate with %s before text extraction', (_case, part) => {
+    let caught: unknown;
+    try {
+      convertAssistantUiMessages([
+        {
+          content: [part],
+          id: 'u1',
+          role: 'user',
+        },
+      ]);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AssistantAttachmentValidationError);
+    expect(caught).toMatchObject({ reason: 'invalid-file-part' });
+  });
+
+  it('collects valid file parts everywhere the shared message traversal can reach', () => {
+    const nestedResultFile = {
+      data: PNG_DATA_URL,
+      filename: 'result.png',
+      mediaType: 'image/png',
+      type: 'file',
+    };
+    const nestedUnknownKeyFile = {
+      data: PNG_DATA_URL,
+      filename: 'payload.png',
+      mediaType: 'image/png',
+      type: 'file',
+    };
+
+    const messages = convertAssistantUiMessages([
+      {
+        content: [{ result: nestedResultFile }, { payload: { attachment: nestedUnknownKeyFile } }],
+        id: 'u1',
+        role: 'user',
+      },
+    ]);
+
+    expect(messages).toEqual([
+      {
+        id: 'u1',
+        parts: [nestedResultFile, nestedUnknownKeyFile],
+        role: 'user',
+      },
+    ]);
+  });
+
+  it('validates file candidates on non-user messages before ignoring valid attachments', () => {
+    expect(() =>
+      convertAssistantUiMessages([
+        {
+          content: [
+            { text: 'earlier answer', type: 'text' },
+            {
+              data: 'data:application/pdf;base64,AAAA',
+              mediaType: 'application/pdf',
+              type: 'file',
+            },
+          ],
+          id: 'a1',
+          role: 'assistant',
+        },
+      ])
+    ).toThrow(AssistantAttachmentValidationError);
   });
 
   it('throws loudly when a message exceeds the attachment count cap', () => {
