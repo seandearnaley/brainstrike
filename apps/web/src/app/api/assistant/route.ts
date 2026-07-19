@@ -1,7 +1,6 @@
 import type {
   AgentMessage,
   AssistantUiMessageStrict as AssistantUiMessage,
-  RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
 import {
@@ -19,6 +18,7 @@ import {
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../../../server/web-mastra-storage';
 
 const logger = createLogger('WebAssistantRoute');
@@ -40,7 +40,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   let rawMessages: AssistantUiMessage[];
-  let data: RuntimeData | undefined;
+  let data: unknown;
   let runConfig: unknown;
   try {
     const body = await readRequestBodyText(req, assistantRequestBodyLimitBytes);
@@ -95,8 +95,8 @@ export async function POST(req: Request): Promise<Response> {
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    // The seam resolves the TRUSTED permission policy from `data` (strips any
-    // client-supplied policy) so ask tools actually suspend on a normal turn.
+    // The seam admits only explicit request metadata and resolves the trusted
+    // permission policy; server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
       agentMessages,
       apiKey: provider.apiKey,
@@ -104,6 +104,9 @@ export async function POST(req: Request): Promise<Response> {
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {
+    if (error instanceof InvalidWebAssistantRuntimeDataError) {
+      return jsonError(400, 'invalid_runtime_data', error.message);
+    }
     logger.error('Failed to initialize assistant stream', { error });
     return new Response(
       JSON.stringify({

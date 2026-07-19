@@ -3,7 +3,6 @@ import {
   type AssistantUiMessage,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
-  type RuntimeData,
   readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   type StreamChunk,
@@ -13,6 +12,10 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from './server/web-assistant-runtime';
 import { buildWebAssistantStream } from './server/web-mastra-storage';
 
 export type { StreamChunk };
@@ -49,11 +52,16 @@ export async function handleChatEndpoint(
 
   let stream: AsyncIterable<StreamChunk>;
   try {
-    stream = await toAiSdkStyleStream(agentMessages, {
-      ...(data as RuntimeData | undefined),
-      apiKey: provider.apiKey,
-    });
+    stream = await toAiSdkStyleStream(
+      agentMessages,
+      resolveWebAssistantRuntime(data, provider.apiKey)
+    );
   } catch (error) {
+    if (error instanceof InvalidWebAssistantRuntimeDataError) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
+      return;
+    }
     logger.error('Failed to initialize chat stream', { error });
     res.writeHead(502, {
       'Cache-Control': 'no-store',
@@ -118,7 +126,7 @@ export async function handleAssistantEndpoint(
   }
   const toolApprovalAction = approvalResult?.action;
 
-  const data = (body?.data ?? undefined) as RuntimeData | undefined;
+  const data = body?.data ?? undefined;
   const abortController = new AbortController();
   const onAbort = () => abortController.abort();
   if (req) {
@@ -137,8 +145,8 @@ export async function handleAssistantEndpoint(
     const rawMessages = Array.isArray(body?.messages)
       ? (body.messages as AssistantUiMessage[])
       : [];
-    // The seam resolves the TRUSTED permission policy from `data` (strips any
-    // client-supplied policy) so ask tools actually suspend on a normal turn.
+    // The seam admits only explicit request metadata and resolves the trusted
+    // permission policy; server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
       agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
       apiKey: provider.apiKey,
@@ -148,6 +156,11 @@ export async function handleAssistantEndpoint(
     });
   } catch (error) {
     removeAbortListeners();
+    if (error instanceof InvalidWebAssistantRuntimeDataError) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'invalid_runtime_data', message: error.message }));
+      return;
+    }
     logger.error('Failed to initialize assistant stream', { error });
     res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(

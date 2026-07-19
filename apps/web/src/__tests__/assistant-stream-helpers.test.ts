@@ -62,6 +62,7 @@ import {
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
 import { resolveAssistantProviderConfig } from '../server/assistant-config';
+import { InvalidWebAssistantRuntimeDataError } from '../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../server/web-mastra-storage';
 
 class ResponseSink extends EventEmitter {
@@ -165,6 +166,28 @@ describe('assistant-stream-helpers', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       error: 'agent_stream_init_failed',
       message: 'Assistant stream initialization failed',
+    });
+  });
+
+  it('returns 400 when assistant data contains a server-only runtime field', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(buildWebAssistantStream).mockRejectedValue(
+      new InvalidWebAssistantRuntimeDataError('mcpConfig')
+    );
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      data: { mcpConfig: { servers: [] } },
+      messages: [],
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Unsupported web assistant runtime field: mcpConfig',
     });
   });
 
@@ -277,16 +300,53 @@ describe('assistant-stream-helpers', () => {
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
 
     const res = new ResponseSink();
-    await handleChatEndpoint({ messages: [] }, res as unknown as http.ServerResponse);
+    await handleChatEndpoint(
+      {
+        data: {
+          agentLoop: { inputTokenLimit: 1_000_000, maxSteps: 999 },
+          mcpEnabled: true,
+          model: 'attacker-model',
+          modelSettings: { maxOutputTokens: 1_000_000 },
+          provider: 'ollama',
+          providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
+        },
+        messages: [],
+      },
+      res as unknown as http.ServerResponse
+    );
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('application/json');
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(expect.any(Array), {
+      apiKey: 'key',
+      provider: 'openai',
+    });
 
     const lines = res.body.trim().split('\n');
     expect(lines).toHaveLength(2);
     // sanitizeStreamChunk now runs real — verify output matches sanitized input
     expect(JSON.parse(lines[0]!)).toEqual(chunks[0]);
     expect(JSON.parse(lines[1]!)).toEqual(chunks[1]);
+  });
+
+  it('rejects server-only runtime data on the chat endpoint', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+
+    const res = new ResponseSink();
+    await handleChatEndpoint(
+      { data: { mcpConfig: { servers: [] } }, messages: [] },
+      res as unknown as http.ServerResponse
+    );
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Unsupported web assistant runtime field: mcpConfig',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
   it('resolves last-event-id from array header using the last element', async () => {

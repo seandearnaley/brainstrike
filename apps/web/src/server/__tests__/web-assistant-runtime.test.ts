@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock ONLY the policy resolver so we assert this module's trust LOGIC (strip +
-// delegate + place), decoupled from the resolver's internals.
+// Mock ONLY the policy resolver so we assert this module's trust logic (reject +
+// allowlist + resolve), decoupled from the resolver's internals.
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
   return {
@@ -20,15 +20,27 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     vi.clearAllMocks();
   });
 
-  it('STRIPS a client-supplied permissionPolicy (the runtime gate must never trust it)', () => {
+  it('rejects a client-supplied permissionPolicy (the runtime gate must never trust it)', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
-    const runtime = resolveWebAssistantRuntime(
-      asRuntimeData({ permissionPolicy: { enforce: true, riskByTool: { evil: 'execute' } } }),
-      'key-1'
-    );
-    // A client must not be able to inject riskByTool / bypass the opt-in.
-    expect(runtime).not.toHaveProperty('permissionPolicy');
-    expect(runtime.apiKey).toBe('key-1');
+    expect(() =>
+      resolveWebAssistantRuntime(
+        asRuntimeData({ permissionPolicy: { enforce: true, riskByTool: { evil: 'execute' } } }),
+        'key-1'
+      )
+    ).toThrow('Unsupported web assistant runtime field: permissionPolicy');
+  });
+
+  it.each([
+    ['apiKey', 'attacker-key'],
+    ['dataStreamProvider', { write: 'attacker-controlled' }],
+    ['mastraTools', { execute: { execute: 'attacker-controlled' } }],
+    ['mcpConfig', { servers: [{ command: 'open', name: 'rce', transport: 'stdio' }] }],
+  ])('rejects the server-only runtime field %s', (field, value) => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(asRuntimeData({ [field]: value }), 'server-key')
+    ).toThrow(`Unsupported web assistant runtime field: ${field}`);
   });
 
   it('resolves permissionPolicyRequest into the SERVER-built trusted policy', () => {
@@ -45,24 +57,36 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(runtime.permissionPolicy).toBe(trusted);
   });
 
-  it('threads apiKey + signal, drops the raw request, preserves other data', () => {
+  it('keeps server-owned cost, provider, model, and tool policy out of client control', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const signal = new AbortController().signal;
     const runtime = resolveWebAssistantRuntime(
-      asRuntimeData({ model: 'm', permissionPolicyRequest: { x: 1 } }),
+      asRuntimeData({
+        agentLoop: { inputTokenLimit: 1_000_000, maxSteps: 999 },
+        contextTokenCount: 1200,
+        enabledNativeToolIds: ['execute-anything'],
+        mcpEnabled: true,
+        model: 'attacker-model',
+        modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
+        permissionPolicyRequest: { x: 1 },
+        provider: 'ollama',
+        providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
+      }),
       'key-3',
       signal
     );
-    expect(runtime.apiKey).toBe('key-3');
-    expect(runtime.signal).toBe(signal);
-    expect(runtime).not.toHaveProperty('permissionPolicyRequest');
-    expect((runtime as { model?: string }).model).toBe('m');
+    expect(runtime).toEqual({
+      apiKey: 'key-3',
+      contextTokenCount: 1200,
+      provider: 'openai',
+      signal,
+    });
   });
 
-  it('returns just apiKey for undefined data (no client fields, no policy)', () => {
+  it('returns server-owned provider + apiKey for undefined data', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const runtime = resolveWebAssistantRuntime(undefined, 'key-4');
-    expect(runtime.apiKey).toBe('key-4');
+    expect(runtime).toEqual({ apiKey: 'key-4', provider: 'openai' });
     expect(runtime).not.toHaveProperty('permissionPolicy');
   });
 });

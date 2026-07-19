@@ -50,6 +50,16 @@
 - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
+  - Hosted Web: the server reads only its OpenAI environment key and builds an
+    OpenAI runtime with the registry default model. The shared renderer's model,
+    provider, generation, loop, MCP, and enabled-tool fields are
+    wire-compatibility hints only and are never copied into that trusted runtime.
+    `resolveWebAssistantRuntime` copies an explicit allowlist of non-privileged
+    request metadata; server-only or unknown fields (including `apiKey`,
+    `mcpConfig`, `mastraTools`, and `permissionPolicy`) fail with
+    `invalid_runtime_data` / HTTP 400. The Web request therefore cannot create
+    tools, launch stdio MCP, replace provider credentials, or set server cost
+    policy through serialized runtime data.
 - Config:
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts

@@ -1,7 +1,6 @@
 import {
   type AgentMessage,
   type AssistantToolApprovalAction,
-  type RuntimeData,
   type StreamChunk,
   streamMastraToolApprovalAction,
   toAiSdkStyleStream,
@@ -93,7 +92,7 @@ async function closeActiveDatabase(): Promise<void> {
  */
 export async function buildWebAssistantStream(params: {
   readonly agentMessages: AgentMessage[];
-  readonly data: RuntimeData | undefined;
+  readonly data: unknown;
   readonly apiKey: string;
   readonly signal?: AbortSignal;
   readonly toolApprovalAction?: AssistantToolApprovalAction;

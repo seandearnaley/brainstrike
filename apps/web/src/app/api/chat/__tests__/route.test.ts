@@ -96,7 +96,7 @@ describe('chat route schema', () => {
 
   it('accepts valid bodies and streams', async () => {
     const body = {
-      data: { projectId: 'p1' },
+      data: { model: 'attacker-model', projectId: 'p1', provider: 'ollama' },
       messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
@@ -115,6 +115,11 @@ describe('chat route schema', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
+    expect(streamMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ apiKey: 'test-key', projectId: 'p1', provider: 'openai' })
+    );
+    expect(streamMock.mock.calls[0]?.[1]).not.toHaveProperty('model');
     const text = await res.text();
     // should contain newline-delimited JSON with at least one chunk
     const firstLine = text.split('\n').find(Boolean);

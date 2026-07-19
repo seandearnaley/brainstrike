@@ -52,6 +52,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
+import { InvalidWebAssistantRuntimeDataError } from '../../../../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../../../../server/web-mastra-storage';
 import { POST } from '../route';
 
@@ -201,6 +202,32 @@ describe('assistant route', () => {
     const payload = await res.json();
     expect(payload).toMatchObject({ error: 'agent_stream_init_failed' });
     expect(payload.message).toBe('Assistant stream initialization failed');
+  });
+
+  it('returns 400 when request data contains a server-only runtime field', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      apiKey: 'test-key',
+      enabled: true,
+    });
+    vi.mocked(buildWebAssistantStream).mockRejectedValue(
+      new InvalidWebAssistantRuntimeDataError('mcpConfig')
+    );
+
+    const req = new Request('http://localhost/api/assistant', {
+      body: JSON.stringify({
+        data: { mcpConfig: { servers: [] } },
+        messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Unsupported web assistant runtime field: mcpConfig',
+    });
   });
 
   it('rejects malformed tool approval actions on the web assistant route', async () => {

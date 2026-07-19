@@ -11,6 +11,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantRuntime,
+} from '../../../server/web-assistant-runtime';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
@@ -108,10 +112,10 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const stream = await toAiSdkStyleStream(messages, {
-      ...(data ?? {}),
-      apiKey: provider.apiKey,
-    });
+    const stream = await toAiSdkStyleStream(
+      messages,
+      resolveWebAssistantRuntime(data, provider.apiKey)
+    );
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
@@ -292,6 +296,12 @@ function createErrorResponse(err: unknown): Response {
     return new Response(JSON.stringify({ error: err.code, message: err.message }), {
       headers: JSON_ERROR_HEADERS,
       status: 413,
+    });
+  }
+  if (err instanceof InvalidWebAssistantRuntimeDataError) {
+    return new Response(JSON.stringify({ error: 'invalid_runtime_data', message: err.message }), {
+      headers: JSON_ERROR_HEADERS,
+      status: 400,
     });
   }
   if (isMastraAgentError(err)) {
