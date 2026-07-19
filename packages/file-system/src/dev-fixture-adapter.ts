@@ -425,7 +425,14 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
 
   function buildStampedFixtureState(fixture: FixtureDefinition): FixtureState {
-    const rootId = fixtureRootIdsByName.get(fixture.name) ?? crypto.randomUUID();
+    // Identity precedence:
+    //  1. A fixture-DECLARED rootId is durable across adapter instances (cold
+    //     reloads) — the only tier that lets persisted selections survive, since
+    //     folderStates is keyed by rootId (see FixtureDefinition.rootId).
+    //  2. The per-session name map keeps ad-hoc fixtures stable WITHIN one
+    //     adapter (inject + restore reconcile to one root, HMR re-load reuse).
+    //  3. A fresh UUID for a never-before-seen ad-hoc fixture.
+    const rootId = fixture.rootId ?? fixtureRootIdsByName.get(fixture.name) ?? crypto.randomUUID();
     fixtureRootIdsByName.set(fixture.name, rootId);
     return buildFixtureState(fixture, platform, rootId);
   }

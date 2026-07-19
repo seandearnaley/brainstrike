@@ -6,6 +6,7 @@ import {
   isFixtureCapableAdapter,
 } from '../dev-fixture-adapter';
 import type { FixtureDefinition } from '../dev-fixture-types';
+import { DEV_INLINE_FIXTURE } from '../fixtures/dev-inline-fixture';
 import type {
   DirectoryHandle,
   DirectoryStreamCallback,
@@ -512,6 +513,57 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
 
     expect(reloaded.rootId).toBe(first.rootId);
     expect(other.rootId).not.toBe(first.rootId);
+  });
+
+  // Regression: dev inline fixture lost file selections across page reloads.
+  // A cold reload constructs a FRESH adapter, so the per-session name map is
+  // empty and an id minted from crypto.randomUUID() differs every boot. Since
+  // selections persist keyed by rootId (folderStates[rootId]) and the root
+  // resurrection switches currentFolderId to the new id, the persisted
+  // selection orphans. A fixture that DECLARES a durable rootId must keep ONE
+  // identity across independent adapter instances so the reload reconciles.
+  it('reuses a fixture-declared durable rootId across separate adapter instances (cold reload)', async () => {
+    const durable: FixtureDefinition = {
+      name: 'mock-project',
+      rootId: 'f1e2d3c4-b5a6-4789-8abc-0123456789ab',
+      tree: { 'README.md': '# durable' },
+    };
+
+    const firstBoot = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const secondBoot = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const first = await firstBoot.loadInlineFixture(durable);
+    const second = await secondBoot.loadInlineFixture(durable);
+
+    expect(first.rootId).toBe(durable.rootId);
+    expect(second.rootId).toBe(first.rootId);
+  });
+
+  it('mints a fresh per-instance rootId for a fixture without a declared rootId', async () => {
+    // Contrast: ad-hoc fixtures (multi-root harness, unit tests) are never
+    // persisted, so a distinct id per adapter instance is expected — the
+    // durability guarantee is opt-in via FixtureDefinition.rootId.
+    const firstBoot = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const secondBoot = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const first = await firstBoot.loadInlineFixture(FIXTURE);
+    const second = await secondBoot.loadInlineFixture(FIXTURE);
+
+    expect(first.rootId).toBeTruthy();
+    expect(second.rootId).not.toBe(first.rootId);
+  });
+
+  it('ships the dev inline fixture with a durable rootId so selections survive reloads', async () => {
+    // Guards the actual shipped fixture: dropping its rootId reintroduces the
+    // cross-reload selection loss this fix addresses.
+    expect(DEV_INLINE_FIXTURE.rootId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+
+    const bootA = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const bootB = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    const rootA = await bootA.loadInlineFixture(DEV_INLINE_FIXTURE);
+    const rootB = await bootB.loadInlineFixture(DEV_INLINE_FIXTURE);
+    expect(rootA.rootId).toBe(DEV_INLINE_FIXTURE.rootId);
+    expect(rootB.rootId).toBe(rootA.rootId);
   });
 
   it('does not add streaming API when base adapter has no streaming support', async () => {

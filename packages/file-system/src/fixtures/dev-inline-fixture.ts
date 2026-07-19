@@ -10,6 +10,13 @@ import type { FixtureDefinition } from '../dev-fixture-types';
  */
 export const DEV_INLINE_FIXTURE: FixtureDefinition = {
   name: 'mock-project',
+  // Durable identity so file selections (persisted per-rootId in
+  // folderStates[rootId]) survive a cold page reload. Without it, a fresh
+  // adapter mints a new crypto.randomUUID() per boot; the resurrection reload
+  // then switches currentFolderId to the new id, orphaning the persisted
+  // selection. This is a one-time constant generated with crypto.randomUUID()
+  // — never derived from `name`, matching the RootId invariant.
+  rootId: 'f1e2d3c4-b5a6-4789-8abc-0123456789ab',
   tree: {
     apps: {
       web: {
