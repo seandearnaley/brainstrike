@@ -9,6 +9,8 @@ export const TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES = 4;
 const ARTIFACT_ID_MAX_CHARS = 128;
 const CURSOR_MAX_CHARS = 2048;
 const HINT_MAX_CHARS = 2000;
+const JSON_STRING_MAX_CHARS = TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES * 6 + 2;
+const TEXT_ENCODER = new TextEncoder();
 const ARTIFACT_REFERENCE_KEYS = new Set(['byteLength', 'expiresAt', 'format', 'id']);
 const ARTIFACT_ENVELOPE_KEYS = new Set([
   'artifactRef',
@@ -102,7 +104,7 @@ function isIsoInstant(value: unknown): value is string {
 }
 
 function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
+  return TEXT_ENCODER.encode(value).byteLength;
 }
 
 /**
@@ -152,6 +154,13 @@ function readDecodedContent(content: unknown, contentEncoding: unknown): string 
     typeof content !== 'string' ||
     (contentEncoding !== undefined && contentEncoding !== TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING)
   ) {
+    return;
+  }
+  const maximumChars =
+    contentEncoding === TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING
+      ? JSON_STRING_MAX_CHARS
+      : TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES;
+  if (content.length > maximumChars) {
     return;
   }
   try {

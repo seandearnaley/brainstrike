@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   decodeToolOutputArtifactContent,
   encodeToolOutputArtifactContent,
@@ -147,5 +147,37 @@ describe('tool output artifact contracts', () => {
     expect(TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES).toBe(4);
     expect(TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES).toBe(6000);
     expect(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES).toBe(8000);
+  });
+
+  it('rejects oversized raw content before encoding or parsing it', () => {
+    const encodeSpy = vi.spyOn(TextEncoder.prototype, 'encode');
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    const largeReference = { ...reference, byteLength: 100_000 };
+
+    expect(
+      isToolOutputArtifactEnvelope({
+        artifactRef: largeReference,
+        code: TOOL_OUTPUT_ARTIFACT_CODE,
+        hint: 'Continue.',
+        nextCursor: cursor,
+        preview: 'a'.repeat(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES + 1),
+        truncated: true,
+        version: TOOL_OUTPUT_ARTIFACT_VERSION,
+      })
+    ).toBe(false);
+    expect(encodeSpy).not.toHaveBeenCalled();
+
+    expect(
+      isToolOutputArtifactPage({
+        artifactRef: largeReference,
+        content: `"${'a'.repeat(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES * 6 + 1)}"`,
+        contentEncoding: TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING,
+        endByte: 1,
+        offsetByte: 0,
+      })
+    ).toBe(false);
+    expect(parseSpy).not.toHaveBeenCalled();
+    encodeSpy.mockRestore();
+    parseSpy.mockRestore();
   });
 });
