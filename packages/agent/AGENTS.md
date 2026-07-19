@@ -202,22 +202,27 @@ HTTP+SSE transport, typically at an `/sse` endpoint. `stdio` entries require
 configured servers with a default timeout of 5 seconds. If discovery times  
 out, the agent logs a warning and continues with local tools only.
 
-The protocol-faithful remote client is exported from the dedicated
+The protocol-faithful transport clients are exported from the dedicated
 `@brainstrike/agent/mcp-client` entrypoint. It uses the official MCP SDK and
-constructs only the configured HTTP transport; it never probes, rewrites paths,
-or falls back. Remote URLs must be HTTP(S), must not contain credentials, and
-configured headers that conflict with protocol-required values fail loudly.
-Connections are lazy and concurrency-safe. A failed initial connection can be
-retried with a fresh transport, while `close()` is terminal and idempotent. For
-a stateful Streamable HTTP connection, close attempts session termination before
-locally closing and still completes local cleanup if termination fails.
+constructs only the configured stdio or HTTP transport; it never probes,
+rewrites paths, or falls back. Remote URLs must be HTTP(S), must not contain
+credentials, and configured headers that conflict with protocol-required
+values fail loudly. Connections are lazy and concurrency-safe. A failed initial
+connection can be retried with a fresh transport, while `close()` is terminal
+and idempotent. For a stateful Streamable HTTP connection, close attempts
+session termination before locally closing and still completes local cleanup if
+termination fails. An unexpected stdio child exit invalidates that connection
+without replaying its in-flight request; only a later operation may reconnect.
 
-`createMastraAgentRuntime` partitions the configured servers before discovery:
-Mastra's MCP client receives only `stdio`; each HTTP entry uses the explicit SDK
-client above. Their toolsets then rejoin the unchanged namespace/sanitize,
-output-bound, guard, hook, and permission pipeline. HTTP tool progress is emitted
-as a transient custom stream part; a progress-writer failure is logged but never
-overrides the remote tool's primary result or error.
+`createMastraAgentRuntime` uses those official-SDK clients for every configured
+transport and converts their discovered tools through one shared adapter before
+the unchanged namespace/sanitize, output-bound, guard, hook, and permission
+pipeline. This transport-owned raw boundary is required for mixed
+`structuredContent` plus image/audio `content`: no upstream wrapper may collapse
+the complete MCP result before Brainstrike applies persistence and model-output
+budgets. Tool progress is emitted as a transient custom stream part; a
+progress-writer failure is logged but never overrides the remote tool's primary
+result or error.
 
 Tips for MCP integration:
 

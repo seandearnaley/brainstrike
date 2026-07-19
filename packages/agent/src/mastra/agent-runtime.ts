@@ -17,7 +17,7 @@ import {
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
-import { SkillsProcessor, TokenLimiter } from '@mastra/core/processors';
+import { SkillsProcessor } from '@mastra/core/processors';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { IdGeneratorContext } from '@mastra/core/types';
@@ -79,6 +79,7 @@ import {
 } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
+import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
 import {
   computeInstructionBreakdown,
   computePromptBreakdown,
@@ -101,6 +102,7 @@ import {
   readMastraStreamPartValue,
   readNestedToolOutputChunk,
 } from './tool-event-mapper';
+import { applyToolModelOutputProjections } from './tool-model-output';
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
@@ -555,10 +557,8 @@ export async function createMastraAgentRuntime(
   const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
-  // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
   const mcpClient = createMcpRuntimeClient({
     config: resolvedMcpConfig,
-    id: `mcp-client-${Date.now()}-${generateUUID()}`,
   });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
@@ -642,6 +642,12 @@ export async function createMastraAgentRuntime(
     toolNameMap,
     tools: gatedTools,
   });
+  // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
+  // returning the raw, post-hook result for persistence/application consumers,
+  // while the next model step receives only a bounded projection. Apply this
+  // AFTER every policy/provider transformation so no final execute-backed tool
+  // can bypass the projection; tool-specific projections remain authoritative.
+  const modelProjectedTools = applyToolModelOutputProjections(finalTools, toolNameMap);
 
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
@@ -673,7 +679,7 @@ export async function createMastraAgentRuntime(
   // name map to the sanitized ids present in `gatedTools` (both are keyed by the
   // same sanitized id — see sanitizeTools) so an omitted tool is never advertised.
   const effectiveToolNameMap = new Map(
-    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in finalTools)
+    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in modelProjectedTools)
   );
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
@@ -685,7 +691,9 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = resolvePersonaRuntimeParts({
-    guardedTools,
+    // Persona agents get the same raw/model split. Their independent policy
+    // gate clones full tool descriptors, so `toModelOutput` survives intact.
+    guardedTools: applyToolModelOutputProjections(guardedTools, toolNameMap),
     languageModel,
     permissionSnapshot,
     personas,
@@ -732,7 +740,7 @@ export async function createMastraAgentRuntime(
     instructions: composedInstructions,
     model: languageModel,
     name: 'Brainstrike Assistant',
-    tools: finalTools,
+    tools: modelProjectedTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
     ...(memory ? { memory } : {}),
     ...(errorProcessors
@@ -2062,7 +2070,11 @@ function buildToolLoopOptions(
   // so token trimming is unaffected. Excluded for the local provider.
   const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
   const tokenLimiter = inputTokenLimit
-    ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
+    ? new ProjectionAwareTokenLimiter({
+        limit: inputTokenLimit,
+        strategy: 'truncate',
+        trimMode: 'contiguous',
+      })
     : undefined;
   // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
   // own SkillsProcessor puts the <available_skills> block into the system

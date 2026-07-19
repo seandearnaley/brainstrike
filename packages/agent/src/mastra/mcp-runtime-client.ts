@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
+import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
-import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
 import {
   type ExplicitHttpMcpCallToolParams,
@@ -12,8 +12,13 @@ import {
   type ExplicitHttpMcpRequestOptions,
   type ExplicitHttpMcpTool,
 } from '../mcp/explicit-http-client';
+import {
+  ExplicitStdioMcpClient,
+  type ExplicitStdioMcpClientOptions,
+} from '../mcp/explicit-stdio-client';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
+import { readMcpMultimodalOutput } from './tool-model-output';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 
@@ -30,7 +35,7 @@ export interface McpRuntimeClient {
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
 
-interface ExplicitHttpMcpClientLike {
+interface OfficialSdkMcpClientLike {
   callTool: (
     params: ExplicitHttpMcpCallToolParams,
     options?: ExplicitHttpMcpRequestOptions
@@ -40,33 +45,29 @@ interface ExplicitHttpMcpClientLike {
 }
 
 export interface McpRuntimeClientDependencies {
-  createExplicitHttpClient: (options: ExplicitHttpMcpClientOptions) => ExplicitHttpMcpClientLike;
-  createMastraClient: (options: MCPClientOptions) => McpRuntimeClient;
+  createExplicitHttpClient: (options: ExplicitHttpMcpClientOptions) => OfficialSdkMcpClientLike;
+  createExplicitStdioClient: (options: ExplicitStdioMcpClientOptions) => OfficialSdkMcpClientLike;
 }
 
 export interface CreateMcpRuntimeClientOptions {
   config: McpConfig | undefined;
   dependencies?: McpRuntimeClientDependencies;
-  id: string;
 }
 
-type StdioServer = Extract<McpServer, { transport: 'stdio' }>;
-type HttpServer = Extract<McpServer, { transport: 'sse' | 'streamable-http' }>;
-
-interface ExplicitServerClient {
-  client: ExplicitHttpMcpClientLike;
-  server: HttpServer;
+interface TransportOwnedServerClient {
+  client: OfficialSdkMcpClientLike;
+  server: McpServer;
 }
 
 const defaultDependencies: McpRuntimeClientDependencies = {
   createExplicitHttpClient: (options) => new ExplicitHttpMcpClient(options),
-  createMastraClient: (options) => new MCPClient(options),
+  createExplicitStdioClient: (options) => new ExplicitStdioMcpClient(options),
 };
 
 /**
  * Build one structural runtime client while keeping transport ownership explicit:
- * Mastra owns stdio only; the official MCP SDK client owns each selected HTTP
- * transport without probing, path inference, or fallback.
+ * the official MCP SDK owns every selected transport without probing, path
+ * inference, response-shape collapse, or fallback.
  */
 export function createMcpRuntimeClient(
   options: CreateMcpRuntimeClientOptions
@@ -80,16 +81,19 @@ export function createMcpRuntimeClient(
   const { servers } = McpConfigSchema.parse(options.config);
 
   const dependencies = options.dependencies ?? defaultDependencies;
-  const stdioServers = servers.filter(
-    (server): server is StdioServer => server.transport === 'stdio'
-  );
-  const httpServers = servers.filter(
-    (server): server is HttpServer =>
-      server.transport === 'sse' || server.transport === 'streamable-http'
-  );
-
-  const mastraClient = createMastraStdioClient(stdioServers, options.id, dependencies);
-  const explicitServers = httpServers.map((server): ExplicitServerClient => {
+  const serverClients = servers.map((server): TransportOwnedServerClient => {
+    if (server.transport === 'stdio') {
+      const clientOptions: ExplicitStdioMcpClientOptions = {
+        command: server.command,
+        name: server.name,
+        ...(server.args ? { args: server.args } : {}),
+        ...(server.env ? { env: server.env } : {}),
+      };
+      return {
+        client: dependencies.createExplicitStdioClient(clientOptions),
+        server,
+      };
+    }
     const clientOptions: ExplicitHttpMcpClientOptions = {
       name: server.name,
       transport: server.transport,
@@ -101,63 +105,26 @@ export function createMcpRuntimeClient(
       server,
     };
   });
-
-  if (!(mastraClient || explicitServers.length > 0)) {
-    return;
-  }
-  return new CompositeMcpRuntimeClient(mastraClient, stdioServers, explicitServers);
-}
-
-function createMastraStdioClient(
-  servers: StdioServer[],
-  id: string,
-  dependencies: McpRuntimeClientDependencies
-): McpRuntimeClient | undefined {
-  if (servers.length === 0) {
-    return;
-  }
-
-  const serverMap: MCPClientOptions['servers'] = {};
-  for (const server of servers) {
-    const entry: MCPClientOptions['servers'][string] = { command: server.command };
-    if (server.args && server.args.length > 0) {
-      entry.args = server.args;
-    }
-    if (server.env && Object.keys(server.env).length > 0) {
-      entry.env = server.env;
-    }
-    defineOwn(serverMap, server.name, entry);
-  }
-  return dependencies.createMastraClient({ id: `${id}-stdio`, servers: serverMap });
+  return new CompositeMcpRuntimeClient(serverClients);
 }
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
-  constructor(
-    private readonly mastraClient: McpRuntimeClient | undefined,
-    private readonly stdioServers: readonly StdioServer[],
-    private readonly explicitServers: readonly ExplicitServerClient[]
-  ) {}
+  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {}
 
   async listToolsetsWithErrors(): Promise<McpToolsetsWithErrors> {
     const toolsets: Record<string, ToolsInput> = {};
     const errors: Record<string, string> = {};
-    await Promise.all([
-      this.discoverStdio(toolsets, errors),
-      ...this.explicitServers.map((entry) => this.discoverHttp(entry, toolsets, errors)),
-    ]);
+    await Promise.all(
+      this.serverClients.map((entry) => this.discoverServer(entry, toolsets, errors))
+    );
     return { errors, toolsets };
   }
 
   async disconnect(): Promise<void> {
-    const operations = [
-      ...(this.mastraClient
-        ? [{ close: () => this.mastraClient?.disconnect(), serverName: 'stdio' }]
-        : []),
-      ...this.explicitServers.map(({ client, server }) => ({
-        close: () => client.close(),
-        serverName: server.name,
-      })),
-    ];
+    const operations = this.serverClients.map(({ client, server }) => ({
+      close: () => client.close(),
+      serverName: server.name,
+    }));
     const results = await Promise.allSettled(operations.map(({ close }) => close()));
     for (const [index, result] of results.entries()) {
       if (result.status !== 'rejected') {
@@ -170,49 +137,33 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
     }
   }
 
-  private async discoverStdio(
-    toolsets: Record<string, ToolsInput>,
-    errors: Record<string, string>
-  ): Promise<void> {
-    if (!this.mastraClient) {
-      return;
-    }
-    try {
-      const discovered = await this.mastraClient.listToolsetsWithErrors();
-      copyOwnEntries(toolsets, discovered.toolsets);
-      copyOwnEntries(errors, discovered.errors);
-    } catch (error) {
-      const reason = errorMessage(error);
-      for (const server of this.stdioServers) {
-        defineOwn(errors, server.name, reason);
-      }
-    }
-  }
-
-  private async discoverHttp(
-    entry: ExplicitServerClient,
+  private async discoverServer(
+    entry: TransportOwnedServerClient,
     toolsets: Record<string, ToolsInput>,
     errors: Record<string, string>
   ): Promise<void> {
     try {
       const { tools } = await entry.client.listTools();
-      defineOwn(toolsets, entry.server.name, convertHttpTools(entry, tools));
+      defineOwn(toolsets, entry.server.name, convertMcpTools(entry, tools));
     } catch (error) {
       defineOwn(errors, entry.server.name, errorMessage(error));
     }
   }
 }
 
-function convertHttpTools(entry: ExplicitServerClient, tools: ExplicitHttpMcpTool[]): ToolsInput {
+function convertMcpTools(
+  entry: TransportOwnedServerClient,
+  tools: ExplicitHttpMcpTool[]
+): ToolsInput {
   const converted: ToolsInput = {};
   for (const tool of tools) {
-    defineOwn(converted, tool.name, createHttpTool(entry, tool));
+    defineOwn(converted, tool.name, createMcpTool(entry, tool));
   }
   return converted;
 }
 
-function createHttpTool(
-  { client, server }: ExplicitServerClient,
+function createMcpTool(
+  { client, server }: TransportOwnedServerClient,
   tool: ExplicitHttpMcpTool
 ): ToolsInput[string] {
   const toolMeta = stampServerIdInMeta(tool._meta, server.name);
@@ -230,17 +181,37 @@ function createHttpTool(
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
     inputSchema: tool.inputSchema,
-    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+    ...(tool.outputSchema
+      ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
+      : {}),
     ...(mcp ? { mcp } : {}),
     ...(strict === undefined ? {} : { strict }),
     execute: async (input, context) =>
-      executeHttpTool(client, server.name, tool.name, requireToolArguments(input), context),
+      executeMcpTool(client, server.name, tool.name, requireToolArguments(input), context),
     mcpMetadata: { serverName: server.name },
   });
 }
 
-async function executeHttpTool(
-  client: ExplicitHttpMcpClientLike,
+/**
+ * The official MCP SDK has already validated structuredContent against the
+ * advertised output schema. Mastra still needs that JSON schema for
+ * discovery/documentation, but must not re-validate the complete CallToolResult
+ * envelope against the inner schema.
+ */
+function createDocumentationOnlyMcpOutputSchema(
+  outputSchema: NonNullable<ExplicitHttpMcpTool['outputSchema']>
+): StandardSchemaWithJSON<unknown> {
+  const standardSchema = toStandardSchema(outputSchema)['~standard'];
+  return {
+    '~standard': {
+      ...standardSchema,
+      validate: (value: unknown) => ({ value }),
+    },
+  };
+}
+
+async function executeMcpTool(
+  client: OfficialSdkMcpClientLike,
   serverName: string,
   toolName: string,
   input: Record<string, unknown>,
@@ -305,7 +276,13 @@ async function executeHttpTool(
   if (result.isError) {
     throw new Error(extractMcpToolError(result));
   }
-  return result.structuredContent === undefined ? result : result.structuredContent;
+  if (result.structuredContent === undefined) {
+    return result;
+  }
+  if (readMcpMultimodalOutput(result)) {
+    return result;
+  }
+  return result.structuredContent;
 }
 
 function readToolCallMeta(context: ToolExecutionContext): Record<string, unknown> | undefined {
@@ -405,12 +382,6 @@ function defineOwn<T>(target: Record<string, T>, key: string, value: T): void {
     value,
     writable: true,
   });
-}
-
-function copyOwnEntries<T>(target: Record<string, T>, source: Record<string, T>): void {
-  for (const [key, value] of Object.entries(source)) {
-    defineOwn(target, key, value);
-  }
 }
 
 export function mapMcpProgressStreamPart(part: unknown): StreamChunk | undefined {

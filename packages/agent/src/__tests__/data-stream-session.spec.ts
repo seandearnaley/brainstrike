@@ -1231,7 +1231,7 @@ describe('AssistantDataStreamSession', () => {
       expect(visibleText).not.toContain('Tool execution failed');
     });
 
-    it('turns oversized successful tool output into a bounded recoverable tool error', async () => {
+    it('keeps oversized successful tool output successful with a bounded preview', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [
         {
@@ -1279,19 +1279,16 @@ describe('AssistantDataStreamSession', () => {
       const serializedToolResult = JSON.stringify(toolResult);
 
       expect(toolResult).toMatchObject({
-        isError: true,
         result: {
-          code: 'tool_result_too_large',
+          code: 'tool_result_truncated',
         },
         toolCallId: 'call_files',
       });
-      expect(toolResult?.result?.error).toContain(
-        'filesystem.search_files returned too much output'
-      );
+      expect(toolResult?.isError).toBeUndefined();
       expect(toolResult?.result?.preview).toContain('filesystem match');
       expect(serializedToolResult.length).toBeLessThan(20_000);
       expect(serializedToolResult).not.toContain('needle-at-tail');
-      expect(textDelta?.value).toContain('filesystem.search_files returned too much output');
+      expect(textDelta).toBeUndefined();
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 
@@ -1342,9 +1339,7 @@ describe('AssistantDataStreamSession', () => {
       }
     });
 
-    it('does not reprocess an already bounded oversized tool result', () => {
-      const originalStringify = JSON.stringify;
-      let stringifyCalls = 0;
+    it('preserves a legacy bounded oversized tool result that fits the active budget', () => {
       const boundedResult = {
         code: TOOL_RESULT_TOO_LARGE_CODE,
         error: 'filesystem.search_files returned too much output',
@@ -1353,20 +1348,10 @@ describe('AssistantDataStreamSession', () => {
         preview: 'bounded preview',
         truncated: true,
       };
-      JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => {
-        stringifyCalls += 1;
-        return originalStringify(...args);
-      }) as typeof JSON.stringify;
+      const bounded = boundToolOutputForModel('filesystem.search_files', boundedResult);
 
-      try {
-        const bounded = boundToolOutputForModel('filesystem.search_files', boundedResult);
-
-        expect(bounded.output).toBe(boundedResult);
-        expect(bounded.errorText).toBe(boundedResult.error);
-        expect(stringifyCalls).toBe(0);
-      } finally {
-        JSON.stringify = originalStringify;
-      }
+      expect(bounded.output).toEqual(boundedResult);
+      expect(bounded.errorText).toBe(boundedResult.error);
     });
 
     it('emits a user-visible error + error-finish when the source iterator throws', async () => {

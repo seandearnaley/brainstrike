@@ -77,6 +77,11 @@ const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
 interface PersistedPart {
+  readonly providerMetadata?: {
+    readonly mastra?: {
+      readonly modelOutput?: unknown;
+    };
+  };
   readonly text?: string;
   readonly toolInvocation?: {
     readonly result?: unknown;
@@ -107,6 +112,7 @@ function createScriptedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
@@ -125,6 +131,7 @@ function createScriptedToolCallModel(args: {
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
       if (promptHasToolResult) {
+        args.onToolResultPrompt?.(options.prompt);
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -260,7 +267,11 @@ async function runTurnWithMemory(args: {
   signal?: AbortSignal;
   observationDelayMs?: number;
   observationalMemoryModel?: LanguageModelV2;
+  onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
   onStreamConsumed?: () => void;
+  userMessageId?: string;
+  userText?: string;
+  weatherDetail?: string;
 }): Promise<{ finalText: string }> {
   const memoryFactoryOptions: PgliteMastraMemoryOptions = {
     database: args.database as unknown as PgliteDatabase,
@@ -277,21 +288,36 @@ async function runTurnWithMemory(args: {
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
     execute: (inputData: { city: string }) =>
-      Promise.resolve({ city: inputData.city, temperatureC: 21 }),
+      Promise.resolve({
+        city: inputData.city,
+        temperatureC: 21,
+        ...(args.weatherDetail === undefined ? {} : { detail: args.weatherDetail }),
+      }),
     id: 'get_weather',
     inputSchema: z.object({ city: z.string() }),
-    outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
+    outputSchema: z.object({
+      city: z.string(),
+      detail: z.string().optional(),
+      temperatureC: z.number(),
+    }),
   });
 
   modelHolder.current = createScriptedToolCallModel({
     finalText: 'It is 21C in Paris.',
     input: JSON.stringify({ city: 'Paris' }),
+    ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
     toolCallId: 'call-memory-1',
     toolName: 'get_weather',
   });
 
   const iterator = await streamMastraAgent(
-    [{ id: 'u-mem-1', parts: [{ text: 'weather in Paris?', type: 'text' }], role: 'user' }],
+    [
+      {
+        id: args.userMessageId ?? 'u-mem-1',
+        parts: [{ text: args.userText ?? 'weather in Paris?', type: 'text' }],
+        role: 'user',
+      },
+    ],
     {
       memory,
       runtime: {
@@ -318,6 +344,22 @@ async function runTurnWithMemory(args: {
   }
   args.onStreamConsumed?.();
   return { finalText };
+}
+
+function readToolResultTextFromPrompt(prompt: LanguageModelV2CallOptions['prompt']): string {
+  const toolMessage = prompt.find((message) => message.role === 'tool');
+  if (!(toolMessage && Array.isArray(toolMessage.content))) {
+    throw new TypeError('Expected a tool prompt message');
+  }
+  const resultPart = toolMessage.content.find((part) => part.type === 'tool-result');
+  if (!(resultPart?.output && typeof resultPart.output === 'object')) {
+    throw new TypeError('Expected a projected tool result');
+  }
+  const output = resultPart.output as { type?: unknown; value?: unknown };
+  if (output.type !== 'text' || typeof output.value !== 'string') {
+    throw new TypeError('Expected a text tool result projection');
+  }
+  return output.value;
 }
 
 async function listThreadMessages(
@@ -417,6 +459,53 @@ describe('mastra memory persistence through the live stream path', () => {
     },
     30_000
   );
+
+  it('persists the raw tool result while the model uses its bounded projection', async () => {
+    const rawOnlyTail = 'persisted-raw-only-tail';
+    const threadId = 'thread-raw-tool-result';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      threadId,
+      weatherDetail: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+    });
+
+    const rows = await listThreadMessages(database, threadId);
+    const invocation = rows
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .find((part) => part.type === 'tool-invocation')?.toolInvocation;
+
+    expect(invocation?.result).toMatchObject({
+      city: 'Paris',
+      temperatureC: 21,
+    });
+    expect(JSON.stringify(invocation?.result)).toContain(rawOnlyTail);
+
+    const invocationPart = rows
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .find((part) => part.type === 'tool-invocation');
+    const storedModelOutput = invocationPart?.providerMetadata?.mastra?.modelOutput;
+    expect(storedModelOutput).toMatchObject({ type: 'text' });
+    expect(JSON.stringify(storedModelOutput)).toContain('output was truncated');
+    expect(JSON.stringify(storedModelOutput)).not.toContain(rawOnlyTail);
+
+    let replayedModelOutput = '';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        replayedModelOutput = readToolResultTextFromPrompt(prompt);
+      },
+      threadId,
+      userMessageId: 'u-mem-2',
+      userText: 'Use the prior weather result without running the tool again.',
+    });
+
+    expect(replayedModelOutput).toContain('output was truncated');
+    expect(replayedModelOutput).not.toContain(rawOnlyTail);
+  });
 
   it('persists a user image attachment part with its media type and data-URL body', async () => {
     const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';

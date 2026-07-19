@@ -918,37 +918,35 @@ describe('agent-runtime edge cases', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
-      const { MCPClient } = await import('@mastra/mcp');
+      const { ExplicitStdioMcpClient } = await import('../mcp/explicit-stdio-client');
 
       const originalStream = Agent.prototype.stream;
-      const originalDisconnect = MCPClient.prototype.disconnect;
-
-      // Make disconnect throw
-      MCPClient.prototype.disconnect = vi.fn().mockRejectedValue(new Error('Disconnect failed'));
+      const listToolsSpy = vi
+        .spyOn(ExplicitStdioMcpClient.prototype, 'listTools')
+        .mockResolvedValue({ tools: [] });
+      const closeSpy = vi
+        .spyOn(ExplicitStdioMcpClient.prototype, 'close')
+        .mockRejectedValue(new Error('Disconnect failed'));
 
       Agent.prototype.stream = async function stream() {
         throw new Error('Stream creation failed');
       };
 
-      let caughtError: Error | undefined;
       try {
-        await streamMastraAgent(
-          [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
-          {
+        await expect(
+          streamMastraAgent([{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }], {
             mcpConfig: {
               servers: [{ command: 'echo', name: 'test', transport: 'stdio' }],
             },
             runtime: { apiKey: 'test-key', provider: 'openai' },
-          }
-        );
-      } catch (error) {
-        caughtError = error as Error;
+          })
+        ).rejects.toThrow('Stream creation failed');
+        expect(closeSpy).toHaveBeenCalledOnce();
+      } finally {
+        Agent.prototype.stream = originalStream;
+        listToolsSpy.mockRestore();
+        closeSpy.mockRestore();
       }
-
-      expect(caughtError).toBeDefined();
-
-      Agent.prototype.stream = originalStream;
-      MCPClient.prototype.disconnect = originalDisconnect;
     });
   });
 });

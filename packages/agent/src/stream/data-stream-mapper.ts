@@ -619,9 +619,9 @@ export class DataStreamMapper {
         (payload as { result?: unknown }).result
     );
     const state = this.toolState.get(callId);
-    // MCP tools are also bounded at the loader edge, but stream events can come
-    // from non-MCP tools and replay paths. The bounder is idempotent for
-    // already-bounded results, so keep this as the final model-facing guard.
+    // The Mastra `toModelOutput` projection protects model context without
+    // mutating raw execution results. This separate, idempotent bound is the
+    // final UI transport guard for native, MCP, and replayed stream events.
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
       if (state && !state.argsEmitted) {

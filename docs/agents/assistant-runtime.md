@@ -76,6 +76,37 @@ below are LIVE.
    provider (the hidden llm-host owns its own engine-fault recovery; no
    hosted-provider wire quirks apply).
 
+**Raw/model tool-output split (LIVE):**
+`createMastraAgentRuntime` composes tools in this order:
+`sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
+gates → provider-native swap → model-output projection → Agent`. The final
+projection uses Mastra's native `toModelOutput`, so the mapping observes the
+post-hook execution result without replacing it: native raw output remains
+available to stream/application consumers and is what Mastra persists; only
+the provider receives the bounded projection. Existing custom projections are
+composed with the final ceiling, not allowed to bypass it. Persona agents
+receive the same projections before their independent permission gate. Mastra
+1.51 passes `{toolCallId,input,output}` at the AI SDK boundary even though its
+`createTool` contract gives custom projectors the raw execute result. Brainstrike
+extracts the exact envelope's `output` before both custom and generated
+projections; direct raw-output calls remain supported.
+
+MCP is the temporary exception while artifact storage is absent: text/JSON is
+bounded inside `execute()` before inline persistence; image/audio stays raw
+only within explicit media and non-media ceilings, then `toModelOutput`
+preserves it as model-native content. Do not remove that inline ceiling before
+artifact settlement. The UI data-stream bound is a separate transport
+backstop, not the model-context boundary.
+
+Mastra 1.51's TokenLimiter counts raw DB tool results before applying
+`toModelOutput`. `ProjectionAwareTokenLimiter` temporarily swaps each completed
+result to its stored model projection for counting, replaces media bodies with
+markers, delegates to Mastra, and restores raw property descriptors in
+`finally`. `mastra-tool-execution.integration.spec.ts` must keep proving the
+configured-limit path reaches the next provider step and preserves MCP media;
+`mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
+replays the stored projection rather than the raw sentinel.
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these

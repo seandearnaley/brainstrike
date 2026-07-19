@@ -16,6 +16,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -64,6 +65,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 const { streamMastraAgent } = await import('../mastra/agent-runtime');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
+const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
+const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
+const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
+const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
+const MIXED_MEDIA_STDIO_SERVER_PATH = fileURLToPath(
+  new URL('./fixtures/mcp-mixed-media-stdio-server.mjs', import.meta.url)
+);
 
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
@@ -75,6 +83,7 @@ function createScriptedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
@@ -93,6 +102,7 @@ function createScriptedToolCallModel(args: {
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
       if (promptHasToolResult) {
+        args.onToolResultPrompt?.(options.prompt);
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -197,6 +207,42 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
         };
       }
     );
+    mcpServer.registerTool(
+      'multimodal',
+      {
+        description: 'Return bounded text with image and audio through a real remote MCP server.',
+        inputSchema: {},
+        outputSchema: {
+          mediaCount: z.number(),
+          provenance: z.string(),
+        },
+      },
+      async () => {
+        executions.push('multimodal');
+        return {
+          content: [
+            {
+              text: `${'m'.repeat(9500)}${MCP_TEXT_RAW_ONLY_TAIL}`,
+              type: 'text',
+            },
+            {
+              data: MCP_IMAGE_DATA,
+              mimeType: 'image/png',
+              type: 'image',
+            },
+            {
+              data: MCP_AUDIO_DATA,
+              mimeType: 'audio/wav',
+              type: 'audio',
+            },
+          ],
+          structuredContent: {
+            mediaCount: 2,
+            provenance: 'mixed-structured-media-fixture',
+          },
+        };
+      }
+    );
     // Stateless mode: omit sessionIdGenerator entirely (exactOptionalPropertyTypes
     // forbids passing an explicit `undefined` for the optional property).
     const transport = new StreamableHTTPServerTransport({});
@@ -236,6 +282,34 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
     executions,
     url: `${origin}/sse`,
   };
+}
+
+function readToolResultOutput(message: unknown): unknown {
+  if (!(message && typeof message === 'object')) {
+    throw new TypeError('Expected a tool prompt message');
+  }
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    throw new TypeError('Expected tool prompt content');
+  }
+  const resultPart = content.find(
+    (part) =>
+      part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool-result'
+  ) as { output?: unknown } | undefined;
+  const output = resultPart?.output;
+  if (!(output && typeof output === 'object')) {
+    throw new TypeError('Expected a projected tool result');
+  }
+  return output;
+}
+
+function readToolResultText(message: unknown): string {
+  const output = readToolResultOutput(message);
+  const value = (output as { type?: unknown; value?: unknown }).value;
+  if ((output as { type?: unknown }).type !== 'text' || typeof value !== 'string') {
+    throw new TypeError('Expected a text tool result projection');
+  }
+  return value;
 }
 
 describe('mastra real tool execution (real @mastra/core/agent)', () => {
@@ -289,6 +363,115 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // And the tool result flowed back through to a terminal run-event + answer.
     expect(runEventKinds).toContain('tool.completed');
     expect(finalText).toContain('21C in Paris');
+  });
+
+  it('projects oversized raw tool results before the next real model step', async () => {
+    const rawOnlyTail = 'raw-only-tail-must-not-reach-the-model';
+    const executeSpy = vi.fn(() =>
+      Promise.resolve({
+        content: `${'x'.repeat(250_000)}${rawOnlyTail}`,
+        path: '/large-output.txt',
+      })
+    );
+    const largeOutputTool = createTool({
+      description: 'Return a deliberately large raw result.',
+      execute: executeSpy,
+      id: 'large_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ content: z.string(), path: z.string() }),
+    });
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The projected output was bounded.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-large-output-1',
+      toolName: 'large_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-large', parts: [{ text: 'return the large output', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          agentLoop: { inputTokenLimit: 7000 },
+          apiKey: 'test-key',
+          provider: 'openai',
+        },
+        tools: { large_output: largeOutputTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
+
+    const rawSuccess = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> =>
+        chunk.type === 'tool-event' && chunk.name === 'large_output' && chunk.status === 'success'
+    );
+    expect(JSON.stringify(rawSuccess?.payload)).toContain(rawOnlyTail);
+  });
+
+  it('uses a bounded default projection when a custom projection declines with undefined', async () => {
+    const rawOutput = { raw: 'fallback-result' };
+    const conditionalTool = createTool({
+      description: 'Return a result when the conditional projection is unavailable.',
+      execute: () => Promise.resolve(rawOutput),
+      id: 'conditional_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ raw: z.string() }),
+    });
+    const toModelOutput = vi.fn(() => undefined);
+    Object.defineProperty(conditionalTool, 'toModelOutput', {
+      configurable: true,
+      value: toModelOutput,
+    });
+    let modelFacingToolOutput: unknown;
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The bounded default projection reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-conditional-output-1',
+      toolName: 'conditional_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-conditional-output',
+          parts: [{ text: 'return the conditional output', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { conditional_output: conditionalTool },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // Consuming the stream drives the conditional and default projections.
+    }
+
+    expect(toModelOutput).toHaveBeenCalledOnce();
+    expect(modelFacingToolOutput).toEqual({
+      type: 'text',
+      value: JSON.stringify(rawOutput),
+    });
   });
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
@@ -353,6 +536,204 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         .map((chunk) => chunk.value)
         .join('')
     ).toContain('remote server echoed hello');
+  });
+
+  it('preserves MCP image and audio as model-native media while bounding companion text', async () => {
+    const server = await startStreamableMcpServer();
+    let modelFacingToolOutput: unknown;
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The remote media reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-remote-multimodal-1',
+      toolName: 'remote_multimodal',
+    });
+
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-remote-multimodal',
+            parts: [{ text: 'return remote media', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          mcpConfig: {
+            servers: [
+              {
+                name: 'remote',
+                transport: 'streamable-http',
+                url: server.url,
+              },
+            ],
+          },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Consuming the real stream drives the remote tool and second model step.
+      }
+    } finally {
+      await server.close();
+    }
+
+    expect(server.executions).toEqual(['multimodal']);
+    expect(modelFacingToolOutput).toMatchObject({ type: 'content' });
+    const value = (modelFacingToolOutput as { value?: unknown }).value;
+    expect(Array.isArray(value)).toBe(true);
+    const modelParts = value as Record<string, unknown>[];
+    expect(modelParts).toEqual(
+      expect.arrayContaining([
+        {
+          data: MCP_IMAGE_DATA,
+          mediaType: 'image/png',
+          type: 'media',
+        },
+        {
+          data: MCP_AUDIO_DATA,
+          mediaType: 'audio/wav',
+          type: 'media',
+        },
+      ])
+    );
+    const text = modelParts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('');
+    expect(text).toContain('output was truncated');
+    expect(text).toContain('mixed-structured-media-fixture');
+    expect(text).not.toContain(MCP_TEXT_RAW_ONLY_TAIL);
+    expect(text.length).toBeLessThanOrEqual(8000);
+  });
+
+  it('preserves mixed structured MCP media from a real stdio server', async () => {
+    let modelFacingToolOutput: unknown;
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The stdio media reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-stdio-multimodal-1',
+      toolName: 'stdio_multimodal',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-stdio-multimodal',
+          parts: [{ text: 'return stdio media', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        mcpConfig: {
+          servers: [
+            {
+              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+              command: process.execPath,
+              env: {},
+              name: 'stdio',
+              transport: 'stdio',
+            },
+          ],
+        },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the child-process MCP tool and second model step.
+    }
+
+    expect(modelFacingToolOutput).toMatchObject({ type: 'content' });
+    const value = (modelFacingToolOutput as { value?: unknown }).value;
+    expect(Array.isArray(value)).toBe(true);
+    const modelParts = value as Record<string, unknown>[];
+    expect(modelParts).toEqual(
+      expect.arrayContaining([
+        {
+          data: MCP_IMAGE_DATA,
+          mediaType: 'image/png',
+          type: 'media',
+        },
+        {
+          data: MCP_AUDIO_DATA,
+          mediaType: 'audio/wav',
+          type: 'media',
+        },
+      ])
+    );
+    const text = modelParts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('');
+    expect(text).toContain('output was truncated');
+    expect(text).toContain('mixed-structured-stdio-media-fixture');
+    expect(text).not.toContain(MCP_STDIO_TEXT_RAW_ONLY_TAIL);
+    expect(text.length).toBeLessThanOrEqual(8000);
+  });
+
+  it('keeps structured-only stdio MCP results on the established structured shape', async () => {
+    let modelFacingToolOutput: unknown;
+    const chunks: StreamChunk[] = [];
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The stdio structured result reached the model.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultOutput(toolMessage);
+      },
+      toolCallId: 'call-stdio-structured-only-1',
+      toolName: 'stdio_structured_only',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-stdio-structured-only',
+          parts: [{ text: 'return structured stdio output', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        mcpConfig: {
+          servers: [
+            {
+              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+              command: process.execPath,
+              env: {},
+              name: 'stdio',
+              transport: 'stdio',
+            },
+          ],
+        },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        name: 'stdio.structured_only',
+        payload: expect.objectContaining({
+          output: { value: 'structured-stdio-only' },
+        }),
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(modelFacingToolOutput).toMatchObject({ type: 'text' });
+    expect((modelFacingToolOutput as { value?: unknown }).value).toContain('structured-stdio-only');
+    expect((modelFacingToolOutput as { value?: unknown }).value).not.toContain(
+      'legacy unstructured duplicate'
+    );
   });
 
   // Live-loop proof for the SHAPE of brainstrike.executeCommand (an execute-risk
@@ -1480,6 +1861,65 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     // The tool result the model sees carries the hook-injected context.
     expect(JSON.stringify(chunks)).toContain('hookAdditionalContext');
     expect(JSON.stringify(chunks)).toContain('lint: ok');
+  });
+
+  it('retains PostToolUse context in the bounded model projection of an oversized result', async () => {
+    const rawOnlyTail = 'oversized-hook-raw-only-tail';
+    const hookContext = 'post-tool-check: inspect the generated migration';
+    const executeSpy = vi.fn(() =>
+      Promise.resolve({
+        content: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+        path: '/large-hook-output.txt',
+      })
+    );
+    const largeOutputTool = createTool({
+      description: 'Return a deliberately large result for hook projection coverage.',
+      execute: executeSpy,
+      id: 'large_hook_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ content: z.string(), path: z.string() }),
+    });
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({ additionalContext: hookContext }),
+      preToolUse: (): Promise<HookToolGateResult> => Promise.resolve({ decision: 'allow' }),
+    };
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'I retained the post-tool guidance.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-large-hook-output-1',
+      toolName: 'large_hook_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-large-hook-output',
+          parts: [{ text: 'return a large result', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { large_hook_output: largeOutputTool },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the tool and second model step.
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).toContain('hookAdditionalContext');
+    expect(modelFacingToolOutput).toContain(hookContext);
+    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
   });
 
   it('threads the runner through runtime.hookRunner (survives runtime resolution)', async () => {

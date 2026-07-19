@@ -179,20 +179,30 @@ vi.mock('@mastra/core/mastra', () => ({
   },
 }));
 
-vi.mock('@mastra/mcp', () => ({
-  MCPClient: class {
+vi.mock('../mcp/explicit-stdio-client', () => ({
+  ExplicitStdioMcpClient: class {
     options: unknown;
 
-    constructor(options: unknown) {
+    constructor(options: { name: string }) {
       this.options = options;
       mcpInstances.push(this);
     }
 
-    async listToolsetsWithErrors() {
-      return { errors: {}, toolsets: mcpToolsets };
+    async callTool() {
+      return { content: [{ text: 'mock MCP output', type: 'text' }] };
     }
 
-    async disconnect() {}
+    async close() {}
+
+    async listTools() {
+      return {
+        tools: Object.entries(mcpToolsets[this.options.name] ?? {}).map(([name, tool]) => ({
+          description: tool.description,
+          inputSchema: { additionalProperties: true, type: 'object' },
+          name,
+        })),
+      };
+    }
   },
 }));
 

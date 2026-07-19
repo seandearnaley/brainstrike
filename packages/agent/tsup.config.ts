@@ -54,7 +54,6 @@ export default defineConfig((_options) => ({
     '@brainstrike/types',
     '@electric-sql/pglite',
     '@mastra/core',
-    '@mastra/mcp',
     '@mastra/memory',
   ],
   format: ['esm', 'cjs'],

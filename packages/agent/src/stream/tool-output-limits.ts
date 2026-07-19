@@ -1,8 +1,10 @@
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
+import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner';
 import { toJsonSafe } from './json';
 
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
+export const TOOL_RESULT_TRUNCATED_CODE = 'tool_result_truncated';
 
 /** Mirrors countTokensHeuristic (ceil(chars / 4)) so budgets stay deterministic. */
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -13,7 +15,8 @@ const APPROX_CHARS_PER_TOKEN = 4;
  * via the chars-per-token approximation.
  */
 export const MAX_TOOL_RESULT_TOKENS = 3000;
-const MAX_TOOL_RESULT_SERIALIZED_CHARS = MAX_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
+/** Default ceiling for the compact value repeated into the next model step. */
+export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
 
 /**
@@ -91,13 +94,13 @@ export interface BoundedToolOutput {
 
 function stringifyJsonSafe(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? String(value);
   } catch {
     return String(value);
   }
 }
 
-function isBoundedOversizedToolOutput(output: unknown): output is {
+function isLegacyOversizedToolError(output: unknown): output is {
   readonly code: typeof TOOL_RESULT_TOO_LARGE_CODE;
   readonly error: string;
   readonly maxLength: number;
@@ -112,6 +115,26 @@ function isBoundedOversizedToolOutput(output: unknown): output is {
   return (
     record['code'] === TOOL_RESULT_TOO_LARGE_CODE &&
     typeof record['error'] === 'string' &&
+    typeof record['maxLength'] === 'number' &&
+    typeof record['originalLength'] === 'number' &&
+    typeof record['preview'] === 'string' &&
+    record['truncated'] === true
+  );
+}
+
+function isBoundedTruncatedToolOutput(output: unknown): output is {
+  readonly code: typeof TOOL_RESULT_TRUNCATED_CODE;
+  readonly maxLength: number;
+  readonly originalLength: number;
+  readonly preview: string;
+  readonly truncated: true;
+} {
+  if (!output || typeof output !== 'object') {
+    return false;
+  }
+  const record = output as Record<string, unknown>;
+  return (
+    record['code'] === TOOL_RESULT_TRUNCATED_CODE &&
     typeof record['maxLength'] === 'number' &&
     typeof record['originalLength'] === 'number' &&
     typeof record['preview'] === 'string' &&
@@ -168,11 +191,23 @@ function findTrimmableCollectionKey(record: Record<string, unknown>): string | u
   });
 }
 
-function buildTruncationHint(toolName: string, key: string, kept: number, total: number): string {
+function buildTruncationHint(
+  toolName: string,
+  key: string,
+  kept: number,
+  total: number,
+  record: Readonly<Record<string, unknown>>
+): string {
+  const offset = record['offset'];
+  let continuation = ' Narrow the request or use the tool-specific pagination controls.';
+  if (typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0) {
+    continuation = ` Continue with offset: ${offset + kept}.`;
+  } else if (typeof record['hint'] === 'string' && record['hint'].trim().length > 0) {
+    continuation = ` Producer hint: ${record['hint']}`;
+  }
   return (
-    `${toolName} output was truncated to fit the tool result budget: showing ${kept} of ${total} ${key}. ` +
-    'Narrow the request (more specific filters, smaller limits) or page through the remainder ' +
-    `with an offset of ${kept} if the tool supports it.`
+    `${toolName} output was truncated to fit the tool result budget: ` +
+    `showing ${kept} of ${total} returned ${key}.${continuation}`
   );
 }
 
@@ -184,13 +219,14 @@ function buildTruncationHint(toolName: string, key: string, kept: number, total:
 function trimCollectionToBudget(
   toolName: string,
   record: Record<string, unknown>,
-  key: string
+  key: string,
+  maxSerializedChars: number
 ): Record<string, unknown> | undefined {
   const items = record[key] as unknown[];
   const buildCandidate = (kept: number): Record<string, unknown> => ({
     ...record,
     [key]: items.slice(0, kept),
-    hint: buildTruncationHint(toolName, key, kept, items.length),
+    hint: buildTruncationHint(toolName, key, kept, items.length, record),
     omittedItems: items.length - kept,
     truncated: true,
   });
@@ -201,7 +237,7 @@ function trimCollectionToBudget(
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const candidate = buildCandidate(mid);
-    if (stringifyJsonSafe(candidate).length <= MAX_TOOL_RESULT_SERIALIZED_CHARS) {
+    if (stringifyJsonSafe(candidate).length <= maxSerializedChars) {
       best = candidate;
       low = mid + 1;
     } else {
@@ -211,17 +247,150 @@ function trimCollectionToBudget(
   return best;
 }
 
-export function boundToolOutputForModel(toolName: string, output: unknown): BoundedToolOutput {
-  if (isBoundedOversizedToolOutput(output)) {
-    return { errorText: output.error, output };
+function buildPreviewOutput(params: {
+  readonly hookAdditionalContext?: string;
+  readonly maxSerializedChars: number;
+  readonly maxTokens: number;
+  readonly originalLength: number;
+  readonly preview: string;
+  readonly toolName: string;
+}): Record<string, unknown> {
+  return {
+    approxTokens: approxTokensFromChars(params.originalLength),
+    code: TOOL_RESULT_TRUNCATED_CODE,
+    hint:
+      `${params.toolName} output was truncated to a preview because it exceeded the tool result budget ` +
+      `(~${approxTokensFromChars(params.originalLength)} tokens; budget ~${params.maxTokens} tokens). ` +
+      'Narrow the request or use a more specific query.',
+    maxLength: params.maxSerializedChars,
+    maxTokens: params.maxTokens,
+    originalLength: params.originalLength,
+    preview: params.preview,
+    truncated: true,
+    ...(params.hookAdditionalContext
+      ? { hookAdditionalContext: params.hookAdditionalContext }
+      : {}),
+  };
+}
+
+function createBoundedPreviewOutput(params: {
+  readonly hookAdditionalContext?: string;
+  readonly maxSerializedChars: number;
+  readonly maxTokens: number;
+  readonly originalLength: number;
+  readonly previewSource: string;
+  readonly toolName: string;
+}): Record<string, unknown> {
+  const hookAdditionalContext = fitHookContextToPreviewBudget(params);
+  const boundedParams = {
+    ...params,
+    ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
+  };
+  const envelopeReserve = 512;
+  const initialPreviewChars = Math.min(
+    TOOL_RESULT_PREVIEW_CHARS,
+    Math.max(0, params.maxSerializedChars - envelopeReserve)
+  );
+  const initial = buildPreviewOutput({
+    ...boundedParams,
+    preview: sliceCodePoints(params.previewSource, initialPreviewChars),
+  });
+  if (stringifyJsonSafe(initial).length <= params.maxSerializedChars) {
+    return initial;
   }
 
-  const maxTokens = TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ?? MAX_TOOL_RESULT_TOKENS;
+  // JSON escaping can expand a raw control character to six characters. Use
+  // that worst-case ratio only when the readable first candidate did not fit;
+  // this remains bounded work and never walks the unbounded tail.
+  const empty = buildPreviewOutput({ ...boundedParams, preview: '' });
+  const availableChars = Math.max(0, params.maxSerializedChars - stringifyJsonSafe(empty).length);
+  return buildPreviewOutput({
+    ...boundedParams,
+    preview: sliceCodePoints(params.previewSource, Math.floor(availableChars / 6)),
+  });
+}
+
+function fitHookContextToPreviewBudget(params: {
+  readonly hookAdditionalContext?: string;
+  readonly maxSerializedChars: number;
+  readonly maxTokens: number;
+  readonly originalLength: number;
+  readonly toolName: string;
+}): string | undefined {
+  const context = params.hookAdditionalContext;
+  if (!context) {
+    return;
+  }
+  const build = (hookAdditionalContext?: string): Record<string, unknown> =>
+    buildPreviewOutput({
+      ...params,
+      ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
+      preview: '',
+    });
+  if (stringifyJsonSafe(build(context)).length <= params.maxSerializedChars) {
+    return context;
+  }
+
+  const suffix = '… [hook context truncated]';
+  let low = 0;
+  let high = Math.min(context.length, HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET);
+  let best: string | undefined;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = `${sliceCodePoints(context, kept)}${suffix}`;
+    if (stringifyJsonSafe(build(candidate)).length <= params.maxSerializedChars) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
+}
+
+export function boundToolOutputForModel(
+  toolName: string,
+  output: unknown,
+  maxTokensOverride?: number
+): BoundedToolOutput {
+  const maxTokens =
+    maxTokensOverride ?? TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ?? MAX_TOOL_RESULT_TOKENS;
   const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);
+
+  // Recognized envelopes are idempotent only when they fit the ACTIVE budget.
+  // Tool output is untrusted (especially MCP), so shape alone must never bypass
+  // serialization or a tighter 3000→2000-token projection boundary.
   if (serialized.length <= maxSerializedChars) {
+    if (isLegacyOversizedToolError(jsonSafeOutput)) {
+      return { errorText: jsonSafeOutput.error, output: jsonSafeOutput };
+    }
+    if (isBoundedTruncatedToolOutput(jsonSafeOutput)) {
+      return { output: jsonSafeOutput };
+    }
     return { output: jsonSafeOutput };
+  }
+
+  if (isLegacyOversizedToolError(jsonSafeOutput)) {
+    const errorText = sliceCodePoints(jsonSafeOutput.error, 256);
+    const legacyErrorReserveChars = 2048;
+    const preview = createBoundedPreviewOutput({
+      maxSerializedChars: maxSerializedChars - legacyErrorReserveChars,
+      maxTokens,
+      originalLength: serialized.length,
+      previewSource: serialized,
+      toolName,
+    });
+    return {
+      errorText,
+      output: {
+        ...preview,
+        code: TOOL_RESULT_TOO_LARGE_CODE,
+        error: errorText,
+        maxLength: maxSerializedChars,
+      },
+    };
   }
 
   // Structural degradation: trim a recognizable result list to fit and return
@@ -229,31 +398,41 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
   if (isPlainRecordOutput(jsonSafeOutput)) {
     const collectionKey = findTrimmableCollectionKey(jsonSafeOutput);
     if (collectionKey) {
-      const trimmed = trimCollectionToBudget(toolName, jsonSafeOutput, collectionKey);
+      const trimmed = trimCollectionToBudget(
+        toolName,
+        jsonSafeOutput,
+        collectionKey,
+        maxSerializedChars
+      );
       if (trimmed) {
         return { output: trimmed };
       }
     }
   }
 
-  const preview =
-    typeof jsonSafeOutput === 'string'
-      ? sliceCodePoints(jsonSafeOutput, TOOL_RESULT_PREVIEW_CHARS)
-      : sliceCodePoints(serialized, TOOL_RESULT_PREVIEW_CHARS);
-  const errorText = `${toolName} returned too much output (~${approxTokensFromChars(serialized.length)} tokens; budget ~${maxTokens} tokens). Narrow the request or use a more specific query.`;
+  const hookAdditionalContext =
+    isPlainRecordOutput(jsonSafeOutput) &&
+    typeof jsonSafeOutput['hookAdditionalContext'] === 'string'
+      ? sliceCodePoints(
+          jsonSafeOutput['hookAdditionalContext'],
+          HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET
+        )
+      : undefined;
+  let previewSource = typeof jsonSafeOutput === 'string' ? jsonSafeOutput : serialized;
+  if (hookAdditionalContext && isPlainRecordOutput(jsonSafeOutput)) {
+    const previewRecord = { ...jsonSafeOutput };
+    previewRecord['hookAdditionalContext'] = undefined;
+    previewSource = stringifyJsonSafe(previewRecord);
+  }
+
   return {
-    errorText,
-    output: {
-      approxTokens: approxTokensFromChars(serialized.length),
-      code: TOOL_RESULT_TOO_LARGE_CODE,
-      error: errorText,
-      // Char-denominated fields keep the shape of previously persisted bounded
-      // results (the idempotency check above matches on them).
-      maxLength: maxSerializedChars,
+    output: createBoundedPreviewOutput({
+      ...(hookAdditionalContext ? { hookAdditionalContext } : {}),
+      maxSerializedChars,
       maxTokens,
       originalLength: serialized.length,
-      preview,
-      truncated: true,
-    },
+      previewSource,
+      toolName,
+    }),
   };
 }

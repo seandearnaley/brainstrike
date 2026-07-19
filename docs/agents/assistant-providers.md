@@ -129,6 +129,11 @@ discriminator is one of `stdio`, `streamable-http`, or legacy `sse`; it is never
 omitted, inferred from a URL path, or changed after a failed connection.
 
 Remote transport rules:
+- `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
+  inherits its documented safe environment allowlist and overlays only the
+  explicitly configured `env`; spawn/connect failures remain visible. An
+  unexpected child exit invalidates only that owned connection: the interrupted
+  request fails without replay, and the next operation may start a fresh child.
 - `streamable-http` is the modern MCP transport and normally targets one `/mcp`
   endpoint. It constructs only the official SDK's
   `StreamableHTTPClientTransport`.
@@ -145,20 +150,25 @@ Ownership and flow:
 1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
    boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
    contract. Public renderer status exposes only server name + transport.
-2. Official client — `packages/agent/src/mcp/explicit-http-client.ts`, exported
-   only from `@brainstrike/agent/mcp-client`, owns the SDK 1.29 HTTP transports,
-   lazy/concurrency-safe connection, header composition, request forwarding,
-   session termination, and idempotent close. Keep the SDK package external in
-   the agent build; do not pull this edge into browser-safe/root exports.
+2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
+   `explicit-http-client.ts`, exported only from
+   `@brainstrike/agent/mcp-client`, own the SDK 1.29 transports,
+   lazy/concurrency-safe connection, request forwarding, and idempotent close.
+   The HTTP client additionally owns header composition and Streamable HTTP
+   session termination. Keep the SDK package external in the agent build; do
+   not pull this edge into browser-safe/root exports.
 3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
    the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
    compatibility factory delegating to the canonical adapter; no bespoke SSE
    framing, endpoint rewriting, or environment-selected call path remains.
-4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` partitions
-   servers. Mastra `MCPClient` handles `stdio` ONLY; explicit HTTP clients are
-   converted into Mastra tools and combined through the existing pipeline:
-   discovery → namespace/sanitize → output bound → guard → hooks → permission.
-   Remote progress uses the distinct transient
+4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
+   the selected official-SDK client for every server and converts every
+   discovered tool through one shared Mastra-tool adapter. This preserves the
+   complete `CallToolResult` until the adapter deliberately selects
+   structured-only output or retains mixed structured+media output; upstream
+   wrappers may not collapse either transport first. All tools then use the
+   existing pipeline: discovery → namespace/sanitize → output bound → guard →
+   hooks → permission. Remote progress uses the distinct transient
    `brainstrike.mcp-progress.chunk` `writer.custom` part and maps back to a
    `tool-event`; progress-channel failure is warning-only and never replaces a
    completed tool result or the remote tool's primary error.
@@ -239,7 +249,66 @@ and per-root partial indexes were measured and rejected
 whole-set searches never run the counts. Do not "optimize" selective filtered
 searches back onto the ANN index without re-running that benchmark.
 
-Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
+Tool output budget (anti-thrash contract): budgets are token-denominated and
+enforced deterministically on serialized chars at 4 chars/token (mirrors
+`countTokensHeuristic`). Native producers self-bound result lists to
+`NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) via `fitItemsToCharBudget`. The Mastra
+runtime then adds or composes `toModelOutput` on every execute-backed
+native/MCP tool. Native `execute()` keeps returning the raw post-hook value for
+application consumers and Mastra persistence, while the provider receives a
+text projection capped at `MAX_MODEL_TOOL_RESULT_TOKENS` (2000). Existing
+domain projections keep their semantics but pass through the same final text
+ceiling; a nullish synchronous or asynchronous custom projection falls
+through to Brainstrike's bounded deterministic default, while malformed
+non-callable projections throw. MCP image/audio results use Mastra `content`
+output so base64 media remains model-native while companion text is bounded.
+When a valid MCP result includes both `structuredContent` and image/audio
+`content`, the transport-owned MCP runtime preserves the canonical result envelope
+through persistence bounding instead of collapsing to the structured object.
+The structured JSON joins the bounded model-facing companion text while the
+media remains model-native; both the inline-media and non-media persistence
+ceilings still fail visibly before transport. The discovered output schema
+remains exposed for documentation, while the official MCP SDK owns
+structured-output validation and Mastra does not incorrectly re-validate the
+complete `CallToolResult` envelope against the inner schema.
+Mastra 1.51 invokes projections with `{toolCallId,input,output}` even though
+its `createTool` contract gives custom projectors the raw execute result.
+Brainstrike therefore extracts the exact
+envelope's raw `output` before both custom and generated projections while
+retaining direct raw-output invocation compatibility.
+`skill` is the explicit text exception (6000), because its instruction body is
+the payload and cannot be paged.
+
+Mastra 1.51's stock `TokenLimiter` counts raw database-shaped
+`toolInvocation.result` before provider conversion. Brainstrike therefore
+installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
+`providerMetadata.mastra.modelOutput` (with inline media replaced by counting
+markers), delegates to Mastra's limiter, and restores the exact raw result in a
+`finally`. Keep its canonical processor id `token-limiter`.
+
+MCP does not yet have durable artifact settlement, so its persistence channel
+has a separate temporary inline ceiling: text/JSON is bounded to
+`MAX_TOOL_RESULT_TOKENS` (3000); multimodal output keeps raw media only up to
+the assistant aggregate encoded-media ceiling and 12000 non-media serialized
+characters. Multimodal `content` arrays containing any non-object part are
+malformed and throw before persistence accounting. Exceeding either ceiling
+throws visibly—never drops media. The artifact-store PR must replace this
+temporary compromise.
+
+Finally, the UI transport independently caps streamed output at 3000 tokens.
+Oversized collections
+(matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
+structurally trimmed; opaque outputs become a SUCCESSFUL
+`tool_result_truncated` preview with an actionable hint. The legacy
+`tool_result_too_large` envelope remains readable only for persisted-history
+compatibility, and untrusted envelope-shaped output is revalidated against the
+active budget. Proofs:
+`tool-model-output.spec.ts`, `tool-output-limits.spec.ts`,
+`projection-aware-token-limiter.spec.ts`,
+`mastra-tool-execution.integration.spec.ts`,
+`mastra-memory-persistence.integration.spec.ts`, and
+`data-stream-session.spec.ts`. `listWorkspaceContext` is concise by default
+(counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts. Exception: the Agent Skills tools (`skill`/`skill_read`/`skill_search`) keep Mastra's canonical unnamespaced ids and Mastra-owned zod schemas (no schemas.ts entry); they still register in the three contract registries and the instructions guidance — see docs/agents/workspace-context.md AGENT SKILLS.
 
