@@ -1,0 +1,93 @@
+// BST-568 slice 2: explicit watcher-backend routing. Default stays legacy
+// (chokidar / macOS native fs.watch); `BRAINSTRIKE_WATCHER_BACKEND=parcel`
+// opts into the parcel engine; anything else throws — no silent coercion.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DirectoryHandle } from '../types';
+
+vi.mock('electron', () => ({
+  dialog: { showOpenDialog: vi.fn() },
+}));
+
+const { startParcelWatchMock } = vi.hoisted(() => ({
+  startParcelWatchMock: vi.fn(() => Promise.resolve(() => undefined)),
+}));
+vi.mock('../adapters/parcel-watchers', () => ({
+  startParcelWatch: startParcelWatchMock,
+}));
+
+import { ElectronFileSystemAdapter, resolveWatcherBackend } from '../adapters/electron-adapter';
+
+describe('resolveWatcherBackend', () => {
+  it('defaults to legacy when unset or empty', () => {
+    expect(resolveWatcherBackend({})).toBe('legacy');
+    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: '' })).toBe('legacy');
+  });
+
+  it('honors explicit parcel and legacy values', () => {
+    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'parcel' })).toBe('parcel');
+    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'legacy' })).toBe('legacy');
+  });
+
+  it('throws on any other value instead of coercing', () => {
+    expect(() => resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'chokidar' })).toThrow(
+      /BRAINSTRIKE_WATCHER_BACKEND/
+    );
+  });
+});
+
+describe('watchDirectory backend routing', () => {
+  let tempDir = '';
+  const originalEnv = process.env['BRAINSTRIKE_WATCHER_BACKEND'];
+
+  beforeEach(() => {
+    startParcelWatchMock.mockClear();
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'routing-')));
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      // NOT `= undefined`: Node coerces that to the string "undefined".
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    } else {
+      process.env['BRAINSTRIKE_WATCHER_BACKEND'] = originalEnv;
+    }
+    fs.rmSync(tempDir, { force: true, recursive: true });
+  });
+
+  function makeHandle(): DirectoryHandle {
+    return {
+      kind: 'directory',
+      name: 'root',
+      path: tempDir,
+    } as DirectoryHandle;
+  }
+
+  it('routes to the parcel engine when explicitly opted in', async () => {
+    process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'parcel';
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn());
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    stop();
+  });
+
+  it('does not touch the parcel engine on the default legacy path', () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn());
+    expect(startParcelWatchMock).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('throws synchronously on a malformed backend value', () => {
+    process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'garbage';
+    const adapter = new ElectronFileSystemAdapter();
+    expect(() => adapter.watchDirectory(makeHandle(), vi.fn())).toThrow(
+      /BRAINSTRIKE_WATCHER_BACKEND/
+    );
+  });
+});
