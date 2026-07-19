@@ -42,12 +42,16 @@ export interface HookBlockedToolError {
 /** Cap on PostToolUse `additionalContext` merged into a tool result (chars). */
 export const HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET = 2000;
 /**
- * Explicit serializable envelope used to keep PostToolUse control metadata
- * separate from every domain result shape until the projection layer consumes
- * it. Both values are reserved internal protocol identifiers.
+ * Explicit envelope used to keep PostToolUse control metadata separate from
+ * every domain result shape until the projection layer consumes it. The JSON
+ * shape stays serializable for Mastra, but readers additionally require
+ * membership in the private in-memory provenance set below. Ordinary MCP/native
+ * JSON output therefore cannot forge control metadata by copying identifiers
+ * or reflective object properties.
  */
 export const HOOK_RESULT_ENVELOPE_FIELD = '__brainstrikeHookResultEnvelope';
 export const HOOK_RESULT_ENVELOPE_KIND = 'brainstrike.post-tool-result.v1';
+const HOOK_RESULT_ENVELOPE_PROVENANCE = new WeakSet<object>();
 
 export interface HookResultEnvelope {
   readonly additionalContext: string;
@@ -58,14 +62,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+export function createHookResultEnvelope(
+  result: unknown,
+  additionalContext: string
+): Record<string, unknown> {
+  const carrier = {
+    [HOOK_RESULT_ENVELOPE_FIELD]: {
+      additionalContext,
+      kind: HOOK_RESULT_ENVELOPE_KIND,
+      result,
+    },
+  };
+  HOOK_RESULT_ENVELOPE_PROVENANCE.add(carrier);
+  return carrier;
+}
+
 /**
- * Read the exact internal PostToolUse carrier without interpreting a
- * domain-owned lookalike. The carrier stays raw only inside Mastra: display
- * and transcript transforms unwrap it, while `toModelOutput` consumes the
- * context for the next model step.
+ * Read a Brainstrike-minted PostToolUse carrier without interpreting a
+ * domain-owned lookalike. Shape checks keep the protocol strict; private
+ * WeakSet membership proves in-process provenance before any field can affect
+ * model, display, or transcript output.
  */
 export function readHookResultEnvelope(value: unknown): HookResultEnvelope | undefined {
   if (!isRecord(value)) {
+    return;
+  }
+  if (!HOOK_RESULT_ENVELOPE_PROVENANCE.has(value)) {
     return;
   }
   const outerKeys = Object.keys(value);

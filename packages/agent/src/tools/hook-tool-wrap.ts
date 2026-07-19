@@ -22,9 +22,8 @@ import type {
 import { isGuardedToolError } from './guard-tool-execution';
 import {
   type AgentHookRunner,
+  createHookResultEnvelope,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
-  HOOK_RESULT_ENVELOPE_FIELD,
-  HOOK_RESULT_ENVELOPE_KIND,
   type HookBlockedToolError,
   readHookResultEnvelope,
 } from './hook-runner';
@@ -58,13 +57,7 @@ function mergeAdditionalContext(result: unknown, context: string): unknown {
     return result;
   }
   const capped = capContext(context);
-  return {
-    [HOOK_RESULT_ENVELOPE_FIELD]: {
-      additionalContext: capped,
-      kind: HOOK_RESULT_ENVELOPE_KIND,
-      result,
-    },
-  };
+  return createHookResultEnvelope(result, capped);
 }
 
 function passthroughTransform(

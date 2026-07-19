@@ -577,10 +577,17 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
   renders as a FAILED tool event. PostToolUse `additionalContext` is capped
   (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and carried beside the original
-  result in the explicitly discriminated internal hook envelope. Mastra's
-  target-aware display/transcript transforms restore the exact domain result
-  before the live UI and persistence boundary; the envelope itself is never a
-  public or durable tool result. Because JSON persistence and Mastra's
+  result in the explicitly discriminated internal hook envelope. The reserved
+  JSON shape is NOT sufficient proof of provenance: every consumer also
+  requires membership in a private in-memory WeakSet, registered only after a
+  successful PostToolUse hook. A native/MCP result that copies the reserved
+  field/kind or reflective object properties is ordinary visible domain
+  evidence and can never inject model-only context or be stripped from
+  UI/persistence. Losing the in-memory provenance through cloning or
+  serialization likewise fails closed as visible data. Mastra's target-aware
+  display/transcript transforms restore the exact domain result before the live
+  UI and persistence boundary; the trusted envelope itself is never a public
+  or durable tool result. Because JSON persistence and Mastra's
   transform protocol cannot represent an exact `undefined` result, a tool that
   returns `undefined` while PostToolUse requests context fails visibly instead
   of dropping the guidance or substituting a placeholder. The later
