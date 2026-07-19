@@ -105,15 +105,25 @@ cleanupRoot = root;
 try {
   const subscribeStart = performance.now();
   let sawEvent = () => undefined;
-  const firstEvent = new Promise((resolve) => {
+  let failWithBackendError = () => undefined;
+  const firstEvent = new Promise((resolve, reject) => {
     sawEvent = resolve;
+    failWithBackendError = reject;
   });
   const subscription = await watcher.subscribe(
     root,
     (error) => {
-      if (!error) {
-        sawEvent();
+      if (error) {
+        // Surface the real backend condition (FSEvents drop, inotify limits)
+        // instead of masking it behind the generic timeout below.
+        failWithBackendError(
+          Object.assign(new Error(error instanceof Error ? error.message : String(error)), {
+            code: 'backend-error',
+          })
+        );
+        return;
       }
+      sawEvent();
     },
     { backend }
   );
@@ -122,15 +132,24 @@ try {
   try {
     const eventStart = performance.now();
     await writeFile(join(root, 'probe.txt'), 'probe');
-    await Promise.race([
-      firstEvent,
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`no event within ${EVENT_TIMEOUT_MS}ms`)),
-          EVENT_TIMEOUT_MS
-        )
-      ),
-    ]);
+    // The timer is cleared as soon as the race settles so a successful check
+    // exits immediately instead of idling out the full timeout.
+    let eventTimer = null;
+    try {
+      await Promise.race([
+        firstEvent,
+        new Promise((_, reject) => {
+          eventTimer = setTimeout(
+            () => reject(new Error(`no event within ${EVENT_TIMEOUT_MS}ms`)),
+            EVENT_TIMEOUT_MS
+          );
+        }),
+      ]);
+    } finally {
+      if (eventTimer) {
+        clearTimeout(eventTimer);
+      }
+    }
     const firstEventMs = performance.now() - eventStart;
 
     process.stdout.write(
@@ -148,7 +167,11 @@ try {
     await subscription.unsubscribe();
   }
 } catch (error) {
-  fail(backend, 'subscribe-failed', error instanceof Error ? error.message : String(error));
+  const code =
+    error && typeof error === 'object' && error.code === 'backend-error'
+      ? 'backend-error'
+      : 'subscribe-failed';
+  fail(backend, code, error instanceof Error ? error.message : String(error));
 } finally {
   await rm(root, { force: true, recursive: true });
 }
