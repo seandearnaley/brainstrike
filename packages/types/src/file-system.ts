@@ -227,6 +227,47 @@ export interface FileSystemChange {
 }
 
 /**
+ * Typed watcher health protocol (BST-568 slice 3).
+ *
+ * Engines emit `WatcherHealthTransition`s exactly once per state change; the
+ * Desktop IPC layer scopes them to the owning WebContents and adds the
+ * `watchId` to form the wire-level `WatcherHealthEvent`. Root paths never
+ * cross renderer boundaries beyond the owner.
+ */
+export type WatcherHealthState = 'starting' | 'healthy' | 'degraded' | 'failed' | 'stopped';
+
+export type WatcherBackendKind =
+  | 'fs-events'
+  | 'inotify'
+  | 'windows'
+  | 'legacy-chokidar'
+  | 'legacy-fs-watch';
+
+export interface WatcherFailure {
+  /** Stable machine-readable cause, e.g. 'subscribe-timeout', 'backend-error'. */
+  code: string;
+  message: string;
+  /** A deliberate retry may plausibly succeed (transient/runtime causes). */
+  retryable: boolean;
+  /**
+   * The watch cannot continue in this process without intervention
+   * (missing binding, unsupported platform).
+   */
+  terminal: boolean;
+}
+
+export interface WatcherHealthTransition {
+  backend: WatcherBackendKind;
+  failure?: WatcherFailure;
+  state: WatcherHealthState;
+  timestamp: number;
+}
+
+export interface WatcherHealthEvent extends WatcherHealthTransition {
+  watchId: string;
+}
+
+/**
  * Resolution shape returned by `FileSystemAdapter.resolveFileForIndexing`.
  *
  * - `kind: 'handle'` — the adapter has a real `FileSystemFileHandle` that the

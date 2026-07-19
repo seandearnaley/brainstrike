@@ -301,6 +301,70 @@ describe('startParcelWatch', () => {
     }
   });
 
+  it('emits starting then healthy health transitions on successful subscribe', async () => {
+    const fake = createFakeBinding();
+    const health: import('../types').WatcherHealthTransition[] = [];
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+      onHealth: (event) => health.push(event),
+    });
+    expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
+    expect(health[0]?.backend).toBe('fs-events');
+    expect(health[1]?.failure).toBeUndefined();
+    stop();
+  });
+
+  it('emits degraded exactly once across repeated backend errors', async () => {
+    const fake = createFakeBinding();
+    const health: import('../types').WatcherHealthTransition[] = [];
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+      onHealth: (event) => health.push(event),
+    });
+    fake.emitError(new Error('events dropped'));
+    fake.emitError(new Error('events dropped again'));
+    const degraded = health.filter((event) => event.state === 'degraded');
+    expect(degraded).toHaveLength(1);
+    expect(degraded[0]?.failure).toMatchObject({
+      code: 'backend-error',
+      retryable: true,
+      terminal: false,
+    });
+    stop();
+  });
+
+  it('emits failed with a structured failure when subscribe times out', async () => {
+    const module = {
+      subscribe: () => new Promise(() => undefined),
+    } as unknown as ParcelWatcherModule;
+    const health: import('../types').WatcherHealthTransition[] = [];
+    await expect(
+      startParcelWatch(makeHandle(root), collect, {
+        loadModule: () => Promise.resolve(module),
+        onHealth: (event) => health.push(event),
+        subscribeTimeoutMs: 30,
+      })
+    ).rejects.toBeInstanceOf(ParcelSubscribeTimeoutError);
+    expect(health.map((event) => event.state)).toEqual(['starting', 'failed']);
+    expect(health[1]?.failure).toMatchObject({
+      code: 'subscribe-timeout',
+      retryable: true,
+      terminal: false,
+    });
+  });
+
+  it('emits stopped exactly once on dispose', async () => {
+    const fake = createFakeBinding();
+    const health: import('../types').WatcherHealthTransition[] = [];
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+      onHealth: (event) => health.push(event),
+    });
+    stop();
+    stop();
+    expect(health.filter((event) => event.state === 'stopped')).toHaveLength(1);
+  });
+
   it('drops events that arrive after dispose', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
