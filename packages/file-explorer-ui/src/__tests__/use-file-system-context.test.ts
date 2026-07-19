@@ -715,6 +715,60 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     }
   });
 
+  it('flushes by max-wait even while changes keep streaming in (busy build)', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+
+    try {
+      let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
+      const handle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'busy-root',
+        path: '/busy-root',
+        platform: 'web',
+        rootId: 'busy-root-id',
+      } as DirectoryHandle;
+
+      const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+        restoreLastFolder: vi.fn(async () => handle),
+        watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
+          capturedCallback = cb;
+          return vi.fn();
+        }),
+      });
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(FileExplorerTestWrapper, {
+          children,
+          mockFileSystemAdapter: adapterWithWatch,
+        });
+
+      renderHook(() => useExposed(), { wrapper });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      if (!capturedCallback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
+      const cb = capturedCallback as (changes: FileSystemChange[]) => void;
+
+      // A change every 200ms keeps resetting the 300ms trailing window —
+      // without a max-wait bound, NOTHING would ever dispatch while a build
+      // keeps writing. The max-wait flush must fire within ~1s regardless.
+      for (let index = 0; index < 7; index += 1) {
+        act(() => {
+          cb([{ kind: 'file', path: `src/busy-${index}.ts`, type: 'modified' }]);
+        });
+        act(() => {
+          vi.advanceTimersByTime(200);
+        });
+      }
+
+      expect(refreshCapture.events.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
   it('prunes queued watcher changes when the changed root is removed before debounce fires', async () => {
     const refreshCapture = captureFileExplorerRefreshEvents();
 

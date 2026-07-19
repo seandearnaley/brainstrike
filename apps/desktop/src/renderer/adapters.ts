@@ -1,6 +1,15 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { ElectronAPI, IFileNode, RootDescriptor } from '@brainstrike/types';
+import type {
+  ElectronAPI,
+  FileSystemChange,
+  FileSystemWatchEvent,
+  IFileNode,
+  RootDescriptor,
+} from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
+
+const logger = createLogger('ElectronRendererAdapters');
 
 function requireElectronAPI(): ElectronAPI {
   const api = window.electronAPI;
@@ -8,6 +17,55 @@ function requireElectronAPI(): ElectronAPI {
     throw new Error('Electron API is not available in the renderer process');
   }
   return api;
+}
+
+/**
+ * Shared fs:watch-event dispatcher. Every `watchDirectory` call funnels through
+ * ONE `onWatchEvent` bridge subscription that fans out to per-watch callbacks
+ * keyed by `watchId`. Registering a listener per watch instead would put
+ * O(roots) listeners on the single IPC channel — a forest with >10 mounted
+ * roots trips Node's MaxListenersExceededWarning in the renderer and makes
+ * every push O(roots) to filter. The shared subscription is created lazily on
+ * the first registration and torn down when the last watch unregisters.
+ */
+const watchCallbacksById = new Map<string, (changes: FileSystemChange[]) => void>();
+let sharedWatchUnsubscribe: (() => void) | null = null;
+
+function ensureSharedWatchSubscription(
+  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void
+): void {
+  if (sharedWatchUnsubscribe) {
+    return;
+  }
+  sharedWatchUnsubscribe = onWatchEvent((event) => {
+    const callback = watchCallbacksById.get(event.watchId);
+    if (callback && event.changes.length > 0) {
+      callback(event.changes);
+    }
+  });
+}
+
+function registerWatchCallback(
+  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void,
+  watchId: string,
+  callback: (changes: FileSystemChange[]) => void
+): void {
+  ensureSharedWatchSubscription(onWatchEvent);
+  watchCallbacksById.set(watchId, callback);
+}
+
+function unregisterWatchCallback(watchId: string): void {
+  watchCallbacksById.delete(watchId);
+  if (watchCallbacksById.size === 0 && sharedWatchUnsubscribe) {
+    sharedWatchUnsubscribe();
+    sharedWatchUnsubscribe = null;
+  }
+}
+
+/** Test-only: reset the module-level shared dispatcher between test cases. */
+export function __resetFsWatchDispatcherForTest(): void {
+  watchCallbacksById.clear();
+  sharedWatchUnsubscribe = null;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -63,6 +121,83 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {
     return requireElectronAPI().fileSystem.restoreLastFolder();
+  }
+
+  /**
+   * Watch a directory via the main-process watcher bridge (fs:watch →
+   * chokidar in main → fs:watch-event pushes → callback).
+   *
+   * Capability-gated, mirroring the web adapter's FileSystemObserver gate:
+   * when the preload bridge lacks the watch methods (older build), this
+   * warn-logs and returns a no-op disposer — the folder is visibly unwatched,
+   * never silently polled.
+   *
+   * The returned disposer is synchronous while the watch start is async; a
+   * `closed` flag bridges the gap so disposing before the watchId arrives
+   * still unwatches once it does (no orphaned main-process watcher).
+   */
+  watchDirectory(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void {
+    const api = window.electronAPI?.fileSystem;
+    if (
+      !api ||
+      typeof api.watchDirectory !== 'function' ||
+      typeof api.unwatchDirectory !== 'function' ||
+      typeof api.onWatchEvent !== 'function'
+    ) {
+      logger.warn(
+        'watchDirectory: desktop bridge lacks the fs watch capability; folder is unwatched',
+        { path: handle.path }
+      );
+      return () => {};
+    }
+
+    let closed = false;
+    let watchId: string | null = null;
+
+    const stopMainWatcher = (id: string): void => {
+      api.unwatchDirectory(id).catch((error: unknown) => {
+        logger.warn('watchDirectory: failed to stop main-process watcher', {
+          error: error instanceof Error ? error.message : String(error),
+          watchId: id,
+        });
+      });
+    };
+
+    api
+      .watchDirectory(handle)
+      .then(({ watchId: id }) => {
+        if (closed) {
+          stopMainWatcher(id);
+          return;
+        }
+        watchId = id;
+        // Route pushes for this id through the shared dispatcher (one bridge
+        // subscription total, regardless of how many roots are watched).
+        registerWatchCallback(api.onWatchEvent, id, callback);
+      })
+      .catch((error: unknown) => {
+        // Visible capability failure (invalid path, watcher setup error) —
+        // the folder stays unwatched, never a silent fallback.
+        logger.warn('watchDirectory: failed to start main-process watcher; folder is unwatched', {
+          error: error instanceof Error ? error.message : String(error),
+          path: handle.path,
+        });
+      });
+
+    return () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      if (watchId !== null) {
+        unregisterWatchCallback(watchId);
+        stopMainWatcher(watchId);
+        watchId = null;
+      }
+    };
   }
 }
 

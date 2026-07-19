@@ -856,6 +856,10 @@ const FileExplorerPanelInner = React.memo(() => {
         setIsRefreshing(false);
         return;
       }
+      // Dispatch only after a SUCCESSFUL refresh (cancelled/failed refreshes
+      // must not trigger downstream full syncs — pinned by the panel tests).
+      // The outer provider ignores this event (skipManualFullEvents — it was
+      // just refreshed above); forest RootSection providers react to it.
       window.dispatchEvent(
         createFileExplorerRefreshEvent({
           roots: [],

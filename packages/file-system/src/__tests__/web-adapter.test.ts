@@ -1152,8 +1152,8 @@ describe('WebFileSystemAdapter', () => {
  * the adapter only reads `relativePathMovedFrom` on 'moved' records.
  */
 interface StubFSORecord {
-  changedHandle: FileSystemHandle;
-  relativePathComponents: string[];
+  changedHandle: FileSystemHandle | null;
+  relativePathComponents: string[] | null;
   relativePathMovedFrom?: string[] | null;
   root?: FileSystemDirectoryHandle;
   type: 'appeared' | 'disappeared' | 'modified' | 'moved' | 'errored' | 'unknown';
@@ -1273,6 +1273,54 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     // disposer disconnects the observer
     disposer!();
     expect(capturedObserver!.disconnected).toBe(true);
+  });
+
+  it('maps disappeared records with a null changedHandle instead of throwing (Chrome emits null for gone entries)', () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const adapter = new WebFileSystemAdapter();
+    const callback = vi.fn();
+    adapter.watchDirectory(dirHandle, callback);
+
+    expect(() =>
+      capturedObserver!.emit([
+        {
+          changedHandle: null,
+          relativePathComponents: ['src', 'deleted.ts'],
+          type: 'disappeared',
+        },
+        // Errored/unknown records may carry no handle AND no path components —
+        // they must be dropped without crashing the batch they arrive in.
+        {
+          changedHandle: null,
+          relativePathComponents: null,
+          type: 'errored',
+        },
+      ])
+    ).not.toThrow();
+
+    expect(callback).toHaveBeenCalledOnce();
+    const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
+    // A gone entry surfaces no handle to read `kind` from; directory is the
+    // safe invalidation shape (same-path record plus any stale descendants).
+    expect(changes).toEqual([
+      { kind: 'directory', path: 'project/src/deleted.ts', type: 'removed' },
+    ]);
   });
 
   it('is always present and returns a no-op disposer when FileSystemObserver is unavailable', () => {
