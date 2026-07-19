@@ -48,3 +48,8 @@
 **Vulnerability:** Git workbench mutations, status, and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
 **Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed hooks and executable `core.fsmonitor` bypass it; nominally read-only status and diffs can invoke them while inspecting the index.
 **Prevention:** Disable `core.fsmonitor` for status and, before hook-triggering Git commands, also enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test every execution surface that consults the index.
+
+## 2026-07-18 - Bound project hook configs before trust checks
+**Vulnerability:** The desktop hook loader read project-controlled hooks files fully into Electron main before checking their approval hash, allowing oversized or special files to exhaust or pin the main process even though their hooks were rejected.
+**Learning:** A post-read trust gate protects execution but cannot bound work already performed while acquiring the untrusted bytes.
+**Prevention:** Open project hook configs once, require a regular file within the byte cap, and read only the descriptor's initially observed size before hashing or parsing.

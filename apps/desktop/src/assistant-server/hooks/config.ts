@@ -7,7 +7,7 @@
  * surfaced through the result's `errors`.
  */
 
-import { readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { sha256OfBuffer } from './trust';
@@ -32,6 +32,8 @@ const VALID_EVENTS: readonly HookEventName[] = [
   'SessionEnd',
   'Notification',
 ];
+
+export const MAX_HOOKS_CONFIG_BYTES = 1024 * 1024;
 
 export interface HookConfigRootInput {
   readonly absPath: string;
@@ -65,10 +67,39 @@ export interface HookConfigInput {
   readonly roots: readonly HookConfigRootInput[];
 }
 
-/** Single raw-byte read; null = missing/unreadable (no throw, no separate stat). */
+const OVERSIZED_HOOKS_CONFIG = Symbol('oversized-hooks-config');
+
+/** Single raw-byte read; null = missing/unreadable. */
 function readFileBytesOrNull(path: string): Buffer | null {
   try {
     return readFileSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Bounded project-file read; the opened descriptor owns size and type checks. */
+function readProjectHookConfig(path: string): Buffer | null | typeof OVERSIZED_HOOKS_CONFIG {
+  try {
+    const fd = openSync(path, 'r');
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_HOOKS_CONFIG_BYTES) {
+        return OVERSIZED_HOOKS_CONFIG;
+      }
+      const bytes = Buffer.allocUnsafe(stat.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const bytesRead = readSync(fd, bytes, offset, bytes.length - offset, null);
+        if (bytesRead === 0) {
+          break;
+        }
+        offset += bytesRead;
+      }
+      return bytes.subarray(0, offset);
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return null;
   }
@@ -274,15 +305,25 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
 
   // Then each root, in input order. Trust + parse from ONE read: hash the bytes,
   // compare to the approval, and parse those SAME bytes only when trusted.
-  // KNOWN ASYMMETRY: unlike the review IPC (`getProjectHooksForReview`), this
-  // read is NOT containment-checked — a hooks.json symlinking outside the root
-  // is read and hashed here before failing the trust compare (an escaping file
-  // can never be approved, so the bytes go nowhere, but they ARE loaded).
   for (const root of input.roots) {
     const filePath = getProjectHooksPath(root.absPath);
-    const bytes = readFileBytesOrNull(filePath);
-    sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
+    const bytes = readProjectHookConfig(filePath);
+    sources.push({
+      exists: bytes !== null,
+      path: filePath,
+      rootId: root.rootId,
+      scope: 'project',
+    });
     if (bytes === null) {
+      continue;
+    }
+    if (bytes === OVERSIZED_HOOKS_CONFIG) {
+      errors.push({
+        message: `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`,
+        path: filePath,
+        rootId: root.rootId,
+        scope: 'project',
+      });
       continue;
     }
     const trusted =
