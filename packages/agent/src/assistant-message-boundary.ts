@@ -60,6 +60,7 @@ interface PendingMessageNode {
   isAttachmentData: boolean;
   key?: string;
   kind: 'value';
+  location: 'message' | 'other' | 'user-part' | 'user-part-container';
   value: unknown;
 }
 
@@ -140,6 +141,7 @@ function appendArrayItems(node: PendingMessageNode, pending: PendingTraversalNod
       depth: node.depth + 1,
       isAttachmentData: false,
       kind: 'value',
+      location: node.location === 'user-part-container' ? 'user-part' : 'other',
       value: item,
     });
   }
@@ -153,7 +155,12 @@ function appendObjectFields(node: PendingMessageNode, pending: PendingTraversalN
   if (entries.length > MAX_ASSISTANT_MESSAGE_OBJECT_FIELDS) {
     throw new AssistantMessageValidationError('too-many-object-fields');
   }
-  const isFilePart = node.value['type'] === 'file';
+  const effectiveLocation = node.location === 'user-part-container' ? 'user-part' : node.location;
+  const isUserMessage =
+    effectiveLocation === 'message' &&
+    typeof node.value['role'] === 'string' &&
+    node.value['role'].toLowerCase() === 'user';
+  const isFilePart = effectiveLocation === 'user-part' && node.value['type'] === 'file';
   for (const [key, value] of entries) {
     if (key.length === 0 || key.length > MAX_ASSISTANT_MESSAGE_KEY_CHARS) {
       throw new AssistantMessageValidationError('oversized-key');
@@ -163,6 +170,8 @@ function appendObjectFields(node: PendingMessageNode, pending: PendingTraversalN
       isAttachmentData: isFilePart && key === 'data',
       key,
       kind: 'value',
+      location:
+        isUserMessage && (key === 'content' || key === 'parts') ? 'user-part-container' : 'other',
       value,
     });
   }
@@ -187,6 +196,7 @@ export function assertAssistantMessageGraphWithinLimits(
     depth: 0,
     isAttachmentData: false,
     kind: 'value',
+    location: 'message',
     value,
   }));
   const activeObjects = new WeakSet<object>();

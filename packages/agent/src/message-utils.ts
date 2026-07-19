@@ -24,17 +24,14 @@ import type {
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
-function normalizeRole(
-  role: AssistantUiMessage['role'],
-  fallback?: NormalizedRole
-): NormalizedRole | undefined {
+function normalizeRole(role: AssistantUiMessage['role']): NormalizedRole | undefined {
   if (typeof role === 'string') {
     const lower = role.toLowerCase();
     if (lower === 'user' || lower === 'assistant' || lower === 'system') {
       return lower;
     }
   }
-  return fallback;
+  return;
 }
 
 function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStrict['id']): string {
@@ -103,20 +100,19 @@ function assertAttachmentCollectionWithinLimits(collected: AgentMessagePartFile[
 }
 
 /**
- * Walk a message exactly once to extract text and attachments. Every object
- * whose discriminator is `type: "file"` is an attachment candidate: validate
- * it before returning from that branch so malformed data can never fall
- * through into scalar text extraction. The generic unknown-key traversal is
- * intentional compatibility behavior, so valid nested files are collected
- * everywhere text extraction can reach instead of being silently dropped.
+ * Parse only the assistant transport's documented message/part positions.
+ * User attachments are direct `content`/`parts` file parts. Tool inputs,
+ * outputs, data parts, and other nested domain payloads stay opaque: a domain
+ * object that happens to use `type: "file"` is not an image attachment and its
+ * scalar fields are never flattened into prompt text.
  */
 function extractMessageContent(
-  source: AssistantUiMessage | AssistantUiMessageStrict
+  source: AssistantUiMessage | AssistantUiMessageStrict,
+  role: NormalizedRole
 ): ExtractedMessageContent {
   const fileParts: AgentMessagePartFile[] = [];
   const segments: string[] = [];
   const seenValues = new Set<string>();
-  const seenObjects = new Set<AssistantUiNodeObject>();
 
   const pushText = (raw: string): void => {
     const text = raw.trim();
@@ -126,19 +122,6 @@ function extractMessageContent(
     seenValues.add(text);
     segments.push(text);
   };
-
-  const knownObjectKeys: ReadonlySet<string> = new Set([
-    'text',
-    'type',
-    'value',
-    'content',
-    'parts',
-    'children',
-    'values',
-    'result',
-    'message',
-    'messages',
-  ]);
 
   const pushScalar = (value: AssistantUiScalar | undefined): void => {
     if (value === null || value === undefined) {
@@ -157,95 +140,81 @@ function extractMessageContent(
     }
   };
 
-  const isScalarValue = (value: AssistantUiNode | undefined): value is AssistantUiScalar =>
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean';
-
-  const visitArray = (nodes: readonly AssistantUiNode[]): void => {
-    for (const item of nodes) {
-      visit(item);
-    }
-  };
-
-  const visitObject = (record: AssistantUiNodeObject): void => {
-    if (seenObjects.has(record)) {
-      return;
-    }
-    seenObjects.add(record);
-
-    const filePart = readWireFileAttachmentCandidate(record);
-    if (filePart) {
-      fileParts.push(filePart);
-      return;
-    }
-
-    pushScalar(record.text);
-    pushScalar(record.value);
-
-    visit(record.content);
-    visit(record.parts);
-    visit(record.children);
-    visit(record.values);
-    visit(record.result);
-    visit(record.message);
-    visit(record.messages);
-
-    for (const [key, nested] of Object.entries(record)) {
-      if (knownObjectKeys.has(key)) {
-        continue;
-      }
-      if (isScalarValue(nested as AssistantUiNode | undefined)) {
-        pushScalar(nested as AssistantUiScalar | undefined);
-      } else {
-        visit(nested as AssistantUiNode);
-      }
-    }
-  };
-
-  const visit = (value: AssistantUiNode | undefined): void => {
-    if (value === null || value === undefined) {
-      return;
-    }
-    if (isScalarValue(value)) {
-      pushScalar(value);
+  const visitDirectPart = (value: AssistantUiNode): void => {
+    if (value === null || typeof value !== 'object') {
+      pushScalar(value as AssistantUiScalar);
       return;
     }
     if (Array.isArray(value)) {
-      visitArray(value);
+      // Nested arrays are not assistant message parts. Keeping them opaque
+      // avoids manufacturing a second, undocumented attachment position.
       return;
     }
-    visitObject(value as AssistantUiNodeObject);
+    const record = value as AssistantUiNodeObject;
+    const partType = record['type'];
+    if (partType === 'file') {
+      if (role === 'user') {
+        const filePart = readWireFileAttachmentCandidate(record);
+        if (filePart) {
+          fileParts.push(filePart);
+        }
+      }
+      return;
+    }
+    if (partType === 'text') {
+      pushScalar(record.text);
+      return;
+    }
+    if (partType !== undefined) {
+      // Tool calls/results, data parts, near-miss file discriminators, and all
+      // other typed parts are opaque at this conversion boundary.
+      return;
+    }
+    // Compatibility for the legacy untyped text/value part dialect. Only the
+    // two explicit scalar fields are read; nested objects remain opaque.
+    pushScalar(record.text);
+    pushScalar(record.value);
+  };
+
+  const visitDirectParts = (value: AssistantUiNode | undefined): void => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (!Array.isArray(value)) {
+      visitDirectPart(value);
+      return;
+    }
+    for (const part of value) {
+      visitDirectPart(part);
+    }
   };
 
   // source.text may be string in strict or scalar in permissive shape
   pushScalar(source.text as AssistantUiScalar | undefined);
   const maybeContent = (source as { content?: AssistantUiNode }).content;
   const maybeParts = (source as { parts?: AssistantUiNode }).parts;
-  visit(maybeContent);
-  visit(maybeParts);
+  visitDirectParts(maybeContent);
+  visitDirectParts(maybeParts);
 
   assertAttachmentCollectionWithinLimits(fileParts);
   return { fileParts, segments };
 }
 
 function toAgentMessage(
-  message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined,
-  fallbackRole?: NormalizedRole
+  message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined
 ): AgentMessage | null {
   if (!message) {
     return null;
   }
-  const role = normalizeRole(message.role, fallbackRole);
-  const content = extractMessageContent(message);
-  // Attachments are a USER-message concept (composer-sent images); file parts
-  // on other roles are still validated but are not forwarded.
-  const fileParts = role === 'user' ? content.fileParts : [];
-  if (content.segments.length === 0 && fileParts.length === 0) {
+  const role = normalizeRole(message.role);
+  if (!role) {
     return null;
   }
-  if (!role) {
+  const content = extractMessageContent(message, role);
+  // Attachments are a USER-message concept (composer-sent images); file parts
+  // on other roles stay opaque and are not forwarded.
+  const fileParts = role === 'user' ? content.fileParts : [];
+  if (content.segments.length === 0 && fileParts.length === 0) {
     return null;
   }
   return {
@@ -277,9 +246,7 @@ export function convertAssistantUiMessages(
   if (converted.length > 0) {
     return converted;
   }
-  const last = messages.length > 0 ? messages.at(-1) : undefined;
-  const fallback = toAgentMessage(last ?? null, 'user');
-  return fallback ? [fallback] : [];
+  return [];
 }
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes

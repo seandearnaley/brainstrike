@@ -39,22 +39,35 @@ describe('assistant attachment limits', () => {
     expect(dataUrlByteLength('data:image/png;base64,aGVsbG8=')).toBe(5);
     // "hi" -> aGk= (2 bytes, two padding chars)
     expect(dataUrlByteLength('data:image/png;base64,aGk=')).toBe(2);
-    // unpadded body still measures by base64 arithmetic
-    expect(dataUrlByteLength('data:image/png;base64,aGVsbG8')).toBe(5);
+    // A complete 3-byte quantum requires no terminal padding.
+    expect(dataUrlByteLength('data:image/png;base64,aGVs')).toBe(3);
   });
 
-  it('rejects a non-data-URL payload as unmeasurable', () => {
-    expect(() => dataUrlByteLength('https://example.com/cat.png')).toThrow(
-      AssistantAttachmentValidationError
-    );
-    expect(() => dataUrlByteLength('data:image/png;utf8,hello')).toThrow(
-      AssistantAttachmentValidationError
-    );
+  it.each([
+    'https://example.com/cat.png',
+    'data:image/png;utf8,hello',
+    'data:image/png;charset=utf-8;base64,aGVsbG8=',
+    'data:image/png;base64,aGVsbG8',
+    'data:image/png;base64,A',
+    'data:image/png;base64,a===',
+    'data:image/png;base64,ab=c',
+    'data:image/png;base64,AB==',
+    'data:image/png;base64,AAB=',
+    'data:image/png;base64,aGVs$b8=',
+    'data:image/png;base64,aGVs bG8=',
+  ])('rejects malformed or non-canonical base64 data URL %s', (dataUrl) => {
+    expect(() => dataUrlByteLength(dataUrl)).toThrow(AssistantAttachmentValidationError);
   });
 
   it('validates a supported, in-budget image part', () => {
     expect(() =>
       validateImageAttachmentPart({ data: PNG_DATA_URL, mediaType: 'image/png' })
+    ).not.toThrow();
+    expect(() =>
+      validateImageAttachmentPart({
+        data: 'data:image/PNG;base64,aGVsbG8=',
+        mediaType: ' IMAGE/PNG ',
+      })
     ).not.toThrow();
   });
 
@@ -66,6 +79,19 @@ describe('assistant attachment limits', () => {
       validateImageAttachmentPart({ data: PNG_DATA_URL, mediaType: 'application/pdf' });
     } catch (error) {
       expect((error as AssistantAttachmentValidationError).reason).toBe('unsupported-media-type');
+    }
+  });
+
+  it('requires the data URL media type to match the declared part media type', () => {
+    try {
+      validateImageAttachmentPart({
+        data: 'data:image/jpeg;base64,aGVsbG8=',
+        mediaType: 'image/png',
+      });
+      expect.unreachable('mismatched media types must throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AssistantAttachmentValidationError);
+      expect((error as AssistantAttachmentValidationError).reason).toBe('media-type-mismatch');
     }
   });
 
