@@ -41,13 +41,6 @@ describe('web vite config alias contract', () => {
     expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
   });
 
-  it('resolves selection-rules to the workspace source entry via the registry', () => {
-    expect(resolveThroughAliases('@brainstrike/selection-rules', registryEntries)).toBe(
-      path.resolve(PACKAGES_DIR, 'selection-rules/src/index.ts')
-    );
-    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/selection-rules'/);
-  });
-
   it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {
     for (const [specifier, sourcePath] of [
       ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],

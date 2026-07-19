@@ -176,7 +176,6 @@ function serializeSelectionModel(model: SelectionModel): SerializedSelectionMode
     materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
     mode: model.mode,
     queryDescriptor: model.queryDescriptor,
-    ruleSetJson: model.ruleSetJson,
   };
 }
 
@@ -197,12 +196,16 @@ function deserializeSelectionModel(
   if (shouldWarnOnMalformedQueryDescriptor) {
     logger.warn('Dropping malformed persisted query selection descriptor during deserialization');
   }
-  const mode =
-    serialized.mode === 'rules'
-      ? 'rules'
-      : serialized.mode === 'query' && queryDescriptor
-        ? 'query'
-        : 'explicit';
+  // Legacy migration: profiles persisted before the rules-based selection
+  // feature was removed can carry mode 'rules'. Rules mode always synced its
+  // materialized selection into selectedFilePaths at save time, so degrading
+  // the model to explicit preserves the user's effective selection.
+  if ((serialized as { mode?: unknown }).mode === 'rules') {
+    logger.warn(
+      'Persisted selection model uses removed rules mode; migrating to explicit selection'
+    );
+  }
+  const mode = serialized.mode === 'query' && queryDescriptor ? 'query' : 'explicit';
 
   return {
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
@@ -212,7 +215,6 @@ function deserializeSelectionModel(
       : null,
     mode,
     queryDescriptor,
-    ruleSetJson: serialized.ruleSetJson ?? null,
   };
 }
 

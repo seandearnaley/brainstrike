@@ -68,7 +68,6 @@
         "@brainstrike/file-explorer-ui",
         "@brainstrike/file-tree-worker",
         "@brainstrike/notes-vault",
-        "@brainstrike/selection-rules",
         "@brainstrike/vector-management",
         "@brainstrike/workspace-search"
       ],

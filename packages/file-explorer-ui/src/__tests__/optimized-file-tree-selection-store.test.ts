@@ -71,20 +71,6 @@ describe('createFileTreeSelectionStore', () => {
     expect(store.getNodeState(fileRow('/b.ts')).checkboxState).toBe(false);
   });
 
-  it('marks a file selected by a rule (rules mode) and re-derives when the model changes', () => {
-    const store = createFileTreeSelectionStore(
-      inputs(new Set(), {
-        selectionModel: {
-          ...createEmptySelectionModel(),
-          materializedPaths: new Set(['/a.ts']),
-          mode: 'rules',
-        },
-      })
-    );
-    expect(store.getNodeState(fileRow('/a.ts')).isRuleSelected).toBe(true);
-    expect(store.getNodeState(fileRow('/b.ts')).isRuleSelected).toBe(false);
-  });
-
   it('returns a STABLE reference while a node state is unchanged, a NEW one when it changes', () => {
     const store = createFileTreeSelectionStore(inputs(new Set()));
     const row = fileRow('/a.ts');

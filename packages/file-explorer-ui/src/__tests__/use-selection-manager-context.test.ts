@@ -27,7 +27,6 @@ const defaultSelectionModel = {
   materializedPaths: null,
   mode: 'explicit' as const,
   queryDescriptor: null,
-  ruleSetJson: null,
 };
 
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
@@ -84,71 +83,6 @@ describe('useSelectionManager', () => {
     const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.effectiveSelection).toBe(selectedFilePaths);
-    expect(result.current.isRulesMode).toBe(false);
-  });
-
-  it('converts materializedPaths to composite keys in rules mode', () => {
-    const { store } = createMockStore({
-      currentFolderId: 'my-folder',
-      selectionModel: {
-        explicitPaths: new Set<string>(),
-        materializedAt: new Date().toISOString(),
-        materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
-        mode: 'rules' as const,
-        queryDescriptor: null,
-        ruleSetJson: '{}',
-      },
-    });
-    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
-
-    const { result } = renderHook(() => useSelectionManager());
-
-    expect(result.current.isRulesMode).toBe(true);
-    expect(result.current.effectiveSelection.size).toBe(2);
-    // Composite keys are folderId|@|path
-    expect(result.current.effectiveSelection.has('my-folder|@|/src/index.ts')).toBe(true);
-    expect(result.current.effectiveSelection.has('my-folder|@|/src/utils.ts')).toBe(true);
-  });
-
-  it('falls back to selectedFilePaths when in rules mode without materializedPaths', () => {
-    const selectedFilePaths = new Set(['fallback|@|/file.ts']);
-    const { store } = createMockStore({
-      selectedFilePaths,
-      selectionModel: {
-        explicitPaths: new Set<string>(),
-        materializedAt: null,
-        materializedPaths: null,
-        mode: 'rules' as const,
-        queryDescriptor: null,
-        ruleSetJson: '{}',
-      },
-    });
-    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
-
-    const { result } = renderHook(() => useSelectionManager());
-
-    expect(result.current.effectiveSelection).toBe(selectedFilePaths);
-  });
-
-  it('falls back to selectedFilePaths when in rules mode without currentFolderId', () => {
-    const selectedFilePaths = new Set(['fallback|@|/file.ts']);
-    const { store } = createMockStore({
-      currentFolderId: null,
-      selectedFilePaths,
-      selectionModel: {
-        explicitPaths: new Set<string>(),
-        materializedAt: new Date().toISOString(),
-        materializedPaths: new Set(['/src/file.ts']),
-        mode: 'rules' as const,
-        queryDescriptor: null,
-        ruleSetJson: '{}',
-      },
-    });
-    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
-
-    const { result } = renderHook(() => useSelectionManager());
-
-    expect(result.current.effectiveSelection).toBe(selectedFilePaths);
   });
 
   it('uses the exact query manifest in query mode and exposes the canonical selected count', () => {
@@ -183,7 +117,6 @@ describe('useSelectionManager', () => {
           totalSelectedCount: 2,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -225,7 +158,6 @@ describe('useSelectionManager', () => {
           totalSelectedCount: 600,
           useRegex: false,
         },
-        ruleSetJson: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);

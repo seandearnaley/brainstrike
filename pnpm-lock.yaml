@@ -1531,9 +1531,6 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
-      '@brainstrike/selection-rules':
-        specifier: workspace:*
-        version: link:../selection-rules
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -2038,40 +2035,6 @@ importers:
       node-gyp:
         specifier: 13.0.1
         version: 13.0.1
-
-  packages/selection-rules:
-    dependencies:
-      minimatch:
-        specifier: ^10.2.5
-        version: 10.2.5
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@stryker-mutator/core':
-        specifier: ^9.6.1
-        version: 9.6.1(@types/node@26.1.0)
-      '@stryker-mutator/typescript-checker':
-        specifier: ^9.6.1
-        version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@26.1.0))(typescript@6.0.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: ^9.6.1
-        version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@26.1.0))(vitest@4.1.9)
-      '@swc/core':
-        specifier: ^1.15.43
-        version: 1.15.43(@swc/helpers@0.5.23)
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.1.0
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(jiti@2.7.0)(postcss@8.5.16)(tsx@4.23.0)(typescript@6.0.3)(yaml@2.9.0)
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.9(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.9)(@vitest/coverage-v8@4.1.9)(@vitest/ui@4.1.9)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/server-config:
     dependencies:

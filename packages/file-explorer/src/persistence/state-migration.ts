@@ -34,7 +34,6 @@ function createEmptySerializedState(): SerializedState {
       materializedPaths: null,
       mode: DEFAULT_STATE.selectionModel.mode,
       queryDescriptor: null,
-      ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
     },
     tokenBudget: DEFAULT_STATE.tokenBudget,
     useRegex: DEFAULT_STATE.useRegex,

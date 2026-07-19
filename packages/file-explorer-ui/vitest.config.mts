@@ -91,7 +91,7 @@ export default defineConfig({
         find: '@brainstrike/workers/report-generation-worker',
         replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
-      // Registry fills the remaining workspace deps (file-system, selection-rules,
+      // Registry fills the remaining workspace deps (file-system,
       // token-cache, file-tree-worker, workers, platform-utils transitively, …)
       // from SOURCE. Hand-rolled entries above win by first-match ordering.
       // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).

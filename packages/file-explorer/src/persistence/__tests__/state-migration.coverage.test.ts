@@ -113,7 +113,6 @@ describe('state-migration coverage', () => {
         materializedPaths: null,
         mode: 'explicit',
         queryDescriptor: null,
-        ruleSetJson: null,
       },
       useRegex: false,
     };
@@ -127,7 +126,6 @@ describe('state-migration coverage', () => {
       materializedPaths: null,
       mode: 'explicit',
       queryDescriptor: null,
-      ruleSetJson: null,
     });
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Returning valid SerializedState summary',

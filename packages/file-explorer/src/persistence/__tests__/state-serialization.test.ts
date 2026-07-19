@@ -9,7 +9,11 @@
  * - serializeState with currentFolderId not in folderStates (creates new entry)
  */
 
-import type { FileExplorerState, SerializedState } from '@brainstrike/types';
+import type {
+  FileExplorerState,
+  SerializedSelectionModel,
+  SerializedState,
+} from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { mergeState, serializeState } from '../state-serialization';
@@ -220,9 +224,8 @@ describe('state-serialization', () => {
           explicitPaths: new Set(['a', 'b']),
           materializedAt: '2024-01-01T00:00:00Z',
           materializedPaths: new Set(['m1', 'm2']),
-          mode: 'rules',
+          mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: '{"rules":[]}',
         },
       });
 
@@ -232,9 +235,8 @@ describe('state-serialization', () => {
         explicitPaths: ['a', 'b'],
         materializedAt: '2024-01-01T00:00:00Z',
         materializedPaths: ['m1', 'm2'],
-        mode: 'rules',
+        mode: 'explicit',
         queryDescriptor: null,
-        ruleSetJson: '{"rules":[]}',
       });
     });
 
@@ -246,7 +248,6 @@ describe('state-serialization', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
       });
 
@@ -278,7 +279,6 @@ describe('state-serialization', () => {
             totalSelectedCount: 5000,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
       });
 
@@ -303,7 +303,6 @@ describe('state-serialization', () => {
           totalSelectedCount: 5000,
           useRegex: false,
         },
-        ruleSetJson: null,
       });
     });
 
@@ -647,12 +646,11 @@ describe('state-serialization', () => {
 
       expect(result.selectionModel.mode).toBe('explicit');
       expect(result.selectionModel.explicitPaths).toEqual(new Set());
-      expect(result.selectionModel.ruleSetJson).toBeNull();
       expect(result.selectionModel.materializedPaths).toBeNull();
       expect(result.selectionModel.materializedAt).toBeNull();
     });
 
-    it('should deserialize rules mode selectionModel', () => {
+    it('migrates a persisted legacy rules-mode selectionModel to explicit', () => {
       const current = buildState();
       const persisted: SerializedState = {
         currentFolderId: null,
@@ -675,16 +673,15 @@ describe('state-serialization', () => {
           mode: 'rules',
           queryDescriptor: null,
           ruleSetJson: '{"rules":[]}',
-        },
+        } as unknown as SerializedSelectionModel,
         tokenBudget: 100,
         useRegex: false,
       };
 
       const result = mergeState(persisted, current, false);
 
-      expect(result.selectionModel.mode).toBe('rules');
+      expect(result.selectionModel.mode).toBe('explicit');
       expect(result.selectionModel.explicitPaths).toEqual(new Set(['a', 'b']));
-      expect(result.selectionModel.ruleSetJson).toBe('{"rules":[]}');
       expect(result.selectionModel.materializedPaths).toEqual(new Set(['m1']));
       expect(result.selectionModel.materializedAt).toBe('2024-01-01');
     });
@@ -724,7 +721,6 @@ describe('state-serialization', () => {
             totalSelectedCount: 2500,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
         tokenBudget: 100,
         useRegex: false,
@@ -786,7 +782,6 @@ describe('state-serialization', () => {
             totalSelectedCount: 'bad-count',
             useRegex: 'yes',
           },
-          ruleSetJson: null,
         },
         tokenBudget: 100,
         useRegex: false,
@@ -865,7 +860,6 @@ describe('state-serialization', () => {
             kind: 'unknown-kind',
             totalSelectedCount: 'bad-count',
           },
-          ruleSetJson: null,
         },
         tokenBudget: 100,
         useRegex: false,
@@ -881,7 +875,7 @@ describe('state-serialization', () => {
       );
     });
 
-    it('should default mode to explicit when mode is not "rules"', () => {
+    it('should keep explicit mode for persisted explicit selection models', () => {
       const current = buildState();
       const persisted: SerializedState = {
         currentFolderId: null,
@@ -903,7 +897,6 @@ describe('state-serialization', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
         tokenBudget: 100,
         useRegex: false,
@@ -915,7 +908,7 @@ describe('state-serialization', () => {
       expect(result.selectionModel.materializedPaths).toBeNull();
     });
 
-    it('should handle selectionModel with null ruleSetJson and materializedAt', () => {
+    it('should handle selectionModel with null materializedAt', () => {
       const current = buildState();
       const persisted: SerializedState = {
         currentFolderId: null,
@@ -937,7 +930,6 @@ describe('state-serialization', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: undefined as unknown as null,
         },
         tokenBudget: 100,
         useRegex: false,
@@ -945,7 +937,6 @@ describe('state-serialization', () => {
 
       const result = mergeState(persisted, current, false);
 
-      expect(result.selectionModel.ruleSetJson).toBeNull();
       expect(result.selectionModel.materializedAt).toBeNull();
     });
   });
@@ -1114,7 +1105,6 @@ describe('state-serialization', () => {
               materializedPaths: null,
               mode: 'explicit',
               queryDescriptor: null,
-              ruleSetJson: null,
             },
             tokenBudget: 100,
             useRegex: false,
@@ -1146,7 +1136,6 @@ describe('state-serialization', () => {
             totalSelectedCount: 600,
             useRegex: false,
           },
-          ruleSetJson: null,
         },
         tokenBudget: 100,
         useRegex: false,

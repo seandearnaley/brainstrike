@@ -31,8 +31,6 @@ export const PERF_BUDGETS = {
   flattenTree: 50,
   /** Budget for single directory listing (I/O) */
   listDirectory: 200,
-  /** Budget for materialization of selection rules */
-  materializeRules: 100,
   /** Budget for tree snapshot creation */
   treeSnapshot: 100,
 } as const;

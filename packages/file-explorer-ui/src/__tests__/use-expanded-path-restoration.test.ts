@@ -32,7 +32,6 @@ function createStoreState(overrides: Partial<FileExplorerState> = {}): FileExplo
       materializedPaths: null,
       mode: 'explicit',
       queryDescriptor: null,
-      ruleSetJson: null,
     },
     ...overrides,
   } as FileExplorerState;
@@ -398,7 +397,6 @@ describe('useExpandedPathRestoration', () => {
               totalSelectedCount: 1,
               useRegex: false,
             },
-            ruleSetJson: null,
           },
         })
       ),
@@ -459,7 +457,6 @@ describe('useExpandedPathRestoration', () => {
               totalSelectedCount: 1,
               useRegex: false,
             },
-            ruleSetJson: null,
           },
         })
       ),
@@ -653,7 +650,6 @@ describe('useExpandSelectedFileParentDirectories', () => {
               totalSelectedCount: 2,
               useRegex: false,
             },
-            ruleSetJson: null,
           },
         })
       ),
@@ -713,7 +709,6 @@ describe('useExpandSelectedFileParentDirectories', () => {
               totalSelectedCount: coveredDirectoryPaths.length,
               useRegex: false,
             },
-            ruleSetJson: null,
           },
         })
       ),
@@ -780,7 +775,6 @@ describe('useExpandSelectedFileParentDirectories', () => {
               totalSelectedCount: outOfRootSelections.length + 1,
               useRegex: false,
             },
-            ruleSetJson: null,
           },
         })
       ),

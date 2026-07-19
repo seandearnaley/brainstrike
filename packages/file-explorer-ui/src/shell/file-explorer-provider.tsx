@@ -80,7 +80,7 @@ export function FileExplorerProvider({
       registerFactoryResetSessionStore(() => {
         const state = store.getState();
         state.clearSelectedFiles();
-        state.clearSelectionRules();
+        state.resetSelectionToExplicit();
         for (const folderId of Object.keys(state.folderStates)) {
           state.setFolderSelection(folderId, []);
         }

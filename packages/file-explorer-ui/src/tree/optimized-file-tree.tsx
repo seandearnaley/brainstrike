@@ -396,7 +396,6 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
     useCallback(() => store.getNodeState(rowData), [store, rowData])
   );
   const selectionState = nodeState;
-  const isRuleSelected = nodeState.isRuleSelected;
 
   /**
    * VS Code-style open semantics. The mouse and keyboard paths are intentionally
@@ -495,7 +494,6 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         <span className="truncate text-sm leading-4 group-hover/file-row:underline">
           {fileNode.name}
         </span>
-        {isRuleSelected ? <span className="sr-only">Selected by rule</span> : null}
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
           <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
         )}

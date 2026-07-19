@@ -47,13 +47,11 @@ import { TreeActionButtons } from '../components/tree-action-buttons';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
-import { useRuleMaterialization } from '../hooks/use-rule-materialization';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { RestorationStatus } from '../restoration-status';
 import { formatCompactSelectionCount } from '../selection-count-format';
 import { SelectionCounter } from '../selection-counter';
 import { SelectionModeBadge } from '../selection-mode-badge';
-import { SelectionRulesEditor } from '../selection-rules-editor';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
@@ -499,7 +497,6 @@ const FileExplorerPanelInner = React.memo(() => {
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const previousRootFolderIdRef = useRef<string | null>(null);
   const restorationLimitNoticeKeyRef = useRef<string | null>(null);
@@ -666,15 +663,7 @@ const FileExplorerPanelInner = React.memo(() => {
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
 
-  // Materialize selection rules against the file tree when in 'rules' mode
-  // Note: useRuleMaterialization already uses the single-selector pattern
-  // (selects entire selectionModel object once), which is safe for React Compiler.
-  useRuleMaterialization({
-    enabled: !isLoading,
-    fileTree: stableFileTree,
-  });
-
-  // Get selection model for rules-based mode token counting and display
+  // Get selection model for query-mode token counting and display
   const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
 
   const largeSelectionDiagnosticSignatureRef = React.useRef<string | null>(null);
@@ -1154,8 +1143,6 @@ const FileExplorerPanelInner = React.memo(() => {
                   }}
                   maxSelectionCount={maxSelectionCount}
                   onMaxSelectionCountChange={handleMaxSelectionCountChange}
-                  onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
-                  rulesEditorAvailable={true}
                   show={!!rootDirectoryHandle}
                   triggerVariant="icon"
                 />
@@ -1297,13 +1284,6 @@ const FileExplorerPanelInner = React.memo(() => {
             </Suspense>
           </div>
         </div>
-
-        {/* Selection Rules Editor Dialog */}
-        <SelectionRulesEditor
-          folderId={getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? ''}
-          isOpen={isRulesEditorOpen}
-          onOpenChange={setIsRulesEditorOpen}
-        />
 
         {/* Forest Expand All confirmation - multi-root sweeps are staged */}
         <ExpandAllConfirmDialog

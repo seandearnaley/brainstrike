@@ -54,7 +54,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
     ...createFileContentActions(set, get),
-    ...createSelectionModelActions(set, get),
+    ...createSelectionModelActions(set),
     ...createActiveRootActions(set, get),
     clearQuickFilter: () => {
       set({ quickFilter: '' });

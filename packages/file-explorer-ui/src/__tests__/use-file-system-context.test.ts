@@ -388,7 +388,6 @@ describe('useFileSystem context hook', () => {
                 totalSelectedCount: 600,
                 useRegex: false,
               },
-              ruleSetJson: null,
             },
             tokenBudget: 100_000,
             useRegex: false,
@@ -402,7 +401,6 @@ describe('useFileSystem context hook', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
       });
     });
@@ -466,7 +464,6 @@ describe('useFileSystem context hook', () => {
               materializedPaths: null,
               mode: 'explicit',
               queryDescriptor: null,
-              ruleSetJson: null,
             },
             tokenBudget: 100_000,
             useRegex: false,
@@ -480,7 +477,6 @@ describe('useFileSystem context hook', () => {
           materializedPaths: null,
           mode: 'explicit',
           queryDescriptor: null,
-          ruleSetJson: null,
         },
       });
     });
