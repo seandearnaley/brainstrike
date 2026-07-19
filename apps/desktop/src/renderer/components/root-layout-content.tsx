@@ -21,6 +21,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { createLogger } from '@brainstrike/utils/logger';
 import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
 import NotesPageContent from './notes-page-content';
@@ -126,6 +127,15 @@ export default function RootLayoutContent() {
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
+
+  // Eagerly register the embedding runtime config + LAZY queue factory
+  // (mirrors web's registerWebEmbeddingRuntimeConfig): a local-model semantic
+  // search initializes the transformers backend from the visible renderer, and
+  // without this registration it throws "Embedding queue factory is not
+  // registered" until a database panel happens to load the queue.
+  useEffect(() => {
+    registerDesktopEmbeddingRuntimeConfig();
+  }, []);
 
   useEffect(() => {
     logger.info('Desktop database runtime availability changed', {

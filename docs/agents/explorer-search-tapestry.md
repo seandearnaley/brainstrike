@@ -17,6 +17,11 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
 - **Always workspace-scoped.** Every query passes `rootIds` = live mounted
   workspace roots (`rootIdentity.workspaceDbRootIds`); legacy NULL-root rows are
   excluded. Empty rootIds = no results (never an unscoped scan).
+- **Root attribution in results.** File rows show their root badge whenever the
+  workspace mounts MULTIPLE roots (`workspaceRootCount` threaded from the panel
+  into `SearchResultsTree`), not merely when the result set happens to span >1
+  root — in a forest, a single-root result set is otherwise unattributable.
+  Falls back to result-set root diversity when the count is not provided.
 - **In-flight invalidation.** The session store (`workspace-search-store.ts`)
   carries a monotonic `generation`; `beginSearch` + every mode/collection/toggle
   change (and `clearResults`) increment it, and `resolveResults`/`failSearch`

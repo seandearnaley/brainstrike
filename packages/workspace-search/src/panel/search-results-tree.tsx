@@ -302,6 +302,13 @@ export interface SearchResultsTreeProps {
    * the session store does not hold.
    */
   resolveAdapterRootId: (dbRootId: string) => string | null;
+  /**
+   * Count of currently mounted workspace roots. In a multi-root workspace
+   * (count > 1) every file row shows its root badge — even when the current
+   * result set happens to span a single root, the user cannot tell WHICH root
+   * without it. Defaults to 0 (badge falls back to result-set root diversity).
+   */
+  workspaceRootCount?: number;
 }
 
 /**
@@ -315,6 +322,7 @@ export function SearchResultsTree({
   onOpenFile,
   resolveAdapterRootId,
   onShowMore,
+  workspaceRootCount = 0,
 }: SearchResultsTreeProps): React.ReactNode {
   const results = useWorkspaceSearchStore((state) => state.results);
   const query = useWorkspaceSearchStore((state) => state.query);
@@ -352,7 +360,13 @@ export function SearchResultsTree({
     [nodes]
   );
 
+  // Badge whenever the WORKSPACE is multi-root (the user needs attribution
+  // even for a single-root result set), falling back to result-set diversity
+  // when the caller does not provide the mounted-root count.
   const showRootBadge = useMemo(() => {
+    if (workspaceRootCount > 1) {
+      return true;
+    }
     const roots = new Set<string>();
     for (const node of nodes) {
       if (node.data.kind === 'file') {
@@ -360,7 +374,7 @@ export function SearchResultsTree({
       }
     }
     return roots.size > 1;
-  }, [nodes]);
+  }, [nodes, workspaceRootCount]);
 
   // Authoritative per-file result-chunk list (independent of tree expansion) so
   // the bridge can convert a whole-file selection into "all chunks but this one".

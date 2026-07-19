@@ -189,6 +189,33 @@ describe('SearchResultsTree', () => {
     expect(screen.getByText('Root B')).toBeInTheDocument();
   });
 
+  it('shows the root badge for single-root results when the workspace mounts multiple roots', () => {
+    // A multi-root ("forest") workspace must always attribute results to their
+    // root — even when the current result set happens to come from one root,
+    // the user cannot know which root that is without the badge.
+    seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
+    render(
+      <SearchResultsTree
+        onOpenFile={vi.fn()}
+        resolveAdapterRootId={resolveAdapterRootId}
+        workspaceRootCount={2}
+      />
+    );
+    expect(screen.getByText('Mounted Root')).toBeInTheDocument();
+  });
+
+  it('hides the root badge for single-root results in a single-root workspace', () => {
+    seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
+    render(
+      <SearchResultsTree
+        onOpenFile={vi.fn()}
+        resolveAdapterRootId={resolveAdapterRootId}
+        workspaceRootCount={1}
+      />
+    );
+    expect(screen.queryByText('Mounted Root')).not.toBeInTheDocument();
+  });
+
   it('highlights the query substring on text-match rows', () => {
     seedResults(
       makeResults([fileResult({ children: [textMatch({ lineText: 'const foo = 1;' })] })]),

@@ -158,6 +158,17 @@ describe('WorkspaceSearchPanel', () => {
     expect(screen.getByText('src/a.ts')).toBeInTheDocument();
   });
 
+  it('threads the mounted-root count so single-root results still show root badges in a multi-root workspace', () => {
+    act(() => {
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
+    });
+    renderPanel({ workspaceDbRootIds: ['root-a', 'root-b'] });
+    // Results all come from root-a, but the workspace mounts two roots — the
+    // badge must attribute the results to their root.
+    expect(screen.getByText('Root A')).toBeInTheDocument();
+  });
+
   it('pins the footer via a three-row grid with the results tree in the middle scroll region', () => {
     act(() => {
       const generation = useWorkspaceSearchStore.getState().generation;

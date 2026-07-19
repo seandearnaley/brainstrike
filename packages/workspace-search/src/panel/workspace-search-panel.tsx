@@ -177,6 +177,7 @@ export function WorkspaceSearchPanel({
               onOpenFile={onOpenFile}
               onShowMore={handleShowMore}
               resolveAdapterRootId={resolveAdapterRootId}
+              workspaceRootCount={workspaceDbRootIds.length}
             />
           </div>
         ) : null}

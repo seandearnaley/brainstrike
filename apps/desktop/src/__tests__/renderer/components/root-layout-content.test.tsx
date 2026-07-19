@@ -43,9 +43,12 @@ const createQueueStub = (): QueueAdapter => {
 
 const queueStub = createQueueStub();
 
+const registerDesktopEmbeddingRuntimeConfigMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../../renderer/create-embedding-queue', () => ({
   createBrowserEmbeddingQueue: vi.fn(() => queueStub),
   getEmbeddingQueue: () => queueStub,
+  registerDesktopEmbeddingRuntimeConfig: registerDesktopEmbeddingRuntimeConfigMock,
 }));
 
 // Mock the file-explorer-hooks
@@ -257,6 +260,11 @@ describe('RootLayoutContent', () => {
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+  });
+
+  it('registers the desktop embedding runtime config on mount so semantic search can build a local embedder before any database panel loads the queue', () => {
+    render(<RootLayoutContent />);
+    expect(registerDesktopEmbeddingRuntimeConfigMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not configure the removed full-frame prompts route', () => {
