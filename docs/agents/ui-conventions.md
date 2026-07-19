@@ -83,6 +83,19 @@ Windowing and performance:
     context. Progress reports aggregate by per-section delta and publish at
     most once per animation frame. Do not put observable state back on the
     actions value — that re-rendered every section pane per progress event.
+  - Section registration lives in `RootSectionInner`, ABOVE the collapse
+    branch — never in `PerRootTreePane`. A collapsed section unmounts its
+    pane; a pane-scoped registration made Expand All / Select All silently
+    skip collapsed roots (BST-571). Each registration exposes `setCollapsed`:
+    `runExpandAll` opens a section as its sweep turn starts, and the panel's
+    Collapse All closes every header via `collapseAllSections` in addition to
+    clearing the workspace expansion set. Pinned by
+    `forest-section-collapse.test.tsx`.
+  - Expand All / Collapse All render in the `FloatingTreeActions` overlay
+    pinned to the tree area's top-right (`file-explorer-panel.tsx`), keeping
+    their historical `*-button-small` testids; the toolbar cluster hosts only
+    Refresh + the inline scanning indicator. Overlays over the tree must
+    never shift tree rows (same contract as `RestorationStatus`).
   - Each forest section computes ONE shared display derivation
     (`RootSectionInner`): view filters + quick filter + visible-file counts
     feed both the header select-all checkbox and the tree pane. The INPUT

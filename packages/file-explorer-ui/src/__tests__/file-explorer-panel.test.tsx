@@ -393,6 +393,26 @@ describe('FileExplorerPanel', () => {
     });
   });
 
+  it('hides the floating tree actions while expanded-paths restoration runs (BST-571)', () => {
+    // Both overlays pin to the tree area's top band; while RestorationStatus
+    // is showing, the floating cluster would draw over its right-aligned
+    // percentage readout — so the cluster yields for the (transient) restore.
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isRestoringExpandedPaths: true,
+      restorationProgress: {
+        currentPath: null,
+        loaded: 10,
+        omitted: 0,
+        total: 100,
+      },
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    expect(screen.queryByTestId('floating-tree-actions')).not.toBeInTheDocument();
+  });
+
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
     renderWithProviders(<FileExplorerPanel />);
 
@@ -1198,6 +1218,30 @@ describe('FileExplorerPanel', () => {
     expect(collapseAllDirectories).toHaveBeenCalled();
   });
 
+  it('collapse all also collapses every forest root section (BST-571)', async () => {
+    const user = userEvent.setup();
+    const collapseAllSections = vi.fn();
+    const forestCancelExpandAll = vi.fn();
+    vi.mocked(useOptionalForestTreeActions).mockReturnValue({
+      cancelExpandAll: forestCancelExpandAll,
+      collapseAllSections,
+      collectVisibleQuickFilterKeys: vi.fn(() => []),
+      register: vi.fn(() => () => {}),
+      reportExpandAllProgress: vi.fn(),
+      runExpandAll: vi.fn().mockResolvedValue(undefined),
+      runSelectAll: vi.fn().mockResolvedValue({ limitReached: false, sections: 0, selected: 0 }),
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    await user.click(screen.getByTestId('collapse-all-button-small'));
+
+    // One click → fully compact: sections close AND the workspace-global
+    // directory expansion set clears (with any in-flight expand cancelled).
+    expect(forestCancelExpandAll).toHaveBeenCalled();
+    expect(collapseAllSections).toHaveBeenCalled();
+  });
+
   it('skips store expansion writes when expand-all returns the existing expanded set', async () => {
     const user = userEvent.setup();
     const cancelExpandAllMock = vi.fn();
@@ -1281,6 +1325,7 @@ describe('FileExplorerPanel', () => {
 
     const makeForestActions = () => ({
       cancelExpandAll: vi.fn(),
+      collapseAllSections: vi.fn(),
       collectVisibleQuickFilterKeys: vi.fn(() => []),
       register: vi.fn(() => () => {}),
       reportExpandAllProgress: vi.fn(),
@@ -1740,19 +1785,24 @@ describe('FileExplorerPanel', () => {
       expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
     });
 
-    it('hosts refresh/expand/collapse on the toolbar so tree actions survive collapsing filters', async () => {
+    it('hosts refresh on the toolbar and expand/collapse in the floating tree cluster (BST-571)', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
       const toolbar = await screen.findByTestId('file-explorer-toolbar');
       const collapsible = document.getElementById('view-filters-content');
-      for (const testId of [
-        'refresh-button-small',
-        'expand-all-button-small',
-        'collapse-all-button-small',
-      ]) {
+      // Refresh stays on the toolbar (its disabled/spin state pairs with the
+      // inline scanning indicator), outside the collapsible filter block.
+      const refresh = screen.getByTestId('refresh-button-small');
+      expect(toolbar).toContainElement(refresh);
+      expect(collapsible).not.toContainElement(refresh);
+
+      // Expand/Collapse All moved OFF the crowded toolbar into the floating
+      // cluster pinned over the tree area's top-right.
+      const floating = screen.getByTestId('floating-tree-actions');
+      for (const testId of ['expand-all-button-small', 'collapse-all-button-small']) {
         const button = screen.getByTestId(testId);
-        expect(toolbar).toContainElement(button);
-        expect(collapsible).not.toContainElement(button);
+        expect(floating).toContainElement(button);
+        expect(toolbar).not.toContainElement(button);
       }
     });
 

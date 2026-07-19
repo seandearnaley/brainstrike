@@ -6,8 +6,11 @@
  * section's own tree context — routing it through the focused root's provider
  * silently expands the invisible panel tree (the recurring forest disease).
  *
- * Each PerRootTreePane registers its section-scoped actions here; the panel
- * toolbar runs them across every section.
+ * Each RootSectionInner registers its section-scoped actions here — ABOVE the
+ * section's collapse branch, so a collapsed section (pane unmounted) stays
+ * registered and Expand All / Select All still reach it (BST-571). The panel
+ * actions run them across every section, and section headers open/close
+ * through each registration's setCollapsed.
  *
  * PERF SPLIT (PR #1734 audit): the registry callbacks are STABLE and live in
  * their own context, while the high-frequency expand-all progress aggregate is
@@ -46,6 +49,13 @@ export interface SectionTreeActions {
   getVisibleQuickFilterKeys: () => string[];
   /** Section-scoped recursive select-all (quiet: no per-root toasts). */
   selectAll: () => Promise<SectionSelectAllSummary>;
+  /**
+   * Open/close this root section's header (the whole section, not its
+   * directories). Forest-wide Collapse All closes sections through this, and
+   * runExpandAll opens each section as its sweep turn starts — expanding
+   * directories underneath a closed header is invisible work.
+   */
+  setCollapsed: (collapsed: boolean) => void;
 }
 
 export interface ForestSelectAllSummary {
@@ -71,6 +81,12 @@ export interface ExpandAllProgress {
 export interface ForestTreeActionsValue {
   /** Cancel every section's in-flight progressive expansion. */
   cancelExpandAll: () => void;
+  /**
+   * Close every registered root section's header. Directory expansion state
+   * is NOT touched here — the panel's Collapse All clears the workspace
+   * expansion set itself (single source of truth stays the store).
+   */
+  collapseAllSections: () => void;
   /**
    * Composite keys of every file currently displayed across ALL sections
    * (view filters + quick filter applied) — the forest-wide source for
@@ -252,6 +268,9 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
         if (cancelledRef.current) {
           break;
         }
+        // Open the section as its turn starts (not all upfront): the sweep is
+        // sequential and I/O-heavy, so later roots stay closed until reached.
+        actions.setCollapsed(false);
         await actions.expandAll();
       }
     } finally {
@@ -263,6 +282,12 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     cancelledRef.current = true;
     for (const [, actions] of sectionsRef.current) {
       actions.cancelExpandAll();
+    }
+  }, []);
+
+  const collapseAllSections = useCallback(() => {
+    for (const [, actions] of sectionsRef.current) {
+      actions.setCollapsed(true);
     }
   }, []);
 
@@ -298,6 +323,7 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
   const actionsValue = useMemo<ForestTreeActionsValue>(
     () => ({
       cancelExpandAll,
+      collapseAllSections,
       collectVisibleQuickFilterKeys,
       register,
       reportExpandAllProgress,
@@ -306,6 +332,7 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     }),
     [
       cancelExpandAll,
+      collapseAllSections,
       collectVisibleQuickFilterKeys,
       register,
       reportExpandAllProgress,

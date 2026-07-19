@@ -13,7 +13,9 @@ import { addMockRoot, type FileTree } from './utils/mock-fs';
  * - Confirming expands EVERY root section's unloaded subtree through its OWN
  *   tree provider (the recurring "forest disease": routing through the
  *   focused provider silently expands only the invisible panel tree).
- * - Collapse All returns every section to its top level.
+ * - Collapse All fully compacts the forest: directories collapse AND every
+ *   root section header closes; a following Expand All reopens the closed
+ *   sections and reaches their subtrees (BST-571).
  */
 
 const TREE_A: FileTree = {
@@ -35,18 +37,12 @@ const TREE_B: FileTree = {
 };
 
 /**
- * Click the toolbar Expand All / Collapse All action. Below the 240px toolbar
- * container breakpoint the inline buttons yield to the overflow kebab, so the
- * click routes through whichever affordance the current panel width shows.
+ * Click the Expand All / Collapse All action. The buttons live in the
+ * floating cluster pinned over the tree area (BST-571) and are visible at
+ * every panel width — the old toolbar overflow-kebab fallback is gone.
  */
 async function clickTreeAction(page: Page, action: 'collapse-all' | 'expand-all'): Promise<void> {
-  const inlineButton = page.getByTestId(`${action}-button-small`);
-  if (await inlineButton.isVisible()) {
-    await inlineButton.click();
-    return;
-  }
-  await page.getByTestId('tree-actions-overflow-trigger').click();
-  await page.getByTestId(`${action}-menu-item`).click();
+  await page.getByTestId(`${action}-button-small`).click();
 }
 
 test.describe('Forest expand-all (multi-root)', { tag: '@web-smoke' }, () => {
@@ -72,13 +68,28 @@ test.describe('Forest expand-all (multi-root)', { tag: '@web-smoke' }, () => {
     await expect(page.getByText('deep-a.ts')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('deep-b.ts')).toBeVisible({ timeout: 15_000 });
 
-    // Collapse All returns every section to its top level.
+    // Collapse All is FULLY compact (BST-571): directories collapse and every
+    // root section header closes too — one click gets back to a headers-only
+    // view no matter how many roots are open.
     await clickTreeAction(page, 'collapse-all');
     await expect(page.getByText('deep-a.ts')).toHaveCount(0);
     await expect(page.getByText('deep-b.ts')).toHaveCount(0);
-    // Top-level entries stay visible — collapse, not clear.
-    await expect(page.getByText('a-top.ts')).toBeVisible();
-    await expect(page.getByText('b-top.ts')).toBeVisible();
+    await expect(page.getByText('a-top.ts')).toHaveCount(0);
+    await expect(page.getByText('b-top.ts')).toHaveCount(0);
+    // The section headers themselves remain, closed — collapse, not clear.
+    const headers = page.getByTestId('root-section-header');
+    await expect(headers).toHaveCount(2);
+    for (const header of await headers.all()) {
+      await expect(header).toHaveAttribute('aria-expanded', 'false');
+    }
+
+    // Expand All must reach the CLOSED sections: they reopen as the sweep
+    // runs and their subtrees are revealed again (before BST-571, collapsed
+    // sections were unregistered and silently skipped).
+    await clickTreeAction(page, 'expand-all');
+    await page.getByTestId('expand-all-confirm-run').click();
+    await expect(page.getByText('deep-a.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('deep-b.ts')).toBeVisible({ timeout: 15_000 });
   });
 
   test('virtualizes against the shared sections scroller — no blank rows, bounded DOM', async ({

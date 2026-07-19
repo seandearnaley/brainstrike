@@ -461,11 +461,123 @@ const PerRootTreePane = ({
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
   const sectionRecursiveSelect = useSectionRecursiveSelect(folderId);
 
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
+      {hasContent ? (
+        <OptimizedFileTree
+          cancelChildLoading={sectionCancelChildLoading}
+          fileTree={displayTree}
+          folderId={folderId}
+          isDisplayTreeFiltered={isDisplayTreeFiltered}
+          isLoadingForSelection={sectionRecursiveSelect.isLoadingForSelection}
+          loadingFiles={loadingFiles}
+          loadingPathForSelection={sectionRecursiveSelect.loadingPathForSelection}
+          loadingPaths={sectionLoadingPaths}
+          onLoadChildren={sectionLoadChildren}
+          onRender={onTreeRender || undefined}
+          onSelectFolderRecursively={sectionRecursiveSelect.onSelectFolderRecursively}
+          scrollParentRef={scrollParentRef}
+        />
+      ) : (
+        <ForestSectionEmptyState
+          isFilteredOut={treeContext.fileTree.length > 0}
+          isLoading={isLoading}
+          loadError={treeContext.error}
+        />
+      )}
+    </div>
+  );
+};
+
+/** One collapsible root section (header + tree) used in forest mode.
+ *
+ * Wraps its content in a dedicated FileTreeProvider so the root runs its own
+ * useFileTree and shows its own real directory contents. Row interactions
+ * (clicks anywhere inside the tree container) bubble to the section wrapper
+ * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
+ */
+interface RootSectionProps extends PerRootTreePaneProps {
+  /**
+   * True for the FIRST forest section: its header reserves right clearance
+   * for the floating tree-actions cluster (see RootSectionHeader).
+   */
+  isFirstSection?: boolean | undefined;
+  /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
+  mainRootId?: string | undefined;
+  onRemoveRoot?:
+    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
+    | undefined;
+  rootIdByPath?: ReadonlyMap<string, string> | undefined;
+  setFocusedRoot?: ((path: string) => void) | undefined;
+}
+
+/** The section's shared display-tree derivation, computed once per section. */
+interface SectionDisplayTreeProps {
+  /** View filters + quick filter applied over the deferred canonical tree. */
+  displayTree: IFileNode[];
+  /**
+   * True when filtering removed anything relative to the canonical tree;
+   * undefined while the deferred tree lags the canonical tree (conservative
+   * legacy path-set build in OptimizedFileTree).
+   */
+  isDisplayTreeFiltered: boolean | undefined;
+}
+
+interface RootSectionInnerProps extends RootSectionProps {
+  resolvedRootId: string | undefined;
+  rootIdentity: string;
+}
+
+/**
+ * Section content INSIDE the FileTreeProvider. Owns the ONE shared display
+ * derivation per section (PR #1734 audit): the workspace view filters, the
+ * quick filter, and the visible-file totals are computed here once and fed to
+ * BOTH the header's select-all checkbox and the tree pane — previously each
+ * ran its own full-tree pass, doubling every filter walk per tree commit.
+ *
+ * The INPUT tree is deferred (useDeferredValue) BEFORE the filter passes, so
+ * expand-all storms run the expensive filtering at deferred priority while
+ * the canonical treeContext.fileTree stays immediate for loading/selection.
+ */
+const RootSectionInner = ({
+  isFirstSection,
+  onRemoveRoot,
+  rootDirectoryHandle,
+  setFocusedRoot,
+  resolvedRootId,
+  rootIdentity,
+  ...rest
+}: Omit<RootSectionInnerProps, 'rootIdByPath'>) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
+  const treeContext = useFileTreeContext();
+  const deferredFileTree = useDeferredValue(treeContext.fileTree);
+  const viewFilteredTree = useGlobalFilteredTree(deferredFileTree);
+  // The QUICK FILTER (search box) applies to every section's display too —
+  // it is workspace-global state, and a search box that only filtered the
+  // invisible panel tree silently did nothing in forest mode.
+  const { tree: displayTree } = useQuickFilteredTree(viewFilteredTree);
+  // Tristate totals count the VIEW-filtered tree (quick filter excluded, as
+  // before): the checkbox reflects what select-all can select.
+  const visibleFileTotals = useMemo(() => countTreeFiles(viewFilteredTree), [viewFilteredTree]);
+  const isDisplayTreeFiltered = resolveSectionDisplayFilterFlag({
+    canonicalTree: treeContext.fileTree,
+    deferredTree: deferredFileTree,
+    displayTree,
+  });
+
   // Register this section's expand-all AND select-all with the forest
   // registry so the toolbar actions run INSIDE this root's tree context
   // (routing them through the focused panel provider only touches the
   // invisible top-level tree — the recurring forest disease, toolbar
   // edition). Expansion paths land in the workspace-global expanded set.
+  //
+  // Registration lives HERE (above the collapse branch), not in
+  // PerRootTreePane: a collapsed section unmounts its pane, and a
+  // pane-scoped registration made Expand All / Select All silently skip
+  // every collapsed root (BST-571). The registry also drives the section's
+  // own collapse state through setCollapsed.
   const store = useFileExplorerStoreContext();
   const forestActions = useOptionalForestTreeActions();
   const sectionExpandAllProgressively = treeContext.expandAllProgressively;
@@ -480,6 +592,13 @@ const PerRootTreePane = ({
   const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
     (s) => s.addMultipleSelectedFilesChunked
   );
+  // Deliberately NO `currentFolderId` fallback here, unlike the pane's
+  // tree-render folderId: that value is the FOCUSED root's id, so keying a
+  // non-focused section's registration on it would misroute section-scoped
+  // select-all/progress to the wrong root. Both fallback tails are
+  // unreachable in forest mode anyway (getRootFolderId only returns null for
+  // a null handle, and sections always render from a real handle).
+  const folderId = resolvedRootId ?? getRootFolderId(rootDirectoryHandle) ?? '';
   // The registry callbacks fire later than this render — read the LATEST
   // section state at call time, not what was captured at registration.
   const sectionTreeRef = useRef(treeContext.fileTree);
@@ -536,6 +655,8 @@ const PerRootTreePane = ({
           selected: result.filePaths.length,
         };
       },
+      // setState is identity-stable, so registration never churns on toggle.
+      setCollapsed: setIsCollapsed,
     });
   }, [
     addMultipleSelectedFiles,
@@ -548,106 +669,6 @@ const PerRootTreePane = ({
     sectionSelectAll,
     store,
   ]);
-
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
-      {hasContent ? (
-        <OptimizedFileTree
-          cancelChildLoading={sectionCancelChildLoading}
-          fileTree={displayTree}
-          folderId={folderId}
-          isDisplayTreeFiltered={isDisplayTreeFiltered}
-          isLoadingForSelection={sectionRecursiveSelect.isLoadingForSelection}
-          loadingFiles={loadingFiles}
-          loadingPathForSelection={sectionRecursiveSelect.loadingPathForSelection}
-          loadingPaths={sectionLoadingPaths}
-          onLoadChildren={sectionLoadChildren}
-          onRender={onTreeRender || undefined}
-          onSelectFolderRecursively={sectionRecursiveSelect.onSelectFolderRecursively}
-          scrollParentRef={scrollParentRef}
-        />
-      ) : (
-        <ForestSectionEmptyState
-          isFilteredOut={treeContext.fileTree.length > 0}
-          isLoading={isLoading}
-          loadError={treeContext.error}
-        />
-      )}
-    </div>
-  );
-};
-
-/** One collapsible root section (header + tree) used in forest mode.
- *
- * Wraps its content in a dedicated FileTreeProvider so the root runs its own
- * useFileTree and shows its own real directory contents. Row interactions
- * (clicks anywhere inside the tree container) bubble to the section wrapper
- * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
- */
-interface RootSectionProps extends PerRootTreePaneProps {
-  /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
-  mainRootId?: string | undefined;
-  onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
-  rootIdByPath?: ReadonlyMap<string, string> | undefined;
-  setFocusedRoot?: ((path: string) => void) | undefined;
-}
-
-/** The section's shared display-tree derivation, computed once per section. */
-interface SectionDisplayTreeProps {
-  /** View filters + quick filter applied over the deferred canonical tree. */
-  displayTree: IFileNode[];
-  /**
-   * True when filtering removed anything relative to the canonical tree;
-   * undefined while the deferred tree lags the canonical tree (conservative
-   * legacy path-set build in OptimizedFileTree).
-   */
-  isDisplayTreeFiltered: boolean | undefined;
-}
-
-interface RootSectionInnerProps extends RootSectionProps {
-  resolvedRootId: string | undefined;
-  rootIdentity: string;
-}
-
-/**
- * Section content INSIDE the FileTreeProvider. Owns the ONE shared display
- * derivation per section (PR #1734 audit): the workspace view filters, the
- * quick filter, and the visible-file totals are computed here once and fed to
- * BOTH the header's select-all checkbox and the tree pane — previously each
- * ran its own full-tree pass, doubling every filter walk per tree commit.
- *
- * The INPUT tree is deferred (useDeferredValue) BEFORE the filter passes, so
- * expand-all storms run the expensive filtering at deferred priority while
- * the canonical treeContext.fileTree stays immediate for loading/selection.
- */
-const RootSectionInner = ({
-  onRemoveRoot,
-  rootDirectoryHandle,
-  setFocusedRoot,
-  resolvedRootId,
-  rootIdentity,
-  ...rest
-}: Omit<RootSectionInnerProps, 'rootIdByPath'>) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
-  const treeContext = useFileTreeContext();
-  const deferredFileTree = useDeferredValue(treeContext.fileTree);
-  const viewFilteredTree = useGlobalFilteredTree(deferredFileTree);
-  // The QUICK FILTER (search box) applies to every section's display too —
-  // it is workspace-global state, and a search box that only filtered the
-  // invisible panel tree silently did nothing in forest mode.
-  const { tree: displayTree } = useQuickFilteredTree(viewFilteredTree);
-  // Tristate totals count the VIEW-filtered tree (quick filter excluded, as
-  // before): the checkbox reflects what select-all can select.
-  const visibleFileTotals = useMemo(() => countTreeFiles(viewFilteredTree), [viewFilteredTree]);
-  const isDisplayTreeFiltered = resolveSectionDisplayFilterFlag({
-    canonicalTree: treeContext.fileTree,
-    deferredTree: deferredFileTree,
-    displayTree,
-  });
 
   const handleToggle = useCallback(() => {
     // Header click: focus this root AND toggle collapse.
@@ -697,6 +718,7 @@ const RootSectionInner = ({
             ? rootDirectoryHandle.path
             : undefined
         }
+        reserveFloatingActionsClearance={isFirstSection}
         selectionControl={
           <RootSelectAllCheckbox
             displayName={rootDirectoryHandle.name}
@@ -829,8 +851,9 @@ const FileExplorerSidebar = memo(
             data-testid="forest-sections-scroll"
             ref={forestScrollRef}
           >
-            {forestHandles.map((handle) => (
+            {forestHandles.map((handle, sectionIndex) => (
               <RootSection
+                isFirstSection={sectionIndex === 0}
                 // Prefer the stamped rootId — same-named web roots share a path,
                 // so a path-keyed key would collide and React would reconcile
                 // the two sections as one.
