@@ -16,6 +16,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
+import { hasPersistHydrationApi } from '../utils/persist-hydration';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -33,28 +34,6 @@ const WATCHER_DISPATCH_DEBOUNCE_MS = 300;
  * without this cap nothing would ever dispatch while a build keeps writing.
  */
 const WATCHER_DISPATCH_MAX_WAIT_MS = 1000;
-
-/**
- * Type guard to check if the store has the Zustand persist API.
- */
-interface PersistApi {
-  hasHydrated: () => boolean;
-  onFinishHydration: (callback: () => void) => () => void;
-}
-
-function hasPersistApi(
-  store: ReturnType<typeof useFileExplorerStoreContext>
-): store is ReturnType<typeof useFileExplorerStoreContext> & { persist: PersistApi } {
-  const persistObj = (store as unknown as { persist?: unknown }).persist;
-  if (typeof persistObj !== 'object' || persistObj === null) {
-    return false;
-  }
-  const persist = persistObj as Record<string, unknown>;
-  return (
-    typeof persist['hasHydrated'] === 'function' &&
-    typeof persist['onFinishHydration'] === 'function'
-  );
-}
 
 // Error message mappings for consistent user experience
 const ERROR_MESSAGES = {
@@ -180,7 +159,7 @@ export function useFileSystemInstance() {
    */
   const waitForHydration = useCallback((): Promise<void> => {
     return new Promise((resolve) => {
-      if (!hasPersistApi(store)) {
+      if (!hasPersistHydrationApi(store)) {
         // No persist API, resolve immediately
         resolve();
         return;

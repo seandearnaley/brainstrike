@@ -26,6 +26,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { StoreApi } from 'zustand';
 import { dispatchInjectRootHandle } from './inject-root-handle-event';
 import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
+import { hasPersistHydrationApi } from './utils/persist-hydration';
 
 const logger = createLogger('InlineFixtureSubscription');
 
@@ -204,26 +205,6 @@ function createIndexingDebugApi(): IndexingDebugApi {
 }
 
 /**
- * Minimal view of the Zustand persist API the boot ordering depends on.
- * Mirrors the guard in `shell/use-file-system-context.ts` (`waitForHydration`).
- */
-interface StorePersistApi {
-  hasHydrated: () => boolean;
-  onFinishHydration: (callback: () => void) => () => void;
-}
-
-function storeHasHydrationApi(
-  store: StoreApi<FileExplorerState>
-): store is StoreApi<FileExplorerState> & { persist: StorePersistApi } {
-  const persist = (store as { persist?: unknown }).persist;
-  if (typeof persist !== 'object' || persist === null) {
-    return false;
-  }
-  const api = persist as Record<string, unknown>;
-  return typeof api['hasHydrated'] === 'function' && typeof api['onFinishHydration'] === 'function';
-}
-
-/**
  * Sets up a store subscription that loads/clears the inline fixture
  * whenever `devInlineFixtureEnabled` changes.
  *
@@ -362,7 +343,7 @@ export function setupInlineFixtureSubscription(
   // persist API (vanilla test store, or synchronous already-hydrated storage)
   // arms immediately, matching the previous synchronous behavior.
   let cancelHydrationWait: (() => void) | null = null;
-  if (storeHasHydrationApi(store) && !store.persist.hasHydrated()) {
+  if (hasPersistHydrationApi(store) && !store.persist.hasHydrated()) {
     cancelHydrationWait = store.persist.onFinishHydration(() => {
       cancelHydrationWait = null;
       armAfterHydration();
