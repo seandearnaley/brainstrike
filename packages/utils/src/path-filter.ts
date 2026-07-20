@@ -3,9 +3,13 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { Minimatch } from 'minimatch';
 
 /**
- * Common file patterns to ignore
+ * Common file patterns to ignore.
+ *
+ * Exported as the single source of truth for engines that can pre-filter at
+ * the native layer (e.g. @parcel/watcher ignore globs, BST-568); the
+ * authoritative check remains `fileFilter.shouldIgnorePath`.
  */
-const DEFAULT_IGNORE_PATTERNS = [
+export const DEFAULT_IGNORE_PATTERNS = [
   '.git',
   'node_modules',
   '.pnpm-store',

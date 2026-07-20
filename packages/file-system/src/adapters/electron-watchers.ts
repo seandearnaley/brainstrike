@@ -9,7 +9,7 @@ export const FS_WATCH_BATCH_WINDOW_MS = 150;
 // Invariant: keep watcher event buffering bounded during bursty workloads.
 export const FS_WATCH_MAX_BATCH_SIZE = 500;
 
-interface FileSystemChangeBatcher {
+export interface FileSystemChangeBatcher {
   dispose: () => void;
   enqueue: (change: FileSystemChange) => void;
 }
@@ -32,7 +32,7 @@ function watcherErrorDetails(error: unknown): {
   return { errorMessage };
 }
 
-function createFileSystemChangeBatcher(
+export function createFileSystemChangeBatcher(
   callback: (changes: FileSystemChange[]) => void
 ): FileSystemChangeBatcher {
   let batch: FileSystemChange[] = [];

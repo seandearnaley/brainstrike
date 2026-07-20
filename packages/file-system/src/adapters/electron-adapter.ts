@@ -1,7 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
-import { fileNodeCollator } from '@brainstrike/utils';
+import { createLogger, fileNodeCollator } from '@brainstrike/utils';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import {
   createMetadataCache,
@@ -22,6 +22,31 @@ import type {
 import { validateDirectoryPath } from '../utils';
 import { normalizeDirectoryReadOptions } from '../utils-browser';
 import { handleWatcherSetupError, startChokidarWatch, startFsWatch } from './electron-watchers';
+import { startParcelWatch } from './parcel-watchers';
+
+const logger = createLogger('ElectronFileSystemAdapter');
+
+export type WatcherBackendChoice = 'legacy' | 'parcel';
+
+/**
+ * Resolve the watch engine from BRAINSTRIKE_WATCHER_BACKEND (BST-568).
+ * Unset/empty means legacy; only 'parcel' and 'legacy' are valid; anything
+ * else throws — malformed config must never silently coerce.
+ */
+export function resolveWatcherBackend(
+  env: Record<string, string | undefined> = process.env
+): WatcherBackendChoice {
+  const raw = env['BRAINSTRIKE_WATCHER_BACKEND'];
+  if (raw === undefined || raw === '') {
+    return 'legacy';
+  }
+  if (raw === 'legacy' || raw === 'parcel') {
+    return raw;
+  }
+  throw new Error(
+    `Invalid BRAINSTRIKE_WATCHER_BACKEND value: ${JSON.stringify(raw)} (expected 'parcel' or 'legacy')`
+  );
+}
 
 /** Default batch size for streaming directory reads */
 const DEFAULT_STREAMING_BATCH_SIZE = 50;
@@ -529,8 +554,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   /**
    * Watch a directory and emit high-level change events.
    *
-   * 1. Try to use **chokidar** (preferred - cross-platform, debounced).
-   * 2. Gracefully fall back to **fs.watch** when chokidar is not present or fails.
+   * Backend is resolved explicitly (BST-568): the default remains the legacy
+   * engines (macOS native fs.watch / chokidar elsewhere) until slice 4;
+   * `BRAINSTRIKE_WATCHER_BACKEND=parcel` opts into the @parcel/watcher
+   * engine. A malformed value throws — never a silent coercion.
    *
    * Always returns a valid disposer that can be called safely at any time.
    */
@@ -538,6 +565,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
+    const backend = resolveWatcherBackend();
     let closed = false;
     let dispose: () => void = () => {};
 
@@ -556,6 +584,30 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       // Call original callback
       callback(changes);
     };
+
+    if (backend === 'parcel') {
+      startParcelWatch(handle, callbackWithCacheInvalidation)
+        .then((stop) => {
+          if (closed) {
+            stop();
+            return;
+          }
+          dispose = stop;
+        })
+        .catch((error: unknown) => {
+          // No fallback engine by design. Until the slice-3 health protocol
+          // makes this renderer-visible, a setup failure surfaces as one
+          // structured error log and the root stays visibly unwatched.
+          logger.error('Parcel watcher setup failed; folder will not be watched', {
+            error,
+            path: handle.path,
+          });
+        });
+      return () => {
+        closed = true;
+        dispose();
+      };
+    }
 
     if (process.platform === 'darwin') {
       return startFsWatch(handle, callbackWithCacheInvalidation, 'primary');
