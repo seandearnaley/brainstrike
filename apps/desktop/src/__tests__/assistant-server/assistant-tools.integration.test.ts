@@ -3,6 +3,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_DEFAULTS,
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
@@ -131,7 +132,7 @@ describe('assistant-tools', () => {
     trackedWindowIds.length = 0;
   });
 
-  it('reads a workspace file with line range and truncation metadata', async () => {
+  it('reads a line-numbered workspace file page with an exact continuation cursor', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
@@ -140,7 +141,7 @@ describe('assistant-tools', () => {
     const result = await tool.execute({
       context: {
         endLine: 4,
-        maxChars: 12,
+        maxChars: 10,
         path: '/src/main.ts',
         startLine: 2,
       },
@@ -148,12 +149,154 @@ describe('assistant-tools', () => {
 
     expect(result.path).toBe('/src/main.ts');
     expect(result.startLine).toBe(2);
-    expect(result.endLine).toBe(4);
+    expect(result.endLine).toBe(2);
     expect(result.totalLines).toBe(4);
-    expect(result.content).toBe('line 2\nline ');
+    expect(result.content).toBe('2: line 2');
     expect(result.truncated).toBe(true);
     expect(result.omittedChars).toBeGreaterThan(0);
+    expect(result.nextCursor).toEqual(expect.any(String));
+
+    const continued = await tool.execute({
+      cursor: result.nextCursor,
+      maxChars: 10,
+      path: '/src/main.ts',
+    });
+    expect(continued).toMatchObject({
+      content: '3: line 3',
+      endLine: 3,
+      startLine: 3,
+      truncated: true,
+    });
+    expect(continued.nextCursor).toEqual(expect.any(String));
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('continues an oversized single source line without losing characters', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const source = 'x'.repeat(12_000);
+    await fsPromises.writeFile(path.join(workspaceRootPath, 'src', 'large.ts'), source, 'utf8');
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const fragments: string[] = [];
+      let cursor: string | null = null;
+      for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+        const page = await tool.execute({
+          ...(cursor ? { cursor } : {}),
+          maxChars: 500,
+          path: '/src/large.ts',
+        });
+        expect(page.content).toMatch(/^1: x+$/);
+        fragments.push(page.content.slice('1: '.length));
+        cursor = page.nextCursor;
+        if (!cursor) {
+          break;
+        }
+      }
+
+      expect(cursor).toBeNull();
+      expect(fragments.join('')).toBe(source);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('does not mark a non-empty line as read when only its prefix fits', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'prefix-boundary.ts'),
+      'a\nsecond',
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 8,
+        path: '/src/prefix-boundary.ts',
+      });
+
+      expect(first).toMatchObject({
+        content: '1: a',
+        endLine: 1,
+        startLine: 1,
+        truncated: true,
+      });
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        maxChars: 8,
+        path: '/src/prefix-boundary.ts',
+      });
+      expect(continued.content).toBe('2: secon');
+      expect(continued.startLine).toBe(2);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    { maxChars: 3, source: 'hello' },
+    { maxChars: 4, source: '😀hello' },
+  ])('rejects a page budget that cannot advance the source cursor ($maxChars chars)', async ({
+    maxChars,
+    source,
+  }) => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'no-progress.ts'),
+      source,
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ];
+
+      await expect(
+        tool.execute({
+          maxChars,
+          path: '/src/no-progress.ts',
+        })
+      ).rejects.toThrow(/cannot advance.*maxChars/i);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects a continuation cursor after the file changes', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        endLine: 4,
+        maxChars: 10,
+        path: '/src/main.ts',
+        startLine: 1,
+      });
+      await fsPromises.writeFile(
+        path.join(workspaceRootPath, 'src', 'main.ts'),
+        'changed\nline 2\nline 3\nline 4',
+        'utf8'
+      );
+
+      await expect(
+        tool.execute({
+          cursor: first.nextCursor,
+          maxChars: 10,
+          path: '/src/main.ts',
+        })
+      ).rejects.toThrow(/continuation cursor is stale/i);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('reads a workspace file when execute receives direct args', async () => {
@@ -172,6 +315,7 @@ describe('assistant-tools', () => {
     expect(result.path).toBe('/src/main.ts');
     expect(result.content).toContain('line 1');
     expect(result.truncated).toBe(false);
+    expect(result.nextCursor).toBeNull();
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
@@ -192,6 +336,7 @@ describe('assistant-tools', () => {
       expect(result.path).toBe('/src/main.ts');
       expect(result.content).toContain('line 1');
       expect(result.truncated).toBe(false);
+      expect(result.nextCursor).toBeNull();
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
@@ -213,7 +358,37 @@ describe('assistant-tools', () => {
 
       expect(JSON.stringify(result).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
       expect(result.truncated).toBe(true);
-      expect(result.omittedChars).toBe(12_000 - result.content.length);
+      expect(result.omittedChars).toBe(12_000 - (result.content.length - '1: '.length));
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('preserves page metadata and nextCursor inside the model projection budget', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'large.ts'),
+      'x'.repeat(12_000),
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ] as {
+        execute: (input: { path: string }) => Promise<Record<string, unknown>>;
+        toModelOutput?: (output: unknown) => unknown;
+      };
+      const result = await tool.execute({ path: '/src/large.ts' });
+
+      expect(tool.toModelOutput).toBeTypeOf('function');
+      const projected = tool.toModelOutput?.(result);
+      expect(projected).toEqual({ type: 'json', value: result });
+      expect(JSON.stringify(projected).length).toBeLessThanOrEqual(
+        MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+      );
+      expect(result['truncated']).toBe(true);
+      expect(result['nextCursor']).toEqual(expect.any(String));
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
@@ -2084,6 +2259,40 @@ describe('assistant-tools', () => {
       }
     });
 
+    it('a rejected stale continuation does not refresh the write guard', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        const first = await tools['brainstrike.readWorkspaceFile'].execute({
+          context: { maxChars: 20, path: '/README.md' },
+        });
+        expect(first.nextCursor).toEqual(expect.any(String));
+
+        await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
+
+        await expect(
+          tools['brainstrike.readWorkspaceFile'].execute({
+            context: {
+              cursor: first.nextCursor,
+              maxChars: 20,
+              path: '/README.md',
+            },
+          })
+        ).rejects.toThrow(/continuation cursor is stale/i);
+
+        await expect(
+          tools['brainstrike.writeWorkspaceFile'].execute({
+            context: { content: '# Agent overwrite\n', path: '/README.md' },
+          })
+        ).rejects.toThrow(/changed on disk since/i);
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
+          '# User edit\n'
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
     it('stringReplace refuses when the file changed on disk after the assistant read it', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
@@ -3113,6 +3322,63 @@ describe('assistant-tools multi-root read tools', () => {
       const fromA = await tool.execute({ path: '/README.md', root: 'ProjectA' });
       expect(fromA.rootName).toBe('ProjectA');
       expect(fromA.content).toContain('Project A');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects a continuation cursor created for another workspace root', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    const fixedMtime = new Date('2026-01-01T00:00:00.000Z');
+    await fsPromises.writeFile(path.join(rootA, 'same.txt'), 'aaaaaaaaaaaaaaaa', 'utf8');
+    await fsPromises.writeFile(path.join(rootB, 'same.txt'), 'bbbbbbbbbbbbbbbb', 'utf8');
+    await fsPromises.utimes(path.join(rootA, 'same.txt'), fixedMtime, fixedMtime);
+    await fsPromises.utimes(path.join(rootB, 'same.txt'), fixedMtime, fixedMtime);
+
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 10,
+        path: '/same.txt',
+        root: 'id-a',
+      });
+
+      await expect(
+        tool.execute({
+          cursor: first.nextCursor,
+          maxChars: 10,
+          path: '/same.txt',
+          root: 'id-b',
+        })
+      ).rejects.toThrow(/continuation cursor.*another workspace root/i);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('resolves an omitted continuation root from the cursor in a multi-root workspace', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 14,
+        path: '/README.md',
+        root: 'id-a',
+      });
+
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        maxChars: 40,
+        path: '/README.md',
+      });
+
+      expect(continued.rootName).toBe('ProjectA');
+      expect(continued.content).toContain('export const fromA');
     } finally {
       await cleanup();
     }
