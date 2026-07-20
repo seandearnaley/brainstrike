@@ -408,6 +408,12 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Unit check."
+          exit 1
+
       - name: Check shard results
         env:
           SHARD_RESULT: ${{ needs.unit-shard.result }}
