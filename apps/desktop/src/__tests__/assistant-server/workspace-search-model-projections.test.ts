@@ -187,6 +187,54 @@ describe('workspace search model projections', () => {
     );
   });
 
+  it('fits a boundary-overflowing final item before enforcing producer guidance', () => {
+    const grepProjected = projectGrepSearchModelOutput({
+      candidatesTruncated: false,
+      liveEngine: 'ripgrep',
+      matches: Array.from({ length: 2 }, (_, index) => ({
+        after: ['a'.repeat(2000)],
+        before: ['b'.repeat(2000)],
+        line: index + 1,
+        lineText: 'x'.repeat(2000),
+        path: `/${'nested/'.repeat(180)}file-${index}.ts`,
+        rootId: 'r'.repeat(500),
+        rootName: 'workspace'.repeat(100),
+        source: 'both',
+      })),
+      offset: 0,
+      outputMode: 'content',
+      scanLimited: false,
+      skippedMissingLineMetadata: 0,
+      totalMatches: 3,
+      truncated: true,
+    });
+    const globProjected = projectGlobWorkspaceModelOutput({
+      count: 7,
+      matches: Array.from({ length: 7 }, (_, index) => ({
+        path: `/${'nested/'.repeat(300)}file-${index}.ts`,
+        rootId: 'root-a',
+        rootName: 'alpha',
+      })),
+      offset: 0,
+      scanLimited: true,
+      totalMatches: 8,
+      truncated: true,
+    });
+
+    expect(serializedChars(grepProjected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(grepProjected.value).toMatch(
+      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
+    );
+    expect(serializedChars(globProjected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(globProjected.value).toMatch(
+      /continue: reuse the prior brainstrike\.globWorkspace input with offset=\d+$/
+    );
+  });
+
   it('clips one oversized path without losing its exact advancing offset', () => {
     const raw = {
       count: 1,

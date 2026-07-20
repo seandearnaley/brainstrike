@@ -271,7 +271,12 @@ function buildGrepHeader(result: GrepToolResult, kept: number): string {
   return `${common} | skipped_missing_line_metadata=${result.skippedMissingLineMetadata}`;
 }
 
-function grepContinuation(result: GrepToolResult, kept: number, available: number): string | null {
+function grepContinuation(
+  result: GrepToolResult,
+  kept: number,
+  available: number,
+  probeBoundaryOverflow = false
+): string | null {
   const total = result.outputMode === 'files' ? result.totalFiles : result.totalMatches;
   const omittedByProjection = kept < available;
   if (omittedByProjection) {
@@ -285,6 +290,13 @@ function grepContinuation(result: GrepToolResult, kept: number, available: numbe
     return `continue: reuse the prior brainstrike.grepSearch input; ${singleLine(result.hint)}`;
   }
   if (result.truncated || result.scanLimited || result.candidatesTruncated) {
+    if (probeBoundaryOverflow) {
+      return `continue: reuse the prior brainstrike.grepSearch input with offset=${nextOffset(
+        result.offset,
+        Math.max(kept - 1, 0),
+        total
+      )}`;
+    }
     throw new TypeError(
       'grepSearch model projection received a truncated result without continuation guidance'
     );
@@ -304,7 +316,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   for (const item of items) {
     const candidateItemLines = formatGrepItem(result, item);
     const candidateKept = kept + 1;
-    const continuation = grepContinuation(result, candidateKept, items.length);
+    const continuation = grepContinuation(result, candidateKept, items.length, true);
     const candidate = [
       buildGrepHeader(result, candidateKept),
       ...keptLines,
@@ -330,7 +342,11 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   return makeTextModelOutput(lines);
 }
 
-function globContinuation(result: GlobWorkspaceToolResult, kept: number): string | null {
+function globContinuation(
+  result: GlobWorkspaceToolResult,
+  kept: number,
+  probeBoundaryOverflow = false
+): string | null {
   const omittedByProjection = kept < result.matches.length;
   if (omittedByProjection) {
     return `continue: reuse the prior brainstrike.globWorkspace input with offset=${nextOffset(
@@ -343,6 +359,13 @@ function globContinuation(result: GlobWorkspaceToolResult, kept: number): string
     return `continue: reuse the prior brainstrike.globWorkspace input; ${singleLine(result.hint)}`;
   }
   if (result.truncated || result.scanLimited) {
+    if (probeBoundaryOverflow) {
+      return `continue: reuse the prior brainstrike.globWorkspace input with offset=${nextOffset(
+        result.offset,
+        Math.max(kept - 1, 0),
+        result.totalMatches
+      )}`;
+    }
     throw new TypeError(
       'globWorkspace model projection received a truncated result without continuation guidance'
     );
@@ -358,7 +381,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
   for (const item of result.matches) {
     const itemLine = `${rootQualifier(item.rootName, item.rootId)} ${clipPath(item.path)}`;
     const candidateKept = kept + 1;
-    const continuation = globContinuation(result, candidateKept);
+    const continuation = globContinuation(result, candidateKept, true);
     const candidate = [
       `glob | page=${pageRange(
         result.offset,
