@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   resolveThroughAliases,
@@ -77,6 +77,23 @@ describe('desktop vite config alias contract', () => {
       /find:\s*'@brainstrike\/file-tree-worker'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-tree-worker\/src\/vite\.ts'\s*\)/
     );
     expect(config).not.toContain('../../packages/file-tree-worker/dist');
+  });
+
+  it('keeps the source-aliased file-explorer module Worker resolvable as ESM', () => {
+    expect(resolveThroughAliases('@brainstrike/file-explorer', registryEntries)).toBe(
+      path.resolve(PACKAGES_DIR, 'file-explorer/src/index.ts')
+    );
+
+    const workerStorageSource = readFileSync(
+      path.resolve(PACKAGES_DIR, 'file-explorer/src/persistence/worker-storage.ts'),
+      'utf8'
+    );
+    expect(workerStorageSource).toContain("'./worker-storage.worker.mjs'");
+    expect(
+      existsSync(
+        path.resolve(PACKAGES_DIR, 'file-explorer/src/persistence/worker-storage.worker.mjs')
+      )
+    ).toBe(true);
   });
 
   it('aliases @brainstrike/workers subpaths explicitly (no src/ dir, registry skips it)', () => {

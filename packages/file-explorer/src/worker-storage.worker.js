@@ -1,1 +1,1 @@
-import './persistence/worker-storage.worker.js';
+import './persistence/worker-storage.worker.mjs';
