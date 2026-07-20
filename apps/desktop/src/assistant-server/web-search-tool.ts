@@ -2,6 +2,7 @@ import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
+import { isValidWebSearchCitationUrl } from './web-search-citation-url';
 
 const logger = createLogger('AssistantWebSearchTool');
 
@@ -29,6 +30,13 @@ const MAX_SNIPPET_CHARS = 600;
 
 const UNAVAILABLE_MESSAGE =
   'Web search is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
+
+class MalformedTavilyCitationUrlError extends Error {
+  constructor() {
+    super('Tavily search returned a malformed citation URL.');
+    this.name = 'MalformedTavilyCitationUrlError';
+  }
+}
 
 /** One normalized search hit returned to the model. */
 export interface WebSearchResultItem {
@@ -125,7 +133,7 @@ function boundSnippet(content: string): string {
 
 function normalizeResults(response: TavilyApiResponse): WebSearchResultItem[] {
   const raw = Array.isArray(response.results) ? response.results : [];
-  return raw
+  const normalized = raw
     .map((entry): WebSearchResultItem => {
       const url = coerceString(entry?.url);
       const title = coerceString(entry?.title) || url || 'Untitled result';
@@ -136,6 +144,10 @@ function normalizeResults(response: TavilyApiResponse): WebSearchResultItem[] {
       };
     })
     .filter((item) => item.url.length > 0);
+  if (normalized.some((item) => !isValidWebSearchCitationUrl(item.url))) {
+    throw new MalformedTavilyCitationUrlError();
+  }
+  return normalized;
 }
 
 function buildBudgetedResult(args: {
@@ -262,6 +274,19 @@ export async function runWebSearch(
     const normalized = normalizeResults(payload).slice(0, maxResults);
     return buildBudgetedResult({ items: normalized, query });
   } catch (error) {
+    if (error instanceof MalformedTavilyCitationUrlError) {
+      logger.error('webSearch Tavily response contained a malformed citation URL');
+      return {
+        available: true,
+        count: 0,
+        error: error.message,
+        query,
+        results: [],
+        totalResults: 0,
+        truncated: false,
+      };
+    }
+
     // AbortSignal.timeout uses TimeoutError; some runtimes/fetch paths still
     // surface AbortError. Treat both as the non-fatal timeout result.
     const timedOut =
