@@ -69,15 +69,36 @@ export function registerNotesVaultIpc(
       getDefaultVaultParentPath: resolveDefaultVaultParentPath,
       pickDirectoryPath: pickDirectoryPathWithNativeDialog,
       startWatch: (directoryPath, onChange) =>
-        watcherAdapter.watchDirectory(
-          {
-            kind: 'directory',
-            name: path.basename(directoryPath),
-            path: directoryPath,
-            platform: 'electron',
-          },
-          () => onChange()
-        ),
+        new Promise<() => void>((resolve, reject) => {
+          let settled = false;
+          let stop = (): void => {};
+          stop = watcherAdapter.watchDirectory(
+            {
+              kind: 'directory',
+              name: path.basename(directoryPath),
+              path: directoryPath,
+              platform: 'electron',
+            },
+            () => onChange(),
+            {
+              onHealth: (event) => {
+                if (settled) {
+                  return;
+                }
+                if (event.state === 'healthy') {
+                  settled = true;
+                  resolve(stop);
+                  return;
+                }
+                if (event.state === 'failed') {
+                  settled = true;
+                  stop();
+                  reject(new Error(event.failure?.message ?? 'Notes vault watcher setup failed'));
+                }
+              },
+            }
+          );
+        }),
       storage,
       trashItem: (absolutePath) => shell.trashItem(absolutePath),
     })

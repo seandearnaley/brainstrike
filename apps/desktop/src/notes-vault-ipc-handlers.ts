@@ -460,9 +460,10 @@ export interface NotesVaultIpcHandlersOptions {
   readonly pickDirectoryPath: () => Promise<string | null>;
   /**
    * Recursive watcher factory: `onChange` fires (already debounced/batched) on
-   * any change under `directoryPath`; the return value stops the watcher.
+   * any change under `directoryPath`; resolves with a disposer only after the
+   * native subscription reports healthy.
    */
-  readonly startWatch: (directoryPath: string, onChange: () => void) => () => void;
+  readonly startWatch: (directoryPath: string, onChange: () => void) => Promise<() => void>;
   /**
    * Durable storage for main's approved-roots list ({@link
    * NOTES_VAULT_ROOTS_STORAGE_KEY}). Production: the shared
@@ -913,7 +914,7 @@ export function createNotesVaultIpcHandlers(
         return { error: `Path "${resolved.canonicalPath}" is not a directory.`, ok: false };
       }
       const watchId = `notes-watch-${randomUUID()}`;
-      const stop = options.startWatch(resolved.canonicalPath, () => {
+      const stop = await options.startWatch(resolved.canonicalPath, () => {
         // Push to the OWNING renderer only (never a broadcast).
         if (owner.isDestroyed()) {
           return;
@@ -921,6 +922,13 @@ export function createNotesVaultIpcHandlers(
         const payload: NotesVaultChangedEvent = { watchId };
         owner.send(DESKTOP_IPC_CHANNELS.notesVault.changed, payload);
       });
+      if (owner.isDestroyed()) {
+        stop();
+        return {
+          error: 'Notes vault watcher owner was destroyed during setup.',
+          ok: false,
+        };
+      }
       liveWatchers.set(watchId, { ownerId: owner.id, stop, webContents: owner });
 
       // Reap every watcher this renderer owns when it is destroyed (window
