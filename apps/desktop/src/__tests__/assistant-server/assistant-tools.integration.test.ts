@@ -892,6 +892,53 @@ describe('assistant-tools', () => {
     expect(raw).toEqual(before);
   });
 
+  it('registers compact semantic and hybrid projections without mutating raw results', () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+    const semanticRaw = {
+      budget: 4000,
+      chunkContentIncludedInContext: false,
+      chunks: [],
+      context: '',
+      embeddingSetId: 'workspace-index',
+      limit: 20,
+      query: 'assistant registry',
+      remainingTokens: 4000,
+      skipped: 0,
+      skippedForMissingSourceRange: 0,
+      skippedSourceRangeChunks: [],
+      threshold: 0.3,
+      totalTokens: 0,
+    };
+    const hybridRaw = {
+      embeddingSetId: 'workspace-index',
+      ftsWeight: 1,
+      limit: 20,
+      metadata: {
+        ftsResultCount: 0,
+        fusedResultCount: 0,
+        totalMs: 2,
+        vectorResultCount: 0,
+      },
+      query: 'assistant registry',
+      results: [],
+      truncated: false,
+      vectorWeight: 1,
+    };
+    const semanticBefore = structuredClone(semanticRaw);
+    const hybridBefore = structuredClone(hybridRaw);
+
+    expect(tools['brainstrike.queryEmbeddingSpace'].toModelOutput?.(semanticRaw)).toMatchObject({
+      type: 'text',
+    });
+    expect(tools['brainstrike.hybridSearch'].toModelOutput?.(hybridRaw)).toMatchObject({
+      type: 'text',
+    });
+    expect(semanticRaw).toEqual(semanticBefore);
+    expect(hybridRaw).toEqual(hybridBefore);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
