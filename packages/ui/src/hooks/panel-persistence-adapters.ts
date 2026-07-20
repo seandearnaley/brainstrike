@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import { getElectronAPI } from '../lib/electron-utils';
 import type { PanelPersistenceState } from '../types/panel';
 
@@ -9,6 +10,24 @@ export interface PanelPersistenceAdapter {
 
 const STORAGE_KEY = 'panelLayout.v1';
 
+const logger = createLogger('PanelPersistenceAdapters');
+
+/**
+ * Deliberate degrade: an unreadable persisted layout falls back to defaults
+ * (returning null lets the caller hydrate), but the discard is reported so a
+ * corrupted payload is never silently eaten.
+ */
+function warnDiscardedState(adapter: string, reason: string): void {
+  logger.warn('Discarding unreadable persisted panel state; using defaults', {
+    adapter,
+    error: reason,
+  });
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export class LocalStoragePanelPersistenceAdapter implements PanelPersistenceAdapter {
   async load(): Promise<PanelPersistenceState | null> {
     if (typeof window === 'undefined') {
@@ -17,7 +36,8 @@ export class LocalStoragePanelPersistenceAdapter implements PanelPersistenceAdap
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       return raw ? (JSON.parse(raw) as PanelPersistenceState) : null;
-    } catch {
+    } catch (error) {
+      warnDiscardedState('LocalStoragePanelPersistenceAdapter', describeError(error));
       return null;
     }
   }
@@ -39,11 +59,17 @@ export class ElectronPanelPersistenceAdapter implements PanelPersistenceAdapter 
     try {
       const api = getElectronAPI();
       const result = await api?.loadLayout?.();
-      if (!result?.success) {
+      if (!result) {
+        // No layout bridge available: nothing was persisted to discard.
+        return null;
+      }
+      if (!result.success) {
+        warnDiscardedState('ElectronPanelPersistenceAdapter', result.message);
         return null;
       }
       return result.data ?? null;
-    } catch {
+    } catch (error) {
+      warnDiscardedState('ElectronPanelPersistenceAdapter', describeError(error));
       return null;
     }
   }

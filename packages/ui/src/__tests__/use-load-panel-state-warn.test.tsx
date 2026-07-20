@@ -26,9 +26,10 @@ describe('useLoadPanelState hydration failure surfacing', () => {
   it('warns with context and still hydrates defaults when the adapter load fails', async () => {
     // NOTE: failure is injected through a rejecting adapter, not by spying on
     // happy-dom's localStorage (its Proxy makes prototype spies silently never
-    // fire — a false-green). The built-in LocalStorage/Electron adapters also
-    // swallow their own load errors internally, so a rejecting adapter is the
-    // only path that exercises this hook's catch.
+    // fire — a false-green). The built-in LocalStorage/Electron adapters
+    // absorb their own load failures and report them at the adapter layer
+    // (see panel-persistence-adapters.test.ts), so a rejecting custom adapter
+    // is what exercises this hook's own catch.
     const failingAdapter: PanelPersistenceAdapter = {
       load: () => Promise.reject(new Error('corrupted panel state payload')),
       save: () => Promise.resolve(),
