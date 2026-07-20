@@ -1,4 +1,6 @@
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
+  decodeToolOutputArtifactContent,
   decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactContent,
   encodeToolOutputArtifactCursor,
@@ -12,6 +14,7 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { z } from 'zod';
+import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
@@ -36,26 +39,67 @@ const ArtifactPageSizeSchema = z
   .max(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES)
   .optional();
 
-export const ReadToolOutputArtifactInputSchema = z.discriminatedUnion('mode', [
-  z
-    .object({
-      artifactRef: ToolOutputArtifactReferenceSchema,
-      maxBytes: ArtifactPageSizeSchema,
-      mode: z.literal('artifact'),
-    })
-    .strict(),
-  z
-    .object({
-      cursor: z
-        .string()
-        .min(1)
-        .max(2048)
-        .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor'),
-      maxBytes: ArtifactPageSizeSchema,
-      mode: z.literal('cursor'),
-    })
-    .strict(),
-]);
+const ArtifactCursorSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor')
+  .describe(
+    'Opaque continuation cursor from the prior result. Copy it byte-for-byte; never decode, pad, edit, or recreate it.'
+  );
+
+export const ReadToolOutputArtifactCursorInputSchema = z
+  .object({
+    cursor: ArtifactCursorSchema,
+    maxBytes: ArtifactPageSizeSchema,
+  })
+  .strict();
+
+export type ReadToolOutputArtifactCursorInput = z.infer<
+  typeof ReadToolOutputArtifactCursorInputSchema
+>;
+
+export const ReadToolOutputArtifactInputSchema = z
+  .object({
+    artifactRef: ToolOutputArtifactReferenceSchema.optional(),
+    cursor: ArtifactCursorSchema.optional(),
+    maxBytes: ArtifactPageSizeSchema,
+    mode: z.enum(['artifact', 'cursor']),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.mode === 'artifact') {
+      if (!input.artifactRef) {
+        context.addIssue({
+          code: 'custom',
+          message: 'artifactRef is required in artifact mode.',
+          path: ['artifactRef'],
+        });
+      }
+      if (input.cursor !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'cursor must be omitted in artifact mode.',
+          path: ['cursor'],
+        });
+      }
+      return;
+    }
+    if (!input.cursor) {
+      context.addIssue({
+        code: 'custom',
+        message: 'cursor is required in cursor mode.',
+        path: ['cursor'],
+      });
+    }
+    if (input.artifactRef !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'artifactRef must be omitted in cursor mode.',
+        path: ['artifactRef'],
+      });
+    }
+  });
 
 export type ReadToolOutputArtifactInput = z.infer<typeof ReadToolOutputArtifactInputSchema>;
 
@@ -126,6 +170,28 @@ export class ToolOutputArtifactReadError extends Error {
 export interface ReadToolOutputArtifactPageOptions {
   readonly now?: () => Date;
   readonly reader: ScopedToolOutputArtifactReader;
+}
+
+const TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID = NATIVE_TOOL_ID.readToolOutputArtifact;
+
+interface ToolOutputArtifactModelPage {
+  readonly complete?: true;
+  readonly content: string;
+  readonly contentEncoding?: ToolOutputArtifactPage['contentEncoding'];
+  readonly endByte: number;
+  readonly format: ToolOutputArtifactReference['format'];
+  readonly next?: {
+    readonly input: {
+      readonly cursor: string;
+    };
+    readonly tool: typeof TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID;
+  };
+  readonly offsetByte: number;
+}
+
+export interface ToolOutputArtifactModelProjection {
+  readonly type: 'json';
+  readonly value: ToolOutputArtifactModelPage;
 }
 
 function referencesMatch(
@@ -210,6 +276,73 @@ function fitProviderContent(decoded: string): {
   return best;
 }
 
+function buildModelPage(
+  page: ToolOutputArtifactPage,
+  source: string
+): ToolOutputArtifactModelProjection {
+  const sourceByteLength = TEXT_ENCODER.encode(source).byteLength;
+  const endByte = page.offsetByte + sourceByteLength;
+  const encoded = encodeToolOutputArtifactContent(source);
+  const nextCursor =
+    endByte < page.artifactRef.byteLength
+      ? encodeToolOutputArtifactCursor(page.artifactRef, endByte)
+      : undefined;
+  return {
+    type: 'json',
+    value: {
+      content: encoded.content,
+      ...(encoded.contentEncoding ? { contentEncoding: encoded.contentEncoding } : {}),
+      endByte,
+      format: page.artifactRef.format,
+      ...(nextCursor
+        ? {
+            next: {
+              input: { cursor: nextCursor },
+              tool: TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID,
+            },
+          }
+        : { complete: true as const }),
+      offsetByte: page.offsetByte,
+    },
+  };
+}
+
+/**
+ * Purpose-built model projection for a raw artifact page.
+ *
+ * If JSON escaping plus continuation metadata would exceed the domain budget,
+ * the model sees a shorter byte-exact prefix and a recomputed cursor. The raw
+ * page remains unchanged for display and persistence.
+ */
+export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelProjection {
+  if (!isToolOutputArtifactPage(output)) {
+    throw new TypeError('Tool output artifact reader returned an invalid page.');
+  }
+  const decoded = decodeToolOutputArtifactContent(output.content, output.contentEncoding);
+  if (decoded.length === 0) {
+    return buildModelPage(output, decoded);
+  }
+
+  const codePoints = Array.from(decoded);
+  let low = 1;
+  let high = codePoints.length;
+  let best: ToolOutputArtifactModelProjection | undefined;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''));
+    if (JSON.stringify(candidate).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  if (!best) {
+    throw new RangeError('Tool output artifact model projection could not retain one code point.');
+  }
+  return best;
+}
+
 function validateFoundRange(args: {
   readonly expectedBytes: number;
   readonly offsetByte: number;
@@ -255,10 +388,13 @@ function resolveReadPosition(input: ReadToolOutputArtifactInput): {
   readonly offsetByte: number;
 } {
   if (input.mode === 'artifact') {
-    if (!isToolOutputArtifactReference(input.artifactRef)) {
+    if (!(input.artifactRef && isToolOutputArtifactReference(input.artifactRef))) {
       throw new ToolOutputArtifactReadError('invalid_input');
     }
     return { artifactRef: input.artifactRef, offsetByte: 0 };
+  }
+  if (!input.cursor) {
+    throw new ToolOutputArtifactReadError('malformed_cursor');
   }
   try {
     return decodeToolOutputArtifactCursor(input.cursor);

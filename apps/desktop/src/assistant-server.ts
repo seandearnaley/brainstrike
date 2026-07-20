@@ -12,6 +12,7 @@ import type {
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
+  ScopedToolOutputArtifactReader,
   StreamChunk,
   ToolOutputArtifactSettlementStore,
 } from '@brainstrike/agent';
@@ -98,6 +99,7 @@ interface AgentStreamFailure {
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
+import type { DesktopAssistantToolDependencies } from './assistant-server/assistant-tools';
 import {
   buildDesktopAssistantTools,
   readWorkspaceTextFile,
@@ -1572,16 +1574,35 @@ interface InitialStreamMemoryOptions {
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
 
-function buildToolOutputArtifactSettlementStore(
-  runtimeData: RuntimeData,
+interface ToolOutputArtifactCapabilities {
+  toolOutputArtifactReader?: ScopedToolOutputArtifactReader;
+  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
+}
+
+function buildToolOutputArtifactCapabilities(
+  runtimeData: RuntimeData | undefined,
   runId: string | undefined
-): { toolOutputArtifactStore?: ToolOutputArtifactSettlementStore } {
-  const resourceId = runtimeData.memory?.resourceId;
-  const threadId = runtimeData.memory?.threadId;
-  if (!(resourceId && threadId && runId)) {
+): ToolOutputArtifactCapabilities {
+  const resourceId = runtimeData?.memory?.resourceId;
+  const threadId = runtimeData?.memory?.threadId;
+  if (!(resourceId && threadId)) {
     return {};
   }
+  const toolOutputArtifactReader: ScopedToolOutputArtifactReader = {
+    readRange: async (input) => {
+      const database = await getDatabase();
+      return new ToolOutputArtifactRepository(database).readRange({
+        ...input,
+        resourceId,
+        threadId,
+      });
+    },
+  };
+  if (!runId) {
+    return { toolOutputArtifactReader };
+  }
   return {
+    toolOutputArtifactReader,
     toolOutputArtifactStore: {
       store: async (input) => {
         const database = await getDatabase();
@@ -1593,6 +1614,26 @@ function buildToolOutputArtifactSettlementStore(
         });
       },
     },
+  };
+}
+
+function withToolOutputArtifactReader(
+  dependencies: DesktopAssistantToolDependencies,
+  reader: ScopedToolOutputArtifactReader | undefined
+): DesktopAssistantToolDependencies {
+  if (!reader) {
+    return dependencies;
+  }
+  return { ...dependencies, toolOutputArtifactReader: reader };
+}
+
+function buildInitialStreamMemoryOptions(
+  memoryResult: DesktopMastraMemoryResult | undefined,
+  toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined
+): InitialStreamMemoryOptions {
+  return {
+    ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+    ...(toolOutputArtifactStore ? { toolOutputArtifactStore } : {}),
   };
 }
 
@@ -1834,13 +1875,20 @@ async function initializeAgentStream(
     // preference applied (master toggle / per-skill disables — reduce-only).
     // Undefined when skills are off or the provider is the built-in local model.
     const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData);
+    const artifactCapabilities = buildToolOutputArtifactCapabilities(runtimeData, runId);
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       // The execute-risk shell tool is registered like every other native tool;
       // the permission gate (enforce-on-by-default → execute:ask) suspends the
       // run for per-call approval before it executes, so it is no longer gated at
       // registration time.
-      mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
+      mastraTools: buildDesktopAssistantTools(
+        runtimeData,
+        withToolOutputArtifactReader(
+          toolDependencies,
+          artifactCapabilities.toolOutputArtifactReader
+        )
+      ),
       mcpEnabled: true,
       signal, // ← AbortSignal passed here, used by stream iterator
       // Always set: an empty list yields no <current-task-list> block (the note
@@ -1904,10 +1952,10 @@ async function initializeAgentStream(
     // binary-guarded reader as the read tools; unresolvable references surface a
     // visible note rather than being silently dropped. Skipped on the approval-
     // resume path (no new user turn to scan).
-    const memoryOptions: InitialStreamMemoryOptions = {
-      ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-      ...buildToolOutputArtifactSettlementStore(runtime, runId),
-    };
+    const memoryOptions = buildInitialStreamMemoryOptions(
+      memoryResult,
+      artifactCapabilities.toolOutputArtifactStore
+    );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
     // resume path — no new user message to gate). A block short-circuits the

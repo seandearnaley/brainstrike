@@ -255,6 +255,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'critical',
     requiresApproval: false,
   },
+  [NATIVE_TOOL_ID.readToolOutputArtifact]: {
+    category: 'retrieval',
+    estimatedTokens: 150,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   [NATIVE_TOOL_ID.readWorkspaceContext]: {
     category: 'retrieval',
     estimatedTokens: 180,

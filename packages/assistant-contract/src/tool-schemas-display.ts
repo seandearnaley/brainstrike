@@ -469,6 +469,31 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.readToolOutputArtifact': {
+    description:
+      'Read the next bounded UTF-8 page from an oversized tool result retained for the current thread. Pass the prior continuation cursor unchanged.',
+    parameters: [
+      {
+        description:
+          'Exact opaque continuation cursor from the previous result. Copy byte-for-byte; never decode, pad, edit, or recreate it.',
+        name: 'cursor',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Optional UTF-8 source-byte page target (4-8000; default 6000).',
+        max: 8000,
+        min: 4,
+        name: 'maxBytes',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'A contiguous byte-addressed page with content, offsetByte, endByte, artifactRef, and nextCursor exactly when bytes remain.',
+    toolId: 'brainstrike.readToolOutputArtifact',
+  },
+
   [NATIVE_TOOL_ID.lspInspect]: {
     description:
       "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript). Returns the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Read-only. Returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available.",

@@ -108,14 +108,26 @@ When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
 before an artifact envelope can reach display/transcript. A module-private
-WeakMap carrier keeps the original in-process result (including authenticated
-PostToolUse context) available only to model projection; public-shape guessing
-is forbidden. Storage failure, a missing tool-call id, incoherent returned
+WeakMap carrier keeps the original in-process result and authenticated
+PostToolUse context away from public persistence. Once settlement succeeds,
+model projection bypasses any domain projector for the original result and
+projects a bounded initial-page view instead. That model view omits the
+redundant artifact reference and carries one concrete reader/cursor action,
+recomputing its cursor if the preview must shrink to fit. Display and transcript
+keep the full envelope. Public-shape guessing is forbidden. Storage failure, a
+missing tool-call id, incoherent returned
 metadata, or output above the explicit 16 MiB settlement cap throws visibly.
 The `skill` tool is excluded because its instruction payload cannot be paged.
 MCP image/audio `content` arrays are also excluded: they must stay inline so
 display/transcript can render media, and they retain the explicit aggregate
 media plus non-media metadata ceilings with or without durable settlement.
+Desktop builds the paired `brainstrike.readToolOutputArtifact` capability only
+when server-owned resource and thread scope plus the database bridge exist.
+The registered model tool accepts only the opaque continuation cursor, never
+artifact metadata or ownership ids. The tool returns the raw bounded page to display/persistence and a
+separately fitted model projection whose continuation call remains inside the
+domain projection budget. No capability means no registered tool; Desktop
+never installs a stub or an unscoped fallback.
 
 Without that trusted host capability, MCP text/JSON keeps the temporary inline
 behavior and is bounded inside `execute()` before inline persistence. The UI

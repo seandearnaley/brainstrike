@@ -6,10 +6,12 @@ import {
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  projectToolOutputArtifactPage,
   ReadToolOutputArtifactInputSchema,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactReader,
 } from '../mastra/tool-output-artifact-reader';
+import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 
 const TEXT_ENCODER = new TextEncoder();
 const NOW = new Date('2026-07-20T12:00:00.000Z');
@@ -290,5 +292,30 @@ describe('tool output artifact reader', () => {
         }
       )
     ).rejects.toMatchObject({ reason: 'artifact_incoherent' });
+  });
+
+  it('projects an escape-heavy raw page within budget using an exact shorter cursor', async () => {
+    const content = `head${'\u0000'.repeat(2000)}tail`;
+    const artifactRef = referenceFor(content);
+    const rawPage = await readToolOutputArtifactPage(
+      { artifactRef, maxBytes: 8000, mode: 'artifact' },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+
+    const projection = projectToolOutputArtifactPage(rawPage);
+    expect(JSON.stringify(projection).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value.next?.tool).toBe('brainstrike.readToolOutputArtifact');
+    const projectedContent = decodeToolOutputArtifactContent(
+      projection.value.content,
+      projection.value.contentEncoding
+    );
+    expect(content.startsWith(projectedContent)).toBe(true);
+    expect(decodeToolOutputArtifactCursor(projection.value.next?.input.cursor ?? '')).toEqual({
+      artifactRef,
+      offsetByte: TEXT_ENCODER.encode(projectedContent).byteLength,
+    });
+    expect(projection.value.endByte).toBe(TEXT_ENCODER.encode(projectedContent).byteLength);
   });
 });

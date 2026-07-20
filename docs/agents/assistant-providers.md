@@ -521,15 +521,21 @@ when format and complete bytes match; a conflicting replay is a hard failure.
 `applyToolOutputArtifactSettlement` is the central live settlement seam. With a
 trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
 retained completely before display/transcript receives the bounded envelope. A
-private carrier lets `toModelOutput` project the original result and hook
-context while preventing either from leaking into persistence. MCP image/audio
-stays inline under the media ceilings above instead of being serialized into a
-text artifact. The upstream settlement cap for pageable text/JSON is 16 MiB;
+private carrier retains the original result without leaking it into persistence.
+After settlement, `toModelOutput` bypasses the original domain projector and
+projects a bounded initial-page view, composing authenticated hook context
+centrally. That model view omits the redundant artifact reference, exposes one
+exact reader/cursor action, and recomputes the cursor if its preview must shrink
+to fit the domain budget; otherwise smaller models can combine mutually
+exclusive initial and continuation inputs. MCP image/audio stays inline under
+the media ceilings above instead of being serialized into a text artifact. The upstream
+settlement cap for pageable text/JSON is 16 MiB;
 over-cap output, missing tool-call provenance, serialization failure, storage
 failure, or incoherent storage metadata throws visibly.
 Without the capability, the temporary MCP ceilings above remain authoritative.
-Desktop injects the capability only for a server-owned run with resource,
-thread, and run scope. The shared resolver accepts one strict discriminated
+Desktop injects the settlement store only for a server-owned run with resource,
+thread, and run scope; the paired reader needs server-owned resource and thread
+scope but no new run id. The shared resolver accepts one strict discriminated
 input: either the initial artifact reference or an opaque continuation cursor.
 The cursor binds its version, complete reference identity, expiry, byte length,
 format, and exact next offset; envelope and page guards reject a cursor whose
@@ -537,9 +543,21 @@ identity or offset differs. The resolver reads through a server-created
 capability closed over resource+thread scope, returns contiguous fatal-UTF-8
 pages with reversible U+0000 encoding, and surfaces malformed, expired,
 wrong-scope, incoherent, non-progress, and storage failures as typed errors.
-Settlement and continuation pages use the same cursor encoder. Desktop native
-tool registration remains the next slice; this resolver is not yet exposed to
-the model tool registry.
+Settlement and continuation pages use the same cursor encoder. Desktop
+registers `brainstrike.readToolOutputArtifact` only when that scoped capability
+exists; web and requests without complete memory scope omit it instead of
+stubbing it. The shared resolver retains its strict initial-reference and
+continuation modes for internal callers, while the registered native model tool
+exposes only the required opaque `cursor` plus optional `maxBytes`. Settlement
+always creates that cursor, so removing the redundant mode/reference fields
+prevents smaller models from fabricating contradictory calls and shrinks the
+provider schema. Its raw result is the guarded artifact page for display and persistence. Its purpose-built model
+projection omits the repeated artifact reference, retains format and byte
+offsets, and carries either `complete: true` or an exact next tool/input pair.
+If JSON escaping plus continuation metadata would exceed the 6000-character
+domain budget, the projector fits a shorter code-point prefix and recomputes
+the cursor at that byte boundary; it never generically truncates content or
+loses continuation state.
 
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections

@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
+import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 
 // ============================================================================
 // Hybrid Search Tool Schema
@@ -778,6 +779,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
   [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
+  [NATIVE_TOOL_ID.readToolOutputArtifact]: ReadToolOutputArtifactCursorInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceContext]: ReadWorkspaceContextInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
