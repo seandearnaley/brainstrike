@@ -20,6 +20,7 @@ import {
   type BackgroundIndexingPolicyPreset,
   getBackgroundIndexingPolicyOption,
 } from '@brainstrike/utils';
+import { onEmbeddingSetUpdated, onQueueDrained } from '@brainstrike/utils/browser-events';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useBackgroundIndexingPreferencesStore } from '../../stores/background-indexing-preferences-store';
@@ -238,11 +239,11 @@ export function SearchIndexingSettingsSection() {
       setCollectionsRefreshToken((currentToken) => currentToken + 1);
     };
 
-    window.addEventListener('brainstrike:embedding-set-updated', handleCollectionRefresh);
-    window.addEventListener('brainstrike:queue-drained', handleCollectionRefresh);
+    const unsubscribeEmbeddingSetUpdated = onEmbeddingSetUpdated(handleCollectionRefresh);
+    const unsubscribeQueueDrained = onQueueDrained(handleCollectionRefresh);
     return () => {
-      window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionRefresh);
-      window.removeEventListener('brainstrike:queue-drained', handleCollectionRefresh);
+      unsubscribeEmbeddingSetUpdated();
+      unsubscribeQueueDrained();
     };
   }, []);
 

@@ -12,8 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
+import {
+  type EmbeddingSetUpdatedEventDetail,
+  onEmbeddingSetUpdated,
+  onQueueDrained,
+} from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
-import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
 
 /**
  * Row shape returned by the collections query
@@ -445,12 +449,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handleEmbeddingSetUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<EmbeddingSetUpdatedEventDetail>).detail;
+    const handleEmbeddingSetUpdated = (detail: EmbeddingSetUpdatedEventDetail | null) => {
       if (detail?.reason === 'deleted' && detail.id) {
         pendingMutationsRef.current.set(detail.id, 'deleted');
         cachedCollectionsRef.current = cachedCollectionsRef.current.filter(
@@ -473,11 +472,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       void refreshCollectionsSnapshot();
     };
 
-    window.addEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
-
-    return () => {
-      window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
-    };
+    return onEmbeddingSetUpdated(handleEmbeddingSetUpdated);
   }, [
     liveQueryEnabled,
     refresh,
@@ -498,10 +493,6 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   }, [liveQueryEnabled, refresh]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
     const handleQueueDrained = () => {
       if (liveQueryEnabled) {
         void refresh();
@@ -509,10 +500,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       void refreshCollectionsSnapshot();
     };
 
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
-    };
+    return onQueueDrained(handleQueueDrained);
   }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
 
   const collections = useMemo<CollectionWithDocCount[]>(

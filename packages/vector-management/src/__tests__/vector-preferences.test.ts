@@ -1,4 +1,5 @@
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { EMBEDDING_SET_UPDATED_EVENT } from '@brainstrike/utils/browser-events';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -155,11 +156,11 @@ describe('vector-preferences', () => {
       const listener = (event: Event) => {
         events.push(event);
       };
-      window.addEventListener('brainstrike:embedding-set-updated', listener);
+      window.addEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
 
       expect(() => setActiveEmbeddingSetId('test-789')).not.toThrow();
 
-      window.removeEventListener('brainstrike:embedding-set-updated', listener);
+      window.removeEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('test-789');
       expect(capturedWarnings).toHaveLength(1);
       expect(capturedWarnings[0]?.args[0]).toContain('persist');
@@ -188,32 +189,32 @@ describe('vector-preferences', () => {
       expect(capturedWarnings[0]?.args[0]).toContain('dispatch');
     });
 
-    it('dispatches brainstrike:embedding-set-updated event when setting id', () => {
+    it('dispatches the embedding-set-updated event when setting id', () => {
       const events: Event[] = [];
       const listener = (event: Event) => {
         events.push(event);
       };
-      window.addEventListener('brainstrike:embedding-set-updated', listener);
+      window.addEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
 
       setActiveEmbeddingSetId('set-123');
 
-      window.removeEventListener('brainstrike:embedding-set-updated', listener);
+      window.removeEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
       expect(events).toHaveLength(1);
       const dispatched = events[0] as CustomEvent<{ id?: string; reason?: string }>;
       expect(dispatched.detail?.id).toBe('set-123');
       expect(dispatched.detail?.reason).toBe('selected');
     });
 
-    it('dispatches brainstrike:embedding-set-updated event when clearing id', () => {
+    it('dispatches the embedding-set-updated event when clearing id', () => {
       const events: Event[] = [];
       const listener = (event: Event) => {
         events.push(event);
       };
-      window.addEventListener('brainstrike:embedding-set-updated', listener);
+      window.addEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
 
       setActiveEmbeddingSetId(null);
 
-      window.removeEventListener('brainstrike:embedding-set-updated', listener);
+      window.removeEventListener(EMBEDDING_SET_UPDATED_EVENT, listener);
       expect(events).toHaveLength(1);
       const dispatched = events[0] as CustomEvent<{ id?: string }>;
       expect(dispatched.detail?.id).toBeNull();

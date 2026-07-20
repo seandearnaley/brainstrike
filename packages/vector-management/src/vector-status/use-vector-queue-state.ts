@@ -3,6 +3,7 @@ import {
   type ActiveBackfillState,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
@@ -608,12 +609,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [liveQueryEnabled, refreshCoverageAndQueueState]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !activeEmbeddingSetId) {
+    if (!activeEmbeddingSetId) {
       return;
     }
 
-    const handleQueueDrained = (event: Event) => {
-      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+    return onQueueDrained((detail) => {
       if (detail?.embeddingSetId && detail.embeddingSetId !== activeEmbeddingSetId) {
         return;
       }
@@ -630,12 +630,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       ) {
         clearTransientBackfillState(activeEmbeddingSetId);
       }
-    };
-
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
-    };
+    });
   }, [activeEmbeddingSetId, clearTransientBackfillState, refreshCoverageAndQueueState]);
 
   useEffect(() => {

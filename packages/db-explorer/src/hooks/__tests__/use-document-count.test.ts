@@ -1,3 +1,4 @@
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { indexedChunkCountLogger, useIndexedChunkCount } from '../use-document-count';
@@ -135,7 +136,7 @@ describe('useIndexedChunkCount', () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'collection-1', queue: 'embeddings' },
         })
       );

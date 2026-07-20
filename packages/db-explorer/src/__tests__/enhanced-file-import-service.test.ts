@@ -1,4 +1,5 @@
 import type { QueueAdapter } from '@brainstrike/queue';
+import { QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
@@ -581,8 +582,8 @@ describe('useEnhancedFileImportService', () => {
         } as const;
 
         act(() => {
-          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: detailA }));
-          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: detailB }));
+          window.dispatchEvent(new CustomEvent(QUEUE_PROGRESS_EVENT, { detail: detailA }));
+          window.dispatchEvent(new CustomEvent(QUEUE_PROGRESS_EVENT, { detail: detailB }));
         });
 
         expect(result.current.progress?.queueProgress).toBeUndefined();
@@ -659,12 +660,12 @@ describe('useEnhancedFileImportService', () => {
         } as const;
 
         act(() => {
-          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: inFlight }));
+          window.dispatchEvent(new CustomEvent(QUEUE_PROGRESS_EVENT, { detail: inFlight }));
         });
         expect(result.current.progress?.queueProgress).toBeUndefined();
 
         act(() => {
-          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: drained }));
+          window.dispatchEvent(new CustomEvent(QUEUE_PROGRESS_EVENT, { detail: drained }));
         });
 
         expect(result.current.progress?.queueProgress).toMatchObject({

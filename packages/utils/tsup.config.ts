@@ -4,6 +4,7 @@ export default defineConfig({
   clean: false,
   dts: false,
   entry: {
+    'browser-events': 'src/browser-events.ts',
     'bulk-operation-context': 'src/bulk-operation-context.ts',
     collator: 'src/collator.ts',
     'color-utils': 'src/color-utils.ts',
