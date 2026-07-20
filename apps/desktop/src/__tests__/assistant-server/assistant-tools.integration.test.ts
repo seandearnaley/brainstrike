@@ -760,6 +760,56 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
 
+  it('registers compact grep and glob projections without mutating their raw results', () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+    const grepRaw = {
+      candidatesTruncated: false,
+      files: [
+        {
+          firstLine: 11,
+          matchCount: 1,
+          path: '/src/x.ts',
+          rootId: 'root-a',
+          rootName: 'alpha',
+          source: 'both',
+        },
+      ],
+      liveEngine: 'ripgrep',
+      offset: 0,
+      outputMode: 'files',
+      scanLimited: false,
+      totalFiles: 1,
+      totalMatches: 1,
+      truncated: false,
+    };
+    const globRaw = {
+      count: 1,
+      matches: [{ path: '/src/x.ts', rootId: 'root-a', rootName: 'alpha' }],
+      offset: 0,
+      scanLimited: false,
+      totalMatches: 1,
+      truncated: false,
+    };
+    const grepBefore = structuredClone(grepRaw);
+    const globBefore = structuredClone(globRaw);
+
+    expect(tools['brainstrike.grepSearch'].toModelOutput?.(grepRaw)).toEqual({
+      type: 'text',
+      value: [
+        'grep files | page=1-1/1 | matches=1 | live=ripgrep | candidates_truncated=false | scan_limited=false',
+        '[alpha|root-a] /src/x.ts:11 | matches=1 | source=both',
+      ].join('\n'),
+    });
+    expect(tools['brainstrike.globWorkspace'].toModelOutput?.(globRaw)).toEqual({
+      type: 'text',
+      value: ['glob | page=1-1/1 | scan_limited=false', '[alpha|root-a] /src/x.ts'].join('\n'),
+    });
+    expect(grepRaw).toEqual(grepBefore);
+    expect(globRaw).toEqual(globBefore);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],

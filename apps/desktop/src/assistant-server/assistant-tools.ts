@@ -101,6 +101,10 @@ import {
   toPathSegments,
 } from './workspace-path';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
+import {
+  projectGlobWorkspaceModelOutput,
+  projectGrepSearchModelOutput,
+} from './workspace-search-model-projections';
 
 // The audited write path moved to `../secure-file-write` so other IPC domains
 // (e.g. the notes vault) can share it; re-exported here so existing importers
@@ -3324,6 +3328,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.grepSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
+      toModelOutput: projectGrepSearchModelOutput,
     },
     [NATIVE_TOOL_ID.globWorkspace]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace],
@@ -3341,6 +3346,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.globWorkspace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
+      toModelOutput: projectGlobWorkspaceModelOutput,
     },
     [NATIVE_TOOL_ID.webSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],

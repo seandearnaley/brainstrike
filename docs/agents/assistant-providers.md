@@ -573,6 +573,22 @@ active budget. Proofs:
 `mastra-memory-persistence.integration.spec.ts`, and
 `data-stream-session.spec.ts`. `listWorkspaceContext` is concise by default
 (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
+`grepSearch` and `globWorkspace` keep their complete typed raw pages for
+display, persistence, hooks, and reload, but their Mastra `toModelOutput`
+projections are deterministic line-oriented text. Those projections retain
+root-qualified paths, 1-based grep locations, count/source/scan-limit state,
+and authoritative continuation guidance while fitting the 6000-character
+domain budget.
+Because Mastra's one-argument projector receives the raw result but not the
+original tool input, paging guidance tells the model to reuse the prior call;
+it never fabricates or duplicates the original pattern. When the whole raw page
+fits, the projection preserves the producer's bounded hint because the producer
+owns service caps and scan-limit semantics. Only when the tighter projection
+budget omits raw page items does the projector calculate an earlier advancing
+`offset`. A truncated result without producer guidance throws instead of
+guessing. Oversized paths and match context are clipped with an explicit
+omitted-character marker, and malformed result shapes throw rather than falling
+back to generic JSON.
 
 Native-tool catalog ownership is deliberately split at the browser/runtime
 boundary:
