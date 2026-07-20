@@ -245,6 +245,18 @@ loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
 
+### Desktop development dependency freshness
+
+`apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every
+development launch, including `dev:agent-debug`. The helper must always ask
+Turbo to build the exact `build-utils` + `agent` + `ui` dependency graph.
+Turbo's content hashes and cache are the freshness authority; checking only
+whether `dist` files exist is forbidden because branch updates can leave
+tool schemas, prompts, or provider code silently pinned to an older commit.
+On a warm graph this check is cache-only and does not rebuild the desktop
+renderer or unrelated packages. A non-zero Turbo result remains a visible
+startup failure.
+
 ---
 
 ## REACT DOCTOR (LINT + DEAD CODE)
