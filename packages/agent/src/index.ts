@@ -196,6 +196,13 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export {
+  TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
+  TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
+  ToolOutputArtifactSettlementError,
+  type ToolOutputArtifactSettlementFailureReason,
+  type ToolOutputArtifactSettlementStore,
+} from './mastra/tool-output-artifact-settlement';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';

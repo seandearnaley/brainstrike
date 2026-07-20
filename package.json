@@ -77,7 +77,7 @@
     "lint:model-catalog-migrations": "node scripts/model-catalog-migration-contract.mjs",
     "lint-all": "pnpm lint && pnpm format",
     "lint:biome": "biome check .",
-    "lint:eslint": "eslint --max-warnings=50 apps/web/src packages/ui/src packages/file-explorer-ui/src packages/file-explorer-hooks/src",
+    "lint:eslint": "eslint --max-warnings=196 apps/desktop/src apps/web/src packages/app-shell/src packages/db-explorer/src packages/db/src packages/file-explorer-hooks/src packages/file-explorer-ui/src packages/file-import/src packages/hooks/src packages/notes-vault/src packages/preferences/src packages/token-cache/src packages/ui/src packages/vector-management/src packages/workspace-search/src",
     "lint:no-no-memo": "node scripts/forbid-no-memo.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepare": "node scripts/postinstall.js",

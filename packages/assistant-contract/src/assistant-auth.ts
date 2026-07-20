@@ -12,3 +12,18 @@ export interface AssistantServerAuthInfo {
   token: string;
   url: string;
 }
+
+/**
+ * The assistant server failed to start (BST-574). Returned by
+ * `assistant:get-auth` instead of `null` so the renderer can present the
+ * concrete failure rather than an indistinguishable "still starting" state.
+ */
+export interface AssistantServerStartupFailure {
+  startupError: string;
+}
+
+/** Full result union of the `assistant:get-auth` channel; `null` = starting. */
+export type AssistantServerAuthResult =
+  | AssistantServerAuthInfo
+  | AssistantServerStartupFailure
+  | null;

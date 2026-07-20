@@ -1386,6 +1386,7 @@ if (singleInstanceLockAcquired) {
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
       let assistantAuthToken: string | undefined;
+      let assistantStartupError: string | undefined;
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
           embeddingHostManager,
@@ -1396,14 +1397,25 @@ if (singleInstanceLockAcquired) {
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
       } catch (err) {
+        // Captured and surfaced to the renderer via assistant:get-auth — the
+        // availability probe presents it as an error state instead of the app
+        // silently booting with a dead assistant (BST-574).
+        assistantStartupError = `Assistant server failed to start: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
         logger.error('Failed to start assistant server:', err);
       }
 
       unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
-        getAssistantAuth: () =>
-          assistantUrl && assistantAuthToken
-            ? { token: assistantAuthToken, url: assistantUrl }
-            : null,
+        getAssistantAuth: () => {
+          if (assistantUrl && assistantAuthToken) {
+            return { token: assistantAuthToken, url: assistantUrl };
+          }
+          if (assistantStartupError) {
+            return { startupError: assistantStartupError };
+          }
+          return null;
+        },
         getAssistantUrl: () => assistantUrl,
         getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
         noteNextWindowReload,

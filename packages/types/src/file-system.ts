@@ -355,8 +355,38 @@ export interface FileSystemAdapter {
    * them; nothing is pruned.
    */
   restoreRoots?(): Promise<RootDescriptor[]>;
+  /**
+   * Watch a directory for changes.
+   *
+   * `onSignal` is the out-of-band health channel for conditions that have no
+   * per-path `FileSystemChange` representation:
+   * - `overflow`: the watcher may have MISSED events (WICG observer 'unknown'
+   *   records). Consumers must treat the whole root as stale and run a full
+   *   refresh — incremental changes alone are no longer trustworthy.
+   * - `errored`: the observation is dead (WICG 'errored' record, or observe()
+   *   failure after setup). The adapter has already torn the watch down; the
+   *   root is UNWATCHED from this point and consumers must surface that
+   *   visibly (toast/log) — never absorb it silently.
+   */
   watchDirectory?(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void;
 }
+
+/**
+ * Out-of-band watcher health signal (see `FileSystemAdapter.watchDirectory`).
+ * Discriminated on `type`; both variants mean "incremental change events are
+ * not the full story" and require consumer action.
+ */
+export type FileSystemWatchSignal =
+  | {
+      /** Events may have been missed; the affected root needs a full refresh. */
+      type: 'overflow';
+    }
+  | {
+      /** The watch is dead and already disconnected; the root is unwatched. */
+      message: string;
+      type: 'errored';
+    };

@@ -71,7 +71,7 @@ describe('secrets', () => {
     expect(safeStorageMock.decryptString).not.toHaveBeenCalled();
   });
 
-  it('does not fall back to base64 decode when decryption fails', async () => {
+  it('does not fall back to base64 decode when decryption fails — it throws a typed error (BST-574)', async () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
     safeStorageMock.decryptString.mockImplementation(() => {
       throw new Error('decrypt failed');
@@ -83,9 +83,13 @@ describe('secrets', () => {
     });
 
     const service = createSecretsService(store as never);
-    const value = await service.getKey('openai');
 
-    expect(value).toBeNull();
+    // Never the base64 plaintext, and no longer a silent null: a stored-but-
+    // unreadable secret surfaces as a typed decrypt_failed rejection.
+    await expect(service.getKey('openai')).rejects.toMatchObject({
+      code: 'decrypt_failed',
+      provider: 'openai',
+    });
   });
 
   it('deletes, lists, and clears secrets', async () => {

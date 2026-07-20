@@ -1426,6 +1426,147 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     expect(changes).toEqual([{ kind: 'directory', path: 'project/moved-in', type: 'added' }]);
   });
 
+  it("emits an 'overflow' signal (and no change events) for 'unknown' records, alongside mapped changes from the same batch", () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const warnRecords: Array<string | undefined> = [];
+    const removeListener = addLogListener((record) => {
+      if (record.level === 'warn') {
+        warnRecords.push(record.message);
+      }
+    });
+
+    try {
+      const adapter = new WebFileSystemAdapter();
+      const callback = vi.fn();
+      const onSignal = vi.fn();
+      adapter.watchDirectory(dirHandle, callback, onSignal);
+
+      capturedObserver!.emit([
+        {
+          changedHandle: { kind: 'file', name: 'a.ts' } as unknown as FileSystemHandle,
+          relativePathComponents: ['a.ts'],
+          type: 'modified',
+        },
+        {
+          changedHandle: { kind: 'file', name: '' } as unknown as FileSystemHandle,
+          relativePathComponents: [],
+          type: 'unknown',
+        },
+      ]);
+
+      // Mapped changes from the same batch still flow through…
+      expect(callback).toHaveBeenCalledOnce();
+      const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
+      expect(changes).toEqual([{ kind: 'file', path: 'project/a.ts', type: 'modified' }]);
+      // …and the overflow is signalled out-of-band, never as a change event.
+      expect(onSignal).toHaveBeenCalledOnce();
+      expect(onSignal).toHaveBeenCalledWith({ type: 'overflow' });
+      // The watch stays alive — overflow means "refresh", not "dead".
+      expect(capturedObserver!.disconnected).toBe(false);
+      // Visible even without a signal handler: the warn is always logged.
+      expect(warnRecords.some((m) => m?.includes('events may have been missed'))).toBe(true);
+    } finally {
+      removeListener();
+    }
+  });
+
+  it("disconnects the observer and emits an 'errored' signal for 'errored' records", () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const warnRecords: Array<string | undefined> = [];
+    const removeListener = addLogListener((record) => {
+      if (record.level === 'warn') {
+        warnRecords.push(record.message);
+      }
+    });
+
+    try {
+      const adapter = new WebFileSystemAdapter();
+      const callback = vi.fn();
+      const onSignal = vi.fn();
+      adapter.watchDirectory(dirHandle, callback, onSignal);
+
+      capturedObserver!.emit([
+        {
+          changedHandle: { kind: 'directory', name: 'project' } as unknown as FileSystemHandle,
+          relativePathComponents: [],
+          type: 'errored',
+        },
+      ]);
+
+      // The watch is dead: disconnected, signalled, warn-logged — no change events.
+      expect(capturedObserver!.disconnected).toBe(true);
+      expect(onSignal).toHaveBeenCalledOnce();
+      const [signal] = onSignal.mock.calls[0] as [{ message: string; type: string }];
+      expect(signal.type).toBe('errored');
+      expect(signal.message).toContain('project');
+      expect(callback).not.toHaveBeenCalled();
+      expect(warnRecords.some((m) => m?.includes('errored record'))).toBe(true);
+    } finally {
+      removeListener();
+    }
+  });
+
+  it("emits an 'errored' signal when observe() rejects asynchronously", async () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
+    };
+
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class {
+      observe() {
+        return Promise.reject(new Error('NotAllowedError: permission revoked mid-flight'));
+      }
+      disconnect() {}
+    };
+
+    const adapter = new WebFileSystemAdapter();
+    const onSignal = vi.fn();
+    adapter.watchDirectory(dirHandle, vi.fn(), onSignal);
+
+    await vi.waitFor(() => {
+      expect(onSignal).toHaveBeenCalledOnce();
+    });
+    const [signal] = onSignal.mock.calls[0] as [{ message: string; type: string }];
+    expect(signal.type).toBe('errored');
+    expect(signal.message).toContain('permission revoked mid-flight');
+  });
+
   it('logs a warn and disconnects when observe() returns a rejected promise (async failure path)', async () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
@@ -1476,7 +1617,7 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     }
   });
 
-  it('falls back to a no-op disposer and logs a warn when observe() throws (e.g. permission revoked)', () => {
+  it('falls back to a no-op disposer, logs a warn, and emits an errored signal when observe() throws synchronously (parity with the async rejection path)', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
       _internal: internalHandle,
@@ -1503,9 +1644,10 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
       const adapter = new WebFileSystemAdapter();
       const callback = vi.fn();
+      const onSignal = vi.fn();
 
       // Must not throw
-      const disposer = adapter.watchDirectory?.(dirHandle, callback);
+      const disposer = adapter.watchDirectory?.(dirHandle, callback, onSignal);
       expect(disposer).toBeDefined();
       // disposer must be callable without throw
       expect(() => disposer!()).not.toThrow();
@@ -1513,6 +1655,13 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
       expect(callback).not.toHaveBeenCalled();
       // warn must have been logged via the logger
       expect(warnRecords.length).toBeGreaterThan(0);
+      // The dead watch is signalled — a synchronous throw must surface
+      // identically to the async rejection path (toast, not console-only).
+      expect(onSignal).toHaveBeenCalledOnce();
+      const [signal] = onSignal.mock.calls[0] as [{ message: string; type: string }];
+      expect(signal.type).toBe('errored');
+      expect(signal.message).toContain('project');
+      expect(signal.message).toContain('permission revoked');
     } finally {
       removeListener();
     }

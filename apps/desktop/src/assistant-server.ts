@@ -13,6 +13,7 @@ import type {
   RuntimeAssistantMemorySettings,
   RuntimeData,
   StreamChunk,
+  ToolOutputArtifactSettlementStore,
 } from '@brainstrike/agent';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -48,6 +49,7 @@ import {
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import {
@@ -1474,6 +1476,31 @@ async function readThreadTaskListForTurn(
 interface InitialStreamMemoryOptions {
   memory?: DesktopMastraMemoryResult['memory'];
   storage?: DesktopMastraMemoryResult['storage'];
+  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
+}
+
+function buildToolOutputArtifactSettlementStore(
+  runtimeData: RuntimeData,
+  runId: string | undefined
+): { toolOutputArtifactStore?: ToolOutputArtifactSettlementStore } {
+  const resourceId = runtimeData.memory?.resourceId;
+  const threadId = runtimeData.memory?.threadId;
+  if (!(resourceId && threadId && runId)) {
+    return {};
+  }
+  return {
+    toolOutputArtifactStore: {
+      store: async (input) => {
+        const database = await getDatabase();
+        return new ToolOutputArtifactRepository(database).store({
+          ...input,
+          resourceId,
+          runId,
+          threadId,
+        });
+      },
+    },
+  };
 }
 
 /**
@@ -1784,9 +1811,10 @@ async function initializeAgentStream(
     // binary-guarded reader as the read tools; unresolvable references surface a
     // visible note rather than being silently dropped. Skipped on the approval-
     // resume path (no new user turn to scan).
-    const memoryOptions = memoryResult
-      ? { memory: memoryResult.memory, storage: memoryResult.storage }
-      : {};
+    const memoryOptions: InitialStreamMemoryOptions = {
+      ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+      ...buildToolOutputArtifactSettlementStore(runtime, runId),
+    };
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
     // resume path — no new user message to gate). A block short-circuits the
