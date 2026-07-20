@@ -200,6 +200,20 @@ function appendEqualityFilter(
   values: PgliteQueryValue[],
   clauses: string[]
 ): void {
+  if (typeof value === 'string') {
+    // Containment so the metadata GIN (jsonb_ops) serves the predicate —
+    // `->>` equality cannot use that index (BST-577). For string-typed
+    // metadata values this is equivalent to the old text comparison; Mastra
+    // memory only ever issues string-valued filters (thread_id/resource_id).
+    values.push(key);
+    const keyParam = `$${values.length}`;
+    values.push(value);
+    clauses.push(`metadata @> jsonb_build_object(${keyParam}::text, $${values.length}::text)`);
+    return;
+  }
+  // Non-string filter values keep the legacy text-coerced comparison
+  // (unindexed): containment would be type-sensitive (5 vs "5"), and no
+  // production caller issues these — parity is pinned by tests.
   values.push(key);
   const keyParam = `$${values.length}`;
   values.push(String(value));
