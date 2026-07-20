@@ -319,6 +319,31 @@ async function resolveWorkspaceAbsolutePath(
   };
 }
 
+const MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS = 3;
+
+async function withStableWorkspaceFileLock<T>(
+  rootPath: string,
+  requestedPath: string,
+  task: (resolved: { readonly absolutePath: string; readonly workspacePath: string }) => Promise<T>
+): Promise<T> {
+  for (let attempt = 0; attempt < MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS; attempt += 1) {
+    const resolvedBeforeLock = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+    const result = await withFileLock(resolvedBeforeLock.absolutePath, async () => {
+      const resolvedAfterLock = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+      if (resolvedAfterLock.absolutePath !== resolvedBeforeLock.absolutePath) {
+        return { kind: 'retry' as const };
+      }
+      return { kind: 'complete' as const, value: await task(resolvedAfterLock) };
+    });
+    if (result.kind === 'complete') {
+      return result.value;
+    }
+  }
+  throw new Error(
+    `Path "${requestedPath}" changed targets repeatedly while waiting to read it. Retry the read.`
+  );
+}
+
 /**
  * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
  * tools — which correctly resolve THROUGH a symlink to write its target — a
@@ -1130,21 +1155,18 @@ async function runReadWorkspaceFile(
     input.root ?? continuationCursor?.rootId ?? undefined
   );
   const requestedPath = input.path;
-  // Resolve first so the read + tracker record can run INSIDE the same
-  // per-file lock the write tools use. An unlocked read could stat the OLD
-  // mtime, lose the race to a concurrent locked write (which records the
-  // fresh post-write mtime), then clobber the tracker back to the stale value
-  // — making the next legitimate write falsely refuse. Never nested inside
-  // another holder of this key, so no deadlock.
-  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
-  return withFileLock(resolvedForLock.absolutePath, async () => {
+  // Resolve both before and after acquiring the per-file lock. A symlink can
+  // be retargeted while this read waits; only read when both resolutions name
+  // the same canonical file so containment and the staleness tracker share
+  // one stable identity.
+  return withStableWorkspaceFileLock(root.path, requestedPath, async (resolved) => {
     const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
     const file = await readWorkspaceFilePageSource({
-      absolutePath: resolvedForLock.absolutePath,
+      absolutePath: resolved.absolutePath,
       input,
       maxChars,
       requestedPath,
-      workspacePath: resolvedForLock.workspacePath,
+      workspacePath: resolved.workspacePath,
     });
     const pageRequest = resolveReadWorkspaceFilePageRequest({
       cursorLineLength: file.cursorLineLength,

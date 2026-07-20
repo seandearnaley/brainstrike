@@ -582,6 +582,54 @@ describe('assistant-tools', () => {
     }
   });
 
+  it('re-resolves a symlink after waiting for its original target lock', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const firstTarget = path.join(workspaceRootPath, 'src', 'first-target.txt');
+    const secondTarget = path.join(workspaceRootPath, 'src', 'second-target.txt');
+    const linkedFile = path.join(workspaceRootPath, 'src', 'retargeted.txt');
+    await fsPromises.writeFile(firstTarget, 'first target', 'utf8');
+    await fsPromises.writeFile(secondTarget, 'second target', 'utf8');
+
+    try {
+      try {
+        await fsPromises.symlink(firstTarget, linkedFile, 'file');
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EPERM' || code === 'EACCES') {
+          return;
+        }
+        throw error;
+      }
+
+      let releaseLock: () => void = () => {
+        throw new Error('release not armed');
+      };
+      const holdLock = withFileLock(
+        realpathSync(firstTarget),
+        () =>
+          new Promise<void>((resolve) => {
+            releaseLock = resolve;
+          })
+      );
+      const readPromise = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ].execute({ path: '/src/retargeted.txt' });
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await fsPromises.unlink(linkedFile);
+      await fsPromises.symlink(secondTarget, linkedFile, 'file');
+      releaseLock();
+      await holdLock;
+
+      await expect(readPromise).resolves.toMatchObject({
+        content: '1: second target',
+        path: '/src/retargeted.txt',
+      });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it('reads a workspace directory in compact form', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
