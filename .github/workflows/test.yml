@@ -97,7 +97,7 @@ jobs:
 
   static:
     name: Static
-    if: needs.admission.outputs.admitted == 'true'
+    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
@@ -112,6 +112,12 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Static check."
+          exit 1
+
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
@@ -162,7 +168,7 @@ jobs:
 
   unit:
     name: Unit
-    if: needs.admission.outputs.admitted == 'true'
+    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
@@ -179,6 +185,12 @@ jobs:
     # aligned with Coverage so broad but valid changes do not time out mid-run.
     timeout-minutes: 60
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Unit check."
+          exit 1
+
       # `fetch-depth: 0` is REQUIRED here: the turbo filter below diffs against
       # `origin/$BASE_REF`, which needs full history. Checkout stays in the
       # caller (not the composite) — see setup-workspace/action.yml's header.
@@ -318,11 +330,17 @@ jobs:
 
   build:
     name: Build
-    if: needs.admission.outputs.admitted == 'true'
+    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Build check."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -410,7 +428,16 @@ jobs:
 
   web-e2e:
     name: Web E2E
-    if: github.event_name != 'workflow_dispatch' && needs.admission.outputs.admitted == 'true'
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
     needs: [admission, build]
     runs-on: ubuntu-latest
     # Run inside the official Playwright image: browsers and their system
@@ -444,6 +471,12 @@ jobs:
       # Browsers are preinstalled here in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Web E2E check."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -483,7 +516,16 @@ jobs:
 
   desktop-e2e:
     name: Desktop E2E
-    if: github.event_name != 'workflow_dispatch' && needs.admission.outputs.admitted == 'true'
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
     needs: [admission, build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -498,6 +540,12 @@ jobs:
     # pnpm -> node -> turbo cache -> install, nothing injectable in the
     # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 

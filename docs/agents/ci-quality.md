@@ -46,8 +46,13 @@ immediately, so their behavior is unchanged apart from the dependency edge.
 The gate is deliberately fail-closed: `pull-requests: read` is its only added
 permission, and a missing event SHA, missing API SHA, or API error fails the
 admission job visibly instead of guessing that the run is current. Do not add a
-fallback that releases work when currency cannot be established. Contract
-coverage lives in
+fallback that releases work when currency cannot be established. Each of the
+five required jobs uses `always()` plus an explicit first-step failure when the
+admission job itself fails. This is required because GitHub otherwise skips a
+job whose dependency failed, and a skipped required check can satisfy branch
+protection. A normal superseded-head decision keeps the admission job successful
+with `admitted=false`, so those same jobs remain skipped without allocating
+their runners. Contract coverage lives in
 `scripts/__tests__/quiet-head-admission-contract.test.mjs` and runs in the
 Static job through `pnpm test:scripts`.
 
@@ -283,4 +288,3 @@ Local: `pnpm doctor` (full scan, telemetry off via config) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
 
 ---
-

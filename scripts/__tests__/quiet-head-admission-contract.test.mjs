@@ -29,10 +29,16 @@ test('required check names remain stable and always come from the admitted full 
     const job = jobBlock(jobId);
     assert.match(job, new RegExp(`^    name: ${checkName}$`, 'm'), jobId);
     assert.match(job, /^ {4}needs: .*admission/m, jobId);
+    assert.match(job, /always\(\)/, `${jobId} must surface an admission failure.`);
     assert.match(
       job,
       /needs\.admission\.outputs\.admitted == 'true'/,
       `${jobId} must not start until the quiet-head gate admits this exact PR head.`
+    );
+    assert.match(
+      job,
+      /if: needs\.admission\.result != 'success'[\s\S]*?exit 1/,
+      `${jobId} must fail, rather than skip, when admission itself fails.`
     );
   }
 
