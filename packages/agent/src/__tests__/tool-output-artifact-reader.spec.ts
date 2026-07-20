@@ -318,4 +318,28 @@ describe('tool output artifact reader', () => {
     });
     expect(projection.value.endByte).toBe(TEXT_ENCODER.encode(projectedContent).byteLength);
   });
+
+  it('keeps a fitting terminal page whole even when a shorter cursor-bearing page does not fit', () => {
+    const content = 'x'.repeat(5800);
+    const artifactRef = referenceFor(content);
+    const rawPage = {
+      artifactRef,
+      content,
+      endByte: artifactRef.byteLength,
+      offsetByte: 0,
+    };
+
+    const projection = projectToolOutputArtifactPage(rawPage);
+
+    expect(JSON.stringify(projection).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toMatchObject({
+      complete: true,
+      content,
+      endByte: artifactRef.byteLength,
+      offsetByte: 0,
+    });
+    expect(projection.value.next).toBeUndefined();
+  });
 });

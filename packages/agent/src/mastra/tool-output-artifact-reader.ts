@@ -323,9 +323,18 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
     return buildModelPage(output, decoded);
   }
 
+  // Completion replaces the comparatively large continuation cursor with one
+  // boolean, so the fit predicate is not monotonic at the final code point.
+  // Prefer the complete page when it fits before binary-searching the strictly
+  // cursor-bearing prefixes.
+  const completePage = buildModelPage(output, decoded);
+  if (JSON.stringify(completePage).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    return completePage;
+  }
+
   const codePoints = Array.from(decoded);
   let low = 1;
-  let high = codePoints.length;
+  let high = codePoints.length - 1;
   let best: ToolOutputArtifactModelProjection | undefined;
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
