@@ -4,8 +4,12 @@ import type {
   ElectronAPI,
   FileSystemChange,
   FileSystemWatchEvent,
+  FileSystemWatchSignal,
   IFileNode,
   RootDescriptor,
+  WatcherHealthEvent,
+  WatcherRetryOutcome,
+  WatcherRootHealthEvent,
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -62,10 +66,85 @@ function unregisterWatchCallback(watchId: string): void {
   }
 }
 
+/**
+ * Watcher health dispatcher (BST-568 slice 3). Mirrors the change dispatcher:
+ * ONE bridge fs:watch-health subscription total, fan-out to renderer
+ * subscribers. This renderer resolves watchIds back to the root paths of the
+ * watches IT created (paths never cross to other renderers), and retains the
+ * latest transition per root so late-mounting UI sees current status.
+ */
+const rootPathByWatchId = new Map<string, string>();
+const latestHealthByRootPath = new Map<string, WatcherRootHealthEvent>();
+const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
+// Per-watch translation of health transitions into the SHARED
+// FileSystemWatchSignal channel (#1764): degraded -> 'overflow' (events may
+// have been missed; consumers full-refresh the root), failed -> 'errored'
+// (the watch is dead; consumers surface it visibly). This is what plugs
+// desktop into the same consumer plumbing the web adapter drives.
+const signalCallbacksById = new Map<string, (signal: FileSystemWatchSignal) => void>();
+let sharedHealthUnsubscribe: (() => void) | null = null;
+
+/**
+ * Fan a resolved transition out to the health subscribers AND the per-watch
+ * FileSystemWatchSignal callback. Shared by the live push path and the
+ * snapshot-on-response path so both behave identically.
+ */
+function dispatchHealth(event: WatcherRootHealthEvent): void {
+  latestHealthByRootPath.set(event.rootPath, event);
+  for (const subscriber of Array.from(healthSubscribers)) {
+    subscriber(event);
+  }
+  const signalCallback = signalCallbacksById.get(event.watchId);
+  if (!signalCallback) {
+    return;
+  }
+  if (event.state === 'degraded') {
+    signalCallback({ type: 'overflow' });
+  } else if (event.state === 'failed') {
+    signalCallback({
+      message: event.failure?.message ?? 'watcher failed',
+      type: 'errored',
+    });
+  }
+}
+
+function ensureSharedHealthSubscription(
+  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void
+): void {
+  if (sharedHealthUnsubscribe) {
+    return;
+  }
+  sharedHealthUnsubscribe = onWatchHealth((event) => {
+    const rootPath = rootPathByWatchId.get(event.watchId);
+    if (!rootPath) {
+      return;
+    }
+    dispatchHealth({ ...event, rootPath });
+  });
+}
+
+function forgetWatchHealth(watchId: string): void {
+  signalCallbacksById.delete(watchId);
+  const rootPath = rootPathByWatchId.get(watchId);
+  rootPathByWatchId.delete(watchId);
+  if (rootPath) {
+    latestHealthByRootPath.delete(rootPath);
+  }
+  if (rootPathByWatchId.size === 0 && sharedHealthUnsubscribe) {
+    sharedHealthUnsubscribe();
+    sharedHealthUnsubscribe = null;
+  }
+}
+
 /** Test-only: reset the module-level shared dispatcher between test cases. */
 export function __resetFsWatchDispatcherForTest(): void {
   watchCallbacksById.clear();
   sharedWatchUnsubscribe = null;
+  rootPathByWatchId.clear();
+  latestHealthByRootPath.clear();
+  healthSubscribers.clear();
+  signalCallbacksById.clear();
+  sharedHealthUnsubscribe = null;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -138,7 +217,8 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     const api = window.electronAPI?.fileSystem;
     if (
@@ -168,7 +248,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
     api
       .watchDirectory(handle)
-      .then(({ watchId: id }) => {
+      .then(({ health, watchId: id }) => {
         if (closed) {
           stopMainWatcher(id);
           return;
@@ -177,13 +257,44 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         // Route pushes for this id through the shared dispatcher (one bridge
         // subscription total, regardless of how many roots are watched).
         registerWatchCallback(api.onWatchEvent, id, callback);
+        // Health capability (older bridges may lack it — visibly absent).
+        if (typeof api.onWatchHealth !== 'function') {
+          return;
+        }
+        rootPathByWatchId.set(id, handle.path);
+        if (onSignal) {
+          signalCallbacksById.set(id, onSignal);
+        }
+        ensureSharedHealthSubscription(api.onWatchHealth);
+        // Anything main emitted DURING setup was pushed before this id was
+        // registered above, so those pushes were dropped as unknown. Apply the
+        // snapshot main returned with the response — otherwise a watcher that
+        // died on startup leaves the root silently unwatched with no chip.
+        //
+        // Residual (accepted, not papered over): a transition occurring
+        // between main capturing this snapshot and the registration above is
+        // still lost. Closing that fully would need main to defer its pushes
+        // until after the reply, which relies on IPC reply/send ordering that
+        // is not contractually guaranteed.
+        if (health) {
+          dispatchHealth({ ...health, rootPath: handle.path, watchId: id });
+        }
       })
       .catch((error: unknown) => {
         // Visible capability failure (invalid path, watcher setup error) —
         // the folder stays unwatched, never a silent fallback.
+        const message = error instanceof Error ? error.message : String(error);
         logger.warn('watchDirectory: failed to start main-process watcher; folder is unwatched', {
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
           path: handle.path,
+        });
+        // A rejection means there is no watchId and no health snapshot, so
+        // NEITHER of the health paths above can report this. Console-only would
+        // leave the root silently unwatched — drive the shared signal channel
+        // directly, matching how the web adapter treats a failed observe().
+        onSignal?.({
+          message: `File watching could not start for ${handle.path}: ${message}`,
+          type: 'errored',
         });
       });
 
@@ -194,10 +305,46 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       closed = true;
       if (watchId !== null) {
         unregisterWatchCallback(watchId);
+        forgetWatchHealth(watchId);
         stopMainWatcher(watchId);
         watchId = null;
       }
     };
+  }
+
+  /**
+   * Watcher health capability (BST-568 slice 3). Replays the latest known
+   * state per root to the new subscriber, then streams live transitions.
+   * Renders nothing on older bridges without fs:watch-health — the folder's
+   * health is visibly unknown, never faked.
+   */
+  onWatcherHealth(callback: (event: WatcherRootHealthEvent) => void): () => void {
+    for (const event of latestHealthByRootPath.values()) {
+      callback(event);
+    }
+    healthSubscribers.add(callback);
+    return () => {
+      healthSubscribers.delete(callback);
+    };
+  }
+
+  /** Deliberate manual retry of a failed watcher for a watched root path. */
+  async retryWatcher(rootPath: string): Promise<WatcherRetryOutcome> {
+    const api = window.electronAPI?.fileSystem;
+    if (!api || typeof api.retryWatch !== 'function') {
+      return { reason: 'unsupported', retried: false };
+    }
+    let watchId: string | null = null;
+    for (const [id, path] of rootPathByWatchId) {
+      if (path === rootPath) {
+        watchId = id;
+        break;
+      }
+    }
+    if (!watchId) {
+      return { reason: 'unknown', retried: false };
+    }
+    return await api.retryWatch(watchId);
   }
 }
 

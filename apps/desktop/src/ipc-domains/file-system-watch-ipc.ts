@@ -11,7 +11,11 @@
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { FileSystemChange } from '@brainstrike/types';
+import type {
+  FileSystemChange,
+  WatcherHealthEvent,
+  WatcherHealthTransition,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -27,8 +31,26 @@ export interface FileSystemWatchEventPayload {
 
 export type StartFileSystemWatch = (
   directoryPath: string,
-  onChanges: (changes: FileSystemChange[]) => void
+  onChanges: (changes: FileSystemChange[]) => void,
+  onHealth: (transition: WatcherHealthTransition) => void
 ) => () => void;
+
+/**
+ * Retry throttling (BST-568 slice 3, settled ruling): retry is MANUAL-ONLY —
+ * there is no auto-retry loop in main, so a retry storm has no engine to run
+ * on. The escalating minimum interval below bounds even a hostile renderer
+ * hammering fs:watch-retry, and the single-flight guard keeps at most one
+ * active subscription-or-retry per watchId.
+ */
+export const WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
+
+export type FileSystemWatchRetryResult =
+  | { retried: true }
+  | {
+      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown';
+      retried: false;
+      retryAfterMs?: number;
+    };
 
 export interface RegisterFileSystemWatchIpcHandlersOptions {
   /**
@@ -46,11 +68,35 @@ export interface RegisterFileSystemWatchIpcHandlersOptions {
 export const MAX_FS_WATCHERS_PER_OWNER = 32;
 
 interface LiveFileSystemWatcher {
+  /** Consecutive failed transitions since the last healthy one. */
+  consecutiveFailures: number;
+  /**
+   * The latest transition recorded for this watch. Returned with the fs:watch
+   * response so a renderer that was not yet listening (setup-time failures push
+   * before the response resolves) still learns the current state; the retry
+   * path reads `.state` off it. Deliberately ONE field — a parallel
+   * `lastHealthState` would have to be hand-kept in sync with this, and two
+   * fields that can drift apart are a bug waiting to happen.
+   */
+  lastHealthTransition: WatcherHealthTransition | null;
+  /** Earliest wall-clock time a manual retry may run. */
+  nextRetryAllowedAt: number;
   readonly ownerId: number;
-  readonly stop: () => void;
+  /** The resolved directory path — retained for manual retry only. */
+  readonly resolvedPath: string;
+  retryInFlight: boolean;
+  stop: () => void;
 }
 
 const liveWatchers = new Map<string, LiveFileSystemWatcher>();
+
+/** In-memory telemetry counters (deliberately non-persistent). */
+const telemetry = {
+  cleanups: 0,
+  failures: 0,
+  healthPushes: 0,
+  retries: 0,
+};
 // WeakSet — never strongly retain a WebContents (matches notes-vault).
 const reaperAttachedOwners = new WeakSet<WebContents>();
 // Slots reserved across a watch's async setup so concurrent requests observe
@@ -58,11 +104,65 @@ const reaperAttachedOwners = new WeakSet<WebContents>();
 const reservedWatchersByOwner = new Map<number, number>();
 
 function stopWatcher(watchId: string, entry: LiveFileSystemWatcher): void {
+  telemetry.cleanups += 1;
   try {
     entry.stop();
   } catch (error) {
     logger.warn('Failed to stop file system watcher', { error, watchId });
   }
+}
+
+/**
+ * Health sink for one watchId. Updates retry/backoff bookkeeping on the live
+ * entry (if it still exists) and pushes the wire event to the OWNING renderer
+ * only. Wire events carry no root-path FIELD — the renderer resolves watchId
+ * back to its own root. (failure.message may quote the owner's own path for
+ * diagnostics; owner scoping means it never crosses renderer boundaries.)
+ */
+function makeHealthSink(
+  owner: WebContents,
+  watchId: string
+): (transition: WatcherHealthTransition) => void {
+  return (transition) => {
+    const entry = liveWatchers.get(watchId);
+    if (entry) {
+      entry.lastHealthTransition = transition;
+      if (transition.state === 'failed') {
+        entry.consecutiveFailures += 1;
+        entry.retryInFlight = false;
+        telemetry.failures += 1;
+        const stepIndex = Math.min(
+          entry.consecutiveFailures - 1,
+          WATCH_RETRY_BACKOFF_MS.length - 1
+        );
+        entry.nextRetryAllowedAt = Date.now() + (WATCH_RETRY_BACKOFF_MS[stepIndex] ?? 0);
+      } else if (transition.state === 'healthy') {
+        entry.consecutiveFailures = 0;
+        entry.nextRetryAllowedAt = 0;
+        entry.retryInFlight = false;
+      }
+    }
+    if (owner.isDestroyed()) {
+      return;
+    }
+    const payload: WatcherHealthEvent = { ...transition, watchId };
+    telemetry.healthPushes += 1;
+    owner.send(DESKTOP_IPC_CHANNELS.files.watchHealth, payload);
+  };
+}
+
+/** Change sink for one watchId — push to the OWNING renderer only. */
+function makeChangeSink(
+  owner: WebContents,
+  watchId: string
+): (changes: FileSystemChange[]) => void {
+  return (changes) => {
+    if (owner.isDestroyed()) {
+      return;
+    }
+    const payload: FileSystemWatchEventPayload = { changes, watchId };
+    owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
+  };
 }
 
 function disposeFileSystemWatchersForWebContents(ownerId: number): void {
@@ -150,6 +250,12 @@ export function registerFileSystemWatchIpcHandlers({
   startWatch,
 }: RegisterFileSystemWatchIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  // Telemetry counters are scoped to one registration (production registers
+  // exactly once per app lifetime; tests re-register per case).
+  telemetry.cleanups = 0;
+  telemetry.failures = 0;
+  telemetry.healthPushes = 0;
+  telemetry.retries = 0;
 
   registry.registerInvoke(
     'files',
@@ -178,10 +284,18 @@ export function registerFileSystemWatchIpcHandlers({
       const watchId = `fs-watch-${randomUUID()}`;
 
       // E2E mock roots have no on-disk directory: register an inert watcher so
-      // unwatch/reaping stays uniform without pointing chokidar at nothing.
+      // unwatch/reaping stays uniform without pointing the engine at nothing.
       // No await before the insert, so no reservation is needed here.
       if (isMockFileSystemIpcPath(requestedPath)) {
-        liveWatchers.set(watchId, { ownerId: owner.id, stop: () => {} });
+        liveWatchers.set(watchId, {
+          consecutiveFailures: 0,
+          lastHealthTransition: null,
+          nextRetryAllowedAt: 0,
+          ownerId: owner.id,
+          resolvedPath: requestedPath,
+          retryInFlight: false,
+          stop: () => {},
+        });
         return { watchId };
       }
 
@@ -194,28 +308,116 @@ export function registerFileSystemWatchIpcHandlers({
           throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
         }
 
-        const stop = startWatch(resolvedPath, (changes) => {
-          // Push to the OWNING renderer only (never a broadcast).
-          if (owner.isDestroyed()) {
-            return;
-          }
-          const payload: FileSystemWatchEventPayload = { changes, watchId };
-          owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
-        });
+        // Register the entry BEFORE starting the engine. Engines emit health
+        // synchronously during setup ('starting', and a 'failed' from a parcel
+        // binding-load or subscribe error), and makeHealthSink silently skips
+        // ALL its bookkeeping when the entry is missing — so a setup failure
+        // would leave the recorded transition null, making retry answer
+        // 'not-failed' and the user's Retry button inert. `stop` is patched in
+        // below once the engine hands us its disposer; until then it is a
+        // no-op, which is correct — there is nothing to stop yet.
+        const entry: LiveFileSystemWatcher = {
+          consecutiveFailures: 0,
+          lastHealthTransition: null,
+          nextRetryAllowedAt: 0,
+          ownerId: owner.id,
+          resolvedPath,
+          retryInFlight: false,
+          stop: () => {},
+        };
+        liveWatchers.set(watchId, entry);
+
+        let stop: () => void;
+        try {
+          stop = startWatch(
+            resolvedPath,
+            makeChangeSink(owner, watchId),
+            makeHealthSink(owner, watchId)
+          );
+        } catch (error) {
+          // Setup threw outright — do not leave a half-registered entry that
+          // unwatch/retry could later act on.
+          liveWatchers.delete(watchId);
+          throw error;
+        }
+        entry.stop = stop;
+
         // The awaits above raced renderer teardown: if the owner is gone, its
         // reaper has already fired — stop immediately instead of leaking.
         if (owner.isDestroyed()) {
+          liveWatchers.delete(watchId);
           stop();
           throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
         }
-        liveWatchers.set(watchId, { ownerId: owner.id, stop });
         logger.debug('Started file system watcher', { path: resolvedPath, watchId });
-        return { watchId };
+        // Return the latest transition alongside the id: anything the engine
+        // emitted during setup was pushed before this renderer had a watchId to
+        // match it against, so the push alone is not enough.
+        return {
+          ...(entry.lastHealthTransition ? { health: entry.lastHealthTransition } : {}),
+          watchId,
+        };
       } finally {
         releaseWatcherSlot(owner.id);
       }
     }
   );
+
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.watchRetry,
+    (event, rawWatchId: unknown): FileSystemWatchRetryResult => {
+      const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
+      const entry = liveWatchers.get(watchId);
+      // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
+      if (!entry || entry.ownerId !== event.sender.id) {
+        if (entry) {
+          logger.warn('Rejected fs:watch-retry from non-owner renderer', {
+            ownerId: entry.ownerId,
+            requesterId: event.sender.id,
+            watchId,
+          });
+        }
+        return { reason: 'unknown', retried: false };
+      }
+      if (entry.lastHealthTransition?.state !== 'failed') {
+        return { reason: 'not-failed', retried: false };
+      }
+      if (entry.retryInFlight) {
+        return { reason: 'in-flight', retried: false };
+      }
+      const now = Date.now();
+      if (now < entry.nextRetryAllowedAt) {
+        return {
+          reason: 'throttled',
+          retried: false,
+          retryAfterMs: entry.nextRetryAllowedAt - now,
+        };
+      }
+
+      entry.retryInFlight = true;
+      telemetry.retries += 1;
+      const owner = event.sender;
+      // Release whatever the failed engine still holds before re-subscribing —
+      // at most one active subscription-or-retry per root.
+      stopWatcher(watchId, entry);
+      entry.stop = startWatch(
+        entry.resolvedPath,
+        makeChangeSink(owner, watchId),
+        makeHealthSink(owner, watchId)
+      );
+      logger.info('Retrying file system watcher after deliberate request', {
+        consecutiveFailures: entry.consecutiveFailures,
+        watchId,
+      });
+      return { retried: true };
+    }
+  );
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.watchTelemetry, () => ({
+    activeWatchers: liveWatchers.size,
+    ...telemetry,
+  }));
 
   registry.registerInvoke(
     'files',

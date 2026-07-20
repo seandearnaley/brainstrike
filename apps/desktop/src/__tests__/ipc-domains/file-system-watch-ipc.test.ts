@@ -9,7 +9,11 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { FileSystemChange } from '@brainstrike/types';
+import type {
+  FileSystemChange,
+  WatcherHealthEvent,
+  WatcherHealthTransition,
+} from '@brainstrike/types';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,9 +43,12 @@ vi.mock('electron', () => ({
 import {
   disposeAllFileSystemWatchers,
   type FileSystemWatchEventPayload,
+  type FileSystemWatchRetryResult,
   liveFileSystemWatcherCountForTest,
   MAX_FS_WATCHERS_PER_OWNER,
   registerFileSystemWatchIpcHandlers,
+  type StartFileSystemWatch,
+  WATCH_RETRY_BACKOFF_MS,
 } from '../../ipc-domains/file-system-watch-ipc';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
@@ -76,6 +83,7 @@ interface FakeListenerEntry {
 class FakeWebContents {
   readonly id: number;
   readonly watchEvents: FileSystemWatchEventPayload[] = [];
+  readonly healthEvents: WatcherHealthEvent[] = [];
   private destroyed = false;
   private readonly listeners = new Map<string, FakeListenerEntry[]>();
 
@@ -86,6 +94,9 @@ class FakeWebContents {
   send(channel: string, payload: unknown): void {
     if (channel === DESKTOP_IPC_CHANNELS.files.watchEvent) {
       this.watchEvents.push(payload as FileSystemWatchEventPayload);
+    }
+    if (channel === DESKTOP_IPC_CHANNELS.files.watchHealth) {
+      this.healthEvents.push(payload as WatcherHealthEvent);
     }
   }
 
@@ -166,28 +177,55 @@ function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
 interface WatchHarness {
   /** Fire every live fake watcher with the given changes. */
   fireAllChanges: (changes: FileSystemChange[]) => void;
+  /** Fire a health transition on the most recent watcher's health callback. */
+  fireLatestHealth: (transition: WatcherHealthTransition) => void;
   startedPaths: string[];
-  startWatch: (
-    directoryPath: string,
-    onChanges: (changes: FileSystemChange[]) => void
-  ) => () => void;
+  startWatch: StartFileSystemWatch;
   stops: ReturnType<typeof vi.fn>[];
 }
+
+function makeTransition(
+  state: WatcherHealthTransition['state'],
+  failure?: WatcherHealthTransition['failure']
+): WatcherHealthTransition {
+  return {
+    backend: 'fs-events',
+    ...(failure ? { failure } : {}),
+    state,
+    timestamp: Date.now(),
+  };
+}
+
+const FAILED_TRANSITION_FAILURE = {
+  code: 'subscribe-failed',
+  message: 'boom',
+  retryable: true,
+  terminal: false,
+};
 
 function createWatchHarness(): WatchHarness {
   const startedPaths: string[] = [];
   const stops: ReturnType<typeof vi.fn>[] = [];
   const liveCallbacks = new Set<(changes: FileSystemChange[]) => void>();
+  const healthCallbacks: Array<(transition: WatcherHealthTransition) => void> = [];
   return {
     fireAllChanges: (changes) => {
       for (const callback of Array.from(liveCallbacks)) {
         callback(changes);
       }
     },
+    fireLatestHealth: (transition) => {
+      const latest = healthCallbacks.at(-1);
+      if (!latest) {
+        throw new Error('no health callback captured');
+      }
+      latest(transition);
+    },
     startedPaths,
-    startWatch: (directoryPath, onChanges) => {
+    startWatch: (directoryPath, onChanges, onHealth) => {
       startedPaths.push(directoryPath);
       liveCallbacks.add(onChanges);
+      healthCallbacks.push(onHealth);
       const stop = vi.fn(() => {
         liveCallbacks.delete(onChanges);
       });
@@ -201,12 +239,13 @@ function createWatchHarness(): WatchHarness {
 async function invokeWatch(
   owner: FakeWebContents,
   directoryPath: string
-): Promise<{ watchId: string }> {
+): Promise<{ health?: WatcherHealthTransition; watchId: string }> {
   const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watch);
   if (!handler) {
     throw new Error('fs:watch handler is not registered');
   }
   return (await handler(invokeEventFor(owner), toDirectoryHandle(directoryPath))) as {
+    health?: WatcherHealthTransition;
     watchId: string;
   };
 }
@@ -217,6 +256,25 @@ async function invokeUnwatch(owner: FakeWebContents, watchId: string): Promise<v
     throw new Error('fs:unwatch handler is not registered');
   }
   await handler(invokeEventFor(owner), watchId);
+}
+
+async function invokeRetry(
+  owner: FakeWebContents,
+  watchId: string
+): Promise<FileSystemWatchRetryResult> {
+  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watchRetry);
+  if (!handler) {
+    throw new Error('fs:watch-retry handler is not registered');
+  }
+  return (await handler(invokeEventFor(owner), watchId)) as FileSystemWatchRetryResult;
+}
+
+async function invokeTelemetry(owner: FakeWebContents): Promise<unknown> {
+  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watchTelemetry);
+  if (!handler) {
+    throw new Error('fs:watch-telemetry handler is not registered');
+  }
+  return await handler(invokeEventFor(owner));
 }
 
 const SAMPLE_CHANGES: FileSystemChange[] = [
@@ -451,5 +509,206 @@ describe('file-system watch IPC domain', () => {
     expect(removeHandler).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.files.unwatch);
     // Re-register for afterEach symmetry.
     unregister = registerFileSystemWatchIpcHandlers({ startWatch: harness.startWatch });
+  });
+
+  describe('watch health protocol (BST-568 slice 3)', () => {
+    it('pushes health events to the owning renderer with the watchId attached', async () => {
+      const owner = new FakeWebContents(1);
+      const other = new FakeWebContents(2);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+
+      harness.fireLatestHealth(makeTransition('healthy'));
+
+      expect(owner.healthEvents).toHaveLength(1);
+      expect(owner.healthEvents[0]).toMatchObject({ state: 'healthy', watchId });
+      // Health events never carry the root path across the wire.
+      expect(JSON.stringify(owner.healthEvents[0])).not.toContain(dir);
+      expect(other.healthEvents).toHaveLength(0);
+    });
+
+    it('records health emitted synchronously DURING setup, not just after it', async () => {
+      // Every other health test fires transitions after fs:watch has resolved,
+      // by which point the live entry exists — which is exactly why this gap
+      // survived. A real @parcel/watcher binding-load or subscribe failure
+      // emits 'failed' from inside startWatch, i.e. BEFORE the entry is
+      // registered. If that transition is not recorded, lastHealthState stays
+      // null, the retry handler answers 'not-failed', and the Retry button the
+      // user is staring at does nothing at all.
+      unregister();
+      const startWatch: StartFileSystemWatch = (_directoryPath, _onChanges, onHealth) => {
+        onHealth(makeTransition('starting'));
+        onHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        return vi.fn();
+      };
+      unregister = registerFileSystemWatchIpcHandlers({ startWatch });
+
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { health, watchId } = await invokeWatch(owner, dir);
+
+      // The renderer is told either way — pushes do not depend on bookkeeping.
+      expect(owner.healthEvents.map((event) => event.state)).toEqual(['starting', 'failed']);
+
+      // The snapshot MUST ride along on the response. Those pushes above were
+      // emitted before the renderer had a watchId to match them against, so it
+      // dropped them; without this field the failure is unrecoverable on the
+      // renderer side. Asserted here because the renderer-side test feeds
+      // itself a `health` field from a mock — nothing else proves main sends one.
+      expect(health).toMatchObject({
+        failure: FAILED_TRANSITION_FAILURE,
+        state: 'failed',
+      });
+
+      // ...but main must also have RECORDED the failure. 'throttled' proves the
+      // failure bookkeeping ran (it set the backoff window); 'not-failed' would
+      // mean the transition was dropped on the floor.
+      const result = await invokeRetry(owner, watchId);
+      expect(result).toMatchObject({ reason: 'throttled', retried: false });
+    });
+
+    it('does not leave a live entry behind when setup throws', async () => {
+      unregister();
+      unregister = registerFileSystemWatchIpcHandlers({
+        startWatch: () => {
+          throw new Error('binding load failed');
+        },
+      });
+
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      await expect(invokeWatch(owner, dir)).rejects.toThrow('binding load failed');
+      expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    });
+
+    it('retries a failed watch: same path, replaced stop, retried:true', async () => {
+      vi.useFakeTimers();
+      try {
+        const owner = new FakeWebContents(1);
+        const dir = await makeDir();
+        const { watchId } = await invokeWatch(owner, dir);
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        const result = await invokeRetry(owner, watchId);
+
+        expect(result).toEqual({ retried: true });
+        expect(harness.startedPaths).toEqual([dir, dir]);
+        expect(harness.stops[0]).toHaveBeenCalledOnce();
+        expect(liveFileSystemWatcherCountForTest()).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('throttles retries with escalating backoff per consecutive failure', async () => {
+      vi.useFakeTimers();
+      try {
+        const owner = new FakeWebContents(1);
+        const dir = await makeDir();
+        const { watchId } = await invokeWatch(owner, dir);
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+
+        // Immediately after the failure the first backoff window applies.
+        const throttled = await invokeRetry(owner, watchId);
+        expect(throttled.retried).toBe(false);
+        expect(throttled).toMatchObject({ reason: 'throttled' });
+
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        const first = await invokeRetry(owner, watchId);
+        expect(first).toEqual({ retried: true });
+
+        // Second consecutive failure escalates to the next backoff step.
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        const stillThrottled = await invokeRetry(owner, watchId);
+        expect(stillThrottled.retried).toBe(false);
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[1]);
+        const second = await invokeRetry(owner, watchId);
+        expect(second).toEqual({ retried: true });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a healthy transition resets the consecutive-failure backoff', async () => {
+      vi.useFakeTimers();
+      try {
+        const owner = new FakeWebContents(1);
+        const dir = await makeDir();
+        const { watchId } = await invokeWatch(owner, dir);
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        await invokeRetry(owner, watchId);
+        harness.fireLatestHealth(makeTransition('healthy'));
+
+        // Next failure starts back at the FIRST backoff step.
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        const result = await invokeRetry(owner, watchId);
+        expect(result).toEqual({ retried: true });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('rejects retry for a watch that is not failed', async () => {
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+      harness.fireLatestHealth(makeTransition('healthy'));
+
+      const result = await invokeRetry(owner, watchId);
+      expect(result.retried).toBe(false);
+      expect(result).toMatchObject({ reason: 'not-failed' });
+      expect(harness.startedPaths).toHaveLength(1);
+    });
+
+    it('treats non-owner and unknown watchIds identically (no ownership oracle)', async () => {
+      const owner = new FakeWebContents(1);
+      const intruder = new FakeWebContents(2);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+      harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+
+      const nonOwner = await invokeRetry(intruder, watchId);
+      const unknown = await invokeRetry(intruder, 'fs-watch-does-not-exist');
+      expect(nonOwner).toEqual(unknown);
+      expect(nonOwner.retried).toBe(false);
+      expect(harness.startedPaths).toHaveLength(1);
+    });
+
+    it('unwatch drops health/retry state with the watcher', async () => {
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+      harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+      await invokeUnwatch(owner, watchId);
+
+      const result = await invokeRetry(owner, watchId);
+      expect(result.retried).toBe(false);
+      expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    });
+
+    it('exposes a compact telemetry snapshot', async () => {
+      vi.useFakeTimers();
+      try {
+        const owner = new FakeWebContents(1);
+        const dir = await makeDir();
+        const { watchId } = await invokeWatch(owner, dir);
+        harness.fireLatestHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        vi.advanceTimersByTime(WATCH_RETRY_BACKOFF_MS[0] + 1);
+        await invokeRetry(owner, watchId);
+
+        const snapshot = await invokeTelemetry(owner);
+        expect(snapshot).toMatchObject({
+          activeWatchers: 1,
+          failures: 1,
+          retries: 1,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

@@ -17,7 +17,12 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
+  WatcherBackendKind,
+  WatcherFailure,
+  WatcherHealthState,
+  WatcherHealthTransition,
 } from '../types';
 import { validateDirectoryPath } from '../utils';
 import { normalizeDirectoryReadOptions } from '../utils-browser';
@@ -46,6 +51,48 @@ export function resolveWatcherBackend(
   throw new Error(
     `Invalid BRAINSTRIKE_WATCHER_BACKEND value: ${JSON.stringify(raw)} (expected 'parcel' or 'legacy')`
   );
+}
+
+export interface WatchDirectoryOptions {
+  /** Typed watcher health transitions (BST-568 slice 3). */
+  onHealth?: (event: WatcherHealthTransition) => void;
+}
+
+/**
+ * Coarse health for the legacy engines (setup outcome + dispose only), with
+ * the same exactly-once-per-state dedupe as the parcel engine. Removed with
+ * the legacy engines in slice 4.
+ */
+function createLegacyHealthEmitter(
+  backend: WatcherBackendKind,
+  onHealth: ((event: WatcherHealthTransition) => void) | undefined
+): {
+  fail: (error: unknown) => void;
+  transition: (state: WatcherHealthState) => void;
+} {
+  let current: WatcherHealthState | null = null;
+  const emit = (state: WatcherHealthState, failure?: WatcherFailure): void => {
+    if (!onHealth || current === state) {
+      return;
+    }
+    current = state;
+    onHealth({
+      backend,
+      ...(failure ? { failure } : {}),
+      state,
+      timestamp: Date.now(),
+    });
+  };
+  return {
+    fail: (error) =>
+      emit('failed', {
+        code: 'setup-failed',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: true,
+        terminal: false,
+      }),
+    transition: (state) => emit(state),
+  };
 }
 
 /** Default batch size for streaming directory reads */
@@ -563,7 +610,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void,
+    options?: WatchDirectoryOptions
   ): () => void {
     const backend = resolveWatcherBackend();
     let closed = false;
@@ -585,8 +634,27 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       callback(changes);
     };
 
+    // The typed health protocol is the richer desktop superset of the shared
+    // FileSystemWatchSignal channel (#1764): derive signals from transitions
+    // so main-process callers (e.g. notes-vault) get the same overflow/errored
+    // semantics as the web adapter, from ONE source of truth.
+    const onHealth = (event: WatcherHealthTransition): void => {
+      options?.onHealth?.(event);
+      if (!onSignal) {
+        return;
+      }
+      if (event.state === 'degraded') {
+        onSignal({ type: 'overflow' });
+      } else if (event.state === 'failed') {
+        onSignal({
+          message: event.failure?.message ?? 'watcher failed',
+          type: 'errored',
+        });
+      }
+    };
+
     if (backend === 'parcel') {
-      startParcelWatch(handle, callbackWithCacheInvalidation)
+      startParcelWatch(handle, callbackWithCacheInvalidation, { onHealth })
         .then((stop) => {
           if (closed) {
             stop();
@@ -595,9 +663,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           dispose = stop;
         })
         .catch((error: unknown) => {
-          // No fallback engine by design. Until the slice-3 health protocol
-          // makes this renderer-visible, a setup failure surfaces as one
-          // structured error log and the root stays visibly unwatched.
+          // No fallback engine by design. The onHealth 'failed' transition
+          // (emitted inside startParcelWatch) is the renderer-visible signal;
+          // the structured log covers the no-listener case.
           logger.error('Parcel watcher setup failed; folder will not be watched', {
             error,
             path: handle.path,
@@ -609,8 +677,33 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       };
     }
 
+    // Legacy engines predate the health protocol: synthesize COARSE
+    // transitions at this seam (setup outcome + dispose only; runtime
+    // failures still log-and-stop inside the engines). The legacy engines
+    // are removed in BST-568 slice 4.
+    // Wire the WRAPPED sink, not the raw options.onHealth — the wrapper is the
+    // only place transitions become FileSystemWatchSignals, and it forwards to
+    // options.onHealth internally, so there is no double-dispatch. Passing the
+    // raw callback here meant a caller supplying only `onSignal` never learned
+    // that a legacy watch had died.
+    const legacyHealth = createLegacyHealthEmitter(
+      process.platform === 'darwin' ? 'legacy-fs-watch' : 'legacy-chokidar',
+      onHealth
+    );
+    legacyHealth.transition('starting');
+
     if (process.platform === 'darwin') {
-      return startFsWatch(handle, callbackWithCacheInvalidation, 'primary');
+      try {
+        const stop = startFsWatch(handle, callbackWithCacheInvalidation, 'primary');
+        legacyHealth.transition('healthy');
+        return () => {
+          legacyHealth.transition('stopped');
+          stop();
+        };
+      } catch (error) {
+        legacyHealth.fail(error);
+        throw error;
+      }
     }
 
     startChokidarWatch(handle, callbackWithCacheInvalidation)
@@ -620,15 +713,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           return;
         }
         dispose = stop;
+        legacyHealth.transition('healthy');
       })
       .catch((err) => {
         if (!closed) {
-          dispose = handleWatcherSetupError(err, handle, callbackWithCacheInvalidation);
+          try {
+            dispose = handleWatcherSetupError(err, handle, callbackWithCacheInvalidation);
+            // The fs.watch fallback started; coarse health reports healthy.
+            legacyHealth.transition('healthy');
+          } catch (fallbackError) {
+            legacyHealth.fail(fallbackError);
+          }
         }
       });
 
     return () => {
       closed = true;
+      legacyHealth.transition('stopped');
       dispose();
     };
   }
