@@ -33,7 +33,7 @@
     "build": "tsup --config ./tsup.config.ts",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
-    "lint": "pnpm -w lint --filter @brainstrike/file-tree-worker",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit",

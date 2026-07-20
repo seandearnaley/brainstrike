@@ -40,7 +40,7 @@
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
-    "lint": "pnpm -w lint --filter @brainstrike/embedding-worker",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:webgpu-memory": "VITEST_RUN_WEBGPU_MEMORY=true vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
     "test:watch": "vitest --watch",
