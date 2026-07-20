@@ -709,6 +709,12 @@ type TriggerSyncScope =
       mode: 'paths';
       roots: Array<{
         changes: readonly FileSystemChange[];
+        /**
+         * Watcher overflow: events may have been missed for this root, so its
+         * incremental changes are untrustworthy — the root needs a FULL
+         * resync (but other roots keep their incremental scope).
+         */
+        fullResync?: boolean;
         rootId: string;
       }>;
     };
@@ -728,10 +734,14 @@ function mergeTriggerSyncScopes(
     return { mode: 'full' };
   }
 
-  const rootsById = new Map<string, { changes: FileSystemChange[]; rootId: string }>();
+  const rootsById = new Map<
+    string,
+    { changes: FileSystemChange[]; fullResync?: boolean; rootId: string }
+  >();
   for (const root of current.roots) {
     rootsById.set(root.rootId, {
       changes: [...root.changes],
+      ...(root.fullResync === true ? { fullResync: true } : {}),
       rootId: root.rootId,
     });
   }
@@ -739,6 +749,7 @@ function mergeTriggerSyncScopes(
     const existing = rootsById.get(root.rootId);
     rootsById.set(root.rootId, {
       changes: [...(existing?.changes ?? []), ...root.changes],
+      ...(existing?.fullResync === true || root.fullResync === true ? { fullResync: true } : {}),
       rootId: root.rootId,
     });
   }
@@ -947,11 +958,24 @@ function parseRefreshSyncScope(event: Event): TriggerSyncScope {
   if (!isWorkspaceRefreshDetail(event.detail)) {
     return { mode: 'full' };
   }
-  if (!(event.detail.source === 'watcher' && event.detail.scope === 'incremental')) {
+  if (event.detail.source !== 'watcher') {
     return { mode: 'full' };
   }
   if (event.detail.roots.length === 0) {
     return { mode: 'full' };
+  }
+  if (event.detail.scope === 'full') {
+    // Watcher overflow ('unknown' observer records): events may have been
+    // missed for the NAMED roots, so each needs a full resync — but roots not
+    // named in the event keep their state; this must not fan out workspace-wide.
+    return {
+      mode: 'paths',
+      roots: event.detail.roots.map((root) => ({
+        changes: root.changes,
+        fullResync: true,
+        rootId: root.rootId,
+      })),
+    };
   }
   return {
     mode: 'paths',
@@ -983,6 +1007,15 @@ function buildPathSyncTargets(args: {
     if (!target) {
       continue;
     }
+    if (root.fullResync === true || target.scope.mode === 'full') {
+      // Overflow: this root's incremental changes are untrustworthy — a full
+      // resync supersedes any accumulated per-path scope.
+      targetByRootId.set(root.rootId, {
+        handle: target.handle,
+        scope: { mode: 'full' },
+      });
+      continue;
+    }
     const existingChanges = target.scope.changes ?? [];
     targetByRootId.set(root.rootId, {
       handle: target.handle,
@@ -993,7 +1026,9 @@ function buildPathSyncTargets(args: {
     });
   }
   return [...targetByRootId.values()].filter(
-    (target) => target.scope.mode === 'paths' && (target.scope.changes?.length ?? 0) > 0
+    (target) =>
+      target.scope.mode === 'full' ||
+      (target.scope.mode === 'paths' && (target.scope.changes?.length ?? 0) > 0)
   );
 }
 

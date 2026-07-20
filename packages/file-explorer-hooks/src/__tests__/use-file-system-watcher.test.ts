@@ -1,4 +1,8 @@
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type {
+  DirectoryHandle,
+  FileSystemAdapter,
+  FileSystemWatchSignal,
+} from '@brainstrike/file-system';
 import type { FileSystemChange } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,11 +23,13 @@ function makeHandle(rootId: string): DirectoryHandle {
 
 type WatchCallback = (changes: FileSystemChange[]) => void;
 type OnChanges = (rootId: string, changes: FileSystemChange[]) => void;
+type OnSignal = (rootId: string, signal: FileSystemWatchSignal) => void;
 
 interface WatchCall {
   callback: WatchCallback;
   disposer: () => void;
   handle: DirectoryHandle;
+  onSignal: ((signal: FileSystemWatchSignal) => void) | undefined;
 }
 
 function makeAdapter(supportsWatch = true): FileSystemAdapter & {
@@ -49,10 +55,11 @@ function makeAdapter(supportsWatch = true): FileSystemAdapter & {
     };
     adapter['watchDirectory'] = (
       handle: DirectoryHandle,
-      callback: WatchCallback
+      callback: WatchCallback,
+      onSignal?: (signal: FileSystemWatchSignal) => void
     ): (() => void) => {
       const disposer = vi.fn<() => void>();
-      watchCalls.push({ callback, disposer, handle });
+      watchCalls.push({ callback, disposer, handle, onSignal });
       return disposer;
     };
   }
@@ -313,5 +320,62 @@ describe('useFileSystemWatcher', () => {
 
     expect(onChangesV1).not.toHaveBeenCalled();
     expect(onChangesV2).toHaveBeenCalledWith('root-a', changes);
+  });
+
+  it('forwards watcher health signals to onSignal with the correct rootId', () => {
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+    const handleB = makeHandle('root-b');
+    const onSignal = vi.fn<OnSignal>();
+
+    renderHook(() =>
+      useFileSystemWatcher({
+        adapter,
+        onChanges,
+        onSignal,
+        roots: [
+          { handle: handleA, rootId: 'root-a' },
+          { handle: handleB, rootId: 'root-b' },
+        ],
+      })
+    );
+
+    act(() => {
+      adapter.watchCalls[0]!.onSignal?.({ type: 'overflow' });
+      adapter.watchCalls[1]!.onSignal?.({ message: 'observation invalid', type: 'errored' });
+    });
+
+    expect(onSignal).toHaveBeenCalledTimes(2);
+    expect(onSignal).toHaveBeenNthCalledWith(1, 'root-a', { type: 'overflow' });
+    expect(onSignal).toHaveBeenNthCalledWith(2, 'root-b', {
+      message: 'observation invalid',
+      type: 'errored',
+    });
+    // An errored signal does NOT restart the watch — no silent retry loop.
+    expect(adapter.watchCalls).toHaveLength(2);
+  });
+
+  it('uses the latest onSignal identity without restarting watchers', () => {
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+    const onSignalV1 = vi.fn<OnSignal>();
+    const onSignalV2 = vi.fn<OnSignal>();
+
+    const roots = [{ handle: handleA, rootId: 'root-a' }];
+    const { rerender } = renderHook(
+      ({ sig }: { sig: OnSignal }) =>
+        useFileSystemWatcher({ adapter, onChanges, onSignal: sig, roots }),
+      { initialProps: { sig: onSignalV1 } }
+    );
+
+    rerender({ sig: onSignalV2 });
+    expect(adapter.watchCalls).toHaveLength(1);
+
+    act(() => {
+      adapter.watchCalls[0]!.onSignal?.({ type: 'overflow' });
+    });
+
+    expect(onSignalV1).not.toHaveBeenCalled();
+    expect(onSignalV2).toHaveBeenCalledWith('root-a', { type: 'overflow' });
   });
 });
