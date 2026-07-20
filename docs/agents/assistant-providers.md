@@ -600,6 +600,20 @@ raw result but not the original input. LSP output retains availability/reason,
 language, hover text, diagnostics, and definition/implementation locations.
 Projection-only omissions are counted explicitly, malformed result shapes
 throw, and raw tool results are never mutated.
+`listWorkspaceContext` likewise keeps its complete typed raw result for
+display, persistence, hooks, and reload while its Mastra `toModelOutput`
+projection emits a bounded line-oriented inventory. It retains the main and
+other roots, focused-root id, selected-file page and outside-workspace count,
+index state, token estimates, concise curated-token totals, and detailed
+Tapestry ranges when requested. It reserves one advancing selected-file entry,
+then fits the multi-root inventory before spending the remaining budget on
+selected paths, so a large selection cannot hide the root ids required by
+follow-up tools. Path rendering preserves repeated and boundary whitespace;
+only line-breaking characters are escaped and overlong paths are explicitly
+clipped. Projection-only omissions are explicit. When the projection cannot
+retain the whole producer page, its continuation uses the exact advancing
+selected-file offset; malformed, incoherent, or non-advancing producer results
+throw instead of falling back to generic JSON.
 
 Native-tool catalog ownership is deliberately split at the browser/runtime
 boundary:

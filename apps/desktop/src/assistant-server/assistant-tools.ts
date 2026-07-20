@@ -92,6 +92,7 @@ import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './re
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool';
+import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
@@ -3554,6 +3555,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.listWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
+      toModelOutput: projectListWorkspaceContextModelOutput,
     },
     [NATIVE_TOOL_ID.readWorkspaceContext]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
