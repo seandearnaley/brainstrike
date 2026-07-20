@@ -522,7 +522,8 @@ function countUnreadSourceChars(
   if (!position) {
     return 0;
   }
-  let unread = (lines[position.line - 1] ?? '').length - position.column;
+  let unread = position.column === 0 && position.line > 1 ? 1 : 0;
+  unread += (lines[position.line - 1] ?? '').length - position.column;
   for (let line = position.line + 1; line <= endLine; line += 1) {
     unread += 1 + (lines[line - 1] ?? '').length;
   }

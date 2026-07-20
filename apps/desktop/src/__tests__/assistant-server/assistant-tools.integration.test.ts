@@ -238,6 +238,33 @@ describe('assistant-tools', () => {
     }
   });
 
+  it('counts the unread newline when continuation starts at the next line', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'newline-boundary.ts'),
+      'a\nb',
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 4,
+        path: '/src/newline-boundary.ts',
+      });
+
+      expect(first).toMatchObject({
+        content: '1: a',
+        omittedChars: 2,
+        truncated: true,
+      });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it.each([
     { maxChars: 3, source: 'hello' },
     { maxChars: 4, source: '😀hello' },
