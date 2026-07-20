@@ -91,7 +91,11 @@ describe('assistant UI panel architecture', () => {
     // computing its own tooltip/icon/aria-live states). The model-menu swap
     // net-removed code; after all four panel-touching features merged the file
     // measures 1849 lines; budget carries modest headroom.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1855);
+    // Bumped 1855 → 1870 for mid-run steering (BST-588): onSteerActiveRun
+    // plumbing through the shared ChatThreadProps + both runtime chats; the
+    // Steer button + control cluster live in follow-up-queue.tsx
+    // (ComposerRunControls keeps the panel's composition site one line).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1870);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

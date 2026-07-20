@@ -96,12 +96,7 @@ import {
 import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
-import {
-  FollowUpQueueBridge,
-  FollowUpQueueChips,
-  QueueFollowUpButton,
-  SteerRunButton,
-} from './follow-up-queue';
+import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
@@ -336,11 +331,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onRunFailed?: (event: AssistantRunEvent) => void;
   /** Reports a `run.finished` run event exactly once (deduped by event id). */
   onRunFinished?: (event: AssistantRunEvent) => void;
-  /**
-   * Mid-run steering transport (BST-588), supplied by the app shell where the
-   * desktop assistant server's steer control endpoint exists. Absent renders
-   * no Steer button (capability-gated — web/local runs are queue-only).
-   */
+  /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
   onSteerActiveRun?: () => Promise<boolean>;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
@@ -1343,12 +1334,7 @@ const ChatThreadUI = ({
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
             queueControl={
-              <>
-                <QueueFollowUpButton threadKey={threadKey} />
-                {onSteerActiveRun ? (
-                  <SteerRunButton onSteerRequest={onSteerActiveRun} threadKey={threadKey} />
-                ) : null}
-              </>
+              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
             }
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
             {...(planMode ? { planMode } : {})}

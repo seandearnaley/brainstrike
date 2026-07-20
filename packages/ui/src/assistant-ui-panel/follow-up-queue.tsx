@@ -178,6 +178,28 @@ export function SteerRunButton({
   );
 }
 
+/**
+ * The composer's complete RUNNING-branch control cluster: Queue always, Steer
+ * only when the app shell supplied a transport (BST-588). Extracted so the
+ * panel root stays a one-line composition site.
+ */
+export function ComposerRunControls({
+  onSteerActiveRun,
+  threadKey,
+}: {
+  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  readonly threadKey?: string | undefined;
+}) {
+  return (
+    <>
+      <QueueFollowUpButton threadKey={threadKey} />
+      {onSteerActiveRun ? (
+        <SteerRunButton onSteerRequest={onSteerActiveRun} threadKey={threadKey} />
+      ) : null}
+    </>
+  );
+}
+
 /** Removable "queued" chips above the composer; hidden when nothing is queued. */
 export function FollowUpQueueChips({ threadKey }: { readonly threadKey?: string | undefined }) {
   const queueKey = followUpQueueKey(threadKey);
