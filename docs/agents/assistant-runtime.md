@@ -114,13 +114,17 @@ serialized characters when a complete domain projection has a tighter budget.
 `brainstrike.webExtract` uses 2400 characters: smaller extracts project every
 source byte and exact URL directly; larger extracts settle completely and
 continue through the artifact reader instead of clipping or re-fetching.
+If a stricter-threshold artifact still fits one model page, settlement keeps
+the rich raw display and publishes a complete page without an EOF cursor. If
+no durable store exists, an oversized web extract produces an explicit
+model-output-unavailable projection; it never silently clips source text.
 A module-private WeakMap carrier keeps the original in-process result and authenticated
 PostToolUse context away from public persistence. Once settlement succeeds,
 model projection bypasses any domain projector for the original result and
 projects a bounded initial-page view instead. That model view omits the
 redundant artifact reference and carries one concrete reader/cursor action,
 recomputing its cursor if the preview must shrink to fit. Display and transcript
-keep the full envelope. Public-shape guessing is forbidden. Storage failure, a
+keep the full envelope only when continuation is required. Public-shape guessing is forbidden. Storage failure, a
 missing tool-call id, incoherent returned
 metadata, or output above the explicit 16 MiB settlement cap throws visibly.
 The `skill` tool is excluded because its instruction payload cannot be paged.

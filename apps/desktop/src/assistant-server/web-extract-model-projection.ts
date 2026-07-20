@@ -113,7 +113,12 @@ function output(lines: readonly string[]): WebExtractTextModelOutput {
 export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelOutput {
   const result = parseWebExtractResult(raw);
   if (JSON.stringify(result).length > WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS) {
-    throw new RangeError('webExtract output must settle before model projection');
+    return output([
+      `web-extract | status=model-output-unavailable | pages=${result.count} | failed=${
+        result.failed.length
+      } | truncated=false`,
+      'error: "Complete webExtract output exceeded the inline model budget, but durable artifact settlement was unavailable for this run. The raw result remains available to the application; start a durable thread before retrying so the model can read an exact continuation."',
+    ]);
   }
 
   const lines = [

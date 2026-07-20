@@ -89,7 +89,7 @@ interface SerializedToolOutput {
 }
 
 interface SettledToolOutput {
-  readonly displayOutput: ToolOutputArtifactEnvelope;
+  readonly displayOutput: unknown;
   readonly modelOutput: ReturnType<typeof projectToolOutputArtifactPage>;
   readonly projectionSource: unknown;
 }
@@ -188,9 +188,22 @@ function fitArtifactPreview(content: string): {
 function createArtifactOutputs(
   toolName: string,
   reference: ToolOutputArtifactReference,
-  content: string
+  content: string,
+  completeDisplayOutput: unknown
 ): Pick<SettledToolOutput, 'displayOutput' | 'modelOutput'> {
   const preview = fitArtifactPreview(content);
+  if (preview.endByte >= reference.byteLength) {
+    return {
+      displayOutput: completeDisplayOutput,
+      modelOutput: projectToolOutputArtifactPage({
+        artifactRef: reference,
+        ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
+        content: preview.preview,
+        endByte: preview.endByte,
+        offsetByte: 0,
+      }),
+    };
+  }
   const nextCursor = encodeToolOutputArtifactCursor(reference, preview.endByte);
   const displayOutput: ToolOutputArtifactEnvelope = {
     artifactRef: reference,
@@ -363,7 +376,7 @@ async function settleOutput(
     );
   }
   return createSettlementCarrier({
-    ...createArtifactOutputs(toolName, reference, serialized.content),
+    ...createArtifactOutputs(toolName, reference, serialized.content, domainOutput),
     projectionSource: output,
   });
 }

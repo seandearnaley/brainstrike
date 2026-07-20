@@ -381,7 +381,10 @@ The assistant's search verbs, in the order the default instructions present them
    complete projection. Results above 2400 serialized characters use the
    central artifact settlement path before projection, which retains exact
    UTF-8 JSON and gives the model an opaque `brainstrike.readToolOutputArtifact`
-   cursor. Hermetic tests:
+   cursor only when unread bytes remain. A one-page settlement stays complete
+   without an EOF cursor. Without durable settlement, an oversized result
+   surfaces an explicit model-output-unavailable state while its raw application
+   result remains intact. Hermetic tests:
    `apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts` and
    `web-extract-model-projection.test.ts`.
 
@@ -531,7 +534,11 @@ tool may also declare a stricter canonical-name serialized-character ceiling
 when its complete domain projection must fit below that generic transport
 threshold. Desktop sets `brainstrike.webExtract` to 2400 characters so
 escape-heavy inline source still fits the 6000-character domain projection;
-larger extracts use the same durable artifact format and exact cursor.
+larger extracts use the same durable artifact format and an exact cursor only
+when unread bytes remain. A settlement that fits one model page retains the raw
+display and returns `complete: true`; a host without a durable store receives
+an explicit model-output-unavailable projection instead of clipped source or a
+projection exception.
 A private carrier retains the original result without leaking it into
 persistence.
 After settlement, `toModelOutput` bypasses the original domain projector and

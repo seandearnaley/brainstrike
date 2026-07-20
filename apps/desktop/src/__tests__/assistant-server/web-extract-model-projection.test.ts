@@ -95,15 +95,22 @@ describe('webExtract model projection', () => {
     );
   });
 
-  it('fails visibly if oversized or malformed output reaches the inline projector', () => {
-    expect(() =>
-      projectWebExtractModelOutput({
-        ...webExtractResult(),
-        count: 1,
-        results: [{ content: 'x'.repeat(6000), url: 'https://example.com/oversized' }],
-      })
-    ).toThrow('webExtract output must settle before model projection');
+  it('surfaces missing durable settlement if an oversized result reaches the inline projector', () => {
+    const projection = projectWebExtractModelOutput({
+      ...webExtractResult(),
+      count: 1,
+      results: [{ content: 'x'.repeat(6000), url: 'https://example.com/oversized' }],
+    });
 
+    expect(projection.value).toContain('status=model-output-unavailable');
+    expect(projection.value).toContain('pages=1');
+    expect(projection.value).toContain('durable artifact settlement was unavailable');
+    expect(JSON.stringify(projection).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+  });
+
+  it('fails visibly if malformed output reaches the inline projector', () => {
     expect(() =>
       projectWebExtractModelOutput({
         ...webExtractResult(),

@@ -634,7 +634,8 @@ The wrapper also accepts stricter per-tool serialized-character thresholds.
 Desktop sets `brainstrike.webExtract` to 2400 characters so complete small
 extracts stay inline while larger page content, exact URLs, and failure reasons
 are committed as one exact JSON artifact before any compact model view is
-published.
+published. When that stored JSON fits one model page, display keeps the complete
+raw result and the model page reports completion without an EOF cursor.
 Paired tests:
 `migration-068-tool-output-artifacts.test.ts`,
 `tool-output-artifact-repository.test.ts`,
