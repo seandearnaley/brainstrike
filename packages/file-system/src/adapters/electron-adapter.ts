@@ -17,6 +17,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherBackendKind,
   WatcherFailure,
@@ -610,6 +611,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   watchDirectory(
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
     const backend = resolveWatcherBackend();
@@ -632,10 +634,27 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       callback(changes);
     };
 
+    // The typed health protocol is the richer desktop superset of the shared
+    // FileSystemWatchSignal channel (#1764): derive signals from transitions
+    // so main-process callers (e.g. notes-vault) get the same overflow/errored
+    // semantics as the web adapter, from ONE source of truth.
+    const onHealth = (event: WatcherHealthTransition): void => {
+      options?.onHealth?.(event);
+      if (!onSignal) {
+        return;
+      }
+      if (event.state === 'degraded') {
+        onSignal({ type: 'overflow' });
+      } else if (event.state === 'failed') {
+        onSignal({
+          message: event.failure?.message ?? 'watcher failed',
+          type: 'errored',
+        });
+      }
+    };
+
     if (backend === 'parcel') {
-      startParcelWatch(handle, callbackWithCacheInvalidation, {
-        ...(options?.onHealth ? { onHealth: options.onHealth } : {}),
-      })
+      startParcelWatch(handle, callbackWithCacheInvalidation, { onHealth })
         .then((stop) => {
           if (closed) {
             stop();

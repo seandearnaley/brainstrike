@@ -362,6 +362,35 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     expect(mockElectronAPI.fileSystem.retryWatch).not.toHaveBeenCalled();
   });
 
+  it('translates health into the shared FileSystemWatchSignal channel (#1764)', async () => {
+    const signals: unknown[] = [];
+    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => {
+      signals.push(signal);
+    });
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+    // Prime the shared subscription so pushHealth is captured.
+    const prime = adapter.onWatcherHealth(() => undefined);
+
+    pushHealth?.(makeHealthEvent('watch-alpha', 'healthy'));
+    expect(signals).toEqual([]);
+
+    pushHealth?.(makeHealthEvent('watch-alpha', 'degraded'));
+    expect(signals).toEqual([{ type: 'overflow' }]);
+
+    pushHealth?.({
+      backend: 'fs-events' as const,
+      failure: { code: 'x', message: 'dead', retryable: true, terminal: false },
+      state: 'failed' as const,
+      timestamp: 2,
+      watchId: 'watch-alpha',
+    });
+    expect(signals).toEqual([{ type: 'overflow' }, { message: 'dead', type: 'errored' }]);
+    prime();
+    stop();
+  });
+
   it('disposing the watch clears its health state and mapping', async () => {
     const stop = adapter.watchDirectory(handle, vi.fn());
     await vi.waitFor(() => {

@@ -86,16 +86,33 @@ describe('watchDirectory backend routing', () => {
     stop();
   });
 
-  it('passes onHealth through to the parcel engine', async () => {
+  it('forwards health to options.onHealth and derives shared signals for onSignal', async () => {
     process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'parcel';
     const adapter = new ElectronFileSystemAdapter();
     const onHealth = vi.fn();
-    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), { onHealth });
+    const onSignal = vi.fn();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), onSignal, { onHealth });
     await vi.waitFor(() => {
       expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
     });
-    const options = startParcelWatchMock.mock.calls[0]?.[2] as { onHealth?: unknown } | undefined;
-    expect(options?.onHealth).toBe(onHealth);
+    const options = startParcelWatchMock.mock.calls[0]?.[2] as
+      | { onHealth?: (event: unknown) => void }
+      | undefined;
+    expect(typeof options?.onHealth).toBe('function');
+
+    // The adapter's wrapped sink forwards transitions AND translates them
+    // into the shared FileSystemWatchSignal channel (#1764).
+    options?.onHealth?.({ backend: 'fs-events', state: 'degraded', timestamp: 1 });
+    expect(onHealth).toHaveBeenCalledWith(expect.objectContaining({ state: 'degraded' }));
+    expect(onSignal).toHaveBeenCalledWith({ type: 'overflow' });
+
+    options?.onHealth?.({
+      backend: 'fs-events',
+      failure: { code: 'x', message: 'boom', retryable: true, terminal: false },
+      state: 'failed',
+      timestamp: 2,
+    });
+    expect(onSignal).toHaveBeenCalledWith({ message: 'boom', type: 'errored' });
     stop();
   });
 
@@ -104,7 +121,7 @@ describe('watchDirectory backend routing', () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
     const adapter = new ElectronFileSystemAdapter();
     const health: Array<{ backend: string; state: string }> = [];
-    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), {
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, {
       onHealth: (event) => health.push(event),
     });
     expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);

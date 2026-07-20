@@ -78,6 +78,9 @@ export function registerIpcHandlers(
           platform: 'electron',
         },
         onChanges,
+        // The shared onSignal channel is derived FROM onHealth inside the
+        // adapter; IPC consumers use the richer health protocol directly.
+        undefined,
         { onHealth }
       ),
   });

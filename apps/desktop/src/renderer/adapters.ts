@@ -4,6 +4,7 @@ import type {
   ElectronAPI,
   FileSystemChange,
   FileSystemWatchEvent,
+  FileSystemWatchSignal,
   IFileNode,
   RootDescriptor,
   WatcherHealthEvent,
@@ -75,6 +76,12 @@ function unregisterWatchCallback(watchId: string): void {
 const rootPathByWatchId = new Map<string, string>();
 const latestHealthByRootPath = new Map<string, WatcherRootHealthEvent>();
 const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
+// Per-watch translation of health transitions into the SHARED
+// FileSystemWatchSignal channel (#1764): degraded -> 'overflow' (events may
+// have been missed; consumers full-refresh the root), failed -> 'errored'
+// (the watch is dead; consumers surface it visibly). This is what plugs
+// desktop into the same consumer plumbing the web adapter drives.
+const signalCallbacksById = new Map<string, (signal: FileSystemWatchSignal) => void>();
 let sharedHealthUnsubscribe: (() => void) | null = null;
 
 function ensureSharedHealthSubscription(
@@ -93,10 +100,22 @@ function ensureSharedHealthSubscription(
     for (const subscriber of Array.from(healthSubscribers)) {
       subscriber(resolved);
     }
+    const signalCallback = signalCallbacksById.get(event.watchId);
+    if (signalCallback) {
+      if (event.state === 'degraded') {
+        signalCallback({ type: 'overflow' });
+      } else if (event.state === 'failed') {
+        signalCallback({
+          message: event.failure?.message ?? 'watcher failed',
+          type: 'errored',
+        });
+      }
+    }
   });
 }
 
 function forgetWatchHealth(watchId: string): void {
+  signalCallbacksById.delete(watchId);
   const rootPath = rootPathByWatchId.get(watchId);
   rootPathByWatchId.delete(watchId);
   if (rootPath) {
@@ -115,6 +134,7 @@ export function __resetFsWatchDispatcherForTest(): void {
   rootPathByWatchId.clear();
   latestHealthByRootPath.clear();
   healthSubscribers.clear();
+  signalCallbacksById.clear();
   sharedHealthUnsubscribe = null;
 }
 
@@ -188,7 +208,8 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     const api = window.electronAPI?.fileSystem;
     if (
@@ -230,6 +251,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         // Health capability (older bridges may lack it — visibly absent).
         if (typeof api.onWatchHealth === 'function') {
           rootPathByWatchId.set(id, handle.path);
+          if (onSignal) {
+            signalCallbacksById.set(id, onSignal);
+          }
           ensureSharedHealthSubscription(api.onWatchHealth);
         }
       })
