@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
   formatMcpConfig,
   parsePort,
@@ -104,6 +105,24 @@ test('rejects an Electron plist that cannot provide the required unique identity
       ),
     /exactly one CFBundleIdentifier key/
   );
+});
+
+test('removes the temporary profile when macOS identity setup fails closed', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-profile-test-'));
+
+  try {
+    await assert.rejects(
+      createAgentDevtoolsProfile({
+        electronExecutablePath: path.join(root, 'unexpected-electron'),
+        platform: 'darwin',
+        tempDirectory: root,
+      }),
+      /Expected a macOS Electron\.app executable path/
+    );
+    assert.deepEqual(await readdir(root), []);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test('waitForEndpoint sleeps between non-ok responses', async () => {

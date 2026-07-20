@@ -183,6 +183,36 @@ async function removeUserDataDir(userDataDir) {
   }
 }
 
+export async function createAgentDevtoolsProfile(options = {}) {
+  const {
+    electronExecutablePath,
+    platform = process.platform,
+    tempDirectory = os.tmpdir(),
+  } = options;
+  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, 'brainstrike-agent-devtools-'));
+
+  try {
+    const electronOverrideDistPath =
+      platform === 'darwin'
+        ? await createMacAgentDebugElectronDist({
+            electronExecutablePath: electronExecutablePath ?? resolveElectronExecutablePath(),
+            userDataDir,
+          })
+        : null;
+    return { electronOverrideDistPath, userDataDir };
+  } catch (setupError) {
+    try {
+      await fs.rm(userDataDir, { force: true, recursive: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [setupError, cleanupError],
+        `Agent DevTools setup failed and profile cleanup also failed for ${userDataDir}.`
+      );
+    }
+    throw setupError;
+  }
+}
+
 function isChildRunning(child) {
   return child.exitCode === null && child.signalCode === null;
 }
@@ -269,14 +299,7 @@ async function main() {
     return;
   }
 
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-devtools-'));
-  const electronOverrideDistPath =
-    process.platform === 'darwin'
-      ? await createMacAgentDebugElectronDist({
-          electronExecutablePath: resolveElectronExecutablePath(),
-          userDataDir,
-        })
-      : null;
+  const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
   const env = {
     ...process.env,
     BRAINSTRIKE_AGENT_DEVTOOLS: '1',
