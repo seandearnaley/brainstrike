@@ -28,6 +28,10 @@ const resources =
         `release/${process.platform === 'win32' ? 'win' : 'linux'}-unpacked/resources`
       );
 const archive = path.join(resources, 'app.asar');
+const packagedFileSystemManifest = path.join(
+  archive,
+  'node_modules/@brainstrike/file-system/package.json'
+);
 // asarUnpack is deliberately limited to `**/node_modules/@parcel/**/*.node`
 // (mirroring secure-fs-native): whole-directory unpack globs corrupt the asar
 // under pnpm's symlinked layout (observed live: picomatch/package.json entry
@@ -53,6 +57,11 @@ function findNodeBinding(dir) {
 }
 
 assert.equal(existsSync(archive), true, `Missing packaged archive: ${archive}`);
+assert.equal(
+  existsSync(packagedFileSystemManifest),
+  true,
+  `Missing packaged file-system manifest: ${packagedFileSystemManifest}`
+);
 const unpackedBinding = findNodeBinding(unpackedParcelScope);
 assert.ok(
   unpackedBinding,
@@ -63,8 +72,12 @@ const backend = BACKEND_BY_PLATFORM[process.platform];
 assert.ok(backend, `Unsupported packaged-smoke platform: ${process.platform}`);
 
 async function main() {
-  const requireFromPackage = createRequire(path.join(archive, 'package.json'));
-  const watcher = requireFromPackage('@parcel/watcher');
+  // Resolve from the package that owns this dependency, exactly like
+  // @brainstrike/file-system/electron does at runtime. Resolving from the app
+  // root would accidentally require electron-builder to hoist this transitive
+  // dependency even though a nested pnpm layout is valid.
+  const requireFromFileSystem = createRequire(packagedFileSystemManifest);
+  const watcher = requireFromFileSystem('@parcel/watcher');
 
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst568-packaged-'));
   try {
