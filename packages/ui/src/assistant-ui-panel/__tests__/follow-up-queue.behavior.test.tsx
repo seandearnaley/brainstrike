@@ -16,7 +16,12 @@ import {
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from '../follow-up-queue';
+import {
+  FollowUpQueueBridge,
+  FollowUpQueueChips,
+  QueueFollowUpButton,
+  SteerRunButton,
+} from '../follow-up-queue';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 
 /** A controllable adapter: each run() blocks until its release() is called, so
@@ -48,10 +53,12 @@ function Harness({
   adapter,
   threadKey,
   bridgeMounted = true,
+  onSteerRequest,
 }: {
   adapter: ChatModelAdapter;
   threadKey: string;
   bridgeMounted?: boolean;
+  onSteerRequest?: () => Promise<boolean>;
 }) {
   const runtime = useLocalRuntime(adapter);
   return (
@@ -65,6 +72,9 @@ function Harness({
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
           <QueueFollowUpButton threadKey={threadKey} />
+          {onSteerRequest ? (
+            <SteerRunButton onSteerRequest={onSteerRequest} threadKey={threadKey} />
+          ) : null}
         </ThreadPrimitive.If>
       </ComposerPrimitive.Root>
     </AssistantRuntimeProvider>
@@ -74,6 +84,80 @@ function Harness({
 describe('follow-up queue behavior (real local runtime)', () => {
   beforeEach(() => {
     resetFollowUpQueueStore();
+  });
+
+  it('steers during a run: enqueues at the FRONT, fires the steer request, dispatches first on run end (BST-588)', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const steerCalls: number[] = [];
+    const onSteerRequest = () => {
+      steerCalls.push(Date.now());
+      return Promise.resolve(true);
+    };
+    render(<Harness adapter={adapter} onSteerRequest={onSteerRequest} threadKey="t-steer" />);
+
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    // Genuinely running: queue an ordinary follow-up FIRST, then steer.
+    await screen.findByTestId('assistant-queue-follow-up');
+    await user.type(input, 'passive follow-up');
+    await user.click(screen.getByTestId('assistant-queue-follow-up'));
+
+    await user.type(input, 'steer: change course');
+    await user.click(screen.getByTestId('assistant-steer-run'));
+
+    // Steer request fired once; composer cleared; both chips visible.
+    expect(steerCalls).toHaveLength(1);
+    expect(input).toHaveValue('');
+    const chips = screen.getAllByTestId('assistant-follow-up-chip');
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      expect.stringContaining('steer: change course'),
+      expect.stringContaining('passive follow-up'),
+    ]);
+
+    // Run ends (the server would end it at the next step boundary) — the
+    // steer message dispatches FIRST.
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'steer: change course']);
+    });
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'steer: change course', 'passive follow-up']);
+    });
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+  });
+
+  it('a steer whose control request fails keeps the message queued (dispatches on natural run end)', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const onSteerRequest = () => Promise.reject(new Error('server unreachable'));
+    render(<Harness adapter={adapter} onSteerRequest={onSteerRequest} threadKey="t-steer-fail" />);
+
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByTestId('assistant-steer-run');
+    await user.type(input, 'steer anyway');
+    await user.click(screen.getByTestId('assistant-steer-run'));
+
+    // The message is never lost: chip stays queued despite the failed control
+    // request, and dispatches when the run ends naturally.
+    expect(screen.getByTestId('assistant-follow-up-chip')).toHaveTextContent('steer anyway');
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'steer anyway']);
+    });
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
   });
 
   it('queues during a run, shows a chip, and auto-dispatches on run end', async () => {

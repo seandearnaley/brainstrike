@@ -26,7 +26,7 @@
  */
 import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/utils/logger';
-import { ListPlusIcon, XIcon } from 'lucide-react';
+import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
 
@@ -123,6 +123,57 @@ export function QueueFollowUpButton({ threadKey }: { readonly threadKey?: string
       type="button"
     >
       <ListPlusIcon className="size-4" />
+    </button>
+  );
+}
+
+/**
+ * Mid-run steering (BST-588): the composer's RUNNING-branch "Steer now"
+ * control. Enqueues the draft at the FRONT of the follow-up queue (the user
+ * interrupted the run FOR this message), then asks the server to end the run
+ * gracefully at the next step boundary via `onSteerRequest` (the app shell
+ * supplies the transport; absence of the prop = steering unavailable, so the
+ * panel simply does not render this button — capability-gated, never stubbed).
+ * A failed control request never loses the message: it stays queued and
+ * dispatches whenever the run ends naturally.
+ */
+export function SteerRunButton({
+  onSteerRequest,
+  threadKey,
+}: {
+  readonly onSteerRequest: () => Promise<boolean>;
+  readonly threadKey?: string | undefined;
+}) {
+  const aui = useAui();
+  const draft = useAuiState((state) => state.composer.text);
+  const enqueueFront = useFollowUpQueueStore((state) => state.enqueueFront);
+  const canSteer = draft.trim().length > 0;
+
+  return (
+    <button
+      aria-label="Steer: send now, stopping the run at the next step"
+      className="aui-button aui-button-primary aui-composer-send"
+      data-testid="assistant-steer-run"
+      disabled={!canSteer}
+      onClick={() => {
+        enqueueFront(followUpQueueKey(threadKey), draft);
+        aui.composer().setText('');
+        onSteerRequest()
+          .then((accepted) => {
+            if (!accepted) {
+              // The run already finished (404 from the control endpoint) — the
+              // queued message dispatches via the normal run-end bridge.
+              logger.info('Steer control found no active run; message stays queued');
+            }
+          })
+          .catch((error: unknown) => {
+            logger.warn('Steer control request failed; message stays queued', { error });
+          });
+      }}
+      title="Steer: send now, stopping the run at the next step"
+      type="button"
+    >
+      <Redo2Icon className="size-4" />
     </button>
   );
 }

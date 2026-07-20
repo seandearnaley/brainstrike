@@ -19,6 +19,8 @@ interface FollowUpQueueState {
   clearThread: (threadKey: string) => void;
   dequeue: (threadKey: string) => FollowUpQueueItem | undefined;
   enqueue: (threadKey: string, text: string) => void;
+  /** Steer messages jump the queue (BST-588); same non-whitespace contract. */
+  enqueueFront: (threadKey: string, text: string) => void;
   queuedByThread: Record<string, readonly FollowUpQueueItem[]>;
   remove: (threadKey: string, itemId: string) => void;
   /** Put a failed dispatch back at the FRONT so retry preserves user order. */
@@ -59,6 +61,20 @@ export const useFollowUpQueueStore = create<FollowUpQueueState>((set, get) => ({
       queuedByThread: {
         ...state.queuedByThread,
         [threadKey]: [...(state.queuedByThread[threadKey] ?? []), item],
+      },
+    }));
+  },
+  enqueueFront: (threadKey, text) => {
+    if (!text.trim()) {
+      throw new Error('Follow-up messages require non-whitespace text.');
+    }
+    // Steer messages (BST-588) jump the queue: the user interrupted the run
+    // FOR this message, so it must dispatch before earlier passive follow-ups.
+    const item: FollowUpQueueItem = { id: crypto.randomUUID(), text };
+    set((state) => ({
+      queuedByThread: {
+        ...state.queuedByThread,
+        [threadKey]: [item, ...(state.queuedByThread[threadKey] ?? [])],
       },
     }));
   },
