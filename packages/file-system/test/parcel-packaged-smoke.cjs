@@ -7,7 +7,7 @@
 // packages/secure-fs-native/test/packaged-smoke.cjs).
 
 const assert = require('node:assert/strict');
-const { existsSync, mkdtempSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
@@ -28,13 +28,35 @@ const resources =
         `release/${process.platform === 'win32' ? 'win' : 'linux'}-unpacked/resources`
       );
 const archive = path.join(resources, 'app.asar');
-const unpackedWatcherDir = path.join(resources, 'app.asar.unpacked/node_modules/@parcel/watcher');
+// asarUnpack is deliberately limited to `**/node_modules/@parcel/**/*.node`
+// (mirroring secure-fs-native): whole-directory unpack globs corrupt the asar
+// under pnpm's symlinked layout (observed live: picomatch/package.json entry
+// containing JS source, micromatch missing entirely).
+const unpackedParcelScope = path.join(resources, 'app.asar.unpacked/node_modules/@parcel');
+
+function findNodeBinding(dir) {
+  if (!existsSync(dir)) {
+    return null;
+  }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = findNodeBinding(full);
+      if (nested) {
+        return nested;
+      }
+    } else if (entry.name.endsWith('.node')) {
+      return full;
+    }
+  }
+  return null;
+}
 
 assert.equal(existsSync(archive), true, `Missing packaged archive: ${archive}`);
-assert.equal(
-  existsSync(unpackedWatcherDir),
-  true,
-  `Missing asar-unpacked @parcel/watcher: ${unpackedWatcherDir}`
+const unpackedBinding = findNodeBinding(unpackedParcelScope);
+assert.ok(
+  unpackedBinding,
+  `No asar-unpacked @parcel .node binding found under: ${unpackedParcelScope}`
 );
 
 const backend = BACKEND_BY_PLATFORM[process.platform];
