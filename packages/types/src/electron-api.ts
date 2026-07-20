@@ -188,10 +188,15 @@ export interface ElectronFileSystemAPI {
   /** Compact main-process watcher telemetry snapshot. */
   getWatcherTelemetry: () => Promise<{
     activeWatchers: number;
+    batches: number;
     cleanups: number;
+    events: number;
     failures: number;
     healthPushes: number;
+    lastSetupLatencyMs: number;
     retries: number;
+    degradedTransitions: number;
+    setupLatencySamples: number;
   }>;
   /**
    * Subscribe to fs:watch-event pushes (batched changes from main-process

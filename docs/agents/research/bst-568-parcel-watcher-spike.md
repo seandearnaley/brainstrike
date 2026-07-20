@@ -83,6 +83,21 @@ directory (the EMFILE storm of PR #1761's incident).
    deliberate, reviewed trade, not a surprise to relitigate when chokidar is
    removed.
 
+## Soak (slice 5 — six roots, 30k dirs, 10 minutes, darwin-arm64)
+
+`node scripts/watcher-soak.mjs --roots 6 --dirs-per-root 5000 --minutes 10`
+
+| Metric | Value |
+| --- | --- |
+| Subscribe (all six roots) | 3 ms |
+| Events delivered under churn | 1,590 (0 backend errors) |
+| RSS start → peak → end | 73.6 MB → 74.7 MB → 61 MB |
+
+No `EMFILE`/`ENFILE`/`ENOSPC`, no error storm, no memory growth — the
+resource profile that motivated BST-568 (the PR #1761 incident: 6 roots →
+55% CPU / 2.9 GB RSS) is gone. Note: engine-level soak; the in-app behavior
+was separately verified live (desktop QA, parcel opt-in session).
+
 ## Packaged Electron (slice 4 — landed findings)
 
 - **asarUnpack must target `*.node` files only** (`**/node_modules/@parcel/**/*.node`),
