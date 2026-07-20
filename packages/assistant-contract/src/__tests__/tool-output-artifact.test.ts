@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   decodeToolOutputArtifactContent,
+  decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactContent,
+  encodeToolOutputArtifactCursor,
   isToolOutputArtifactCursor,
   isToolOutputArtifactEnvelope,
   isToolOutputArtifactPage,
@@ -22,8 +24,22 @@ const reference = {
 } as const;
 
 const cursor = 'bsto1.eyJhcnRpZmFjdCI6Im9wYXF1ZSJ9';
+const envelopeCursor = encodeToolOutputArtifactCursor(reference, 4);
+const pageCursor = encodeToolOutputArtifactCursor(reference, 5);
 
 describe('tool output artifact contracts', () => {
+  it('round-trips complete artifact identity and an exact byte offset through the cursor', () => {
+    const encoded = encodeToolOutputArtifactCursor(reference, 5);
+
+    expect(decodeToolOutputArtifactCursor(encoded)).toEqual({
+      artifactRef: reference,
+      offsetByte: 5,
+    });
+    expect(() =>
+      decodeToolOutputArtifactCursor(`${encoded.slice(0, -1)}${encoded.endsWith('A') ? 'B' : 'A'}`)
+    ).toThrow(/cursor/i);
+  });
+
   it('accepts one canonical opaque reference and recoverable preview envelope', () => {
     expect(isToolOutputArtifactReference(reference)).toBe(true);
     expect(
@@ -31,7 +47,7 @@ describe('tool output artifact contracts', () => {
         artifactRef: reference,
         code: TOOL_OUTPUT_ARTIFACT_CODE,
         hint: 'Continue with the artifact reader.',
-        nextCursor: cursor,
+        nextCursor: envelopeCursor,
         preview: 'HEAD',
         truncated: true,
         version: TOOL_OUTPUT_ARTIFACT_VERSION,
@@ -61,7 +77,18 @@ describe('tool output artifact contracts', () => {
         artifactRef: reference,
         code: TOOL_OUTPUT_ARTIFACT_CODE,
         hint: 'Continue.',
-        nextCursor: cursor,
+        nextCursor: pageCursor,
+        preview: 'HEAD',
+        truncated: true,
+        version: TOOL_OUTPUT_ARTIFACT_VERSION,
+      })
+    ).toBe(false);
+    expect(
+      isToolOutputArtifactEnvelope({
+        artifactRef: reference,
+        code: TOOL_OUTPUT_ARTIFACT_CODE,
+        hint: 'Continue.',
+        nextCursor: pageCursor,
         preview: 'HEAD-tail',
         truncated: true,
         version: TOOL_OUTPUT_ARTIFACT_VERSION,
@@ -75,7 +102,7 @@ describe('tool output artifact contracts', () => {
       artifactRef: reference,
       code: TOOL_OUTPUT_ARTIFACT_CODE,
       hint: 'Continue.',
-      nextCursor: cursor,
+      nextCursor: pageCursor,
       preview: 'HEAD',
       truncated: true,
       version: TOOL_OUTPUT_ARTIFACT_VERSION,
@@ -117,7 +144,7 @@ describe('tool output artifact contracts', () => {
         artifactRef: reference,
         content: 'A🙂',
         endByte: 5,
-        nextCursor: cursor,
+        nextCursor: pageCursor,
         offsetByte: 0,
       })
     ).toBe(true);
@@ -136,7 +163,7 @@ describe('tool output artifact contracts', () => {
       artifactRef: reference,
       content: 'A🙂',
       endByte: 5,
-      nextCursor: cursor,
+      nextCursor: pageCursor,
       offsetByte: 0,
     };
 
@@ -152,6 +179,21 @@ describe('tool output artifact contracts', () => {
       })
     ).toBe(false);
     expect(isToolOutputArtifactPage({ ...firstPage, debugPath: '/tmp/output' })).toBe(false);
+    expect(
+      isToolOutputArtifactPage({
+        ...firstPage,
+        nextCursor: encodeToolOutputArtifactCursor(
+          { ...reference, id: 'different-artifact' },
+          firstPage.endByte
+        ),
+      })
+    ).toBe(false);
+    expect(
+      isToolOutputArtifactPage({
+        ...firstPage,
+        nextCursor: encodeToolOutputArtifactCursor(reference, firstPage.endByte + 1),
+      })
+    ).toBe(false);
   });
 
   it('measures encoded page content after decoding and publishes bounded defaults', () => {

@@ -9,6 +9,7 @@ export const TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES = 4;
 const ARTIFACT_ID_MAX_CHARS = 128;
 const CURSOR_MAX_CHARS = 2048;
 const HINT_MAX_CHARS = 2000;
+const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 const TEXT_ENCODER = new TextEncoder();
 const ARTIFACT_REFERENCE_KEYS = new Set(['byteLength', 'expiresAt', 'format', 'id']);
 const ARTIFACT_ENVELOPE_KEYS = new Set([
@@ -88,6 +89,11 @@ export interface EncodedToolOutputArtifactContent {
   readonly contentEncoding?: ToolOutputArtifactContentEncoding;
 }
 
+export interface ToolOutputArtifactCursorState {
+  readonly artifactRef: ToolOutputArtifactReference;
+  readonly offsetByte: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -121,6 +127,129 @@ function isIsoInstant(value: unknown): value is string {
 
 function utf8ByteLength(value: string): number {
   return TEXT_ENCODER.encode(value).byteLength;
+}
+
+function base64UrlEncodeUtf8(value: string): string {
+  const bytes = TEXT_ENCODER.encode(value);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/[=]+$/u, '');
+}
+
+function base64UrlDecodeUtf8(value: string): string {
+  if (!(isOpaqueToken(value, CURSOR_MAX_CHARS) && value.length % 4 !== 1)) {
+    throw new TypeError('Tool output artifact cursor is malformed.');
+  }
+  const padded = value
+    .replaceAll('-', '+')
+    .replaceAll('_', '/')
+    .padEnd(value.length + ((4 - (value.length % 4)) % 4), '=');
+  try {
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const decoded = TEXT_DECODER.decode(bytes);
+    if (base64UrlEncodeUtf8(decoded) !== value) {
+      throw new TypeError('Tool output artifact cursor is not canonical.');
+    }
+    return decoded;
+  } catch (cause) {
+    if (cause instanceof TypeError && cause.message.includes('cursor')) {
+      throw cause;
+    }
+    throw new TypeError('Tool output artifact cursor is malformed.', { cause });
+  }
+}
+
+export function encodeToolOutputArtifactCursor(
+  artifactRef: ToolOutputArtifactReference,
+  offsetByte: number
+): string {
+  if (!isToolOutputArtifactReference(artifactRef)) {
+    throw new TypeError('Tool output artifact cursor reference is invalid.');
+  }
+  if (
+    !(Number.isSafeInteger(offsetByte) && offsetByte >= 0 && offsetByte < artifactRef.byteLength)
+  ) {
+    throw new RangeError('Tool output artifact cursor offset must identify unread bytes.');
+  }
+  const payload = [
+    TOOL_OUTPUT_ARTIFACT_VERSION,
+    artifactRef.id,
+    artifactRef.format,
+    artifactRef.byteLength,
+    artifactRef.expiresAt,
+    offsetByte,
+  ] as const;
+  const cursor = `${TOOL_OUTPUT_ARTIFACT_CURSOR_PREFIX}${base64UrlEncodeUtf8(
+    JSON.stringify(payload)
+  )}`;
+  if (cursor.length > CURSOR_MAX_CHARS) {
+    throw new RangeError('Tool output artifact cursor exceeds its maximum length.');
+  }
+  return cursor;
+}
+
+export function decodeToolOutputArtifactCursor(value: string): ToolOutputArtifactCursorState {
+  if (!isToolOutputArtifactCursor(value)) {
+    throw new TypeError('Tool output artifact cursor is malformed.');
+  }
+  const encoded = value.slice(TOOL_OUTPUT_ARTIFACT_CURSOR_PREFIX.length);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(base64UrlDecodeUtf8(encoded)) as unknown;
+  } catch (cause) {
+    if (cause instanceof TypeError && cause.message.includes('cursor')) {
+      throw cause;
+    }
+    throw new TypeError('Tool output artifact cursor is malformed.', { cause });
+  }
+  if (!(Array.isArray(payload) && payload.length === 6)) {
+    throw new TypeError('Tool output artifact cursor payload is malformed.');
+  }
+  const [version, id, format, byteLength, expiresAt, offsetByte] = payload;
+  const artifactRef = { byteLength, expiresAt, format, id };
+  if (
+    version !== TOOL_OUTPUT_ARTIFACT_VERSION ||
+    !isToolOutputArtifactReference(artifactRef) ||
+    typeof offsetByte !== 'number' ||
+    !Number.isSafeInteger(offsetByte) ||
+    offsetByte < 0 ||
+    offsetByte >= artifactRef.byteLength
+  ) {
+    throw new TypeError('Tool output artifact cursor payload is malformed.');
+  }
+  if (encodeToolOutputArtifactCursor(artifactRef, offsetByte) !== value) {
+    throw new TypeError('Tool output artifact cursor is not canonical.');
+  }
+  return { artifactRef, offsetByte };
+}
+
+function readToolOutputArtifactCursorState(
+  value: unknown
+): ToolOutputArtifactCursorState | undefined {
+  if (!isToolOutputArtifactCursor(value)) {
+    return;
+  }
+  try {
+    return decodeToolOutputArtifactCursor(value);
+  } catch {
+    return;
+  }
+}
+
+function referencesMatch(
+  left: ToolOutputArtifactReference,
+  right: ToolOutputArtifactReference
+): boolean {
+  return (
+    left.id === right.id &&
+    left.format === right.format &&
+    left.byteLength === right.byteLength &&
+    left.expiresAt === right.expiresAt
+  );
 }
 
 /**
@@ -244,10 +373,14 @@ export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutpu
     return false;
   }
   const previewBytes = utf8ByteLength(preview);
+  const cursor = readToolOutputArtifactCursorState(value['nextCursor']);
   return (
     previewBytes > 0 &&
     previewBytes <= TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES &&
-    previewBytes < value['artifactRef'].byteLength
+    previewBytes < value['artifactRef'].byteLength &&
+    cursor !== undefined &&
+    cursor.offsetByte === previewBytes &&
+    referencesMatch(cursor.artifactRef, value['artifactRef'])
   );
 }
 
@@ -291,5 +424,13 @@ export function isToolOutputArtifactPage(value: unknown): value is ToolOutputArt
 
   const hasMore = endByte < value['artifactRef'].byteLength;
   const nextCursor = Object.hasOwn(value, 'nextCursor') ? value['nextCursor'] : undefined;
-  return hasMore ? isToolOutputArtifactCursor(nextCursor) : nextCursor === undefined;
+  if (!hasMore) {
+    return nextCursor === undefined;
+  }
+  const cursor = readToolOutputArtifactCursorState(nextCursor);
+  return (
+    cursor !== undefined &&
+    cursor.offsetByte === endByte &&
+    referencesMatch(cursor.artifactRef, value['artifactRef'])
+  );
 }

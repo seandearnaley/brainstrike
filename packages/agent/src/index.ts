@@ -197,6 +197,16 @@ export {
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
 export {
+  type ReadToolOutputArtifactInput,
+  ReadToolOutputArtifactInputSchema,
+  type ReadToolOutputArtifactPageOptions,
+  readToolOutputArtifactPage,
+  type ScopedToolOutputArtifactRangeResult,
+  type ScopedToolOutputArtifactReader,
+  ToolOutputArtifactReadError,
+  type ToolOutputArtifactReadFailureReason,
+} from './mastra/tool-output-artifact-reader';
+export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
   ToolOutputArtifactSettlementError,
