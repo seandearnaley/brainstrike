@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { LogRecord } from '@brainstrike/utils';
 import * as utilsModule from '@brainstrike/utils';
 import { renderHook, waitFor } from '@testing-library/react';

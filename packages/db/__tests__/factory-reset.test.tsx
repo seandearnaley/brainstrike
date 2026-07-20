@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';

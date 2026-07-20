@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import os from 'node:os';
 import path from 'node:path';
 import { act, renderHook } from '@testing-library/react';

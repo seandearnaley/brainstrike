@@ -75,7 +75,12 @@ export default defineConfig({
           alias: unitAliases,
         },
         test: {
-          environment: 'jsdom',
+          // Default to `node`: the vast majority of db unit tests are pure
+          // repository/SQL/migration logic and paid ~57s/run of jsdom
+          // environment setup for nothing. The DOM/storage-dependent minority
+          // (React db-provider/hook tests, browser-storage/first-run-bootstrap,
+          // wasm-loader) opt back in per-file with `// @vitest-environment jsdom`.
+          environment: 'node',
           exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
           // Build the migrated PGlite snapshot ONCE per process (see
           // helpers/db-snapshot-global.ts) so per-test boots are cheap restores.
