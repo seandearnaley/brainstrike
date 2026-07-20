@@ -854,6 +854,44 @@ describe('assistant-tools', () => {
     expect(lspRaw).toEqual(lspBefore);
   });
 
+  it('registers compact workspace-context projection without mutating the raw result', () => {
+    const tool = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData)['brainstrike.listWorkspaceContext'];
+    const raw = {
+      offset: 0,
+      selectedFileCount: 1,
+      selectedFiles: ['/src/target.ts'],
+      truncated: false,
+      workspaceIndex: {
+        embeddingSetId: 'workspace-index',
+        enabled: true,
+        mode: 'root-folder-cache',
+        paused: false,
+      },
+      workspaceRootPath: '/tmp/workspace',
+      workspaceRoots: [
+        {
+          displayName: 'workspace',
+          path: '/tmp/workspace',
+          rootId: 'root-a',
+        },
+      ],
+    };
+    const before = structuredClone(raw);
+
+    expect(tool.toModelOutput?.(raw)).toEqual({
+      type: 'text',
+      value: [
+        'workspace context | main=/tmp/workspace | selected=1 | outside=0 | page=1-1/1 | truncated=false',
+        'index | enabled=true | paused=false | mode=root-folder-cache | embedding_set=workspace-index',
+        'root main | name=workspace | id=root-a | path=/tmp/workspace',
+        'selected /src/target.ts',
+      ].join('\n'),
+    });
+    expect(raw).toEqual(before);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
