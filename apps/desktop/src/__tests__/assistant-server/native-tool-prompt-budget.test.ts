@@ -75,6 +75,14 @@ function createPromptBudgetWorkspaceSkills(): WorkspaceSkills {
   });
 }
 
+function buildPromptBudgetDesktopTools(): NonNullable<RuntimeData['mastraTools']> {
+  return buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData, {
+    toolOutputArtifactReader: {
+      readRange: async () => ({ status: 'not_found' }),
+    },
+  });
+}
+
 /**
  * Pins the first-turn system context emitted by Mastra 1.51's SkillsProcessor
  * for the representative skill above. createMastraAgentRuntime counts its
@@ -252,6 +260,12 @@ function expectProviderSurfaceWithinBudget(args: {
   label: string;
   tools: readonly ProviderFunctionTool[];
 }): void {
+  for (const tool of args.tools) {
+    expect(
+      asRecord(tool.function.parameters)?.['type'],
+      `${tool.function.name} must expose a provider-compatible root object schema`
+    ).toBe('object');
+  }
   const payload = JSON.stringify({ instructions: args.instructions, tools: args.tools });
   const total = countO200kTokens(payload);
   const toolBreakdown = args.tools.map((tool) => ({
@@ -285,7 +299,7 @@ describe('desktop native tool provider prompt budget', () => {
   it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
-    const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
+    const desktopTools = buildPromptBudgetDesktopTools();
     const authoredTools = {
       ...createAssistantSkillTools(workspaceSkills),
       ...desktopTools,
@@ -321,7 +335,7 @@ describe('desktop native tool provider prompt budget', () => {
   it('keeps the actual Mastra/OpenRouter full hosted registry and instructions within 11,500 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
-    const desktopTools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData);
+    const desktopTools = buildPromptBudgetDesktopTools();
     const runtime = await createMastraAgentRuntime({
       model: OPENROUTER_PROMPT_BUDGET_MODEL,
       runtime: {

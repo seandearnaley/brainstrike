@@ -19,6 +19,7 @@ const DESKTOP_NATIVE_TOOL_ID = {
   lspInspect: 'brainstrike.lspInspect',
   manageTaskList: 'brainstrike.manageTaskList',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
+  readToolOutputArtifact: 'brainstrike.readToolOutputArtifact',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
   readWorkspaceDirectory: 'brainstrike.readWorkspaceDirectory',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',

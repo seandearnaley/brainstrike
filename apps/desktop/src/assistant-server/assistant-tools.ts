@@ -20,7 +20,9 @@ import {
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  projectToolOutputArtifactPage,
   type QueryEmbeddingSpaceInput,
+  type ReadToolOutputArtifactCursorInput,
   type ReadWorkspaceContextInput,
   type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
@@ -30,7 +32,9 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  readToolOutputArtifactPage,
   recordKnownFileMtime,
+  type ScopedToolOutputArtifactReader,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   type UpdateWorkspaceContextSelectionInput,
@@ -111,6 +115,7 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
    * Optional override for the webSearch tool's network/key resolution. Used by
    * tests to inject a stubbed Tavily fetch and key resolver so the loop runs
@@ -3267,6 +3272,7 @@ export function buildDesktopAssistantTools(
   // model's WebGPU prefill budget cannot afford advertising a tool whose state
   // it will never see reflected back.
   const isLocalProvider = isLocalProviderRuntime(runtimeData);
+  const toolOutputArtifactReader = dependencies.toolOutputArtifactReader;
   const tools: MastraTools = {
     [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.findWorkspaceSymbol],
@@ -3392,6 +3398,33 @@ export function buildDesktopAssistantTools(
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
       toModelOutput: (output: unknown) => ({ type: 'json', value: output }),
     },
+    ...(toolOutputArtifactReader
+      ? {
+          [NATIVE_TOOL_ID.readToolOutputArtifact]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readToolOutputArtifact],
+            execute: async (input: ToolExecuteInput<ReadToolOutputArtifactCursorInput>) => {
+              const resolvedInput = parseToolExecuteInput(
+                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+                input
+              );
+              try {
+                return await readToolOutputArtifactPage(
+                  { ...resolvedInput, mode: 'cursor' },
+                  {
+                    reader: toolOutputArtifactReader,
+                  }
+                );
+              } catch (error) {
+                logToolFailure('readToolOutputArtifact failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: NATIVE_TOOL_ID.readToolOutputArtifact,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+            toModelOutput: projectToolOutputArtifactPage,
+          },
+        }
+      : {}),
     [NATIVE_TOOL_ID.writeWorkspaceFile]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.writeWorkspaceFile],
       execute: async (

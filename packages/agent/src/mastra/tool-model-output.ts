@@ -19,7 +19,10 @@ import {
   type McpContentPart,
   readMcpMultimodalOutput,
 } from './mcp-multimodal-output';
-import { readSettledToolOutputProjectionSource } from './tool-output-artifact-settlement';
+import {
+  readSettledToolOutputModelProjection,
+  readSettledToolOutputProjectionSource,
+} from './tool-output-artifact-settlement';
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
@@ -472,6 +475,13 @@ function composeHookContextWithProjection(
 }
 
 function projectDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
+  const settled = readSettledToolOutputModelProjection(output);
+  if (settled) {
+    const defaultProjection = assertDomainProjectionWithinBudget(toolName, settled.output);
+    return settled.hookContext
+      ? composeHookContextWithProjection(toolName, defaultProjection, settled.hookContext)
+      : defaultProjection;
+  }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
     return createDefaultModelOutput(toolName, projectionSource);
@@ -492,6 +502,13 @@ function projectExistingModelOutput(
   receiver: ExecutableToolWithModelOutput,
   output: unknown
 ): unknown {
+  const settled = readSettledToolOutputModelProjection(output);
+  if (settled) {
+    const defaultProjection = assertDomainProjectionWithinBudget(toolName, settled.output);
+    return settled.hookContext
+      ? composeHookContextWithProjection(toolName, defaultProjection, settled.hookContext)
+      : defaultProjection;
+  }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
     return projectDefaultModelOutput(toolName, projectionSource);

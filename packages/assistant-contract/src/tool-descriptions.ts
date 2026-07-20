@@ -25,6 +25,8 @@ export const TOOL_DESCRIPTIONS = {
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   [NATIVE_TOOL_ID.queryEmbeddingSpace]:
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
+  [NATIVE_TOOL_ID.readToolOutputArtifact]:
+    'Read the next bounded page of a durable oversized tool result using the exact opaque cursor from the prior result. Copy the cursor byte-for-byte; never decode, pad, edit, or recreate it. The artifact is restricted to the current thread; malformed, changed, expired, or unavailable cursors fail visibly',
   [NATIVE_TOOL_ID.readWorkspaceContext]:
     'Read selected or explicit workspace files under strict file and token budgets after semantic search needs exact source',
   [NATIVE_TOOL_ID.readWorkspaceDirectory]:

@@ -453,7 +453,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       input: '{}',
       onToolResultPrompt: (prompt) => {
         const toolMessage = prompt.find((message) => message.role === 'tool');
-        modelFacingToolOutput = readToolResultText(toolMessage);
+        modelFacingToolOutput = JSON.stringify(readToolResultOutput(toolMessage));
       },
       toolCallId: 'call-settled-large-output-1',
       toolName: 'settled_large_output',
@@ -484,7 +484,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       format: 'json',
       toolCallId: 'call-settled-large-output-1',
     });
-    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).toContain('brainstrike.readToolOutputArtifact');
+    expect(modelFacingToolOutput).toContain('"cursor"');
+    expect(modelFacingToolOutput).not.toContain('artifactRef');
+    expect(modelFacingToolOutput).not.toContain('output was truncated');
     expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
     const success = chunks.find(
       (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> =>

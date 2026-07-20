@@ -11,7 +11,12 @@ import {
   resetFileReadState,
   withFileLock,
 } from '@brainstrike/agent';
-import { DESKTOP_NATIVE_TOOL_IDS, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  TOOL_DESCRIPTIONS,
+  type ToolOutputArtifactReference,
+} from '@brainstrike/assistant-contract';
+import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
 import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -829,6 +834,65 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
     expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
+  });
+
+  it('registers the artifact reader only with a trusted scoped read capability', async () => {
+    const content = new TextEncoder().encode('artifact content');
+    const artifactRef: ToolOutputArtifactReference = {
+      byteLength: content.byteLength,
+      expiresAt: '2026-07-27T12:00:00.000Z',
+      format: 'text',
+      id: 'artifact-id',
+    };
+    expect(
+      buildDesktopAssistantTools({
+        provider: 'openai',
+      } as RuntimeData)['brainstrike.readToolOutputArtifact']
+    ).toBeUndefined();
+
+    const readRange = vi.fn(async ({ limitBytes, offsetByte }) => {
+      const bytes = content.slice(offsetByte, offsetByte + limitBytes);
+      return {
+        bytes,
+        endByte: offsetByte + bytes.byteLength,
+        offsetByte,
+        reference: artifactRef,
+        status: 'found' as const,
+      };
+    });
+    const tool = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
+      toolOutputArtifactReader: { readRange },
+    })['brainstrike.readToolOutputArtifact'];
+
+    const page = await tool.execute({
+      cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+      maxBytes: 8,
+    });
+    expect(page).toMatchObject({
+      artifactRef,
+      content: 'artifact',
+      endByte: 8,
+      offsetByte: 0,
+    });
+    expect(page.nextCursor).toEqual(expect.any(String));
+    expect(readRange).toHaveBeenCalledWith({
+      artifactId: artifactRef.id,
+      limitBytes: 8,
+      offsetByte: 0,
+    });
+    const projection = tool.toModelOutput(page);
+    expect(JSON.stringify(projection).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    if (!projection.value.next) {
+      throw new TypeError('Expected an artifact continuation call.');
+    }
+    expect(projection.value.next.tool).toBe('brainstrike.readToolOutputArtifact');
+
+    const finalPage = await tool.execute(projection.value.next.input);
+    expect(`${page.content}${finalPage.content}`).toBe('artifact content');
+    expect(finalPage.nextCursor).toBeUndefined();
+    expect(tool.toModelOutput(finalPage).value.complete).toBe(true);
   });
 
   it('lists selected workspace context without returning file contents', async () => {
@@ -3360,6 +3424,15 @@ describe('assistant-tools', () => {
     });
   });
 
+  it('marks the artifact reader as a critical read-only retrieval tool', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.readToolOutputArtifact']).toMatchObject({
+      category: 'retrieval',
+      loadingTier: 'critical',
+      requiresApproval: false,
+      riskCategory: 'read',
+    });
+  });
+
   it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
     // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
     // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
@@ -3371,7 +3444,11 @@ describe('assistant-tools', () => {
   });
 
   it('keeps the live desktop registry identical to the canonical catalog', () => {
-    const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
+    const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
+      toolOutputArtifactReader: {
+        readRange: async () => ({ status: 'not_found' }),
+      },
+    });
 
     expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
     for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {

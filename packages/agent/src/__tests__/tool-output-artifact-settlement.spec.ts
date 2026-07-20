@@ -125,15 +125,20 @@ describe('tool output artifact settlement', () => {
     expect(display).toMatchObject({
       artifactRef: { byteLength: new TextEncoder().encode(output).byteLength },
       code: 'tool_output_artifact',
+      hint: 'The complete workspace.read result is durable. Continue with brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.',
       truncated: true,
       version: 1,
     });
     expect(JSON.stringify(display).length).toBeLessThanOrEqual(9000);
-    expect(model).toMatchObject({ type: 'text' });
+    expect(model).toMatchObject({ type: 'json' });
+    expect(JSON.stringify(model)).toContain('brainstrike.readToolOutputArtifact');
+    expect(JSON.stringify(model)).toContain('"cursor":"bsto1.');
+    expect(JSON.stringify(model)).not.toContain('artifactRef');
+    expect(JSON.stringify(model)).not.toContain('output was truncated');
     expect(JSON.stringify(model).length).toBeLessThanOrEqual(8000);
   });
 
-  it('keeps the complete domain result available to a custom model projector', async () => {
+  it('bypasses a custom projector after settlement so the model receives the artifact cursor', async () => {
     const output = { payload: 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES), tail: 'kept' };
     const projector = vi.fn((value: unknown) => ({
       type: 'text',
@@ -155,9 +160,14 @@ describe('tool output artifact settlement', () => {
 
     const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
 
-    expect(tool.toModelOutput(result)).toEqual({ type: 'text', value: 'kept' });
-    expect(projector).toHaveBeenCalledWith(output);
-    expect(readOutputTransform(tool, result)).not.toBe(output);
+    const display = readOutputTransform(tool, result);
+    const model = tool.toModelOutput(result);
+
+    expect(projector).not.toHaveBeenCalled();
+    expect(isToolOutputArtifactEnvelope(display)).toBe(true);
+    expect(JSON.stringify(model)).toContain('brainstrike.readToolOutputArtifact');
+    expect(JSON.stringify(model)).toContain('"cursor":"bsto1.');
+    expect(JSON.stringify(model)).not.toContain('kept');
   });
 
   it('preserves oversized MCP media inline instead of settling it as text', async () => {
@@ -216,6 +226,7 @@ describe('tool output artifact settlement', () => {
       code: 'tool_output_artifact',
       truncated: true,
     });
+    expect(JSON.stringify(model)).toContain('brainstrike.readToolOutputArtifact');
     expect(JSON.stringify(model)).toContain('Post-tool context: verify the durable tail');
   });
 

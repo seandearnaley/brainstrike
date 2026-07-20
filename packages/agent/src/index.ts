@@ -197,12 +197,16 @@ export {
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
 export {
+  projectToolOutputArtifactPage,
+  type ReadToolOutputArtifactCursorInput,
+  ReadToolOutputArtifactCursorInputSchema,
   type ReadToolOutputArtifactInput,
   ReadToolOutputArtifactInputSchema,
   type ReadToolOutputArtifactPageOptions,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactRangeResult,
   type ScopedToolOutputArtifactReader,
+  type ToolOutputArtifactModelProjection,
   ToolOutputArtifactReadError,
   type ToolOutputArtifactReadFailureReason,
 } from './mastra/tool-output-artifact-reader';

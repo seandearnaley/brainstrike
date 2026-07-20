@@ -24,6 +24,7 @@ import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();
@@ -83,7 +84,13 @@ interface SerializedToolOutput {
 
 interface SettledToolOutput {
   readonly displayOutput: ToolOutputArtifactEnvelope;
+  readonly modelOutput: ReturnType<typeof projectToolOutputArtifactPage>;
   readonly projectionSource: unknown;
+}
+
+export interface SettledToolOutputModelProjection {
+  readonly hookContext?: string;
+  readonly output: ReturnType<typeof projectToolOutputArtifactPage>;
 }
 
 function isExecutableTool(tool: ToolsInput[string]): tool is ToolsInput[string] & ExecutableTool {
@@ -172,22 +179,32 @@ function fitArtifactPreview(content: string): {
   return best;
 }
 
-function createArtifactEnvelope(
+function createArtifactOutputs(
   toolName: string,
   reference: ToolOutputArtifactReference,
   content: string
-): ToolOutputArtifactEnvelope {
+): Pick<SettledToolOutput, 'displayOutput' | 'modelOutput'> {
   const preview = fitArtifactPreview(content);
-  return {
+  const nextCursor = encodeToolOutputArtifactCursor(reference, preview.endByte);
+  const displayOutput: ToolOutputArtifactEnvelope = {
     artifactRef: reference,
     code: TOOL_OUTPUT_ARTIFACT_CODE,
     ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
-    hint: `The complete ${toolName} result is durable. Continue with the artifact reader using nextCursor.`,
-    nextCursor: encodeToolOutputArtifactCursor(reference, preview.endByte),
+    hint: `The complete ${toolName} result is durable. Continue with brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.`,
+    nextCursor,
     preview: preview.preview,
     truncated: true,
     version: TOOL_OUTPUT_ARTIFACT_VERSION,
   };
+  const modelOutput = projectToolOutputArtifactPage({
+    artifactRef: reference,
+    ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
+    content: preview.preview,
+    endByte: preview.endByte,
+    nextCursor,
+    offsetByte: 0,
+  });
+  return { displayOutput, modelOutput };
 }
 
 function createSettlementCarrier(settled: SettledToolOutput): Record<string, never> {
@@ -201,6 +218,23 @@ export function readSettledToolOutputProjectionSource(output: unknown): unknown 
     return output;
   }
   return SETTLED_OUTPUTS.get(output)?.projectionSource ?? output;
+}
+
+export function readSettledToolOutputModelProjection(
+  output: unknown
+): SettledToolOutputModelProjection | undefined {
+  if (!(output && typeof output === 'object')) {
+    return;
+  }
+  const settled = SETTLED_OUTPUTS.get(output);
+  if (!settled) {
+    return;
+  }
+  const hookEnvelope = readHookResultEnvelope(settled.projectionSource);
+  return {
+    ...(hookEnvelope?.additionalContext ? { hookContext: hookEnvelope.additionalContext } : {}),
+    output: settled.modelOutput,
+  };
 }
 
 function readSettledToolOutputDisplay(output: unknown): unknown {
@@ -315,7 +349,7 @@ async function settleOutput(
     );
   }
   return createSettlementCarrier({
-    displayOutput: createArtifactEnvelope(toolName, reference, serialized.content),
+    ...createArtifactOutputs(toolName, reference, serialized.content),
     projectionSource: output,
   });
 }
@@ -323,7 +357,8 @@ async function settleOutput(
 /**
  * Atomically replace oversized display/transcript results with a durable
  * preview envelope while retaining the complete in-process result for
- * `toModelOutput`.
+ * authenticated lifecycle handling. Model projection receives the bounded
+ * durable envelope so it can continue through the artifact reader.
  */
 export function applyToolOutputArtifactSettlement(
   tools: ToolsInput,
