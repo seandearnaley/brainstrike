@@ -1,7 +1,10 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef, useState } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
 import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
+
+const logger = createLogger('UseLoadPanelState');
 
 export function useLoadPanelState(
   defaultSizes: number[],
@@ -44,7 +47,14 @@ export function useLoadPanelState(
           setState(loadedState);
           lastSavedStateRef.current = loadedState;
         }
-      } catch {}
+      } catch (error) {
+        // Deliberate degrade: a corrupted/unloadable persisted layout falls
+        // back to defaults, but the discard is surfaced instead of silent.
+        logger.warn('Failed to load persisted panel state; using defaults', {
+          adapter: adapter.constructor?.name ?? 'unknown',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       setIsHydrated(true);
     };
 

@@ -83,12 +83,8 @@ export function completeToolCall<TController extends ToolCallControllerLike>(
 export function clearToolRegistry<TController extends ToolCallControllerLike>(
   registry: ToolRegistry<TController>
 ): void {
-  try {
-    registry.byKey.clear();
-  } catch {}
-  try {
-    registry.nameToKeys.clear();
-  } catch {}
+  registry.byKey.clear();
+  registry.nameToKeys.clear();
 }
 
 function extractCallId(payload: unknown): string | undefined {
