@@ -240,6 +240,47 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(`${ROOT_PATH}/src`);
   });
 
+  it('fully re-enumerates the root on a watcher OVERFLOW (full) event for a named root', async () => {
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [{ changes: [], rootId: ROOT_ID, rootPath: ROOT_PATH }],
+      scope: 'full',
+      source: 'watcher',
+    });
+
+    expect(refreshTree).toHaveBeenCalledOnce();
+    expect(refreshDirectory).not.toHaveBeenCalled();
+  });
+
+  it('reacts to a watcher OVERFLOW even as the panel refresh authority (unlike manual/full)', async () => {
+    // skipManualFullEvents suppresses manual/full (button refreshes directly),
+    // but an overflow is dispatched with no direct refresh — the authority
+    // provider MUST react or a single-root workspace never reloads.
+    renderHook(() => useFileTreeRefreshEvents({ ...params, skipManualFullEvents: true }));
+
+    await dispatchRefresh({
+      roots: [{ changes: [], rootId: ROOT_ID, rootPath: ROOT_PATH }],
+      scope: 'full',
+      source: 'watcher',
+    });
+
+    expect(refreshTree).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a watcher OVERFLOW that names only a different root', async () => {
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [{ changes: [], rootId: 'other-root', rootPath: '/elsewhere' }],
+      scope: 'full',
+      source: 'watcher',
+    });
+
+    expect(refreshTree).not.toHaveBeenCalled();
+    expect(refreshDirectory).not.toHaveBeenCalled();
+  });
+
   it('ignores pure content modifications (no structural change)', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 

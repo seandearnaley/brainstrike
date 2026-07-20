@@ -241,7 +241,12 @@ fallback.
   changes never touch the tree (content freshness is the indexer's job). Root
   matching is durable-id-first: the path fallback applies only when the
   provider has no RootId — two same-named web roots share a path, so a path
-  match across durable ids would refresh the wrong root.
+  match across durable ids would refresh the wrong root. watcher/**full**
+  (OVERFLOW — `FileSystemObserver` `unknown`, events possibly missed) fully
+  re-enumerates the named root via `refreshTree`; unlike manual/full this is
+  NOT gated by `skipManualFullEvents` (nothing refreshes an overflow directly,
+  so the outer authority provider must react too, else a single-root workspace
+  never reloads).
 - **Manual refresh contract.** `file-explorer-panel.tsx` `handleRefresh`
   awaits `refreshFileExplorer()` (the OUTER provider) and dispatches the full
   event only on SUCCESS — a cancelled or failed refresh must not trigger
@@ -282,9 +287,12 @@ Watcher-driven refresh of the Explorer tree and background index (added
   `FileSystemObserver` `unknown` records to it. The context handler drops that
   root's pending incremental changes and IMMEDIATELY dispatches a one-shot
   `scope:'full'` / `source:'watcher'` event naming only the affected root
-  (deduped per root within the debounce window so a burst can't storm). The
-  sync provider parses watcher+full+named-roots into a per-root FULL resync —
-  other roots keep their state; overflow never fans out workspace-wide.
+  (deduped per root within the debounce window so a burst can't storm). BOTH
+  consumers act on watcher+full+named-roots: the sync provider runs a per-root
+  FULL resync, and the tree consumer (`use-file-tree-refresh-events.ts`)
+  fully re-enumerates the named root via `refreshTree` (see LIVE REFRESH
+  above). Other roots keep their state; overflow never fans out
+  workspace-wide.
 - **`errored` = the watch is dead.** WICG `errored` records (and `observe()`
   setup failures — both async rejection and synchronous throw) disconnect the
   observer INSIDE the adapter, then signal. The context handler error-logs and raises a destructive toast

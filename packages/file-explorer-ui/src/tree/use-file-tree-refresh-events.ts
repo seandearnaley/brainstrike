@@ -22,6 +22,15 @@
  *   `modified` changes are ignored: they don't alter tree membership, and
  *   content/DB freshness is the background indexer's job (it consumes the
  *   same event in workspace-collection-sync-provider).
+ * - `source: 'watcher'` + `scope: 'full'` → OVERFLOW recovery: the watcher may
+ *   have MISSED events for the named root(s) (FileSystemObserver `unknown`
+ *   record — see use-file-system-context's overflow dispatch), so the
+ *   incremental stream is no longer trustworthy. Fully re-enumerate this
+ *   provider's root via `refreshTree()` when it is named. Deliberately NOT
+ *   gated by `skipManualFullEvents`: unlike the manual Refresh button, nothing
+ *   re-enumerates an overflow directly, so the authority (outer) provider must
+ *   react too — a single-root workspace has no forest RootSection and would
+ *   otherwise never reload on overflow.
  *
  * Root matching is durable-id-first: when this provider has a RootId (UUID),
  * only the event entry with that exact rootId matches — the path fallback is
@@ -153,6 +162,28 @@ async function handleWatcherIncrementalRefresh(
   }
 }
 
+/**
+ * OVERFLOW recovery (watcher + full): the watcher may have missed events for
+ * the named root(s), so the incremental stream is untrustworthy — fully
+ * re-enumerate this provider's root when named. Deliberately NOT gated by
+ * `skipManualFullEvents` (see hook JSDoc: nothing refreshes an overflow
+ * directly, so the outer authority provider must react too).
+ */
+async function handleWatcherOverflowRefresh(
+  detail: FileExplorerRefreshEvent['detail'],
+  current: UseFileTreeRefreshEventsParams,
+  effectiveRootId: string,
+  rootPath: string
+): Promise<void> {
+  const overflowsThisRoot = detail.roots.some((root) =>
+    matchesRoot(root, effectiveRootId, current.rootId, rootPath)
+  );
+  if (!overflowsThisRoot) {
+    return;
+  }
+  await current.refreshTree();
+}
+
 export function useFileTreeRefreshEvents({
   getNormalizedTree,
   refreshDirectory,
@@ -205,6 +236,17 @@ export function useFileTreeRefreshEvents({
         handleWatcherIncrementalRefresh(detail, current, effectiveRootId, currentRootPath).catch(
           (error: unknown) => {
             logger.warn('Watcher-driven tree refresh failed', {
+              error: error instanceof Error ? error.message : String(error),
+              rootPath: currentRootPath,
+            });
+          }
+        );
+        return;
+      }
+      if (detail.source === 'watcher' && detail.scope === 'full') {
+        handleWatcherOverflowRefresh(detail, current, effectiveRootId, currentRootPath).catch(
+          (error: unknown) => {
+            logger.warn('Watcher overflow tree refresh failed', {
               error: error instanceof Error ? error.message : String(error),
               rootPath: currentRootPath,
             });
