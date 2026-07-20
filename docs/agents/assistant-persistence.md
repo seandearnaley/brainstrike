@@ -36,7 +36,7 @@ contracts keep reloaded threads identical to live ones:
    domain result while `providerMetadata.mastra.modelOutput` retains the
    model-only guidance. MCP results remain inline only within the explicit temporary
    persistence ceilings documented in `assistant-providers.md`; text-only MCP
-   output is preview-bounded until the artifact store exists. Never replace a
+   output is preview-bounded until artifact settlement is wired. Never replace a
    native result inside `execute()` merely to save prompt tokens; that destroys
    reload/application evidence. The real-memory proof includes an oversized
    native sentinel and replays a second turn from the same thread in
@@ -590,6 +590,54 @@ Paired tests: `migration-054-assistant-thread-groups.test.ts` and
 `thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
 `ThreadsPanel groups` suite in `threads-panel.test.tsx`.
 
+## TOOL OUTPUT ARTIFACT PERSISTENCE
+
+Migration 068 and `ToolOutputArtifactRepository` own complete oversized tool
+results independently of Mastra message rows:
+
+- `brainstrike_assistant_tool_output_artifacts.content` is `BYTEA`, populated
+  from exact UTF-8 bytes through hex text + PostgreSQL `decode`; this preserves
+  U+0000 and avoids typed-array realm drift across browser workers and Electron
+  IPC.
+- The public id is an opaque uuidv7 token. Every read also requires the active
+  `resource_id` and `thread_id`; a wrong scope is indistinguishable from a
+  missing artifact. `run_id` and `tool_call_id` retain execution provenance,
+  with one stored result per scoped tool call.
+- Range reads are byte-addressed and capped by the shared 8000-byte page
+  maximum. The repository returns bytes; the future reader/resolver owns
+  UTF-8-boundary adjustment and signed/opaque cursor validation.
+- Retention is seven days. `purgeExpired` deletes an explicitly bounded batch
+  in oldest-first order. Expired reads return metadata without content.
+- Storage, reads, and purge failures use a typed visible error. Settlement must
+  finish the complete write before publishing an artifact envelope; it must
+  never substitute a reference after a failed write.
+- Exact replay of `(resource, thread, run, tool call)` returns the existing
+  reference only when format and complete bytes match. A different replay
+  returns no row and surfaces as a typed storage conflict; settlement never
+  overwrites prior evidence.
+- There are deliberately no Mastra FKs because the numbered migration runner
+  operates on a bare schema. Both direct-PGlite reset paths and desktop
+  `db:clearAll` delete artifacts explicitly; only a pre-068 missing relation is
+  tolerated.
+
+The desktop assistant now injects a trusted, request-scoped repository adapter
+when resource, thread, and server-owned run ids are all present. The agent's
+central settlement wrapper persists complete non-media native/MCP results above
+12,000 UTF-8 bytes, caps one artifact at 16 MiB, and publishes a preview
+envelope only after the repository returns coherent metadata. Display and
+transcript store that envelope; a private in-process carrier lets model
+projection consume the original result. MCP image/audio remains inline for
+display/transcript rendering and keeps its media plus metadata ceilings in both
+host modes. Hosts without the adapter additionally retain the temporary MCP
+text/JSON inline ceiling. The artifact reader remains a separate later slice.
+Paired tests:
+`migration-068-tool-output-artifacts.test.ts`,
+`tool-output-artifact-repository.test.ts`,
+`tool-output-artifact-settlement.spec.ts`,
+`mastra-tool-execution.integration.spec.ts`,
+`assistant-server.integration.test.ts`, `factory-reset.test.tsx`, and the
+desktop `ipc-handlers-db.test.ts`.
+
 ## THREADS PANEL HYBRID SEARCH
 
 Hybrid (lexical + semantic + title) search over threads, rendered at the top
@@ -611,6 +659,19 @@ Where state lives (do not relitigate):
   a STORED generated column (034 precedent) + GIN; deliberately NO
   pg_textsearch BM25 index (the 065/066 durability-gate burden is not
   re-paid for a second hot-write table; ts_rank_cd orders the lexical arm).
+- Semantic arm HNSW tuning (BST-576): `searchSimilar` runs its filtered ANN
+  SELECT inside ONE transaction with `SET LOCAL hnsw.ef_search` +
+  `iterative_scan='strict_order'` (`SET LOCAL` outside a transaction is a
+  silent no-op → pgvector default ef_search=40, the #1141 filtered-ANN
+  under-return class). Path order in `runVectorSearchInTransaction`: desktop
+  runs the `ThreadSearchDatabase.runTransaction` atomic IPC primitive; web
+  (ScheduledDbHandle) and raw PGlite handles run the callback-style
+  `transaction`, which holds the single connection's lock so concurrent
+  scheduled work (the controller's embedding-backlog writes run alongside
+  searches) cannot interleave inside the open transaction; the raw
+  BEGIN/COMMIT-over-`query` fallback remains only for legacy/mock seams.
+  Paired tests: the mock-db describe in
+  `packages/db/__tests__/search-thread-message-index.test.ts`.
 - Embeddings: per-message inline `vector(384)` column (typed to the
   singleton profile; a partial HNSW index serves the semantic arm) with the
   singleton `brainstrike_thread_search_profiles` row — the prompt-library

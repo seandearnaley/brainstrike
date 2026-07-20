@@ -830,9 +830,10 @@ contextBridge.exposeInMainWorld('tools', {
   },
 });
 
-// Assistant UI (data stream) endpoint helper. getAuth returns { url, token }
-// (or null while the server is unavailable); every renderer request to the
-// assistant server must send the token — see assistant-contract assistant-auth.
+// Assistant UI (data stream) endpoint helper. getAuth returns { url, token },
+// { startupError } when the server failed to start, or null while starting;
+// every renderer request to the assistant server must send the token — see
+// assistant-contract assistant-auth (AssistantServerAuthResult).
 contextBridge.exposeInMainWorld('assistant', {
   getAuth: () => ipcRenderer.invoke(ASSISTANT_GET_AUTH_CHANNEL),
   getUrl: () => ipcRenderer.invoke(ASSISTANT_GET_URL_CHANNEL),

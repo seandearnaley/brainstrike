@@ -53,6 +53,16 @@ under the same Mastra-ownership ruling — no FKs to the Mastra tables, joined
 by id, factory-reset-cleared except the singleton profile. Full contract:
 `docs/agents/assistant-persistence.md` § THREADS PANEL HYBRID SEARCH.
 
+Migration 068 owns complete tool-output artifact storage
+(`brainstrike_assistant_tool_output_artifacts`). Content is exact UTF-8 in
+`BYTEA`; callers pass hex text through PostgreSQL `decode` because
+worker/Electron boundaries do not preserve a single JavaScript typed-array
+realm. The table has no Mastra FKs, is scoped by resource/thread/run/tool call,
+expires after seven days, and is explicitly factory-reset-cleared. Register
+every change in both migration runners and keep the migration/repository/reset
+tests paired with the persistence contract in
+`docs/agents/assistant-persistence.md`.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

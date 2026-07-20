@@ -130,6 +130,310 @@ describe('PgliteVectorStore', () => {
     });
   });
 
+  describe('range filters', () => {
+    const indexName = 'memory_observations_3';
+
+    beforeEach(async () => {
+      await store.createIndex({ dimension: 3, indexName, metric: 'cosine' });
+      await store.upsert({
+        ids: ['obs-old', 'obs-mid', 'obs-new'],
+        indexName,
+        metadata: [
+          {
+            observed_at: '2026-01-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-1',
+            token_count: 9,
+          },
+          {
+            observed_at: '2026-02-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-1',
+            token_count: 10,
+          },
+          {
+            observed_at: '2026-03-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-2',
+            token_count: 11,
+          },
+        ],
+        vectors: [
+          [1, 0, 0],
+          [1, 0, 0],
+          [1, 0, 0],
+        ],
+      });
+    });
+
+    it('supports the Mastra searchMessages observed_at $gt/$lt window', async () => {
+      // Exact filter shape @mastra/memory searchMessages builds when the
+      // recall tool passes before/after dates (observedAfter/observedBefore).
+      const results = await store.query({
+        filter: {
+          observed_at: {
+            $gt: new Date('2026-01-15T00:00:00.000Z').toISOString(),
+            $lt: new Date('2026-02-15T00:00:00.000Z').toISOString(),
+          },
+          resource_id: 'workspace-a',
+        },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id)).toEqual(['obs-mid']);
+    });
+
+    it('treats $gte/$lte bounds as inclusive', async () => {
+      const results = await store.query({
+        filter: {
+          observed_at: {
+            $gte: '2026-01-01T00:00:00.000Z',
+            $lte: '2026-02-01T00:00:00.000Z',
+          },
+        },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-old']);
+    });
+
+    it('compares numeric operands numerically, not lexicographically', async () => {
+      // Text comparison would exclude token_count 10 and 11 ('10' < '9').
+      const results = await store.query({
+        filter: { token_count: { $gt: 9 } },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-new']);
+    });
+
+    it('rejects unsupported operators loudly, even next to supported ones', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: { $regex: 'x' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/unsupported vector filter operator/i);
+
+      await expect(
+        store.query({
+          filter: { observed_at: { $gt: '2026-01-01T00:00:00.000Z', $regex: 'x' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/unsupported vector filter operator/i);
+    });
+
+    it('rejects range operands that are not strings, finite numbers, or dates', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: { $gt: ['2026-01-01'] } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/range filter/i);
+
+      await expect(
+        store.query({
+          filter: { token_count: { $lt: Number.NaN } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/range filter/i);
+    });
+
+    it('matches any value in a $in filter', async () => {
+      const results = await store.query({
+        filter: { thread_id: { $in: ['thread-1', 'thread-2'] } },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-new', 'obs-old']);
+    });
+
+    it('rejects a $in operand that is not an array', async () => {
+      await expect(
+        store.query({
+          filter: { thread_id: { $in: 'thread-1' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/\$in vector filter value must be an array/i);
+    });
+
+    it('rejects an empty operator object instead of silently matching everything', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: {} },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/must contain at least one operator/i);
+    });
+  });
+
+  describe('metadata filter shape (BST-577: containment so the GIN index serves it)', () => {
+    async function seedRows(count: number): Promise<void> {
+      await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
+      const ids = Array.from({ length: count }, (_, i) => `msg-${i}`);
+      await store.upsert({
+        ids,
+        indexName: 'memory_messages',
+        metadata: ids.map((id, i) => ({
+          message_id: id,
+          resource_id: `workspace-${i % 7}`,
+          thread_id: `thread-${i % 13}`,
+        })),
+        vectors: ids.map((_, i) => [Math.sin(i), Math.cos(i), 0.5]),
+      });
+    }
+
+    async function capturedQuerySql(filter: Record<string, unknown>): Promise<{
+      params: unknown[];
+      sql: string;
+    }> {
+      // The ANN SELECT runs inside the store's tuning transaction, so capture
+      // tx.query calls by proxying the transaction callback's tx object.
+      const captured: { params: unknown[]; sql: string }[] = [];
+      const original = db.transaction.bind(db);
+      const transactionSpy = vi
+        .spyOn(db, 'transaction')
+        .mockImplementation((callback: (tx: unknown) => unknown) =>
+          original(async (tx) => {
+            const proxied = new Proxy(tx as object, {
+              get(target, property, receiver) {
+                if (property === 'query') {
+                  return (sql: string, params?: unknown[]) => {
+                    captured.push({ params: params ?? [], sql });
+                    return (target as { query: typeof db.query }).query(sql, params);
+                  };
+                }
+                return Reflect.get(target, property, receiver);
+              },
+            });
+            return await callback(proxied);
+          })
+        );
+      await store.query({
+        filter,
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+      transactionSpy.mockRestore();
+      const call = captured.find((entry) => entry.sql.includes('embedding'));
+      if (!call) {
+        throw new Error('vector query SQL was not captured');
+      }
+      return call;
+    }
+
+    it('emits a GIN-servable containment predicate for string equality filters', async () => {
+      await seedRows(12);
+      const { sql } = await capturedQuerySql({ resource_id: 'workspace-3' });
+
+      // The store must emit containment (GIN-servable), never ->> equality
+      // (which jsonb_ops GIN cannot serve). In the full ANN query the planner
+      // may still prefer the HNSW order-by scan with an inline filter — the
+      // point is that the predicate SHAPE is index-servable when the planner
+      // wants it (e.g. deleteVectors, highly selective filters).
+      expect(sql).toContain('metadata @> jsonb_build_object');
+      expect(sql).not.toContain('->>');
+
+      // Probe pair proving the audit claim: with seq scans disabled, the
+      // containment shape reaches the metadata GIN while the legacy ->> shape
+      // cannot (the planner is forced to keep the penalized Seq Scan).
+      await db.query('SET enable_seqscan = off');
+      const contained = await db.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT id FROM mastra_vectors
+         WHERE metadata @> jsonb_build_object($1::text, $2::text)`,
+        ['resource_id', 'workspace-3']
+      );
+      const legacy = await db.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT id FROM mastra_vectors
+         WHERE metadata ->> $1 = $2`,
+        ['resource_id', 'workspace-3']
+      );
+      await db.query('RESET enable_seqscan');
+
+      expect(JSON.stringify(contained.rows[0]?.['QUERY PLAN'])).toContain(
+        'mastra_vectors_metadata_idx'
+      );
+      expect(JSON.stringify(legacy.rows[0]?.['QUERY PLAN'])).not.toContain(
+        'mastra_vectors_metadata_idx'
+      );
+    }, 30_000);
+
+    it('keeps exact match semantics for string filters (plain, $eq, $and)', async () => {
+      await seedRows(10);
+      const plain = await store.query({
+        filter: { resource_id: 'workspace-1' },
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 20,
+      });
+      expect(plain.length).toBeGreaterThan(0);
+      expect(plain.every((r) => r.metadata?.['resource_id'] === 'workspace-1')).toBe(true);
+
+      const withEq = await store.query({
+        filter: { resource_id: { $eq: 'workspace-1' } },
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 20,
+      });
+      expect(withEq.map((r) => r.id).sort()).toEqual(plain.map((r) => r.id).sort());
+
+      const withAnd = await store.query({
+        filter: { $and: [{ resource_id: 'workspace-1' }, { thread_id: 'thread-1' }] },
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 20,
+      });
+      expect(
+        withAnd.every(
+          (r) =>
+            r.metadata?.['resource_id'] === 'workspace-1' &&
+            r.metadata?.['thread_id'] === 'thread-1'
+        )
+      ).toBe(true);
+    }, 30_000);
+
+    it('preserves text-coerced matching for non-string filter values (legacy path)', async () => {
+      await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
+      await store.upsert({
+        ids: ['n-1'],
+        indexName: 'memory_messages',
+        metadata: [{ count: 5, resource_id: 'workspace-n' }],
+        vectors: [[1, 0, 0]],
+      });
+
+      const numericFilter = await store.query({
+        filter: { count: 5 },
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+      expect(numericFilter.map((r) => r.id)).toEqual(['n-1']);
+    }, 30_000);
+  });
+
   it('requires deleteVectors to specify ids or a filter', async () => {
     await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
     await store.upsert({

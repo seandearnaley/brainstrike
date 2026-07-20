@@ -66,6 +66,18 @@ describe('main platform IPC', () => {
     });
   });
 
+  it('passes the startupError variant through when the server failed to start', () => {
+    registerMainPlatformIpcHandlers({
+      getAssistantAuth: () => ({ startupError: 'Assistant server failed to start: EADDRINUSE' }),
+      getAssistantUrl: () => '',
+      noteNextWindowReload,
+    });
+
+    expect(handlers.get('assistant:get-auth')?.({})).toEqual({
+      startupError: 'Assistant server failed to start: EADDRINUSE',
+    });
+  });
+
   it('returns null assistant auth when the server is unavailable', () => {
     registerMainPlatformIpcHandlers({
       getAssistantAuth: () => null,

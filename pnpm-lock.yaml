@@ -1090,6 +1090,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
@@ -1121,9 +1124,6 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7(react@19.2.7)
     devDependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

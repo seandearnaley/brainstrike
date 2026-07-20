@@ -107,6 +107,27 @@ async function clearThreadSearchIndexIfPresent(tx: {
 }
 
 /**
+ * Complete tool output can contain sensitive command results and has no FK to
+ * Mastra-owned message tables. A clear/reset must therefore delete it
+ * explicitly. Only a pre-migration-068 database may omit the relation; every
+ * other failure is surfaced so reset cannot report success with artifacts
+ * still present.
+ */
+async function clearToolOutputArtifactsIfPresent(tx: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  const table = 'brainstrike_assistant_tool_output_artifacts';
+  try {
+    await tx.query(`DELETE FROM ${table}`);
+  } catch (error) {
+    if (!isMissingNamedRelationError(error, table)) {
+      throw error;
+    }
+    logger.warn(`[DbProvider] Skipped missing ${table} table during clear:`, error);
+  }
+}
+
+/**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
  * Direct mode: renderer owns a PGlite instance (must close on teardown).
@@ -873,6 +894,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           error
         );
       }
+      await clearToolOutputArtifactsIfPresent(tx);
       await clearThreadSearchIndexIfPresent(tx);
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
@@ -910,6 +932,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
     await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
+    await clearToolOutputArtifactsIfPresent(tx);
     try {
       // Task Ledger outcome labels: web-writable (user verdicts), no FK —
       // clear explicitly per the FACTORY RESET CONTRACT (review #1693).

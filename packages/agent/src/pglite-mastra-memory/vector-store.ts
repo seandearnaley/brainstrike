@@ -200,10 +200,69 @@ function appendEqualityFilter(
   values: PgliteQueryValue[],
   clauses: string[]
 ): void {
+  if (typeof value === 'string') {
+    // Containment so the metadata GIN (jsonb_ops) serves the predicate —
+    // `->>` equality cannot use that index (BST-577). For string-typed
+    // metadata values this is equivalent to the old text comparison; Mastra
+    // memory only ever issues string-valued filters (thread_id/resource_id).
+    values.push(key);
+    const keyParam = `$${values.length}`;
+    values.push(value);
+    clauses.push(`metadata @> jsonb_build_object(${keyParam}::text, $${values.length}::text)`);
+    return;
+  }
+  // Non-string filter values keep the legacy text-coerced comparison
+  // (unindexed): containment would be type-sensitive (5 vs "5"), and no
+  // production caller issues these — parity is pinned by tests.
   values.push(key);
   const keyParam = `$${values.length}`;
   values.push(String(value));
   clauses.push(`metadata ->> ${keyParam} = $${values.length}`);
+}
+
+const RANGE_OPERATOR_SQL = {
+  $gt: '>',
+  $gte: '>=',
+  $lt: '<',
+  $lte: '<=',
+} as const;
+
+function isRangeOperator(operator: string): operator is keyof typeof RANGE_OPERATOR_SQL {
+  return operator in RANGE_OPERATOR_SQL;
+}
+
+/**
+ * Numbers compare via a ::numeric cast; strings compare as text — correct for
+ * the ISO-8601 UTC timestamps Mastra's searchMessages sends for `observed_at`
+ * ($gt/$lt of Date.toISOString()), whose fixed-width zero-padded format makes
+ * lexicographic order chronological. Dates normalize to that same format.
+ */
+function appendRangeFilter(
+  key: string,
+  operator: keyof typeof RANGE_OPERATOR_SQL,
+  operand: unknown,
+  values: PgliteQueryValue[],
+  clauses: string[]
+): void {
+  const sqlOperator = RANGE_OPERATOR_SQL[operator];
+  values.push(key);
+  const keyParam = `$${values.length}`;
+  if (typeof operand === 'number') {
+    if (!Number.isFinite(operand)) {
+      throw new Error(`Vector range filter for key ${key} requires a finite number`);
+    }
+    values.push(operand);
+    clauses.push(`(metadata ->> ${keyParam})::numeric ${sqlOperator} $${values.length}::numeric`);
+    return;
+  }
+  if (typeof operand === 'string' || operand instanceof Date) {
+    values.push(operand instanceof Date ? operand.toISOString() : operand);
+    clauses.push(`metadata ->> ${keyParam} ${sqlOperator} $${values.length}`);
+    return;
+  }
+  throw new Error(
+    `Vector range filter for key ${key} requires a string, finite number, or Date operand`
+  );
 }
 
 function appendOperatorFilter(
@@ -212,22 +271,33 @@ function appendOperatorFilter(
   values: PgliteQueryValue[],
   clauses: string[]
 ): void {
-  if ('$eq' in value) {
-    appendEqualityFilter(key, value['$eq'], values, clauses);
-    return;
-  }
-  if ('$in' in value) {
-    const inValues = value['$in'];
-    if (!Array.isArray(inValues)) {
-      throw new Error('$in vector filter value must be an array');
+  // Mastra combines operators in one object ({ $gt, $lt } for observed_at
+  // windows), so every entry is applied (AND) — and any unknown operator
+  // throws before touching SQL, never silently drops a constraint.
+  for (const [operator, operand] of Object.entries(value)) {
+    if (operator === '$eq') {
+      appendEqualityFilter(key, operand, values, clauses);
+      continue;
     }
-    values.push(key);
-    const keyParam = `$${values.length}`;
-    values.push(inValues.map((entry) => String(entry)));
-    clauses.push(`metadata ->> ${keyParam} = ANY($${values.length}::text[])`);
-    return;
+    if (operator === '$in') {
+      if (!Array.isArray(operand)) {
+        throw new Error('$in vector filter value must be an array');
+      }
+      values.push(key);
+      const keyParam = `$${values.length}`;
+      values.push(operand.map((entry) => String(entry)));
+      clauses.push(`metadata ->> ${keyParam} = ANY($${values.length}::text[])`);
+      continue;
+    }
+    if (isRangeOperator(operator)) {
+      appendRangeFilter(key, operator, operand, values, clauses);
+      continue;
+    }
+    throw new Error(`Unsupported vector filter operator ${operator} for key: ${key}`);
   }
-  throw new Error(`Unsupported vector filter operator for key: ${key}`);
+  if (Object.keys(value).length === 0) {
+    throw new Error(`Vector filter for key ${key} must contain at least one operator`);
+  }
 }
 
 function appendAndFilter(value: unknown, values: PgliteQueryValue[], clauses: string[]): void {

@@ -211,20 +211,42 @@ export async function resolveAssistantBaseUrl(): Promise<string> {
  * `ASSISTANT_AUTH_HEADER_NAME` in @brainstrike/assistant-contract); web builds
  * have no bridge and get an empty object (same-origin `/api` needs none).
  */
+interface AssistantAuthBridge {
+  getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
+}
+
+/**
+ * Returns the startup failure message when the desktop main process reported
+ * the assistant server never started; undefined otherwise (incl. web builds).
+ */
+export async function readAssistantStartupFailure(): Promise<string | undefined> {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
+  if (bridge && typeof bridge.getAuth === 'function') {
+    try {
+      const auth = await bridge.getAuth();
+      if (auth && 'startupError' in auth) {
+        return auth.startupError;
+      }
+    } catch {
+      // ignored — the availability probe's own failure handling reports.
+    }
+  }
+  return;
+}
+
 export async function resolveAssistantAuthHeaders(): Promise<Record<string, string>> {
   if (typeof window === 'undefined') {
     return {};
-  }
-
-  interface AssistantAuthBridge {
-    getAuth?: () => Promise<{ token: string; url: string } | null>;
   }
 
   const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
   if (bridge && typeof bridge.getAuth === 'function') {
     try {
       const auth = await bridge.getAuth();
-      if (auth?.token) {
+      if (auth && 'token' in auth && auth.token) {
         return { [ASSISTANT_AUTH_HEADER_NAME]: auth.token };
       }
     } catch {
@@ -253,6 +275,13 @@ export async function fetchAssistantStatusState({
 }: FetchAssistantStatusStateOptions): Promise<AssistantAvailabilityStatus> {
   if (!fetchImpl) {
     throw new Error('Fetch implementation is not available');
+  }
+
+  const startupFailure = await readAssistantStartupFailure();
+  if (startupFailure) {
+    // The desktop main process reported the server never started — present
+    // the concrete failure instead of probing a dead endpoint (BST-574).
+    return { message: startupFailure, state: 'error' };
   }
 
   const url = await resolveAssistantStatusUrl();

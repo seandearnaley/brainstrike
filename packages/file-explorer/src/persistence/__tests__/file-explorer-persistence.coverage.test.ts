@@ -15,28 +15,12 @@ vi.mock('../worker-init', () => ({
   initWorker: vi.fn(() => ({ useWorker: false, workerStorage: null })),
 }));
 
-function withClearedTestMarkers<T>(run: () => Promise<T>): Promise<T> {
-  const globalRecord = globalThis as Record<string, unknown>;
-  const originalVitest = globalRecord['vitest'];
-  const originalJest = globalRecord['jest'];
-  const originalWorker = globalRecord['__vitest_worker__'];
-
-  Reflect.deleteProperty(globalRecord, 'vitest');
-  Reflect.deleteProperty(globalRecord, 'jest');
-  Reflect.deleteProperty(globalRecord, '__vitest_worker__');
-
-  return run().finally(() => {
-    if (originalVitest !== undefined) {
-      globalRecord['vitest'] = originalVitest;
-    }
-    if (originalJest !== undefined) {
-      globalRecord['jest'] = originalJest;
-    }
-    if (originalWorker !== undefined) {
-      globalRecord['__vitest_worker__'] = originalWorker;
-    }
-  });
-}
+// Simulates a non-test runtime via the detection seam. Never remove the real
+// `__vitest_worker__` global to get there: vitest's throttled task-update
+// timer crashes the worker if it fires while that global is absent (BST-591).
+vi.mock('../test-environment', () => ({
+  detectTestEnvironment: vi.fn(() => false),
+}));
 
 describe('file-explorer-persistence coverage', () => {
   beforeEach(() => {
@@ -59,15 +43,13 @@ describe('file-explorer-persistence coverage', () => {
     };
     vi.stubEnv('NODE_ENV', 'development');
 
-    await withClearedTestMarkers(async () => {
-      const mod = await import('../file-explorer-persistence');
-      mod.createPersistOptions({
-        clear: async () => {},
-        getAllKeys: async () => [],
-        getItem: async () => null,
-        removeItem: async () => {},
-        setItem: async () => {},
-      });
+    const mod = await import('../file-explorer-persistence');
+    mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
     });
 
     expect(values.get('file-explorer-storage-v5')).toBe('{"legacy":true}');
@@ -90,15 +72,13 @@ describe('file-explorer-persistence coverage', () => {
     };
     vi.stubEnv('NODE_ENV', 'development');
 
-    await withClearedTestMarkers(async () => {
-      const mod = await import('../file-explorer-persistence');
-      mod.createPersistOptions({
-        clear: async () => {},
-        getAllKeys: async () => [],
-        getItem: async () => null,
-        removeItem: async () => {},
-        setItem: async () => {},
-      });
+    const mod = await import('../file-explorer-persistence');
+    mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
     });
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -115,21 +95,19 @@ describe('file-explorer-persistence coverage', () => {
       folderStates: { a: {}, b: {} },
     } as unknown as FileExplorerState;
 
-    await withClearedTestMarkers(async () => {
-      const mod = await import('../file-explorer-persistence');
-      const persistOptions = mod.createPersistOptions({
-        clear: async () => {},
-        getAllKeys: async () => [],
-        getItem: async () => null,
-        removeItem: async () => {},
-        setItem: async () => {},
-      });
-      // onRehydrateStorage's outer arg (pre-hydration state) is ignored by the
-      // implementation but required by the zustand type; reuse hydratedState.
-      const callback = persistOptions.onRehydrateStorage?.(hydratedState);
-      callback?.(hydratedState, undefined);
-      callback?.(hydratedState, new Error('rehydration failed'));
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
     });
+    // onRehydrateStorage's outer arg (pre-hydration state) is ignored by the
+    // implementation but required by the zustand type; reuse hydratedState.
+    const callback = persistOptions.onRehydrateStorage?.(hydratedState);
+    callback?.(hydratedState, undefined);
+    callback?.(hydratedState, new Error('rehydration failed'));
 
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydrated. Folder count:',
@@ -146,22 +124,20 @@ describe('file-explorer-persistence coverage', () => {
   it('warns when the rehydrated state shape is invalid', async () => {
     vi.stubEnv('NODE_ENV', 'development');
 
-    await withClearedTestMarkers(async () => {
-      const mod = await import('../file-explorer-persistence');
-      const persistOptions = mod.createPersistOptions({
-        clear: async () => {},
-        getAllKeys: async () => [],
-        getItem: async () => null,
-        removeItem: async () => {},
-        setItem: async () => {},
-      });
-      const invalidState = {
-        folderAccessOrder: null,
-        folderStates: null,
-      } as unknown as FileExplorerState;
-      const callback = persistOptions.onRehydrateStorage?.(invalidState);
-      callback?.(invalidState, undefined);
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
     });
+    const invalidState = {
+      folderAccessOrder: null,
+      folderStates: null,
+    } as unknown as FileExplorerState;
+    const callback = persistOptions.onRehydrateStorage?.(invalidState);
+    callback?.(invalidState, undefined);
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'onRehydrateStorage - Rehydrated state shape was invalid'
@@ -171,23 +147,21 @@ describe('file-explorer-persistence coverage', () => {
   it('does not warn for a minimally valid rehydrated state shape', async () => {
     vi.stubEnv('NODE_ENV', 'development');
 
-    await withClearedTestMarkers(async () => {
-      const mod = await import('../file-explorer-persistence');
-      const persistOptions = mod.createPersistOptions({
-        clear: async () => {},
-        getAllKeys: async () => [],
-        getItem: async () => null,
-        removeItem: async () => {},
-        setItem: async () => {},
-      });
-      const minimalState = {
-        currentFolderId: null,
-        folderAccessOrder: [],
-        folderStates: {},
-      } as unknown as FileExplorerState;
-      const callback = persistOptions.onRehydrateStorage?.(minimalState);
-      callback?.(minimalState, undefined);
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
     });
+    const minimalState = {
+      currentFolderId: null,
+      folderAccessOrder: [],
+      folderStates: {},
+    } as unknown as FileExplorerState;
+    const callback = persistOptions.onRehydrateStorage?.(minimalState);
+    callback?.(minimalState, undefined);
 
     expect(mockLogger.warn).not.toHaveBeenCalledWith(
       'onRehydrateStorage - Rehydrated state shape was invalid'

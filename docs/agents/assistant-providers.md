@@ -463,14 +463,15 @@ installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
 markers), delegates to Mastra's limiter, and restores the exact raw result in a
 `finally`. Keep its canonical processor id `token-limiter`.
 
-MCP does not yet have durable artifact settlement, so its persistence channel
-has a separate temporary inline ceiling: text/JSON is bounded to
-`MAX_TOOL_RESULT_TOKENS` (3000); multimodal output keeps raw media only up to
-the assistant aggregate encoded-media ceiling and 12000 non-media serialized
-characters. Multimodal `content` arrays containing any non-object part are
-malformed and throw before persistence accounting. Exceeding either ceiling
-throws visibly—never drops media. The artifact-store PR must replace this
-temporary compromise.
+MCP text/JSON uses a separate temporary inline ceiling only when the host does
+not supply durable artifact settlement: it is bounded to
+`MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
+display/transcript channels can render it; durable settlement never converts
+image/audio `content` arrays into text artifacts. Raw media is permitted only
+up to the assistant aggregate encoded-media ceiling and 12000 non-media
+serialized characters in both host modes. Multimodal `content` arrays
+containing any non-object part are malformed and throw before persistence
+accounting. Exceeding either ceiling throws visibly—never drops media.
 
 The browser-safe `@brainstrike/assistant-contract/tool-output-artifact`
 subpath defines the versioned foundation for that replacement: an opaque
@@ -485,12 +486,25 @@ declared byte span, require a continuation cursor exactly when bytes remain,
 and reject gaps, overlaps, extra fields, unsupported encodings, and malformed
 versions instead of guessing. U+0000 content uses an explicit reversible
 `json-string` encoding because PostgreSQL jsonb cannot represent it directly.
-This shared contract does **not** enable artifact storage or a reader tool by
-itself. Until a later PR atomically retains complete output during settlement,
-scopes resolution to the active thread/run, applies expiry, and exposes the
-reader, the temporary MCP inline ceilings above remain authoritative. The
-settlement implementation must fail visibly if complete retention fails; it
-must never emit an artifact envelope for data that was not durably stored.
+Migration 068 and `ToolOutputArtifactRepository` provide exact UTF-8 `BYTEA`,
+resource+thread-scoped bounded range reads, seven-day expiry, bounded
+oldest-first purge, typed visible failures, and explicit web/desktop
+factory-reset cleanup. Exact replay of one scoped tool call is idempotent only
+when format and complete bytes match; a conflicting replay is a hard failure.
+
+`applyToolOutputArtifactSettlement` is the central live settlement seam. With a
+trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
+retained completely before display/transcript receives the bounded envelope. A
+private carrier lets `toModelOutput` project the original result and hook
+context while preventing either from leaking into persistence. MCP image/audio
+stays inline under the media ceilings above instead of being serialized into a
+text artifact. The upstream settlement cap for pageable text/JSON is 16 MiB;
+over-cap output, missing tool-call provenance, serialization failure, storage
+failure, or incoherent storage metadata throws visibly.
+Without the capability, the temporary MCP ceilings above remain authoritative.
+Desktop injects the capability only for a server-owned run with resource,
+thread, and run scope. A reader tool is still a later slice; the current cursor
+is versioned and opaque but not yet callable through the tool registry.
 
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections

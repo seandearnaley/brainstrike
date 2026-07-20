@@ -6,7 +6,7 @@ export const assistantEndpointLogger = createLogger('AssistantEndpoint');
 declare global {
   interface Window {
     assistant?: {
-      getAuth?: () => Promise<{ token: string; url: string } | null>;
+      getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
       getUrl?: () => Promise<string>;
       url?: string;
     };
@@ -38,6 +38,15 @@ export async function resolveAssistantEndpoint(): Promise<AssistantEndpoint | un
 
   if (typeof bridge.getAuth === 'function') {
     const auth = await bridge.getAuth();
+    if (auth && 'startupError' in auth) {
+      // Server failed to start: no endpoint exists. Surface loudly (the
+      // availability probe presents the same failure as an error state) and
+      // do NOT fall through to getUrl — it would return the same dead state.
+      assistantEndpointLogger.error('Assistant server failed to start', {
+        startupError: auth.startupError,
+      });
+      return;
+    }
     if (auth) {
       return {
         api: toApiUrl(auth.url),

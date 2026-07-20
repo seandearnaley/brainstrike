@@ -54,8 +54,14 @@ directory (the EMFILE storm of PR #1761's incident).
    ~90k-entry write burst produced `Events were dropped by the FSEvents client.
    File system must be re-scanned.` delivered as an error to the subscribe
    callback. The adapter MUST map backend callback errors to the root-level
-   invalidation event (`{kind:'directory', path: root, type:'modified'}`) —
-   this is the ticket's "backend events that cannot identify a path" case.
+   invalidation SENTINEL `{kind:'directory', path: root, type:'added'}` —
+   the ticket's "backend events that cannot identify a path" case. Ruling
+   (PR #1779 review): the sentinel is `added`, NOT `modified`, because the
+   Explorer refresh consumer deliberately treats `modified` as content-only
+   and skips it; a root-path membership change is what triggers the full root
+   re-enumeration a drop requires. (The legacy null-filename path emitted
+   root/`modified` and therefore silently never refreshed the tree — a
+   pre-existing gap this closes.)
 2. **Callback errors arrive on the event callback, not as rejections.** The
    subscription stays alive after such an error; the adapter decides whether to
    degrade (invalidate root, keep watching) or fail. Slice 2 policy: invalidate
@@ -67,6 +73,15 @@ directory (the EMFILE storm of PR #1761's incident).
    protocol (slice 3) must classify ENOSPC as terminal+retryable-after-config.
 4. **Prebuild resolution must go through `@parcel/watcher`'s own location**
    (pnpm strict layout) — relevant for the packaged-app check in slice 4.
+5. **Event paths must be re-rooted onto the handle path.** Backends report
+   kernel realpaths (`/var` → `/private/var`); consumers prefix-match against
+   handle-rooted paths, which the legacy engine emitted by construction.
+6. **Settled ruling (slice 4):** parcel cannot distinguish file vs directory
+   deletion, so every delete normalizes to `directory`/`removed` (safe
+   invalidation). On Linux/Windows this diverges from chokidar's precise
+   `unlink` kind but is functionally equivalent for all three consumers — a
+   deliberate, reviewed trade, not a surprise to relitigate when chokidar is
+   removed.
 
 ## Packaged Electron plan (slice 4)
 
