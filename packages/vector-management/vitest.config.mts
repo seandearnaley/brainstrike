@@ -10,7 +10,9 @@ import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+const coverageEnabled =
+  process.env['COVERAGE'] !== 'false' &&
+  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 // Vitest 4: use maxWorkers instead of poolOptions
 const poolConfig = {

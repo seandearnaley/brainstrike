@@ -11,7 +11,9 @@ export default defineConfig({
   },
   test: {
     coverage: {
-      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
+      enabled:
+        process.env['COVERAGE'] !== 'false' &&
+        (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true'),
       exclude: [
         'src/**/__tests__/**',
         'src/**/*.test.ts',

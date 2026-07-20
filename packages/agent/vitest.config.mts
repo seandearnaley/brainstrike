@@ -2,7 +2,9 @@ import { resolve } from 'node:path';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
-const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+const coverageEnabled =
+  process.env['COVERAGE'] !== 'false' &&
+  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 export default defineConfig({
   coverage: {

@@ -43,7 +43,9 @@ export default defineConfig({
         test: {
           clearMocks: true,
           coverage: {
-            enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
+            enabled:
+              process.env['COVERAGE'] !== 'false' &&
+              (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true'),
             exclude: ['**/*.test.*', '**/__tests__/**', '**/dist/**', '**/node_modules/**'],
             include: ['src/**/*.ts'],
             provider: 'v8',
