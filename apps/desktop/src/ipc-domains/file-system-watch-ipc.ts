@@ -1,7 +1,7 @@
 /**
  * File-system watch IPC domain (fs:watch / fs:unwatch / fs:watch-event).
  *
- * Watching runs in the MAIN process (chokidar via
+ * Watching runs in the MAIN process (@parcel/watcher via
  * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
  * batched `FileSystemChange[]` payloads to the OWNING renderer only — the same
  * ownership/reaper model as the notes-vault watch channels. The renderer never
@@ -55,7 +55,7 @@ export type FileSystemWatchRetryResult =
 export interface RegisterFileSystemWatchIpcHandlersOptions {
   /**
    * Start a recursive watcher for a validated directory path; returns a
-   * disposer. Production wiring passes the chokidar-backed
+   * disposer. Production wiring passes the parcel-backed
    * `ElectronFileSystemAdapter.watchDirectory`; tests inject a fake.
    */
   readonly startWatch: StartFileSystemWatch;

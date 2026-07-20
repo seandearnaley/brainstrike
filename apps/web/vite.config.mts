@@ -76,7 +76,7 @@ export default defineConfig({
     minify: 'terser', // Use terser for better minification
     outDir: 'dist', // Output directory for the build - cache bust
     rolldownOptions: {
-      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
+      external: ['electron', '@mastra/core', /^@mastra\//],
       output: {
         codeSplitting: {
           groups: [

@@ -204,7 +204,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   /**
    * Watch a directory via the main-process watcher bridge (fs:watch →
-   * chokidar in main → fs:watch-event pushes → callback).
+   * @parcel/watcher in main → fs:watch-event pushes → callback).
    *
    * Capability-gated, mirroring the web adapter's FileSystemObserver gate:
    * when the preload bridge lacks the watch methods (older build), this
