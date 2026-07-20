@@ -11,6 +11,33 @@
 /** Minimal database seam (mirrors PromptItemDatabase). */
 export interface ThreadSearchDatabase {
   query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  /**
+   * Optional atomic multi-statement transaction (the DbHandle `runTransaction`
+   * IPC primitive from #1141). When present, the vector search arm runs its
+   * `SET LOCAL` HNSW tuning + SELECT inside one transaction here; when absent,
+   * the repository falls back to BEGIN/COMMIT over `query`. Named to match
+   * `DbHandle.runTransaction` — deliberately NOT `transaction`, which would
+   * collide with PGlite's callback-style method of that name.
+   */
+  runTransaction?: (
+    statements: { params?: unknown[]; sql: string }[],
+    resultIndex: number
+  ) => Promise<{ rows: unknown[] }>;
+  /**
+   * Optional callback-style transaction (PGlite / ScheduledDbHandle shape) —
+   * the WEB production path. Holds the single PGlite connection lock for the
+   * callback's duration, so concurrent scheduled work (e.g. the thread-search
+   * controller's embedding-backlog writes) cannot interleave inside the open
+   * transaction. Preferred over the raw BEGIN/COMMIT fallback.
+   */
+  transaction?: <T>(
+    fn: (tx: {
+      query: <R = Record<string, unknown>>(
+        sql: string,
+        params?: unknown[]
+      ) => Promise<{ rows: R[] }>;
+    }) => Promise<T>
+  ) => Promise<T | undefined>;
 }
 
 /** Singleton embedding profile row (same shape as PromptEmbeddingProfile). */
