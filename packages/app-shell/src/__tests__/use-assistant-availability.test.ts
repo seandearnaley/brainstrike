@@ -162,6 +162,25 @@ describe('fetchAssistantStatusState', () => {
     expect(result).toEqual<AssistantAvailabilityStatus>({ state: 'enabled' });
   });
 
+  it('sends the assistant auth token header when the bridge provides auth', async () => {
+    const token = 't'.repeat(64);
+    (window as unknown as { assistant?: unknown }).assistant = {
+      getAuth: () => Promise.resolve({ token, url: 'http://127.0.0.1:5123' }),
+      getUrl: () => Promise.resolve('http://127.0.0.1:5123'),
+    };
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true }),
+      ok: true,
+    } as unknown as Response);
+
+    await fetchAssistantStatusState({ fetchImpl, signal: new AbortController().signal });
+
+    expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:5123/assistant/status', {
+      headers: { accept: 'application/json', 'x-brainstrike-assistant-token': token },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
   it('preserves an explicit hosted provider from the status endpoint', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({

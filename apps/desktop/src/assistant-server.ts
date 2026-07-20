@@ -47,8 +47,14 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import {
+  type AssistantServerAuth,
+  isAuthorizedAssistantToken,
+  mintAssistantServerAuthToken,
+} from './assistant-server/auth';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
@@ -183,6 +189,12 @@ interface DesktopMastraMemoryCacheState {
 }
 
 export interface AssistantServerOptions {
+  /**
+   * Request auth. `startAssistantServer` mints a per-boot token when unset;
+   * `handleAssistantRequest` throws when unset (misconfiguration must be loud).
+   * `'disabled'` is the explicit opt-out for routing/CORS-focused tests.
+   */
+  auth?: AssistantServerAuth;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   host?: string;
   listen?: boolean;
@@ -190,8 +202,11 @@ export interface AssistantServerOptions {
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
+  const auth: AssistantServerAuth = options.auth ?? { token: mintAssistantServerAuthToken() };
+  const authToken = auth === 'disabled' ? undefined : auth.token;
+  const requestOptions: AssistantServerOptions = { ...options, auth };
   const server = http.createServer(async (req, res) => {
-    await handleAssistantRequest(req, res, options).catch(() => {
+    await handleAssistantRequest(req, res, requestOptions).catch(() => {
       if (res.headersSent || res.writableEnded) {
         if (!res.writableEnded) {
           res.end();
@@ -210,16 +225,18 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
   const host = options.host ?? '127.0.0.1';
   if (options.listen === false) {
     return Promise.resolve({
+      ...(authToken === undefined ? {} : { authToken }),
       stop: async () => {},
       url: `http://${host}:${port}`,
     });
   }
-  return new Promise<{ url: string; stop: () => Promise<void> }>((resolve) => {
+  return new Promise<{ url: string; stop: () => Promise<void>; authToken?: string }>((resolve) => {
     server.listen(port, host, () => {
       const addr = server.address();
       const actualPort = typeof addr === 'object' && addr ? addr.port : port;
       const url = `http://${host}:${actualPort}`;
       resolve({
+        ...(authToken === undefined ? {} : { authToken }),
         stop: async () => await new Promise<void>((r) => server.close(() => r())),
         url,
       });
@@ -232,6 +249,14 @@ export async function handleAssistantRequest(
   res: http.ServerResponse,
   options: AssistantServerOptions = {}
 ): Promise<void> {
+  const auth = options.auth;
+  if (auth === undefined) {
+    // NO SILENT FALLBACKS: an unconfigured gate must fail loudly, never serve.
+    throw new Error(
+      'Assistant server auth is not configured. Pass options.auth ({ token } or the explicit "disabled" opt-out).'
+    );
+  }
+
   if (hasDisallowedAssistantOrigin(req)) {
     respondForbiddenOrigin(res);
     return;
@@ -242,6 +267,21 @@ export async function handleAssistantRequest(
   if (isAssistantCorsPreflight(req)) {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (
+    auth !== 'disabled' &&
+    !isAuthorizedAssistantToken(req.headers[ASSISTANT_AUTH_HEADER_NAME], auth.token)
+  ) {
+    logger.warn('Rejected assistant request without a valid auth token', {
+      method: req.method,
+      url: req.url,
+    });
+    respondJson(res, 401, {
+      error: 'unauthorized',
+      message: 'Missing or invalid assistant auth token.',
+    });
     return;
   }
 
@@ -995,7 +1035,8 @@ async function handleSuspendedRunsRequest(
   }
 }
 
-const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
+const ASSISTANT_CORS_ALLOWED_HEADERS =
+  'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
 const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
 const ASSISTANT_CORS_NULL_ORIGIN = 'null';

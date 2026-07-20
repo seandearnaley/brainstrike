@@ -1,3 +1,4 @@
+import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   isValidModelForProvider,
@@ -204,6 +205,37 @@ export async function resolveAssistantBaseUrl(): Promise<string> {
   return '/api';
 }
 
+/**
+ * Resolves the auth headers every assistant-server request must carry. The
+ * desktop bridge's `getAuth` supplies the per-boot token (see
+ * `ASSISTANT_AUTH_HEADER_NAME` in @brainstrike/assistant-contract); web builds
+ * have no bridge and get an empty object (same-origin `/api` needs none).
+ */
+export async function resolveAssistantAuthHeaders(): Promise<Record<string, string>> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  interface AssistantAuthBridge {
+    getAuth?: () => Promise<{ token: string; url: string } | null>;
+  }
+
+  const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
+  if (bridge && typeof bridge.getAuth === 'function') {
+    try {
+      const auth = await bridge.getAuth();
+      if (auth?.token) {
+        return { [ASSISTANT_AUTH_HEADER_NAME]: auth.token };
+      }
+    } catch {
+      // ignored — the request proceeds without the header and the server's
+      // 401 surfaces the failure loudly instead of a silent client-side guess.
+    }
+  }
+
+  return {};
+}
+
 export async function resolveAssistantStatusUrl(): Promise<string> {
   return `${await resolveAssistantBaseUrl()}/assistant/status`;
 }
@@ -224,8 +256,9 @@ export async function fetchAssistantStatusState({
   }
 
   const url = await resolveAssistantStatusUrl();
+  const authHeaders = await resolveAssistantAuthHeaders();
   const response = await fetchImpl(url, {
-    headers: { accept: 'application/json' },
+    headers: { accept: 'application/json', ...authHeaders },
     signal,
   });
 

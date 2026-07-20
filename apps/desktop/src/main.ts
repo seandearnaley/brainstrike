@@ -1385,12 +1385,14 @@ if (singleInstanceLockAcquired) {
 
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
+      let assistantAuthToken: string | undefined;
       try {
-        const { url, stop } = await startAssistantServer(undefined, {
+        const { url, stop, authToken } = await startAssistantServer(undefined, {
           embeddingHostManager,
           llmHostManager,
         });
         assistantUrl = url;
+        assistantAuthToken = authToken;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
       } catch (err) {
@@ -1398,6 +1400,10 @@ if (singleInstanceLockAcquired) {
       }
 
       unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
+        getAssistantAuth: () =>
+          assistantUrl && assistantAuthToken
+            ? { token: assistantAuthToken, url: assistantUrl }
+            : null,
         getAssistantUrl: () => assistantUrl,
         getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
         noteNextWindowReload,

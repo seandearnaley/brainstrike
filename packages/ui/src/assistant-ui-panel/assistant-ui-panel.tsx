@@ -58,6 +58,11 @@ import {
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
+import {
+  assistantEndpointLogger,
+  resolveAssistantAuthHeaders,
+  resolveAssistantEndpoint,
+} from './assistant-endpoint';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
@@ -376,12 +381,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
 }
 
 export type AssistantUiThreadHistoryAdapter = ThreadHistoryAdapter;
-
-declare global {
-  interface Window {
-    assistant?: { getUrl?: () => Promise<string>; url?: string };
-  }
-}
 
 const LocalReasoningPart = () => {
   useMessagePartReasoning();
@@ -928,6 +927,7 @@ const DataStreamRuntimeChat = ({
   disabledReason,
   localLoadingState,
   api,
+  authHeaders,
   completePreparedRequest,
   historyAdapter,
   requestBodyLimitBytes,
@@ -947,6 +947,7 @@ const DataStreamRuntimeChat = ({
   threadKey,
 }: ChatThreadProps & {
   api: string;
+  authHeaders?: (() => Promise<Record<string, string>>) | undefined;
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -1010,6 +1011,7 @@ const DataStreamRuntimeChat = ({
       : {};
   const runtime = useBrainstrikeDataStreamRuntime({
     api,
+    ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
     ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
     body: async () => {
@@ -1420,28 +1422,25 @@ export const AssistantUiPanel = ({
   localChatTransport = 'local-runtime',
   threadKey,
 }: AssistantUiPanelProps) => {
-  // API URL for data stream runtime (hosted providers)
+  // API URL for the runtime; auth headers resolve per-request (assistant-endpoint.ts).
   const [api, setApi] = useState<string>(resolveInitialAssistantApi);
 
   useEffect(() => {
     void preloadMarkdownText();
-
-    const getUrl = window.assistant?.getUrl;
-    if (!getUrl) {
-      return;
-    }
-    const updateApi = async () => {
-      try {
-        const url = await getUrl();
-        if (url) {
-          setApi(`${url}/assistant`);
+    let ignore = false;
+    resolveAssistantEndpoint()
+      .then((endpoint) => {
+        if (!ignore && endpoint) {
+          setApi(endpoint.api);
         }
-      } catch {
-        // Ignore errors from getUrl
-      }
+      })
+      .catch((error) => {
+        // A bridge that exists but errors means a broken assistant — say so.
+        assistantEndpointLogger.error('Failed to resolve assistant endpoint', { error });
+      });
+    return () => {
+      ignore = true;
     };
-
-    void updateApi();
   }, []);
 
   const groupedProviders = providerGroups ?? [];
@@ -1513,6 +1512,7 @@ export const AssistantUiPanel = ({
           <DataStreamRuntimeChat
             api={api}
             attachmentsAvailability={attachmentsAvailability}
+            authHeaders={resolveAssistantAuthHeaders}
             completePreparedRequest={completePreparedRequest}
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
