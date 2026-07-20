@@ -62,6 +62,7 @@ describe('createWindow', () => {
       maximize: vi.fn(),
       on: vi.fn(),
       once: vi.fn(),
+      setTitle: vi.fn(),
       show: vi.fn(),
       webContents: mockWebContents,
     } as any;
@@ -77,6 +78,7 @@ describe('createWindow', () => {
   afterEach(() => {
     process.argv = [...baseArgv];
     Reflect.deleteProperty(process.env, 'CI');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_AGENT_DEVTOOLS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
 
@@ -112,6 +114,30 @@ describe('createWindow', () => {
         width: 1440,
       });
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
+    });
+
+    it('pins a descriptive native and accessible title for agent-debug sessions', async () => {
+      existsSyncMock.mockReturnValue(true);
+      process.env['BRAINSTRIKE_AGENT_DEVTOOLS'] = '1';
+
+      await createWindow();
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessibleTitle: 'BrainStrike Agent Debug',
+          title: 'BrainStrike Agent Debug',
+        })
+      );
+
+      const titleUpdateHandler = mockBrowserWindow.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'page-title-updated'
+      )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+      const event = { preventDefault: vi.fn() };
+
+      expect(titleUpdateHandler).toBeDefined();
+      titleUpdateHandler?.(event);
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.setTitle).toHaveBeenCalledWith('BrainStrike Agent Debug');
     });
 
     it('should apply stored window bounds and maximize preference', async () => {

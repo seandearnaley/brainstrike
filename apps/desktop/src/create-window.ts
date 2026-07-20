@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, BrowserWindow } from 'electron';
+import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
 import {
   recordRendererCrashDeferred,
   recordRendererCrashLoopSuppressed,
@@ -240,6 +241,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     resolveInitialWindowState(options.windowState)
   );
   const { bounds, isFullScreen, isMaximized } = resolvedWindowState;
+  const agentDevtoolsWindowTitle = resolveAgentDevtoolsWindowTitle(process.env, process.argv);
 
   // Sandbox must be disabled in CI/test environments because:
   // 1. Playwright's Electron support does not work with sandbox enabled in CI
@@ -249,6 +251,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   const enableSandbox = !isTestMode;
 
   const win = new BrowserWindow({
+    ...(agentDevtoolsWindowTitle
+      ? {
+          accessibleTitle: agentDevtoolsWindowTitle,
+          title: agentDevtoolsWindowTitle,
+        }
+      : {}),
     height: bounds.height,
     width: bounds.width,
     ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
@@ -280,6 +288,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       : {}),
   });
   assignWindowRole(win, 'visible-ui');
+  if (agentDevtoolsWindowTitle) {
+    win.on('page-title-updated', (event: Electron.Event) => {
+      event.preventDefault();
+      win.setTitle(agentDevtoolsWindowTitle);
+    });
+  }
 
   logStartupPhase('browser-window-created', {
     isPackaged: app.isPackaged,

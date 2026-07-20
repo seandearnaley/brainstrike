@@ -18,6 +18,7 @@ const DEFAULT_AGENT_DEVTOOLS_PORT = agentDevToolsDefaults.defaultPort;
 const DEFAULT_AGENT_DEVTOOLS_HOST = agentDevToolsDefaults.defaultHost as '127.0.0.1';
 const MIN_PORT = agentDevToolsDefaults.minPort;
 const MAX_PORT = agentDevToolsDefaults.maxPort;
+export const AGENT_DEVTOOLS_WINDOW_TITLE = 'BrainStrike Agent Debug';
 
 export function resolveAgentDevtoolsConfig(
   env: EnvLike,
@@ -56,6 +57,13 @@ export function configureAgentDevtoolsCommandLine(
   for (const [name, value] of toAgentDevtoolsSwitches(config)) {
     commandLine.appendSwitch(name, value);
   }
+}
+
+export function resolveAgentDevtoolsWindowTitle(
+  env: EnvLike,
+  argv: readonly string[]
+): string | null {
+  return resolveAgentDevtoolsConfig(env, argv).enabled ? AGENT_DEVTOOLS_WINDOW_TITLE : null;
 }
 
 function resolveHost(value: string | undefined): '127.0.0.1' {
