@@ -79,7 +79,10 @@ export async function findBrowserEventLiteralViolations({ root = REPO_ROOT } = {
       // Only QUOTED literals violate the contract — a code comment may
       // legitimately mention an event name (review round on #1793). The name
       // is matched with a quote character on each side (', ", or `).
-      const quoted = new RegExp(`['"\`]${eventName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`, 'g');
+      const quoted = new RegExp(
+        `['"\`]${eventName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`,
+        'g'
+      );
       for (const match of sourceText.matchAll(quoted)) {
         violations.push({
           eventName,
