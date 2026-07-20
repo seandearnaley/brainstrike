@@ -38,4 +38,3 @@ export {
 } from './utils/context-packer-utils';
 export { normalizeEmbeddingSets } from './utils/embedding-set-normalizer';
 export * from './utils/format';
-export * from './vector-preferences';

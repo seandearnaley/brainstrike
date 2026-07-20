@@ -30,6 +30,7 @@ import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-s
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
+import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import {
   type Dispatch,
   type SetStateAction,
@@ -40,7 +41,6 @@ import {
   useState,
 } from 'react';
 import { useFileImportService } from './base-file-import-service';
-import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
 const QUEUE_PROGRESS_THROTTLE_MS = 100;
