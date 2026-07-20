@@ -21,18 +21,48 @@
       "cache": false
     },
     "test": {
-      // NEVER cache: the `test` script is `pnpm build && node --test
-      // test/*.test.cjs`, i.e. it node-gyp-rebuilds a NATIVE addon and exercises
-      // the compiled `.node` binary directly. Pass/fail depends on the host
-      // toolchain + Node/OS ABI producing a working binary — a result-affecting
-      // input turbo does NOT hash (it hashes the C/C++/JS source, never the
-      // compiled artifact or the ABI it was built against). A cache hit would
-      // replay a green without proving the addon builds/loads on this machine,
-      // defeating the entire purpose of a native-addon test.
+      // NEVER cache: the `test` script exercises the compiled native `.node`
+      // binary directly (`node --test test/*.test.cjs`). Pass/fail depends on
+      // the host toolchain + Node/OS ABI producing a working binary — a
+      // result-affecting input turbo does NOT hash (it hashes the C/C++/JS
+      // source, never the compiled artifact or the ABI it was built against).
+      // A cache hit would replay a green without proving the addon
+      // builds/loads on this machine, defeating the entire purpose of a
+      // native-addon test.
       "cache": false,
+      // B4 build-edge exception (see packages/utils/turbo.json for the
+      // pattern): the tests load the compiled addon, so this task needs the
+      // package's own `build` first. The edge MUST live here rather than as a
+      // `pnpm build &&` prefix in the test script: turbo also schedules this
+      // package's `build` task, and with the inline form a single
+      // `turbo build ... test` invocation ran TWO CONCURRENT `node-gyp
+      // rebuild`s (= clean + configure + build) in this directory — they race
+      // ("make: No targets specified and no makefile found" / missing .deps;
+      // reproduced 2026-07-19). The dependsOn edge makes turbo serialize the
+      // one and only rebuild before the tests. `$TURBO_EXTENDS$` appends to
+      // the inherited `["topo"]` instead of replacing it. Guarded by
+      // scripts/__tests__/native-addon-build-uncached-contract.test.mjs.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"],
       // cache:false does NOT exempt strict-env filtering; package configs REPLACE
       // array fields. Redeclare to keep CI/COVERAGE visible. Sync with root.
       "passThroughEnv": ["CI", "COVERAGE"]
+    },
+    "test:coverage": {
+      // Runs the IDENTICAL native suite (`test:coverage` is `pnpm test` →
+      // `node --test test/*.test.cjs`), so it needs BOTH of `test`'s
+      // properties, not just the build edge:
+      //   - the same own-`build` edge (mirrors packages/db + packages/utils), and
+      //   - the same `cache: false`. The root `test:coverage` task IS cacheable,
+      //     so without this a `turbo run test:coverage` hit would replay a green
+      //     WITHOUT dlopening the addon — precisely the hazard `test` above
+      //     documents. `build` being cache:false does not help: it guarantees a
+      //     fresh binary, not that anything loaded it.
+      // The main CI coverage lane sidesteps this today (coverage.yml invokes
+      // `pnpm --filter … run test:coverage` directly rather than through turbo),
+      // but nightly-coverage.yml DOES run `turbo run test:coverage`, and the
+      // asymmetry with `test` would be a trap regardless.
+      "cache": false,
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
     }
   }
 }

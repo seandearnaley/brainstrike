@@ -230,7 +230,37 @@ vector; test-only over-invalidation is the cheaper failure mode). Explicit build
 imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
 need `@brainstrike/utils#build` (migration-runner-types test's nested
 `ts.createProgram` resolves utils types from `dist` — vitest aliases can't
-intercept tsc). The apps needed NO build edges: the B4 clean-state proof run
+intercept tsc); `@brainstrike/secure-fs-native#test`/`#test:coverage` need
+their own `build` (the tests load the compiled `.node` addon — and the edge
+must NOT be replaced by an inline `pnpm build &&` in the test script: that
+shape raced turbo's concurrently-scheduled `build` task as two simultaneous
+`node-gyp rebuild`s in one directory ("make: No targets specified and no
+makefile found"; reproduced 2026-07-19). Guarded by
+`scripts/__tests__/native-addon-build-uncached-contract.test.mjs`; the
+`native-windows` job bypasses turbo and therefore builds explicitly before
+testing).
+
+BOTH native lanes are also `cache: false`, not just `build`. `build` being
+uncached guarantees a FRESH binary; it does not guarantee anything LOADED it,
+so a cacheable `test`/`test:coverage` would replay a logged green without ever
+dlopening the addon — the exact hazard the package's `test` task documents.
+`test:coverage` is the easy one to miss because the ROOT `test:coverage` task
+caches (unlike root `test:integration`), and `nightly-coverage.yml` runs
+`turbo run test:coverage`. The guard above resolves EFFECTIVE cacheability
+(package override → root task → turbo default) for every turbo-scheduled test
+lane of a native package.
+
+Because these lanes no longer build inline, invoking them OUTSIDE turbo and
+without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
+bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
+rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
+dist-singleton tests fail the same way without a prior build, and the `check.mjs`
+gate is safe because it runs `build` before `test:fast` sequentially. A preflight
+(`test/ensure-addon.cjs`) turns that case into an actionable message naming the
+build command instead of `bindings`' generic "Could not locate the bindings file".
+It deliberately CHECKS rather than builds: auto-building on a miss would silently
+reuse a stale addon after a C++ edit, and it would reintroduce a second build
+declaration. The apps needed NO build edges: the B4 clean-state proof run
 exposed gaps in their hand-maintained vitest alias maps (specifiers falling
 through `exports` to dist — invisible while `^build` guaranteed dist existed),
 closed by aliasing instead: apps/web gained the missing root aliases

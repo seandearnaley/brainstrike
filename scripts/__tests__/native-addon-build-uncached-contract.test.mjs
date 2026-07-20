@@ -185,6 +185,16 @@ test('the native-addon guard has something to guard (fails vacuously otherwise)'
   );
 });
 
+/**
+ * Turbo-scheduled test-family tasks (root turbo.jsonc). Scripts outside this
+ * set (e.g. test:electron, test:packaged) are invoked directly by workflows in
+ * their own sequential steps, so they may build inline without racing turbo.
+ */
+const TURBO_TEST_TASKS = ['test', 'test:integration', 'test:coverage'];
+
+/** Root task defaults, so effective cacheability can be resolved per lane. */
+const rootTurbo = readJsonc(path.join(repoRoot, 'turbo.jsonc'));
+
 for (const dir of nativeAddonPackageDirs()) {
   const rel = path.relative(repoRoot, dir).split(path.sep).join('/');
   test(`${rel}: turbo build task is cache:false (native addon output is arch/ABI-specific)`, () => {
@@ -206,5 +216,58 @@ for (const dir of nativeAddonPackageDirs()) {
         'A cacheable native build shares one arch-blind remote cache entry across arm64 and x64 lanes; ' +
         'restoring the wrong architecture over the runner-correct binary is what broke the Coverage lane on 2026-07-18.'
     );
+  });
+
+  test(`${rel}: turbo test lanes take the addon from a dependsOn build edge, never an inline rebuild`, () => {
+    // `node-gyp rebuild` = clean + configure + build in the package dir, and it
+    // is not safe to run twice concurrently in that dir. The root `test` task
+    // dependsOn ["topo"] (no build edge), so a package whose test SCRIPT also
+    // runs its build inline hands turbo two concurrent rebuilds of the same
+    // addon in one `turbo build ... test` invocation — they race ("make: No
+    // targets specified and no makefile found" / missing .deps; reproduced
+    // 2026-07-19). The sound shape is the B4 exception pattern (see
+    // packages/utils/turbo.json): the script only RUNS tests, and the package
+    // turbo.json appends its own `build` edge via
+    // `dependsOn: ["$TURBO_EXTENDS$", "build"]` so turbo serializes the build.
+    const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const turboPath = path.join(dir, 'turbo.json');
+    const turbo = existsSync(turboPath) ? readJsonc(turboPath) : { tasks: {} };
+    for (const task of TURBO_TEST_TASKS) {
+      const script = pkg.scripts?.[task];
+      if (!script) {
+        continue;
+      }
+      assert.ok(
+        !/node-gyp|pnpm (run )?build/.test(script),
+        `${rel} scripts["${task}"] runs the native build inline ("${script}"). Turbo also schedules this package's ` +
+          'build task, so a single `turbo build ... ' +
+          task +
+          '` run executes two concurrent node-gyp rebuilds in the same directory and they race. ' +
+          'Drop the inline build and declare `dependsOn: ["$TURBO_EXTENDS$", "build"]` on the task in the package turbo.json instead.'
+      );
+      const dependsOn = turbo.tasks?.[task]?.dependsOn ?? [];
+      assert.ok(
+        dependsOn.includes('build'),
+        `${rel}/turbo.json tasks["${task}"].dependsOn must include "build": the ${task} script loads the compiled ` +
+          'addon but no longer builds it inline, so without the edge turbo may run the lane before (or concurrently ' +
+          'with) the native build. Use ["$TURBO_EXTENDS$", "build"] to append without dropping the inherited topo cascade.'
+      );
+
+      // A lane that dlopens the addon must never replay from cache: a hit
+      // reports green WITHOUT proving the binary loads on THIS machine/ABI,
+      // which is the whole point of a native-addon test. `build` being
+      // cache:false does not cover this — it guarantees a fresh binary, not
+      // that anything loaded it. Effective cacheability = package override,
+      // else the root task's value, else turbo's default (true).
+      const rootTask = rootTurbo.tasks?.[task];
+      const effectiveCache = turbo.tasks?.[task]?.cache ?? rootTask?.cache ?? true;
+      assert.equal(
+        effectiveCache,
+        false,
+        `${rel} lane "${task}" runs the native suite, so it must be cache:false. It currently resolves to ` +
+          'cacheable (package override absent and the root task caches), which would replay a logged green without ' +
+          'ever dlopening the addon.'
+      );
+    }
   });
 }
