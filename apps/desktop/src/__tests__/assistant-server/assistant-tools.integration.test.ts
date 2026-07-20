@@ -203,6 +203,107 @@ describe('assistant-tools', () => {
     }
   });
 
+  it('reads a bounded page without calling the full-file reader', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const source = 'line\n'.repeat(380_000);
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'near-limit.txt'),
+      source,
+      'utf8'
+    );
+    const readFileSpy = vi.spyOn(fsPromises, 'readFile');
+
+    try {
+      const page = await buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ].execute({
+        maxChars: 100,
+        path: '/src/near-limit.txt',
+      });
+
+      expect(page.content.length).toBeLessThanOrEqual(100);
+      expect(page.truncated).toBe(true);
+      expect(readFileSpy).not.toHaveBeenCalled();
+    } finally {
+      readFileSpy.mockRestore();
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('decodes a UTF-8 character split across handle-read chunks', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const source = `${'a'.repeat(65_534)}\n😀tail`;
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'chunk-boundary.txt'),
+      source,
+      'utf8'
+    );
+
+    try {
+      const page = await buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ].execute({
+        maxChars: 100,
+        path: '/src/chunk-boundary.txt',
+        startLine: 2,
+      });
+
+      expect(page).toMatchObject({
+        content: '2: 😀tail',
+        endLine: 2,
+        startLine: 2,
+        totalLines: 2,
+        truncated: false,
+      });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    {
+      expectedContent: '1: ',
+      expectedTotalLines: 1,
+      name: 'an empty file',
+      source: '',
+    },
+    {
+      expectedContent: '1: a\r\n2: b\r\n3: ',
+      expectedTotalLines: 3,
+      name: 'CRLF source with a trailing empty line',
+      source: 'a\r\nb\r\n',
+    },
+  ])('preserves $name while scanning chunks', async ({
+    expectedContent,
+    expectedTotalLines,
+    source,
+  }) => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'line-shape.txt'),
+      source,
+      'utf8'
+    );
+
+    try {
+      const page = await buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        'brainstrike.readWorkspaceFile'
+      ].execute({
+        maxChars: 100,
+        path: '/src/line-shape.txt',
+      });
+
+      expect(page).toMatchObject({
+        content: expectedContent,
+        omittedChars: 0,
+        totalLines: expectedTotalLines,
+        truncated: false,
+      });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it('does not mark a non-empty line as read when only its prefix fits', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     await fsPromises.writeFile(
@@ -918,7 +1019,7 @@ describe('assistant-tools', () => {
       new Error(`EACCES: permission denied, open '${path.join(workspaceRootPath, 'src/main.ts')}'`),
       { code: 'EACCES' }
     );
-    const readFileSpy = vi.spyOn(fsPromises, 'readFile').mockRejectedValueOnce(readError);
+    const openSpy = vi.spyOn(fsPromises, 'open').mockRejectedValueOnce(readError);
     const tools = buildDesktopAssistantTools({
       selectionFilePaths: ['/src/main.ts'],
       workspaceRootPath,
@@ -941,7 +1042,7 @@ describe('assistant-tools', () => {
       expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('/src/main.ts');
       expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(workspaceRootPath);
     } finally {
-      readFileSpy.mockRestore();
+      openSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
