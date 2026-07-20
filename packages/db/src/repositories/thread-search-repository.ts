@@ -467,15 +467,17 @@ export class ThreadSearchRepository {
    * `iterative_scan`) applied inside a single transaction — `SET LOCAL` outside
    * a transaction is a silent no-op, leaving filtered ANN at the pgvector
    * default `ef_search=40` (the under-return failure mode from #1141). Mirrors
-   * `ElectronFileChunkRepository.runVectorSearchInTransaction`: prefers the
-   * atomic `runTransaction` primitive (one main-process `pglite.transaction()`,
-   * connection-lock isolated) — the DESKTOP DbHandle path. The raw
-   * BEGIN/COMMIT fallback over `query` is what WEB production runs (the
-   * ScheduledDbHandle exposes no `runTransaction`) and what raw PGlite test
-   * handles use: tuning still applies, but without the connection lock a
-   * concurrent read-only sibling arm from the service's `Promise.all` can
-   * interleave inside the open transaction (#1141 residual — tolerable here
-   * because all arms are read-only).
+   * `ElectronFileChunkRepository.runVectorSearchInTransaction`. Path order:
+   * 1. `runTransaction` (DESKTOP DbHandle): atomic IPC statements-array, one
+   *    main-process `pglite.transaction()`, connection-lock isolated.
+   * 2. Callback `transaction` (WEB ScheduledDbHandle / raw PGlite): holds the
+   *    connection lock for the callback, so concurrent scheduled work — e.g.
+   *    the controller's embedding-backlog WRITES that run alongside a search —
+   *    cannot interleave inside the open transaction and get caught in a
+   *    rollback.
+   * 3. Raw BEGIN/COMMIT over `query` (legacy/mock seams only): tuned, but a
+   *    concurrent statement on the shared connection can interleave inside
+   *    the open transaction (#1141 residual).
    */
   private async runVectorSearchInTransaction<T>(
     searchSql: string,
@@ -487,6 +489,21 @@ export class ThreadSearchRepository {
     if (this.db.runTransaction) {
       const result = await this.db.runTransaction(statements, statements.length - 1);
       return { rows: result.rows as T[] };
+    }
+
+    if (this.db.transaction) {
+      const result = await this.db.transaction(async (tx) => {
+        for (const statement of tuning) {
+          await tx.query(statement.sql);
+        }
+        return await tx.query<T>(searchSql, params);
+      });
+      if (!result) {
+        // PGlite's transaction resolves undefined only when the callback
+        // signalled a rollback — which this callback never does.
+        throw new Error('Thread search vector transaction returned no result.');
+      }
+      return result;
     }
 
     await this.db.query('BEGIN');

@@ -732,13 +732,43 @@ describe('ThreadSearchRepository', () => {
         { params?: unknown[]; sql: string }[],
         number,
       ];
-      expect(statements.map((statement) => statement.sql.trim().slice(0, 30))).toEqual([
-        expect.stringContaining('SET LOCAL hnsw.ef_search'),
-        expect.stringContaining('SET LOCAL hnsw.iterative_scan'),
-        expect.stringContaining('SELECT'),
-      ]);
+      // Positional prefix + trailing-SELECT assertions (not toEqual): the
+      // tuning helper appends an ivfflat.probes statement when IVFFLAT_PROBES
+      // is set, and this test must not couple to that env-dependent extra.
+      expect(statements[0]?.sql).toContain('SET LOCAL hnsw.ef_search');
+      expect(statements[1]?.sql).toContain('SET LOCAL hnsw.iterative_scan');
+      expect(statements.at(-1)?.sql).toContain('SELECT');
+      expect(statements.slice(0, -1).every((s) => s.sql.startsWith('SET LOCAL'))).toBe(true);
       // The vector SELECT itself must not have gone through bare query().
       expect(queryCalls.every((call) => !call.sql.includes('<=>'))).toBe(true);
+    });
+
+    it('prefers the callback-style transaction (web scheduled handle / raw PGlite) over the BEGIN fallback', async () => {
+      const outerCalls: { params?: unknown[]; sql: string }[] = [];
+      const txCalls: { params?: unknown[]; sql: string }[] = [];
+      const transaction = vi.fn(
+        async <T>(fn: (tx: { query: typeof txQuery }) => Promise<T>): Promise<T> =>
+          await fn({ query: txQuery })
+      );
+      const txQuery = async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+        txCalls.push({ params, sql });
+        return { rows: [] as T[] };
+      };
+      const mockRepository = new ThreadSearchRepository({
+        query: profileAwareQuery(outerCalls),
+        transaction,
+      });
+
+      await mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID });
+
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(txCalls[0]?.sql).toContain('SET LOCAL hnsw.ef_search');
+      expect(txCalls[1]?.sql).toContain('SET LOCAL hnsw.iterative_scan');
+      expect(txCalls.at(-1)?.sql).toContain('<=>');
+      // No BEGIN/COMMIT and no vector SELECT on the outer connection.
+      expect(outerCalls.every((call) => call.sql !== 'BEGIN' && !call.sql.includes('<=>'))).toBe(
+        true
+      );
     });
 
     it('falls back to BEGIN / SET LOCAL / SELECT / COMMIT over query() when runTransaction is absent', async () => {

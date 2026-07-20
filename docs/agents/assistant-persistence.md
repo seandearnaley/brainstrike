@@ -615,14 +615,15 @@ Where state lives (do not relitigate):
   SELECT inside ONE transaction with `SET LOCAL hnsw.ef_search` +
   `iterative_scan='strict_order'` (`SET LOCAL` outside a transaction is a
   silent no-op → pgvector default ef_search=40, the #1141 filtered-ANN
-  under-return class). Desktop runs the `ThreadSearchDatabase.runTransaction`
-  atomic primitive (the DbHandle `db:transaction` shape — named to avoid
-  colliding with PGlite's callback-style `transaction`); WEB production and
-  raw test handles run the BEGIN/COMMIT-over-`query` fallback (the web
-  ScheduledDbHandle exposes no `runTransaction`): tuned, but without the
-  connection lock a concurrent sibling arm can interleave in-transaction —
-  tolerable because all search arms are read-only. Paired tests: the mock-db
-  describe in `packages/db/__tests__/search-thread-message-index.test.ts`.
+  under-return class). Path order in `runVectorSearchInTransaction`: desktop
+  runs the `ThreadSearchDatabase.runTransaction` atomic IPC primitive; web
+  (ScheduledDbHandle) and raw PGlite handles run the callback-style
+  `transaction`, which holds the single connection's lock so concurrent
+  scheduled work (the controller's embedding-backlog writes run alongside
+  searches) cannot interleave inside the open transaction; the raw
+  BEGIN/COMMIT-over-`query` fallback remains only for legacy/mock seams.
+  Paired tests: the mock-db describe in
+  `packages/db/__tests__/search-thread-message-index.test.ts`.
 - Embeddings: per-message inline `vector(384)` column (typed to the
   singleton profile; a partial HNSW index serves the semantic arm) with the
   singleton `brainstrike_thread_search_profiles` row — the prompt-library
