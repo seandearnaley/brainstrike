@@ -34,8 +34,6 @@
     "allowJs": true,
     "checkJs": false,
     "jsx": "react-jsx",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "forceConsistentCasingInFileNames": true
   },
   "exclude": ["node_modules", "dist", "build", "**/*.test.*"]
