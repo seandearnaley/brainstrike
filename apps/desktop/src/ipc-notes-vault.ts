@@ -80,6 +80,7 @@ export function registerNotesVaultIpc(
               platform: 'electron',
             },
             () => onChange(),
+            undefined,
             {
               onHealth: (event) => {
                 if (settled) {
