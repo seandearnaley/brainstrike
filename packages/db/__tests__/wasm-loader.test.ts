@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let wasmLoader: typeof import('../src/wasm-loader').wasmLoader;

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * DbProvider wiring for the first-run fast bootstrap: the bootstrap check runs
  * BEFORE the long-lived worker client opens a browser idb:// store, never runs

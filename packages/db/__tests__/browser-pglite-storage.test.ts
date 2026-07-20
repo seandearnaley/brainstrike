@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, vi } from 'vitest';
 import {
   enumerationUnavailableLegacyNames,

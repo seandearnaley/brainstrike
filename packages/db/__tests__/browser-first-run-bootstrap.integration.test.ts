@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * First-run fast bootstrap — REAL-ENGINE integration proof.
  *
