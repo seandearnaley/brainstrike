@@ -11,8 +11,10 @@ import { join, relative } from 'node:path';
 
 const WORKER_STATE_KEY = '__vitest_worker__';
 
-// Mutation forms only: object-literal keys (`__vitest_worker__: {}`) and `in`
-// probes are safe and stay allowed.
+// Mutation forms only: plain object-literal keys (`__vitest_worker__: {}`) and
+// `in` probes are safe and stay allowed. Matching runs on comment-stripped
+// source so prose like "don't delete the __vitest_worker__ global" cannot
+// false-positive. Heuristic regexes, not an AST — strict by design.
 const MUTATION_PATTERNS = [
   {
     description: '`delete` expression targeting the vitest worker global',
@@ -23,14 +25,34 @@ const MUTATION_PATTERNS = [
     pattern: new RegExp(String.raw`deleteProperty\s*\([^)]*${WORKER_STATE_KEY}`),
   },
   {
-    description: 'assignment to the vitest worker global',
-    pattern: new RegExp(String.raw`${WORKER_STATE_KEY}['"\]]*\s*=(?![=>])`),
+    description: 'assignment to the vitest worker global (including ??=, ||=, &&=)',
+    pattern: new RegExp(String.raw`${WORKER_STATE_KEY}['"\]]*\s*(?:\?\?=|\|\|=|&&=|=(?![=>]))`),
   },
   {
     description: 'vi.stubGlobal of the vitest worker global',
     pattern: new RegExp(String.raw`stubGlobal\s*\(\s*['"]${WORKER_STATE_KEY}`),
   },
+  {
+    description: 'Reflect.set call targeting the vitest worker global',
+    pattern: new RegExp(String.raw`Reflect\.set\s*\([^)]*${WORKER_STATE_KEY}`),
+  },
+  {
+    description: 'Object.assign spreading the vitest worker key onto a target',
+    pattern: new RegExp(String.raw`Object\.assign\s*\([^)]*${WORKER_STATE_KEY}`),
+  },
 ];
+
+// Good-enough comment stripping for the heuristic above: removes /* */ blocks
+// and whitespace-preceded (or line-leading) // comments. Deliberately leaves
+// `://` URLs inside strings intact; may over-strip comment markers inside
+// string literals, which for this guard can only hide prose, not code.
+export function stripComments(source) {
+  const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  return withoutBlockComments
+    .split('\n')
+    .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1'))
+    .join('\n');
+}
 
 const SKIPPED_DIRECTORIES = new Set(['.turbo', 'build', 'coverage', 'dist', 'node_modules']);
 
@@ -40,10 +62,13 @@ export function findVitestWorkerMutations(source, filename) {
   if (!source.includes(WORKER_STATE_KEY)) {
     return [];
   }
-  return MUTATION_PATTERNS.filter(({ pattern }) => pattern.test(source)).map(({ description }) => ({
-    description,
-    filename,
-  }));
+  const codeOnly = stripComments(source);
+  return MUTATION_PATTERNS.filter(({ pattern }) => pattern.test(codeOnly)).map(
+    ({ description }) => ({
+      description,
+      filename,
+    })
+  );
 }
 
 function collectTestFiles(directory, collected) {
