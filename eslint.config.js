@@ -40,6 +40,9 @@ const externalDirectiveStubs = {
       'no-prop-callback-in-effect': noopRule,
     },
   },
+  unicorn: {
+    rules: { 'prefer-top-level-await': noopRule },
+  },
 };
 
 export default [
@@ -48,6 +51,12 @@ export default [
       'apps/desktop/src/**/*.{js,jsx,ts,tsx}',
       'apps/web/src/**/*.{js,jsx,ts,tsx}',
       'packages/app-shell/src/**/*.{js,jsx,ts,tsx}',
+      'packages/db/src/**/*.{js,jsx,ts,tsx}',
+      'packages/file-import/src/**/*.{js,jsx,ts,tsx}',
+      'packages/notes-vault/src/**/*.{js,jsx,ts,tsx}',
+      'packages/preferences/src/**/*.{js,jsx,ts,tsx}',
+      'packages/token-cache/src/**/*.{js,jsx,ts,tsx}',
+      'packages/vector-management/src/**/*.{js,jsx,ts,tsx}',
       'packages/db-explorer/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-explorer-hooks/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-explorer-ui/src/**/*.{js,jsx,ts,tsx}',
