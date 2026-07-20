@@ -13,6 +13,7 @@ import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './pers
 import { migrateState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
 import { createStorageWrapper } from './storage-wrapper';
+import { detectTestEnvironment } from './test-environment';
 import { initWorker } from './worker-init';
 
 const logger = createLogger('Persistence');
@@ -21,10 +22,7 @@ const NODE_ENV_KEY = 'NODE_ENV';
 const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
 const isDev = nodeEnv !== 'production';
 
-const isTest =
-  nodeEnv === 'test' ||
-  (typeof globalThis !== 'undefined' &&
-    ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis));
+const isTest = detectTestEnvironment();
 const shouldLog = isDev && !isTest;
 
 function isRehydratedFileExplorerState(
