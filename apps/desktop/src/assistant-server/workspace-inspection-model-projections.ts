@@ -41,6 +41,7 @@ interface LspProjectionLine {
 
 const MAX_DECLARATION_CHARS = 500;
 const MAX_DIAGNOSTIC_CHARS = 500;
+const MAX_DIAGNOSTIC_SOURCE_CHARS = 100;
 const MAX_HOVER_CHARS = 1400;
 const MAX_PATH_CHARS = 800;
 const MAX_PREVIEW_CHARS = 800;
@@ -179,6 +180,17 @@ function clipEnd(value: string, maxChars: number, label: string): string {
   } ${label} chars omitted]`;
 }
 
+function formatDeclaration(value: string): string[] {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= MAX_DECLARATION_CHARS) {
+    return [`declaration: ${value}`];
+  }
+  return [
+    `declaration: ${codePoints.slice(0, MAX_DECLARATION_CHARS).join('')}`,
+    `declaration_clipped: ${codePoints.length - MAX_DECLARATION_CHARS} trailing chars omitted`,
+  ];
+}
+
 function clipPath(value: string): string {
   const normalized = singleLine(value);
   const codePoints = Array.from(normalized);
@@ -224,7 +236,7 @@ function symbolHeader(result: FindWorkspaceSymbolResult, kept: number): string {
 function formatSymbolMatch(match: SymbolMatchResult): string[] {
   return [
     `match declaration=${match.declarationLine} | range=${match.startLine}-${match.endLine}`,
-    `declaration: ${clipEnd(match.name, MAX_DECLARATION_CHARS, 'declaration')}`,
+    ...formatDeclaration(match.name),
     `preview: ${clipEnd(match.preview, MAX_PREVIEW_CHARS, 'preview')}`,
   ];
 }
@@ -279,7 +291,9 @@ export function projectFindWorkspaceSymbolModelOutput(
 }
 
 function formatDiagnostic(diagnostic: EditDiagnostic): string {
-  const source = diagnostic.source ? ` | source=${clipEnd(diagnostic.source, 100, 'source')}` : '';
+  const source = diagnostic.source
+    ? ` | source=${clipEnd(diagnostic.source, MAX_DIAGNOSTIC_SOURCE_CHARS, 'source')}`
+    : '';
   return (
     `diagnostic ${diagnostic.severity} ${diagnostic.line}:${diagnostic.character}` +
     `${source} | ${clipEnd(diagnostic.message, MAX_DIAGNOSTIC_CHARS, 'diagnostic')}`

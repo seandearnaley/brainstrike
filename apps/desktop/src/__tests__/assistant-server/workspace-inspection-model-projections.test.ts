@@ -49,6 +49,30 @@ describe('workspace inspection model projections', () => {
     );
   });
 
+  it('preserves declaration whitespace needed for the exact LSP follow-up match', () => {
+    const declaration = 'export function resolveWorkspaceRoot(\tinput:  string) {';
+    const projected = projectFindWorkspaceSymbolModelOutput({
+      matches: [
+        {
+          declarationLine: 42,
+          endLine: 58,
+          name: declaration,
+          preview: `42: ${declaration}`,
+          startLine: 42,
+        },
+      ],
+      path: '/src/workspace-roots.ts',
+      rootName: 'brainstrike',
+      totalMatches: 1,
+      truncated: false,
+    });
+
+    expect(projected.value).toContain(`declaration: ${declaration}`);
+    expect(projected.value).not.toContain(
+      'declaration: export function resolveWorkspaceRoot( input: string) {'
+    );
+  });
+
   it('self-fits a maximum symbol page and makes omitted matches explicit', () => {
     const raw = {
       matches: Array.from({ length: 20 }, (_, index) => ({
