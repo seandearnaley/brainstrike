@@ -58,6 +58,7 @@ import { migration065QuarantinePgTextsearch } from '../migrations/065-quarantine
 import { migration066RestorePgTextsearch } from '../migrations/066-restore-pg-textsearch.js';
 import { migration067ThreadSearchIndex } from '../migrations/067-thread-search-index.js';
 import { migration068ToolOutputArtifacts } from '../migrations/068-tool-output-artifacts.js';
+import { migration069RunUsageCacheTokens } from '../migrations/069-run-usage-cache-tokens.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -224,6 +225,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-066-restore-pg-textsearch', migration066RestorePgTextsearch),
   customMigration('custom-067-thread-search-index', migration067ThreadSearchIndex),
   customMigration('custom-068-tool-output-artifacts', migration068ToolOutputArtifacts),
+  customMigration('custom-069-run-usage-cache-tokens', migration069RunUsageCacheTokens),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

@@ -121,6 +121,8 @@ describe('useRunLedger', () => {
         completedAt: new Date('2026-07-15T12:00:05.000Z'),
         durationMs: 5000,
         editCount: 2,
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         estimatedInputTokens: 0,
         estimatedOutputTokens: 0,
         failedToolCallCount: 1,

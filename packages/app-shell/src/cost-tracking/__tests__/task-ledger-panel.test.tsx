@@ -16,6 +16,8 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
     completedAt: new Date('2026-07-15T12:00:05Z'),
     durationMs: 5000,
     editCount: 0,
+    estimatedCacheCreationTokens: 0,
+    estimatedCacheReadTokens: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     failedToolCallCount: 0,

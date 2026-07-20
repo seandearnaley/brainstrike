@@ -9,6 +9,12 @@ import {
 } from '../daily-spend';
 
 const PRICING: Record<string, ModelTokenPricing> = {
+  'anthropic::claude-sonnet-4-6': {
+    cacheReadPerMTok: 0.3,
+    cacheWritePerMTok: 3.75,
+    inputPerMTok: 3,
+    outputPerMTok: 15,
+  },
   'openai::gpt-5.2': { inputPerMTok: 2, outputPerMTok: 10 },
 };
 
@@ -37,7 +43,51 @@ describe('DAILY_SPEND_AGGREGATION_SQL', () => {
   });
 });
 
+describe('resolveDailySpendSummary with Anthropic cache tokens', () => {
+  it('prices unreported cache reads/writes at their cache rates, remainder at base input', () => {
+    const summary = resolveDailySpendSummary(
+      [
+        makeRow({
+          model: 'claude-sonnet-4-6',
+          provider: 'anthropic',
+          unreportedCacheCreationTokens: 200_000,
+          unreportedCacheReadTokens: 600_000,
+          unreportedInputTokens: 1_000_000,
+          unreportedOutputTokens: 100_000,
+        }),
+      ],
+      resolvePricing
+    );
+    // 0.2M*3 + 0.6M*0.3 + 0.2M*3.75 + 0.1M*15 = 3.03
+    expect(summary.estimatedUsd).toBeCloseTo(3.03, 10);
+    expect(summary.totalUsd).toBeCloseTo(3.03, 10);
+    expect(summary.unpricedModels).toEqual([]);
+  });
+
+  it('keeps rows without cache tokens on the exact pre-cache math', () => {
+    const summary = resolveDailySpendSummary(
+      [makeRow({ unreportedInputTokens: 1_000_000, unreportedOutputTokens: 0 })],
+      resolvePricing
+    );
+    expect(summary.estimatedUsd).toBeCloseTo(2, 10);
+  });
+});
+
 describe('mapDailySpendUsageRow', () => {
+  it('parses cache token aggregates', () => {
+    const row = mapDailySpendUsageRow({
+      billedCostUsd: null,
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      unreportedCacheCreationTokens: '60',
+      unreportedCacheReadTokens: '40',
+      unreportedInputTokens: '1200',
+      unreportedOutputTokens: '300',
+    });
+    expect(row.unreportedCacheReadTokens).toBe(40);
+    expect(row.unreportedCacheCreationTokens).toBe(60);
+  });
+
   it('parses aggregate strings and keeps billedCostUsd absent when unreported', () => {
     const row = mapDailySpendUsageRow({
       billedCostUsd: null,
@@ -49,6 +99,8 @@ describe('mapDailySpendUsageRow', () => {
     expect(row).toEqual({
       model: 'gpt-5.2',
       provider: 'openai',
+      unreportedCacheCreationTokens: 0,
+      unreportedCacheReadTokens: 0,
       unreportedInputTokens: 1200,
       unreportedOutputTokens: 300,
     });

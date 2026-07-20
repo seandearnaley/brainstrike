@@ -136,6 +136,8 @@ describe('useCrossRootCost', () => {
     expect(result.current.error).toBeNull();
     expect(result.current.rows).toEqual([
       {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 1500,
         model: 'gpt-5.2',
         outputTokens: 300,

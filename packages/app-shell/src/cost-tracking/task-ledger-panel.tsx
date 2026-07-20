@@ -14,7 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from '@brainstrike/ui';
-import { computeCost, formatUsdCost } from '@brainstrike/utils/token-counting-heuristics';
+import {
+  buildTokenUsageCounts,
+  computeCost,
+  formatUsdCost,
+} from '@brainstrike/utils/token-counting-heuristics';
 import { ListChecks, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback } from 'react';
 import type {
@@ -114,6 +118,22 @@ function formatTokensCompact(count: number): string {
  * reads "cost unavailable" and a run with no captured usage reads "no usage
  * recorded" — NEVER a fabricated $0 (same contract as the sibling cost panel).
  */
+/**
+ * Usage counts for pricing one ledger row. The cache shares are computed from
+ * the UNBILLED rows only (same SQL predicate as estimatedInputTokens), so they
+ * pair correctly with either the estimated remainder or the whole-row totals
+ * (an Anthropic row never carries a provider-reported cost, so its estimated
+ * tokens equal its totals).
+ */
+function usageCountsWithCacheShares(row: RunLedgerRow, inputTokens: number, outputTokens: number) {
+  return buildTokenUsageCounts(
+    inputTokens,
+    outputTokens,
+    row.estimatedCacheReadTokens,
+    row.estimatedCacheCreationTokens
+  );
+}
+
 function runCostLabel(row: RunLedgerRow): string {
   if (row.billedCostUsd !== undefined) {
     // Honest partial-cost rule (review #1698): billedCostUsd covers only the
@@ -124,7 +144,7 @@ function runCostLabel(row: RunLedgerRow): string {
       return formatUsdCost(row.billedCostUsd);
     }
     const remainder = computeCost(
-      { inputTokens: row.estimatedInputTokens, outputTokens: row.estimatedOutputTokens },
+      usageCountsWithCacheShares(row, row.estimatedInputTokens, row.estimatedOutputTokens),
       resolveModelPricing(row.provider, row.model)
     );
     return remainder.available
@@ -135,7 +155,7 @@ function runCostLabel(row: RunLedgerRow): string {
     return 'no usage recorded';
   }
   const estimate = computeCost(
-    { inputTokens: row.inputTokens, outputTokens: row.outputTokens },
+    usageCountsWithCacheShares(row, row.inputTokens, row.outputTokens),
     resolveModelPricing(row.provider, row.model)
   );
   return estimate.available ? `est. ${formatUsdCost(estimate.usdAmount)}` : 'cost unavailable';
@@ -155,7 +175,7 @@ export function isRunOverCap(row: RunLedgerRow, perRunCapUsd: number): boolean {
     const remainder =
       row.estimatedInputTokens + row.estimatedOutputTokens > 0
         ? computeCost(
-            { inputTokens: row.estimatedInputTokens, outputTokens: row.estimatedOutputTokens },
+            usageCountsWithCacheShares(row, row.estimatedInputTokens, row.estimatedOutputTokens),
             resolveModelPricing(row.provider, row.model)
           )
         : null;
@@ -167,7 +187,7 @@ export function isRunOverCap(row: RunLedgerRow, perRunCapUsd: number): boolean {
     return false;
   }
   const estimate = computeCost(
-    { inputTokens: row.inputTokens, outputTokens: row.outputTokens },
+    usageCountsWithCacheShares(row, row.inputTokens, row.outputTokens),
     resolveModelPricing(row.provider, row.model)
   );
   return estimate.available && estimate.usdAmount > perRunCapUsd;

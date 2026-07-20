@@ -1366,7 +1366,13 @@ export function AssistantUiPanelWrapper({
   // interactive mid-run. They are stored PER ROW so cost is attributable per
   // model when a thread switches models mid-conversation.
   const handleUsage = useCallback(
-    (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
+    (usage: {
+      billedCostUsd?: number;
+      cacheCreationInputTokens?: number;
+      cacheReadInputTokens?: number;
+      inputTokens: number;
+      outputTokens: number;
+    }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       // A turn on a capability-absent transport (the in-renderer local
       // runtime) can never have refreshed the breakdown — drop a stale one
@@ -1403,6 +1409,12 @@ export function AssistantUiPanelWrapper({
       assistantThreadRepository
         .recordRunUsage({
           ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
+          ...(usage.cacheCreationInputTokens === undefined
+            ? {}
+            : { cacheCreationInputTokens: usage.cacheCreationInputTokens }),
+          ...(usage.cacheReadInputTokens === undefined
+            ? {}
+            : { cacheReadInputTokens: usage.cacheReadInputTokens }),
           inputTokens: usage.inputTokens,
           model: runContext.model,
           outputTokens: usage.outputTokens,

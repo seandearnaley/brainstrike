@@ -60,6 +60,29 @@ export type CostEstimate =
     }
   | { available: false; reason: 'unpriced_model' | 'usage_unavailable' };
 
+/**
+ * Build a TokenUsageCounts, attaching the cache token classes only when they
+ * are positive (absent fields keep the pre-cache computeCost fast path and
+ * exact-shape test pins intact).
+ */
+export function buildTokenUsageCounts(
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadInputTokens?: number,
+  cacheCreationInputTokens?: number
+): TokenUsageCounts {
+  return {
+    ...(cacheCreationInputTokens !== undefined && cacheCreationInputTokens > 0
+      ? { cacheCreationInputTokens }
+      : {}),
+    ...(cacheReadInputTokens !== undefined && cacheReadInputTokens > 0
+      ? { cacheReadInputTokens }
+      : {}),
+    inputTokens,
+    outputTokens,
+  };
+}
+
 function assertFiniteNonNegative(value: number, label: string): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${label} must be a finite, non-negative number (received ${value}).`);
