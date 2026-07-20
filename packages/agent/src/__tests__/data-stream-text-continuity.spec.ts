@@ -304,7 +304,9 @@ describe('tool-suspend-required data part respects text continuity', () => {
     );
     // Exactly one suspend data part, carrying the pause payload.
     expect(dataParts).toHaveLength(1);
-    expect((dataParts[0]?.value as { data: Record<string, unknown> }).data).toMatchObject({
+    expect(
+      (dataParts[0]?.value as { data: Record<string, unknown> } | undefined)?.data
+    ).toMatchObject({
       runId: 'run-1',
       suspendPayload: { question: 'Which city?' },
       toolCallId: 'call-suspend-1',

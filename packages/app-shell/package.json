@@ -25,7 +25,7 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
     "@brainstrike/workspace-search": "workspace:*",
-    "@tanstack/react-virtual": "^3.14.5",
+    "@tanstack/react-virtual": "catalog:",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",

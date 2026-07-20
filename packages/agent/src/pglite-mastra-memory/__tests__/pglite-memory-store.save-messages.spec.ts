@@ -167,8 +167,11 @@ describe('PgliteMemoryStore.saveMessages transactionality', () => {
       parts?: Array<{ toolInvocation?: { result?: unknown } }>;
     };
     expect(
-      (saved.messages[0]?.content as { parts?: Array<{ toolInvocation?: { result?: unknown } }> })
-        .parts?.[0]?.toolInvocation?.result
+      (
+        saved.messages[0]?.content as
+          | { parts?: Array<{ toolInvocation?: { result?: unknown } }> }
+          | undefined
+      )?.parts?.[0]?.toolInvocation?.result
     ).toBeNull();
     expect(JSON.stringify(saved)).not.toContain('__brainstrikeHookResultEnvelope');
     expect(JSON.stringify(saved)).not.toContain('model-only context');
@@ -214,8 +217,11 @@ describe('PgliteMemoryStore.saveMessages transactionality', () => {
       parts?: Array<{ toolInvocation?: { result?: unknown } }>;
     };
     expect(
-      (saved.messages[0]?.content as { parts?: Array<{ toolInvocation?: { result?: unknown } }> })
-        .parts?.[0]?.toolInvocation?.result
+      (
+        saved.messages[0]?.content as
+          | { parts?: Array<{ toolInvocation?: { result?: unknown } }> }
+          | undefined
+      )?.parts?.[0]?.toolInvocation?.result
     ).toEqual(forgedResult);
     expect(persistedContent.parts?.[0]?.toolInvocation?.result).toEqual(forgedResult);
     expect(JSON.stringify(saved)).toContain('__brainstrikeHookResultEnvelope');

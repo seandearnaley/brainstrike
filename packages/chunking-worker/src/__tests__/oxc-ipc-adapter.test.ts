@@ -222,8 +222,10 @@ describe('oxcIpcAdapter', () => {
     void oxcIpcAdapter.parse('a', baseOptions);
     void oxcIpcAdapter.parse('b', baseOptions);
 
-    const id1 = (fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string }).requestId;
-    const id2 = (fakeSelf.postMessage.mock.calls[1]?.[0] as { requestId: string }).requestId;
+    const id1 = (fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string } | undefined)
+      ?.requestId;
+    const id2 = (fakeSelf.postMessage.mock.calls[1]?.[0] as { requestId: string } | undefined)
+      ?.requestId;
     expect(id1).not.toBe(id2);
   });
 
