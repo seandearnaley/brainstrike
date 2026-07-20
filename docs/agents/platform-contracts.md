@@ -73,7 +73,11 @@ Do not skip reload.
 
 Database-owned assistant persistence added outside Mastra's tables must also
 be cleared explicitly. This includes `brainstrike_assistant_message_parents`,
-the assistant-ui carousel/branch topology companion store (migration 055).
+the assistant-ui carousel/branch topology companion store (migration 055), and
+`brainstrike_assistant_tool_output_artifacts`, the complete-result store
+(migration 068). The artifact relation is independently retained and has no
+Mastra FK, so both direct-PGlite reset and desktop `db:clearAll` must delete it
+explicitly; only a pre-068 missing relation is tolerated.
 
 Add tests when changing reset behavior.
 

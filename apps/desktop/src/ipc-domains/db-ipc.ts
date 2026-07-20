@@ -81,6 +81,7 @@ type OptionalRelationTable =
   | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
+  | 'brainstrike_assistant_tool_output_artifacts'
   | 'brainstrike_thread_message_index'
   | 'brainstrike_thread_search_state'
   | 'collection_indexing_stats'
@@ -749,6 +750,11 @@ export function registerDatabaseIpcHandlers(
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');
+            // Complete tool outputs are independently retained and have no FK
+            // to Mastra messages, so clear them explicitly. Only an older
+            // pre-migration-068 database may omit this table; any other delete
+            // failure remains visible through clearOptionalRelation.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
             // Thread search index rows are derived from mastra messages, but a
             // factory reset must wipe extracted text + the sync watermark so
             // conversation content cannot survive a "true fresh start" (FACTORY
