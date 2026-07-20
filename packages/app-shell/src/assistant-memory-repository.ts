@@ -125,6 +125,13 @@ export interface CompleteAssistantThreadRunInput {
 export interface RecordRunUsageInput {
   /** Exact amount billed by the provider for this run, when reported. */
   readonly billedCostUsd?: number;
+  /**
+   * Anthropic prompt-cache write tokens. `inputTokens` is the TOTAL the model
+   * saw and already includes both cache classes.
+   */
+  readonly cacheCreationInputTokens?: number;
+  /** Anthropic prompt-cache read tokens (same total-inclusive contract). */
+  readonly cacheReadInputTokens?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -150,6 +157,10 @@ export interface RecordRunUsageInput {
  */
 export interface CrossRootUsageRow {
   readonly billedCostUsd?: number;
+  /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
+  readonly estimatedCacheCreationTokens?: number;
+  /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
+  readonly estimatedCacheReadTokens?: number;
   readonly estimatedInputTokens?: number;
   readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
@@ -186,7 +197,11 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
     SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.input_tokens ELSE 0 END)::bigint
       AS "estimatedInputTokens",
     SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.output_tokens ELSE 0 END)::bigint
-      AS "estimatedOutputTokens"
+      AS "estimatedOutputTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN COALESCE(u.cache_read_input_tokens, 0) ELSE 0 END)::bigint
+      AS "estimatedCacheReadTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN COALESCE(u.cache_creation_input_tokens, 0) ELSE 0 END)::bigint
+      AS "estimatedCacheCreationTokens"
   FROM brainstrike_assistant_run_usage u
   LEFT JOIN roots r ON r.id = u.root_id
   WHERE u.resource_id = $1
@@ -217,6 +232,14 @@ export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsa
             'estimatedOutputTokens'
           ),
         }),
+    estimatedCacheCreationTokens: requireNonNegativeInteger(
+      row['estimatedCacheCreationTokens'] ?? 0,
+      'estimatedCacheCreationTokens'
+    ),
+    estimatedCacheReadTokens: requireNonNegativeInteger(
+      row['estimatedCacheReadTokens'] ?? 0,
+      'estimatedCacheReadTokens'
+    ),
     inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
     model: requireString(row['model'], 'model'),
     outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
@@ -259,6 +282,10 @@ export interface RunLedgerRow {
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
   readonly editCount: number;
+  /** Anthropic cache-write share of `estimatedInputTokens` (0 elsewhere). */
+  readonly estimatedCacheCreationTokens: number;
+  /** Anthropic cache-read share of `estimatedInputTokens` (0 elsewhere). */
+  readonly estimatedCacheReadTokens: number;
   /**
    * Tokens from usage rows WITHOUT a provider-reported cost (always emitted,
    * unlike CrossRootUsageRow's billed-anchored optionality): `billedCostUsd`
@@ -339,6 +366,8 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     u.billed_cost_usd AS "billedCostUsd",
     COALESCE(u.estimated_input_tokens, 0)::bigint AS "estimatedInputTokens",
     COALESCE(u.estimated_output_tokens, 0)::bigint AS "estimatedOutputTokens",
+    COALESCE(u.estimated_cache_read_tokens, 0)::bigint AS "estimatedCacheReadTokens",
+    COALESCE(u.estimated_cache_creation_tokens, 0)::bigint AS "estimatedCacheCreationTokens",
     COALESCE(e.tool_call_count, 0)::bigint AS "toolCallCount",
     COALESCE(e.failed_tool_call_count, 0)::bigint AS "failedToolCallCount",
     COALESCE(c.edit_count, 0)::bigint AS "editCount",
@@ -356,7 +385,11 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
       SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)
         AS estimated_input_tokens,
       SUM(CASE WHEN billed_cost_usd IS NULL THEN output_tokens ELSE 0 END)
-        AS estimated_output_tokens
+        AS estimated_output_tokens,
+      SUM(CASE WHEN billed_cost_usd IS NULL THEN COALESCE(cache_read_input_tokens, 0) ELSE 0 END)
+        AS estimated_cache_read_tokens,
+      SUM(CASE WHEN billed_cost_usd IS NULL THEN COALESCE(cache_creation_input_tokens, 0) ELSE 0 END)
+        AS estimated_cache_creation_tokens
     FROM brainstrike_assistant_run_usage
     JOIN scope ON brainstrike_assistant_run_usage.resource_id = scope.resource_id
     GROUP BY run_id
@@ -428,6 +461,14 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
     completedAt: normalizeNullableDate(row['completedAt']),
     durationMs: nullableNonNegativeInteger(row['durationMs'], 'durationMs'),
     editCount: requireNonNegativeInteger(row['editCount'], 'editCount'),
+    estimatedCacheCreationTokens: requireNonNegativeInteger(
+      row['estimatedCacheCreationTokens'] ?? 0,
+      'estimatedCacheCreationTokens'
+    ),
+    estimatedCacheReadTokens: requireNonNegativeInteger(
+      row['estimatedCacheReadTokens'] ?? 0,
+      'estimatedCacheReadTokens'
+    ),
     estimatedInputTokens: requireNonNegativeInteger(
       row['estimatedInputTokens'],
       'estimatedInputTokens'
@@ -459,6 +500,10 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
 /** Per-model token subtotal for a single thread. */
 export interface ThreadModelUsageSubtotal {
   readonly billedCostUsd?: number;
+  /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
+  readonly estimatedCacheCreationTokens?: number;
+  /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
+  readonly estimatedCacheReadTokens?: number;
   readonly estimatedInputTokens?: number;
   readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
@@ -653,11 +698,20 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
   billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0),
   created_at timestamptz NOT NULL DEFAULT NOW(),
-  root_id text
+  root_id text,
+  cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0),
+  cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0)
 );
 
 ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0);
+
+-- Anthropic prompt-cache token classes (BST-587): keep byte-identical to
+-- migration 068. input_tokens remains the TOTAL the model saw.
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD COLUMN IF NOT EXISTS cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0);
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
@@ -2621,7 +2675,11 @@ export function createPgliteAssistantThreadRepository(
             SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)::bigint
               AS "estimatedInputTokens",
             SUM(CASE WHEN billed_cost_usd IS NULL THEN output_tokens ELSE 0 END)::bigint
-              AS "estimatedOutputTokens"
+              AS "estimatedOutputTokens",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN COALESCE(cache_read_input_tokens, 0) ELSE 0 END)::bigint
+              AS "estimatedCacheReadTokens",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN COALESCE(cache_creation_input_tokens, 0) ELSE 0 END)::bigint
+              AS "estimatedCacheCreationTokens"
          FROM ${ASSISTANT_RUN_USAGE_TABLE}
          WHERE thread_id = $1
          GROUP BY provider, model
@@ -2656,6 +2714,14 @@ export function createPgliteAssistantThreadRepository(
                   'estimatedOutputTokens'
                 ),
               }),
+          estimatedCacheCreationTokens: requireNonNegativeInteger(
+            row['estimatedCacheCreationTokens'] ?? 0,
+            'estimatedCacheCreationTokens'
+          ),
+          estimatedCacheReadTokens: requireNonNegativeInteger(
+            row['estimatedCacheReadTokens'] ?? 0,
+            'estimatedCacheReadTokens'
+          ),
           inputTokens,
           model: requireString(row['model'], 'model'),
           outputTokens,
@@ -2820,11 +2886,25 @@ export function createPgliteAssistantThreadRepository(
       ) {
         throw new Error('Assistant run usage billedCostUsd must be a finite, non-negative number.');
       }
+      if (input.cacheReadInputTokens !== undefined) {
+        assertUsageTokenCount(input.cacheReadInputTokens, 'cacheReadInputTokens');
+      }
+      if (input.cacheCreationInputTokens !== undefined) {
+        assertUsageTokenCount(input.cacheCreationInputTokens, 'cacheCreationInputTokens');
+      }
+      if (
+        (input.cacheReadInputTokens ?? 0) + (input.cacheCreationInputTokens ?? 0) >
+        input.inputTokens
+      ) {
+        // inputTokens is the TOTAL the model saw; the cache classes are shares
+        // of it. A row violating that would poison every downstream estimate.
+        throw new Error('Assistant run usage cache token classes exceed total inputTokens.');
+      }
       await initialize();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd, cache_read_input_tokens, cache_creation_input_tokens)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           crypto.randomUUID(),
           input.threadId,
@@ -2837,6 +2917,8 @@ export function createPgliteAssistantThreadRepository(
           new Date(),
           input.rootId ?? null,
           input.billedCostUsd ?? null,
+          input.cacheReadInputTokens ?? null,
+          input.cacheCreationInputTokens ?? null,
         ]
       );
     },

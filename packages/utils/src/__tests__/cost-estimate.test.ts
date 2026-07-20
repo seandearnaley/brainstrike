@@ -1,6 +1,59 @@
 import { describe, expect, it } from 'vitest';
 import { computeCost, formatUsdCost } from '../token-counting-heuristics';
 
+describe('computeCost with Anthropic cache tokens', () => {
+  it('prices cache reads and writes at their own rates, remainder at the base input rate', () => {
+    // inputTokens is the TOTAL the model saw (incl. cache classes):
+    // uncached = 1M - 600k - 200k = 200k @ $3; read 600k @ $0.30; write 200k @ $3.75.
+    const result = computeCost(
+      {
+        cacheCreationInputTokens: 200_000,
+        cacheReadInputTokens: 600_000,
+        inputTokens: 1_000_000,
+        outputTokens: 100_000,
+      },
+      { cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75, inputPerMTok: 3, outputPerMTok: 15 }
+    );
+    expect(result).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      // 0.2M*3 + 0.6M*0.3 + 0.2M*3.75 + 0.1M*15 = 0.6 + 0.18 + 0.75 + 1.5
+      usdAmount: 3.03,
+    });
+  });
+
+  it('throws when cache tokens are reported but the pricing has no cache rates', () => {
+    expect(() =>
+      computeCost(
+        { cacheReadInputTokens: 10, inputTokens: 100, outputTokens: 5 },
+        { inputPerMTok: 3, outputPerMTok: 15 }
+      )
+    ).toThrow(/cache/i);
+  });
+
+  it('throws when cache token classes exceed the total input tokens', () => {
+    expect(() =>
+      computeCost(
+        {
+          cacheCreationInputTokens: 80,
+          cacheReadInputTokens: 40,
+          inputTokens: 100,
+          outputTokens: 5,
+        },
+        { cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75, inputPerMTok: 3, outputPerMTok: 15 }
+      )
+    ).toThrow(/exceed/i);
+  });
+
+  it('keeps pre-cache behavior identical when no cache tokens are present', () => {
+    const result = computeCost(
+      { inputTokens: 1_000_000, outputTokens: 0 },
+      { cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75, inputPerMTok: 3, outputPerMTok: 15 }
+    );
+    expect(result).toEqual({ available: true, provenance: 'exact-pricing', usdAmount: 3 });
+  });
+});
+
 describe('computeCost', () => {
   it('computes exact USD cost from usage and pricing', () => {
     const result = computeCost(

@@ -40,6 +40,10 @@ const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
 
 export interface AssistantUsage {
   readonly billedCostUsd?: number;
+  /** Anthropic prompt-cache write tokens; present only when reported. */
+  readonly cacheCreationInputTokens?: number;
+  /** Anthropic prompt-cache read tokens; present only when reported. */
+  readonly cacheReadInputTokens?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
@@ -731,15 +735,27 @@ function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefine
     chunk.usage && typeof chunk.usage.inputTokens === 'number' ? chunk.usage.inputTokens : 0;
   const outputTokens =
     chunk.usage && typeof chunk.usage.outputTokens === 'number' ? chunk.usage.outputTokens : 0;
+  const usageRecord = chunk.usage as Record<string, unknown> | undefined;
+  const cacheReadInputTokens = readPositiveCount(usageRecord?.['cacheReadInputTokens']);
+  const cacheCreationInputTokens = readPositiveCount(usageRecord?.['cacheCreationInputTokens']);
   // Approval-pause finishes contain only zero tokens; do not persist them.
   if (inputTokens + outputTokens === 0 && billedCostUsd === undefined) {
     return;
   }
   return {
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
+    ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
+    ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
     inputTokens,
     outputTokens,
   };
+}
+
+function readPositiveCount(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return;
 }
 
 /**

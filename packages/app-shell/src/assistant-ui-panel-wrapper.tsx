@@ -83,6 +83,7 @@ import {
 import { createSuspendedApprovalDiscovery } from './assistant-suspended-approvals';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
+  type AssistantRunUsagePayload,
   addValuesToSet,
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
@@ -103,6 +104,7 @@ import {
   isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
+  pickCacheTokenFields,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
@@ -1366,7 +1368,7 @@ export function AssistantUiPanelWrapper({
   // interactive mid-run. They are stored PER ROW so cost is attributable per
   // model when a thread switches models mid-conversation.
   const handleUsage = useCallback(
-    (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
+    (usage: AssistantRunUsagePayload) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       // A turn on a capability-absent transport (the in-renderer local
       // runtime) can never have refreshed the breakdown — drop a stale one
@@ -1403,6 +1405,7 @@ export function AssistantUiPanelWrapper({
       assistantThreadRepository
         .recordRunUsage({
           ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
+          ...pickCacheTokenFields(usage),
           inputTokens: usage.inputTokens,
           model: runContext.model,
           outputTokens: usage.outputTokens,

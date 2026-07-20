@@ -1,4 +1,5 @@
 import {
+  buildTokenUsageCounts,
   type CostEstimate,
   computeCost,
   type ModelTokenPricing,
@@ -92,7 +93,12 @@ export function resolveCrossRootCostRows(
     if (estimatedInputTokens + estimatedOutputTokens > 0) {
       aggregate.sawEstimatedUsage = true;
       const entryCost = computeCost(
-        { inputTokens: estimatedInputTokens, outputTokens: estimatedOutputTokens },
+        buildTokenUsageCounts(
+          estimatedInputTokens,
+          estimatedOutputTokens,
+          row.estimatedCacheReadTokens,
+          row.estimatedCacheCreationTokens
+        ),
         resolvePricing(row.provider, row.model)
       );
       if (entryCost.available) {

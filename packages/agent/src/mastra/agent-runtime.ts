@@ -49,6 +49,10 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
+import {
+  type CacheAwareInstructions,
+  composeCacheAwareInstructions,
+} from './anthropic-instruction-cache';
 import { buildPersonaSubAgents } from './build-persona-subagents';
 import {
   buildContextBudgetNote,
@@ -469,7 +473,7 @@ function composeRuntimeInstructions(params: {
   provider: string;
   taskListNote: string | null;
   toolNameMap: ReadonlyMap<string, string>;
-}): string {
+}): { agentInstructions: CacheAwareInstructions; combinedText: string } {
   const resolvedInstructions =
     params.instructionsOverride ??
     (params.provider === 'local'
@@ -478,9 +482,20 @@ function composeRuntimeInstructions(params: {
           planMode: params.planModeActive,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
         }));
-  return [resolvedInstructions, params.budgetNote, params.taskListNote]
+  const stableText = [resolvedInstructions, params.budgetNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
+  const combinedText = [stableText, params.taskListNote]
+    .filter((part): part is string => Boolean(part))
+    .join('\n');
+  return {
+    agentInstructions: composeCacheAwareInstructions({
+      provider: params.provider,
+      stableText,
+      volatileText: params.taskListNote,
+    }),
+    combinedText,
+  };
 }
 
 function registerAgentWithMastra(
@@ -739,7 +754,7 @@ export async function createMastraAgentRuntime(
   // this is the only seam where the task list note and the final composed
   // instructions are both in scope. Message-side counts join at stream start.
   const instructionBreakdown = computeInstructionBreakdown({
-    composedInstructions,
+    composedInstructions: composedInstructions.combinedText,
     taskListNote,
   });
 
@@ -754,7 +769,7 @@ export async function createMastraAgentRuntime(
   const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
   const agent = new Agent({
     id: 'brainstrike-assistant',
-    instructions: composedInstructions,
+    instructions: composedInstructions.agentInstructions,
     model: languageModel,
     name: 'Brainstrike Assistant',
     tools: modelProjectedTools,
@@ -816,10 +831,22 @@ function assertModernLanguageModel(
 }
 
 interface UsageLike {
+  /** Mastra's flattened Anthropic cache-write token count. */
+  cacheCreationInputTokens?: number;
+  /** Mastra's flattened Anthropic cache-read token count. */
+  cachedInputTokens?: number;
   completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   promptTokens?: number;
+}
+
+/** Read a non-negative finite count or drop the field entirely. */
+function readCacheTokenCount(value: number | undefined): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return;
 }
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
@@ -915,12 +942,23 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
   const billedCostUsd = lifecycleState.sawStepBilledCost
     ? lifecycleState.stepBilledCostUsd
     : finishCost;
+  const cacheReadInputTokens = lifecycleState.includeCacheTokenClasses
+    ? readCacheTokenCount(usage.cachedInputTokens)
+    : undefined;
+  const cacheCreationInputTokens = lifecycleState.includeCacheTokenClasses
+    ? readCacheTokenCount(usage.cacheCreationInputTokens)
+    : undefined;
   return {
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
     path: [],
     type: 'message-finish',
-    usage: { completionTokens, promptTokens },
+    usage: {
+      completionTokens,
+      promptTokens,
+      ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
+      ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    },
   };
 }
 
@@ -1042,6 +1080,17 @@ interface OutputOnlyToolEvent {
 
 interface ToolLifecycleState {
   delegationLifecycle: DelegationLifecycleTracker;
+  /**
+   * Cache token classes are an Anthropic pricing contract (read 0.1×,
+   * write 1.25×). Other providers report auto-discounted cached tokens whose
+   * rates we do not model — dropping the classes keeps their estimates on the
+   * documented conservative full-rate path instead of mispricing them.
+   * Keyed off the PARENT run's provider: Mastra does not fold a delegated
+   * subagent's model-step usage into the parent finish counter, so a child
+   * pinned to a different provider cannot leak foreign cache classes here
+   * (review nit, BST-587).
+   */
+  includeCacheTokenClasses: boolean;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
   requiresBilledCost: boolean;
   sawStepBilledCost: boolean;
@@ -2163,6 +2212,7 @@ async function* streamChunksFromMastra({
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
+    includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
     sawStepBilledCost: false,

@@ -1,4 +1,5 @@
 import {
+  buildTokenUsageCounts,
   type CostEstimate,
   computeCost,
   type ModelTokenPricing,
@@ -55,7 +56,12 @@ export function resolveCumulativeUsageDisplay(
     if (estimatedInputTokens + estimatedOutputTokens > 0) {
       sawEstimatedUsage = true;
       const entryCost = computeCost(
-        { inputTokens: estimatedInputTokens, outputTokens: estimatedOutputTokens },
+        buildTokenUsageCounts(
+          estimatedInputTokens,
+          estimatedOutputTokens,
+          entry.estimatedCacheReadTokens,
+          entry.estimatedCacheCreationTokens
+        ),
         resolvePricing(entry.provider, entry.model)
       );
       if (!entryCost.available) {

@@ -5,6 +5,7 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
+import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
@@ -123,7 +124,9 @@ export function createProvider(
 
     case 'anthropic': {
       const anthropicProvider = createAnthropic(apiKey ? { apiKey } : undefined);
-      return anthropicProvider(modelName);
+      // BST-587: every hosted Anthropic request carries a tail cache breakpoint
+      // so multi-step agent runs cache-read the shared prefix.
+      return wrapAnthropicModelWithPromptCaching(anthropicProvider(modelName));
     }
 
     case 'google': {

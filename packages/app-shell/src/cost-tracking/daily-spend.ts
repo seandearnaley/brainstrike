@@ -1,4 +1,4 @@
-import { computeCost } from '@brainstrike/utils/token-counting-heuristics';
+import { buildTokenUsageCounts, computeCost } from '@brainstrike/utils/token-counting-heuristics';
 import type { ModelPricingResolver } from '../assistant-cross-root-cost';
 
 /**
@@ -25,7 +25,11 @@ export const DAILY_SPEND_AGGREGATION_SQL = `
     SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.input_tokens ELSE 0 END)::bigint
       AS "unreportedInputTokens",
     SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.output_tokens ELSE 0 END)::bigint
-      AS "unreportedOutputTokens"
+      AS "unreportedOutputTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN COALESCE(u.cache_read_input_tokens, 0) ELSE 0 END)::bigint
+      AS "unreportedCacheReadTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN COALESCE(u.cache_creation_input_tokens, 0) ELSE 0 END)::bigint
+      AS "unreportedCacheCreationTokens"
   FROM brainstrike_assistant_run_usage u
   WHERE u.resource_id = $1
     AND u.created_at >= NOW() - INTERVAL '24 hours'
@@ -43,6 +47,10 @@ export interface DailySpendUsageRow {
   readonly billedCostUsd?: number;
   readonly model: string;
   readonly provider: string;
+  /** Anthropic cache-write share of `unreportedInputTokens` (0 elsewhere). */
+  readonly unreportedCacheCreationTokens?: number;
+  /** Anthropic cache-read share of `unreportedInputTokens` (0 elsewhere). */
+  readonly unreportedCacheReadTokens?: number;
   readonly unreportedInputTokens: number;
   readonly unreportedOutputTokens: number;
 }
@@ -98,6 +106,14 @@ export function mapDailySpendUsageRow(row: Record<string, unknown>): DailySpendU
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     model: requireString(row['model'], 'model'),
     provider: requireString(row['provider'], 'provider'),
+    unreportedCacheCreationTokens: requireNonNegativeInteger(
+      row['unreportedCacheCreationTokens'] ?? 0,
+      'unreportedCacheCreationTokens'
+    ),
+    unreportedCacheReadTokens: requireNonNegativeInteger(
+      row['unreportedCacheReadTokens'] ?? 0,
+      'unreportedCacheReadTokens'
+    ),
     unreportedInputTokens: requireNonNegativeInteger(
       row['unreportedInputTokens'],
       'unreportedInputTokens'
@@ -130,7 +146,12 @@ export function resolveDailySpendSummary(
       continue;
     }
     const estimate = computeCost(
-      { inputTokens: row.unreportedInputTokens, outputTokens: row.unreportedOutputTokens },
+      buildTokenUsageCounts(
+        row.unreportedInputTokens,
+        row.unreportedOutputTokens,
+        row.unreportedCacheReadTokens,
+        row.unreportedCacheCreationTokens
+      ),
       resolvePricing(row.provider, row.model)
     );
     if (estimate.available) {

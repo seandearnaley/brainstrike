@@ -3193,12 +3193,16 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       (usage?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
     );
     expect(byModel.get('openai:gpt-5.2')).toEqual({
+      estimatedCacheCreationTokens: 0,
+      estimatedCacheReadTokens: 0,
       inputTokens: 1500,
       model: 'gpt-5.2',
       outputTokens: 300,
       provider: 'openai',
     });
     expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
+      estimatedCacheCreationTokens: 0,
+      estimatedCacheReadTokens: 0,
       inputTokens: 2000,
       model: 'claude-opus-4-8',
       outputTokens: 300,
@@ -3235,6 +3239,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       perModel: [
         {
           billedCostUsd: 0.0042,
+          estimatedCacheCreationTokens: 0,
+          estimatedCacheReadTokens: 0,
           estimatedInputTokens: 50,
           estimatedOutputTokens: 10,
           inputTokens: 150,
@@ -3343,6 +3349,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // bucket carry a null name — never a fabricated one.
     expect(rows).toEqual([
       {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 50,
         model: 'gpt-5.2',
         outputTokens: 10,
@@ -3351,6 +3359,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         rootId: null,
       },
       {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 1500,
         model: 'gpt-5.2',
         outputTokens: 300,
@@ -3359,6 +3369,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         rootId: 'root-a',
       },
       {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 2000,
         model: 'claude-opus-4-8',
         outputTokens: 300,

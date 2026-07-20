@@ -107,6 +107,8 @@ describe('daily spend aggregation (real PGlite)', () => {
           billedCostUsd: 1.25,
           model: 'gpt-5.2',
           provider: 'openai',
+          unreportedCacheCreationTokens: 0,
+          unreportedCacheReadTokens: 0,
           unreportedInputTokens: 1000,
           unreportedOutputTokens: 200,
         },
@@ -114,5 +116,56 @@ describe('daily spend aggregation (real PGlite)', () => {
     } finally {
       await handle.unsubscribe();
     }
+  });
+
+  it('persists Anthropic cache token classes and surfaces them in the aggregation', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-daily-spend-cache');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await repository.recordRunUsage({
+      cacheCreationInputTokens: 200,
+      cacheReadInputTokens: 600,
+      inputTokens: 1000,
+      model: 'claude-sonnet-4-6',
+      outputTokens: 50,
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      rootId: null,
+      runId: 'run-cached',
+      threadId: thread.id,
+    });
+
+    const result = await db.query<Record<string, unknown>>(DAILY_SPEND_AGGREGATION_SQL, [
+      'workspace-a',
+    ]);
+    expect(result.rows.map(mapDailySpendUsageRow)).toEqual([
+      {
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        unreportedCacheCreationTokens: 200,
+        unreportedCacheReadTokens: 600,
+        unreportedInputTokens: 1000,
+        unreportedOutputTokens: 50,
+      },
+    ]);
+
+    // A row whose cache classes exceed the total is rejected at the write
+    // boundary — it would poison every downstream estimate.
+    await expect(
+      repository.recordRunUsage({
+        cacheCreationInputTokens: 900,
+        cacheReadInputTokens: 200,
+        inputTokens: 1000,
+        model: 'claude-sonnet-4-6',
+        outputTokens: 50,
+        provider: 'anthropic',
+        resourceId: 'workspace-a',
+        rootId: null,
+        runId: 'run-invalid',
+        threadId: thread.id,
+      })
+    ).rejects.toThrow(/exceed/i);
   });
 });

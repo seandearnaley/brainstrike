@@ -74,7 +74,10 @@ describe('app-shell assistant contract boundary', () => {
     // (#1735: the wrapper derives mainRootId/mainRootPath and the ≥2-roots
     // operatingRoot chip payload; the chip UI lives in operating-root-chip.tsx).
     // The merged wrapper measures 1614 lines; budget carries modest headroom.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1620);
+    // Bumped 1620 → 1625 for Anthropic cache-token usage persistence (BST-587):
+    // the wrapper only spreads pickCacheTokenFields(usage) into recordRunUsage;
+    // the payload type and field picker live in assistant-ui-panel-wrapper-runtime.ts.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1625);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

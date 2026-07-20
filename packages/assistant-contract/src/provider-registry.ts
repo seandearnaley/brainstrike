@@ -56,7 +56,14 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * treat as non-authoritative (override planned in settings). Omit for models with unknown
    * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
    */
-  pricing?: { inputPerMTok: number; outputPerMTok: number };
+  pricing?: {
+    /** USD per 1M prompt-cache READ tokens. Anthropic only: 0.1× the input rate. */
+    cacheReadPerMTok?: number;
+    /** USD per 1M prompt-cache WRITE tokens. Anthropic only: 1.25× the input rate. */
+    cacheWritePerMTok?: number;
+    inputPerMTok: number;
+    outputPerMTok: number;
+  };
   /**
    * Authoritative per-model reasoning controls when the provider publishes
    * them. The UI and request boundary both enforce these values so a
@@ -327,7 +334,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-fable-5',
         label: 'Claude Fable 5',
         maxOutputTokens: 128_000,
-        pricing: { inputPerMTok: 10, outputPerMTok: 50 },
+        pricing: {
+          cacheReadPerMTok: 1,
+          cacheWritePerMTok: 12.5,
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -337,7 +349,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-opus-4-8',
         label: 'Claude Opus 4.8',
         maxOutputTokens: 64_000,
-        pricing: { inputPerMTok: 5, outputPerMTok: 25 },
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
         type: 'llm',
@@ -350,7 +367,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'Claude Sonnet 5',
         maxOutputTokens: 128_000,
         // Anthropic introductory rate through 2026-08-31.
-        pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+        pricing: {
+          cacheReadPerMTok: 0.2,
+          cacheWritePerMTok: 2.5,
+          inputPerMTok: 2,
+          outputPerMTok: 10,
+        },
         supportsStreaming: true,
         tagline: 'Best mix of smarts and speed',
         type: 'llm',
@@ -361,7 +383,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-sonnet-4-6',
         label: 'Claude Sonnet 4.6',
         maxOutputTokens: 64_000,
-        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        pricing: {
+          cacheReadPerMTok: 0.3,
+          cacheWritePerMTok: 3.75,
+          inputPerMTok: 3,
+          outputPerMTok: 15,
+        },
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -371,7 +398,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5',
         maxOutputTokens: 64_000,
-        pricing: { inputPerMTok: 1, outputPerMTok: 5 },
+        pricing: {
+          cacheReadPerMTok: 0.1,
+          cacheWritePerMTok: 1.25,
+          inputPerMTok: 1,
+          outputPerMTok: 5,
+        },
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
         type: 'llm',
