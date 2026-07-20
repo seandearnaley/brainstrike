@@ -132,7 +132,7 @@ import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
-import { useSteerActiveRun } from './use-steer-active-run';
+import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active-run';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -1566,7 +1566,7 @@ export function AssistantUiPanelWrapper({
             <AssistantUiPanel
               {...(composerDraftCommand ? { composerDraftCommand } : {})}
               {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-              {...(assistantThreadRepository ? { onSteerActiveRun: steerActiveRun } : {})}
+              {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
               completePreparedRequest={completePreparedRequest}
               contextWindow={selectedLlmModelDef?.contextWindow}
               {...(cumulativeUsage ? { cumulativeUsage } : {})}

@@ -363,17 +363,31 @@ describe('mastra streaming integration', () => {
         usage: { completionTokens: 2, promptTokens: 10 },
       },
       { type: 'step-start' },
-      { textDelta: 'second step text — must never stream', type: 'text-delta' },
-      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 30 } },
+      { textDelta: 'second step text', type: 'text-delta' },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 40 },
+      },
+      { type: 'step-start' },
+      { textDelta: 'third step text — must never stream', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 80 } },
     ]);
 
+    // Steer requested AFTER the first boundary: run stops at the SECOND.
+    let boundariesSeen = 0;
     const iterator = await streamMastraAgent(
       [{ id: 'user-1', parts: [{ text: 'work on it', type: 'text' }], role: 'user' }],
       {
         runtime: {
           apiKey: 'test-key',
           provider: 'openai',
-          steering: { stopRequested: () => true },
+          steering: {
+            stopRequested: () => {
+              boundariesSeen += 1;
+              return boundariesSeen > 1;
+            },
+          },
         },
       }
     );
@@ -384,18 +398,31 @@ describe('mastra streaming integration', () => {
     }
 
     const texts = chunks.filter((chunk) => chunk.type === 'text-delta');
-    expect(texts.map((chunk) => (chunk as { value?: string }).value)).toEqual(['first step text']);
+    expect(texts.map((chunk) => (chunk as { value?: string }).value)).toEqual([
+      'first step text',
+      'second step text',
+    ]);
 
-    const steered = chunks.find(
-      (chunk) =>
-        chunk.type === 'run-event' &&
-        (chunk as { event?: { kind?: string } }).event?.kind === 'run.steered'
+    const runEventKinds = chunks
+      .filter((chunk) => chunk.type === 'run-event')
+      .map((chunk) => (chunk as { event?: { kind?: string } }).event?.kind);
+    expect(runEventKinds).toContain('run.steered');
+    // run.finished must ALSO be emitted so every terminal-event consumer
+    // (timeline status, notifications, hydration) sees the run complete.
+    expect(runEventKinds.indexOf('run.steered')).toBeLessThan(
+      runEventKinds.indexOf('run.finished')
     );
-    expect(steered).toBeDefined();
 
-    const finish = chunks.at(-1) as { finishReason?: string; type: string };
+    const finish = chunks.at(-1) as {
+      finishReason?: string;
+      type: string;
+      usage?: { completionTokens: number; promptTokens: number };
+    };
     expect(finish.type).toBe('message-finish');
     expect(finish.finishReason).toBe('stop');
+    // Usage is ACCUMULATED across every completed step (10+40 / 2+5), never
+    // just the boundary step's own numbers.
+    expect(finish.usage).toEqual({ completionTokens: 7, promptTokens: 50 });
   });
 
   it('ignores a steering request that never reaches a step boundary before natural finish', async () => {

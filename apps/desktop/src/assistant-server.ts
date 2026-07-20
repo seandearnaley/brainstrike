@@ -403,13 +403,15 @@ async function handleAssistantPost(
   }
   const { signal, cleanup } = registerRequestAbort(req);
   const runId = runtimeData.memory?.runId;
-  // Steering control (BST-588): in-memory only, injected AFTER request
-  // validation exactly like `signal`. Every streaming leg with a runId is
-  // steerable; the registry entry dies with the stream.
-  if (runId) {
-    runtimeData.steering = registerSteerableRun(runId);
-  }
   try {
+    // Steering control (BST-588): in-memory only, injected AFTER request
+    // validation exactly like `signal`. Every streaming leg with a runId is
+    // steerable; the registry entry dies with the stream. Registered INSIDE
+    // the try so a defensive duplicate-runId throw still runs cleanup() and
+    // answers the request (review P3).
+    if (runId) {
+      runtimeData.steering = registerSteerableRun(runId);
+    }
     await streamAssistantPostResponse({
       apiKey,
       assistantMessageId,

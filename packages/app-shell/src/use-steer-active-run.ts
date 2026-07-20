@@ -15,6 +15,19 @@ import {
  * message dispatches on the natural run end either way); any OTHER transport
  * failure THROWS so the caller logs it visibly (never a silent degrade).
  */
+/**
+ * The steer control endpoint exists ONLY on the desktop assistant server, so
+ * the capability signal is the desktop preload bridge — NOT the PGlite repo
+ * (web is PGlite-backed too and must never render a steer affordance that
+ * silently cannot stop the run; review P2, BST-588).
+ */
+export function hasDesktopAssistantBridge(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    Boolean((window as unknown as { assistant?: unknown }).assistant)
+  );
+}
+
 export function useSteerActiveRun(
   getActiveRunContext: () => { readonly runId: string } | null | undefined
 ): () => Promise<boolean> {

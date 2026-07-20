@@ -147,6 +147,9 @@ export function SteerRunButton({
   const aui = useAui();
   const draft = useAuiState((state) => state.composer.text);
   const enqueueFront = useFollowUpQueueStore((state) => state.enqueueFront);
+  // Double-click guard (review P3): both clicks of a fast double-click see the
+  // same rendered draft, so without this a steer front-enqueues twice.
+  const steerInFlightRef = useRef(false);
   const canSteer = draft.trim().length > 0;
 
   return (
@@ -156,6 +159,10 @@ export function SteerRunButton({
       data-testid="assistant-steer-run"
       disabled={!canSteer}
       onClick={() => {
+        if (steerInFlightRef.current) {
+          return;
+        }
+        steerInFlightRef.current = true;
         enqueueFront(followUpQueueKey(threadKey), draft);
         aui.composer().setText('');
         onSteerRequest()
