@@ -36,7 +36,7 @@
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/browser.ts --format esm,cjs --out-dir dist",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts src/browser.ts --format esm,cjs --out-dir dist --watch",
-    "lint": "pnpm -w lint --filter @brainstrike/queue",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit",
