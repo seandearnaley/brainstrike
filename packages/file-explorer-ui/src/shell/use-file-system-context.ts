@@ -10,12 +10,13 @@ import {
   useFileSystemWatcher,
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemWatchSignal } from '@brainstrike/file-system';
 import type { FileSystemChange } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
+import { hasPersistHydrationApi } from '../utils/persist-hydration';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -33,28 +34,6 @@ const WATCHER_DISPATCH_DEBOUNCE_MS = 300;
  * without this cap nothing would ever dispatch while a build keeps writing.
  */
 const WATCHER_DISPATCH_MAX_WAIT_MS = 1000;
-
-/**
- * Type guard to check if the store has the Zustand persist API.
- */
-interface PersistApi {
-  hasHydrated: () => boolean;
-  onFinishHydration: (callback: () => void) => () => void;
-}
-
-function hasPersistApi(
-  store: ReturnType<typeof useFileExplorerStoreContext>
-): store is ReturnType<typeof useFileExplorerStoreContext> & { persist: PersistApi } {
-  const persistObj = (store as unknown as { persist?: unknown }).persist;
-  if (typeof persistObj !== 'object' || persistObj === null) {
-    return false;
-  }
-  const persist = persistObj as Record<string, unknown>;
-  return (
-    typeof persist['hasHydrated'] === 'function' &&
-    typeof persist['onFinishHydration'] === 'function'
-  );
-}
 
 // Error message mappings for consistent user experience
 const ERROR_MESSAGES = {
@@ -180,7 +159,7 @@ export function useFileSystemInstance() {
    */
   const waitForHydration = useCallback((): Promise<void> => {
     return new Promise((resolve) => {
-      if (!hasPersistApi(store)) {
+      if (!hasPersistHydrationApi(store)) {
         // No persist API, resolve immediately
         resolve();
         return;
@@ -513,6 +492,58 @@ export function useFileSystemInstance() {
     [flushPendingWatcherChanges]
   );
 
+  // Watcher health signals (overflow / errored) — see FileSystemWatchSignal.
+  // Overflow one-shot guard: a burst of 'unknown' records must collapse into a
+  // single full-refresh dispatch per root, not a refresh storm. The rootId is
+  // released after the dispatch window so a LATER overflow refreshes again.
+  const overflowDispatchedRootsRef = useRef<Set<string>>(new Set());
+  const handleWatcherSignal = useCallback(
+    (rootId: string, signal: FileSystemWatchSignal): void => {
+      const watcherRoot = watcherRootMetadataRef.current.get(rootId);
+      if (!watcherRoot) {
+        return;
+      }
+      if (signal.type === 'errored') {
+        // The adapter already disconnected the watch; the root is unwatched
+        // from here on. Report it visibly — NO SILENT FALLBACKS.
+        logger.error('File watching stopped for root', {
+          message: signal.message,
+          rootId,
+          rootPath: watcherRoot.rootPath,
+        });
+        showToastRaw({
+          description: `${signal.message} New and changed files won’t be detected — use Refresh to update manually.`,
+          title: 'Folder watching stopped',
+          variant: 'destructive',
+        });
+        return;
+      }
+      // Overflow: events may have been missed — pending incremental changes
+      // for this root are superseded by (and dropped in favor of) a one-shot
+      // full refresh dispatched immediately, bypassing the debounce.
+      if (overflowDispatchedRootsRef.current.has(rootId)) {
+        return;
+      }
+      overflowDispatchedRootsRef.current.add(rootId);
+      setTimeout(() => {
+        overflowDispatchedRootsRef.current.delete(rootId);
+      }, 300);
+      pendingRefreshRootsRef.current.delete(rootId);
+      logger.warn('File watcher overflow — dispatching full refresh for root', {
+        rootId,
+        rootPath: watcherRoot.rootPath,
+      });
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [{ changes: [], rootId, rootPath: watcherRoot.rootPath }],
+          scope: 'full',
+          source: 'watcher',
+        })
+      );
+    },
+    [showToastRaw]
+  );
+
   // Clear any pending debounced dispatch on unmount to avoid dispatching after
   // the component has been torn down.
   // biome-ignore lint/plugin: cleanup-only effect; not state-as-event-handler
@@ -529,6 +560,7 @@ export function useFileSystemInstance() {
   useFileSystemWatcher({
     adapter: fileSystemAdapter,
     onChanges: handleWatcherChanges,
+    onSignal: handleWatcherSignal,
     roots: watcherRoots,
   });
 

@@ -28,7 +28,7 @@
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --out-dir dist --watch",
-    "lint": "pnpm -w lint --filter @brainstrike/worker-runtime",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "type-check": "tsc --noEmit",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"

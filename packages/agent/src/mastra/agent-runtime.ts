@@ -103,6 +103,10 @@ import {
   readNestedToolOutputChunk,
 } from './tool-event-mapper';
 import { applyToolModelOutputProjections } from './tool-model-output';
+import {
+  applyToolOutputArtifactSettlement,
+  type ToolOutputArtifactSettlementStore,
+} from './tool-output-artifact-settlement';
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
@@ -143,6 +147,11 @@ export interface MastraAgentRuntimeOptions {
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
   storage?: MastraCompositeStore;
+  /**
+   * Trusted host capability for complete oversized tool-output retention.
+   * Absent keeps the temporary inline MCP ceilings active.
+   */
+  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
   tools?: ToolsInput;
 }
 
@@ -541,6 +550,7 @@ export async function createMastraAgentRuntime(
     resolved,
     memory,
     storage,
+    toolOutputArtifactStore,
     modelOverride,
   } = options;
 
@@ -577,6 +587,7 @@ export async function createMastraAgentRuntime(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const combinedTools = await collectCombinedTools({
+    durableArtifactSettlement: Boolean(toolOutputArtifactStore),
     mcpClient,
     mcpConfig: resolvedMcpConfig,
     sanitizedLocalTools,
@@ -642,12 +653,18 @@ export async function createMastraAgentRuntime(
     toolNameMap,
     tools: gatedTools,
   });
+  const artifactSettledTools = toolOutputArtifactStore
+    ? applyToolOutputArtifactSettlement(finalTools, {
+        store: toolOutputArtifactStore,
+        toolNameMap,
+      })
+    : finalTools;
   // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
   // returning the raw, post-hook result for persistence/application consumers,
   // while the next model step receives only a bounded projection. Apply this
   // AFTER every policy/provider transformation so no final execute-backed tool
   // can bypass the projection; tool-specific projections remain authoritative.
-  const modelProjectedTools = applyToolModelOutputProjections(finalTools, toolNameMap);
+  const modelProjectedTools = applyToolModelOutputProjections(artifactSettledTools, toolNameMap);
 
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never

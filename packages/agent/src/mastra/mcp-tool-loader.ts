@@ -8,8 +8,8 @@ import {
 } from '../mcp/tool-registry';
 import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
+import { measureMcpMultimodalOutput } from './mcp-multimodal-output';
 import type { McpRuntimeClient, McpToolsetsWithErrors } from './mcp-runtime-client';
-import { measureMcpMultimodalOutput } from './tool-model-output';
 import { sanitizeTools } from './tool-sanitizer';
 
 const logger = createLogger('MastraAgentMcpTools');
@@ -21,6 +21,7 @@ export const MAX_MCP_INLINE_MEDIA_DATA_CHARS =
 export const MAX_MCP_NON_MEDIA_SERIALIZED_CHARS = MAX_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 
 export interface CollectCombinedToolsOptions {
+  durableArtifactSettlement?: boolean;
   mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
   sanitizedLocalTools: ToolsInput | undefined;
@@ -32,6 +33,7 @@ type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 type McpToolsets = Record<string, ToolsInput>;
 
 export async function collectCombinedTools({
+  durableArtifactSettlement = false,
   sanitizedLocalTools,
   mcpClient,
   mcpConfig,
@@ -76,7 +78,7 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap));
+      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap, durableArtifactSettlement));
     }
   }
 
@@ -92,14 +94,15 @@ function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
 }
 
 /**
- * MCP results remain inline until the durable artifact store lands. Keep that
- * persistence channel explicitly bounded now: text/JSON receives the normal
- * successful-preview ceiling, while model-native media keeps its raw base64
- * only within the same aggregate byte budget as assistant attachments.
+ * MCP text/JSON remains complete only when the trusted durable settlement seam
+ * is present; otherwise it receives the temporary successful-preview ceiling.
+ * Model-native media always stays inline for rendering and therefore always
+ * keeps the aggregate attachment ceiling plus bounded non-media metadata.
  */
 function wrapMcpToolOutputs(
   tools: ToolsInput,
-  toolNameMap: ReadonlyMap<string, string>
+  toolNameMap: ReadonlyMap<string, string>,
+  durableArtifactSettlement: boolean
 ): ToolsInput {
   const wrapped: ToolsInput = {};
   for (const [toolId, tool] of Object.entries(tools)) {
@@ -116,7 +119,9 @@ function wrapMcpToolOutputs(
       const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
       const multimodalSize = measureMcpMultimodalOutput(output);
       if (!multimodalSize) {
-        return boundToolOutputForModel(originalToolName, output).output;
+        return durableArtifactSettlement
+          ? output
+          : boundToolOutputForModel(originalToolName, output).output;
       }
       if (multimodalSize.mediaDataChars > MAX_MCP_INLINE_MEDIA_DATA_CHARS) {
         throw new RangeError(
