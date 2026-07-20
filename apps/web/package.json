@@ -100,7 +100,7 @@
     "build": "vite build",
     "dev": "vite --port 8080 --host",
     "format": "biome format --write .",
-    "lint": "pnpm run --filter brainstrike lint",
+    "lint": "pnpm -w lint",
     "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
     "predev": "if [ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ]; then true; else node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent; fi",
     "serve-static": "serve dist -p 8080",

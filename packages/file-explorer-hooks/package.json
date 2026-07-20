@@ -50,7 +50,7 @@
     "build": "tsc -b . && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
-    "lint": "pnpm run --dir=../.. lint",
+    "lint": "pnpm -w lint",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
