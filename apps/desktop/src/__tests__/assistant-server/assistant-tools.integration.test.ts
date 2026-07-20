@@ -3560,6 +3560,105 @@ describe('assistant-tools multi-root read tools', () => {
     }
   });
 
+  it('accepts an exact replay of the initial range with a continuation cursor', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    await fsPromises.writeFile(
+      path.join(rootA, 'replayed-range.txt'),
+      Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join('\n'),
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        endLine: 80,
+        maxChars: 30,
+        path: '/replayed-range.txt',
+        root: 'id-a',
+        startLine: 1,
+      });
+
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        endLine: 80,
+        maxChars: 30,
+        path: '/replayed-range.txt',
+        root: null,
+        startLine: 1,
+      } as never);
+
+      expect(continued.rootName).toBe('ProjectA');
+      expect(continued.startLine).toBeGreaterThan(1);
+      expect(continued.content).toMatch(/^\d+: /);
+
+      await expect(
+        tool.execute({
+          cursor: first.nextCursor,
+          endLine: 81,
+          maxChars: 30,
+          path: '/replayed-range.txt',
+          root: null,
+          startLine: 1,
+        } as never)
+      ).rejects.toThrow(/may only replay the original startLine\/endLine unchanged/i);
+
+      const legacyCursorData = JSON.parse(
+        Buffer.from(first.nextCursor ?? '', 'base64url').toString('utf8')
+      ) as Record<string, unknown>;
+      legacyCursorData['requestedEndLine'] = undefined;
+      legacyCursorData['requestedStartLine'] = undefined;
+      legacyCursorData['version'] = 1;
+      const legacyCursor = Buffer.from(JSON.stringify(legacyCursorData), 'utf8').toString(
+        'base64url'
+      );
+      const continuedFromLegacyCursor = await tool.execute({
+        cursor: legacyCursor,
+        maxChars: 30,
+        path: '/replayed-range.txt',
+      });
+      expect(continuedFromLegacyCursor.content).toMatch(/^\d+: /);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('accepts materialized default range values with a continuation cursor', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    await fsPromises.writeFile(
+      path.join(rootA, 'default-range.txt'),
+      Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join('\n'),
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 30,
+        path: '/default-range.txt',
+        root: 'id-a',
+      });
+
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        endLine: first.totalLines,
+        maxChars: 30,
+        path: '/default-range.txt',
+        root: null,
+        startLine: 1,
+      } as never);
+
+      expect(continued.rootName).toBe('ProjectA');
+      expect(continued.startLine).toBeGreaterThan(1);
+      expect(continued.content).toMatch(/^\d+: /);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('resolves `root` by id as well as by display name', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {

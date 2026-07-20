@@ -157,12 +157,24 @@ export const ReadWorkspaceFileInputSchema = z
       .min(1)
       .max(12_000)
       .nullish()
-      .describe('Opaque continuation cursor from the previous page; pass back unchanged'),
-    endLine: z.number().int().positive().nullish().describe('Last 1-based line'),
+      .describe(
+        'Opaque nextCursor from the previous page. Continue with path + cursor; omit range fields unless replaying original values unchanged'
+      ),
+    endLine: z
+      .number()
+      .int()
+      .positive()
+      .nullish()
+      .describe('Last 1-based line; prefer omitting with cursor'),
     maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
     path: z.string().min(1).describe('Workspace-relative file path'),
     root: z.string().nullish().describe(ROOT_QUALIFIER_DESCRIPTION),
-    startLine: z.number().int().positive().nullish().describe('First 1-based line'),
+    startLine: z
+      .number()
+      .int()
+      .positive()
+      .nullish()
+      .describe('First 1-based line; prefer omitting with cursor'),
   })
   .strict();
 

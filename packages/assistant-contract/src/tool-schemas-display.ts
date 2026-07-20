@@ -748,20 +748,20 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
       {
         description:
-          'Opaque continuation cursor returned as nextCursor by the previous page; pass back unchanged instead of startLine/endLine',
+          'Opaque continuation cursor returned as nextCursor by the previous page; continue with path + cursor and omit startLine/endLine',
         name: 'cursor',
         required: false,
         type: 'string',
       },
       {
-        description: '1-based starting line (inclusive)',
+        description: '1-based starting line (inclusive); prefer omitting with cursor',
         min: 1,
         name: 'startLine',
         required: false,
         type: 'number',
       },
       {
-        description: '1-based ending line (inclusive)',
+        description: '1-based ending line (inclusive); prefer omitting with cursor',
         min: 1,
         name: 'endLine',
         required: false,

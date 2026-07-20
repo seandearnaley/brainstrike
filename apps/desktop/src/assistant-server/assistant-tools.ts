@@ -401,7 +401,7 @@ function sliceContentPrefix(content: string, maxChars: number): string {
   return content.slice(0, safeEnd);
 }
 
-interface ReadWorkspaceFileCursor {
+interface ReadWorkspaceFileCursorBase {
   readonly column: number;
   readonly endLine: number;
   readonly line: number;
@@ -409,8 +409,19 @@ interface ReadWorkspaceFileCursor {
   readonly path: string;
   readonly rootId: string;
   readonly size: number;
+}
+
+interface ReadWorkspaceFileCursorV1 extends ReadWorkspaceFileCursorBase {
   readonly version: 1;
 }
+
+interface ReadWorkspaceFileCursorV2 extends ReadWorkspaceFileCursorBase {
+  readonly requestedEndLine: number | null;
+  readonly requestedStartLine: number | null;
+  readonly version: 2;
+}
+
+type ReadWorkspaceFileCursor = ReadWorkspaceFileCursorV1 | ReadWorkspaceFileCursorV2;
 
 interface ReadWorkspaceFilePosition {
   readonly column: number;
@@ -442,8 +453,12 @@ interface ReadWorkspaceFileScan {
   readonly totalLines: number;
 }
 
-function encodeReadWorkspaceFileCursor(cursor: ReadWorkspaceFileCursor): string {
+function encodeReadWorkspaceFileCursor(cursor: ReadWorkspaceFileCursorV2): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function isNullablePositiveSafeInteger(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1);
 }
 
 function decodeReadWorkspaceFileCursor(value: string): ReadWorkspaceFileCursor {
@@ -458,7 +473,7 @@ function decodeReadWorkspaceFileCursor(value: string): ReadWorkspaceFileCursor {
   }
   const candidate = decoded as Record<string, unknown>;
   if (
-    candidate['version'] !== 1 ||
+    (candidate['version'] !== 1 && candidate['version'] !== 2) ||
     typeof candidate['path'] !== 'string' ||
     typeof candidate['rootId'] !== 'string' ||
     candidate['rootId'].length === 0 ||
@@ -479,7 +494,7 @@ function decodeReadWorkspaceFileCursor(value: string): ReadWorkspaceFileCursor {
   ) {
     throw new Error('The readWorkspaceFile continuation cursor is malformed.');
   }
-  return {
+  const base = {
     column: candidate['column'],
     endLine: candidate['endLine'],
     line: candidate['line'],
@@ -487,7 +502,26 @@ function decodeReadWorkspaceFileCursor(value: string): ReadWorkspaceFileCursor {
     path: candidate['path'],
     rootId: candidate['rootId'],
     size: candidate['size'],
-    version: 1,
+  };
+  if (candidate['version'] === 1) {
+    return {
+      ...base,
+      version: 1,
+    };
+  }
+  if (
+    !(
+      isNullablePositiveSafeInteger(candidate['requestedStartLine']) &&
+      isNullablePositiveSafeInteger(candidate['requestedEndLine'])
+    )
+  ) {
+    throw new Error('The readWorkspaceFile continuation cursor is malformed.');
+  }
+  return {
+    ...base,
+    requestedEndLine: candidate['requestedEndLine'],
+    requestedStartLine: candidate['requestedStartLine'],
+    version: 2,
   };
 }
 
@@ -580,50 +614,92 @@ function countUnreadSourceChars(
   return requestedEndOffset - (lineStartOffset + position.column - boundaryOffset);
 }
 
+function assertReadWorkspaceFileRangeReplay(
+  cursor: ReadWorkspaceFileCursor,
+  input: ReadWorkspaceFileInput
+): void {
+  const hasStartLine = input.startLine !== null && input.startLine !== undefined;
+  const hasEndLine = input.endLine !== null && input.endLine !== undefined;
+  if (cursor.version === 1 && (hasStartLine || hasEndLine)) {
+    throw new Error(
+      'This readWorkspaceFile continuation cursor predates range replay validation. Reuse nextCursor without startLine/endLine.'
+    );
+  }
+  if (
+    cursor.version === 2 &&
+    ((hasStartLine &&
+      input.startLine !== cursor.requestedStartLine &&
+      !(cursor.requestedStartLine === null && input.startLine === 1)) ||
+      (hasEndLine &&
+        input.endLine !== cursor.requestedEndLine &&
+        !(cursor.requestedEndLine === null && input.endLine === cursor.endLine)))
+  ) {
+    throw new Error(
+      'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Reuse nextCursor without changing its range.'
+    );
+  }
+}
+
+function assertReadWorkspaceFileCursorIdentity(args: {
+  readonly cursor: ReadWorkspaceFileCursor;
+  readonly file: { readonly mtimeMs: number; readonly path: string; readonly size: number };
+  readonly rootId: string;
+}): void {
+  if (args.cursor.rootId !== args.rootId) {
+    throw new Error(
+      'The readWorkspaceFile continuation cursor belongs to another workspace root. Start a new read without cursor.'
+    );
+  }
+  if (
+    args.cursor.path !== args.file.path ||
+    args.cursor.size !== args.file.size ||
+    args.cursor.mtimeMs !== args.file.mtimeMs
+  ) {
+    throw new Error(
+      'The readWorkspaceFile continuation cursor is stale or belongs to another file. Start a new read without cursor.'
+    );
+  }
+}
+
+function assertReadWorkspaceFileCursorPosition(args: {
+  readonly cursor: ReadWorkspaceFileCursor;
+  readonly cursorLineLength: number | undefined;
+  readonly totalLines: number;
+}): void {
+  if (
+    args.cursorLineLength === undefined ||
+    args.cursor.endLine > args.totalLines ||
+    args.cursor.column > args.cursorLineLength
+  ) {
+    throw new Error(
+      'The readWorkspaceFile continuation cursor is stale or has an invalid source position. Start a new read without cursor.'
+    );
+  }
+}
+
 function resolveReadWorkspaceFilePageRequest(args: {
   readonly file: { readonly mtimeMs: number; readonly path: string; readonly size: number };
   readonly input: ReadWorkspaceFileInput;
   readonly cursorLineLength: number | undefined;
   readonly rootId: string;
   readonly totalLines: number;
-}): { readonly endLine: number; readonly position: ReadWorkspaceFilePosition } {
+}): {
+  readonly endLine: number;
+  readonly position: ReadWorkspaceFilePosition;
+  readonly requestedEndLine: number | null;
+  readonly requestedStartLine: number | null;
+} {
   const { cursorLineLength, file, input, rootId, totalLines } = args;
-  const hasStartLine = input.startLine !== null && input.startLine !== undefined;
-  const hasEndLine = input.endLine !== null && input.endLine !== undefined;
-  if (input.cursor && (hasStartLine || hasEndLine)) {
-    throw new Error(
-      'Pass either readWorkspaceFile cursor or startLine/endLine, not both. Reuse nextCursor unchanged.'
-    );
-  }
-
   const cursor = input.cursor ? decodeReadWorkspaceFileCursor(input.cursor) : null;
-  if (cursor && cursor.rootId !== rootId) {
-    throw new Error(
-      'The readWorkspaceFile continuation cursor belongs to another workspace root. Start a new read without cursor.'
-    );
-  }
-  if (
-    cursor &&
-    (cursor.path !== file.path || cursor.size !== file.size || cursor.mtimeMs !== file.mtimeMs)
-  ) {
-    throw new Error(
-      'The readWorkspaceFile continuation cursor is stale or belongs to another file. Start a new read without cursor.'
-    );
-  }
-  if (
-    cursor &&
-    (cursorLineLength === undefined ||
-      cursor.endLine > totalLines ||
-      cursor.column > cursorLineLength)
-  ) {
-    throw new Error(
-      'The readWorkspaceFile continuation cursor is stale or has an invalid source position. Start a new read without cursor.'
-    );
-  }
   if (cursor) {
+    assertReadWorkspaceFileRangeReplay(cursor, input);
+    assertReadWorkspaceFileCursorIdentity({ cursor, file, rootId });
+    assertReadWorkspaceFileCursorPosition({ cursor, cursorLineLength, totalLines });
     return {
       endLine: cursor.endLine,
       position: { column: cursor.column, line: cursor.line },
+      requestedEndLine: cursor.version === 2 ? cursor.requestedEndLine : null,
+      requestedStartLine: cursor.version === 2 ? cursor.requestedStartLine : null,
     };
   }
 
@@ -631,6 +707,8 @@ function resolveReadWorkspaceFilePageRequest(args: {
   return {
     endLine: Math.max(startLine, Math.min(input.endLine ?? totalLines, totalLines)),
     position: { column: 0, line: startLine },
+    requestedEndLine: input.endLine ?? null,
+    requestedStartLine: input.startLine ?? null,
   };
 }
 
@@ -1175,7 +1253,7 @@ async function runReadWorkspaceFile(
       rootId: root.rootId,
       totalLines: file.totalLines,
     });
-    const requestedEndLine = pageRequest.endLine;
+    const effectiveEndLine = pageRequest.endLine;
     const startPosition = pageRequest.position;
     const startLine = startPosition.line;
     const buildResult = (page: ReadWorkspaceFilePage) => ({
@@ -1185,13 +1263,15 @@ async function runReadWorkspaceFile(
       nextCursor: page.nextPosition
         ? encodeReadWorkspaceFileCursor({
             column: page.nextPosition.column,
-            endLine: requestedEndLine,
+            endLine: effectiveEndLine,
             line: page.nextPosition.line,
             mtimeMs: file.mtimeMs,
             path: file.path,
+            requestedEndLine: pageRequest.requestedEndLine,
+            requestedStartLine: pageRequest.requestedStartLine,
             rootId: root.rootId,
             size: file.size,
-            version: 1,
+            version: 2,
           })
         : null,
       omittedChars: countUnreadSourceChars(
@@ -1227,7 +1307,7 @@ async function runReadWorkspaceFile(
     const requestedPage = renderReadWorkspaceFilePage(
       file.lines,
       startPosition,
-      requestedEndLine,
+      effectiveEndLine,
       maxChars
     );
     if (!readWorkspaceFilePageAdvances(requestedPage, startPosition)) {
@@ -1266,7 +1346,7 @@ async function runReadWorkspaceFile(
       const candidatePage = renderReadWorkspaceFilePage(
         file.lines,
         startPosition,
-        requestedEndLine,
+        effectiveEndLine,
         kept
       );
       if (!readWorkspaceFilePageAdvances(candidatePage, startPosition)) {
