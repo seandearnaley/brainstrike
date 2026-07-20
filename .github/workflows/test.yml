@@ -20,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
@@ -29,8 +30,75 @@ env:
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
+  admission:
+    name: Quiet-head admission
+    # PR synchronization is bursty: the measured 2026-07-15..19 sample reached
+    # 44 concurrent Linux jobs, while 31.3% of Test runs were ultimately
+    # cancelled. Hold the fan-out on GitHub's $0.002/min 1-core runner so a
+    # follow-up push can cancel this cheap sleep instead of seven build/test
+    # runners. Push and workflow_dispatch events pass through immediately.
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      admitted: ${{ steps.admission.outputs.result }}
+    steps:
+      - name: Wait for pull request activity to settle
+        if: github.event_name == 'pull_request'
+        run: sleep 120
+
+      - name: Admit the current pull request head
+        id: admission
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ github.token }}
+          result-encoding: string
+          script: |
+            if (context.eventName !== 'pull_request') {
+              core.notice('Quiet-head admission is immediate outside pull requests.');
+              return 'true';
+            }
+
+            const eventPull = context.payload.pull_request;
+            const pullNumber = eventPull?.number;
+            const runHead = eventPull?.head?.sha;
+            if (!pullNumber || typeof runHead !== 'string' || runHead.length === 0) {
+              core.setFailed('Cannot establish the pull request number and run head from the event payload.');
+              return 'false';
+            }
+
+            let pull;
+            try {
+              ({ data: pull } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+              }));
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              core.setFailed(`Cannot establish the current head for PR #${pullNumber}: ${message}`);
+              return 'false';
+            }
+
+            const currentHead = pull.head.sha;
+            if (typeof currentHead !== 'string' || currentHead.length === 0) {
+              core.setFailed(`GitHub returned no current head SHA for PR #${pullNumber}.`);
+              return 'false';
+            }
+
+            if (currentHead !== runHead) {
+              core.notice(
+                `PR #${pullNumber} advanced from ${runHead} to ${currentHead}; expensive jobs will not start for the superseded head.`
+              );
+              return 'false';
+            }
+
+            core.notice(`PR #${pullNumber} head ${runHead} remained quiet for 120 seconds; releasing the full test graph.`);
+            return 'true';
+
   static:
     name: Static
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
     # Probe P1 measured this job's full step suite (install, secret scan,
@@ -94,6 +162,8 @@ jobs:
 
   unit:
     name: Unit
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
     # Probe P1 measured this job's full suite — including the 6 `cache: false`
@@ -248,6 +318,8 @@ jobs:
 
   build:
     name: Build
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -293,6 +365,8 @@ jobs:
 
   native-windows:
     name: Native Windows
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -311,6 +385,8 @@ jobs:
 
   native-electron:
     name: Native Electron Package
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -334,8 +410,8 @@ jobs:
 
   web-e2e:
     name: Web E2E
-    if: github.event_name != 'workflow_dispatch'
-    needs: [build]
+    if: github.event_name != 'workflow_dispatch' && needs.admission.outputs.admitted == 'true'
+    needs: [admission, build]
     runs-on: ubuntu-latest
     # Run inside the official Playwright image: browsers and their system
     # dependencies are baked in, so there is NO `playwright install` step and
@@ -407,8 +483,8 @@ jobs:
 
   desktop-e2e:
     name: Desktop E2E
-    if: github.event_name != 'workflow_dispatch'
-    needs: [build]
+    if: github.event_name != 'workflow_dispatch' && needs.admission.outputs.admitted == 'true'
+    needs: [admission, build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:

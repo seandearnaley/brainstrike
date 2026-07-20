@@ -24,6 +24,39 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Quiet-head admission before PR fan-out (BST-597)
+
+Every `pull_request` run of `test.yml` first enters the `Quiet-head admission`
+job on `ubuntu-slim`, GitHub's 1-core $0.002/min runner. The gate waits 120
+seconds, then reads the PR through the GitHub API and compares its current head
+SHA with the immutable head SHA in this run's event payload. If they match, it
+releases the complete existing job graph. If the PR advanced, the gate succeeds
+with a visible notice and `admitted=false`, so the superseded SHA's seven
+expensive jobs never start. Workflow-level `cancel-in-progress` remains the
+first line of defense: a new `synchronize` event normally cancels the old gate
+during its cheap sleep; the API comparison closes the remaining ordering race.
+
+This is an admission delay, not CI routing. It uses no labels and never selects
+a reduced test plan. The latest quiet PR head always runs the full graph,
+including all five stable required contexts (`Static`, `Unit`, `Build`,
+`Web E2E`, `Desktop E2E`) plus both native jobs. Web and desktop E2E retain
+their `build` dependency. Push and `workflow_dispatch` events are admitted
+immediately, so their behavior is unchanged apart from the dependency edge.
+
+The gate is deliberately fail-closed: `pull-requests: read` is its only added
+permission, and a missing event SHA, missing API SHA, or API error fails the
+admission job visibly instead of guessing that the run is current. Do not add a
+fallback that releases work when currency cannot be established. Contract
+coverage lives in
+`scripts/__tests__/quiet-head-admission-contract.test.mjs` and runs in the
+Static job through `pnpm test:scripts`.
+
+Why this exists: the measured GitHub Actions sample for 2026-07-15..19 reached
+44 concurrent Linux jobs, and 513 of 1,641 `Test` workflow runs (31.3%) were
+cancelled. `Test` represented roughly 92% of the modeled Actions bill. Paying
+about $0.004 to hold a PR head for two minutes is materially cheaper than
+starting the full fan-out during edit/push bursts.
+
 ### Biome pinned at 2.5.2 — do NOT bump to 2.5.3/2.5.4 (2026-07-18)
 
 `@biomejs/biome` is pinned to exactly 2.5.2 (root + `apps/web`). Biome
@@ -250,5 +283,4 @@ Local: `pnpm doctor` (full scan, telemetry off via config) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
 
 ---
-
 
