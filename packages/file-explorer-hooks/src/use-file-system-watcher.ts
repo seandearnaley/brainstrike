@@ -3,8 +3,12 @@ import type {
   FileSystemAdapter,
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
+import { useEventCallback } from '@brainstrike/hooks';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useEffect, useRef } from 'react';
+
+/** Stable no-op so an absent `onSignal` never churns the dispatcher identity. */
+const NOOP_SIGNAL = (_rootId: string, _signal: FileSystemWatchSignal): void => {};
 
 export interface FileSystemWatcherRoot {
   handle: DirectoryHandle;
@@ -50,11 +54,18 @@ export interface UseFileSystemWatcherParams {
  * all watchers when the component is torn down, avoiding the "React tears down
  * and rebuilds on every dep change" pitfall.
  *
- * Documented limitation: changing the `adapter` identity restarts ALL existing
- * watchers for the new adapter instance. This is intentional — a new adapter
- * object represents a distinct filesystem binding. Changing `onChanges` identity
- * alone does NOT restart watchers; the ref update on each render ensures the
- * latest callback is always used without restarting any watcher subscription.
+ * Documented limitation: changing the `adapter` identity is currently a NO-OP
+ * for roots that are already watched. The effect re-runs, but the diff is keyed
+ * purely on `rootId` — the dispose loop finds nothing missing and the start loop
+ * finds nothing new — so existing watchers stay bound to the PREVIOUS adapter
+ * and the new one never takes over. Unreachable today: the adapter is an
+ * app-level singleton from `AdaptersProvider` and its identity never changes.
+ * If that ever stops being true, key the diff on `(adapter, rootId)` rather
+ * than trusting this comment.
+ *
+ * Changing `onChanges`/`onSignal` identity does NOT restart watchers; the
+ * identity-stable `useEventCallback` wrappers always dispatch to the latest
+ * callback without restarting any watcher subscription.
  */
 export function useFileSystemWatcher({
   adapter,
@@ -65,14 +76,17 @@ export function useFileSystemWatcher({
   // Map<rootId, disposer> — operational infrastructure, never drives UI.
   const watchersRef = useRef<Map<string, () => void>>(new Map());
 
-  // Stable refs so the unmount cleanup can always see the latest values
-  // without being listed as deps of the unmount effect.
-  const adapterRef = useRef(adapter);
-  adapterRef.current = adapter;
-  const onChangesRef = useRef(onChanges);
-  onChangesRef.current = onChanges;
-  const onSignalRef = useRef(onSignal);
-  onSignalRef.current = onSignal;
+  // Identity-stable dispatchers that always call the CURRENT callback, so the
+  // diff effect can omit them from its deps without restarting watchers.
+  //
+  // These MUST be commit-phase-fresh, which is exactly what useEventCallback
+  // guarantees (it syncs its ref in a layout effect). Watcher events arrive
+  // from a bridge/IPC push rather than React's scheduler, so they can land
+  // after a render commits but before passive effects flush — a plain
+  // `useEffect` ref sync would route that whole window to the PREVIOUS
+  // callback. Covered by the "commit-phase events" regression test.
+  const emitChanges = useEventCallback(onChanges);
+  const emitSignal = useEventCallback(onSignal ?? NOOP_SIGNAL);
 
   // Diff effect: runs whenever roots/adapter/onChanges changes.
   // Does NOT return a cleanup — disposed roots are handled inline.
@@ -102,24 +116,27 @@ export function useFileSystemWatcher({
         const dispose = watchDirectory(
           handle,
           (changes) => {
-            onChangesRef.current(rootId, changes);
+            emitChanges(rootId, changes);
           },
           (signal) => {
             // 'errored' means the adapter already disconnected the watch; the
             // dead disposer stays in the map deliberately — no auto-restart
             // (a silent retry loop would hide the failure). The signal handler
             // is responsible for making the dead watch visible.
-            onSignalRef.current?.(rootId, signal);
+            emitSignal(rootId, signal);
           }
         );
         watchers.set(rootId, dispose);
       }
     }
     // Intentionally no cleanup return — diff is handled above.
-    // onChanges is intentionally excluded: onChangesRef already captures the
-    // latest value on every render; listing onChanges here would restart all
-    // watchers on every callback identity change without any behavioural benefit.
-  }, [adapter, roots]);
+    // emitChanges/emitSignal are listed for accuracy, not because a linter
+    // checks it (react-hooks/exhaustive-deps is off repo-wide). Their
+    // identities are fixed for the hook's lifetime, so they never actually
+    // retrigger this effect. Listing the raw onChanges/onSignal instead would
+    // restart every watcher on each callback identity change for no
+    // behavioural benefit.
+  }, [adapter, roots, emitChanges, emitSignal]);
 
   // Unmount-only effect: dispose ALL remaining watchers when the component
   // using this hook is torn down. Empty dep array = runs cleanup once on
