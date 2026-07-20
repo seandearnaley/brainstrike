@@ -13,7 +13,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { z } from 'zod';
 
-const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
+const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
 
 const ToolOutputArtifactReferenceSchema = z
@@ -318,10 +318,7 @@ export async function readToolOutputArtifactPage(
   const { artifactRef, offsetByte } = resolveReadPosition(input);
   const maxBytes = input.maxBytes ?? TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES;
   const remainingBytes = artifactRef.byteLength - offsetByte;
-  const readLimit = Math.max(
-    1,
-    Math.min(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES, remainingBytes, maxBytes + 3)
-  );
+  const readLimit = Math.max(1, Math.min(remainingBytes, maxBytes));
   const result = requireAvailableRange(
     await readScopedRange(options.reader, {
       artifactId: artifactRef.id,

@@ -122,6 +122,36 @@ describe('tool output artifact reader', () => {
     expect(pages.some((page) => page.contentEncoding === 'json-string')).toBe(true);
   });
 
+  it('preserves a UTF-8 BOM as artifact content', async () => {
+    const content = '\uFEFFabc';
+    const artifactRef = referenceFor(content);
+    const page = await readToolOutputArtifactPage(
+      { artifactRef, maxBytes: 4, mode: 'artifact' },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+
+    expect(decodeToolOutputArtifactContent(page.content, page.contentEncoding)).toBe('\uFEFFa');
+    expect(page.endByte).toBe(4);
+  });
+
+  it('requests no bytes beyond the configured page size', async () => {
+    const content = 'abcdefgh';
+    const artifactRef = referenceFor(content);
+    const reader = readerFor(content, artifactRef);
+    const readRange = vi.spyOn(reader, 'readRange');
+
+    await readToolOutputArtifactPage(
+      { artifactRef, maxBytes: 4, mode: 'artifact' },
+      { now: () => NOW, reader }
+    );
+
+    expect(readRange).toHaveBeenCalledWith({
+      artifactId: artifactRef.id,
+      limitBytes: 4,
+      offsetByte: 0,
+    });
+  });
+
   it('continues from a settlement cursor and omits a cursor at the exact boundary', async () => {
     const content = 'preview-tail';
     const artifactRef = referenceFor(content);
