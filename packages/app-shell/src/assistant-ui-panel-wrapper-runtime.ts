@@ -1271,3 +1271,30 @@ export function mcpReducer(_state: McpState, action: McpAction): McpState {
       return { loading: false, tools: [] };
   }
 }
+
+/** Finish-usage payload delivered by the data-stream runtime's onUsage tap. */
+export interface AssistantRunUsagePayload {
+  readonly billedCostUsd?: number;
+  readonly cacheCreationInputTokens?: number;
+  readonly cacheReadInputTokens?: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
+/**
+ * Anthropic cache token classes for the durable run-usage row, present only
+ * when reported (BST-587). Absent fields keep pre-cache rows byte-identical.
+ */
+export function pickCacheTokenFields(usage: AssistantRunUsagePayload): {
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+} {
+  return {
+    ...(usage.cacheCreationInputTokens === undefined
+      ? {}
+      : { cacheCreationInputTokens: usage.cacheCreationInputTokens }),
+    ...(usage.cacheReadInputTokens === undefined
+      ? {}
+      : { cacheReadInputTokens: usage.cacheReadInputTokens }),
+  };
+}
