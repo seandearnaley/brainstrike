@@ -210,7 +210,9 @@ describe('buildSearchTreeNodes', () => {
     expect(chunkRow?.type).toBe('chunk');
     expect(chunkRow?.depth).toBe(1);
     expect(chunkRow?.hasChildren).toBe(false);
-    expect((chunkRow?.data as Extract<SearchNodeData, { kind: 'chunk' }>).kind).toBe('chunk');
+    expect((chunkRow?.data as Extract<SearchNodeData, { kind: 'chunk' }> | undefined)?.kind).toBe(
+      'chunk'
+    );
   });
 
   it('sets the compositeKey from the adapter root id on file, chunk, and match rows', () => {

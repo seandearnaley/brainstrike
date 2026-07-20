@@ -22,7 +22,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitest/browser-playwright": "^4.1.9",
+    "@vitest/browser-playwright": "catalog:",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",

@@ -80,7 +80,7 @@ describe('runManageTaskList', () => {
     expect(result.summary).toEqual({ completed: 1, inProgress: 1, pending: 1, total: 3 });
     // Persisted (whole-replace) under the thread id.
     expect(db.store.get('thread-1')?.resource_id).toBe('workspace-a');
-    expect((db.store.get('thread-1')?.tasks as unknown[]).length).toBe(3);
+    expect((db.store.get('thread-1')?.tasks as unknown[] | undefined)?.length).toBe(3);
   });
 
   it('whole-replaces on a second call and keeps the matched task id', async () => {
@@ -143,7 +143,7 @@ describe('runManageTaskList', () => {
     expect(typeof result.hint).toBe('string');
     expect(result.tasks.length).toBeLessThan(50);
     // The FULL list still persists even though the returned view is trimmed.
-    expect((db.store.get('thread-1')?.tasks as unknown[]).length).toBe(50);
+    expect((db.store.get('thread-1')?.tasks as unknown[] | undefined)?.length).toBe(50);
     // Summary reflects the full stored list, not the trimmed view.
     expect(result.summary.total).toBe(50);
   });

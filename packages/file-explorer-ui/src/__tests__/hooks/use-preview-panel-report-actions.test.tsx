@@ -198,10 +198,12 @@ describe('usePreviewPanelReportActions', () => {
     );
 
     const getFileContentsFirst = (
-      mockUseReportGeneration.mock.calls[0]?.[0] as {
-        getFileContents?: () => Record<string, string>;
-      }
-    ).getFileContents;
+      mockUseReportGeneration.mock.calls[0]?.[0] as
+        | {
+            getFileContents?: () => Record<string, string>;
+          }
+        | undefined
+    )?.getFileContents;
     expect(getFileContentsFirst).toEqual(expect.any(Function));
 
     setFileContents({ fileA: 'updated', fileB: 'new' });
@@ -216,10 +218,12 @@ describe('usePreviewPanelReportActions', () => {
     });
 
     const getFileContentsSecond = (
-      mockUseReportGeneration.mock.calls[1]?.[0] as {
-        getFileContents?: () => Record<string, string>;
-      }
-    ).getFileContents;
+      mockUseReportGeneration.mock.calls[1]?.[0] as
+        | {
+            getFileContents?: () => Record<string, string>;
+          }
+        | undefined
+    )?.getFileContents;
 
     expect(getFileContentsSecond).toBe(getFileContentsFirst);
   });

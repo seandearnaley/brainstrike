@@ -9,8 +9,8 @@
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
-    "@vitest/browser-playwright": "^4.1.9",
-    "electron": "^43.0.0",
+    "@vitest/browser-playwright": "catalog:",
+    "electron": "catalog:",
     "jsdom": "catalog:",
     "playwright": "catalog:",
     "tsup": "catalog:",

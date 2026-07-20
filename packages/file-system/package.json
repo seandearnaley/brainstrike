@@ -15,7 +15,7 @@
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "catalog:",
-    "electron": "^43.0.0",
+    "electron": "catalog:",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "catalog:",
     "tsup": "catalog:",

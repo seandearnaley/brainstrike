@@ -10,7 +10,7 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.14.5",
+    "@tanstack/react-virtual": "catalog:",
     "lucide-react": "^1.23.0"
   },
   "devDependencies": {
