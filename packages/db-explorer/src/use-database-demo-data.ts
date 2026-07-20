@@ -13,6 +13,7 @@ import {
 import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
+import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -1118,22 +1119,16 @@ export function useDatabaseDemoData({
   }, [liveQueryEnabled, refreshVisibleData]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !activeCollectionId) {
+    if (!activeCollectionId) {
       return;
     }
 
-    const handleQueueDrained = (event: Event) => {
-      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+    return onQueueDrained((detail) => {
       if (detail?.embeddingSetId && detail.embeddingSetId !== activeCollectionId) {
         return;
       }
       void refreshVisibleData();
-    };
-
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
-    };
+    });
   }, [activeCollectionId, refreshVisibleData]);
 
   useEffect(() => {

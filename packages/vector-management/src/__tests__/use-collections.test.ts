@@ -1,6 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
+import {
+  EMBEDDING_SET_UPDATED_EVENT,
+  QUEUE_DRAINED_EVENT,
+} from '@brainstrike/utils/browser-events';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -371,7 +375,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:queue-drained', {
+          new CustomEvent(QUEUE_DRAINED_EVENT, {
             detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
           })
         );
@@ -396,7 +400,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
             detail: {
               collection: {
                 category: null,
@@ -453,7 +457,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
             detail: { id: 'set-1', reason: 'updated' },
           })
         );
@@ -488,7 +492,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
             detail: {
               collection: {
                 category: null,
@@ -537,7 +541,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
             detail: {
               collection: {
                 category: null,
@@ -598,7 +602,7 @@ describe('useCollections', () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
             detail: { id: 'set-1', reason: 'deleted' },
           })
         );

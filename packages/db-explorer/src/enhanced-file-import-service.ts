@@ -18,10 +18,7 @@ import type {
   SqlExecutorPort,
 } from '@brainstrike/file-import';
 import { backfillEmbeddingSetAssignments } from '@brainstrike/file-import';
-import {
-  createBrowserEmbeddingQueuePort,
-  type QueueProgressEventDetail,
-} from '@brainstrike/file-import/browser-queue-port';
+import { createBrowserEmbeddingQueuePort } from '@brainstrike/file-import/browser-queue-port';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
@@ -29,6 +26,7 @@ import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vecto
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
+import { onQueueProgress, type QueueProgressEventDetail } from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import {
@@ -419,23 +417,20 @@ export function useEnhancedFileImportService(
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !browserQueuePort) {
+    if (!browserQueuePort) {
       return;
     }
 
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<QueueProgressEventDetail | undefined>;
-      const detail = custom.detail;
+    const unsubscribe = onQueueProgress((detail) => {
       if (!detail) {
         return;
       }
 
       scheduleQueueProgressUpdate(detail);
-    };
+    });
 
-    window.addEventListener('brainstrike:queue-progress', handler as EventListener);
     return () => {
-      window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
+      unsubscribe();
       if (queueProgressFlushTimeoutRef.current) {
         clearTimeout(queueProgressFlushTimeoutRef.current);
         queueProgressFlushTimeoutRef.current = null;

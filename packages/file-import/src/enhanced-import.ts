@@ -26,6 +26,7 @@ import {
   generateUUID,
   LogLevel,
 } from '@brainstrike/utils';
+import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
@@ -137,14 +138,7 @@ function cacheModelConfig(
 }
 
 function dispatchEmbeddingSetUpdateEvent(id: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.dispatchEvent(new CustomEvent('brainstrike:embedding-set-updated', { detail: { id } }));
-  } catch {
-    // ignore dispatch failures
-  }
+  dispatchEmbeddingSetUpdated({ id, reason: 'updated' });
 }
 
 export type EmbeddingJobQueuePort = IndexingEmbeddingJobQueuePort<IDatabase>;

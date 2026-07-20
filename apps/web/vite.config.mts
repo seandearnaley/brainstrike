@@ -38,6 +38,8 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  isBrowserEventsModule,
+  isZustandModule,
   isContextActionSystemModule,
 } = await import('@brainstrike/build-utils');
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
@@ -86,6 +88,12 @@ export default defineConfig({
                 // Everything else uses rolldown's default reachability-based
                 // splitting so dynamically-imported vendors (mermaid, shiki,
                 // katex, codemirror, …) stay OFF the startup critical path.
+                if (isZustandModule(moduleId)) {
+                  return 'zustand';
+                }
+                if (isBrowserEventsModule(moduleId)) {
+                  return 'browser-events';
+                }
                 return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },
             },

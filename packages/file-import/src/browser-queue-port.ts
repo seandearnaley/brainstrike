@@ -9,6 +9,11 @@ import type {
   QueueAdapter,
 } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import {
+  dispatchQueueDrained,
+  dispatchQueueProgress,
+  type QueueProgressEventDetail,
+} from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
@@ -128,20 +133,10 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   };
 }
 
-export interface QueueProgressEventDetail {
-  readonly chunkId: string;
-  readonly elapsedMs?: number;
-  readonly embeddingSetId: string | null;
-  readonly errorMessage?: string;
-  readonly failed: number;
-  readonly lastError: string | null;
-  readonly model: string;
-  readonly pending: number;
-  readonly processed: number;
-  readonly queue: 'embeddings';
-  readonly status: 'queued' | 'completed' | 'error';
-  readonly totalQueued: number;
-}
+// Detail interface moved to the shared browser-events contract (BST-580);
+// re-exported here so `@brainstrike/file-import`'s public API is unchanged.
+// @deprecated — import from `@brainstrike/utils/browser-events` in new code.
+export type { QueueProgressEventDetail } from '@brainstrike/utils/browser-events';
 
 export function createBrowserEmbeddingQueuePort({
   queue,
@@ -576,31 +571,9 @@ function toNumericEmbedding(vector: Float32Array): number[] {
 }
 
 function defaultDispatchProgressEvent(detail: QueueProgressEventDetail) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail }));
-  } catch (error) {
-    logger.warn('Failed to dispatch queue-progress event', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  dispatchQueueProgress(detail);
 }
 
 function defaultDispatchDrainEvent(embeddingSetId: string | null) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.dispatchEvent(
-      new CustomEvent('brainstrike:queue-drained', {
-        detail: { embeddingSetId, queue: 'embeddings' },
-      })
-    );
-  } catch (error) {
-    logger.warn('Failed to dispatch queue-drained event', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  dispatchQueueDrained({ embeddingSetId, queue: 'embeddings' });
 }

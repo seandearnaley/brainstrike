@@ -1,5 +1,6 @@
 import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import type { ProviderDimensionParameter, QueueAdapter, QueueResult } from '@brainstrike/queue';
+import { QUEUE_DRAINED_EVENT, QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -430,8 +431,8 @@ describe('createBrowserEmbeddingQueuePort', () => {
   it('dispatches default browser progress and drain events', async () => {
     const progressListener = vi.fn();
     const drainListener = vi.fn();
-    window.addEventListener('brainstrike:queue-progress', progressListener);
-    window.addEventListener('brainstrike:queue-drained', drainListener);
+    window.addEventListener(QUEUE_PROGRESS_EVENT, progressListener);
+    window.addEventListener(QUEUE_DRAINED_EVENT, drainListener);
     const queue = createAdapter();
     const chunkRepository = {
       update: vi.fn().mockResolvedValue(null),
@@ -450,8 +451,8 @@ describe('createBrowserEmbeddingQueuePort', () => {
 
       await vi.waitUntil(() => drainListener.mock.calls.length > 0);
     } finally {
-      window.removeEventListener('brainstrike:queue-progress', progressListener);
-      window.removeEventListener('brainstrike:queue-drained', drainListener);
+      window.removeEventListener(QUEUE_PROGRESS_EVENT, progressListener);
+      window.removeEventListener(QUEUE_DRAINED_EVENT, drainListener);
     }
 
     expect(progressListener).toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 
@@ -80,22 +81,16 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
   }, [liveQueryEnabled, refresh]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !activeCollectionId) {
+    if (!activeCollectionId) {
       return;
     }
 
-    const handleQueueDrained = (event: Event) => {
-      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+    return onQueueDrained((detail) => {
       if (detail?.embeddingSetId && detail.embeddingSetId !== activeCollectionId) {
         return;
       }
       void refresh();
-    };
-
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
-    };
+    });
   }, [activeCollectionId, refresh]);
 
   return liveQueryEnabled ? computed : snapshotRef.current;
