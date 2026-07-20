@@ -24,12 +24,23 @@ export function formatTokenCount(count: number): string {
  * unknown pricing must render "cost unavailable", never $0.
  */
 export interface ModelTokenPricing {
+  /** USD per 1M prompt-cache READ tokens (Anthropic: 0.1× the input rate). */
+  readonly cacheReadPerMTok?: number;
+  /** USD per 1M prompt-cache WRITE tokens (Anthropic: 1.25× the input rate). */
+  readonly cacheWritePerMTok?: number;
   readonly inputPerMTok: number;
   readonly outputPerMTok: number;
 }
 
 /** Token usage for a single billable unit (turn, run, or aggregate). */
 export interface TokenUsageCounts {
+  /**
+   * Anthropic prompt-cache write tokens. When present, `inputTokens` is the
+   * TOTAL the model saw and already includes every cache class.
+   */
+  readonly cacheCreationInputTokens?: number;
+  /** Anthropic prompt-cache read tokens (same total-inclusive contract). */
+  readonly cacheReadInputTokens?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
@@ -82,8 +93,36 @@ export function computeCost(
   assertFiniteNonNegative(pricing.inputPerMTok, 'inputPerMTok');
   assertFiniteNonNegative(pricing.outputPerMTok, 'outputPerMTok');
 
+  const cacheReadTokens = usage.cacheReadInputTokens ?? 0;
+  const cacheWriteTokens = usage.cacheCreationInputTokens ?? 0;
+  assertFiniteNonNegative(cacheReadTokens, 'cacheReadInputTokens');
+  assertFiniteNonNegative(cacheWriteTokens, 'cacheCreationInputTokens');
+  if (cacheReadTokens + cacheWriteTokens > usage.inputTokens) {
+    throw new Error(
+      `Cache token classes (${cacheReadTokens} read + ${cacheWriteTokens} write) exceed total inputTokens (${usage.inputTokens}).`
+    );
+  }
+  if (cacheReadTokens > 0 && pricing.cacheReadPerMTok === undefined) {
+    throw new Error(
+      'Usage reports cache-read tokens but the model pricing has no cacheReadPerMTok rate.'
+    );
+  }
+  if (cacheWriteTokens > 0 && pricing.cacheWritePerMTok === undefined) {
+    throw new Error(
+      'Usage reports cache-write tokens but the model pricing has no cacheWritePerMTok rate.'
+    );
+  }
+  const cacheReadPerMTok = pricing.cacheReadPerMTok ?? 0;
+  const cacheWritePerMTok = pricing.cacheWritePerMTok ?? 0;
+  assertFiniteNonNegative(cacheReadPerMTok, 'cacheReadPerMTok');
+  assertFiniteNonNegative(cacheWritePerMTok, 'cacheWritePerMTok');
+
+  const uncachedInputTokens = usage.inputTokens - cacheReadTokens - cacheWriteTokens;
   const usdAmount =
-    (usage.inputTokens * pricing.inputPerMTok + usage.outputTokens * pricing.outputPerMTok) /
+    (uncachedInputTokens * pricing.inputPerMTok +
+      cacheReadTokens * cacheReadPerMTok +
+      cacheWriteTokens * cacheWritePerMTok +
+      usage.outputTokens * pricing.outputPerMTok) /
     1_000_000;
 
   return { available: true, provenance: 'exact-pricing', usdAmount };

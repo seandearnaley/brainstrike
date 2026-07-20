@@ -925,8 +925,12 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
   const billedCostUsd = lifecycleState.sawStepBilledCost
     ? lifecycleState.stepBilledCostUsd
     : finishCost;
-  const cacheReadInputTokens = readCacheTokenCount(usage.cachedInputTokens);
-  const cacheCreationInputTokens = readCacheTokenCount(usage.cacheCreationInputTokens);
+  const cacheReadInputTokens = lifecycleState.includeCacheTokenClasses
+    ? readCacheTokenCount(usage.cachedInputTokens)
+    : undefined;
+  const cacheCreationInputTokens = lifecycleState.includeCacheTokenClasses
+    ? readCacheTokenCount(usage.cacheCreationInputTokens)
+    : undefined;
   return {
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
@@ -1059,6 +1063,13 @@ interface OutputOnlyToolEvent {
 
 interface ToolLifecycleState {
   delegationLifecycle: DelegationLifecycleTracker;
+  /**
+   * Cache token classes are an Anthropic pricing contract (read 0.1×,
+   * write 1.25×). Other providers report auto-discounted cached tokens whose
+   * rates we do not model — dropping the classes keeps their estimates on the
+   * documented conservative full-rate path instead of mispricing them.
+   */
+  includeCacheTokenClasses: boolean;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
   requiresBilledCost: boolean;
   sawStepBilledCost: boolean;
@@ -2180,6 +2191,7 @@ async function* streamChunksFromMastra({
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
+    includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
     sawStepBilledCost: false,
