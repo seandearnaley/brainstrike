@@ -568,6 +568,27 @@ function assertReadWorkspaceFileCursorIdentity(args: {
   }
 }
 
+function assertReadWorkspaceFileRangeReplay(
+  cursor: ReadWorkspaceFileCursorState,
+  input: ReadWorkspaceFileInput
+): void {
+  const hasStartLine = input.startLine !== null && input.startLine !== undefined;
+  const hasEndLine = input.endLine !== null && input.endLine !== undefined;
+  const replaysStartLine =
+    !hasStartLine ||
+    input.startLine === cursor.requestedStartLine ||
+    (cursor.requestedStartLine === null && input.startLine === 1);
+  const replaysEndLine =
+    !hasEndLine ||
+    input.endLine === cursor.requestedEndLine ||
+    (cursor.requestedEndLine === null && input.endLine === cursor.endLine);
+  if (!(replaysStartLine && replaysEndLine)) {
+    throw new Error(
+      'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Reuse nextCursor without changing its range.'
+    );
+  }
+}
+
 function assertReadWorkspaceFileCursorPosition(args: {
   readonly cursor: ReadWorkspaceFileCursorState;
   readonly cursorLineLength: number | undefined;
@@ -599,6 +620,7 @@ function resolveReadWorkspaceFilePageRequest(args: {
 } {
   const { cursor, cursorLineLength, file, input, rootId, totalLines } = args;
   if (cursor) {
+    assertReadWorkspaceFileRangeReplay(cursor, input);
     assertReadWorkspaceFileCursorIdentity({ cursor, file, rootId });
     assertReadWorkspaceFileCursorPosition({ cursor, cursorLineLength, totalLines });
     return {
@@ -1298,6 +1320,9 @@ async function runReadWorkspaceFile(
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
     ): ReturnType<typeof buildResult> => {
+      if (input.cursor && cursorRegistry && cursorScope) {
+        cursorRegistry.release(input.cursor, cursorScope);
+      }
       const nextCursor =
         page.nextPosition && cursorRegistry
           ? cursorRegistry.issue(cursorScope ?? requireReadWorkspaceFileCursorScope(runtimeData), {

@@ -21,6 +21,7 @@ import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -183,6 +184,70 @@ describe('assistant-tools', () => {
     });
     expect(continued.nextCursor).toEqual(expect.any(String));
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('accepts an unchanged provider-emitted range replay and rejects a changed range', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tool = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath))[
+      'brainstrike.readWorkspaceFile'
+    ];
+
+    try {
+      const first = await tool.execute({
+        endLine: 4,
+        maxChars: 10,
+        path: '/src/main.ts',
+        startLine: 2,
+      });
+
+      await expect(
+        tool.execute({
+          cursor: first.nextCursor,
+          endLine: 3,
+          maxChars: 10,
+        })
+      ).rejects.toThrow(/original startLine\/endLine unchanged/i);
+
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        endLine: 4,
+        maxChars: 10,
+        path: null,
+        root: null,
+        startLine: null,
+      });
+      expect(continued.content).toBe('3: line 3');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('reclaims a completed page handle before issuing the next handle', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    let handleNumber = 0;
+    const cursorRegistry = new ReadWorkspaceFileCursorRegistry({
+      createHandle: () => `rfh_${String(handleNumber++).padStart(22, 'a')}`,
+      maxEntries: 1,
+    });
+    const tool = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath), {
+      readWorkspaceFileCursorRegistry: cursorRegistry,
+    })['brainstrike.readWorkspaceFile'];
+
+    try {
+      const first = await tool.execute({
+        maxChars: 10,
+        path: '/src/main.ts',
+      });
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        maxChars: 10,
+      });
+
+      expect(continued.content).toBe('2: line 2');
+      expect(continued.nextCursor).toMatch(/^rfh_[A-Za-z0-9_-]{22}$/);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('rejects a read continuation handle from another assistant thread', async () => {
@@ -3881,7 +3946,7 @@ describe('assistant-tools multi-root read tools', () => {
     }
   });
 
-  it('keeps continuation identity local and rejects replayed path or range fields', async () => {
+  it('keeps continuation identity local and rejects path overrides or changed ranges', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     await fsPromises.writeFile(
       path.join(rootA, 'replayed-range.txt'),
@@ -3901,19 +3966,19 @@ describe('assistant-tools multi-root read tools', () => {
         startLine: 1,
       });
 
-      const continued = await tool.execute({ cursor: first.nextCursor, maxChars: 30 });
-
-      expect(continued.rootName).toBe('ProjectA');
-      expect(continued.startLine).toBeGreaterThan(1);
-      expect(continued.content).toMatch(/^\d+: /);
-
       await expect(
         tool.execute({
           cursor: first.nextCursor,
           endLine: 81,
           maxChars: 30,
         } as never)
-      ).rejects.toThrow(/omit endLine when continuing with cursor/i);
+      ).rejects.toThrow(/original startLine\/endLine unchanged/i);
+
+      const continued = await tool.execute({ cursor: first.nextCursor, maxChars: 30 });
+
+      expect(continued.rootName).toBe('ProjectA');
+      expect(continued.startLine).toBeGreaterThan(1);
+      expect(continued.content).toMatch(/^\d+: /);
     } finally {
       await cleanup();
     }

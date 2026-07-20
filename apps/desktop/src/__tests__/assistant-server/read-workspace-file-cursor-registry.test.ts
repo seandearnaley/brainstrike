@@ -31,7 +31,9 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     expect(registry.issue(SCOPE, STATE)).toBe(HANDLE);
     expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
     expect(HANDLE).not.toContain(STATE.path);
-    expect(registry.resolve(HANDLE, SCOPE).rootId).toBe('root-a');
+    registry.release(HANDLE, SCOPE);
+    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/unknown or no longer available/i);
+    expect(registry.issue(SCOPE, STATE)).toBe(HANDLE);
   });
 
   it('rejects cross-thread and one-character-mutated handles', () => {

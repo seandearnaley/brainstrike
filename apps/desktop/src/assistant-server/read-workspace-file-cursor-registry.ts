@@ -106,6 +106,15 @@ export class ReadWorkspaceFileCursorRegistry {
   }
 
   resolve(handle: string, scope: ReadWorkspaceFileCursorScope): ReadWorkspaceFileCursorState {
+    return { ...this.#getEntry(handle, scope).state };
+  }
+
+  release(handle: string, scope: ReadWorkspaceFileCursorScope): void {
+    this.#getEntry(handle, scope);
+    this.#entries.delete(handle);
+  }
+
+  #getEntry(handle: string, scope: ReadWorkspaceFileCursorScope): ReadWorkspaceFileCursorEntry {
     if (!HANDLE_PATTERN.test(handle)) {
       throw new Error('The readWorkspaceFile continuation handle is malformed.');
     }
@@ -126,7 +135,7 @@ export class ReadWorkspaceFileCursorRegistry {
         'The readWorkspaceFile continuation handle belongs to another assistant thread. Start a new read without cursor.'
       );
     }
-    return { ...entry.state };
+    return entry;
   }
 
   #deleteExpired(now: number): void {

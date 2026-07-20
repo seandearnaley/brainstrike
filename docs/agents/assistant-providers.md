@@ -410,11 +410,14 @@ root id, path, requested range, byte size, mtime, and source position remain in
 the main-process registry and are never echoed through the model. Handles are
 bound to the originating assistant resource/thread, expire after one hour,
 survive renderer reload while the desktop main process remains alive, and are
-cleared by factory reset or process restart. Malformed, unknown, expired,
-cross-thread, cross-root, and stale-file continuations fail visibly; there is no
-legacy-cursor decode or fresh-read fallback. `omittedChars` counts exact unread
-source characters; when a page ends after a complete line, that includes the
-source newline before the next line.
+cleared by factory reset or process restart. A handle is released only after its
+continuation page has been validated and built successfully, before the next
+handle is issued, so failed reads remain retryable while completed pages do not
+occupy registry capacity for the rest of the TTL. Malformed, unknown, expired,
+released, cross-thread, cross-root, and stale-file continuations fail visibly;
+there is no legacy-cursor decode or fresh-read fallback. `omittedChars` counts
+exact unread source characters; when a page ends after a complete line, that
+includes the source newline before the next line.
 Desktop reads each page from one containment-checked file handle: the same
 handle is statted before and after the read, binary-probed, and decoded as fatal
 UTF-8 in 64 KiB chunks. It retains only page-sized source fragments plus line
@@ -423,8 +426,10 @@ and character counters; it still scans to EOF because `totalLines` and
 remains reserved for consumers that require the complete source, such as symbol,
 LSP, and tapestry-range processing.
 Pass `nextCursor` back unchanged as `cursor` with optional `maxChars` and no
-other fields. `path`, `root`, `startLine`, and `endLine` are initial-read inputs
-only; provider attempts to replay or override them on continuation are rejected.
+other fields. `path` and `root` are initial-read inputs only and non-null
+continuation overrides are rejected. A provider-emitted replay of the original
+`startLine` or `endLine` is tolerated only when it exactly matches the
+registry-bound range; a changed range fails visibly.
 Optional
 cursor, range, root, and character-cap fields accept provider-emitted `null` as
 omission; invalid non-null values still fail schema validation. Both fit

@@ -779,14 +779,16 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
         type: 'string',
       },
       {
-        description: '1-based starting line (inclusive); first page only',
+        description:
+          '1-based starting line (inclusive); omit on continuation unless replaying the original value unchanged',
         min: 1,
         name: 'startLine',
         required: false,
         type: 'number',
       },
       {
-        description: '1-based ending line (inclusive); first page only',
+        description:
+          '1-based ending line (inclusive); omit on continuation unless replaying the original value unchanged',
         min: 1,
         name: 'endLine',
         required: false,

@@ -165,7 +165,9 @@ export const ReadWorkspaceFileInputSchema = z
       .int()
       .positive()
       .nullish()
-      .describe('Last 1-based line; prefer omitting with cursor'),
+      .describe(
+        'Last 1-based line; omit with cursor unless replaying the original value unchanged'
+      ),
     maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
     path: z
       .string()
@@ -178,12 +180,14 @@ export const ReadWorkspaceFileInputSchema = z
       .int()
       .positive()
       .nullish()
-      .describe('First 1-based line; prefer omitting with cursor'),
+      .describe(
+        'First 1-based line; omit with cursor unless replaying the original value unchanged'
+      ),
   })
   .strict()
   .superRefine((input, context) => {
     if (input.cursor) {
-      for (const field of ['endLine', 'path', 'root', 'startLine'] as const) {
+      for (const field of ['path', 'root'] as const) {
         if (input[field] !== null && input[field] !== undefined) {
           context.addIssue({
             code: 'custom',

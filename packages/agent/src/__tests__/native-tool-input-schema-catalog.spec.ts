@@ -46,14 +46,23 @@ describe('native tool input schema catalog', () => {
     expect(registry).not.toHaveProperty('skill_search');
   });
 
-  it('accepts the compact hosted-provider read continuation shape and rejects identity replay', () => {
+  it('accepts compact hosted-provider continuations and rejects identity overrides', () => {
     const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'];
     const cursor = 'rfh_abcdefghijklmnopqrstuv';
 
     expect(schema.safeParse({ path: '/src/main.ts' }).success).toBe(true);
     expect(schema.safeParse({ cursor, maxChars: 6000 }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        cursor,
+        endLine: 77,
+        maxChars: 6000,
+        path: null,
+        root: null,
+        startLine: null,
+      }).success
+    ).toBe(true);
     expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
-    expect(schema.safeParse({ cursor, startLine: 2 }).success).toBe(false);
   });
 });
