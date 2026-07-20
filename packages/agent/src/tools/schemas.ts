@@ -152,6 +152,12 @@ const ROOT_WRITE_GUARD_DESCRIPTION =
 
 export const ReadWorkspaceFileInputSchema = z
   .object({
+    cursor: z
+      .string()
+      .min(1)
+      .max(12_000)
+      .nullish()
+      .describe('Opaque continuation cursor from the previous page; pass back unchanged'),
     endLine: z.number().int().positive().nullish().describe('Last 1-based line'),
     maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
     path: z.string().min(1).describe('Workspace-relative file path'),

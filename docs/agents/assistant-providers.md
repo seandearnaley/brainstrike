@@ -399,10 +399,21 @@ searches back onto the ANN index without re-running that benchmark.
 Tool output budget (anti-thrash contract): budgets are token-denominated and
 enforced deterministically on serialized chars at 4 chars/token (mirrors
 `countTokensHeuristic`). Native producers self-bound result lists via
-`fitItemsToCharBudget`; `readWorkspaceFile` binary-searches its content prefix
-against the complete metadata-bearing result. Its optional range, root, and
-character-cap fields accept provider-emitted `null` as omission; invalid
-non-null values still fail schema validation. Both fit
+`fitItemsToCharBudget`; `readWorkspaceFile` emits 1-based line-numbered pages
+and self-bounds its purpose-built JSON projection to the 6000-character domain
+budget before returning, so page metadata and `nextCursor` never fall into the
+generic prefix preview.
+If the requested page exceeds the envelope, it shortens the page and returns
+an opaque `nextCursor` that resumes at the exact source line and column,
+including within a long generated/minified line. The cursor is bound to the
+workspace root id, workspace path, byte size, and mtime; selecting another root
+or changing the file fails visibly instead of resuming against different
+content. Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
+a continuation, the cursor's root id selects the same workspace root. An
+explicit different root is rejected. Cursor is mutually exclusive with
+`startLine`/`endLine`. Optional
+cursor, range, root, and character-cap fields accept provider-emitted `null` as
+omission; invalid non-null values still fail schema validation. Both fit
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) before settlement. The Mastra
 runtime then adds or composes `toModelOutput` on every execute-backed
 native/MCP tool. PostToolUse context travels only in an internal execution
@@ -416,6 +427,9 @@ remaining envelope can carry PostToolUse guidance. Domain projectors MUST
 self-fit a complete page; central code throws on overflow instead of
 prefix-truncating a page whose continuation/provenance it cannot understand.
 Only generated/default projections may use the generic truncation path.
+The file-read staleness tracker is updated only after cursor validation and
+page construction succeed inside the per-file lock; a rejected stale cursor
+must not mark externally changed bytes as fresh for a later write.
 
 Guarded failures (`tool_timeout`, `tool_failed`, `tool_blocked_by_hook`) bypass
 domain projectors and retain the bounded structured failure. For successful

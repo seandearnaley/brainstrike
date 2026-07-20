@@ -730,7 +730,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
   },
   'brainstrike.readWorkspaceFile': {
     description:
-      'Read a workspace file. Supports line ranges and output truncation for token efficiency. Pass `root` to choose the folder when multiple are open.',
+      'Read a workspace file as bounded, line-numbered pages. Pass `nextCursor` back as `cursor` to continue without losing source text. Pass `root` on the first page to choose the folder when multiple are open; the cursor binds later pages to that root.',
     parameters: [
       {
         description: 'Workspace-relative file path to read',
@@ -741,8 +741,15 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
       {
         description:
-          'Folder name or id to read from when multiple folders are open (omit when one)',
+          'Folder name or id to read from when multiple folders are open; omit on continuation to reuse the cursor-bound root',
         name: 'root',
+        required: false,
+        type: 'string',
+      },
+      {
+        description:
+          'Opaque continuation cursor returned as nextCursor by the previous page; pass back unchanged instead of startLine/endLine',
+        name: 'cursor',
         required: false,
         type: 'string',
       },
@@ -771,7 +778,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'File content payload with metadata, including truncation status and approximate token count',
+      'Line-numbered file page with exact source metadata, truncation status, and nextCursor (null when complete)',
     toolId: 'brainstrike.readWorkspaceFile',
   },
 
