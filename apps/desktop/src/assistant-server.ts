@@ -402,8 +402,8 @@ async function streamAssistantPostResponse({
   readonly assistantMessageId: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
-  readonly toolApprovalAction?: AssistantToolApprovalAction;
-  readonly toolResumeAction?: AssistantToolResumeAction;
+  readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
+  readonly toolResumeAction?: AssistantToolResumeAction | undefined;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
