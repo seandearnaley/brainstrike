@@ -41,7 +41,13 @@ export const TEST_ENGINE_EXTENSIONS = {
   vector,
 } as const;
 
-/** Per-worker cache of the snapshot tarball bytes — read from disk exactly once. */
+/**
+ * Module-scoped cache of the snapshot tarball bytes. With the unit project's
+ * default `isolate: true` on the forks pool, each test FILE gets a fresh module
+ * graph, so this is read from disk once per test file (not once per worker
+ * process) — still negligible next to re-migrating, and every test in the file
+ * then reuses the bytes.
+ */
 let cachedSnapshot: Uint8Array | null = null;
 
 async function loadSnapshotBytes(): Promise<Uint8Array> {

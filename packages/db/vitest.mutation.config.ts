@@ -9,15 +9,17 @@ export default defineConfig({
     alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
-    env: {
-      TEST_PGLITE_MOCK: 'true',
-    },
     environment: 'jsdom',
     // Browser-only specs (real window/indexedDB/WASM assertions) can never pass
     // under jsdom; partition them out exactly as the unit project in
     // vitest.config.mts does. Without this, the include glob's `*` swallows the
     // `.browser` stem and the Stryker lane is permanently red.
-    exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
+    // Converted repository/queue/search specs load a migrated PGlite snapshot
+    // via createMigratedTestDb (helpers/migrated-test-db.ts), which injects the
+    // path this globalSetup provides. Without it the Stryker lane throws in
+    // beforeEach before any mutant runs — mirror the unit project exactly.
+    globalSetup: ['./__tests__/helpers/db-snapshot-global.ts'],
     globals: true,
     hookTimeout: 30_000,
     include: ['__tests__/**/*.test.{ts,tsx}'],
