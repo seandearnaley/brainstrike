@@ -21,6 +21,20 @@ describe('follow-up queue store', () => {
     expect(followUpQueueKey(undefined)).not.toBe('');
   });
 
+  it('enqueueFront places a steer message ahead of already-queued follow-ups (BST-588)', () => {
+    const { enqueue, enqueueFront, dequeue } = useFollowUpQueueStore.getState();
+    enqueue('thread-1', 'queued follow-up');
+    enqueueFront('thread-1', 'steer message');
+
+    expect(dequeue('thread-1')?.text).toBe('steer message');
+    expect(dequeue('thread-1')?.text).toBe('queued follow-up');
+  });
+
+  it('enqueueFront refuses whitespace-only text like enqueue (BST-588)', () => {
+    const { enqueueFront } = useFollowUpQueueStore.getState();
+    expect(() => enqueueFront('thread-1', '   ')).toThrow(/non-whitespace/i);
+  });
+
   it('enqueues FIFO per thread and dequeues in order', () => {
     const { enqueue, dequeue } = useFollowUpQueueStore.getState();
     enqueue('t1', 'first');

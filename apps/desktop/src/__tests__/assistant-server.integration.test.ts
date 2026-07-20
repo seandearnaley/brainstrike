@@ -2067,6 +2067,53 @@ describe('assistant-server', () => {
       expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
     });
 
+    it('POST /assistant/steer flips a registered run control and 404s unknown runs (BST-588)', async () => {
+      const { registerSteerableRun, resetRunSteeringRegistry } = await import(
+        '../assistant-server/run-steering-registry'
+      );
+      resetRunSteeringRegistry();
+      const control = registerSteerableRun('run-steer-1');
+
+      const accepted = await runRequest({
+        body: JSON.stringify({ runId: 'run-steer-1' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant/steer',
+      });
+      expect(accepted.status).toBe(200);
+      expect(JSON.parse(accepted.body)).toEqual({ accepted: true, runId: 'run-steer-1' });
+      expect(control.stopRequested()).toBe(true);
+
+      const missing = await runRequest({
+        body: JSON.stringify({ runId: 'run-finished' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant/steer',
+      });
+      expect(missing.status).toBe(404);
+      expect(JSON.parse(missing.body).error).toBe('no_active_run');
+      resetRunSteeringRegistry();
+    });
+
+    it('POST /assistant/steer rejects malformed bodies with a visible 400 (BST-588)', async () => {
+      for (const body of [
+        'not json',
+        JSON.stringify({ runId: 'x', sneaky: true }),
+        JSON.stringify({ runId: '' }),
+        JSON.stringify({ runId: 'y'.repeat(513) }),
+        JSON.stringify([]),
+      ]) {
+        const response = await runRequest({
+          body,
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/assistant/steer',
+        });
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body).error).toBe('invalid_steer_action');
+      }
+    });
+
     it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
       const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
       // NAME-FORM CONTRACT: `listSuspendedMastraRuns` returns the ORIGINAL

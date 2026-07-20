@@ -20,6 +20,7 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'run.failed',
   'run.finished',
   'run.started',
+  'run.steered',
   'run.step.finished',
   'run.step.started',
   'subagent.failed',

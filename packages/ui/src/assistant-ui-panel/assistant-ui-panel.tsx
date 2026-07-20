@@ -96,7 +96,7 @@ import {
 import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
-import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
+import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
@@ -331,6 +331,8 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onRunFailed?: (event: AssistantRunEvent) => void;
   /** Reports a `run.finished` run event exactly once (deduped by event id). */
   onRunFinished?: (event: AssistantRunEvent) => void;
+  /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
+  onSteerActiveRun?: () => Promise<boolean>;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -734,6 +736,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
     | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
+  /** Mid-run steer transport (BST-588); absent = queue-only composer. */
+  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
@@ -940,6 +944,7 @@ const DataStreamRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  onSteerActiveRun,
   operatingRoot,
   planMode,
   attachmentsAvailability,
@@ -1072,6 +1077,7 @@ const DataStreamRuntimeChat = ({
             onRunFinished={onRunFinished}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
+            {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
             {...(operatingRoot ? { operatingRoot } : {})}
             pickerModels={pickerModels}
             {...(planMode ? { planMode } : {})}
@@ -1122,6 +1128,7 @@ const ChatThreadUI = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  onSteerActiveRun,
   operatingRoot,
   planMode,
   attachmentsAvailability,
@@ -1134,6 +1141,7 @@ const ChatThreadUI = ({
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   operatingRoot?: OperatingRootInfo | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
@@ -1325,7 +1333,9 @@ const ChatThreadUI = ({
           {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
-            queueControl={<QueueFollowUpButton threadKey={threadKey} />}
+            queueControl={
+              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
+            }
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
             {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
@@ -1414,6 +1424,7 @@ export const AssistantUiPanel = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
+  onSteerActiveRun,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1535,6 +1546,7 @@ export const AssistantUiPanel = ({
             operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
+            onSteerActiveRun={onSteerActiveRun}
             {...(onUsage ? { onUsage } : {})}
             {...(onTogglePlanMode
               ? {

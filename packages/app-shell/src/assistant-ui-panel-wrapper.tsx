@@ -132,6 +132,7 @@ import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
+import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active-run';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -990,6 +991,7 @@ export function AssistantUiPanelWrapper({
   const {
     completePreparedRequest,
     getActiveRunUsageContext,
+    getActiveSteerableRunId,
     prepareRequestData,
     renewActiveAssistantForegroundActivity,
   } = useAssistantRequestLifecycle({
@@ -1009,6 +1011,9 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectedProvider,
   });
+  // Mid-run steer transport (BST-588); the panel receives it only when the
+  // desktop repo (and thus the steer control endpoint) exists.
+  const steerActiveRun = useSteerActiveRun(getActiveSteerableRunId);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1562,6 +1567,7 @@ export function AssistantUiPanelWrapper({
             <AssistantUiPanel
               {...(composerDraftCommand ? { composerDraftCommand } : {})}
               {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+              {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
               completePreparedRequest={completePreparedRequest}
               contextWindow={selectedLlmModelDef?.contextWindow}
               {...(cumulativeUsage ? { cumulativeUsage } : {})}

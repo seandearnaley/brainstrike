@@ -58,12 +58,17 @@ import {
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
+import {
+  registerSteerableRun,
+  requestRunSteer,
+  unregisterSteerableRun,
+} from './assistant-server/run-steering-registry';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
-type AssistantRoute = 'status' | 'assistant' | 'suspended-runs' | 'not-found';
+type AssistantRoute = 'status' | 'assistant' | 'steer' | 'suspended-runs' | 'not-found';
 interface AssistantRequestPayload {
   assistantMessageId?: string;
   data: RuntimeData | undefined;
@@ -298,12 +303,80 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'steer') {
+    await handleSteerRequest(req, res);
+    return;
+  }
+
   if (route === 'not-found') {
     respondNotFound(res);
     return;
   }
 
   await handleAssistantPost(req, res, options);
+}
+
+/** Transport ceiling shared with approval/resume action identifiers. */
+const STEER_RUN_ID_MAX_CHARS = 512;
+const STEER_BODY_LIMIT_BYTES = 4096;
+
+/**
+ * Mid-run steering control endpoint (BST-588): POST /assistant/steer with
+ * exactly `{ runId }`. Flips the registered run's control so the agent loop
+ * ends gracefully at the next step boundary; the renderer then dispatches the
+ * queued steer message via the follow-up queue's run-end bridge. An unknown
+ * run answers a visible 404 — steering a finished run must not pretend
+ * success.
+ */
+async function handleSteerRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  let parsed: unknown;
+  try {
+    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
+    parsed = JSON.parse(body) as unknown;
+  } catch {
+    respondJson(res, 400, {
+      error: 'invalid_steer_action',
+      message: 'Steer request body must be a small JSON object.',
+    });
+    return;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    Object.keys(parsed).length !== 1
+  ) {
+    respondJson(res, 400, {
+      error: 'invalid_steer_action',
+      message: 'Steer request accepts exactly one field: runId.',
+    });
+    return;
+  }
+  const runId = (parsed as Record<string, unknown>)['runId'];
+  if (
+    typeof runId !== 'string' ||
+    runId.trim().length === 0 ||
+    runId.length > STEER_RUN_ID_MAX_CHARS
+  ) {
+    respondJson(res, 400, {
+      error: 'invalid_steer_action',
+      message: `Steer runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
+    });
+    return;
+  }
+  if (!requestRunSteer(runId)) {
+    respondJson(res, 404, {
+      error: 'no_active_run',
+      message: 'No active steerable run with that id; it may have already finished.',
+    });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.statusCode = 200;
+  res.end(JSON.stringify({ accepted: true, runId }));
 }
 
 async function handleAssistantPost(
@@ -330,7 +403,21 @@ async function handleAssistantPost(
   }
   const { signal, cleanup } = registerRequestAbort(req);
   const runId = runtimeData.memory?.runId;
+  // Only THIS leg's registration may be torn down below: on the defensive
+  // duplicate-runId throw the entry belongs to the ORIGINAL still-streaming
+  // leg, and unregistering it would make a genuinely active run un-steerable
+  // (spurious 404). Review finding, BST-588.
+  let registeredSteerableRun = false;
   try {
+    // Steering control (BST-588): in-memory only, injected AFTER request
+    // validation exactly like `signal`. Every streaming leg with a runId is
+    // steerable; the registry entry dies with the stream. Registered INSIDE
+    // the try so a defensive duplicate-runId throw still runs cleanup() and
+    // answers the request (review P3).
+    if (runId) {
+      runtimeData.steering = registerSteerableRun(runId);
+      registeredSteerableRun = true;
+    }
     await streamAssistantPostResponse({
       apiKey,
       assistantMessageId,
@@ -349,6 +436,9 @@ async function handleAssistantPost(
   } catch (error) {
     await handleAssistantPostStreamError({ error, res, runId, signal });
   } finally {
+    if (runId && registeredSteerableRun) {
+      unregisterSteerableRun(runId);
+    }
     cleanup();
   }
 }
@@ -1280,6 +1370,9 @@ function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
   const requestPath = resolveRequestPath(req);
   if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
     return 'status';
+  }
+  if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
+    return 'steer';
   }
   if (
     req.method === 'GET' &&

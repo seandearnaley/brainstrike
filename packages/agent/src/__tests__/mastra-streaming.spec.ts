@@ -352,6 +352,162 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('stops at the next step boundary when steering is requested and marks the run steered', async () => {
+    setMockStreamParts([
+      { type: 'start' },
+      { type: 'step-start' },
+      { textDelta: 'first step text', type: 'text-delta' },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      { type: 'step-start' },
+      { textDelta: 'second step text', type: 'text-delta' },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 40 },
+      },
+      { type: 'step-start' },
+      { textDelta: 'third step text — must never stream', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 80 } },
+    ]);
+
+    // Steer requested AFTER the first boundary: run stops at the SECOND.
+    let boundariesSeen = 0;
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'work on it', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: {
+            stopRequested: () => {
+              boundariesSeen += 1;
+              return boundariesSeen > 1;
+            },
+          },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const texts = chunks.filter((chunk) => chunk.type === 'text-delta');
+    expect(texts.map((chunk) => (chunk as { value?: string }).value)).toEqual([
+      'first step text',
+      'second step text',
+    ]);
+
+    const runEventKinds = chunks
+      .filter((chunk) => chunk.type === 'run-event')
+      .map((chunk) => (chunk as { event?: { kind?: string } }).event?.kind);
+    expect(runEventKinds).toContain('run.steered');
+    // run.finished must ALSO be emitted so every terminal-event consumer
+    // (timeline status, notifications, hydration) sees the run complete.
+    expect(runEventKinds.indexOf('run.steered')).toBeLessThan(
+      runEventKinds.indexOf('run.finished')
+    );
+
+    const finish = chunks.at(-1) as {
+      finishReason?: string;
+      type: string;
+      usage?: { completionTokens: number; promptTokens: number };
+    };
+    expect(finish.type).toBe('message-finish');
+    expect(finish.finishReason).toBe('stop');
+    // Usage is ACCUMULATED across every completed step (10+40 / 2+5), never
+    // just the boundary step's own numbers.
+    expect(finish.usage).toEqual({ completionTokens: 7, promptTokens: 50 });
+  });
+
+  it('flushes pending output-only tool completions before the steered finish', async () => {
+    // A tool that terminates via `tool-output` (no later `tool-result`) is
+    // parked in outputOnlyToolEvents until a TERMINAL flush. The steered
+    // terminal must drain it exactly like the natural finish does, or the
+    // run completes while that tool card stays stuck "running" forever.
+    setMockStreamParts([
+      { type: 'step-start' },
+      {
+        args: { query: 'local state' },
+        toolCallId: 'c-output-only',
+        toolName: 'background.lookup',
+        type: 'tool-call',
+      },
+      {
+        output: { answer: 'done' },
+        toolCallId: 'c-output-only',
+        type: 'tool-output',
+      },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 40 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: { stopRequested: () => true },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const runEventKinds = chunks
+      .filter((chunk) => chunk.type === 'run-event')
+      .map((chunk) => (chunk as { event?: { kind?: string } }).event?.kind);
+    expect(runEventKinds).toContain('tool.completed');
+    // Ordering: the pending completion drains BEFORE the terminal markers.
+    expect(runEventKinds.indexOf('tool.completed')).toBeLessThan(
+      runEventKinds.indexOf('run.steered')
+    );
+  });
+
+  it('ignores a steering request that never reaches a step boundary before natural finish', async () => {
+    setMockStreamParts([
+      { textDelta: 'hello', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: { stopRequested: () => true },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const steered = chunks.find(
+      (chunk) =>
+        chunk.type === 'run-event' &&
+        (chunk as { event?: { kind?: string } }).event?.kind === 'run.steered'
+    );
+    expect(steered).toBeUndefined();
+    expect((chunks.at(-1) as { type: string }).type).toBe('message-finish');
+  });
+
   it('aggregates provider-reported OpenRouter cost across model steps', async () => {
     setMockStreamParts([
       {

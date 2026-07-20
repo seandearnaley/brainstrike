@@ -1033,6 +1033,19 @@ function isRunEventMetadata(value: unknown): value is AssistantRunEventMetadata 
   return prototype === Object.prototype || prototype === null;
 }
 
+/** Sum per-step usage (mirrors stepBilledCostUsd) for the steered finish. */
+function accumulateSteppedUsage(
+  lifecycleState: ToolLifecycleState,
+  usage: UsageLike | undefined
+): void {
+  const prompt = usage?.promptTokens ?? usage?.inputTokens;
+  const completion = usage?.completionTokens ?? usage?.outputTokens;
+  lifecycleState.steppedPromptTokens += Number.isFinite(prompt) ? (prompt as number) : 0;
+  lifecycleState.steppedCompletionTokens += Number.isFinite(completion)
+    ? (completion as number)
+    : 0;
+}
+
 function makeRunEventChunk(
   kind: AssistantRunEventKind,
   status: AssistantRunEventStatus,
@@ -1095,7 +1108,22 @@ interface ToolLifecycleState {
   requiresBilledCost: boolean;
   sawStepBilledCost: boolean;
   sawStepWithoutBilledCost: boolean;
+  /**
+   * Mid-run steering (BST-588): polled at each step boundary. When true after
+   * a step-finish, the run ends gracefully (run.steered + run.finished events
+   * + normal finish) so the queued steer message dispatches as the next turn.
+   * Absent control = steering not offered for this run.
+   */
+  steering?: { stopRequested(): boolean } | undefined;
   stepBilledCostUsd: number;
+  /**
+   * Per-step token usage accumulated across step-finish parts (mirrors
+   * stepBilledCostUsd). A steered run's finish reports THIS sum — the
+   * boundary step's own usage alone would under-count every earlier step
+   * (Mastra's natural terminal usage is the same cross-step sum).
+   */
+  steppedCompletionTokens: number;
+  steppedPromptTokens: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
 }
 
@@ -1635,15 +1663,72 @@ function processMastraStreamPart(
         lifecycleState.sawStepBilledCost = true;
         lifecycleState.stepBilledCostUsd += billedCostUsd;
       }
+      // Same usage-candidate order as makeFinishChunk (top-level, then payload).
+      accumulateSteppedUsage(
+        lifecycleState,
+        p.usage ?? p.payload?.output?.usage ?? p.payload?.metadata?.usage
+      );
+      const stepFinishedChunk = makeRunEventChunk(
+        'run.step.finished',
+        'completed',
+        'Generation step completed',
+        makeStepMetadata(part)
+      );
+      if (lifecycleState.steering?.stopRequested()) {
+        // NOTE: an OpenRouter run whose boundary step omitted its billed cost
+        // throws here (same terminal contract the natural finish enforces —
+        // a steer cannot fake an exact cost the provider never reported).
+        const steeredBaseFinish = makeFinishChunk(part, lifecycleState) as Extract<
+          StreamChunk,
+          { type: 'message-finish' }
+        >;
+        // Graceful steer stop (BST-588): the just-finished step is complete
+        // (its tool results are persisted by Mastra's per-step saves), so end
+        // the run here with a visible marker and a NORMAL finish — including
+        // run.finished, so every terminal-event consumer (timeline status,
+        // run notifications, hydration weaving) sees the run complete. The
+        // queued steer message dispatches as the next turn via the follow-up
+        // queue's run-end bridge. The generator's early return cancels the
+        // underlying Mastra stream; a partial NEXT step may already have been
+        // dispatched (push-based fullStream) — bounded to one step, its
+        // output is discarded.
+        return {
+          chunks: [
+            stepFinishedChunk,
+            // Drain tools that terminated via `tool-output` (no later
+            // `tool-result`) exactly like the natural finish does — otherwise
+            // the run completes while those tool cards stay stuck "running"
+            // and the durable timeline never receives their tool.completed.
+            ...makePendingToolOutputRunEventChunks(lifecycleState),
+            makeRunEventChunk(
+              'run.steered',
+              'completed',
+              'Run steered: stopped at step boundary for a new user message',
+              makeStepMetadata(part)
+            ),
+            makeRunEventChunk(
+              'run.finished',
+              'completed',
+              'Assistant run completed',
+              makeStepMetadata(part)
+            ),
+            // A steer is a deliberate, successful stop: override the mapped
+            // 'unknown' (a step part has no finishReason) and report the
+            // ACCUMULATED cross-step usage, matching Mastra's own terminal sum.
+            {
+              ...steeredBaseFinish,
+              finishReason: 'stop',
+              usage: {
+                completionTokens: lifecycleState.steppedCompletionTokens,
+                promptTokens: lifecycleState.steppedPromptTokens,
+              },
+            },
+          ],
+          finished: true,
+        };
+      }
       return {
-        chunks: [
-          makeRunEventChunk(
-            'run.step.finished',
-            'completed',
-            'Generation step completed',
-            makeStepMetadata(part)
-          ),
-        ],
+        chunks: [stepFinishedChunk],
         finished: false,
       };
     }
@@ -2215,9 +2300,12 @@ async function* streamChunksFromMastra({
     includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
+    ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
     sawStepBilledCost: false,
     sawStepWithoutBilledCost: false,
     stepBilledCostUsd: 0,
+    steppedCompletionTokens: 0,
+    steppedPromptTokens: 0,
     terminalToolCallStates: new Map(),
   };
 

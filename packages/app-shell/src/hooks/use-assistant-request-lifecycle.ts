@@ -78,6 +78,15 @@ interface UseAssistantRequestLifecycleResult {
    * the model that produced the tokens, not the current picker selection.
    */
   readonly getActiveRunUsageContext: () => AssistantRunUsageContext | null;
+  /**
+   * The in-flight run's id for CONTROL actions (mid-run steering, BST-588),
+   * or null when no run is in flight. Deliberately NOT derived from the
+   * foreground-activity lease: that lease is a QoS/power concern whose 5-minute
+   * idle fuse clears its ref during silent hosted/tool gaps while the run is
+   * still very much alive. Cleared only at true run completion, so a steer
+   * after a long silent gap still reaches the server.
+   */
+  readonly getActiveSteerableRunId: () => string | null;
   readonly prepareRequestData: () => Promise<Record<string, unknown>>;
   readonly renewActiveAssistantForegroundActivity: () => void;
 }
@@ -126,6 +135,12 @@ export function useAssistantRequestLifecycle({
   // renews only this run's lease, so unrelated active runs cannot keep leaked
   // sibling leases alive indefinitely.
   const activeAssistantForegroundRunIdRef = useRef<string | null>(null);
+  /**
+   * Run-lifecycle-accurate active run id for control actions (steering).
+   * Set at request start, cleared ONLY by completePreparedRequest — never by
+   * the foreground lease's idle fuse (see getActiveSteerableRunId).
+   */
+  const activeSteerableRunIdRef = useRef<string | null>(null);
   // Request-start {provider, model} snapshot per run id. The picker stays
   // interactive mid-run, so usage attribution must read this snapshot, not the
   // live selection at finish time.
@@ -139,6 +154,7 @@ export function useAssistantRequestLifecycle({
       assistantForegroundActivityLeaseByRunIdRef.current.clear();
       runUsageContextByRunIdRef.current.clear();
       activeAssistantForegroundRunIdRef.current = null;
+      activeSteerableRunIdRef.current = null;
     },
     []
   );
@@ -150,6 +166,11 @@ export function useAssistantRequestLifecycle({
     }
     return runUsageContextByRunIdRef.current.get(runId) ?? null;
   }, []);
+
+  const getActiveSteerableRunId = useCallback(
+    (): string | null => activeSteerableRunIdRef.current,
+    []
+  );
 
   const renewActiveAssistantForegroundActivity = useCallback(() => {
     const runId = activeAssistantForegroundRunIdRef.current;
@@ -202,6 +223,7 @@ export function useAssistantRequestLifecycle({
         });
       }
       activeAssistantForegroundRunIdRef.current = runId;
+      activeSteerableRunIdRef.current = runId;
     }
 
     // Read the persisted plan-mode toggle FRESH here, at request-composition
@@ -288,6 +310,9 @@ export function useAssistantRequestLifecycle({
         if (activeAssistantForegroundRunIdRef.current === runId) {
           activeAssistantForegroundRunIdRef.current = null;
         }
+        if (activeSteerableRunIdRef.current === runId) {
+          activeSteerableRunIdRef.current = null;
+        }
       }
     },
     [assistantThreadRepository]
@@ -296,6 +321,7 @@ export function useAssistantRequestLifecycle({
   return {
     completePreparedRequest,
     getActiveRunUsageContext,
+    getActiveSteerableRunId,
     prepareRequestData,
     renewActiveAssistantForegroundActivity,
   };
