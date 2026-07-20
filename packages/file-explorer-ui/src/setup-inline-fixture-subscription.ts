@@ -26,6 +26,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { StoreApi } from 'zustand';
 import { dispatchInjectRootHandle } from './inject-root-handle-event';
 import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
+import { hasPersistHydrationApi } from './utils/persist-hydration';
 
 const logger = createLogger('InlineFixtureSubscription');
 
@@ -273,43 +274,83 @@ export function setupInlineFixtureSubscription(
     });
   };
 
-  // Track previous state to detect actual changes
-  let previousEnabled = store.getState().devInlineFixtureEnabled;
+  // Baseline for change detection. Seeded post-hydration in `armAfterHydration`
+  // below — the file-explorer store hydrates ASYNCHRONOUSLY (the persist
+  // `getItem` returns a Promise on every backend, worker-backed or not; see
+  // packages/file-explorer/src/persistence/), so at this useEffect-setup time
+  // the flag still holds its pre-hydration default. Reading it here would seed a
+  // stale baseline AND leave the guard a no-op, so the subsequent hydration
+  // merge flipping false→true would look like a genuine user toggle and load the
+  // fixture in mode 'replace' — dropping the user's restored roots. Deferring
+  // BOTH the guard and the subscription until hydration folds whatever value the
+  // merge installs into the baseline instead of firing a load.
+  let previousEnabled = false;
+  let storeUnsubscribe: (() => void) | null = null;
+  let disposed = false;
 
-  // A PERSISTED enable must NOT resurrect at boot: fixture injection routes
-  // through mode 'replace' (drops other roots), so auto-applying it silently
-  // swapped the user's restored workspace for the mock fixture on every
-  // launch ("my roots don't persist"). Reset the flag instead — enabling the
-  // inline fixture is an explicit per-session action. (When the adapter is
-  // ALREADY active — e.g. HMR re-setup mid-session — the fixture stays; only
-  // the cold-boot resurrection is blocked.)
-  if (previousEnabled && !adapter.isInlineFixtureActive()) {
-    logger.warn(
-      'Inline fixture was enabled in persisted state — resetting to keep the restored workspace; re-enable it from settings for this session'
-    );
-    // Runs BEFORE the subscription below is registered, so no suppression is
-    // needed — the reset cannot bounce back into this handler.
-    try {
-      store.getState().setDevInlineFixtureEnabled(false);
-    } catch (error) {
-      logger.error('Failed to reset persisted inline fixture flag', { error });
+  const armAfterHydration = (): void => {
+    if (disposed) {
+      // Torn down (HMR/unmount) before hydration finished — do not arm.
+      return;
     }
-    previousEnabled = false;
-  }
 
-  const unsubscribe = store.subscribe((state) => {
-    const currentEnabled = state.devInlineFixtureEnabled;
-    if (suppressNextSubscription) {
-      suppressNextSubscription = false;
+    // Post-hydration baseline: the REAL persisted flag value.
+    previousEnabled = store.getState().devInlineFixtureEnabled;
+    // A programmatic load/clear via the window globals may have run before
+    // hydration finished; its suppression token is meaningless now that the
+    // subscription is armed against a fresh baseline.
+    suppressNextSubscription = false;
+
+    // A PERSISTED enable must NOT resurrect at boot: fixture injection routes
+    // through mode 'replace' (drops other roots), so auto-applying it silently
+    // swapped the user's restored workspace for the mock fixture on every
+    // launch ("my roots don't persist"). Reset the flag instead — enabling the
+    // inline fixture is an explicit per-session action. (When the adapter is
+    // ALREADY active — e.g. HMR re-setup mid-session — the fixture stays; only
+    // the cold-boot resurrection is blocked.)
+    if (previousEnabled && !adapter.isInlineFixtureActive()) {
+      logger.warn(
+        'Inline fixture was enabled in persisted state — resetting to keep the restored workspace; re-enable it from settings for this session'
+      );
+      // Runs BEFORE the subscription below is registered, so no suppression is
+      // needed — the reset cannot bounce back into this handler.
+      try {
+        store.getState().setDevInlineFixtureEnabled(false);
+      } catch (error) {
+        logger.error('Failed to reset persisted inline fixture flag', { error });
+      }
+      previousEnabled = false;
+    }
+
+    storeUnsubscribe = store.subscribe((state) => {
+      const currentEnabled = state.devInlineFixtureEnabled;
+      if (suppressNextSubscription) {
+        suppressNextSubscription = false;
+        previousEnabled = currentEnabled;
+        return;
+      }
+      if (currentEnabled === previousEnabled) {
+        return;
+      }
       previousEnabled = currentEnabled;
-      return;
-    }
-    if (currentEnabled === previousEnabled) {
-      return;
-    }
-    previousEnabled = currentEnabled;
-    safelyApplyFixtureState(currentEnabled);
-  });
+      safelyApplyFixtureState(currentEnabled);
+    });
+  };
+
+  // Order the guard + subscription AFTER persist hydration. `onFinishHydration`
+  // is edge-triggered (fires once, never retro-fires), so check `hasHydrated()`
+  // first — same two-step pattern as `waitForHydration`. A store without the
+  // persist API (vanilla test store, or synchronous already-hydrated storage)
+  // arms immediately, matching the previous synchronous behavior.
+  let cancelHydrationWait: (() => void) | null = null;
+  if (hasPersistHydrationApi(store) && !store.persist.hasHydrated()) {
+    cancelHydrationWait = store.persist.onFinishHydration(() => {
+      cancelHydrationWait = null;
+      armAfterHydration();
+    });
+  } else {
+    armAfterHydration();
+  }
 
   // Expose global testing API
   if (typeof window !== 'undefined') {
@@ -362,7 +403,17 @@ export function setupInlineFixtureSubscription(
   }
 
   return () => {
-    unsubscribe();
+    disposed = true;
+    // Cancel a still-pending hydration wait so a late `onFinishHydration` cannot
+    // arm a subscription on a torn-down setup.
+    if (cancelHydrationWait) {
+      cancelHydrationWait();
+      cancelHydrationWait = null;
+    }
+    if (storeUnsubscribe) {
+      storeUnsubscribe();
+      storeUnsubscribe = null;
+    }
     if (typeof window !== 'undefined') {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
       window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
