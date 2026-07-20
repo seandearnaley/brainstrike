@@ -63,7 +63,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^6.0.3",
-    "@vitest/ui": "^4.1.9",
+    "@vitest/ui": "catalog:",
     "file-saver": "2.0.5",
     "glob": "^13.0.6",
     "idb": "^8.0.3",
