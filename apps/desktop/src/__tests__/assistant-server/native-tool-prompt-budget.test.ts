@@ -2,6 +2,7 @@ import {
   createAssistantSkillTools,
   createMastraAgentRuntime,
   createScannedWorkspaceSkills,
+  NATIVE_TOOL_DEFAULTS,
   PROVIDER_DEFAULT_MODELS,
   type RuntimeData,
   type ScannedSkill,
@@ -225,6 +226,15 @@ function buildProviderFunctionTools(
   });
 }
 
+function buildAuthoredProviderFunctionTools(
+  tools: Readonly<Record<string, MastraProviderTool>>
+): ProviderFunctionTool[] {
+  const nameMap = new Map(
+    Object.keys(tools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
+  );
+  return buildProviderFunctionTools(tools, nameMap);
+}
+
 function countO200kTokens(text: string): number {
   const encoding = get_encoding('o200k_base');
   try {
@@ -296,6 +306,35 @@ function expectProviderSurfaceWithinBudget(args: {
 }
 
 describe('desktop native tool provider prompt budget', () => {
+  it('records the eager baseline and proposed critical-only definition footprint', () => {
+    const desktopTools = buildPromptBudgetDesktopTools();
+    const eagerTools = {
+      ...createAssistantSkillTools(createPromptBudgetWorkspaceSkills()),
+      ...desktopTools,
+    };
+    const criticalTools = Object.fromEntries(
+      Object.entries(eagerTools).filter(
+        ([toolId]) =>
+          NATIVE_TOOL_DEFAULTS[toolId as keyof typeof NATIVE_TOOL_DEFAULTS].loadingTier ===
+          'critical'
+      )
+    );
+    const eagerProviderTools = buildAuthoredProviderFunctionTools(eagerTools);
+    const criticalProviderTools = buildAuthoredProviderFunctionTools(criticalTools);
+
+    expect({
+      criticalDefinitionTokens: countO200kTokens(JSON.stringify(criticalProviderTools)),
+      criticalToolCount: criticalProviderTools.length,
+      eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
+      eagerToolCount: eagerProviderTools.length,
+    }).toEqual({
+      criticalDefinitionTokens: 1894,
+      criticalToolCount: 7,
+      eagerDefinitionTokens: 6160,
+      eagerToolCount: 27,
+    });
+  });
+
   it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();

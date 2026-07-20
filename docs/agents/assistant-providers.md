@@ -658,6 +658,69 @@ the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
 
+### Tool discovery contract (DECLARATIVE — NOT LIVE)
+
+`packages/assistant-contract/src/tool-discovery.ts` is the authoritative
+contract for a later dynamic-loading runtime slice. This contract deliberately
+does not change `createMastraAgentRuntime`: the current runtime still registers
+every user-enabled, available, permission-eligible tool eagerly. Do not claim
+prompt savings from this contract until the separate behavior PR wires an
+adapter through real Mastra/provider integration tests and desktop QA.
+
+The canonical native metadata has one exact seven-tool `critical` set:
+`askUser`, `executeCommand`, `globWorkspace`, `grepSearch`,
+`readWorkspaceFile`, `stringReplaceWorkspaceFile`, and `submitPlan`. These are
+the universal exact-read/search/edit/execute/suspend primitives that remain
+model-visible after discovery goes live. The search/load control is owned by
+the selected discovery adapter and must be exposed beside this set; it is not a
+second Brainstrike native-tool id. Every other native tool is `deferred` and
+belongs to exactly one concise namespace in
+`NATIVE_TOOL_DISCOVERY_NAMESPACES`: artifacts, context, embeddings, semantics,
+skills, web, or specialist workspace operations. Namespace parity tests prove
+that the critical plus deferred partitions cover every canonical native id
+exactly once and that no namespace exceeds nine functions.
+
+Loading tier is not authorization. User-enabled means only eligible for
+discovery. `resolveToolDiscoveryPhaseAccess` keeps disabled, permission-denied,
+and host-unavailable tools out of search, load, and active phases. An `ask`
+permission remains searchable/loadable, but the existing downstream permission
+gate must still suspend before execution. A loaded bit is required before an
+eligible deferred tool becomes active.
+
+`LlmModelDefinition.nativeToolSearch` records provider-native support on the
+exact model route:
+
+- Direct OpenAI GPT-5.4 and newer routes declare `openai`; older GPT-5.x routes
+  do not. OpenRouter aliases do not inherit the capability because the gateway
+  route is a different adapter.
+- Current supported direct Anthropic models declare `anthropic`.
+- Other declared hosted/gateway LLMs resolve to Mastra catalog search.
+- The built-in browser-local model resolves explicitly to `eager-core-only`;
+  this contract does not alter its current runtime. Dynamically discovered
+  Ollama/LM Studio model ids resolve `unsupported` until their authoritative
+  catalog exposes a tool-search capability signal.
+- Unknown static model ids and non-LLM providers resolve `unsupported`.
+
+`resolveToolDiscoveryAdapter` never substitutes another strategy when a caller
+requests an adapter the exact route does not support. The unsupported result
+retains a typed reason, keeping an adapter mismatch distinct from a catalog miss,
+permission denial, and host unavailability. OpenAI's native `tool_search` is
+model-gated, not inferred from `provider === "openai"`. Anthropic native search
+likewise preserves provider search/tool-reference history; Mastra catalog search
+must use durable context-derived loaded state rather than the process-local
+default when it is wired. `TOOL_DISCOVERY_FAILURE_CODES` pins the distinct
+failure channels as `catalog-miss`, `permission-denied`, `host-unavailable`, and
+`unsupported-adapter`; adapters must not collapse them into an empty result.
+
+The future assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
+capability/permission eligibility → guards/hooks → plan/permission/suspend gates
+→ provider-native web-search swap → output settlement/projection → skills
+metadata → discovery → provider-history compatibility → projection-aware token
+limiting. Token limiting remains last so it counts injected skills metadata,
+loaded tool definitions, and normalized provider history. The live runtime
+keeps its current settled order until that behavior slice updates the paired
+runtime contract and integration tests.
+
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`
 builds the real registry and resolved hosted instructions with the default
@@ -679,5 +742,12 @@ identity, or remove cross-tool safety/workspace invariants to make either
 number pass. Changing Mastra compatibility behavior requires a supported
 upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
+
+The same fixture also pins the authored definition-only comparison for this
+contract: the current eager baseline is 27 tools / 6,160 `o200k_base` tokens,
+while the proposed critical-only surface is 7 tools / 1,894 tokens. These are
+measured schema-and-description footprints, not live prompt savings; system
+instructions, dynamically loaded definitions, provider conversion, and skills
+metadata remain governed by the full-surface tests above.
 
 ---

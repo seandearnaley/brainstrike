@@ -37,11 +37,15 @@ export type ToolSource = 'native' | 'mcp';
 export type ToolCategory = 'retrieval' | 'action' | 'analysis' | 'configuration' | 'validation';
 
 /**
- * Loading tier determines when a tool is loaded into the agent context.
+ * Loading tier declares when a tool belongs in the future model-facing
+ * discovery surface.
  *
  * - `critical`: Always loaded at agent initialization (essential for core functionality)
  * - `conditional`: Loaded based on token budget and context (search-discovered)
  * - `deferred`: Only loaded when explicitly requested or triggered
+ *
+ * The live runtime does not consume this field yet. Until the behavior-switch
+ * slice lands, enabled tools retain the existing eager registration behavior.
  */
 export type ToolLoadingTier = 'critical' | 'conditional' | 'deferred';
 
@@ -103,17 +107,17 @@ export interface ToolLoadingTierInfo {
 
 export const TOOL_LOADING_TIERS: Record<ToolLoadingTier, ToolLoadingTierInfo> = {
   conditional: {
-    description: 'Loaded based on available token budget',
+    description: 'Eligible when the active context budget permits',
     id: 'conditional',
     label: 'Conditional',
   },
   critical: {
-    description: 'Always loaded with every agent session',
+    description: 'Always visible once dynamic discovery is enabled',
     id: 'critical',
     label: 'Critical',
   },
   deferred: {
-    description: 'Only loaded when explicitly requested',
+    description: 'Loaded only through an explicit discovery adapter',
     id: 'deferred',
     label: 'Deferred',
   },
@@ -164,7 +168,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.deleteWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 130,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'edit',
   },
@@ -185,7 +189,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
     category: 'retrieval',
     estimatedTokens: 150,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
@@ -208,19 +212,19 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.hybridSearch]: {
     category: 'retrieval',
     estimatedTokens: 200,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   [NATIVE_TOOL_ID.listEmbeddingSpaces]: {
     category: 'analysis',
     estimatedTokens: 110,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   [NATIVE_TOOL_ID.listWorkspaceContext]: {
     category: 'retrieval',
     estimatedTokens: 120,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   // Semantic code inspection at a cursor (report R2 Phase B): hover type,
@@ -231,7 +235,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.lspInspect]: {
     category: 'retrieval',
     estimatedTokens: 160,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
@@ -245,33 +249,33 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.manageTaskList]: {
     category: 'action',
     estimatedTokens: 140,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: {
     category: 'retrieval',
     estimatedTokens: 190,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   [NATIVE_TOOL_ID.readToolOutputArtifact]: {
     category: 'retrieval',
     estimatedTokens: 150,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
   [NATIVE_TOOL_ID.readWorkspaceContext]: {
     category: 'retrieval',
     estimatedTokens: 180,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: {
     category: 'retrieval',
     estimatedTokens: 120,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
   },
   // Core workspace reading tools
@@ -287,7 +291,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.renameWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 150,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'edit',
   },
@@ -314,14 +318,14 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: {
     category: 'action',
     estimatedTokens: 150,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'edit',
   },
   [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: {
     category: 'action',
     estimatedTokens: 190,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'edit',
   },
@@ -334,7 +338,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.webExtract]: {
     category: 'retrieval',
     estimatedTokens: 130,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
@@ -345,7 +349,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.webSearch]: {
     category: 'retrieval',
     estimatedTokens: 130,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
@@ -354,7 +358,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.writeWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 140,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'edit',
   },
@@ -370,21 +374,21 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.skill]: {
     category: 'retrieval',
     estimatedTokens: 90,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
   [NATIVE_TOOL_ID.skillRead]: {
     category: 'retrieval',
     estimatedTokens: 120,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },
   [NATIVE_TOOL_ID.skillSearch]: {
     category: 'retrieval',
     estimatedTokens: 110,
-    loadingTier: 'critical',
+    loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
   },

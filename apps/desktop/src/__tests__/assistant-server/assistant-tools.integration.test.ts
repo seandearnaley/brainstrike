@@ -3636,10 +3636,10 @@ describe('assistant-tools', () => {
     });
   });
 
-  it('marks the artifact reader as a critical read-only retrieval tool', () => {
+  it('marks the artifact reader as a deferred read-only retrieval tool', () => {
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.readToolOutputArtifact']).toMatchObject({
       category: 'retrieval',
-      loadingTier: 'critical',
+      loadingTier: 'deferred',
       requiresApproval: false,
       riskCategory: 'read',
     });

@@ -23,6 +23,12 @@ export interface ProviderCapabilities {
  */
 export type ModelVisionSupport = 'supported' | 'unsupported' | 'unknown';
 
+/**
+ * Provider-native deferred-tool search capability declared by the exact model
+ * route. Gateway aliases do not inherit this from the underlying vendor.
+ */
+export type NativeToolSearchCapability = 'anthropic' | 'openai';
+
 interface BaseModelDefinition {
   /**
    * Flag a sensible default for the given model type.
@@ -51,6 +57,12 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * output headroom in the input-budget derivation.
    */
   maxOutputTokens?: number;
+  /**
+   * Provider-native tool-search protocol supported by this exact model route.
+   * Absence is authoritative: callers may choose a declared non-native adapter,
+   * but must never infer native support from the provider name.
+   */
+  nativeToolSearch?: NativeToolSearchCapability;
   /**
    * Approx. USD price per 1,000,000 tokens. ESTIMATE as of 2026-07-13 — list prices drift;
    * treat as non-authoritative (override planned in settings). Omit for models with unknown
@@ -174,6 +186,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.6-sol',
         label: 'GPT-5.6 Sol',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 5, outputPerMTok: 30 },
         supportsStreaming: true,
         type: 'llm',
@@ -185,6 +198,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.6-terra',
         label: 'GPT-5.6 Terra',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
         tagline: 'Most capable for everyday work',
@@ -196,6 +210,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.6-luna',
         label: 'GPT-5.6 Luna',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1, outputPerMTok: 6 },
         supportsStreaming: true,
         type: 'llm',
@@ -206,6 +221,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.5',
         label: 'GPT-5.5',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
@@ -216,6 +232,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.5-pro',
         label: 'GPT-5.5 Pro',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
@@ -227,6 +244,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.4',
         label: 'GPT-5.4',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
         type: 'llm',
@@ -237,6 +255,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.4-pro',
         label: 'GPT-5.4 Pro',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
@@ -248,6 +267,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.4-mini',
         label: 'GPT-5.4 Mini',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
         supportsStreaming: true,
         type: 'llm',
@@ -258,6 +278,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gpt-5.4-nano',
         label: 'GPT-5.4 Nano',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 0.05, outputPerMTok: 0.4 },
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
@@ -334,6 +355,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-fable-5',
         label: 'Claude Fable 5',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
         pricing: {
           cacheReadPerMTok: 1,
           cacheWritePerMTok: 12.5,
@@ -349,6 +371,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-opus-4-8',
         label: 'Claude Opus 4.8',
         maxOutputTokens: 64_000,
+        nativeToolSearch: 'anthropic',
         pricing: {
           cacheReadPerMTok: 0.5,
           cacheWritePerMTok: 6.25,
@@ -366,6 +389,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-sonnet-5',
         label: 'Claude Sonnet 5',
         maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
         // Anthropic introductory rate through 2026-08-31.
         pricing: {
           cacheReadPerMTok: 0.2,
@@ -383,6 +407,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-sonnet-4-6',
         label: 'Claude Sonnet 4.6',
         maxOutputTokens: 64_000,
+        nativeToolSearch: 'anthropic',
         pricing: {
           cacheReadPerMTok: 0.3,
           cacheWritePerMTok: 3.75,
@@ -398,6 +423,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5',
         maxOutputTokens: 64_000,
+        nativeToolSearch: 'anthropic',
         pricing: {
           cacheReadPerMTok: 0.1,
           cacheWritePerMTok: 1.25,
