@@ -302,9 +302,9 @@ describe('useFileSystemWatcher', () => {
   });
 
   it('changing onChanges identity does NOT restart existing watchers', () => {
-    // This tests the stable-ref pattern: onChangesRef.current is updated on
-    // every render, so the diff effect intentionally excludes onChanges from
-    // its dep array. A new callback object must not cause any watcher to restart.
+    // This tests the useEventCallback pattern: the diff effect depends on the
+    // identity-stable `emitChanges` wrapper rather than the raw onChanges, so a
+    // new callback object must not cause any watcher to restart.
     const adapter = makeAdapter();
     const handleA = makeHandle('root-a');
 
@@ -392,6 +392,35 @@ describe('useFileSystemWatcher', () => {
     act(() => {
       adapter.watchCalls[0]!.onSignal?.({ type: 'overflow' });
     });
+
+    expect(onSignalV1).not.toHaveBeenCalled();
+    expect(onSignalV2).toHaveBeenCalledWith('root-a', { type: 'overflow' });
+  });
+
+  it('routes commit-phase signals to the latest onSignal, not the previous one', () => {
+    // onSignal travels the identical dispatcher path as onChanges and would
+    // regress identically under a passive-effect ref sync.
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+    const onSignalV1 = vi.fn<OnSignal>();
+    const onSignalV2 = vi.fn<OnSignal>();
+    const roots = [{ handle: handleA, rootId: 'root-a' }];
+
+    let armed = false;
+    const emit = (): void => {
+      if (armed) {
+        adapter.watchCalls[0]?.onSignal?.({ type: 'overflow' });
+      }
+    };
+
+    const { rerender } = renderHook(
+      ({ sig }: { sig: OnSignal }) =>
+        useFileSystemWatcher({ adapter, onChanges, onSignal: sig, roots }),
+      { initialProps: { sig: onSignalV1 }, wrapper: makeCommitPhaseWrapper(emit) }
+    );
+
+    armed = true;
+    rerender({ sig: onSignalV2 });
 
     expect(onSignalV1).not.toHaveBeenCalled();
     expect(onSignalV2).toHaveBeenCalledWith('root-a', { type: 'overflow' });

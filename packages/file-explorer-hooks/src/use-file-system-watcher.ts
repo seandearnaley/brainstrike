@@ -54,12 +54,18 @@ export interface UseFileSystemWatcherParams {
  * all watchers when the component is torn down, avoiding the "React tears down
  * and rebuilds on every dep change" pitfall.
  *
- * Documented limitation: changing the `adapter` identity restarts ALL existing
- * watchers for the new adapter instance. This is intentional — a new adapter
- * object represents a distinct filesystem binding. Changing `onChanges` identity
- * alone does NOT restart watchers; the identity-stable `useEventCallback`
- * wrappers always dispatch to the latest callback without restarting any
- * watcher subscription.
+ * Documented limitation: changing the `adapter` identity is currently a NO-OP
+ * for roots that are already watched. The effect re-runs, but the diff is keyed
+ * purely on `rootId` — the dispose loop finds nothing missing and the start loop
+ * finds nothing new — so existing watchers stay bound to the PREVIOUS adapter
+ * and the new one never takes over. Unreachable today: the adapter is an
+ * app-level singleton from `AdaptersProvider` and its identity never changes.
+ * If that ever stops being true, key the diff on `(adapter, rootId)` rather
+ * than trusting this comment.
+ *
+ * Changing `onChanges`/`onSignal` identity does NOT restart watchers; the
+ * identity-stable `useEventCallback` wrappers always dispatch to the latest
+ * callback without restarting any watcher subscription.
  */
 export function useFileSystemWatcher({
   adapter,
@@ -124,11 +130,12 @@ export function useFileSystemWatcher({
       }
     }
     // Intentionally no cleanup return — diff is handled above.
-    // emitChanges/emitSignal are listed and satisfy exhaustive-deps without
-    // suppression: their identities are fixed for the hook's lifetime, so they
-    // never actually retrigger this effect. Listing the raw onChanges/onSignal
-    // instead would restart every watcher on each callback identity change for
-    // no behavioural benefit.
+    // emitChanges/emitSignal are listed for accuracy, not because a linter
+    // checks it (react-hooks/exhaustive-deps is off repo-wide). Their
+    // identities are fixed for the hook's lifetime, so they never actually
+    // retrigger this effect. Listing the raw onChanges/onSignal instead would
+    // restart every watcher on each callback identity change for no
+    // behavioural benefit.
   }, [adapter, roots, emitChanges, emitSignal]);
 
   // Unmount-only effect: dispose ALL remaining watchers when the component

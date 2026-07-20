@@ -17,7 +17,9 @@ const recommendedLatest = reactHooks.configs.flat['recommended-latest'];
 // burn-down PR must also LOWER the --max-warnings number to the new count,
 // or regressions can creep back invisibly inside the slack. (Re-baselined
 // 196→197: a merge in flight when the ratchet landed (#1790) was measured
-// after the fact — the ceiling race is expected; re-baseline with a note.)
+// after the fact — the ceiling race is expected; re-baseline with a note.
+// Burned 197→194: #1764's render-phase ref writes in use-file-system-watcher
+// replaced by useEventCallback, clearing 3 react-hooks/refs warnings.)
 const compilerDiagnosticsAsWarnings = Object.fromEntries(
   Object.keys(recommendedLatest.rules).map((rule) => [rule, 'warn'])
 );
