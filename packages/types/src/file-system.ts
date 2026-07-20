@@ -455,7 +455,7 @@ export interface WatcherRootHealthEvent extends WatcherHealthEvent {
 export type WatcherRetryOutcome =
   | { retried: true }
   | {
-      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown' | 'unsupported';
+      reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown' | 'unsupported';
       retried: false;
       retryAfterMs?: number;
     };

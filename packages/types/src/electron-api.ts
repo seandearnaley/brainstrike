@@ -231,7 +231,7 @@ export interface ElectronFileSystemAPI {
   retryWatch: (watchId: string) => Promise<
     | { retried: true }
     | {
-        reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown';
+        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
         retried: false;
         retryAfterMs?: number;
       }

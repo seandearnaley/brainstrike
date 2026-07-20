@@ -203,6 +203,13 @@ const FAILED_TRANSITION_FAILURE = {
   terminal: false,
 };
 
+const TERMINAL_TRANSITION_FAILURE = {
+  code: 'binding-unavailable',
+  message: 'native watcher binding unavailable',
+  retryable: false,
+  terminal: true,
+};
+
 function createWatchHarness(): WatchHarness {
   const startedPaths: string[] = [];
   const stops: ReturnType<typeof vi.fn>[] = [];
@@ -599,6 +606,19 @@ describe('file-system watch IPC domain', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('rejects a deliberate retry after a terminal watcher failure', async () => {
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+      harness.fireLatestHealth(makeTransition('failed', TERMINAL_TRANSITION_FAILURE));
+
+      const result = await invokeRetry(owner, watchId);
+
+      expect(result).toEqual({ reason: 'terminal', retried: false });
+      expect(harness.startedPaths).toEqual([dir]);
+      expect(harness.stops[0]).not.toHaveBeenCalled();
     });
 
     it('throttles retries with escalating backoff per consecutive failure', async () => {

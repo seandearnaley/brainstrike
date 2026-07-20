@@ -236,7 +236,9 @@ fallback.
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating
-  1s/5s/30s throttling and single-flight per watchId;
+  1s/5s/30s throttling and single-flight per watchId; terminal/non-retryable
+  failures are retained by the MAIN registry, rejected by the retry API, and
+  never render a retry action;
   `fs:watch-telemetry` exposes compact counters. Watchers are keyed by `watchId`, owned by the
   requesting `WebContents` (push to owner only, non-owner unwatch rejected
   without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`

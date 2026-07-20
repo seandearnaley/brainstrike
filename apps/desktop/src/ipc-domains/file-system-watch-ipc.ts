@@ -47,7 +47,7 @@ export const WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
 export type FileSystemWatchRetryResult =
   | { retried: true }
   | {
-      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown';
+      reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
       retried: false;
       retryAfterMs?: number;
     };
@@ -382,6 +382,10 @@ export function registerFileSystemWatchIpcHandlers({
       }
       if (entry.lastHealthTransition?.state !== 'failed') {
         return { reason: 'not-failed', retried: false };
+      }
+      const failure = entry.lastHealthTransition.failure;
+      if (failure && (!failure.retryable || failure.terminal)) {
+        return { reason: 'terminal', retried: false };
       }
       if (entry.retryInFlight) {
         return { reason: 'in-flight', retried: false };
