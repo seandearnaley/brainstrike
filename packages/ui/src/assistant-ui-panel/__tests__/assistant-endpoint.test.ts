@@ -39,6 +39,15 @@ describe('resolveAssistantEndpoint', () => {
     expect(endpoint).toEqual({ api: 'http://127.0.0.1:5123/assistant' });
   });
 
+  it('returns undefined (no garbage endpoint) when getAuth reports a startup failure', async () => {
+    setBridge({
+      getAuth: () => Promise.resolve({ startupError: 'assistant server failed to start: boom' }),
+      getUrl: () => Promise.resolve(''),
+    });
+
+    await expect(resolveAssistantEndpoint()).resolves.toBeUndefined();
+  });
+
   it('falls back to getUrl when getAuth reports the server unavailable', async () => {
     setBridge({
       getAuth: () => Promise.resolve(null),

@@ -1,6 +1,32 @@
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
 
+export type SecretReadErrorCode = 'decrypt_failed' | 'encryption_unavailable';
+
+/**
+ * A stored secret exists but cannot be read. Distinct from the `null` "not
+ * set" result on purpose (NO SILENT FALLBACKS): a corrupt entry or an unusable
+ * safeStorage backend (e.g. after a keychain migration) previously read as
+ * "no key", presenting to the user as if they had deleted their API keys.
+ */
+export class SecretReadError extends Error {
+  readonly code: SecretReadErrorCode;
+  readonly provider: string;
+
+  constructor(code: SecretReadErrorCode, provider: string, cause?: unknown) {
+    const detail =
+      code === 'decrypt_failed'
+        ? 'stored secret could not be decrypted (the OS keychain entry may have changed)'
+        : 'safeStorage encryption is unavailable or insecure on this system';
+    super(`Secret for "${provider}" is unreadable: ${detail}. Re-enter the key to repair it.`, {
+      cause,
+    });
+    this.name = 'SecretReadError';
+    this.code = code;
+    this.provider = provider;
+  }
+}
+
 export interface SecretsService {
   clearAll: () => Promise<boolean>;
   deleteKey: (provider: string) => Promise<boolean>;
@@ -51,16 +77,17 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     async getKey(provider: string): Promise<string | null> {
       const b64 = (secretsStore.get('secrets') as SecretsSchema['secrets'])?.[provider];
       if (!b64) {
+        // Strictly "not set" — failures below throw instead of masquerading
+        // as this case (see SecretReadError).
         return null;
       }
+      if (!hasUsableSafeStorageEncryption()) {
+        throw new SecretReadError('encryption_unavailable', provider);
+      }
       try {
-        const buf = Buffer.from(b64, 'base64');
-        if (!hasUsableSafeStorageEncryption()) {
-          return null;
-        }
-        return safeStorage.decryptString(buf);
-      } catch {
-        return null;
+        return safeStorage.decryptString(Buffer.from(b64, 'base64'));
+      } catch (error) {
+        throw new SecretReadError('decrypt_failed', provider, error);
       }
     },
     async listProviders(): Promise<string[]> {

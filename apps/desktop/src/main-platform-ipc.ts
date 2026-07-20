@@ -1,4 +1,4 @@
-import type { AssistantServerAuthInfo } from '@brainstrike/assistant-contract';
+import type { AssistantServerAuthResult } from '@brainstrike/assistant-contract';
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -10,8 +10,8 @@ interface ReloadIntent {
 }
 
 interface MainPlatformIpcDependencies {
-  /** Returns null while the assistant server is unavailable (failed start). */
-  readonly getAssistantAuth: () => AssistantServerAuthInfo | null;
+  /** null = still starting; { startupError } = the server failed to start. */
+  readonly getAssistantAuth: () => AssistantServerAuthResult;
   readonly getAssistantUrl: () => string;
   readonly getPowerSnapshot: () => DesktopPowerSnapshot;
   readonly noteNextWindowReload: (window: BrowserWindow, intent: ReloadIntent) => void;

@@ -162,6 +162,25 @@ describe('fetchAssistantStatusState', () => {
     expect(result).toEqual<AssistantAvailabilityStatus>({ state: 'enabled' });
   });
 
+  it('reports an error state without fetching when the bridge reports a startup failure', async () => {
+    (window as unknown as { assistant?: unknown }).assistant = {
+      getAuth: () =>
+        Promise.resolve({ startupError: 'assistant server failed to start: EADDRINUSE' }),
+    };
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      message: 'assistant server failed to start: EADDRINUSE',
+      state: 'error',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('sends the assistant auth token header when the bridge provides auth', async () => {
     const token = 't'.repeat(64);
     (window as unknown as { assistant?: unknown }).assistant = {
