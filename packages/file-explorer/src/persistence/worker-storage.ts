@@ -25,7 +25,7 @@ const logger = createLogger('worker-storage');
  * real value, and the runtime guard in worker-init.ts is sufficient.
  */
 export function resolveWorkerStorageUrl(): URL {
-  return new URL('./worker-storage.worker.js', import.meta.url);
+  return new URL('./worker-storage.worker.mjs', import.meta.url);
 }
 
 export interface WorkerMessage {

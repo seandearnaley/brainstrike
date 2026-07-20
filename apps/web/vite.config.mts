@@ -243,9 +243,9 @@ export default defineConfig({
         find: '@brainstrike/ui/globals.css',
         replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       },
-      // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js
-      // file is properly bundled. Aliasing to src causes the .ts worker file to be emitted without
-      // transformation, which browsers cannot execute.
+      // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the emitted
+      // worker-storage.worker.mjs artifact is available to the module Worker. Aliasing to
+      // src would point at a worker artifact that has not been built for browser execution.
       // The web:dev script has a predev step that ensures file-explorer is built first.
       {
         find: '@brainstrike/file-explorer',

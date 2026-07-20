@@ -119,19 +119,19 @@ class MockErrorEvent extends Event {
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
 describe('resolveWorkerStorageUrl', () => {
-  it('returns a URL ending with the worker source path', async () => {
+  it('returns the emitted ESM worker artifact URL', async () => {
     const { resolveWorkerStorageUrl } = await import('../worker-storage');
     const url = resolveWorkerStorageUrl();
 
     expect(url).toBeInstanceOf(URL);
-    expect(url.href).toMatch(/worker-storage\.worker\.js$/);
+    expect(url.href).toMatch(/worker-storage\.worker\.mjs$/);
   });
 
-  it('returns a URL with the persistence directory in path', async () => {
+  it('uses the bundler-analyzable URL relative to the current ESM module', async () => {
     const { resolveWorkerStorageUrl } = await import('../worker-storage');
     const url = resolveWorkerStorageUrl();
 
-    expect(url.href).toContain('/persistence/');
+    expect(url.href).toContain('/src/persistence/worker-storage.worker.mjs');
   });
 });
 
