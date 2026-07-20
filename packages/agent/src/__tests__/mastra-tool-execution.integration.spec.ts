@@ -426,6 +426,84 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(JSON.stringify(rawSuccess?.payload)).toContain(rawOnlyTail);
   });
 
+  it('settles oversized raw output before the real Mastra display and transcript seams', async () => {
+    const rawOnlyTail = 'durable-tail-must-not-be-inlined';
+    const rawOutput = {
+      content: `${'x'.repeat(20_000)}${rawOnlyTail}`,
+      path: '/large-output.txt',
+    };
+    const serialized = JSON.stringify(rawOutput);
+    const store = vi.fn(async () => ({
+      byteLength: new TextEncoder().encode(serialized).byteLength,
+      expiresAt: '2026-07-27T12:00:00.000Z',
+      format: 'json' as const,
+      id: '019f7d67-7165-7c23-8e99-d70c2a2f168d',
+    }));
+    const largeOutputTool = createTool({
+      description: 'Return a deliberately large raw result.',
+      execute: () => Promise.resolve(rawOutput),
+      id: 'settled_large_output',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ content: z.string(), path: z.string() }),
+    });
+    let modelFacingToolOutput = '';
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The durable output was projected.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        const toolMessage = prompt.find((message) => message.role === 'tool');
+        modelFacingToolOutput = readToolResultText(toolMessage);
+      },
+      toolCallId: 'call-settled-large-output-1',
+      toolName: 'settled_large_output',
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-settled-large',
+          parts: [{ text: 'return the durable large output', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        toolOutputArtifactStore: { store },
+        tools: { settled_large_output: largeOutputTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(store).toHaveBeenCalledWith({
+      content: serialized,
+      format: 'json',
+      toolCallId: 'call-settled-large-output-1',
+    });
+    expect(modelFacingToolOutput).toContain('output was truncated');
+    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    const success = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> =>
+        chunk.type === 'tool-event' &&
+        chunk.name === 'settled_large_output' &&
+        chunk.status === 'success'
+    );
+    expect(success?.payload.output).toMatchObject({
+      artifactRef: {
+        byteLength: new TextEncoder().encode(serialized).byteLength,
+        format: 'json',
+      },
+      code: 'tool_output_artifact',
+      truncated: true,
+      version: 1,
+    });
+    expect(JSON.stringify(success?.payload)).not.toContain(rawOnlyTail);
+  });
+
   it('uses a bounded default projection when a custom projection declines with undefined', async () => {
     const rawOutput = { raw: 'fallback-result' };
     const conditionalTool = createTool({

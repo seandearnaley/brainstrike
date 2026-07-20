@@ -10,6 +10,7 @@ const OWNER_ID_MAX_BYTES = 512;
 const DEFAULT_PURGE_LIMIT = 500;
 const MAX_PURGE_LIMIT = 10_000;
 const TEXT_ENCODER = new TextEncoder();
+const HEX_BYTES = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, '0'));
 
 export const TOOL_OUTPUT_ARTIFACT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -110,7 +111,22 @@ function requirePositiveInteger(value: number, field: string, maximum: number): 
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  let hex = '';
+  const chunkSize = 8192;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    let chunk = '';
+    const end = Math.min(offset + chunkSize, bytes.length);
+    for (let index = offset; index < end; index += 1) {
+      const byte = bytes[index];
+      const encoded = byte === undefined ? undefined : HEX_BYTES[byte];
+      if (encoded === undefined) {
+        throw new TypeError('Tool output artifact byte encoding encountered an invalid byte.');
+      }
+      chunk += encoded;
+    }
+    hex += chunk;
+  }
+  return hex;
 }
 
 function canonicalInstant(value: Date | string, field: string): string {
@@ -171,6 +187,8 @@ export class ToolOutputArtifactRepository {
 
     const createdAt = requireNow(this.now);
     const expiresAt = new Date(createdAt.getTime() + TOOL_OUTPUT_ARTIFACT_RETENTION_MS);
+    // Deliberately uncapped here: the settlement boundary owns the host policy
+    // cap, while this repository guarantees complete byte-exact retention.
     const content = TEXT_ENCODER.encode(input.content);
     if (!Number.isSafeInteger(content.byteLength)) {
       throw new RangeError('Tool output artifact content exceeds the safe byte-length range.');
@@ -182,6 +200,10 @@ export class ToolOutputArtifactRepository {
            resource_id, thread_id, run_id, tool_call_id, format,
            content, byte_length, created_at, expires_at
          ) VALUES ($1, $2, $3, $4, $5, decode($6, 'hex'), $7, $8, $9)
+         ON CONFLICT (resource_id, thread_id, run_id, tool_call_id)
+         DO UPDATE SET tool_call_id = EXCLUDED.tool_call_id
+         WHERE ${TABLE}.format = EXCLUDED.format
+           AND ${TABLE}.content = EXCLUDED.content
          RETURNING
            id,
            format,

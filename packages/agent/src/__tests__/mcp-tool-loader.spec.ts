@@ -1212,6 +1212,39 @@ describe('mcp-tool-loader', () => {
       expect(JSON.stringify(output).length).toBeLessThanOrEqual(12_000);
     });
 
+    it('preserves complete oversized MCP output when durable settlement is enabled', async () => {
+      const completeOutput = `head-${'x'.repeat(13_000)}-tail`;
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: {
+            description: 'read file',
+            execute: vi.fn(async () => completeOutput),
+            id: 'read_file',
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        durableArtifactSettlement: true,
+        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+        mcpConfig: {
+          servers: [
+            {
+              command: 'echo',
+              name: 'filesystem',
+              transport: 'stdio' as const,
+            },
+          ],
+        },
+        sanitizedLocalTools: undefined,
+        timeoutOverrideMs: undefined,
+        toolNameMap: new Map(),
+      });
+
+      const tool = result['filesystem_read_file'] as { execute: () => Promise<unknown> };
+      await expect(tool.execute()).resolves.toBe(completeOutput);
+    });
+
     it('preserves bounded MCP image and audio output for model-native projection', async () => {
       const rawOutput = {
         content: [
@@ -1250,7 +1283,10 @@ describe('mcp-tool-loader', () => {
       await expect(tool.execute()).resolves.toEqual(rawOutput);
     });
 
-    it('fails visibly when MCP inline media exceeds the temporary persistence ceiling', async () => {
+    it.each([
+      false,
+      true,
+    ])('fails visibly when MCP inline media exceeds its ceiling (durable settlement: %s)', async (durableArtifactSettlement) => {
       const mockMcpClient = createMockMcpClient({
         remote: {
           oversized_media: {
@@ -1270,6 +1306,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
+        durableArtifactSettlement,
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [

@@ -611,15 +611,31 @@ results independently of Mastra message rows:
 - Storage, reads, and purge failures use a typed visible error. Settlement must
   finish the complete write before publishing an artifact envelope; it must
   never substitute a reference after a failed write.
+- Exact replay of `(resource, thread, run, tool call)` returns the existing
+  reference only when format and complete bytes match. A different replay
+  returns no row and surfaces as a typed storage conflict; settlement never
+  overwrites prior evidence.
 - There are deliberately no Mastra FKs because the numbered migration runner
   operates on a bare schema. Both direct-PGlite reset paths and desktop
   `db:clearAll` delete artifacts explicitly; only a pre-068 missing relation is
   tolerated.
 
-This layer does not yet settle live tool results or expose a reader tool, so
-the temporary MCP inline ceilings remain authoritative. Paired tests:
+The desktop assistant now injects a trusted, request-scoped repository adapter
+when resource, thread, and server-owned run ids are all present. The agent's
+central settlement wrapper persists complete non-media native/MCP results above
+12,000 UTF-8 bytes, caps one artifact at 16 MiB, and publishes a preview
+envelope only after the repository returns coherent metadata. Display and
+transcript store that envelope; a private in-process carrier lets model
+projection consume the original result. MCP image/audio remains inline for
+display/transcript rendering and keeps its media plus metadata ceilings in both
+host modes. Hosts without the adapter additionally retain the temporary MCP
+text/JSON inline ceiling. The artifact reader remains a separate later slice.
+Paired tests:
 `migration-068-tool-output-artifacts.test.ts`,
-`tool-output-artifact-repository.test.ts`, `factory-reset.test.tsx`, and the
+`tool-output-artifact-repository.test.ts`,
+`tool-output-artifact-settlement.spec.ts`,
+`mastra-tool-execution.integration.spec.ts`,
+`assistant-server.integration.test.ts`, `factory-reset.test.tsx`, and the
 desktop `ipc-handlers-db.test.ts`.
 
 ## THREADS PANEL HYBRID SEARCH
