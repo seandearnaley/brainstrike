@@ -23,6 +23,7 @@ import { toJsonSafe } from '../stream/json';
 import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
+import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();
@@ -296,6 +297,9 @@ async function settleOutput(
   }
   const hookEnvelope = readHookResultEnvelope(output);
   const domainOutput = hookEnvelope ? hookEnvelope.result : output;
+  if (readMcpMultimodalOutput(domainOutput)) {
+    return output;
+  }
   const serialized = serializeToolOutput(domainOutput, toolName);
   if (!(serialized && serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)) {
     return output;

@@ -1283,7 +1283,10 @@ describe('mcp-tool-loader', () => {
       await expect(tool.execute()).resolves.toEqual(rawOutput);
     });
 
-    it('fails visibly when MCP inline media exceeds the temporary persistence ceiling', async () => {
+    it.each([
+      false,
+      true,
+    ])('fails visibly when MCP inline media exceeds its ceiling (durable settlement: %s)', async (durableArtifactSettlement) => {
       const mockMcpClient = createMockMcpClient({
         remote: {
           oversized_media: {
@@ -1303,6 +1306,7 @@ describe('mcp-tool-loader', () => {
       });
 
       const result = await collectCombinedTools({
+        durableArtifactSettlement,
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: {
           servers: [

@@ -18,7 +18,7 @@ import {
 } from '../mcp/explicit-stdio-client';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
-import { readMcpMultimodalOutput } from './tool-model-output';
+import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 

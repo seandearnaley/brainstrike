@@ -463,13 +463,15 @@ installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
 markers), delegates to Mastra's limiter, and restores the exact raw result in a
 `finally`. Keep its canonical processor id `token-limiter`.
 
-MCP uses a separate temporary inline ceiling only when the host does not supply
-durable artifact settlement: text/JSON is bounded to
-`MAX_TOOL_RESULT_TOKENS` (3000); multimodal output keeps raw media only up to
-the assistant aggregate encoded-media ceiling and 12000 non-media serialized
-characters. Multimodal `content` arrays containing any non-object part are
-malformed and throw before persistence accounting. Exceeding either ceiling
-throws visibly—never drops media.
+MCP text/JSON uses a separate temporary inline ceiling only when the host does
+not supply durable artifact settlement: it is bounded to
+`MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
+display/transcript channels can render it; durable settlement never converts
+image/audio `content` arrays into text artifacts. Raw media is permitted only
+up to the assistant aggregate encoded-media ceiling and 12000 non-media
+serialized characters in both host modes. Multimodal `content` arrays
+containing any non-object part are malformed and throw before persistence
+accounting. Exceeding either ceiling throws visibly—never drops media.
 
 The browser-safe `@brainstrike/assistant-contract/tool-output-artifact`
 subpath defines the versioned foundation for that replacement: an opaque
@@ -491,13 +493,14 @@ factory-reset cleanup. Exact replay of one scoped tool call is idempotent only
 when format and complete bytes match; a conflicting replay is a hard failure.
 
 `applyToolOutputArtifactSettlement` is the central live settlement seam. With a
-trusted host store, native and MCP output above 12,000 UTF-8 bytes is retained
-completely before display/transcript receives the bounded envelope. A private
-carrier lets `toModelOutput` project the original result and hook context while
-preventing either from leaking into persistence. The upstream settlement cap
-is 16 MiB (large enough for the existing 10 MiB binary-media allowance after
-base64 expansion); over-cap output, missing tool-call provenance, serialization
-failure, storage failure, or incoherent storage metadata throws visibly.
+trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
+retained completely before display/transcript receives the bounded envelope. A
+private carrier lets `toModelOutput` project the original result and hook
+context while preventing either from leaking into persistence. MCP image/audio
+stays inline under the media ceilings above instead of being serialized into a
+text artifact. The upstream settlement cap for pageable text/JSON is 16 MiB;
+over-cap output, missing tool-call provenance, serialization failure, storage
+failure, or incoherent storage metadata throws visibly.
 Without the capability, the temporary MCP ceilings above remain authoritative.
 Desktop injects the capability only for a server-owned run with resource,
 thread, and run scope. A reader tool is still a later slice; the current cursor

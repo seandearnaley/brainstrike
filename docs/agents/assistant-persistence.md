@@ -622,12 +622,15 @@ results independently of Mastra message rows:
 
 The desktop assistant now injects a trusted, request-scoped repository adapter
 when resource, thread, and server-owned run ids are all present. The agent's
-central settlement wrapper persists complete native/MCP results above 12,000
-UTF-8 bytes, caps one artifact at 16 MiB, and publishes a preview envelope only
-after the repository returns coherent metadata. Display and transcript store
-that envelope; a private in-process carrier lets model projection consume the
-original result. Hosts without the adapter retain the temporary MCP inline
-ceilings. The artifact reader remains a separate later slice. Paired tests:
+central settlement wrapper persists complete non-media native/MCP results above
+12,000 UTF-8 bytes, caps one artifact at 16 MiB, and publishes a preview
+envelope only after the repository returns coherent metadata. Display and
+transcript store that envelope; a private in-process carrier lets model
+projection consume the original result. MCP image/audio remains inline for
+display/transcript rendering and keeps its media plus metadata ceilings in both
+host modes. Hosts without the adapter additionally retain the temporary MCP
+text/JSON inline ceiling. The artifact reader remains a separate later slice.
+Paired tests:
 `migration-068-tool-output-artifacts.test.ts`,
 `tool-output-artifact-repository.test.ts`,
 `tool-output-artifact-settlement.spec.ts`,

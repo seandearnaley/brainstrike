@@ -14,6 +14,11 @@ import {
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner';
+import {
+  isMcpMediaPart,
+  type McpContentPart,
+  readMcpMultimodalOutput,
+} from './mcp-multimodal-output';
 import { readSettledToolOutputProjectionSource } from './tool-output-artifact-settlement';
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
@@ -23,17 +28,6 @@ type ExecutableToolWithModelOutput = ToolsInput[string] & {
 
 const POST_TOOL_CONTEXT_LABEL = 'Post-tool context: ';
 const POST_TOOL_CONTEXT_TRUNCATION_SUFFIX = '… [post-tool context truncated]';
-
-interface McpContentPart {
-  readonly data?: unknown;
-  readonly mimeType?: unknown;
-  readonly text?: unknown;
-  readonly type?: unknown;
-}
-
-interface McpMultimodalOutput {
-  readonly content: readonly McpContentPart[];
-}
 
 interface ModelContentOutput {
   readonly type: 'content';
@@ -99,57 +93,6 @@ function serializeBoundedOutput(
   }
   const serialized = JSON.stringify(bounded);
   return serialized ?? String(bounded);
-}
-
-function isMcpMediaPart(part: McpContentPart): boolean {
-  return (part.type === 'image' || part.type === 'audio') && typeof part.data === 'string';
-}
-
-export function readMcpMultimodalOutput(output: unknown): McpMultimodalOutput | undefined {
-  if (!(output && typeof output === 'object')) {
-    return;
-  }
-  const content = (output as { content?: unknown }).content;
-  if (!Array.isArray(content)) {
-    return;
-  }
-  const parts = content.filter((part): part is McpContentPart => isRecord(part));
-  if (!parts.some(isMcpMediaPart)) {
-    return;
-  }
-  if (parts.length !== content.length) {
-    throw new TypeError('MCP multimodal content must contain only object parts');
-  }
-  return { content: parts };
-}
-
-export function measureMcpMultimodalOutput(output: unknown):
-  | {
-      readonly mediaDataChars: number;
-      readonly nonMediaSerializedChars: number;
-    }
-  | undefined {
-  const multimodal = readMcpMultimodalOutput(output);
-  if (!multimodal) {
-    return;
-  }
-  let mediaDataChars = 0;
-  const maskedContent = multimodal.content.map((part) => {
-    if (!isMcpMediaPart(part)) {
-      return part;
-    }
-    mediaDataChars += String(part.data).length;
-    return { ...part, data: '' };
-  });
-  const maskedOutput = { ...(output as Record<string, unknown>), content: maskedContent };
-  const serialized = JSON.stringify(maskedOutput);
-  if (serialized === undefined) {
-    throw new TypeError('MCP tool output could not be serialized');
-  }
-  return {
-    mediaDataChars,
-    nonMediaSerializedChars: serialized.length,
-  };
 }
 
 function stringifyMcpTextPart(part: McpContentPart): string {

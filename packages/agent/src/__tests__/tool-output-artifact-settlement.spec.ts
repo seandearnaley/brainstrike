@@ -152,6 +152,33 @@ describe('tool output artifact settlement', () => {
     expect(readOutputTransform(tool, result)).not.toBe(output);
   });
 
+  it('preserves oversized MCP media inline instead of settling it as text', async () => {
+    const output = {
+      content: [
+        { text: 'A rendered image.', type: 'text' },
+        {
+          data: 'a'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES),
+          mimeType: 'image/png',
+          type: 'image',
+        },
+      ],
+    };
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => output) },
+      { store: settlementStore(store), toolNameMap: new Map() }
+    );
+    const tool = tools['fixture'] as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+    };
+
+    const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
+
+    expect(result).toBe(output);
+    expect(readOutputTransform(tool, result)).toBe(output);
+    expect(store).not.toHaveBeenCalled();
+  });
+
   it('preserves authenticated PostToolUse context while displaying only the artifact envelope', async () => {
     const output = `head-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}-tail`;
     const hooked = applyToolHooks(
