@@ -265,7 +265,10 @@ export async function toAiSdkStyleStream(
   runtime?: RuntimeData,
   optionsOverride: Pick<
     MastraAgentRuntimeOptions,
-    'memory' | 'storage' | 'toolOutputArtifactStore'
+    | 'memory'
+    | 'storage'
+    | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'
+    | 'toolOutputArtifactStore'
   > = {}
 ): Promise<StreamIterator> {
   const options: MastraAgentRuntimeOptions = { ...optionsOverride };

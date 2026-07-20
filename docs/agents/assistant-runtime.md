@@ -79,7 +79,8 @@ below are LIVE.
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order:
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
-gates → provider-native swap → model-output projection → Agent`. The final
+gates → provider-native swap → artifact settlement → model-output projection →
+Agent`. The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
 post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official
@@ -107,8 +108,13 @@ separately typed boundary.
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
-before an artifact envelope can reach display/transcript. A module-private
-WeakMap carrier keeps the original in-process result and authenticated
+before an artifact envelope can reach display/transcript. A trusted per-tool
+canonical-name map may lower the inline threshold by
+serialized characters when a complete domain projection has a tighter budget.
+`brainstrike.webExtract` uses 2400 characters: smaller extracts project every
+source byte and exact URL directly; larger extracts settle completely and
+continue through the artifact reader instead of clipping or re-fetching.
+A module-private WeakMap carrier keeps the original in-process result and authenticated
 PostToolUse context away from public persistence. Once settlement succeeds,
 model projection bypasses any domain projector for the original result and
 projects a bounded initial-page view instead. That model view omits the

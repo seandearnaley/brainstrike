@@ -972,6 +972,46 @@ describe('assistant-tools', () => {
     expect(raw).toEqual(before);
   });
 
+  it('keeps webExtract execute output rich while registering its complete inline projection', async () => {
+    const content = '# Exact source\n\nUnicode 雪 and `"quotes"`.';
+    const fetchImpl = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            failed_results: [],
+            results: [
+              {
+                raw_content: content,
+                url: 'https://example.com/exact',
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+    ) as typeof fetch;
+    const tool = buildDesktopAssistantTools(
+      { workspaceRootPath: '/tmp/workspace' } as RuntimeData,
+      {
+        webExtract: {
+          fetchImpl,
+          resolveApiKey: async () => 'tvly-test-key',
+        },
+      }
+    )['brainstrike.webExtract'];
+
+    const raw = await tool.execute({
+      context: { urls: ['https://example.com/exact'] },
+    });
+
+    expect(raw.results).toEqual([{ content, url: 'https://example.com/exact' }]);
+    expect(tool.toModelOutput?.(raw)).toMatchObject({
+      type: 'text',
+      value: expect.stringContaining(`content_json: ${JSON.stringify(content)}`),
+    });
+    expect(raw.results[0]?.content).toBe(content);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],

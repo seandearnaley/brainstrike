@@ -1,5 +1,5 @@
 import type { WebExtractInput } from '@brainstrike/agent';
-import { fitItemsToCharBudget, WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
+import { WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
 import { TAVILY_SECRET_PROVIDER } from './web-search-tool';
@@ -16,22 +16,12 @@ const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as cons
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';
-/** Hard cap per extracted page so one long article cannot dominate the budget. */
-const MAX_CONTENT_CHARS_PER_PAGE = 6000;
-/** Failure entries are bounded too: URLs are model-supplied (schema allows
- * 2000 chars x 5) and Tavily error strings are unbounded — uncapped, the
- * `failed` list alone could blow the tool output budget (it rides OUTSIDE the
- * item fitter, which only trims `results`). Worst case with these caps:
- * 10 entries (5 refusals + 5 service failures) ≈ 5KB, safely under budget. */
-const MAX_FAILED_URL_CHARS = 200;
-const MAX_FAILED_REASON_CHARS = 300;
-
 const UNAVAILABLE_MESSAGE =
   'Web extract is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
 
 /** One extracted page returned to the model. */
 export interface WebExtractResultItem {
-  /** Bounded markdown/plain content of the page. */
+  /** Complete markdown/plain content returned by Tavily. */
   content: string;
   /** The page URL. */
   url: string;
@@ -59,11 +49,11 @@ export interface WebExtractToolResult {
   error?: string;
   /** URLs refused by the local guard or failed by the extraction service. */
   failed: WebExtractFailedItem[];
-  /** Actionable hint when content was trimmed to fit the budget. */
+  /** Reserved for actionable guidance on a future explicitly partial result. */
   hint?: string;
   /** Actionable next step / context message (e.g. the "add a key" guidance). */
   message?: string;
-  /** Extracted pages, self-bounded to the tool output budget. */
+  /** Complete extracted pages; oversized output settles through the artifact store. */
   results: WebExtractResultItem[];
   truncated: boolean;
 }
@@ -213,7 +203,7 @@ function partitionExtractUrls(urls: readonly string[]): {
   for (const url of urls) {
     const refusal = refuseExtractUrl(url);
     if (refusal) {
-      failed.push(boundFailedItem(url, refusal));
+      failed.push({ reason: refusal, url });
     } else {
       accepted.push(url);
     }
@@ -221,7 +211,7 @@ function partitionExtractUrls(urls: readonly string[]): {
   return { accepted, failed };
 }
 
-/** Normalize Tavily's /extract payload: bounded page items + service-side failures. */
+/** Normalize Tavily's /extract payload without losing source or failure bytes. */
 function normalizeExtractPayload(
   payload: TavilyExtractApiResponse,
   failed: WebExtractFailedItem[]
@@ -229,7 +219,7 @@ function normalizeExtractPayload(
   const items = (Array.isArray(payload.results) ? payload.results : [])
     .map(
       (entry): WebExtractResultItem => ({
-        content: boundContent(coerceString(entry?.raw_content)),
+        content: coerceString(entry?.raw_content),
         url: coerceString(entry?.url),
       })
     )
@@ -237,63 +227,10 @@ function normalizeExtractPayload(
   for (const failure of Array.isArray(payload.failed_results) ? payload.failed_results : []) {
     const url = coerceString(failure?.url);
     if (url.length > 0) {
-      failed.push(boundFailedItem(url, coerceString(failure?.error) || 'extraction failed'));
+      failed.push({ reason: coerceString(failure?.error) || 'extraction failed', url });
     }
   }
   return items;
-}
-
-function boundContent(content: string): string {
-  if (content.length <= MAX_CONTENT_CHARS_PER_PAGE) {
-    return content;
-  }
-  return `${content.slice(0, MAX_CONTENT_CHARS_PER_PAGE)}…`;
-}
-
-function bounded(value: string, maxChars: number): string {
-  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…`;
-}
-
-function boundFailedItem(url: string, reason: string): WebExtractFailedItem {
-  return {
-    reason: bounded(reason, MAX_FAILED_REASON_CHARS),
-    url: bounded(url, MAX_FAILED_URL_CHARS),
-  };
-}
-
-function buildBudgetedResult(args: {
-  failed: WebExtractFailedItem[];
-  items: readonly WebExtractResultItem[];
-}): WebExtractToolResult {
-  const { failed, items } = args;
-  const totalResults = items.length;
-  // Build the hint INSIDE the fitted candidate so it can never push the
-  // serialized result back over the budget (mirrors webSearch/grepSearch).
-  const { result } = fitItemsToCharBudget(items, (kept): WebExtractToolResult => {
-    const truncated = kept.length < totalResults;
-    const hint = truncated
-      ? `Showing ${kept.length} of ${totalResults} extracted pages (trimmed to fit the tool output budget). Re-call with fewer urls to read the rest.`
-      : undefined;
-    return {
-      available: true,
-      count: kept.length,
-      failed,
-      results: kept.slice(),
-      truncated,
-      ...(hint ? { hint } : {}),
-    };
-  });
-  // Per-page bounding can still leave ALL pages over budget together; the
-  // fitter keeps at least the honest empty shape. When every page was dropped
-  // by the fitter, surface that as truncation with the hint, never an error.
-  if (result.results.length === 0 && totalResults > 0 && !result.hint) {
-    return {
-      ...result,
-      hint: 'Extracted content exceeded the tool output budget. Re-call with a single url.',
-      truncated: true,
-    };
-  }
-  return result;
 }
 
 /**
@@ -376,7 +313,13 @@ export async function runWebExtract(
 
     const payload = (await response.json()) as TavilyExtractApiResponse;
     const items = normalizeExtractPayload(payload, failed);
-    return buildBudgetedResult({ failed, items });
+    return {
+      available: true,
+      count: items.length,
+      failed,
+      results: items,
+      truncated: false,
+    };
   } catch (error) {
     // AbortSignal.timeout uses TimeoutError; some runtimes/fetch paths still
     // surface AbortError. Treat both as the non-fatal timeout result.
