@@ -2424,10 +2424,10 @@ function logTokenDiagnostics(
     ...fields,
   };
   if (fields['measurementStatus'] === 'failed') {
-    logger.warn('mastra run token measurement failed visibly', context);
+    logger.warn(context, 'mastra run token measurement failed visibly');
     return;
   }
-  logger.info('mastra run token measurement recorded', context);
+  logger.info(context, 'mastra run token measurement recorded');
 }
 
 async function createStreamIteratorFromRuntime({

@@ -308,6 +308,10 @@ describe('mastra streaming integration', () => {
         (arg as { code?: unknown }).code === 'mastra_agent_token_measurement'
     );
     expect(diagnosticsRecord?.level).toBe(LogLevel.INFO);
+    expect(diagnosticsRecord?.args[0]).toMatchObject({
+      code: 'mastra_agent_token_measurement',
+    });
+    expect(diagnosticsRecord?.args[1]).toBe('mastra run token measurement recorded');
     expect(diagnosticsFields).toMatchObject({
       measurementMode: 'declared-compatible-reference',
       measurementStatus: 'measured',

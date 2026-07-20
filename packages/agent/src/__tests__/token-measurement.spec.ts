@@ -7,6 +7,7 @@ import {
   createRunTokenDiagnostics,
   serializeModelOutputForTokenMeasurement,
 } from '../mastra/token-measurement';
+import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 import { TOKEN_MEASUREMENT_FIXTURES } from './fixtures/token-measurement-fixtures';
 
 const EXACT_O200K: TokenMeasurementCapability = {
@@ -108,6 +109,26 @@ describe('run token diagnostics', () => {
     expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
     expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
     expect(JSON.stringify(fields)).not.toContain(secret);
+  });
+
+  it.each([
+    'anthropic',
+    'openai',
+  ])('measures the provider-native definition for the %s web-search tool', async (provider) => {
+    const nativeTool = createProviderNativeWebSearchTool(provider, undefined);
+    expect(nativeTool).toBeDefined();
+
+    const diagnostics = await createRunTokenDiagnostics({
+      capability: EXACT_O200K,
+      tools: { web_search: nativeTool! },
+    });
+    const fields = diagnostics.toLogFields();
+
+    expect(fields).toMatchObject({
+      measurementStatus: 'measured',
+      toolDefinitionCount: 1,
+    });
+    expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
   });
 
   it('compacts inline media to a deterministic marker before counting', () => {

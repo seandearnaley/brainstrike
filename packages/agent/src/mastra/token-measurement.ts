@@ -217,6 +217,22 @@ function serializeToolDefinitions(tools: ToolsInput): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, tool]) => {
       const toolRecord = tool as unknown as Record<string, unknown>;
+      if (
+        toolRecord['type'] === 'provider' &&
+        toolRecord['isProviderExecuted'] === true &&
+        typeof toolRecord['id'] === 'string'
+      ) {
+        // AI SDK provider tools expose lazy function schemas, while the provider
+        // request is defined by the stable provider id and serializable args.
+        return {
+          name,
+          providerTool: {
+            args: toolRecord['args'] ?? {},
+            id: toolRecord['id'],
+            type: 'provider',
+          },
+        };
+      }
       const inputSchema = toolRecord['inputSchema'] ?? toolRecord['parameters'];
       return {
         description: typeof toolRecord['description'] === 'string' ? toolRecord['description'] : '',
