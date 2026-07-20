@@ -939,6 +939,39 @@ describe('assistant-tools', () => {
     expect(hybridRaw).toEqual(hybridBefore);
   });
 
+  it('registers a compact web-search projection without mutating the raw result', () => {
+    const tool = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData)['brainstrike.webSearch'];
+    const raw = {
+      available: true,
+      count: 1,
+      query: 'current Mastra docs',
+      results: [
+        {
+          snippet: 'Current tool documentation.',
+          title: 'Mastra tools',
+          url: 'https://mastra.ai/docs/agents/using-tools',
+        },
+      ],
+      totalResults: 1,
+      truncated: false,
+    };
+    const before = structuredClone(raw);
+
+    expect(tool.toModelOutput?.(raw)).toEqual({
+      type: 'text',
+      value: [
+        'web-search | status=available | shown=1/1 | truncated=false',
+        'query: "current Mastra docs"',
+        '#1 title: Mastra tools',
+        'url: "https://mastra.ai/docs/agents/using-tools"',
+        'snippet: Current tool documentation.',
+      ].join('\n'),
+    });
+    expect(raw).toEqual(before);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],

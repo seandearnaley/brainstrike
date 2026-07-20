@@ -91,6 +91,7 @@ import { runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
+import { projectWebSearchModelOutput } from './web-search-model-projection';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool';
 import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
 import {
@@ -3377,6 +3378,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.webSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
+      toModelOutput: projectWebSearchModelOutput,
     },
     [NATIVE_TOOL_ID.webExtract]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],

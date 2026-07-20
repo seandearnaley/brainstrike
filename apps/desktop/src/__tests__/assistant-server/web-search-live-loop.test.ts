@@ -163,8 +163,13 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
     const serialized = JSON.stringify(toolEventResults);
     expect(serialized).toContain('https://mdn.example/AbortController');
     expect(serialized).toContain('https://mdn.example/fetch');
+    const modelRequests = JSON.stringify(hostClient.requests);
+    expect(modelRequests).toContain('web-search | status=available | shown=2/2');
+    expect(modelRequests).toContain('url: \\"https://mdn.example/AbortController\\"');
+    expect(modelRequests).not.toContain('\\"available\\":true');
     // The secret key never appears in anything the model loop produced.
     expect(serialized).not.toContain(SECRET_TAVILY_KEY);
+    expect(modelRequests).not.toContain(SECRET_TAVILY_KEY);
     expect(finalText).not.toContain(SECRET_TAVILY_KEY);
   });
 

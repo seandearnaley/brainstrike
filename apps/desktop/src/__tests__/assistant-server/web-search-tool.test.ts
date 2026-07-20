@@ -130,6 +130,34 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     expect(JSON.stringify(result)).not.toContain(SECRET_TAVILY_KEY);
   });
 
+  it('returns a NON-FATAL explicit error when Tavily returns a malformed citation URL', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        okJsonResponse(
+          tavilyBody([
+            { content: 'usable evidence', title: 'Good', url: 'https://example.com/good' },
+            { content: 'unsafe evidence', title: 'Bad', url: 'javascript:alert(1)' },
+          ])
+        )
+      )
+    );
+    const deps: WebSearchToolDependencies = {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
+    };
+
+    const result = await runWebSearch(baseInput, deps);
+
+    expect(result).toMatchObject({
+      available: true,
+      count: 0,
+      error: 'Tavily search returned a malformed citation URL.',
+      results: [],
+      totalResults: 0,
+      truncated: false,
+    });
+  });
+
   it('returns a NON-FATAL error result (logged) when Tavily responds non-OK; run continues', async () => {
     const records: LogRecord[] = [];
     const removeListener = addLogListener((record) => records.push(record), LogLevel.ERROR);

@@ -624,6 +624,17 @@ coverage, and producer-owned truncation guidance; path rendering preserves
 repeated and boundary whitespace while escaping line breaks. Unavailable
 Workspace Index state remains visible, malformed or incoherent results throw,
 and neither projection mutates the execute result.
+The execute-backed Tavily `webSearch` tool likewise retains its normalized raw
+result for display, persistence, hooks, and reload while its Mastra
+`toModelOutput` emits a bounded ranked-citation list. The projection retains the
+query, availability/error state, producer count/truncation guidance, stable
+rank, title, exact citation URL, and bounded snippet. Citation URLs are
+JSON-escaped but never clipped or summarized: a citation is admitted whole or
+omitted whole, with explicit projection omission and query-refinement guidance.
+Malformed or incoherent results, including truncated producer output without a
+hint, throw visibly. Provider-native Anthropic/OpenAI web search remains owned
+by the provider adapter and does not pass through this execute-backed Tavily
+projector.
 
 Native-tool catalog ownership is deliberately split at the browser/runtime
 boundary:
