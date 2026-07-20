@@ -130,6 +130,130 @@ describe('PgliteVectorStore', () => {
     });
   });
 
+  describe('range filters', () => {
+    const indexName = 'memory_observations_3';
+
+    beforeEach(async () => {
+      await store.createIndex({ dimension: 3, indexName, metric: 'cosine' });
+      await store.upsert({
+        ids: ['obs-old', 'obs-mid', 'obs-new'],
+        indexName,
+        metadata: [
+          {
+            observed_at: '2026-01-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-1',
+            token_count: 9,
+          },
+          {
+            observed_at: '2026-02-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-1',
+            token_count: 10,
+          },
+          {
+            observed_at: '2026-03-01T00:00:00.000Z',
+            resource_id: 'workspace-a',
+            thread_id: 'thread-2',
+            token_count: 11,
+          },
+        ],
+        vectors: [
+          [1, 0, 0],
+          [1, 0, 0],
+          [1, 0, 0],
+        ],
+      });
+    });
+
+    it('supports the Mastra searchMessages observed_at $gt/$lt window', async () => {
+      // Exact filter shape @mastra/memory searchMessages builds when the
+      // recall tool passes before/after dates (observedAfter/observedBefore).
+      const results = await store.query({
+        filter: {
+          observed_at: {
+            $gt: new Date('2026-01-15T00:00:00.000Z').toISOString(),
+            $lt: new Date('2026-02-15T00:00:00.000Z').toISOString(),
+          },
+          resource_id: 'workspace-a',
+        },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id)).toEqual(['obs-mid']);
+    });
+
+    it('treats $gte/$lte bounds as inclusive', async () => {
+      const results = await store.query({
+        filter: {
+          observed_at: {
+            $gte: '2026-01-01T00:00:00.000Z',
+            $lte: '2026-02-01T00:00:00.000Z',
+          },
+        },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-old']);
+    });
+
+    it('compares numeric operands numerically, not lexicographically', async () => {
+      // Text comparison would exclude token_count 10 and 11 ('10' < '9').
+      const results = await store.query({
+        filter: { token_count: { $gt: 9 } },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-new']);
+    });
+
+    it('rejects unsupported operators loudly, even next to supported ones', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: { $regex: 'x' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/unsupported vector filter operator/i);
+
+      await expect(
+        store.query({
+          filter: { observed_at: { $gt: '2026-01-01T00:00:00.000Z', $regex: 'x' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/unsupported vector filter operator/i);
+    });
+
+    it('rejects range operands that are not strings, finite numbers, or dates', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: { $gt: ['2026-01-01'] } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/range filter/i);
+
+      await expect(
+        store.query({
+          filter: { token_count: { $lt: Number.NaN } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/range filter/i);
+    });
+  });
+
   it('requires deleteVectors to specify ids or a filter', async () => {
     await store.createIndex({ dimension: 3, indexName: 'memory_messages', metric: 'cosine' });
     await store.upsert({
