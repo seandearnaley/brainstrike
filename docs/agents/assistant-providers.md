@@ -585,10 +585,12 @@ it never fabricates or duplicates the original pattern. When the whole raw page
 fits, the projection preserves the producer's bounded hint because the producer
 owns service caps and scan-limit semantics. Only when the tighter projection
 budget omits raw page items does the projector calculate an earlier advancing
-`offset`. A truncated result without producer guidance throws instead of
-guessing. Oversized paths and match context are clipped with an explicit
-omitted-character marker, and malformed result shapes throw rather than falling
-back to generic JSON.
+`offset`. Producer guidance includes an `offset` only when that offset strictly
+advances; when search or candidate limits yield an empty page with no reachable
+next offset, it instead gives terminal query-refinement guidance. A truncated
+result without producer guidance throws instead of guessing. Oversized paths and
+match context are clipped with an explicit omitted-character marker, and
+malformed result shapes throw rather than falling back to generic JSON.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output

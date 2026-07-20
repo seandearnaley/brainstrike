@@ -153,6 +153,27 @@ async function withRipgrepFailing<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Run `fn` with a fake `rg` that reports the documented clean "no matches"
+ * exit code. This pins exit 1 as a successful ripgrep pass rather than a
+ * failure that silently switches engines.
+ */
+async function withRipgrepReturningNoMatches<T>(fn: () => Promise<T>): Promise<T> {
+  const binDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-empty-'));
+  createdRoots.push(binDir);
+  const rgPath = path.join(binDir, 'rg');
+  await fsPromises.writeFile(rgPath, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  await fsPromises.chmod(rgPath, 0o755);
+  process.env['PATH'] = binDir;
+  resetRipgrepAvailabilityForTests();
+  try {
+    return await fn();
+  } finally {
+    process.env['PATH'] = originalPath;
+    resetRipgrepAvailabilityForTests();
+  }
+}
+
 describe('runLiveGrep — failure-path log redaction (regression for PR #1337 gap)', () => {
   it('redacts the workspace root path when a root is not accessible', async () => {
     const secretPath = path.join(os.tmpdir(), 'brainstrike-secret-workspace-root-does-not-exist');
@@ -259,6 +280,31 @@ describe('runLiveGrep — basics', () => {
     } else {
       expect(result.note).toMatch(/ripgrep is unavailable/i);
     }
+  });
+
+  it('treats ripgrep exit code 1 as a clean no-match result without fallback', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const dir = await makeWorkspace({ 'src/a.ts': 'content that the fake rg does not inspect\n' });
+
+    const result = await withRipgrepReturningNoMatches(() =>
+      runLiveGrep(
+        {
+          caseSensitive: false,
+          contextLines: 0,
+          isRegex: false,
+          pattern: 'ABSENT_TOKEN',
+          roots: [root(dir)],
+        },
+        literalMatcher('ABSENT_TOKEN')
+      )
+    );
+
+    expect(result.engine).toBe('ripgrep');
+    expect(result.matches).toEqual([]);
+    expect(result.note).toBeUndefined();
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it('respects the ignore policy (skips node_modules and build output)', async () => {
