@@ -6,7 +6,7 @@ describe('csp-utils', () => {
     const csp = getCSP('development');
 
     expect(csp).toContain(
-      "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' http://localhost:*"
+      "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:*"
     );
     expect(csp).toContain("connect-src 'self' ws://localhost:*");
     expect(csp).toContain("img-src 'self' data: blob: brainstrike-asset: http://localhost:*");
