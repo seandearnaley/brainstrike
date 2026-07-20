@@ -65,9 +65,13 @@ vi.mock('@brainstrike/embeddings/service', () => {
   };
 });
 
-vi.mock('../../vector-preferences', () => ({
-  getActiveEmbeddingSetId: () => 'set-1',
-}));
+vi.mock('@brainstrike/vector-management', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/vector-management')>();
+  return {
+    ...actual,
+    getActiveEmbeddingSetId: () => 'set-1',
+  };
+});
 
 type ToastFn = Parameters<typeof useSearchFunctionality>[2];
 

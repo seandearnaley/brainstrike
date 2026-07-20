@@ -6,10 +6,10 @@ import type {
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
+import { getActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
-import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export interface UseImportFlowOptions {
   embeddingQueue?: QueueAdapter | null;

@@ -20,7 +20,7 @@ import {
 import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
-import { SearchEmbedderProvider } from '@brainstrike/vector-management';
+import { SearchEmbedderProvider, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -28,7 +28,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
-import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
 // (CollectionBrowserView mounts the shared ActionContextMenu, whose
