@@ -67,6 +67,21 @@ export type DesktopBridgeValidationResult =
   | { ok: true }
   | { message: string; missing: string[]; ok: false };
 
+/**
+ * The bridge contract can only ever be satisfied inside an Electron renderer —
+ * the preload script is the sole source of the bridges. When the shared Vite
+ * dev-server URL is opened in a plain browser tab (a routine move in
+ * `dev:agent-debug` sessions), every bridge is legitimately absent. That is an
+ * unsupported-environment condition, not a preload failure, and the two must
+ * stay distinguishable so the validation error keeps working as an Electron
+ * health signal. Chromium stamps `Electron/<version>` into the renderer user
+ * agent independently of preload state, so it classifies correctly even when
+ * the preload script crashed outright.
+ */
+export function isElectronRendererUserAgent(userAgent: string): boolean {
+  return userAgent.includes('Electron/');
+}
+
 export function validateDesktopBridgeContract(
   candidate: DesktopBridgeLike
 ): DesktopBridgeValidationResult {

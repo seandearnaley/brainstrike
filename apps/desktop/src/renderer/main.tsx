@@ -22,6 +22,7 @@ import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import {
   type DesktopBridgeValidationResult,
+  isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
 import './log-buffer';
@@ -395,6 +396,28 @@ function DesktopStartupFailure({
   );
 }
 
+function DesktopRendererOutsideElectron() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      data-testid="desktop-renderer-outside-electron"
+    >
+      <div className="w-full max-w-3xl rounded-xl border border-amber-400/30 bg-[#111827] p-6 shadow-2xl">
+        <h1 className="font-semibold text-2xl">Desktop renderer opened outside Electron</h1>
+        <p className="mt-3 text-slate-200 text-sm">
+          This page is the BrainStrike desktop renderer. It relies on Electron preload bridges that
+          do not exist in a regular browser, so it cannot run here.
+        </p>
+        <p className="mt-3 text-slate-300 text-sm">
+          This is not a desktop app failure — the Electron windows attached to this dev server are
+          unaffected. Close this tab and use the Electron app window, or run the web app (apps/web)
+          for a browser experience.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function isEmbeddingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
 }
@@ -427,10 +450,25 @@ const bridgeValidation =
       })
     : ({ ok: true } as const);
 
+// A failed contract inside Electron means the preload script broke — keep that
+// loudly fatal. The same page opened in a plain browser tab (routine against
+// the shared dev server during `dev:agent-debug`) has no preload by design;
+// classify it separately so the console error is never misread as an Electron
+// boot failure. See desktop-bridge-contract.ts for why the user agent is the
+// right classifier here.
+const runningInElectron = isElectronRendererUserAgent(window.navigator.userAgent);
+
 if (!bridgeValidation.ok) {
-  rendererLogger.error('Desktop preload bridge contract validation failed', {
-    missing: bridgeValidation.missing,
-  });
+  if (runningInElectron) {
+    rendererLogger.error('Desktop preload bridge contract validation failed', {
+      missing: bridgeValidation.missing,
+    });
+  } else {
+    rendererLogger.error(
+      'Desktop renderer loaded outside Electron — preload bridges cannot exist here. This is not a desktop app failure; close this browser tab and use the Electron window (or apps/web for the browser app).',
+      { userAgent: window.navigator.userAgent }
+    );
+  }
 }
 
 root.render(
@@ -446,7 +484,9 @@ root.render(
         <App />
       </StrictMode>
     )
-  ) : (
+  ) : runningInElectron ? (
     <DesktopStartupFailure validation={bridgeValidation} />
+  ) : (
+    <DesktopRendererOutsideElectron />
   )
 );
