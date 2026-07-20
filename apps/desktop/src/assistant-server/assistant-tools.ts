@@ -105,6 +105,10 @@ import {
   normalizeWorkspacePaths,
   toPathSegments,
 } from './workspace-path';
+import {
+  projectHybridSearchModelOutput,
+  projectQueryEmbeddingSpaceModelOutput,
+} from './workspace-retrieval-model-projections';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 import {
   projectGlobWorkspaceModelOutput,
@@ -3670,6 +3674,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.queryEmbeddingSpace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
+      toModelOutput: projectQueryEmbeddingSpaceModelOutput,
     },
     [NATIVE_TOOL_ID.hybridSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
@@ -3689,6 +3694,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.hybridSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
+      toModelOutput: projectHybridSearchModelOutput,
     },
   };
 

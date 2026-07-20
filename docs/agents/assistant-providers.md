@@ -614,6 +614,16 @@ clipped. Projection-only omissions are explicit. When the projection cannot
 retain the whole producer page, its continuation uses the exact advancing
 selected-file offset; malformed, incoherent, or non-advancing producer results
 throw instead of falling back to generic JSON.
+`queryEmbeddingSpace` and `hybridSearch` retain their typed raw results while
+purpose-built Mastra projections emit bounded workspace evidence. Semantic
+retrieval keeps the producer's canonical ranked, root-qualified context string
+plus compact score and token-budget state; explicit clipping reports omitted
+characters and a refinement action. Hybrid retrieval retains fused rank,
+root/path, chunk identity, RRF/vector/FTS provenance, bounded excerpts, source
+coverage, and producer-owned truncation guidance; path rendering preserves
+repeated and boundary whitespace while escaping line breaks. Unavailable
+Workspace Index state remains visible, malformed or incoherent results throw,
+and neither projection mutates the execute result.
 
 Native-tool catalog ownership is deliberately split at the browser/runtime
 boundary:
