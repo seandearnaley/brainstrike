@@ -62,6 +62,28 @@ describe('HybridSearchService', () => {
   });
 
   describe('search', () => {
+    it('measures each search arm independently, not the joint await (BST-578)', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'performance', 'Date'] });
+      try {
+        mockRepository.searchSimilar.mockImplementation(
+          () => new Promise((resolve) => setTimeout(() => resolve([]), 80))
+        );
+        mockRepository.fullTextSearch.mockResolvedValue([]);
+
+        const pending = service.search('test query', [0.1, 0.2, 0.3], {
+          embeddingSetId: 'test-set',
+          limit: 10,
+        });
+        await vi.advanceTimersByTimeAsync(80);
+        const response = await pending;
+
+        expect(response.metadata.vectorSearchMs).toBeGreaterThanOrEqual(80);
+        expect(response.metadata.ftsSearchMs).toBeLessThan(10);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should combine vector and FTS results using RRF', async () => {
       // Setup: doc1 is top in vector, doc2 is top in FTS, doc3 appears in both
       mockRepository.searchSimilar.mockResolvedValue([
