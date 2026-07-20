@@ -131,6 +131,36 @@ describe('WatcherHealthChip', () => {
     );
   });
 
+  it('does not offer retry for a terminal watcher failure', () => {
+    let push: ((event: WatcherRootHealthEvent) => void) | null = null;
+    const retryWatcher = vi.fn();
+    renderChip(
+      {
+        onWatcherHealth: (callback) => {
+          push = callback;
+          return () => undefined;
+        },
+        platform: 'electron',
+        retryWatcher,
+      },
+      '/roots/a'
+    );
+    const event = makeEvent('/roots/a', 'failed', 'native watcher binding unavailable');
+    if (!event.failure) {
+      throw new Error('Expected the test event to contain a watcher failure.');
+    }
+    event.failure.retryable = false;
+    event.failure.terminal = true;
+
+    act(() => {
+      push?.(event);
+    });
+
+    expect(screen.getByTestId('watcher-health-chip').dataset['state']).toBe('failed');
+    expect(screen.queryByRole('button', { name: 'Retry file watching' })).toBeNull();
+    expect(retryWatcher).not.toHaveBeenCalled();
+  });
+
   it('shows a degraded chip without a retry action', () => {
     let push: ((event: WatcherRootHealthEvent) => void) | null = null;
     renderChip(

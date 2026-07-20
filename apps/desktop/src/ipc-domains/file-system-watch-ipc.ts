@@ -1,7 +1,7 @@
 /**
  * File-system watch IPC domain (fs:watch / fs:unwatch / fs:watch-event).
  *
- * Watching runs in the MAIN process (chokidar via
+ * Watching runs in the MAIN process (@parcel/watcher via
  * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
  * batched `FileSystemChange[]` payloads to the OWNING renderer only — the same
  * ownership/reaper model as the notes-vault watch channels. The renderer never
@@ -47,7 +47,7 @@ export const WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
 export type FileSystemWatchRetryResult =
   | { retried: true }
   | {
-      reason: 'in-flight' | 'not-failed' | 'throttled' | 'unknown';
+      reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
       retried: false;
       retryAfterMs?: number;
     };
@@ -55,7 +55,7 @@ export type FileSystemWatchRetryResult =
 export interface RegisterFileSystemWatchIpcHandlersOptions {
   /**
    * Start a recursive watcher for a validated directory path; returns a
-   * disposer. Production wiring passes the chokidar-backed
+   * disposer. Production wiring passes the parcel-backed
    * `ElectronFileSystemAdapter.watchDirectory`; tests inject a fake.
    */
   readonly startWatch: StartFileSystemWatch;
@@ -382,6 +382,10 @@ export function registerFileSystemWatchIpcHandlers({
       }
       if (entry.lastHealthTransition?.state !== 'failed') {
         return { reason: 'not-failed', retried: false };
+      }
+      const failure = entry.lastHealthTransition.failure;
+      if (failure && (!failure.retryable || failure.terminal)) {
+        return { reason: 'terminal', retried: false };
       }
       if (entry.retryInFlight) {
         return { reason: 'in-flight', retried: false };

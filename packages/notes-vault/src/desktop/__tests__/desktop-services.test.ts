@@ -126,7 +126,7 @@ describe('createDesktopNotesVaultServices', () => {
 
   it('routes watch failures to onError instead of pretending to watch', async () => {
     const bridge = stubBridge({
-      watch: () => Promise.resolve({ error: 'chokidar exploded', ok: false }),
+      watch: () => Promise.resolve({ error: 'watcher backend exploded', ok: false }),
     });
     const services = createDesktopNotesVaultServices(bridge, {
       handleStore: createMemoryHandleStore(),
@@ -140,6 +140,6 @@ describe('createDesktopNotesVaultServices', () => {
       expect(onError).toHaveBeenCalled();
     });
     const error = onError.mock.calls[0]?.[0] as Error;
-    expect(error.message).toMatch(/chokidar/);
+    expect(error.message).toMatch(/watcher backend/);
   });
 });

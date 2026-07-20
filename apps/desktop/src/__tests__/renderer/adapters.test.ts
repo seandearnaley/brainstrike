@@ -394,6 +394,28 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     stop();
   });
 
+  it('replays health emitted before the bridge watch promise resolves', async () => {
+    const received: Array<{ rootPath: string; state: string }> = [];
+    const unsubscribe = adapter.onWatcherHealth((event) => {
+      received.push({ rootPath: event.rootPath, state: event.state });
+    });
+    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockImplementation(() => {
+      pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
+      return Promise.resolve({ watchId: 'watch-alpha' });
+    });
+
+    const stop = adapter.watchDirectory(handle, vi.fn());
+
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({
+        rootPath: '/roots/alpha',
+        state: 'failed',
+      });
+    });
+    unsubscribe();
+    stop();
+  });
+
   it('replays the latest known state per root to a late subscriber', async () => {
     const stop = adapter.watchDirectory(handle, vi.fn());
     await vi.waitFor(() => {

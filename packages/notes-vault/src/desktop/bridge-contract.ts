@@ -2,7 +2,7 @@
  * Contract for the desktop-native notes vault bridge (window.notesVault).
  *
  * The desktop preload exposes this shape; main implements it over Node fs +
- * chokidar (no File System Access API, no permission ceremony — the OS
+ * a native watcher (no File System Access API, no permission ceremony — the OS
  * grants access). The renderer adapts it to VaultDirectoryHandleLike in
  * node-vault-handles.ts so the entire vault core/store/UI pipeline is shared
  * verbatim with the web backend.
@@ -57,7 +57,7 @@ export interface NotesVaultBridge {
   /** null = entry does not exist. */
   statEntry(path: string): Promise<NotesVaultResult<NotesVaultBridgeEntry | null>>;
   unwatch(watchId: string): Promise<NotesVaultResult<null>>;
-  /** Recursive chokidar watch; events arrive via onChanged with this id. */
+  /** Recursive native watch (@parcel/watcher); events arrive via onChanged with this id. */
   watch(path: string): Promise<NotesVaultResult<{ watchId: string }>>;
   /** Atomic contained write (O_NOFOLLOW; temp+rename semantics in main).
    * Only paths under an approved vault root are writable. */

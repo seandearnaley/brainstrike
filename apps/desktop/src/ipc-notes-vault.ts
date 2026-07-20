@@ -50,10 +50,10 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * dependencies: `app.getPath` for the default vault location, the native
  * directory picker, `shell.trashItem` for recoverable deletes (deleteEntry
  * never hard-unlinks), the shared `ElectronStorageAdapter` (passed by
- * main.ts) for the persisted approved-roots list, and the shared chokidar-backed
+ * main.ts) for the persisted approved-roots list, and the shared parcel-backed
  * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
- * — batched at 150 ms, `ignoreInitial`, symlinks not followed; falls back to
- * native `fs.watch` only if chokidar cannot load, logging the failure). The
+ * — batched at 150 ms, ignore-filtered; setup failure surfaces via the typed
+ * health protocol, never a silent fallback engine — BST-568 slice 4). The
  * returned disposer unregisters the channels and reaps every live watcher.
  */
 export function registerNotesVaultIpc(
@@ -69,15 +69,37 @@ export function registerNotesVaultIpc(
       getDefaultVaultParentPath: resolveDefaultVaultParentPath,
       pickDirectoryPath: pickDirectoryPathWithNativeDialog,
       startWatch: (directoryPath, onChange) =>
-        watcherAdapter.watchDirectory(
-          {
-            kind: 'directory',
-            name: path.basename(directoryPath),
-            path: directoryPath,
-            platform: 'electron',
-          },
-          () => onChange()
-        ),
+        new Promise<() => void>((resolve, reject) => {
+          let settled = false;
+          let stop = (): void => {};
+          stop = watcherAdapter.watchDirectory(
+            {
+              kind: 'directory',
+              name: path.basename(directoryPath),
+              path: directoryPath,
+              platform: 'electron',
+            },
+            () => onChange(),
+            undefined,
+            {
+              onHealth: (event) => {
+                if (settled) {
+                  return;
+                }
+                if (event.state === 'healthy') {
+                  settled = true;
+                  resolve(stop);
+                  return;
+                }
+                if (event.state === 'failed') {
+                  settled = true;
+                  stop();
+                  reject(new Error(event.failure?.message ?? 'Notes vault watcher setup failed'));
+                }
+              },
+            }
+          );
+        }),
       storage,
       trashItem: (absolutePath) => shell.trashItem(absolutePath),
     })

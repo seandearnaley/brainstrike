@@ -25,7 +25,7 @@
  * `writeContainedFileBytes`), scoped to the owning approved root.
  *
  * Watching: `watch` starts a recursive, debounced watcher (the shared
- * chokidar-backed electron watcher from `@brainstrike/file-system/electron`,
+ * @parcel/watcher-backed electron watcher from `@brainstrike/file-system/electron`,
  * injected by `ipc-notes-vault.ts`). Change pushes go one-way to the OWNING
  * renderer's WebContents on `notes-vault:changed` ({@link
  * DESKTOP_IPC_CHANNELS.notesVault.changed}) — never a broadcast. Watchers are
@@ -450,7 +450,7 @@ function toEntry(name: string, stats: { isDirectory(): boolean; mtimeMs: number;
 
 /**
  * Build the dependency-injected notes-vault handlers. Production wiring (native
- * dialog, `app.getPath`, the shared chokidar-backed watcher) lives in
+ * dialog, `app.getPath`, the shared parcel-backed watcher) lives in
  * `ipc-notes-vault.ts`; tests inject fakes.
  */
 export interface NotesVaultIpcHandlersOptions {
@@ -460,9 +460,10 @@ export interface NotesVaultIpcHandlersOptions {
   readonly pickDirectoryPath: () => Promise<string | null>;
   /**
    * Recursive watcher factory: `onChange` fires (already debounced/batched) on
-   * any change under `directoryPath`; the return value stops the watcher.
+   * any change under `directoryPath`; resolves with a disposer only after the
+   * native subscription reports healthy.
    */
-  readonly startWatch: (directoryPath: string, onChange: () => void) => () => void;
+  readonly startWatch: (directoryPath: string, onChange: () => void) => Promise<() => void>;
   /**
    * Durable storage for main's approved-roots list ({@link
    * NOTES_VAULT_ROOTS_STORAGE_KEY}). Production: the shared
@@ -913,7 +914,7 @@ export function createNotesVaultIpcHandlers(
         return { error: `Path "${resolved.canonicalPath}" is not a directory.`, ok: false };
       }
       const watchId = `notes-watch-${randomUUID()}`;
-      const stop = options.startWatch(resolved.canonicalPath, () => {
+      const stop = await options.startWatch(resolved.canonicalPath, () => {
         // Push to the OWNING renderer only (never a broadcast).
         if (owner.isDestroyed()) {
           return;
@@ -921,6 +922,13 @@ export function createNotesVaultIpcHandlers(
         const payload: NotesVaultChangedEvent = { watchId };
         owner.send(DESKTOP_IPC_CHANNELS.notesVault.changed, payload);
       });
+      if (owner.isDestroyed()) {
+        stop();
+        return {
+          error: 'Notes vault watcher owner was destroyed during setup.',
+          ok: false,
+        };
+      }
       liveWatchers.set(watchId, { ownerId: owner.id, stop, webContents: owner });
 
       // Reap every watcher this renderer owns when it is destroyed (window

@@ -127,7 +127,7 @@ function createWatchHarness(): WatchHarness {
         liveCallbacks.delete(onChange);
       });
       stops.push(stop);
-      return stop;
+      return Promise.resolve(stop);
     },
     stops,
   };
@@ -792,6 +792,49 @@ describe('notes vault IPC handlers', () => {
       const owner = new FakeWebContents(12);
       expect(await handlers.watch(castOwner(owner), outside)).toMatchObject({ ok: false });
       expect(watchHarness.startedPaths).toEqual([]);
+      expect(liveNotesVaultWatcherCountForTest()).toBe(0);
+    });
+
+    it('does not register a watcher when native subscription setup fails', async () => {
+      const { handlers, storage } = createHandlers({
+        startWatch: () => Promise.reject(new Error('watcher backend exploded')),
+      });
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+      const owner = new FakeWebContents(13);
+
+      const result = await handlers.watch(castOwner(owner), approved);
+
+      expect(result).toEqual({ error: 'watcher backend exploded', ok: false });
+      expect(liveNotesVaultWatcherCountForTest()).toBe(0);
+    });
+
+    it('stops a subscription that becomes healthy after its owner is destroyed', async () => {
+      let resolveStart: ((stop: () => void) => void) | undefined;
+      const stop = vi.fn();
+      const startWatch = vi.fn(
+        () =>
+          new Promise<() => void>((resolve) => {
+            resolveStart = resolve;
+          })
+      );
+      const { handlers, storage } = createHandlers({ startWatch });
+      const approved = await makeDir();
+      await approveRoot(handlers, storage, approved);
+      const owner = new FakeWebContents(14);
+
+      const watchResult = handlers.watch(castOwner(owner), approved);
+      await vi.waitFor(() => {
+        expect(startWatch).toHaveBeenCalledOnce();
+      });
+      owner.fireDestroyed();
+      resolveStart?.(stop);
+
+      expect(await watchResult).toEqual({
+        error: 'Notes vault watcher owner was destroyed during setup.',
+        ok: false,
+      });
+      expect(stop).toHaveBeenCalledOnce();
       expect(liveNotesVaultWatcherCountForTest()).toBe(0);
     });
 

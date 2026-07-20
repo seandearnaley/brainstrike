@@ -332,6 +332,9 @@ jobs:
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
 
+      - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
+        run: pnpm --filter @brainstrike/file-system test:packaged
+
   web-e2e:
     name: Web E2E
     if: github.event_name != 'workflow_dispatch'

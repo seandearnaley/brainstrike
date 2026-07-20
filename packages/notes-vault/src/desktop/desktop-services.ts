@@ -21,7 +21,7 @@ function isNodePathMarker(candidate: unknown): candidate is NodePathMarker {
 }
 
 /**
- * Desktop-native services: the vault runs on Node fs + chokidar in main via
+ * Desktop-native services: the vault runs on Node fs + @parcel/watcher in main via
  * the window.notesVault bridge — real paths, no permission ceremony. Handles
  * persist as plain path markers (class instances would lose their methods to
  * structured clone) and are re-approved with main on restore.

@@ -147,7 +147,7 @@ async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
 /**
  * True when a path is owned by the e2e mock file system (mock prefix or a
  * registered fixture) and must never touch the real disk. Shared with the fs
- * watch domain so mock roots get inert watchers instead of chokidar on
+ * watch domain so mock roots get inert watchers instead of a native watcher on
  * nonexistent paths.
  */
 export function isMockFileSystemIpcPath(requestedPath: string): boolean {

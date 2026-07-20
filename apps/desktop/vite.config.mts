@@ -45,7 +45,7 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: 'dist/renderer',
     rolldownOptions: {
-      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
+      external: ['electron', '@mastra/core', /^@mastra\//],
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },

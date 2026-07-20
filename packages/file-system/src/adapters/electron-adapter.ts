@@ -19,80 +19,43 @@ import type {
   FileSystemChange,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
-  WatcherBackendKind,
-  WatcherFailure,
-  WatcherHealthState,
   WatcherHealthTransition,
 } from '../types';
 import { validateDirectoryPath } from '../utils';
 import { normalizeDirectoryReadOptions } from '../utils-browser';
-import { handleWatcherSetupError, startChokidarWatch, startFsWatch } from './electron-watchers';
 import { startParcelWatch } from './parcel-watchers';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
-export type WatcherBackendChoice = 'legacy' | 'parcel';
+export type WatcherBackendChoice = 'parcel';
 
 /**
  * Resolve the watch engine from BRAINSTRIKE_WATCHER_BACKEND (BST-568).
- * Unset/empty means legacy; only 'parcel' and 'legacy' are valid; anything
- * else throws — malformed config must never silently coerce.
+ * The @parcel/watcher service is the only engine (slice 4 removed the legacy
+ * chokidar / recursive-fs.watch engines); unset/empty means parcel. 'legacy'
+ * fails with a pointed message and anything else throws — malformed config
+ * must never silently coerce.
  */
 export function resolveWatcherBackend(
   env: Record<string, string | undefined> = process.env
 ): WatcherBackendChoice {
   const raw = env['BRAINSTRIKE_WATCHER_BACKEND'];
-  if (raw === undefined || raw === '') {
-    return 'legacy';
+  if (raw === undefined || raw === '' || raw === 'parcel') {
+    return 'parcel';
   }
-  if (raw === 'legacy' || raw === 'parcel') {
-    return raw;
+  if (raw === 'legacy') {
+    throw new Error(
+      "BRAINSTRIKE_WATCHER_BACKEND=legacy is no longer supported: the legacy chokidar/fs.watch engines were removed in BST-568 slice 4. Unset the variable (or use 'parcel')."
+    );
   }
   throw new Error(
-    `Invalid BRAINSTRIKE_WATCHER_BACKEND value: ${JSON.stringify(raw)} (expected 'parcel' or 'legacy')`
+    `Invalid BRAINSTRIKE_WATCHER_BACKEND value: ${JSON.stringify(raw)} (expected 'parcel' or unset)`
   );
 }
 
 export interface WatchDirectoryOptions {
   /** Typed watcher health transitions (BST-568 slice 3). */
   onHealth?: (event: WatcherHealthTransition) => void;
-}
-
-/**
- * Coarse health for the legacy engines (setup outcome + dispose only), with
- * the same exactly-once-per-state dedupe as the parcel engine. Removed with
- * the legacy engines in slice 4.
- */
-function createLegacyHealthEmitter(
-  backend: WatcherBackendKind,
-  onHealth: ((event: WatcherHealthTransition) => void) | undefined
-): {
-  fail: (error: unknown) => void;
-  transition: (state: WatcherHealthState) => void;
-} {
-  let current: WatcherHealthState | null = null;
-  const emit = (state: WatcherHealthState, failure?: WatcherFailure): void => {
-    if (!onHealth || current === state) {
-      return;
-    }
-    current = state;
-    onHealth({
-      backend,
-      ...(failure ? { failure } : {}),
-      state,
-      timestamp: Date.now(),
-    });
-  };
-  return {
-    fail: (error) =>
-      emit('failed', {
-        code: 'setup-failed',
-        message: error instanceof Error ? error.message : String(error),
-        retryable: true,
-        terminal: false,
-      }),
-    transition: (state) => emit(state),
-  };
 }
 
 /** Default batch size for streaming directory reads */
@@ -599,12 +562,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Watch a directory and emit high-level change events.
-   *
-   * Backend is resolved explicitly (BST-568): the default remains the legacy
-   * engines (macOS native fs.watch / chokidar elsewhere) until slice 4;
-   * `BRAINSTRIKE_WATCHER_BACKEND=parcel` opts into the @parcel/watcher
-   * engine. A malformed value throws — never a silent coercion.
+   * Watch a directory and emit high-level change events through the
+   * @parcel/watcher service (BST-568 slice 4: the only engine on every
+   * platform — the legacy chokidar/fs.watch paths are gone). Setup failure
+   * surfaces via the onHealth 'failed' transition plus one structured error
+   * log; there is no fallback engine and no polling.
    *
    * Always returns a valid disposer that can be called safely at any time.
    */
@@ -614,7 +576,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
-    const backend = resolveWatcherBackend();
+    resolveWatcherBackend();
     let closed = false;
     let dispose: () => void = () => {};
 
@@ -653,83 +615,26 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       }
     };
 
-    if (backend === 'parcel') {
-      startParcelWatch(handle, callbackWithCacheInvalidation, { onHealth })
-        .then((stop) => {
-          if (closed) {
-            stop();
-            return;
-          }
-          dispose = stop;
-        })
-        .catch((error: unknown) => {
-          // No fallback engine by design. The onHealth 'failed' transition
-          // (emitted inside startParcelWatch) is the renderer-visible signal;
-          // the structured log covers the no-listener case.
-          logger.error('Parcel watcher setup failed; folder will not be watched', {
-            error,
-            path: handle.path,
-          });
-        });
-      return () => {
-        closed = true;
-        dispose();
-      };
-    }
-
-    // Legacy engines predate the health protocol: synthesize COARSE
-    // transitions at this seam (setup outcome + dispose only; runtime
-    // failures still log-and-stop inside the engines). The legacy engines
-    // are removed in BST-568 slice 4.
-    // Wire the WRAPPED sink, not the raw options.onHealth — the wrapper is the
-    // only place transitions become FileSystemWatchSignals, and it forwards to
-    // options.onHealth internally, so there is no double-dispatch. Passing the
-    // raw callback here meant a caller supplying only `onSignal` never learned
-    // that a legacy watch had died.
-    const legacyHealth = createLegacyHealthEmitter(
-      process.platform === 'darwin' ? 'legacy-fs-watch' : 'legacy-chokidar',
-      onHealth
-    );
-    legacyHealth.transition('starting');
-
-    if (process.platform === 'darwin') {
-      try {
-        const stop = startFsWatch(handle, callbackWithCacheInvalidation, 'primary');
-        legacyHealth.transition('healthy');
-        return () => {
-          legacyHealth.transition('stopped');
-          stop();
-        };
-      } catch (error) {
-        legacyHealth.fail(error);
-        throw error;
-      }
-    }
-
-    startChokidarWatch(handle, callbackWithCacheInvalidation)
+    startParcelWatch(handle, callbackWithCacheInvalidation, { onHealth })
       .then((stop) => {
         if (closed) {
           stop();
           return;
         }
         dispose = stop;
-        legacyHealth.transition('healthy');
       })
-      .catch((err) => {
-        if (!closed) {
-          try {
-            dispose = handleWatcherSetupError(err, handle, callbackWithCacheInvalidation);
-            // The fs.watch fallback started; coarse health reports healthy.
-            legacyHealth.transition('healthy');
-          } catch (fallbackError) {
-            legacyHealth.fail(fallbackError);
-          }
-        }
+      .catch((error: unknown) => {
+        // No fallback engine by design. The onHealth 'failed' transition
+        // (emitted inside startParcelWatch) is the renderer-visible signal;
+        // the structured log covers the no-listener case.
+        logger.error('Parcel watcher setup failed; folder will not be watched', {
+          error,
+          path: handle.path,
+        });
       });
 
     return () => {
       closed = true;
-      legacyHealth.transition('stopped');
       dispose();
     };
   }

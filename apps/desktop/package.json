@@ -16,6 +16,7 @@
     "asarUnpack": [
       "**/node_modules/node-pty/prebuilds/**",
       "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node",
+      "**/node_modules/@parcel/**/*.node",
       "**/node_modules/typescript-language-server/**",
       "**/node_modules/typescript/**",
       "**/node_modules/vscode-jsonrpc/**",

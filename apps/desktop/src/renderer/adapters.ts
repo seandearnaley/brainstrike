@@ -75,6 +75,7 @@ function unregisterWatchCallback(watchId: string): void {
  */
 const rootPathByWatchId = new Map<string, string>();
 const latestHealthByRootPath = new Map<string, WatcherRootHealthEvent>();
+const earlyHealthByWatchId = new Map<string, WatcherHealthEvent>();
 const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
 // Per-watch translation of health transitions into the SHARED
 // FileSystemWatchSignal channel (#1764): degraded -> 'overflow' (events may
@@ -83,6 +84,16 @@ const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
 // desktop into the same consumer plumbing the web adapter drives.
 const signalCallbacksById = new Map<string, (signal: FileSystemWatchSignal) => void>();
 let sharedHealthUnsubscribe: (() => void) | null = null;
+let pendingHealthWatchStarts = 0;
+
+function tearDownSharedHealthSubscriptionIfIdle(): void {
+  if (rootPathByWatchId.size > 0 || pendingHealthWatchStarts > 0 || !sharedHealthUnsubscribe) {
+    return;
+  }
+  earlyHealthByWatchId.clear();
+  sharedHealthUnsubscribe();
+  sharedHealthUnsubscribe = null;
+}
 
 /**
  * Fan a resolved transition out to the health subscribers AND the per-watch
@@ -117,6 +128,9 @@ function ensureSharedHealthSubscription(
   sharedHealthUnsubscribe = onWatchHealth((event) => {
     const rootPath = rootPathByWatchId.get(event.watchId);
     if (!rootPath) {
+      if (pendingHealthWatchStarts > 0) {
+        earlyHealthByWatchId.set(event.watchId, event);
+      }
       return;
     }
     dispatchHealth({ ...event, rootPath });
@@ -130,10 +144,8 @@ function forgetWatchHealth(watchId: string): void {
   if (rootPath) {
     latestHealthByRootPath.delete(rootPath);
   }
-  if (rootPathByWatchId.size === 0 && sharedHealthUnsubscribe) {
-    sharedHealthUnsubscribe();
-    sharedHealthUnsubscribe = null;
-  }
+  earlyHealthByWatchId.delete(watchId);
+  tearDownSharedHealthSubscriptionIfIdle();
 }
 
 /** Test-only: reset the module-level shared dispatcher between test cases. */
@@ -142,9 +154,11 @@ export function __resetFsWatchDispatcherForTest(): void {
   sharedWatchUnsubscribe = null;
   rootPathByWatchId.clear();
   latestHealthByRootPath.clear();
+  earlyHealthByWatchId.clear();
   healthSubscribers.clear();
   signalCallbacksById.clear();
   sharedHealthUnsubscribe = null;
+  pendingHealthWatchStarts = 0;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -204,7 +218,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   /**
    * Watch a directory via the main-process watcher bridge (fs:watch →
-   * chokidar in main → fs:watch-event pushes → callback).
+   * @parcel/watcher in main → fs:watch-event pushes → callback).
    *
    * Capability-gated, mirroring the web adapter's FileSystemObserver gate:
    * when the preload bridge lacks the watch methods (older build), this
@@ -236,6 +250,11 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
     let closed = false;
     let watchId: string | null = null;
+    const supportsHealth = typeof api.onWatchHealth === 'function';
+    if (supportsHealth) {
+      pendingHealthWatchStarts += 1;
+      ensureSharedHealthSubscription(api.onWatchHealth);
+    }
 
     const stopMainWatcher = (id: string): void => {
       api.unwatchDirectory(id).catch((error: unknown) => {
@@ -250,6 +269,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       .watchDirectory(handle)
       .then(({ health, watchId: id }) => {
         if (closed) {
+          earlyHealthByWatchId.delete(id);
           stopMainWatcher(id);
           return;
         }
@@ -258,26 +278,21 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         // subscription total, regardless of how many roots are watched).
         registerWatchCallback(api.onWatchEvent, id, callback);
         // Health capability (older bridges may lack it — visibly absent).
-        if (typeof api.onWatchHealth !== 'function') {
+        if (!supportsHealth) {
           return;
         }
         rootPathByWatchId.set(id, handle.path);
         if (onSignal) {
           signalCallbacksById.set(id, onSignal);
         }
-        ensureSharedHealthSubscription(api.onWatchHealth);
-        // Anything main emitted DURING setup was pushed before this id was
-        // registered above, so those pushes were dropped as unknown. Apply the
-        // snapshot main returned with the response — otherwise a watcher that
-        // died on startup leaves the root silently unwatched with no chip.
-        //
-        // Residual (accepted, not papered over): a transition occurring
-        // between main capturing this snapshot and the registration above is
-        // still lost. Closing that fully would need main to defer its pushes
-        // until after the reply, which relies on IPC reply/send ordering that
-        // is not contractually guaranteed.
-        if (health) {
-          dispatchHealth({ ...health, rootPath: handle.path, watchId: id });
+        const earlyHealth = earlyHealthByWatchId.get(id);
+        earlyHealthByWatchId.delete(id);
+        const initialHealth =
+          earlyHealth && (!health || earlyHealth.timestamp >= health.timestamp)
+            ? earlyHealth
+            : health;
+        if (initialHealth) {
+          dispatchHealth({ ...initialHealth, rootPath: handle.path, watchId: id });
         }
       })
       .catch((error: unknown) => {
@@ -296,6 +311,16 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
           message: `File watching could not start for ${handle.path}: ${message}`,
           type: 'errored',
         });
+      })
+      .finally(() => {
+        if (!supportsHealth) {
+          return;
+        }
+        pendingHealthWatchStarts -= 1;
+        if (pendingHealthWatchStarts === 0) {
+          earlyHealthByWatchId.clear();
+        }
+        tearDownSharedHealthSubscriptionIfIdle();
       });
 
     return () => {

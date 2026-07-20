@@ -83,11 +83,20 @@ directory (the EMFILE storm of PR #1761's incident).
    deliberate, reviewed trade, not a surprise to relitigate when chokidar is
    removed.
 
-## Packaged Electron plan (slice 4)
+## Packaged Electron (slice 4 — landed findings)
 
-- electron-builder: add `**/node_modules/@parcel/watcher*/**/*.node` (and the
-  platform prebuild package dirs) to `asarUnpack` alongside the existing
-  secure-fs-native/node-pty entries; `npmRebuild: true` is harmless for NAPI.
-- Packaged smoke must run the equivalent of `validate:parcel-binding` inside
-  the app (main process) — loading the binding from the asar-unpacked path is
-  the thing a dev-mode test cannot prove.
+- **asarUnpack must target `*.node` files only** (`**/node_modules/@parcel/**/*.node`),
+  mirroring the secure-fs-native entry. Whole-DIRECTORY unpack globs
+  (`**/node_modules/@parcel/watcher/**`) corrupt the asar under pnpm's
+  symlinked layout — observed live on darwin-arm64: the packed
+  `picomatch/package.json` entry contained a slice of JS source and
+  `micromatch` went missing entirely, failing every require through that
+  subtree with "Invalid package config". Electron's asar shim transparently
+  executes `.node` files from `app.asar.unpacked`, so binary-only unpack is
+  sufficient.
+- `npmRebuild: true` is harmless for NAPI prebuilds.
+- Packaged proof: `pnpm --filter @brainstrike/file-system test:packaged`
+  (test/parcel-packaged-smoke.cjs) loads `@parcel/watcher` from the asar under
+  `ELECTRON_RUN_AS_NODE=1 electron`, asserts an unpacked `.node` binding
+  exists, and round-trips a real subscribe → event → unsubscribe. Wired into
+  the Native Electron Package CI job after the secure-fs-native check.

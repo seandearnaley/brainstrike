@@ -220,12 +220,26 @@ fallback.
   watcher over IPC — `fs:watch` / `fs:unwatch` invokes + one-way
   `fs:watch-event` pushes (`apps/desktop/src/ipc-domains/file-system-watch-ipc.ts`,
   engine shared with notes-vault via `@brainstrike/file-system/electron`:
-  macOS uses Node's native recursive `fs.watch`/FSEvents up front so a large
-  workspace consumes one watcher per root instead of one chokidar watcher per
-  directory; other platforms use chokidar. Both paths apply a 150ms batch and
-  `fileFilter.shouldIgnorePath`; chokidar also uses `ignoreInitial`. A chokidar
-  runtime error stops that watcher and emits one structured error log — never
-  an unbounded main-process error loop. Watchers are keyed by `watchId`, owned by the
+  **@parcel/watcher is the ONLY engine on every platform** (BST-568 slice 4
+  removed chokidar and the recursive-fs.watch path) with an explicit per-OS
+  backend — `fs-events` on macOS, `inotify` on Linux, `windows` on Windows —
+  selected in `parcel-backend.ts` (unsupported platform/binding throws typed
+  errors, never falls back). One native subscription per root; subscribe is
+  bounded by a 10s timeout with late-resolution cleanup; event paths are
+  re-rooted from kernel realpaths onto the handle path; deletes and
+  unstat-able paths normalize to the safe `directory`/`removed` invalidation
+  shape; backend callback errors (e.g. FSEvents dropped-events) degrade to a
+  root-level invalidation with log-once semantics while the subscription
+  stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
+  apply (DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs — same
+  names, never broader). Typed watcher health
+  (`starting|healthy|degraded|failed|stopped`) flows over one-way
+  `fs:watch-health` pushes scoped to the owning WebContents (no root-path
+  field on the wire); `fs:watch-retry` is MANUAL-only with escalating
+  1s/5s/30s throttling and single-flight per watchId; terminal/non-retryable
+  failures are retained by the MAIN registry, rejected by the retry API, and
+  never render a retry action;
+  `fs:watch-telemetry` exposes compact counters. Watchers are keyed by `watchId`, owned by the
   requesting `WebContents` (push to owner only, non-owner unwatch rejected
   without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
   counts live PLUS reserved (in-flight) watchers — a slot is reserved before
@@ -238,8 +252,14 @@ fallback.
   `isDestroyed` re-check stops a watcher whose renderer died mid-setup.
   On the RENDERER side, every `watchDirectory` funnels through ONE shared
   `onWatchEvent` subscription that fans out by `watchId` — a per-watch listener
-  would put O(roots) listeners on the single channel. E2E mock paths get
-  inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
+  would put O(roots) listeners on the single channel. The matching shared
+  health subscription is installed BEFORE invoking `fs:watch`; it retains only
+  the latest transition for each still-in-flight `watchId`, then resolves and
+  replays that transition after the invoke response maps the id to its root.
+  This ordering prevents synchronous `starting` or setup-failure transitions
+  from disappearing in the invoke round trip. The temporary buffer and shared
+  listener are cleared when no mapped or in-flight watches remain. E2E mock
+  paths get inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
   `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
   emits `changedHandle: null` for `disappeared` records — the adapter maps
   those to `kind:'directory'` removals (the safe invalidation shape) and drops

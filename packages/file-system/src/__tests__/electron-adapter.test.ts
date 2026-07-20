@@ -26,17 +26,6 @@ vi.mock('electron', () => ({
   },
 }));
 
-// Mock chokidar with proper default export structure
-vi.mock('chokidar', () => {
-  const mockWatch = vi.fn();
-  return {
-    default: {
-      watch: mockWatch,
-    },
-    watch: mockWatch,
-  };
-});
-
 // Mock process with needed methods for this test
 const originalCwd = '/original/cwd';
 let currentCwd = originalCwd;
@@ -53,8 +42,6 @@ Object.assign(process, mockProcess);
 
 // Type assertion to help TypeScript understand the mocked process
 const processWithChdir = process as typeof process & { chdir: (dir: string) => void };
-const itOnDarwin = process.platform === 'darwin' ? it : it.skip;
-const itOutsideDarwin = process.platform === 'darwin' ? it.skip : it;
 
 describe('ElectronFileSystemAdapter', () => {
   let tempDir: string;
@@ -286,175 +273,9 @@ describe('ElectronFileSystemAdapter', () => {
     expect(await adapter.exists(path.join(tempDir, 'missing.txt'))).toBe(false);
   });
 
-  itOnDarwin('should use one native recursive watcher on macOS', async () => {
-    const { dialog } = await import('electron');
-    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
-      canceled: false,
-      filePaths: [tempDir],
-    });
-    const chokidar = await import('chokidar');
-    vi.mocked(chokidar.default.watch).mockClear();
-    const nativeClose = vi.fn();
-    const fsWatchSpy = vi.spyOn(fs, 'watch').mockReturnValue({
-      close: nativeClose,
-      once: vi.fn(),
-    } as unknown as ReturnType<typeof fs.watch>);
-
-    const handle = await adapter.requestDirectoryAccess();
-    const stop = adapter.watchDirectory(handle as DirectoryHandle, vi.fn());
-
-    expect(fsWatchSpy).toHaveBeenCalledTimes(1);
-    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: true }, expect.any(Function));
-    expect(chokidar.default.watch).not.toHaveBeenCalled();
-
-    stop();
-    expect(nativeClose).toHaveBeenCalledTimes(1);
-  });
-
-  itOutsideDarwin('should watch directory changes', async () => {
-    const { dialog } = await import('electron');
-    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
-      canceled: false,
-      filePaths: [tempDir],
-    });
-
-    const handle = await adapter.requestDirectoryAccess();
-    const callback = vi.fn();
-
-    // Mock chokidar watcher
-    const mockWatcher = {
-      close: vi.fn().mockResolvedValue(undefined),
-      on: vi.fn().mockReturnThis(),
-    };
-
-    const chokidar = await import('chokidar');
-    vi.mocked(chokidar.default.watch).mockReturnValue(
-      mockWatcher as unknown as ReturnType<typeof chokidar.default.watch>
-    );
-
-    const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
-
-    // Wait for chokidar to be initialized instead of sleeping
-    await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
-
-    // Verify chokidar was initialized correctly
-    expect(chokidar.default.watch).toHaveBeenCalledWith(
-      tempDir,
-      expect.objectContaining({
-        atomic: true,
-        awaitWriteFinish: {
-          pollInterval: 100,
-          stabilityThreshold: 100,
-        },
-        followSymlinks: false,
-        ignored: expect.any(Function),
-        ignoreInitial: true,
-        persistent: true,
-      })
-    );
-    const watchOptions = vi.mocked(chokidar.default.watch).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(watchOptions).not.toHaveProperty('depth');
-
-    // Simulate file addition
-    const addCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'add')?.[1];
-    const filePath = path.join(tempDir, 'new.txt');
-    if (addCallback) {
-      addCallback(filePath);
-    }
-
-    await waitForCondition(() => callback.mock.calls.length > 0);
-    expect(callback).toHaveBeenCalledWith([{ kind: 'file', path: filePath, type: 'added' }]);
-
-    stop();
-    expect(mockWatcher.close).toHaveBeenCalled();
-  });
-
-  itOutsideDarwin('should fall back to fs.watch when chokidar import fails', async () => {
-    const { dialog } = await import('electron');
-    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
-      canceled: false,
-      filePaths: [tempDir],
-    });
-
-    // Ensure a clean module cache then mock a failed chokidar import
-    vi.resetModules();
-    vi.doMock('chokidar', () => {
-      throw new Error('MODULE_NOT_FOUND');
-    });
-
-    const handle = await adapter.requestDirectoryAccess();
-    const callback = vi.fn();
-
-    // Mock fs.watch
-    const mockFsWatcher = {
-      close: vi.fn(),
-      once: vi.fn(),
-    };
-    const fsWatchSpy = vi
-      .spyOn(fs, 'watch')
-      .mockReturnValue(mockFsWatcher as unknown as ReturnType<typeof fs.watch>);
-
-    const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
-
-    // Wait for fs.watch fallback to be used instead of sleeping
-    await waitForCondition(() => fsWatchSpy.mock.calls.length > 0);
-
-    // Verify fs.watch was called as fallback
-    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: true }, expect.any(Function));
-
-    // Since fs.watch callback testing is complex due to overloads, just verify the watcher was set up
-    // The actual functionality is tested in integration tests
-    expect(fsWatchSpy).toHaveBeenCalled();
-
-    stop();
-    expect(mockFsWatcher.close).toHaveBeenCalled();
-  });
-
-  itOutsideDarwin('should return noop watcher when both chokidar and fs.watch fail', async () => {
-    const { dialog } = await import('electron');
-    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
-      canceled: false,
-      filePaths: [tempDir],
-    });
-
-    // Ensure a clean module cache then mock failed chokidar import
-    vi.resetModules();
-    vi.doMock('chokidar', () => {
-      throw new Error('MODULE_NOT_FOUND');
-    });
-
-    // Mock fs.watch to also fail
-    vi.spyOn(fs, 'watch').mockImplementation(() => {
-      throw new Error('fs.watch failed');
-    });
-
-    const handle = await adapter.requestDirectoryAccess();
-    const stop = adapter.watchDirectory(handle as DirectoryHandle, vi.fn());
-
-    // No need to wait arbitrarily; stop should be callable
-
-    expect(() => stop()).not.toThrow();
-  });
-
-  itOnDarwin('should fail visibly when the primary native watcher cannot start', async () => {
-    const { dialog } = await import('electron');
-    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
-      canceled: false,
-      filePaths: [tempDir],
-    });
-    vi.spyOn(fs, 'watch').mockImplementation(() => {
-      throw new Error('fs.watch failed');
-    });
-
-    const handle = await adapter.requestDirectoryAccess();
-
-    expect(() => adapter.watchDirectory(handle as DirectoryHandle, vi.fn())).toThrow(
-      'fs.watch failed'
-    );
-  });
+  // Watch routing/engine behavior lives in watcher-backend-routing.test.ts and
+  // parcel-watchers.test.ts — the legacy chokidar/fs.watch engines were
+  // removed in BST-568 slice 4.
 
   describe('metadata caching (BST-146)', () => {
     it('should create adapter without cache by default', () => {
@@ -583,19 +404,22 @@ describe('ElectronFileSystemAdapter', () => {
       expect(count).toBeGreaterThan(0);
     });
 
-    itOutsideDarwin('should invalidate cache on file watcher changes', async () => {
-      // Reset modules to clear previous chokidar mock from fs.watch fallback test
+    it('should invalidate cache on file watcher changes', async () => {
+      // Mock the parcel engine so the wrapped-callback (cache-invalidation)
+      // seam is exercised without real OS events.
       vi.resetModules();
       vi.doMock('electron', () => ({
         dialog: { showOpenDialog: vi.fn() },
       }));
-      vi.doMock('chokidar', () => {
-        const mockWatch = vi.fn();
-        return {
-          default: { watch: mockWatch },
-          watch: mockWatch,
-        };
-      });
+      const captured: { callback: ((changes: unknown[]) => void) | null } = {
+        callback: null,
+      };
+      vi.doMock('../adapters/parcel-watchers', () => ({
+        startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
+          captured.callback = onChanges;
+          return Promise.resolve(() => undefined);
+        },
+      }));
 
       const { dialog } = await import('electron');
       vi.mocked(dialog.showOpenDialog).mockResolvedValue({
@@ -609,38 +433,24 @@ describe('ElectronFileSystemAdapter', () => {
       );
       const cachedAdapter = new FreshAdapter({ cache: true });
 
-      fs.writeFileSync(path.join(tempDir, 'watched.txt'), 'original');
+      const filePath = path.join(tempDir, 'watched.txt');
+      fs.writeFileSync(filePath, 'original');
 
       const handle = await cachedAdapter.requestDirectoryAccess();
       await cachedAdapter.readDirectory(handle, { includeMetadata: true });
-
-      // Set up watcher with mock chokidar
-      const mockWatcher = {
-        close: vi.fn().mockResolvedValue(undefined),
-        on: vi.fn().mockReturnThis(),
-      };
-
-      const chokidar = await import('chokidar');
-      vi.mocked(chokidar.default.watch).mockReturnValue(
-        mockWatcher as unknown as ReturnType<typeof chokidar.default.watch>
-      );
+      const sizeBefore = cachedAdapter.getCacheStats()?.size ?? 0;
+      expect(sizeBefore).toBeGreaterThan(0);
 
       const callback = vi.fn();
-      cachedAdapter.watchDirectory(handle as DirectoryHandle, callback);
+      const stop = cachedAdapter.watchDirectory(handle as DirectoryHandle, callback);
+      await waitForCondition(() => captured.callback !== null);
 
-      // Wait for chokidar initialization
-      await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
+      captured.callback?.([{ kind: 'file', path: filePath, type: 'modified' }]);
 
-      // Simulate file change event
-      const changeCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'change')?.[1];
-      const filePath = path.join(tempDir, 'watched.txt');
-      if (changeCallback) {
-        changeCallback(filePath);
-      }
-
-      // Callback should have been called
-      await waitForCondition(() => callback.mock.calls.length > 0);
-      expect(callback).toHaveBeenCalled();
+      expect(callback).toHaveBeenCalledWith([{ kind: 'file', path: filePath, type: 'modified' }]);
+      // The wrapped callback invalidated the cached metadata for the path.
+      expect(cachedAdapter.getCacheStats()?.size ?? 0).toBeLessThan(sizeBefore);
+      stop();
     });
   });
 

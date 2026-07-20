@@ -66,6 +66,8 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
   }
 
   const isFailed = health.state === 'failed';
+  const canRetry =
+    isFailed && (!health.failure || (health.failure.retryable && !health.failure.terminal));
   const label = isFailed ? 'File watching failed' : 'File watching degraded';
   const detail = health.failure ? `${label}: ${health.failure.message}` : label;
 
@@ -86,7 +88,7 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
           </TooltipTrigger>
           <TooltipContent>{detail}</TooltipContent>
         </Tooltip>
-        {isFailed ? (
+        {canRetry ? (
           <button
             aria-label="Retry file watching"
             className="rounded p-0.5 hover:bg-muted disabled:opacity-50"

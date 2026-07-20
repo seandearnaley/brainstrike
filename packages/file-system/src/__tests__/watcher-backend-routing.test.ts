@@ -1,6 +1,7 @@
-// BST-568 slice 2: explicit watcher-backend routing. Default stays legacy
-// (chokidar / macOS native fs.watch); `BRAINSTRIKE_WATCHER_BACKEND=parcel`
-// opts into the parcel engine; anything else throws — no silent coercion.
+// BST-568 slice 4: the parcel engine IS the watcher service. Default is
+// parcel on every platform; the legacy engines (chokidar / recursive
+// fs.watch) are removed, and `BRAINSTRIKE_WATCHER_BACKEND=legacy` fails
+// loudly instead of silently resurrecting them.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +13,7 @@ vi.mock('electron', () => ({
 }));
 
 const { startParcelWatchMock } = vi.hoisted(() => ({
-  startParcelWatchMock: vi.fn((...args: unknown[]) => {
+  startParcelWatchMock: vi.fn((...args: unknown[]): Promise<() => void> => {
     void args;
     return Promise.resolve(() => undefined);
   }),
@@ -24,14 +25,19 @@ vi.mock('../adapters/parcel-watchers', () => ({
 import { ElectronFileSystemAdapter, resolveWatcherBackend } from '../adapters/electron-adapter';
 
 describe('resolveWatcherBackend', () => {
-  it('defaults to legacy when unset or empty', () => {
-    expect(resolveWatcherBackend({})).toBe('legacy');
-    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: '' })).toBe('legacy');
+  it('defaults to parcel when unset or empty', () => {
+    expect(resolveWatcherBackend({})).toBe('parcel');
+    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: '' })).toBe('parcel');
   });
 
-  it('honors explicit parcel and legacy values', () => {
+  it('honors the explicit parcel value', () => {
     expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'parcel' })).toBe('parcel');
-    expect(resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'legacy' })).toBe('legacy');
+  });
+
+  it('rejects legacy loudly now that the legacy engines are removed', () => {
+    expect(() => resolveWatcherBackend({ BRAINSTRIKE_WATCHER_BACKEND: 'legacy' })).toThrow(
+      /legacy.*removed|removed.*legacy/i
+    );
   });
 
   it('throws on any other value instead of coercing', () => {
@@ -68,8 +74,8 @@ describe('watchDirectory backend routing', () => {
     } as DirectoryHandle;
   }
 
-  it('routes to the parcel engine when explicitly opted in', async () => {
-    process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'parcel';
+  it('routes to the parcel engine by default (no env var)', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
     const adapter = new ElectronFileSystemAdapter();
     const stop = adapter.watchDirectory(makeHandle(), vi.fn());
     await vi.waitFor(() => {
@@ -78,16 +84,8 @@ describe('watchDirectory backend routing', () => {
     stop();
   });
 
-  it('does not touch the parcel engine on the default legacy path', () => {
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
-    const adapter = new ElectronFileSystemAdapter();
-    const stop = adapter.watchDirectory(makeHandle(), vi.fn());
-    expect(startParcelWatchMock).not.toHaveBeenCalled();
-    stop();
-  });
-
   it('forwards health to options.onHealth and derives shared signals for onSignal', async () => {
-    process.env['BRAINSTRIKE_WATCHER_BACKEND'] = 'parcel';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
     const adapter = new ElectronFileSystemAdapter();
     const onHealth = vi.fn();
     const onSignal = vi.fn();
@@ -116,20 +114,25 @@ describe('watchDirectory backend routing', () => {
     stop();
   });
 
-  const itOnDarwin = process.platform === 'darwin' ? it : it.skip;
-  itOnDarwin('synthesizes coarse legacy health on the darwin native path', () => {
+  it('dispose before async engine start still stops the engine on arrival', async () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const engineStop = vi.fn();
+    const engine: { resolve: ((stop: () => void) => void) | null } = {
+      resolve: null,
+    };
+    startParcelWatchMock.mockImplementationOnce(
+      () =>
+        new Promise<() => void>((resolve) => {
+          engine.resolve = resolve;
+        })
+    );
     const adapter = new ElectronFileSystemAdapter();
-    const health: Array<{ backend: string; state: string }> = [];
-    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, {
-      onHealth: (event) => health.push(event),
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn());
+    stop();
+    engine.resolve?.(engineStop);
+    await vi.waitFor(() => {
+      expect(engineStop).toHaveBeenCalledTimes(1);
     });
-    expect(health.map((event) => event.state)).toEqual(['starting', 'healthy']);
-    expect(health[0]?.backend).toBe('legacy-fs-watch');
-    stop();
-    expect(health.map((event) => event.state)).toEqual(['starting', 'healthy', 'stopped']);
-    stop();
-    expect(health).toHaveLength(3);
   });
 
   it('throws synchronously on a malformed backend value', () => {
