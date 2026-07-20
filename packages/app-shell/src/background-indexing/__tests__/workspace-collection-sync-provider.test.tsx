@@ -17,6 +17,7 @@ import {
   encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import {
   addLogListener,
   configureLogger,
@@ -1280,7 +1281,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:queue-drained', {
+          new CustomEvent(QUEUE_DRAINED_EVENT, {
             detail: {
               embeddingSetId: '00000000-0000-0000-0000-000000000101',
               queue: 'embeddings',
@@ -1300,7 +1301,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       syncSpy.mockClear();
       act(() => {
         window.dispatchEvent(
-          new CustomEvent('brainstrike:queue-drained', {
+          new CustomEvent(QUEUE_DRAINED_EVENT, {
             detail: {
               embeddingSetId: '00000000-0000-0000-0000-000000000999',
               queue: 'embeddings',

@@ -1,3 +1,4 @@
+import { EMBEDDING_SET_UPDATED_EVENT } from '@brainstrike/utils/browser-events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseImportRunner,
@@ -431,8 +432,8 @@ describe('runEnhancedImport', () => {
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('preferred-hosted-set');
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: { id: 'preferred-hosted-set' },
-        type: 'brainstrike:embedding-set-updated',
+        detail: { id: 'preferred-hosted-set', reason: 'updated' },
+        type: EMBEDDING_SET_UPDATED_EVENT,
       })
     );
     expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(

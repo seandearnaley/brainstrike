@@ -1,18 +1,14 @@
-const QUEUE_DRAINED_EVENT_NAME = 'brainstrike:queue-drained' as const;
+import { dispatchQueueDrained } from '@brainstrike/utils/browser-events';
 
+/**
+ * Announce that the embedding queue drained. Call sites without an active
+ * embedding set id (or with a blank one) dispatch the legacy detail-less form;
+ * listeners receive a `null` detail and treat it as "refresh everything".
+ */
 export function dispatchQueueDrainedEvent(embeddingSetId?: string): void {
-  if (typeof window === 'undefined') {
-    return;
+  if (embeddingSetId && embeddingSetId.trim().length > 0) {
+    dispatchQueueDrained({ embeddingSetId, queue: 'embeddings' });
+  } else {
+    dispatchQueueDrained();
   }
-
-  const detail =
-    embeddingSetId && embeddingSetId.trim().length > 0
-      ? { embeddingSetId, queue: 'embeddings' as const }
-      : undefined;
-
-  window.dispatchEvent(
-    detail
-      ? new CustomEvent(QUEUE_DRAINED_EVENT_NAME, { detail })
-      : new CustomEvent(QUEUE_DRAINED_EVENT_NAME)
-  );
 }

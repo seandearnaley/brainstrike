@@ -6,6 +6,7 @@ import type {
   UsePGliteLiveQueryOptions,
 } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
@@ -1616,7 +1617,7 @@ describe('useDatabaseDemoData', () => {
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-2' },
         })
       );
@@ -1628,7 +1629,7 @@ describe('useDatabaseDemoData', () => {
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-1' },
         })
       );

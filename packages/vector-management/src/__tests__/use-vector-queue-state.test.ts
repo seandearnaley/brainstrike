@@ -1,6 +1,7 @@
 import type { UsePGliteLiveQueryOptions } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import type { ElectronAPI } from '@brainstrike/types';
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1011,7 +1012,7 @@ describe('useVectorQueueState', () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
         })
       );
@@ -1039,7 +1040,7 @@ describe('useVectorQueueState', () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-2', queue: 'embeddings' },
         })
       );
@@ -1074,7 +1075,7 @@ describe('useVectorQueueState', () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
         })
       );
@@ -1105,7 +1106,7 @@ describe('useVectorQueueState', () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
+        new CustomEvent(QUEUE_DRAINED_EVENT, {
           detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
         })
       );

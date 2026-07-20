@@ -38,6 +38,7 @@ import {
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
+import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
@@ -123,7 +124,6 @@ const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 // restoration before indexing anyway (a giant root can keep the tree loading for
 // minutes; indexing must not block on it indefinitely).
 const TREE_RESTORATION_GRACE_MS = 5000;
-const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
 
@@ -2847,27 +2847,20 @@ export function WorkspaceCollectionSyncProvider({
     };
   }, []);
 
-  useEffect(() => {
-    const handleQueueDrained = (event: Event): void => {
-      if (!(event instanceof CustomEvent)) {
-        return;
-      }
-      const detail = event.detail as { embeddingSetId?: unknown; queue?: unknown } | null;
-      if (
-        detail?.queue !== 'embeddings' ||
-        typeof detail.embeddingSetId !== 'string' ||
-        detail.embeddingSetId !== managedCollectionId
-      ) {
-        return;
-      }
-      triggerSyncFromEvent({ mode: 'full' });
-    };
-
-    window.addEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
-    return () => {
-      window.removeEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
-    };
-  }, [managedCollectionId]);
+  useEffect(
+    () =>
+      onQueueDrained((detail) => {
+        if (
+          detail?.queue !== 'embeddings' ||
+          typeof detail.embeddingSetId !== 'string' ||
+          detail.embeddingSetId !== managedCollectionId
+        ) {
+          return;
+        }
+        triggerSyncFromEvent({ mode: 'full' });
+      }),
+    [managedCollectionId]
+  );
 
   // Recovery point for a backfill killed while the window was hidden (e.g. a
   // top-level navigation mid-backfill): re-sync on return to visibility so the

@@ -127,6 +127,11 @@
       "import": "./dist/bulk-operation-context.mjs",
       "require": "./dist/bulk-operation-context.js"
     },
+    "./browser-events": {
+      "types": "./dist/browser-events.d.ts",
+      "import": "./dist/browser-events.mjs",
+      "require": "./dist/browser-events.js"
+    },
     "./performance-measure-guard": {
       "types": "./dist/performance-measure-guard.d.ts",
       "import": "./dist/performance-measure-guard.mjs",

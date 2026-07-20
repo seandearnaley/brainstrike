@@ -8,6 +8,7 @@ import type {
   WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { dispatchQueueDrained } from '@brainstrike/utils/browser-events';
 
 const SCANNING_STATUS_THROTTLE_MS = 100;
 
@@ -196,15 +197,7 @@ export async function waitForAbortableDelay(ms: number, signal: AbortSignal): Pr
 }
 
 export function dispatchQueueDrainedEvent(embeddingSetId: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.dispatchEvent(
-    new CustomEvent('brainstrike:queue-drained', {
-      detail: { embeddingSetId, queue: 'embeddings' as const },
-    })
-  );
+  dispatchQueueDrained({ embeddingSetId, queue: 'embeddings' });
 }
 
 export function mapEnhancedProgressToStatus(

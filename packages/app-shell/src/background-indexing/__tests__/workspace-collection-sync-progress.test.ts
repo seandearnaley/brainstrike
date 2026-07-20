@@ -1,4 +1,5 @@
 import type { EnhancedImportProgress } from '@brainstrike/file-import';
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildBatchImportErrors,
@@ -390,7 +391,7 @@ describe('workspace collection sync progress helpers', () => {
     const onQueueDrained = (event: Event): void => {
       listener((event as CustomEvent).detail);
     };
-    window.addEventListener('brainstrike:queue-drained', onQueueDrained);
+    window.addEventListener(QUEUE_DRAINED_EVENT, onQueueDrained);
     try {
       dispatchQueueDrainedEvent('set-1');
       expect(listener).toHaveBeenCalledWith({
@@ -398,7 +399,7 @@ describe('workspace collection sync progress helpers', () => {
         queue: 'embeddings',
       });
     } finally {
-      window.removeEventListener('brainstrike:queue-drained', onQueueDrained);
+      window.removeEventListener(QUEUE_DRAINED_EVENT, onQueueDrained);
     }
   });
 });
