@@ -3624,6 +3624,41 @@ describe('assistant-tools multi-root read tools', () => {
     }
   });
 
+  it('accepts materialized default range values with a continuation cursor', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    await fsPromises.writeFile(
+      path.join(rootA, 'default-range.txt'),
+      Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join('\n'),
+      'utf8'
+    );
+
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+      const first = await tool.execute({
+        maxChars: 30,
+        path: '/default-range.txt',
+        root: 'id-a',
+      });
+
+      const continued = await tool.execute({
+        cursor: first.nextCursor,
+        endLine: first.totalLines,
+        maxChars: 30,
+        path: '/default-range.txt',
+        root: null,
+        startLine: 1,
+      } as never);
+
+      expect(continued.rootName).toBe('ProjectA');
+      expect(continued.startLine).toBeGreaterThan(1);
+      expect(continued.content).toMatch(/^\d+: /);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('resolves `root` by id as well as by display name', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {

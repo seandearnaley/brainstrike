@@ -627,8 +627,12 @@ function assertReadWorkspaceFileRangeReplay(
   }
   if (
     cursor.version === 2 &&
-    ((hasStartLine && input.startLine !== cursor.requestedStartLine) ||
-      (hasEndLine && input.endLine !== cursor.requestedEndLine))
+    ((hasStartLine &&
+      input.startLine !== cursor.requestedStartLine &&
+      !(cursor.requestedStartLine === null && input.startLine === 1)) ||
+      (hasEndLine &&
+        input.endLine !== cursor.requestedEndLine &&
+        !(cursor.requestedEndLine === null && input.endLine === cursor.endLine)))
   ) {
     throw new Error(
       'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Reuse nextCursor without changing its range.'
@@ -1249,7 +1253,7 @@ async function runReadWorkspaceFile(
       rootId: root.rootId,
       totalLines: file.totalLines,
     });
-    const requestedEndLine = pageRequest.endLine;
+    const effectiveEndLine = pageRequest.endLine;
     const startPosition = pageRequest.position;
     const startLine = startPosition.line;
     const buildResult = (page: ReadWorkspaceFilePage) => ({
@@ -1259,7 +1263,7 @@ async function runReadWorkspaceFile(
       nextCursor: page.nextPosition
         ? encodeReadWorkspaceFileCursor({
             column: page.nextPosition.column,
-            endLine: requestedEndLine,
+            endLine: effectiveEndLine,
             line: page.nextPosition.line,
             mtimeMs: file.mtimeMs,
             path: file.path,
@@ -1303,7 +1307,7 @@ async function runReadWorkspaceFile(
     const requestedPage = renderReadWorkspaceFilePage(
       file.lines,
       startPosition,
-      requestedEndLine,
+      effectiveEndLine,
       maxChars
     );
     if (!readWorkspaceFilePageAdvances(requestedPage, startPosition)) {
@@ -1342,7 +1346,7 @@ async function runReadWorkspaceFile(
       const candidatePage = renderReadWorkspaceFilePage(
         file.lines,
         startPosition,
-        requestedEndLine,
+        effectiveEndLine,
         kept
       );
       if (!readWorkspaceFilePageAdvances(candidatePage, startPosition)) {
