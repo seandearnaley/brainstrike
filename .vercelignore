@@ -23,9 +23,6 @@
 !.npmrc
 !**/.npmrc
 !.vercel/
-# pnpm patchedDependencies (pnpm-workspace.yaml) — install fails without these
-!patches/
-
 # Applications - allow entire apps directory for Tailwind @source directives
 !apps/
 

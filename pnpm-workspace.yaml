@@ -70,5 +70,3 @@ allowBuilds:
 # floor is configured (none is configured today, so this is currently a no-op).
 minimumReleaseAgeExclude:
   - '@mastra/core@1.50.0'
-patchedDependencies:
-  '@vitest/runner@4.1.9': patches/@vitest__runner@4.1.9.patch

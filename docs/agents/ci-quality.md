@@ -112,19 +112,29 @@ level), so an unrelated label creates a run whose job is skipped; since
 workflow-level concurrency is evaluated before job-level `if:`, that no-op run
 would otherwise cancel an in-flight 11-14 min Coverage run.
 
-### @vitest/runner teardown patch (pnpm patch)
+### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 
-`patches/@vitest__runner@4.1.9.patch` (wired via `patchedDependencies` in
-`pnpm-workspace.yaml`) fixes a vitest-internal flake: the runner throttles
-task-update RPCs with a 100ms `setTimeout` that is never cancelled at the end
-of a run. Under loaded CI runners that stray timer can fire after worker-state
-teardown and crash with "Vitest failed to access its internal state" as an
-unhandled error — every test passes but the run exits 1 (CI run 29183123865,
-file-explorer Unit job). The patch adds a `cancel()` to the throttle and calls
-it from `finishSendTasksUpdate` (newly exported). Regression guard:
-`packages/test-utils/__tests__/vitest-runner-throttle-teardown.test.ts` — it
-fails loudly if a vitest bump drops the patch. When bumping vitest, re-apply
-the patch (or verify upstream fixed the throttle) before deleting it.
+The "every test passes but vitest exits 1" flake (`Vitest failed to access its
+internal state` thrown from a stray 100ms task-update `Timeout`, first seen in
+CI run 29183123865, root-caused in BST-591) was caused by TEST CODE deleting
+the `__vitest_worker__` global — a file-explorer coverage test did this to
+simulate a non-test runtime. Vitest's task-update throttle timer is
+legitimately armed mid-run; if it fires while that global is absent, the
+worker crashes with an unhandled error. The window only collides under
+event-loop starvation, so the flake surfaced in loaded full-graph/CI runs and
+never in isolation. A pnpm patch on `@vitest/runner` that cancelled the timer
+at end-of-run shipped 2026-07-12 and was later shown to be a placebo (an
+end-of-run stray timer no-ops on already-flushed packs); it was removed in
+BST-592 and the repo now carries ZERO `patchedDependencies` by policy — fix
+dependencies upstream or at config level, never via `pnpm patch`.
+
+Regression guard: `scripts/verify-no-vitest-worker-mutation.mjs` (test:
+`scripts/__tests__/vitest-worker-global-mutation.test.mjs`, run in the Static
+job via `pnpm test:scripts`) forbids `delete`/`Reflect.deleteProperty`/
+assignment/`vi.stubGlobal` of `__vitest_worker__` in any test file under
+`packages/` or `apps/`. To exercise "not running under a test framework"
+branches, mock a detection seam instead — see
+`packages/file-explorer/src/persistence/test-environment.ts`.
 
 ### Workspace-src alias guard (`pnpm test:scripts`)
 
