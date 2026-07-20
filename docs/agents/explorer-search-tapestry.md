@@ -252,8 +252,14 @@ fallback.
   `isDestroyed` re-check stops a watcher whose renderer died mid-setup.
   On the RENDERER side, every `watchDirectory` funnels through ONE shared
   `onWatchEvent` subscription that fans out by `watchId` — a per-watch listener
-  would put O(roots) listeners on the single channel. E2E mock paths get
-  inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
+  would put O(roots) listeners on the single channel. The matching shared
+  health subscription is installed BEFORE invoking `fs:watch`; it retains only
+  the latest transition for each still-in-flight `watchId`, then resolves and
+  replays that transition after the invoke response maps the id to its root.
+  This ordering prevents synchronous `starting` or setup-failure transitions
+  from disappearing in the invoke round trip. The temporary buffer and shared
+  listener are cleared when no mapped or in-flight watches remain. E2E mock
+  paths get inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
   `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
   emits `changedHandle: null` for `disappeared` records — the adapter maps
   those to `kind:'directory'` removals (the safe invalidation shape) and drops
