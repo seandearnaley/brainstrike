@@ -758,10 +758,10 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       'Read a workspace file as bounded, line-numbered pages. Pass `nextCursor` back as `cursor` to continue without losing source text. Pass `root` on the first page to choose the folder when multiple are open; the cursor binds later pages to that root.',
     parameters: [
       {
-        description: 'Workspace-relative file path to read',
+        description: 'Workspace-relative file path; required only for the first page',
         minLength: 1,
         name: 'path',
-        required: true,
+        required: false,
         type: 'string',
       },
       {
@@ -773,20 +773,20 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
       {
         description:
-          'Opaque continuation cursor returned as nextCursor by the previous page; continue with path + cursor and omit startLine/endLine',
+          'Short thread-scoped handle returned as nextCursor; pass it unchanged with optional maxChars and omit every other field',
         name: 'cursor',
         required: false,
         type: 'string',
       },
       {
-        description: '1-based starting line (inclusive); prefer omitting with cursor',
+        description: '1-based starting line (inclusive); first page only',
         min: 1,
         name: 'startLine',
         required: false,
         type: 'number',
       },
       {
-        description: '1-based ending line (inclusive); prefer omitting with cursor',
+        description: '1-based ending line (inclusive); first page only',
         min: 1,
         name: 'endLine',
         required: false,
