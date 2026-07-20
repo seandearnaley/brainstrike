@@ -526,6 +526,50 @@ describe('file-system watch IPC domain', () => {
       expect(other.healthEvents).toHaveLength(0);
     });
 
+    it('records health emitted synchronously DURING setup, not just after it', async () => {
+      // Every other health test fires transitions after fs:watch has resolved,
+      // by which point the live entry exists — which is exactly why this gap
+      // survived. A real @parcel/watcher binding-load or subscribe failure
+      // emits 'failed' from inside startWatch, i.e. BEFORE the entry is
+      // registered. If that transition is not recorded, lastHealthState stays
+      // null, the retry handler answers 'not-failed', and the Retry button the
+      // user is staring at does nothing at all.
+      unregister();
+      const startWatch: StartFileSystemWatch = (_directoryPath, _onChanges, onHealth) => {
+        onHealth(makeTransition('starting'));
+        onHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
+        return vi.fn();
+      };
+      unregister = registerFileSystemWatchIpcHandlers({ startWatch });
+
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+
+      // The renderer is told either way — pushes do not depend on bookkeeping.
+      expect(owner.healthEvents.map((event) => event.state)).toEqual(['starting', 'failed']);
+
+      // ...but main must also have RECORDED the failure. 'throttled' proves the
+      // failure bookkeeping ran (it set the backoff window); 'not-failed' would
+      // mean the transition was dropped on the floor.
+      const result = await invokeRetry(owner, watchId);
+      expect(result).toMatchObject({ reason: 'throttled', retried: false });
+    });
+
+    it('does not leave a live entry behind when setup throws', async () => {
+      unregister();
+      unregister = registerFileSystemWatchIpcHandlers({
+        startWatch: () => {
+          throw new Error('binding load failed');
+        },
+      });
+
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      await expect(invokeWatch(owner, dir)).rejects.toThrow('binding load failed');
+      expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    });
+
     it('retries a failed watch: same path, replaced stop, retried:true', async () => {
       vi.useFakeTimers();
       try {

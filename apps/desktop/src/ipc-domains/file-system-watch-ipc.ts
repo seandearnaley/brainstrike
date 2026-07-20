@@ -71,6 +71,13 @@ interface LiveFileSystemWatcher {
   /** Consecutive failed transitions since the last healthy one. */
   consecutiveFailures: number;
   lastHealthState: WatcherHealthTransition['state'] | null;
+  /**
+   * The full latest transition, returned with the fs:watch response so a
+   * renderer that was not yet listening (setup-time failures push before the
+   * response resolves) still learns the current state. `lastHealthState` is
+   * kept separately because the retry path only ever needs the state.
+   */
+  lastHealthTransition: WatcherHealthTransition | null;
   /** Earliest wall-clock time a manual retry may run. */
   nextRetryAllowedAt: number;
   readonly ownerId: number;
@@ -119,6 +126,7 @@ function makeHealthSink(
     const entry = liveWatchers.get(watchId);
     if (entry) {
       entry.lastHealthState = transition.state;
+      entry.lastHealthTransition = transition;
       if (transition.state === 'failed') {
         entry.consecutiveFailures += 1;
         entry.retryInFlight = false;
@@ -282,6 +290,7 @@ export function registerFileSystemWatchIpcHandlers({
         liveWatchers.set(watchId, {
           consecutiveFailures: 0,
           lastHealthState: null,
+          lastHealthTransition: null,
           nextRetryAllowedAt: 0,
           ownerId: owner.id,
           resolvedPath: requestedPath,
@@ -300,28 +309,56 @@ export function registerFileSystemWatchIpcHandlers({
           throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
         }
 
-        const stop = startWatch(
-          resolvedPath,
-          makeChangeSink(owner, watchId),
-          makeHealthSink(owner, watchId)
-        );
-        // The awaits above raced renderer teardown: if the owner is gone, its
-        // reaper has already fired — stop immediately instead of leaking.
-        if (owner.isDestroyed()) {
-          stop();
-          throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
-        }
-        liveWatchers.set(watchId, {
+        // Register the entry BEFORE starting the engine. Engines emit health
+        // synchronously during setup ('starting', and a 'failed' from a parcel
+        // binding-load or subscribe error), and makeHealthSink silently skips
+        // ALL its bookkeeping when the entry is missing — so a setup failure
+        // would leave lastHealthState null, making the retry handler answer
+        // 'not-failed' and the user's Retry button inert. `stop` is patched in
+        // below once the engine hands us its disposer; until then it is a
+        // no-op, which is correct — there is nothing to stop yet.
+        const entry: LiveFileSystemWatcher = {
           consecutiveFailures: 0,
           lastHealthState: null,
+          lastHealthTransition: null,
           nextRetryAllowedAt: 0,
           ownerId: owner.id,
           resolvedPath,
           retryInFlight: false,
-          stop,
-        });
+          stop: () => {},
+        };
+        liveWatchers.set(watchId, entry);
+
+        let stop: () => void;
+        try {
+          stop = startWatch(
+            resolvedPath,
+            makeChangeSink(owner, watchId),
+            makeHealthSink(owner, watchId)
+          );
+        } catch (error) {
+          // Setup threw outright — do not leave a half-registered entry that
+          // unwatch/retry could later act on.
+          liveWatchers.delete(watchId);
+          throw error;
+        }
+        entry.stop = stop;
+
+        // The awaits above raced renderer teardown: if the owner is gone, its
+        // reaper has already fired — stop immediately instead of leaking.
+        if (owner.isDestroyed()) {
+          liveWatchers.delete(watchId);
+          stop();
+          throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
+        }
         logger.debug('Started file system watcher', { path: resolvedPath, watchId });
-        return { watchId };
+        // Return the latest transition alongside the id: anything the engine
+        // emitted during setup was pushed before this renderer had a watchId to
+        // match it against, so the push alone is not enough.
+        return {
+          ...(entry.lastHealthTransition ? { health: entry.lastHealthTransition } : {}),
+          watchId,
+        };
       } finally {
         releaseWatcherSlot(owner.id);
       }

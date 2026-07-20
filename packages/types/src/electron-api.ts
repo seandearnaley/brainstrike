@@ -5,6 +5,7 @@ import type {
   IFileNode,
   RootDescriptor,
   WatcherHealthEvent,
+  WatcherHealthTransition,
 } from './file-system';
 import type { TapestryColorName } from './tapestry-colors';
 
@@ -241,8 +242,17 @@ export interface ElectronFileSystemAPI {
   /**
    * Start a recursive main-process watcher for a directory. Changes arrive
    * via `onWatchEvent`, stamped with the returned watchId.
+   *
+   * `health` carries the latest transition already recorded for this watch, if
+   * any. Engines emit health synchronously during setup — a binding-load or
+   * subscribe failure is pushed over `onWatchHealth` BEFORE this promise
+   * resolves, so the renderer has no watchId to match it against yet and drops
+   * it. Returning the snapshot here is what makes a watcher that was already
+   * dead on arrival visible instead of silently unwatched.
    */
-  watchDirectory: (handle: DirectoryHandle) => Promise<{ watchId: string }>;
+  watchDirectory: (
+    handle: DirectoryHandle
+  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
 /**

@@ -304,6 +304,53 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     });
   });
 
+  it('applies the health snapshot returned with the watch response', async () => {
+    // A watcher that dies during setup (parcel binding-load / subscribe
+    // failure) has main push fs:watch-health BEFORE the fs:watch response
+    // resolves — at which point this renderer has no watchId registered yet and
+    // drops the event as unknown. With no later replay, the failure chip never
+    // appears while the root sits silently unwatched. Main therefore returns
+    // the latest transition WITH the response, and it must be applied.
+    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockResolvedValue({
+      health: {
+        backend: 'fs-events' as const,
+        failure: {
+          code: 'binding-load-failed',
+          message: 'no prebuild for this platform',
+          retryable: false,
+          terminal: true,
+        },
+        state: 'failed' as const,
+        timestamp: 7,
+      },
+      watchId: 'watch-alpha',
+    });
+
+    const signals: Array<{ type: string }> = [];
+    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => signals.push(signal));
+    await vi.waitFor(() => {
+      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    });
+
+    // A subscriber mounting after the fact still learns the root is dead.
+    const received: Array<{ rootPath: string; state: string }> = [];
+    const unsubscribe = adapter.onWatcherHealth((event) => {
+      received.push({ rootPath: event.rootPath, state: event.state });
+    });
+    await vi.waitFor(() => {
+      expect(received).toContainEqual({ rootPath: '/roots/alpha', state: 'failed' });
+    });
+
+    // ...and the shared FileSystemWatchSignal channel (#1764) is driven too.
+    expect(signals).toContainEqual({
+      message: 'no prebuild for this platform',
+      type: 'errored',
+    });
+
+    unsubscribe();
+    stop();
+  });
+
   it('resolves health events to the rootPath of the owning watch', async () => {
     const stop = adapter.watchDirectory(handle, vi.fn());
     await vi.waitFor(() => {

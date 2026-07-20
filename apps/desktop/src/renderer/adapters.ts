@@ -84,6 +84,30 @@ const healthSubscribers = new Set<(event: WatcherRootHealthEvent) => void>();
 const signalCallbacksById = new Map<string, (signal: FileSystemWatchSignal) => void>();
 let sharedHealthUnsubscribe: (() => void) | null = null;
 
+/**
+ * Fan a resolved transition out to the health subscribers AND the per-watch
+ * FileSystemWatchSignal callback. Shared by the live push path and the
+ * snapshot-on-response path so both behave identically.
+ */
+function dispatchHealth(event: WatcherRootHealthEvent): void {
+  latestHealthByRootPath.set(event.rootPath, event);
+  for (const subscriber of Array.from(healthSubscribers)) {
+    subscriber(event);
+  }
+  const signalCallback = signalCallbacksById.get(event.watchId);
+  if (!signalCallback) {
+    return;
+  }
+  if (event.state === 'degraded') {
+    signalCallback({ type: 'overflow' });
+  } else if (event.state === 'failed') {
+    signalCallback({
+      message: event.failure?.message ?? 'watcher failed',
+      type: 'errored',
+    });
+  }
+}
+
 function ensureSharedHealthSubscription(
   onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void
 ): void {
@@ -95,22 +119,7 @@ function ensureSharedHealthSubscription(
     if (!rootPath) {
       return;
     }
-    const resolved: WatcherRootHealthEvent = { ...event, rootPath };
-    latestHealthByRootPath.set(rootPath, resolved);
-    for (const subscriber of Array.from(healthSubscribers)) {
-      subscriber(resolved);
-    }
-    const signalCallback = signalCallbacksById.get(event.watchId);
-    if (signalCallback) {
-      if (event.state === 'degraded') {
-        signalCallback({ type: 'overflow' });
-      } else if (event.state === 'failed') {
-        signalCallback({
-          message: event.failure?.message ?? 'watcher failed',
-          type: 'errored',
-        });
-      }
-    }
+    dispatchHealth({ ...event, rootPath });
   });
 }
 
@@ -239,7 +248,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
     api
       .watchDirectory(handle)
-      .then(({ watchId: id }) => {
+      .then(({ health, watchId: id }) => {
         if (closed) {
           stopMainWatcher(id);
           return;
@@ -249,12 +258,26 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
         // subscription total, regardless of how many roots are watched).
         registerWatchCallback(api.onWatchEvent, id, callback);
         // Health capability (older bridges may lack it — visibly absent).
-        if (typeof api.onWatchHealth === 'function') {
-          rootPathByWatchId.set(id, handle.path);
-          if (onSignal) {
-            signalCallbacksById.set(id, onSignal);
-          }
-          ensureSharedHealthSubscription(api.onWatchHealth);
+        if (typeof api.onWatchHealth !== 'function') {
+          return;
+        }
+        rootPathByWatchId.set(id, handle.path);
+        if (onSignal) {
+          signalCallbacksById.set(id, onSignal);
+        }
+        ensureSharedHealthSubscription(api.onWatchHealth);
+        // Anything main emitted DURING setup was pushed before this id was
+        // registered above, so those pushes were dropped as unknown. Apply the
+        // snapshot main returned with the response — otherwise a watcher that
+        // died on startup leaves the root silently unwatched with no chip.
+        //
+        // Residual (accepted, not papered over): a transition occurring
+        // between main capturing this snapshot and the registration above is
+        // still lost. Closing that fully would need main to defer its pushes
+        // until after the reply, which relies on IPC reply/send ordering that
+        // is not contractually guaranteed.
+        if (health) {
+          dispatchHealth({ ...health, rootPath: handle.path, watchId: id });
         }
       })
       .catch((error: unknown) => {

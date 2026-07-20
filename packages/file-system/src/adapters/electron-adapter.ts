@@ -681,9 +681,14 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     // transitions at this seam (setup outcome + dispose only; runtime
     // failures still log-and-stop inside the engines). The legacy engines
     // are removed in BST-568 slice 4.
+    // Wire the WRAPPED sink, not the raw options.onHealth — the wrapper is the
+    // only place transitions become FileSystemWatchSignals, and it forwards to
+    // options.onHealth internally, so there is no double-dispatch. Passing the
+    // raw callback here meant a caller supplying only `onSignal` never learned
+    // that a legacy watch had died.
     const legacyHealth = createLegacyHealthEmitter(
       process.platform === 'darwin' ? 'legacy-fs-watch' : 'legacy-chokidar',
-      options?.onHealth
+      onHealth
     );
     legacyHealth.transition('starting');
 
