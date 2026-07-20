@@ -1,16 +1,20 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
+const require = createRequire(import.meta.url);
 const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
 const MIN_PORT = agentDevToolsDefaults.minPort;
 const MAX_PORT = agentDevToolsDefaults.maxPort;
 const POLL_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
+const MAC_AGENT_DEBUG_APP_NAME = 'BrainStrike Agent Debug';
+const MAC_AGENT_DEBUG_BUNDLE_ID = 'com.brainstrike.desktop.agent-debug';
 
 export function parsePort(value) {
   const raw = value?.trim() || String(DEFAULT_PORT);
@@ -43,6 +47,78 @@ export function formatMcpConfig(endpoint) {
     null,
     2
   );
+}
+
+function replacePlistStringValue(plist, key, value) {
+  const keyTag = `<key>${key}</key>`;
+  const keyIndex = plist.indexOf(keyTag);
+  if (keyIndex < 0 || plist.indexOf(keyTag, keyIndex + keyTag.length) >= 0) {
+    throw new Error(`Electron Info.plist must contain exactly one ${key} key.`);
+  }
+
+  const valueStart = keyIndex + keyTag.length;
+  const valueMatch = plist.slice(valueStart).match(/^(\s*)<string>[^<]*<\/string>/);
+  if (!valueMatch) {
+    throw new Error(`Electron Info.plist ${key} must have a string value.`);
+  }
+
+  const replacement = `${valueMatch[1]}<string>${value}</string>`;
+  return `${plist.slice(0, valueStart)}${replacement}${plist.slice(
+    valueStart + valueMatch[0].length
+  )}`;
+}
+
+export function rewriteMacAgentDebugInfoPlist(plist) {
+  let rewritten = replacePlistStringValue(plist, 'CFBundleDisplayName', MAC_AGENT_DEBUG_APP_NAME);
+  rewritten = replacePlistStringValue(rewritten, 'CFBundleIdentifier', MAC_AGENT_DEBUG_BUNDLE_ID);
+  return replacePlistStringValue(rewritten, 'CFBundleName', MAC_AGENT_DEBUG_APP_NAME);
+}
+
+function resolveElectronBundleContents(electronExecutablePath) {
+  const macOsDir = path.dirname(electronExecutablePath);
+  const contentsDir = path.dirname(macOsDir);
+  const appBundleDir = path.dirname(contentsDir);
+  if (
+    path.basename(electronExecutablePath) !== 'Electron' ||
+    path.basename(macOsDir) !== 'MacOS' ||
+    path.basename(contentsDir) !== 'Contents' ||
+    path.extname(appBundleDir) !== '.app'
+  ) {
+    throw new Error(
+      `Expected a macOS Electron.app executable path, received ${electronExecutablePath}.`
+    );
+  }
+  return contentsDir;
+}
+
+function resolveElectronExecutablePath() {
+  const executablePath = require('electron');
+  if (typeof executablePath !== 'string' || !path.isAbsolute(executablePath)) {
+    throw new Error('The Electron package did not resolve to an absolute executable path.');
+  }
+  return executablePath;
+}
+
+export async function createMacAgentDebugElectronDist({ electronExecutablePath, userDataDir }) {
+  const originalContents = resolveElectronBundleContents(electronExecutablePath);
+  const distPath = path.join(userDataDir, 'electron-dist');
+  const shimContents = path.join(distPath, 'Electron.app', 'Contents');
+  const shimMacOs = path.join(shimContents, 'MacOS');
+
+  await fs.mkdir(shimMacOs, { recursive: true });
+  await Promise.all([
+    fs.symlink(path.join(originalContents, 'Frameworks'), path.join(shimContents, 'Frameworks')),
+    fs.symlink(path.join(originalContents, 'Resources'), path.join(shimContents, 'Resources')),
+    fs.symlink(electronExecutablePath, path.join(shimMacOs, 'Electron')),
+    fs.copyFile(path.join(originalContents, 'PkgInfo'), path.join(shimContents, 'PkgInfo')),
+  ]);
+
+  const originalInfoPlist = await fs.readFile(path.join(originalContents, 'Info.plist'), 'utf8');
+  await fs.writeFile(
+    path.join(shimContents, 'Info.plist'),
+    rewriteMacAgentDebugInfoPlist(originalInfoPlist)
+  );
+  return distPath;
 }
 
 function throwIfAborted(signal) {
@@ -104,6 +180,36 @@ async function removeUserDataDir(userDataDir) {
     await fs.rm(userDataDir, { force: true, recursive: true });
   } catch (error) {
     console.warn(`Failed to remove Agent DevTools profile ${userDataDir}:`, error);
+  }
+}
+
+export async function createAgentDevtoolsProfile(options = {}) {
+  const {
+    electronExecutablePath,
+    platform = process.platform,
+    tempDirectory = os.tmpdir(),
+  } = options;
+  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, 'brainstrike-agent-devtools-'));
+
+  try {
+    const electronOverrideDistPath =
+      platform === 'darwin'
+        ? await createMacAgentDebugElectronDist({
+            electronExecutablePath: electronExecutablePath ?? resolveElectronExecutablePath(),
+            userDataDir,
+          })
+        : null;
+    return { electronOverrideDistPath, userDataDir };
+  } catch (setupError) {
+    try {
+      await fs.rm(userDataDir, { force: true, recursive: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [setupError, cleanupError],
+        `Agent DevTools setup failed and profile cleanup also failed for ${userDataDir}.`
+      );
+    }
+    throw setupError;
   }
 }
 
@@ -193,7 +299,7 @@ async function main() {
     return;
   }
 
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-devtools-'));
+  const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
   const env = {
     ...process.env,
     BRAINSTRIKE_AGENT_DEVTOOLS: '1',
@@ -201,10 +307,16 @@ async function main() {
     BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
     BRAINSTRIKE_DB_ROOT_PATH: userDataDir,
     BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
+    ...(electronOverrideDistPath ? { ELECTRON_OVERRIDE_DIST_PATH: electronOverrideDistPath } : {}),
   };
 
   console.log(`Agent DevTools profile: ${userDataDir}`);
   console.log(`Agent DevTools endpoint: ${endpoint}`);
+  if (electronOverrideDistPath) {
+    console.log(
+      `Agent DevTools macOS identity: ${MAC_AGENT_DEBUG_APP_NAME} (${MAC_AGENT_DEBUG_BUNDLE_ID})`
+    );
+  }
 
   const child = spawnPnpm(['dev'], env);
   const uninstallSignalCleanup = installSignalCleanup(child, userDataDir);

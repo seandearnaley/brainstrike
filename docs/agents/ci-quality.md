@@ -257,6 +257,31 @@ On a warm graph this check is cache-only and does not rebuild the desktop
 renderer or unrelated packages. A non-zero Turbo result remains a visible
 startup failure.
 
+### Agent-debug macOS automation identity
+
+On macOS, `dev:agent-debug` launches through a lightweight temporary
+`Electron.app` shim inside its disposable profile. The shim symlinks the
+installed Electron executable, Frameworks, and Resources, but owns an
+`Info.plist` with display name `BrainStrike Agent Debug` and bundle identifier
+`com.brainstrike.desktop.agent-debug`. It is not a packaged application, does
+not copy Electron's framework payload, and is scoped to the isolated temporary
+profile. Shim construction is fail-closed: an unexpected Electron bundle
+layout or malformed plist aborts startup rather than falling back to the
+ambiguous `com.github.Electron` identity. Agent-debug windows pin the native
+and accessibility title `BrainStrike Agent Debug`.
+
+Manual QA must cover both automation surfaces while another Electron app is
+running:
+
+1. Run `pnpm --filter @brainstrike/desktop dev:agent-debug` and connect CDT to
+   the printed local CDP endpoint (default `http://127.0.0.1:9222`). Confirm the
+   visible target is the expected BrainStrike renderer.
+2. In Computer Use, verify `list_apps` reports
+   `com.brainstrike.desktop.agent-debug` as `BrainStrike Agent Debug`, then call
+   `get_app_state({ app: "com.brainstrike.desktop.agent-debug" })`.
+3. Confirm the accessibility tree describes the same renderer URL/title seen
+   through CDP. Do not stop or retarget unrelated Electron processes.
+
 ---
 
 ## REACT DOCTOR (LINT + DEAD CODE)
