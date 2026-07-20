@@ -169,12 +169,16 @@ describe('durable run usage live Mastra loop (real agent → real repo → real 
         (cumulative?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
       );
       expect(byModel.get('openai:gpt-5.2')).toEqual({
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 18,
         model: 'gpt-5.2',
         outputTokens: 10,
         provider: 'openai',
       });
       expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
         inputTokens: 20,
         model: 'claude-opus-4-8',
         outputTokens: 9,
