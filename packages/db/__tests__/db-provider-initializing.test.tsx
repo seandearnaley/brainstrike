@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { resetLogger } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';

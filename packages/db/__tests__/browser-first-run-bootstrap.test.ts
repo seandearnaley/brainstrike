@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * First-run fast bootstrap — orchestration unit tests (stubbed bootstrap).
  *
