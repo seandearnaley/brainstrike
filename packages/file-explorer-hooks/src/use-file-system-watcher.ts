@@ -66,13 +66,17 @@ export function useFileSystemWatcher({
   const watchersRef = useRef<Map<string, () => void>>(new Map());
 
   // Stable refs so the unmount cleanup can always see the latest values
-  // without being listed as deps of the unmount effect.
+  // without being listed as deps of the unmount effect. Synced in an effect
+  // (not during render) per the react-hooks refs rule; watcher callbacks only
+  // fire post-commit, so effect-phase freshness is sufficient.
   const adapterRef = useRef(adapter);
-  adapterRef.current = adapter;
   const onChangesRef = useRef(onChanges);
-  onChangesRef.current = onChanges;
   const onSignalRef = useRef(onSignal);
-  onSignalRef.current = onSignal;
+  useEffect(() => {
+    adapterRef.current = adapter;
+    onChangesRef.current = onChanges;
+    onSignalRef.current = onSignal;
+  });
 
   // Diff effect: runs whenever roots/adapter/onChanges changes.
   // Does NOT return a cleanup — disposed roots are handled inline.
