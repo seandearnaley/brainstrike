@@ -60,7 +60,10 @@ async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Arra
     const wasmPath = path.join(here, '..', '..', 'grammars', `${language}.wasm`);
     return new Uint8Array(await readFile(wasmPath));
   }
-  // Browser / Web Worker. Apps put grammars under <base>/assets/grammars/.
+  // Browser / Web Worker. In development Vite serves this source module from
+  // `src/parsers/`, while the vendored grammar remains under the package-level
+  // `grammars/` directory. Production bundles place this module's chunk beside
+  // the statically copied `assets/grammars/` directory.
   //
   // Resolve relative to the worker module's OWN URL (import.meta.url) rather
   // than using an absolute `/assets/...` path. Reasons:
@@ -89,6 +92,20 @@ async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Arra
   // so the URL is resolved at RUNTIME against the worker's own bundle URL,
   // where `viteStaticCopy` has placed `assets/grammars/<lang>.wasm`.
   const moduleUrl = import.meta.url;
+  const isViteSourceModule = new URL(moduleUrl).pathname.endsWith(
+    '/src/parsers/tree-sitter-grammar-loader.ts'
+  );
+  if (isViteSourceModule) {
+    const grammarUrl = new URL(`../../grammars/${language}.wasm`, moduleUrl).href;
+    const response = await fetch(grammarUrl);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch development grammar for ${language} at ${grammarUrl}: ${response.status}`
+      );
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
   const grammarUrl = new URL(`./grammars/${language}.wasm`, moduleUrl).href;
   const response = await fetch(grammarUrl);
   if (!response.ok) {
