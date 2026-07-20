@@ -408,7 +408,9 @@ an opaque `nextCursor` that resumes at the exact source line and column,
 including within a long generated/minified line. The cursor is bound to the
 workspace root id, workspace path, byte size, and mtime; selecting another root
 or changing the file fails visibly instead of resuming against different
-content. Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
+content. `omittedChars` counts exact unread source characters; when a page ends
+after a complete line, that includes the source newline before the next line.
+Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
 a continuation, the cursor's root id selects the same workspace root. An
 explicit different root is rejected. Cursor is mutually exclusive with
 `startLine`/`endLine`. Optional
