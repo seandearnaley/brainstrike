@@ -142,7 +142,10 @@ function resolveRequestedAdapter(
   nativeAdapter: ToolDiscoveryAdapter | undefined,
   providerRuntime: ReturnType<typeof getProviderDefinition>['runtime']
 ): ToolDiscoveryAdapterResolution {
-  if (requestedAdapter === nativeAdapter || requestedAdapter === 'eager-core-only') {
+  if (
+    requestedAdapter === nativeAdapter ||
+    (requestedAdapter === 'eager-core-only' && providerRuntime === 'browser')
+  ) {
     return { adapter: requestedAdapter, status: 'supported' };
   }
   if (requestedAdapter === 'mastra-catalog-search' && providerRuntime !== 'browser') {

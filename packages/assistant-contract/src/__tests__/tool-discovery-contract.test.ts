@@ -129,6 +129,18 @@ describe('native tool discovery contract', () => {
   it('does not silently substitute a requested unsupported adapter', () => {
     expect(
       resolveToolDiscoveryAdapter({
+        modelId: 'gpt-5.6-terra',
+        provider: 'openai',
+        requestedAdapter: 'eager-core-only',
+      })
+    ).toEqual({
+      adapter: 'unsupported',
+      reason: 'requested-adapter-not-supported',
+      requestedAdapter: 'eager-core-only',
+      status: 'unsupported',
+    });
+    expect(
+      resolveToolDiscoveryAdapter({
         modelId: 'gpt-5.3-codex',
         provider: 'openai',
         requestedAdapter: 'openai-native-search',
