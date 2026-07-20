@@ -90,13 +90,26 @@ interface LiveFileSystemWatcher {
 
 const liveWatchers = new Map<string, LiveFileSystemWatcher>();
 
-/** In-memory telemetry counters (deliberately non-persistent). */
+/** In-memory telemetry counters (deliberately non-persistent, BST-568). */
 const telemetry = {
+  /** Change batches pushed to renderers. */
+  batches: 0,
   cleanups: 0,
+  /** Individual FileSystemChange entries across all batches. */
+  events: 0,
   failures: 0,
   healthPushes: 0,
+  /** Milliseconds from 'starting' to 'healthy' for the latest setup. */
+  lastSetupLatencyMs: 0,
   retries: 0,
+  /** Degraded transitions — the engine emits these WITH a root invalidation. */
+  rootInvalidations: 0,
+  /** Number of starting→healthy latency samples observed. */
+  setupLatencySamples: 0,
 };
+
+/** starting-transition timestamps per watchId, for setup-latency sampling. */
+const setupStartedAt = new Map<string, number>();
 // WeakSet — never strongly retain a WebContents (matches notes-vault).
 const reaperAttachedOwners = new WeakSet<WebContents>();
 // Slots reserved across a watch's async setup so concurrent requests observe
@@ -105,6 +118,7 @@ const reservedWatchersByOwner = new Map<number, number>();
 
 function stopWatcher(watchId: string, entry: LiveFileSystemWatcher): void {
   telemetry.cleanups += 1;
+  setupStartedAt.delete(watchId);
   try {
     entry.stop();
   } catch (error) {
@@ -124,6 +138,18 @@ function makeHealthSink(
   watchId: string
 ): (transition: WatcherHealthTransition) => void {
   return (transition) => {
+    if (transition.state === 'starting') {
+      setupStartedAt.set(watchId, Date.now());
+    } else if (transition.state === 'healthy') {
+      const startedAt = setupStartedAt.get(watchId);
+      if (startedAt !== undefined) {
+        setupStartedAt.delete(watchId);
+        telemetry.lastSetupLatencyMs = Date.now() - startedAt;
+        telemetry.setupLatencySamples += 1;
+      }
+    } else if (transition.state === 'degraded') {
+      telemetry.rootInvalidations += 1;
+    }
     const entry = liveWatchers.get(watchId);
     if (entry) {
       entry.lastHealthTransition = transition;
@@ -160,6 +186,8 @@ function makeChangeSink(
     if (owner.isDestroyed()) {
       return;
     }
+    telemetry.batches += 1;
+    telemetry.events += changes.length;
     const payload: FileSystemWatchEventPayload = { changes, watchId };
     owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
   };
@@ -252,10 +280,16 @@ export function registerFileSystemWatchIpcHandlers({
   const registry = createDesktopIpcRegistry({ ipcMain });
   // Telemetry counters are scoped to one registration (production registers
   // exactly once per app lifetime; tests re-register per case).
+  telemetry.batches = 0;
   telemetry.cleanups = 0;
+  telemetry.events = 0;
   telemetry.failures = 0;
   telemetry.healthPushes = 0;
+  telemetry.lastSetupLatencyMs = 0;
   telemetry.retries = 0;
+  telemetry.rootInvalidations = 0;
+  telemetry.setupLatencySamples = 0;
+  setupStartedAt.clear();
 
   registry.registerInvoke(
     'files',

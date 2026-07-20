@@ -710,6 +710,44 @@ describe('file-system watch IPC domain', () => {
       expect(liveFileSystemWatcherCountForTest()).toBe(0);
     });
 
+    it('counts events, batches, root invalidations, and setup latency (BST-568 slice 5)', async () => {
+      const owner = new FakeWebContents(1);
+      const dir = await makeDir();
+      const { watchId } = await invokeWatch(owner, dir);
+
+      // starting -> healthy yields one setup-latency sample.
+      harness.fireLatestHealth(makeTransition('starting'));
+      harness.fireLatestHealth(makeTransition('healthy'));
+      // Two batches, three events total.
+      harness.fireAllChanges(SAMPLE_CHANGES);
+      harness.fireAllChanges([
+        { kind: 'file', path: '/tmp/a.ts', type: 'added' },
+        { kind: 'file', path: '/tmp/b.ts', type: 'modified' },
+      ]);
+      // A degraded transition IS a root invalidation (the engine emits both
+      // together by construction).
+      harness.fireLatestHealth(
+        makeTransition('degraded', {
+          code: 'backend-error',
+          message: 'events dropped',
+          retryable: true,
+          terminal: false,
+        })
+      );
+
+      const snapshot = (await invokeTelemetry(owner)) as Record<string, unknown>;
+      expect(snapshot).toMatchObject({
+        activeWatchers: 1,
+        batches: 2,
+        events: 3,
+        rootInvalidations: 1,
+      });
+      expect(typeof snapshot['lastSetupLatencyMs']).toBe('number');
+      expect(snapshot['setupLatencySamples']).toBe(1);
+      expect(snapshot['lastSetupLatencyMs'] as number).toBeGreaterThanOrEqual(0);
+      void watchId;
+    });
+
     it('exposes a compact telemetry snapshot', async () => {
       vi.useFakeTimers();
       try {

@@ -113,3 +113,39 @@ an unbounded blocking dialog; a recovered IPC call rejects with
 all renderer state.
 
 ---
+
+## FILE WATCHER SERVICE LIFECYCLE (BST-568)
+
+OS file watching is a PLATFORM capability beneath the assistant runtime —
+Mastra/assistant code never owns watcher lifecycle and must not add
+round-trip dependencies on this local latency path. Assistant tools consume
+indexed state only.
+
+- **One engine**: `@parcel/watcher` behind `@brainstrike/file-system/electron`
+  (`parcel-backend.ts` + `parcel-watchers.ts`), explicit backend per OS
+  (`fs-events` / `inotify` / `windows`). Unsupported platform, missing
+  binding, malformed `BRAINSTRIKE_WATCHER_BACKEND`, subscribe timeout, and
+  runtime backend failure all throw or surface typed health — never a
+  fallback engine, never polling. `legacy` is a removed value that throws.
+- **Lifecycle invariants**: one native subscription per root; 10s subscribe
+  timeout with late-resolution unsubscribe; disposers idempotent and safe at
+  any time; main-process ownership registry reaps on renderer destruction,
+  crash, reload, root removal, and app shutdown (registrar disposer). No
+  leaked subscription after any of these — extend the reaper tests when
+  touching this.
+- **Typed health**: engines emit `starting|healthy|degraded|failed|stopped`
+  exactly once per state change; `fs:watch-health` pushes are scoped to the
+  owning WebContents with no root-path field on the wire; retry is
+  manual-only (`fs:watch-retry`) with escalating 1s/5s/30s throttling and
+  single-flight per watchId. Telemetry (`fs:watch-telemetry`) is in-memory
+  counters only — deliberately NOT persisted, so it needs no factory-reset
+  wiring; do not add persistence here without wiring factory reset.
+- **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
+  (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
+  asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).
+  Packaged proof: `pnpm --filter @brainstrike/file-system test:packaged` in
+  the Native Electron Package CI job.
+
+Full event-pipeline invariants (batching, ignore rules, normalization,
+consumers) live in `docs/agents/explorer-search-tapestry.md` ("EXPLORER TREE
+LIVE REFRESH").
