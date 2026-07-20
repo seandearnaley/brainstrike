@@ -403,6 +403,11 @@ async function handleAssistantPost(
   }
   const { signal, cleanup } = registerRequestAbort(req);
   const runId = runtimeData.memory?.runId;
+  // Only THIS leg's registration may be torn down below: on the defensive
+  // duplicate-runId throw the entry belongs to the ORIGINAL still-streaming
+  // leg, and unregistering it would make a genuinely active run un-steerable
+  // (spurious 404). Review finding, BST-588.
+  let registeredSteerableRun = false;
   try {
     // Steering control (BST-588): in-memory only, injected AFTER request
     // validation exactly like `signal`. Every streaming leg with a runId is
@@ -411,6 +416,7 @@ async function handleAssistantPost(
     // answers the request (review P3).
     if (runId) {
       runtimeData.steering = registerSteerableRun(runId);
+      registeredSteerableRun = true;
     }
     await streamAssistantPostResponse({
       apiKey,
@@ -430,7 +436,7 @@ async function handleAssistantPost(
   } catch (error) {
     await handleAssistantPostStreamError({ error, res, runId, signal });
   } finally {
-    if (runId) {
+    if (runId && registeredSteerableRun) {
       unregisterSteerableRun(runId);
     }
     cleanup();

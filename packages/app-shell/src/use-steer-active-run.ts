@@ -29,11 +29,18 @@ export function hasDesktopAssistantBridge(): boolean {
 }
 
 export function useSteerActiveRun(
-  getActiveRunContext: () => { readonly runId: string } | null | undefined
+  /**
+   * MUST be a run-lifecycle-accurate id source (see
+   * `getActiveSteerableRunId`), never the foreground-activity usage context:
+   * that context's 5-minute idle fuse clears during silent hosted/tool gaps
+   * while the run is still streaming, which would make the Steer button
+   * silently no-op exactly when a long run most needs steering.
+   */
+  getActiveRunId: () => string | null | undefined
 ): () => Promise<boolean> {
   return useCallback(async () => {
-    const runContext = getActiveRunContext();
-    if (!runContext?.runId) {
+    const runId = getActiveRunId();
+    if (!runId) {
       return false;
     }
     const [base, authHeaders] = await Promise.all([
@@ -41,7 +48,7 @@ export function useSteerActiveRun(
       resolveAssistantAuthHeaders(),
     ]);
     const response = await fetch(`${base}/assistant/steer`, {
-      body: JSON.stringify({ runId: runContext.runId }),
+      body: JSON.stringify({ runId }),
       headers: { ...authHeaders, 'content-type': 'application/json' },
       method: 'POST',
     });
@@ -52,5 +59,5 @@ export function useSteerActiveRun(
       throw new Error(`Steer control request failed with HTTP ${response.status}.`);
     }
     return true;
-  }, [getActiveRunContext]);
+  }, [getActiveRunId]);
 }

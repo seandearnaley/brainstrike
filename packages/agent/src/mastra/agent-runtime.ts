@@ -1695,6 +1695,11 @@ function processMastraStreamPart(
         return {
           chunks: [
             stepFinishedChunk,
+            // Drain tools that terminated via `tool-output` (no later
+            // `tool-result`) exactly like the natural finish does — otherwise
+            // the run completes while those tool cards stay stuck "running"
+            // and the durable timeline never receives their tool.completed.
+            ...makePendingToolOutputRunEventChunks(lifecycleState),
             makeRunEventChunk(
               'run.steered',
               'completed',

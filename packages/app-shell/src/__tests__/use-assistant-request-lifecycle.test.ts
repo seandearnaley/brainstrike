@@ -11,6 +11,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetAssistantForegroundActivityForTests,
+  ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
@@ -191,6 +192,64 @@ describe('useAssistantRequestLifecycle', () => {
       await result.current.completePreparedRequest(prepared, 'completed');
     });
     expect(result.current.getActiveRunUsageContext()).toBeNull();
+  });
+
+  it('keeps the steerable run id alive across the foreground idle fuse, clearing it only at true completion (BST-588)', async () => {
+    // The foreground-activity lease is a QoS/power concern: its 5-minute idle
+    // fuse fires during silent hosted/tool gaps while the run is STILL
+    // streaming. Steering must not ride that ref — a fused-out run id would
+    // make the Steer button silently no-op exactly when a long run needs it.
+    vi.useFakeTimers();
+    try {
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-steerable',
+          status: 'running',
+        })),
+      });
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      expect(result.current.getActiveSteerableRunId()).toBeNull();
+      await act(async () => {
+        await result.current.prepareRequestData();
+      });
+      expect(result.current.getActiveSteerableRunId()).toBe('run-steerable');
+
+      // Silent gap longer than the idle fuse: the QoS context fuses out...
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS + 1000);
+      });
+      expect(result.current.getActiveRunUsageContext()).toBeNull();
+      // ...but the run is still in flight, so it stays steerable.
+      expect(result.current.getActiveSteerableRunId()).toBe('run-steerable');
+
+      // Only true completion clears it.
+      await act(async () => {
+        await result.current.completePreparedRequest(
+          { memory: { runId: 'run-steerable' } },
+          'completed'
+        );
+      });
+      expect(result.current.getActiveSteerableRunId()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('snapshots a null root when no root is focused (honest unattributed)', async () => {

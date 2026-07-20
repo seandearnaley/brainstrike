@@ -425,6 +425,58 @@ describe('mastra streaming integration', () => {
     expect(finish.usage).toEqual({ completionTokens: 7, promptTokens: 50 });
   });
 
+  it('flushes pending output-only tool completions before the steered finish', async () => {
+    // A tool that terminates via `tool-output` (no later `tool-result`) is
+    // parked in outputOnlyToolEvents until a TERMINAL flush. The steered
+    // terminal must drain it exactly like the natural finish does, or the
+    // run completes while that tool card stays stuck "running" forever.
+    setMockStreamParts([
+      { type: 'step-start' },
+      {
+        args: { query: 'local state' },
+        toolCallId: 'c-output-only',
+        toolName: 'background.lookup',
+        type: 'tool-call',
+      },
+      {
+        output: { answer: 'done' },
+        toolCallId: 'c-output-only',
+        type: 'tool-output',
+      },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 40 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: { stopRequested: () => true },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const runEventKinds = chunks
+      .filter((chunk) => chunk.type === 'run-event')
+      .map((chunk) => (chunk as { event?: { kind?: string } }).event?.kind);
+    expect(runEventKinds).toContain('tool.completed');
+    // Ordering: the pending completion drains BEFORE the terminal markers.
+    expect(runEventKinds.indexOf('tool.completed')).toBeLessThan(
+      runEventKinds.indexOf('run.steered')
+    );
+  });
+
   it('ignores a steering request that never reaches a step boundary before natural finish', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },

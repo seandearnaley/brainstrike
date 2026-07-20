@@ -991,6 +991,7 @@ export function AssistantUiPanelWrapper({
   const {
     completePreparedRequest,
     getActiveRunUsageContext,
+    getActiveSteerableRunId,
     prepareRequestData,
     renewActiveAssistantForegroundActivity,
   } = useAssistantRequestLifecycle({
@@ -1012,7 +1013,7 @@ export function AssistantUiPanelWrapper({
   });
   // Mid-run steer transport (BST-588); the panel receives it only when the
   // desktop repo (and thus the steer control endpoint) exists.
-  const steerActiveRun = useSteerActiveRun(getActiveRunUsageContext);
+  const steerActiveRun = useSteerActiveRun(getActiveSteerableRunId);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(

@@ -22,9 +22,7 @@ describe('useSteerActiveRun', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { result } = renderHook(() =>
-      useSteerActiveRun(() => ({ model: 'm', provider: 'anthropic', rootId: null, runId: 'run-9' }))
-    );
+    const { result } = renderHook(() => useSteerActiveRun(() => 'run-9'));
     await expect(result.current()).resolves.toBe(true);
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -38,7 +36,7 @@ describe('useSteerActiveRun', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const { result } = renderHook(() => useSteerActiveRun(() => undefined));
+    const { result } = renderHook(() => useSteerActiveRun(() => null));
     await expect(result.current()).resolves.toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -50,9 +48,7 @@ describe('useSteerActiveRun', () => {
       .mockResolvedValueOnce(new Response('boom', { status: 500 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const { result } = renderHook(() =>
-      useSteerActiveRun(() => ({ model: 'm', provider: 'openai', rootId: null, runId: 'run-x' }))
-    );
+    const { result } = renderHook(() => useSteerActiveRun(() => 'run-x'));
     await expect(result.current()).resolves.toBe(false);
     await expect(result.current()).rejects.toThrow(/500/);
   });
