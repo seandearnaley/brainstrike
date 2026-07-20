@@ -93,6 +93,60 @@ describe('workspace context model projection', () => {
     expect(Number(match?.[1])).toBeLessThan(130);
   });
 
+  it('reserves multi-root identities before filling the selected-file page', () => {
+    const selectedFiles = Array.from(
+      { length: 80 },
+      (_, index) => `/packages/domain-${index}/${'nested/'.repeat(25)}file-${index}.ts`
+    );
+    const workspaceRoots = [
+      baseResult().workspaceRoots[0],
+      ...Array.from({ length: 4 }, (_, index) => ({
+        displayName: `support-${index}`,
+        path: `/work/${'qualified/'.repeat(18)}support-${index}`,
+        rootId: `root-${index + 1}`,
+      })),
+    ];
+    const raw = {
+      ...baseResult(),
+      selectedFileCount: selectedFiles.length,
+      selectedFiles,
+      workspaceRoots,
+    };
+
+    const projected = projectListWorkspaceContextModelOutput(raw);
+
+    for (const root of workspaceRoots) {
+      expect(projected.value).toContain(`id=${root.rootId}`);
+    }
+    expect(projected.value).toContain('projection_omitted: roots=0');
+    expect(projected.value).toMatch(
+      /continue: reuse the prior brainstrike\.listWorkspaceContext input with offset=[1-9]\d*/
+    );
+  });
+
+  it('preserves repeated path whitespace used by follow-up file tools', () => {
+    const repeatedWhitespacePath = '/src/foo  bar.ts';
+    const projected = projectListWorkspaceContextModelOutput({
+      ...baseResult(),
+      selectedFileCount: 1,
+      selectedFiles: [repeatedWhitespacePath],
+      tokenEstimates: [{ approxTokens: 42, path: repeatedWhitespacePath }],
+      workspaceRootPath: '/work/brain  strike',
+      workspaceRoots: [
+        {
+          displayName: 'brainstrike',
+          path: '/work/brain  strike',
+          rootId: 'root-a',
+        },
+      ],
+    });
+
+    expect(projected.value).toContain('main=/work/brain  strike');
+    expect(projected.value).toContain('path=/work/brain  strike');
+    expect(projected.value).toContain('selected /src/foo  bar.ts');
+    expect(projected.value).not.toContain('/src/foo bar.ts');
+  });
+
   it('derives continuation structurally instead of coupling to hint prose', () => {
     const projected = projectListWorkspaceContextModelOutput({
       ...baseResult(),

@@ -234,6 +234,14 @@ function singleLine(value: string): string {
   return value.replace(/\s+/gu, ' ').trim();
 }
 
+function escapePathLineBreaks(value: string): string {
+  return value
+    .replace(/\r/gu, String.raw`\r`)
+    .replace(/\n/gu, String.raw`\n`)
+    .replace(/\u2028/gu, String.raw`\u2028`)
+    .replace(/\u2029/gu, String.raw`\u2029`);
+}
+
 function clipEnd(value: string, maxChars: number, label: string): string {
   const normalized = singleLine(value);
   const codePoints = Array.from(normalized);
@@ -246,10 +254,10 @@ function clipEnd(value: string, maxChars: number, label: string): string {
 }
 
 function clipPath(value: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
+  const escaped = escapePathLineBreaks(value);
+  const codePoints = Array.from(escaped);
   if (codePoints.length <= MAX_PATH_CHARS) {
-    return normalized;
+    return escaped;
   }
   const keptAtEachEnd = Math.floor(MAX_PATH_CHARS / 2);
   const omitted = codePoints.length - keptAtEachEnd * 2;
@@ -462,6 +470,22 @@ function fitSelectedFiles(result: ListWorkspaceContextResult, state: ProjectionS
   }
 }
 
+function reserveAdvancingSelectedFile(
+  result: ListWorkspaceContextResult,
+  state: ProjectionState
+): void {
+  if (result.selectedFiles.length === 0) {
+    return;
+  }
+  const candidate = { ...state, keptSelectedFiles: 1 };
+  if (!fits(result, candidate)) {
+    throw new RangeError(
+      'listWorkspaceContext projection cannot emit an advancing selected-file page'
+    );
+  }
+  state.keptSelectedFiles = 1;
+}
+
 function assertProjectionCanAdvance(
   result: ListWorkspaceContextResult,
   state: ProjectionState
@@ -527,9 +551,10 @@ export function projectListWorkspaceContextModelOutput(
     keptSelectedFiles: 0,
   };
 
+  reserveAdvancingSelectedFile(result, state);
+  fitOtherRoots(result, state);
   fitSelectedFiles(result, state);
   assertProjectionCanAdvance(result, state);
-  fitOtherRoots(result, state);
   fitContextDetails(result, state);
 
   const lines = buildLines(result, state);
