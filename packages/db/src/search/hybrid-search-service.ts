@@ -274,17 +274,23 @@ export class HybridSearchService {
       ftsSearchOptions.rootIds = rootIds;
     }
 
-    // Run both searches in parallel
-    const vectorSearchStart = performance.now();
-    const ftsSearchStart = performance.now();
+    // Run both searches in parallel, timing each ARM individually — a shared
+    // clock around the joint await reported two identical wall-time numbers
+    // (BST-578).
+    const timeArm = async <T>(run: () => Promise<T>): Promise<{ ms: number; result: T }> => {
+      const start = performance.now();
+      const result = await run();
+      return { ms: performance.now() - start, result };
+    };
 
-    const [vectorResults, ftsResults] = await Promise.all([
-      this.executeVectorSearch(queryEmbedding, vectorSearchOptions),
-      this.executeFullTextSearch(queryText, ftsSearchOptions),
+    const [vectorTimed, ftsTimed] = await Promise.all([
+      timeArm(() => this.executeVectorSearch(queryEmbedding, vectorSearchOptions)),
+      timeArm(() => this.executeFullTextSearch(queryText, ftsSearchOptions)),
     ]);
-
-    const vectorSearchMs = performance.now() - vectorSearchStart;
-    const ftsSearchMs = performance.now() - ftsSearchStart;
+    const vectorResults = vectorTimed.result;
+    const ftsResults = ftsTimed.result;
+    const vectorSearchMs = vectorTimed.ms;
+    const ftsSearchMs = ftsTimed.ms;
 
     // Fuse results using RRF
     const fusionStart = performance.now();
