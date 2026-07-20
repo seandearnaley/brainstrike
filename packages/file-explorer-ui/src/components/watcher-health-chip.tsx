@@ -1,7 +1,7 @@
 import { useWatcherHealth } from '@brainstrike/file-explorer-hooks';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface WatcherHealthChipProps {
   /** Absolute root path this chip reports on (matches the watch handle path). */
@@ -20,7 +20,24 @@ export interface WatcherHealthChipProps {
 export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
   const { healthByRoot, retry } = useWatcherHealth();
   const [retryPending, setRetryPending] = useState(false);
+  const throttleTimerRef = useRef<number | null>(null);
   const health = healthByRoot.get(rootPath);
+
+  // The throttle timer must not outlive the chip (the root can disconnect or
+  // recover to healthy, unmounting it mid-window). Keyed on retryPending: a
+  // timer only exists while a retry is pending, and the cleanup covers both
+  // the pending->idle edge and unmount.
+  useEffect(() => {
+    if (!retryPending) {
+      return;
+    }
+    return () => {
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+    };
+  }, [retryPending]);
 
   const onRetry = useCallback(async () => {
     setRetryPending(true);
@@ -29,8 +46,11 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
       if (!outcome.retried && outcome.reason === 'throttled') {
         // Main enforces an escalating minimum retry interval; keep the button
         // visibly disabled until the window opens instead of a silent no-op.
-        window.setTimeout(
-          () => setRetryPending(false),
+        throttleTimerRef.current = window.setTimeout(
+          () => {
+            throttleTimerRef.current = null;
+            setRetryPending(false);
+          },
           Math.max(outcome.retryAfterMs ?? 1000, 250)
         );
         return;

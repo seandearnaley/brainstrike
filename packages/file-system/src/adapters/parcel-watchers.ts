@@ -45,8 +45,9 @@ export interface StartParcelWatchOptions {
   /** Test seam: overrides the lazy binding load. */
   loadModule?: () => Promise<ParcelWatcherModule>;
   /**
-   * Receives typed health transitions, exactly once per state change:
-   * starting -> healthy | failed, healthy -> degraded (once), -> stopped.
+   * Receives typed health transitions, exactly once per state CHANGE:
+   * starting -> healthy | failed; healthy <-> degraded per backend-error
+   * episode (a clean batch recovers degraded to healthy); stopped once.
    */
   onHealth?: (event: WatcherHealthTransition) => void;
   /** Test seam: overrides PARCEL_SUBSCRIBE_TIMEOUT_MS. */
@@ -198,6 +199,14 @@ export async function startParcelWatch(
       // path-scopes either type identically (mtime+hash skip keeps it cheap).
       batcher.enqueue({ kind: 'directory', path: handle.path, type: 'added' });
       return;
+    }
+    if (healthState === 'degraded') {
+      // The backend recovered: a clean batch after a degraded episode returns
+      // the watch to healthy (PR #1774 review — degraded must not be sticky
+      // for the chip). Resetting the log-once flag keeps "one structured log
+      // per degradation EPISODE": the next distinct storm logs again.
+      loggedBackendError = false;
+      transitionHealth('healthy');
     }
     for (const event of events) {
       eventQueue = eventQueue
