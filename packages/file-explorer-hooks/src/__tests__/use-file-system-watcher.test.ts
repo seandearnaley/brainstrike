@@ -5,6 +5,8 @@ import type {
 } from '@brainstrike/file-system';
 import type { FileSystemChange } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
+import type { JSX, ReactNode } from 'react';
+import { useLayoutEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystemWatcher } from '../use-file-system-watcher';
 
@@ -65,6 +67,22 @@ function makeAdapter(supportsWatch = true): FileSystemAdapter & {
   }
 
   return baseAdapter;
+}
+
+/**
+ * Builds a renderHook wrapper that fires `emit` from a layout effect — i.e.
+ * synchronously inside the commit, BEFORE any passive effect flushes. Parent
+ * layout effects run after their children's, so the hook's own commit-phase
+ * work has already happened when `emit` runs; only passive effects are still
+ * outstanding. This is the window a real bridge/IPC push can land in.
+ */
+function makeCommitPhaseWrapper(emit: () => void) {
+  return function CommitPhaseWrapper({ children }: { children: ReactNode }): JSX.Element {
+    useLayoutEffect(() => {
+      emit();
+    });
+    return children as JSX.Element;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -377,5 +395,41 @@ describe('useFileSystemWatcher', () => {
 
     expect(onSignalV1).not.toHaveBeenCalled();
     expect(onSignalV2).toHaveBeenCalledWith('root-a', { type: 'overflow' });
+  });
+
+  it('routes commit-phase events to the latest onChanges, not the previous one', () => {
+    // Watcher events arrive from a bridge/IPC push, NOT from React's scheduler,
+    // so they can be delivered after a render commits but before passive
+    // effects flush. Syncing the callback refs in a passive effect leaves that
+    // whole window pointing at the PREVIOUS callback. The refs must be synced
+    // in the commit phase so this window does not exist.
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+    const onChangesV1 = vi.fn<OnChanges>();
+    const onChangesV2 = vi.fn<OnChanges>();
+    const roots = [{ handle: handleA, rootId: 'root-a' }];
+    const changes: FileSystemChange[] = [
+      { kind: 'file', path: '/roots/root-a/commit-phase.ts', type: 'modified' },
+    ];
+
+    // Armed only for the rerender: on mount the watcher does not exist yet
+    // (it is started by the diff effect, which is passive).
+    let armed = false;
+    const emit = (): void => {
+      if (armed) {
+        adapter.watchCalls[0]?.callback(changes);
+      }
+    };
+
+    const { rerender } = renderHook(
+      ({ cb }: { cb: OnChanges }) => useFileSystemWatcher({ adapter, onChanges: cb, roots }),
+      { initialProps: { cb: onChangesV1 }, wrapper: makeCommitPhaseWrapper(emit) }
+    );
+
+    armed = true;
+    rerender({ cb: onChangesV2 });
+
+    expect(onChangesV1).not.toHaveBeenCalled();
+    expect(onChangesV2).toHaveBeenCalledWith('root-a', changes);
   });
 });
