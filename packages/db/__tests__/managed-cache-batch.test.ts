@@ -5,12 +5,10 @@ import {
   invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '../src/managed-cache/apply-managed-cache-batch.js';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import { getCollectionIndexingStats } from '../src/services/collection-indexing-stats.js';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('applyManagedCacheBatch', () => {
   let db: PGlite;
@@ -18,9 +16,7 @@ describe('applyManagedCacheBatch', () => {
   let fileChunkRepository: FileChunkRepository;
 
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-managed-cache-batch');
-    db = await wasmLoader.createPGlite(dataDir);
-    await migrate(db);
+    db = await createMigratedTestDb();
     // file_records.root_id has an FK to roots(id); managed-cache imports now
     // require a non-null root_id (source_root_path retired), so seed a fixture
     // root every import batch can reference.

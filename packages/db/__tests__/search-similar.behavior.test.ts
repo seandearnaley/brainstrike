@@ -1,11 +1,10 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
@@ -22,8 +21,7 @@ describe('searchSimilar behavior (pgvector path)', () => {
   let setRepo: EmbeddingSetsRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://search-behavior');
-    await migrate(db);
+    db = await createMigratedTestDb();
     fileRepo = new FileRecordRepository(db);
     chunkRepo = new FileChunkRepository(db);
     setRepo = new EmbeddingSetsRepository(db);

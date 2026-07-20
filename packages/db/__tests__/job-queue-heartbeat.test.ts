@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { type IDatabase, migrate, wasmLoader } from '../src';
+import type { IDatabase } from '../src';
 import { JobQueue } from '../src/queue/job-queue';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue Heartbeat', () => {
   let db: IDatabase;
   let jq: JobQueue;
 
   beforeEach(async () => {
-    const pglite = await wasmLoader.createPGlite('memory://heartbeat-test');
-    await migrate(pglite as any);
-    db = pglite as unknown as IDatabase;
+    db = (await createMigratedTestDb()) as unknown as IDatabase;
     jq = new JobQueue(db);
   });
 

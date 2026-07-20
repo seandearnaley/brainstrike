@@ -1,17 +1,15 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { insertChunksAndEnqueueEmbeddingJobs } from '../src/chunk-embedding-job-batch.js';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
 import type { IDatabase } from '../src/repositories/interfaces.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue transactional enqueue', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://job-queue-tx');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   async function seedFileAndEmbeddingSet(fileRecordId = 'file-1'): Promise<void> {

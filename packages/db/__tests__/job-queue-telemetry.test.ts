@@ -1,9 +1,8 @@
 import { addQueueTelemetryListener, type QueueTelemetryEvent } from '@brainstrike/queue';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /**
  * Tests for JobQueue telemetry integration (BST-163).
@@ -17,8 +16,7 @@ describe('JobQueue telemetry (BST-163)', () => {
   let unsubscribe: () => void;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://job-queue-telemetry-tests');
-    await migrate(db);
+    db = await createMigratedTestDb();
     events = [];
     unsubscribe = addQueueTelemetryListener((event) => {
       events.push(event);
