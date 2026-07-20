@@ -589,6 +589,17 @@ budget omits raw page items does the projector calculate an earlier advancing
 guessing. Oversized paths and match context are clipped with an explicit
 omitted-character marker, and malformed result shapes throw rather than falling
 back to generic JSON.
+`findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
+display, persistence, hooks, and reload while their Mastra `toModelOutput`
+projections emit bounded line-oriented inspection summaries. Symbol output
+retains the root/path, 1-based declaration line and enclosing range,
+declaration text, preview, total/truncation state, and honest instructions for
+forming the existing `lspInspect` cursor marker. It does not invent a symbol
+kind or the original symbol query: Mastra's one-argument projector receives the
+raw result but not the original input. LSP output retains availability/reason,
+language, hover text, diagnostics, and definition/implementation locations.
+Projection-only omissions are counted explicitly, malformed result shapes
+throw, and raw tool results are never mutated.
 
 Native-tool catalog ownership is deliberately split at the browser/runtime
 boundary:

@@ -93,6 +93,10 @@ import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool';
 import {
+  projectFindWorkspaceSymbolModelOutput,
+  projectLspInspectModelOutput,
+} from './workspace-inspection-model-projections';
+import {
   isHiddenPath,
   isWithinRoot,
   joinSegments,
@@ -3294,6 +3298,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.findWorkspaceSymbol,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
+      toModelOutput: projectFindWorkspaceSymbolModelOutput,
     },
     [NATIVE_TOOL_ID.lspInspect]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
@@ -3311,6 +3316,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.lspInspect,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
+      toModelOutput: projectLspInspectModelOutput,
     },
     [NATIVE_TOOL_ID.grepSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],

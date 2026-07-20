@@ -810,6 +810,50 @@ describe('assistant-tools', () => {
     expect(globRaw).toEqual(globBefore);
   });
 
+  it('registers compact symbol and LSP projections without mutating raw results', () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+    const symbolRaw = {
+      matches: [
+        {
+          declarationLine: 7,
+          endLine: 12,
+          name: 'export function target() {',
+          preview: '7: export function target() {',
+          startLine: 7,
+        },
+      ],
+      path: '/src/target.ts',
+      rootName: 'workspace',
+      totalMatches: 1,
+      truncated: false,
+    };
+    const lspRaw = {
+      available: true,
+      hover: 'function target(): void',
+      language: 'typescript',
+      path: '/src/target.ts',
+      rootName: 'workspace',
+    };
+    const symbolBefore = structuredClone(symbolRaw);
+    const lspBefore = structuredClone(lspRaw);
+
+    expect(tools['brainstrike.findWorkspaceSymbol'].toModelOutput?.(symbolRaw)).toMatchObject({
+      type: 'text',
+    });
+    expect(tools['brainstrike.findWorkspaceSymbol'].toModelOutput?.(symbolRaw).value).toContain(
+      'inspect: call brainstrike.lspInspect'
+    );
+    expect(tools['brainstrike.lspInspect'].toModelOutput?.(lspRaw)).toEqual({
+      type: 'text',
+      value:
+        'lsp | available=true | root=workspace | path=/src/target.ts | language=typescript\nhover: function target(): void',
+    });
+    expect(symbolRaw).toEqual(symbolBefore);
+    expect(lspRaw).toEqual(lspBefore);
+  });
+
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
