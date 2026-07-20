@@ -410,6 +410,13 @@ workspace root id, workspace path, byte size, and mtime; selecting another root
 or changing the file fails visibly instead of resuming against different
 content. `omittedChars` counts exact unread source characters; when a page ends
 after a complete line, that includes the source newline before the next line.
+Desktop reads each page from one containment-checked file handle: the same
+handle is statted before and after the read, binary-probed, and decoded as fatal
+UTF-8 in 64 KiB chunks. It retains only page-sized source fragments plus line
+and character counters; it still scans to EOF because `totalLines` and
+`omittedChars` are exact public metadata, never estimates. Full-file allocation
+remains reserved for consumers that require the complete source, such as symbol,
+LSP, and tapestry-range processing.
 Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
 a continuation, the cursor's root id selects the same workspace root. An
 explicit different root is rejected. Cursor is mutually exclusive with

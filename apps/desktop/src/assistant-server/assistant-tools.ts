@@ -130,6 +130,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
+const READ_WORKSPACE_FILE_CHUNK_BYTES = 64 * 1024;
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
@@ -318,6 +319,31 @@ async function resolveWorkspaceAbsolutePath(
   };
 }
 
+const MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS = 3;
+
+async function withStableWorkspaceFileLock<T>(
+  rootPath: string,
+  requestedPath: string,
+  task: (resolved: { readonly absolutePath: string; readonly workspacePath: string }) => Promise<T>
+): Promise<T> {
+  for (let attempt = 0; attempt < MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS; attempt += 1) {
+    const resolvedBeforeLock = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+    const result = await withFileLock(resolvedBeforeLock.absolutePath, async () => {
+      const resolvedAfterLock = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+      if (resolvedAfterLock.absolutePath !== resolvedBeforeLock.absolutePath) {
+        return { kind: 'retry' as const };
+      }
+      return { kind: 'complete' as const, value: await task(resolvedAfterLock) };
+    });
+    if (result.kind === 'complete') {
+      return result.value;
+    }
+  }
+  throw new Error(
+    `Path "${requestedPath}" changed targets repeatedly while waiting to read it. Retry the read.`
+  );
+}
+
 /**
  * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
  * tools — which correctly resolve THROUGH a symlink to write its target — a
@@ -397,6 +423,25 @@ interface ReadWorkspaceFilePage {
   readonly nextPosition: ReadWorkspaceFilePosition | null;
 }
 
+interface ReadWorkspaceFileScannedLine {
+  readonly content: string;
+  readonly length: number;
+  readonly line: number;
+  readonly sourceStartColumn: number;
+}
+
+interface ReadWorkspaceFileScan {
+  readonly absolutePath: string;
+  readonly cursorLineLength: number | undefined;
+  readonly lineStartOffsets: ReadonlyMap<number, number>;
+  readonly lines: readonly ReadWorkspaceFileScannedLine[];
+  readonly mtimeMs: number;
+  readonly path: string;
+  readonly requestedEndOffset: number;
+  readonly size: number;
+  readonly totalLines: number;
+}
+
 function encodeReadWorkspaceFileCursor(cursor: ReadWorkspaceFileCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
 }
@@ -447,7 +492,7 @@ function decodeReadWorkspaceFileCursor(value: string): ReadWorkspaceFileCursor {
 }
 
 function renderReadWorkspaceFilePage(
-  lines: readonly string[],
+  lines: readonly ReadWorkspaceFileScannedLine[],
   position: ReadWorkspaceFilePosition,
   endLine: number,
   maxChars: number
@@ -466,10 +511,15 @@ function renderReadWorkspaceFilePage(
       break;
     }
 
-    const sourceLine = lines[line - 1] ?? '';
-    const remainder = sourceLine.slice(column);
+    const sourceLine = lines.find((candidate) => candidate.line === line);
+    if (!sourceLine || column < sourceLine.sourceStartColumn || column > sourceLine.length) {
+      break;
+    }
+    const remainderLength = sourceLine.length - column;
+    const capturedOffset = column - sourceLine.sourceStartColumn;
+    const remainder = sourceLine.content.slice(capturedOffset);
     const sourceBudget = remaining - overhead;
-    if (remainder.length > sourceBudget) {
+    if (remainderLength > sourceBudget) {
       const fragment = sliceContentPrefix(remainder, sourceBudget);
       if (fragment.length === 0) {
         break;
@@ -489,7 +539,7 @@ function renderReadWorkspaceFilePage(
     remaining = sourceBudget;
     lastLine = line;
     parts.push(remainder);
-    remaining -= remainder.length;
+    remaining -= remainderLength;
     line += 1;
     column = 0;
   }
@@ -515,28 +565,29 @@ function readWorkspaceFilePageAdvances(
 }
 
 function countUnreadSourceChars(
-  lines: readonly string[],
   position: ReadWorkspaceFilePosition | null,
-  endLine: number
+  lineStartOffsets: ReadonlyMap<number, number>,
+  requestedEndOffset: number
 ): number {
   if (!position) {
     return 0;
   }
-  let unread = position.column === 0 && position.line > 1 ? 1 : 0;
-  unread += (lines[position.line - 1] ?? '').length - position.column;
-  for (let line = position.line + 1; line <= endLine; line += 1) {
-    unread += 1 + (lines[line - 1] ?? '').length;
+  const lineStartOffset = lineStartOffsets.get(position.line);
+  if (lineStartOffset === undefined) {
+    throw new Error('readWorkspaceFile lost the source offset for its continuation cursor.');
   }
-  return unread;
+  const boundaryOffset = position.column === 0 && position.line > 1 ? 1 : 0;
+  return requestedEndOffset - (lineStartOffset + position.column - boundaryOffset);
 }
 
 function resolveReadWorkspaceFilePageRequest(args: {
   readonly file: { readonly mtimeMs: number; readonly path: string; readonly size: number };
   readonly input: ReadWorkspaceFileInput;
-  readonly lines: readonly string[];
+  readonly cursorLineLength: number | undefined;
   readonly rootId: string;
+  readonly totalLines: number;
 }): { readonly endLine: number; readonly position: ReadWorkspaceFilePosition } {
-  const { file, input, lines, rootId } = args;
+  const { cursorLineLength, file, input, rootId, totalLines } = args;
   const hasStartLine = input.startLine !== null && input.startLine !== undefined;
   const hasEndLine = input.endLine !== null && input.endLine !== undefined;
   if (input.cursor && (hasStartLine || hasEndLine)) {
@@ -545,7 +596,6 @@ function resolveReadWorkspaceFilePageRequest(args: {
     );
   }
 
-  const totalLines = lines.length;
   const cursor = input.cursor ? decodeReadWorkspaceFileCursor(input.cursor) : null;
   if (cursor && cursor.rootId !== rootId) {
     throw new Error(
@@ -560,10 +610,11 @@ function resolveReadWorkspaceFilePageRequest(args: {
       'The readWorkspaceFile continuation cursor is stale or belongs to another file. Start a new read without cursor.'
     );
   }
-  const cursorLine = cursor ? lines[cursor.line - 1] : undefined;
   if (
     cursor &&
-    (cursorLine === undefined || cursor.endLine > totalLines || cursor.column > cursorLine.length)
+    (cursorLineLength === undefined ||
+      cursor.endLine > totalLines ||
+      cursor.column > cursorLineLength)
   ) {
     throw new Error(
       'The readWorkspaceFile continuation cursor is stale or has an invalid source position. Start a new read without cursor.'
@@ -581,6 +632,285 @@ function resolveReadWorkspaceFilePageRequest(args: {
     endLine: Math.max(startLine, Math.min(input.endLine ?? totalLines, totalLines)),
     position: { column: 0, line: startLine },
   };
+}
+
+interface ReadWorkspaceFileCapture {
+  content: string;
+  readonly overhead: number;
+  readonly sourceBudget: number;
+  readonly sourceStartColumn: number;
+}
+
+interface ReadWorkspaceFileScanState {
+  readonly candidateEndLine: number;
+  readonly candidateStartColumn: number;
+  readonly candidateStartLine: number;
+  captureComplete: boolean;
+  captureRemaining: number;
+  currentCapture: ReadWorkspaceFileCapture | undefined;
+  currentLine: number;
+  currentLineLength: number;
+  currentLinePrefix: string;
+  currentLineStartOffset: number;
+  readonly cursorLine: number | undefined;
+  cursorLineLength: number | undefined;
+  lastLine: ReadWorkspaceFileScannedLine;
+  lastLineStartOffset: number;
+  readonly lineStartOffsets: Map<number, number>;
+  readonly maxChars: number;
+  requestedEndOffset: number | undefined;
+  readonly scannedLines: ReadWorkspaceFileScannedLine[];
+  sourceOffset: number;
+}
+
+function beginReadWorkspaceFileLine(state: ReadWorkspaceFileScanState): void {
+  state.currentCapture = undefined;
+  if (
+    state.captureComplete ||
+    state.currentLine < state.candidateStartLine ||
+    state.currentLine > state.candidateEndLine
+  ) {
+    return;
+  }
+
+  state.lineStartOffsets.set(state.currentLine, state.currentLineStartOffset);
+  const separatorLength = state.scannedLines.length === 0 ? 0 : 1;
+  const overhead = separatorLength + `${state.currentLine}: `.length;
+  if (overhead > state.captureRemaining) {
+    state.captureComplete = true;
+    return;
+  }
+  state.currentCapture = {
+    content: '',
+    overhead,
+    sourceBudget: state.captureRemaining - overhead,
+    sourceStartColumn:
+      state.currentLine === state.candidateStartLine ? state.candidateStartColumn : 0,
+  };
+}
+
+function appendReadWorkspaceFileLineSegment(
+  state: ReadWorkspaceFileScanState,
+  segment: string
+): void {
+  if (state.currentLinePrefix.length < state.maxChars) {
+    state.currentLinePrefix += segment.slice(0, state.maxChars - state.currentLinePrefix.length);
+  }
+  const capture = state.currentCapture;
+  if (capture && capture.content.length < capture.sourceBudget + 1) {
+    const segmentStartColumn = state.currentLineLength;
+    const captureEndColumn = capture.sourceStartColumn + capture.sourceBudget + 1;
+    const sliceStart = Math.max(0, capture.sourceStartColumn - segmentStartColumn);
+    const sliceEnd = Math.min(segment.length, captureEndColumn - segmentStartColumn);
+    if (sliceEnd > sliceStart) {
+      // Keep one code unit of lookahead so renderReadWorkspaceFilePage can
+      // detect a high surrogate exactly at the page boundary and refuse to
+      // emit half of the pair.
+      capture.content += segment.slice(sliceStart, sliceEnd);
+    }
+  }
+  state.currentLineLength += segment.length;
+  state.sourceOffset += segment.length;
+}
+
+function finishReadWorkspaceFileLine(state: ReadWorkspaceFileScanState): void {
+  state.lastLine = {
+    content: state.currentLinePrefix,
+    length: state.currentLineLength,
+    line: state.currentLine,
+    sourceStartColumn: 0,
+  };
+  state.lastLineStartOffset = state.currentLineStartOffset;
+  if (state.currentLine === state.cursorLine) {
+    state.cursorLineLength = state.currentLineLength;
+  }
+  if (state.currentLine === state.candidateEndLine) {
+    state.requestedEndOffset = state.currentLineStartOffset + state.currentLineLength;
+  }
+  const capture = state.currentCapture;
+  if (!capture) {
+    return;
+  }
+
+  state.scannedLines.push({
+    content: capture.content,
+    length: state.currentLineLength,
+    line: state.currentLine,
+    sourceStartColumn: capture.sourceStartColumn,
+  });
+  const remainderLength = Math.max(0, state.currentLineLength - capture.sourceStartColumn);
+  if (remainderLength > capture.sourceBudget || state.currentLine >= state.candidateEndLine) {
+    state.captureComplete = true;
+    return;
+  }
+  state.captureRemaining -= capture.overhead + remainderLength;
+}
+
+function processReadWorkspaceFileText(state: ReadWorkspaceFileScanState, text: string): void {
+  let segmentStart = 0;
+  for (let newlineIndex = text.indexOf('\n'); newlineIndex !== -1; ) {
+    appendReadWorkspaceFileLineSegment(state, text.slice(segmentStart, newlineIndex));
+    finishReadWorkspaceFileLine(state);
+    state.sourceOffset += 1;
+    state.currentLine += 1;
+    state.currentLineLength = 0;
+    state.currentLinePrefix = '';
+    state.currentLineStartOffset = state.sourceOffset;
+    beginReadWorkspaceFileLine(state);
+    segmentStart = newlineIndex + 1;
+    newlineIndex = text.indexOf('\n', segmentStart);
+  }
+  appendReadWorkspaceFileLineSegment(state, text.slice(segmentStart));
+}
+
+function decodeReadWorkspaceFileText(
+  decoder: TextDecoder,
+  bytes: Uint8Array | undefined,
+  requestedPath: string
+): string {
+  try {
+    return bytes ? decoder.decode(bytes, { stream: true }) : decoder.decode();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Path "${requestedPath}" contains malformed UTF-8 and cannot be read as text.`
+      );
+    }
+    throw error;
+  }
+}
+
+function assertReadWorkspaceFileChunkIsText(
+  bytes: Uint8Array,
+  byteOffset: number,
+  requestedPath: string
+): void {
+  const binaryProbeEnd = Math.min(bytes.length, Math.max(0, 4096 - byteOffset));
+  for (let index = 0; index < binaryProbeEnd; index += 1) {
+    if (bytes[index] === 0) {
+      throw new Error(`Path "${requestedPath}" is a binary file and cannot be read as text.`);
+    }
+  }
+}
+
+async function scanReadWorkspaceFileHandle(args: {
+  readonly handle: Awaited<ReturnType<typeof fsPromises.open>>;
+  readonly requestedPath: string;
+  readonly size: number;
+  readonly state: ReadWorkspaceFileScanState;
+}): Promise<void> {
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const readBuffer = Buffer.allocUnsafe(READ_WORKSPACE_FILE_CHUNK_BYTES);
+  beginReadWorkspaceFileLine(args.state);
+  let byteOffset = 0;
+  while (byteOffset < args.size) {
+    const bytesRequested = Math.min(READ_WORKSPACE_FILE_CHUNK_BYTES, args.size - byteOffset);
+    const { bytesRead } = await args.handle.read(readBuffer, 0, bytesRequested, byteOffset);
+    if (bytesRead === 0) {
+      break;
+    }
+    const bytes = readBuffer.subarray(0, bytesRead);
+    assertReadWorkspaceFileChunkIsText(bytes, byteOffset, args.requestedPath);
+    processReadWorkspaceFileText(
+      args.state,
+      decodeReadWorkspaceFileText(decoder, bytes, args.requestedPath)
+    );
+    byteOffset += bytesRead;
+  }
+  processReadWorkspaceFileText(
+    args.state,
+    decodeReadWorkspaceFileText(decoder, undefined, args.requestedPath)
+  );
+  finishReadWorkspaceFileLine(args.state);
+}
+
+async function readWorkspaceFilePageSource(args: {
+  readonly absolutePath: string;
+  readonly input: ReadWorkspaceFileInput;
+  readonly maxChars: number;
+  readonly requestedPath: string;
+  readonly workspacePath: string;
+}): Promise<ReadWorkspaceFileScan> {
+  const cursor = args.input.cursor ? decodeReadWorkspaceFileCursor(args.input.cursor) : null;
+  const candidateStartLine = cursor?.line ?? Math.max(1, args.input.startLine ?? 1);
+  const candidateStartColumn = cursor?.column ?? 0;
+  const candidateEndLine =
+    cursor?.endLine ?? Math.max(candidateStartLine, args.input.endLine ?? Number.MAX_SAFE_INTEGER);
+  const handle = await fsPromises.open(args.absolutePath, 'r');
+
+  try {
+    const initialStat = await handle.stat();
+    if (!initialStat.isFile()) {
+      throw new Error(`Path "${args.requestedPath}" is not a file.`);
+    }
+    if (initialStat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
+      throw new Error(
+        `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read.`
+      );
+    }
+
+    const state: ReadWorkspaceFileScanState = {
+      candidateEndLine,
+      candidateStartColumn,
+      candidateStartLine,
+      captureComplete: false,
+      captureRemaining: args.maxChars,
+      currentCapture: undefined,
+      currentLine: 1,
+      currentLineLength: 0,
+      currentLinePrefix: '',
+      currentLineStartOffset: 0,
+      cursorLine: cursor?.line,
+      cursorLineLength: undefined,
+      lastLine: {
+        content: '',
+        length: 0,
+        line: 1,
+        sourceStartColumn: 0,
+      },
+      lastLineStartOffset: 0,
+      lineStartOffsets: new Map<number, number>(),
+      maxChars: args.maxChars,
+      requestedEndOffset: undefined,
+      scannedLines: [],
+      sourceOffset: 0,
+    };
+
+    await scanReadWorkspaceFileHandle({
+      handle,
+      requestedPath: args.requestedPath,
+      size: initialStat.size,
+      state,
+    });
+
+    const finalStat = await handle.stat();
+    if (finalStat.size !== initialStat.size || finalStat.mtimeMs !== initialStat.mtimeMs) {
+      throw new Error(`Path "${args.requestedPath}" changed while it was being read. Retry.`);
+    }
+
+    const totalLines = state.currentLine;
+    if (!cursor && candidateStartLine > totalLines) {
+      state.scannedLines.push(state.lastLine);
+      state.lineStartOffsets.set(state.lastLine.line, state.lastLineStartOffset);
+    }
+    if (state.requestedEndOffset === undefined) {
+      state.requestedEndOffset = state.lastLineStartOffset + state.lastLine.length;
+    }
+
+    return {
+      absolutePath: args.absolutePath,
+      cursorLineLength: state.cursorLineLength,
+      lineStartOffsets: state.lineStartOffsets,
+      lines: state.scannedLines,
+      mtimeMs: initialStat.mtimeMs,
+      path: args.workspacePath,
+      requestedEndOffset: state.requestedEndOffset,
+      size: Number(initialStat.size),
+      totalLines,
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function readWorkspaceTextFile(args: {
@@ -825,27 +1155,29 @@ async function runReadWorkspaceFile(
     input.root ?? continuationCursor?.rootId ?? undefined
   );
   const requestedPath = input.path;
-  // Resolve first so the read + tracker record can run INSIDE the same
-  // per-file lock the write tools use. An unlocked read could stat the OLD
-  // mtime, lose the race to a concurrent locked write (which records the
-  // fresh post-write mtime), then clobber the tracker back to the stale value
-  // — making the next legitimate write falsely refuse. Never nested inside
-  // another holder of this key, so no deadlock.
-  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
-  return withFileLock(resolvedForLock.absolutePath, async () => {
-    const file = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
-    const lines = file.content.split('\n');
-    const totalLines = lines.length;
+  // Resolve both before and after acquiring the per-file lock. A symlink can
+  // be retargeted while this read waits; only read when both resolutions name
+  // the same canonical file so containment and the staleness tracker share
+  // one stable identity.
+  return withStableWorkspaceFileLock(root.path, requestedPath, async (resolved) => {
+    const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
+    const file = await readWorkspaceFilePageSource({
+      absolutePath: resolved.absolutePath,
+      input,
+      maxChars,
+      requestedPath,
+      workspacePath: resolved.workspacePath,
+    });
     const pageRequest = resolveReadWorkspaceFilePageRequest({
+      cursorLineLength: file.cursorLineLength,
       file,
       input,
-      lines,
       rootId: root.rootId,
+      totalLines: file.totalLines,
     });
     const requestedEndLine = pageRequest.endLine;
     const startPosition = pageRequest.position;
     const startLine = startPosition.line;
-    const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
     const buildResult = (page: ReadWorkspaceFilePage) => ({
       approxOutputTokens: countTokensHeuristic(page.content),
       content: page.content,
@@ -862,13 +1194,17 @@ async function runReadWorkspaceFile(
             version: 1,
           })
         : null,
-      omittedChars: countUnreadSourceChars(lines, page.nextPosition, requestedEndLine),
+      omittedChars: countUnreadSourceChars(
+        page.nextPosition,
+        file.lineStartOffsets,
+        file.requestedEndOffset
+      ),
       path: file.path,
       rootName: root.displayName,
       size: file.size,
       startLine,
       tokenCount: null,
-      totalLines,
+      totalLines: file.totalLines,
       truncated: page.nextPosition !== null,
     });
     const buildModelOutput = (result: ReturnType<typeof buildResult>) => ({
@@ -889,7 +1225,7 @@ async function runReadWorkspaceFile(
     };
 
     const requestedPage = renderReadWorkspaceFilePage(
-      lines,
+      file.lines,
       startPosition,
       requestedEndLine,
       maxChars
@@ -928,7 +1264,7 @@ async function runReadWorkspaceFile(
     while (low <= high) {
       const kept = Math.floor((low + high) / 2);
       const candidatePage = renderReadWorkspaceFilePage(
-        lines,
+        file.lines,
         startPosition,
         requestedEndLine,
         kept
