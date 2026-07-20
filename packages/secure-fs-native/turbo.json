@@ -48,8 +48,20 @@
       "passThroughEnv": ["CI", "COVERAGE"]
     },
     "test:coverage": {
-      // Runs the same native suite (`pnpm test`), so it needs the same own-
-      // `build` edge (mirrors packages/db + packages/utils test:coverage).
+      // Runs the IDENTICAL native suite (`test:coverage` is `pnpm test` →
+      // `node --test test/*.test.cjs`), so it needs BOTH of `test`'s
+      // properties, not just the build edge:
+      //   - the same own-`build` edge (mirrors packages/db + packages/utils), and
+      //   - the same `cache: false`. The root `test:coverage` task IS cacheable,
+      //     so without this a `turbo run test:coverage` hit would replay a green
+      //     WITHOUT dlopening the addon — precisely the hazard `test` above
+      //     documents. `build` being cache:false does not help: it guarantees a
+      //     fresh binary, not that anything loaded it.
+      // The main CI coverage lane sidesteps this today (coverage.yml invokes
+      // `pnpm --filter … run test:coverage` directly rather than through turbo),
+      // but nightly-coverage.yml DOES run `turbo run test:coverage`, and the
+      // asymmetry with `test` would be a trap regardless.
+      "cache": false,
       "dependsOn": ["$TURBO_EXTENDS$", "build"]
     }
   }

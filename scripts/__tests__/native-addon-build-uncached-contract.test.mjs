@@ -192,6 +192,9 @@ test('the native-addon guard has something to guard (fails vacuously otherwise)'
  */
 const TURBO_TEST_TASKS = ['test', 'test:integration', 'test:coverage'];
 
+/** Root task defaults, so effective cacheability can be resolved per lane. */
+const rootTurbo = readJsonc(path.join(repoRoot, 'turbo.jsonc'));
+
 for (const dir of nativeAddonPackageDirs()) {
   const rel = path.relative(repoRoot, dir).split(path.sep).join('/');
   test(`${rel}: turbo build task is cache:false (native addon output is arch/ABI-specific)`, () => {
@@ -248,6 +251,22 @@ for (const dir of nativeAddonPackageDirs()) {
         `${rel}/turbo.json tasks["${task}"].dependsOn must include "build": the ${task} script loads the compiled ` +
           'addon but no longer builds it inline, so without the edge turbo may run the lane before (or concurrently ' +
           'with) the native build. Use ["$TURBO_EXTENDS$", "build"] to append without dropping the inherited topo cascade.'
+      );
+
+      // A lane that dlopens the addon must never replay from cache: a hit
+      // reports green WITHOUT proving the binary loads on THIS machine/ABI,
+      // which is the whole point of a native-addon test. `build` being
+      // cache:false does not cover this — it guarantees a fresh binary, not
+      // that anything loaded it. Effective cacheability = package override,
+      // else the root task's value, else turbo's default (true).
+      const rootTask = rootTurbo.tasks?.[task];
+      const effectiveCache = turbo.tasks?.[task]?.cache ?? rootTask?.cache ?? true;
+      assert.equal(
+        effectiveCache,
+        false,
+        `${rel} lane "${task}" runs the native suite, so it must be cache:false. It currently resolves to ` +
+          'cacheable (package override absent and the root task caches), which would replay a logged green without ' +
+          'ever dlopening the addon.'
       );
     }
   });
