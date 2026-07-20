@@ -76,14 +76,16 @@ export async function findBrowserEventLiteralViolations({ root = REPO_ROOT } = {
     }
     const sourceText = await readFile(path.join(root, filePath), 'utf8');
     for (const eventName of GUARDED_EVENT_NAMES) {
-      let matchIndex = sourceText.indexOf(eventName);
-      while (matchIndex !== -1) {
+      // Only QUOTED literals violate the contract — a code comment may
+      // legitimately mention an event name (review round on #1793). The name
+      // is matched with a quote character on each side (', ", or `).
+      const quoted = new RegExp(`['"\`]${eventName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`, 'g');
+      for (const match of sourceText.matchAll(quoted)) {
         violations.push({
           eventName,
           filePath,
-          lineNumber: getLineNumber(sourceText, matchIndex),
+          lineNumber: getLineNumber(sourceText, match.index),
         });
-        matchIndex = sourceText.indexOf(eventName, matchIndex + eventName.length);
       }
     }
   }
