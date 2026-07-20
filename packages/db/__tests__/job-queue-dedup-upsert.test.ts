@@ -1,16 +1,14 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
 import type { IDatabase } from '../src/repositories/interfaces.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue dedupe upsert semantics', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://job-queue-dedup');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('keeps earliest run_at and returns the existing job on conflict', async () => {

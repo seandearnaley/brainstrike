@@ -6,17 +6,14 @@
  * and line range (`chunkId`, `chunkStartLine`, `chunkEndLine`).
  */
 
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleFileChunkRepository } from '../src/repositories/drizzle/file-chunk-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { createGrepSearchService } from '../src/search/grep-search-service.js';
 import { createHybridSearchService } from '../src/search/hybrid-search-service.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 // Seed constants
 const ROOT_A = '00000000-0000-0000-0000-00000000000a';
@@ -39,11 +36,7 @@ const CHUNK_NULL_SET = '00000000-0000-0000-0000-0000000000c5';
 let db: PGlite;
 
 beforeAll(async () => {
-  db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-  const migrationResult = await runMigrations(db);
-  if (!migrationResult.success) {
-    throw new Error(`Migrations failed: ${migrationResult.error}`);
-  }
+  db = await createMigratedTestDb();
 
   await db.query(`
     INSERT INTO roots (id, kind, display_name, path, status) VALUES

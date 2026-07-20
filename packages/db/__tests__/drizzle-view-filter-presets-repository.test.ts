@@ -1,13 +1,10 @@
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleViewFilterPresetsRepository } from '../src/repositories/drizzle/view-filter-presets-repository.js';
 import * as schema from '../src/schema/index.js';
 import { viewFilterPresets } from '../src/schema/index.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('DrizzleViewFilterPresetsRepository', () => {
   let client: PGlite;
@@ -15,13 +12,7 @@ describe('DrizzleViewFilterPresetsRepository', () => {
   let repository: DrizzleViewFilterPresetsRepository;
 
   beforeEach(async () => {
-    client = new PGlite({
-      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
-    });
-    const migrationResult = await runMigrations(client);
-    if (!migrationResult.success) {
-      throw new Error(`Migrations failed: ${migrationResult.error}`);
-    }
+    client = await createMigratedTestDb();
     db = drizzle(client, { schema });
     repository = new DrizzleViewFilterPresetsRepository(db);
   });

@@ -31,14 +31,14 @@ function printLanes(laneMap) {
   }
 }
 
-function runLane(laneName) {
+function runLane(laneName, passthroughArgs = []) {
   const laneMap = validateLanes();
   if (!laneMap) {
     return 1;
   }
   if (laneName === 'all') {
     for (const name of laneMap.keys()) {
-      const exitCode = runLane(name);
+      const exitCode = runLane(name, passthroughArgs);
       if (exitCode !== 0) {
         return exitCode;
       }
@@ -61,6 +61,10 @@ function runLane(laneName) {
       '--project',
       'unit',
       ...files.map((file) => path.join('__tests__', file)),
+      // Forward trailing CLI args (e.g. `--coverage --coverage.reporter=…`)
+      // to vitest. Without this `test:coverage` (test-lanes run all --coverage)
+      // would silently drop the flags and produce no coverage report.
+      ...passthroughArgs,
     ],
     {
       cwd: packageRoot,
@@ -76,7 +80,7 @@ function runLane(laneName) {
 }
 
 function main(args) {
-  const [command, laneName] = args;
+  const [command, laneName, ...passthroughArgs] = args;
   if (command === 'check') {
     const laneMap = validateLanes();
     if (!laneMap) {
@@ -86,9 +90,9 @@ function main(args) {
     return 0;
   }
   if (command === 'run' && laneName) {
-    return runLane(laneName);
+    return runLane(laneName, passthroughArgs);
   }
-  console.error('Usage: node scripts/test-lanes.mjs check|run <lane|all>');
+  console.error('Usage: node scripts/test-lanes.mjs check|run <lane|all> [-- vitest args…]');
   return 1;
 }
 

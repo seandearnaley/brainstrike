@@ -1,10 +1,7 @@
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { createEmbeddingCacheRepository } from '../src/index.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 async function waitForAssertion(assertion: () => void): Promise<void> {
   const startedAt = Date.now();
@@ -39,13 +36,7 @@ describe('createEmbeddingCacheRepository', () => {
   let client: PGlite;
 
   beforeEach(async () => {
-    client = new PGlite({
-      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
-    });
-    const migrationResult = await runMigrations(client);
-    if (!migrationResult.success) {
-      throw new Error(`Migrations failed: ${migrationResult.error}`);
-    }
+    client = await createMigratedTestDb();
   });
 
   afterEach(async () => {

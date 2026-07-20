@@ -1,15 +1,13 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue concurrency claim behavior', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://job-queue-concurrency');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('only one claimant gets the single available job', async () => {

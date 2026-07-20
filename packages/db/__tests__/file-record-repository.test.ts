@@ -1,10 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileRecord } from '../src/models/file-record';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
-import { wasmLoader } from '../src/wasm-loader.js';
-import { createPGliteTestDataDir } from './test-data-dir';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
@@ -59,9 +57,7 @@ describe('FileRecordRepository', () => {
 
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
-    const dataDir = createPGliteTestDataDir('pglite-test-file-record');
-    db = await wasmLoader.createPGlite(dataDir);
-    await migrate(db);
+    db = await createMigratedTestDb();
     repo = new FileRecordRepository(db);
   });
 

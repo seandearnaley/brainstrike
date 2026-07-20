@@ -1,13 +1,13 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { JobQueue, migrate, wasmLoader } from '../src/index.js';
+import { JobQueue } from '../src/index.js';
+import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue stats', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://job-queue-stats');
-    await migrate(db);
+    db = await createMigratedTestDb();
   });
 
   it('returns counts by state and queue stats', async () => {

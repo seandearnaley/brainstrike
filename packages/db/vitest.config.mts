@@ -50,10 +50,13 @@ const unitAliases: Record<string, string> = {
 };
 
 /**
- * November 2025 Vitest 4 configuration for @brainstrike/db
+ * Vitest 4 configuration for @brainstrike/db
  *
  * Test projects:
- * - unit: jsdom-based tests with PGlite mocks (fast, CI-friendly)
+ * - unit: node/jsdom tests running REAL PGlite (WASM Postgres). The
+ *   db-snapshot-global.ts globalSetup migrates one template per process and
+ *   dumps it to disk; tests `loadDataDir` a fresh instance from that snapshot
+ *   (see __tests__/helpers/migrated-test-db.ts) instead of re-migrating.
  * - browser: Real browser tests for WASM/IndexedDB validation
  *
  * Browser tests use *.browser.test.ts naming convention.
@@ -72,19 +75,23 @@ export default defineConfig({
           alias: unitAliases,
         },
         test: {
-          env: {
-            TEST_PGLITE_MOCK: 'true',
-          },
           environment: 'jsdom',
-          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
+          // Build the migrated PGlite snapshot ONCE per process (see
+          // helpers/db-snapshot-global.ts) so per-test boots are cheap restores.
+          globalSetup: ['./__tests__/helpers/db-snapshot-global.ts'],
           globals: true,
           hookTimeout: 10_000,
           include: ['__tests__/**/*.test.{ts,tsx}'],
-          maxWorkers: 1,
+          // Real PGlite boots are now cheap (snapshot restore, not re-migration),
+          // so files parallelize across workers. Forks (not threads) still isolate
+          // each WASM Postgres in its own process so the pool exits cleanly after
+          // PGlite/coverage runs. Capped at 2 in CI: each PGlite fork already
+          // drives ~2 cores of WASM work, so 2 workers saturate the 4-vCPU
+          // ubuntu-24.04-arm runner; more would oversubscribe. Raise only if the
+          // db shard moves to a larger runner.
+          maxWorkers: process.env['CI'] ? 2 : '50%',
           name: 'unit',
-          // PGlite coverage runs can leave the thread pool alive after all
-          // assertions pass. Forks isolate those native resources and exit
-          // cleanly under the full repository gate.
           pool: 'forks',
           setupFiles: ['./vitest.setup.ts'],
           testTimeout: 10_000,
