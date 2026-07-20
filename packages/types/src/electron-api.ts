@@ -195,7 +195,7 @@ export interface ElectronFileSystemAPI {
     healthPushes: number;
     lastSetupLatencyMs: number;
     retries: number;
-    rootInvalidations: number;
+    degradedTransitions: number;
     setupLatencySamples: number;
   }>;
   /**

@@ -739,8 +739,8 @@ describe('file-system watch IPC domain', () => {
       expect(snapshot).toMatchObject({
         activeWatchers: 1,
         batches: 2,
+        degradedTransitions: 1,
         events: 3,
-        rootInvalidations: 1,
       });
       expect(typeof snapshot['lastSetupLatencyMs']).toBe('number');
       expect(snapshot['setupLatencySamples']).toBe(1);

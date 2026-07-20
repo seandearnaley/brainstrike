@@ -95,6 +95,13 @@ const telemetry = {
   /** Change batches pushed to renderers. */
   batches: 0,
   cleanups: 0,
+  /**
+   * healthy→degraded transitions. The engine emits each WITH a root
+   * invalidation, but dedupes repeated same-state errors — so this is a
+   * LOWER BOUND on invalidation batches, not a per-batch count (which is
+   * only renderer-observable via the refresh events themselves).
+   */
+  degradedTransitions: 0,
   /** Individual FileSystemChange entries across all batches. */
   events: 0,
   failures: 0,
@@ -102,8 +109,6 @@ const telemetry = {
   /** Milliseconds from 'starting' to 'healthy' for the latest setup. */
   lastSetupLatencyMs: 0,
   retries: 0,
-  /** Degraded transitions — the engine emits these WITH a root invalidation. */
-  rootInvalidations: 0,
   /** Number of starting→healthy latency samples observed. */
   setupLatencySamples: 0,
 };
@@ -148,7 +153,7 @@ function makeHealthSink(
         telemetry.setupLatencySamples += 1;
       }
     } else if (transition.state === 'degraded') {
-      telemetry.rootInvalidations += 1;
+      telemetry.degradedTransitions += 1;
     }
     const entry = liveWatchers.get(watchId);
     if (entry) {
@@ -287,7 +292,7 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.healthPushes = 0;
   telemetry.lastSetupLatencyMs = 0;
   telemetry.retries = 0;
-  telemetry.rootInvalidations = 0;
+  telemetry.degradedTransitions = 0;
   telemetry.setupLatencySamples = 0;
   setupStartedAt.clear();
 
@@ -380,6 +385,7 @@ export function registerFileSystemWatchIpcHandlers({
         // reaper has already fired — stop immediately instead of leaking.
         if (owner.isDestroyed()) {
           liveWatchers.delete(watchId);
+          setupStartedAt.delete(watchId);
           stop();
           throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
         }
