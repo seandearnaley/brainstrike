@@ -73,6 +73,13 @@ const WRAPPED_CALL_METHODS = new Set(['doGenerate', 'doStream']);
  * Wraps an AI SDK language model so every `doStream`/`doGenerate` call goes out
  * with the tail cache breakpoint applied. All other properties (spec version,
  * ids, capability probes) delegate to the wrapped model untouched.
+ *
+ * Two deliberate limits: non-wrapped methods are re-bound per property access
+ * (method identity is not stable across reads — no known consumer compares
+ * it), and any path that reconstructs the model from serialized config (e.g.
+ * the SDK's workflow serialize/deserialize statics) yields an UNWRAPPED model.
+ * Brainstrike always re-creates models through createProvider on resume, so
+ * every live request path re-wraps.
  */
 export function wrapAnthropicModelWithPromptCaching<M extends object>(model: M): M {
   return new Proxy(model, {

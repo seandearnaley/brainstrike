@@ -1068,6 +1068,10 @@ interface ToolLifecycleState {
    * write 1.25×). Other providers report auto-discounted cached tokens whose
    * rates we do not model — dropping the classes keeps their estimates on the
    * documented conservative full-rate path instead of mispricing them.
+   * Keyed off the PARENT run's provider: Mastra does not fold a delegated
+   * subagent's model-step usage into the parent finish counter, so a child
+   * pinned to a different provider cannot leak foreign cache classes here
+   * (review nit, BST-587).
    */
   includeCacheTokenClasses: boolean;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
