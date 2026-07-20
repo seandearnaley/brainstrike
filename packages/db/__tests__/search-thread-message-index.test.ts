@@ -1,6 +1,6 @@
 import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { ThreadSearchRepository } from '../src/repositories/thread-search-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
@@ -692,6 +692,128 @@ describe('ThreadSearchRepository', () => {
         'SELECT thread_id FROM brainstrike_thread_message_index'
       );
       expect(rows.rows.map((row) => row.thread_id)).toEqual(['thread-2']);
+    });
+  });
+
+  describe('searchSimilar HNSW tuning transaction (mock db — no PGlite needed)', () => {
+    const PROFILE_ROW = {
+      dimensions: PROFILE_DIMENSIONS,
+      distance: 'cosine',
+      id: 'profile-1',
+      modelId: 'model-1',
+      modelKey: PROFILE_MODEL_KEY,
+    };
+
+    function profileAwareQuery(calls: { params?: unknown[]; sql: string }[]) {
+      return async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+        calls.push({ params, sql });
+        if (sql.includes('thread_search_profiles')) {
+          return { rows: [PROFILE_ROW] as T[] };
+        }
+        return { rows: [] as T[] };
+      };
+    }
+
+    it('routes the vector arm through runTransaction with SET LOCAL tuning ahead of the SELECT', async () => {
+      const queryCalls: { params?: unknown[]; sql: string }[] = [];
+      const runTransaction = vi.fn(async (statements: { sql: string }[], resultIndex: number) => {
+        expect(resultIndex).toBe(statements.length - 1);
+        return { rows: [] };
+      });
+      const mockRepository = new ThreadSearchRepository({
+        query: profileAwareQuery(queryCalls),
+        runTransaction,
+      });
+
+      await mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID });
+
+      expect(runTransaction).toHaveBeenCalledTimes(1);
+      const [statements] = runTransaction.mock.calls[0] as [
+        { params?: unknown[]; sql: string }[],
+        number,
+      ];
+      // Positional prefix + trailing-SELECT assertions (not toEqual): the
+      // tuning helper appends an ivfflat.probes statement when IVFFLAT_PROBES
+      // is set, and this test must not couple to that env-dependent extra.
+      expect(statements[0]?.sql).toContain('SET LOCAL hnsw.ef_search');
+      expect(statements[1]?.sql).toContain('SET LOCAL hnsw.iterative_scan');
+      expect(statements.at(-1)?.sql).toContain('SELECT');
+      expect(statements.slice(0, -1).every((s) => s.sql.startsWith('SET LOCAL'))).toBe(true);
+      // The vector SELECT itself must not have gone through bare query().
+      expect(queryCalls.every((call) => !call.sql.includes('<=>'))).toBe(true);
+    });
+
+    it('prefers the callback-style transaction (web scheduled handle / raw PGlite) over the BEGIN fallback', async () => {
+      const outerCalls: { params?: unknown[]; sql: string }[] = [];
+      const txCalls: { params?: unknown[]; sql: string }[] = [];
+      const transaction = vi.fn(
+        async <T>(fn: (tx: { query: typeof txQuery }) => Promise<T>): Promise<T> =>
+          await fn({ query: txQuery })
+      );
+      const txQuery = async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+        txCalls.push({ params, sql });
+        return { rows: [] as T[] };
+      };
+      const mockRepository = new ThreadSearchRepository({
+        query: profileAwareQuery(outerCalls),
+        transaction,
+      });
+
+      await mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID });
+
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(txCalls[0]?.sql).toContain('SET LOCAL hnsw.ef_search');
+      expect(txCalls[1]?.sql).toContain('SET LOCAL hnsw.iterative_scan');
+      expect(txCalls.at(-1)?.sql).toContain('<=>');
+      // No BEGIN/COMMIT and no vector SELECT on the outer connection.
+      expect(outerCalls.every((call) => call.sql !== 'BEGIN' && !call.sql.includes('<=>'))).toBe(
+        true
+      );
+    });
+
+    it('falls back to BEGIN / SET LOCAL / SELECT / COMMIT over query() when runTransaction is absent', async () => {
+      const queryCalls: { params?: unknown[]; sql: string }[] = [];
+      const mockRepository = new ThreadSearchRepository({
+        query: profileAwareQuery(queryCalls),
+      });
+
+      await mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID });
+
+      const vectorFlow = queryCalls
+        .map((call) => call.sql.trim())
+        .filter(
+          (sql) =>
+            sql === 'BEGIN' ||
+            sql === 'COMMIT' ||
+            sql === 'ROLLBACK' ||
+            sql.startsWith('SET LOCAL') ||
+            sql.includes('<=>')
+        );
+      expect(vectorFlow[0]).toBe('BEGIN');
+      expect(vectorFlow[1]).toContain('SET LOCAL hnsw.ef_search');
+      expect(vectorFlow[2]).toContain('SET LOCAL hnsw.iterative_scan');
+      expect(vectorFlow[3]).toContain('<=>');
+      expect(vectorFlow[4]).toBe('COMMIT');
+    });
+
+    it('rolls back and rethrows when the in-transaction fallback SELECT fails', async () => {
+      const queryCalls: { params?: unknown[]; sql: string }[] = [];
+      const failingQuery = async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+        queryCalls.push({ params, sql });
+        if (sql.includes('thread_search_profiles')) {
+          return { rows: [PROFILE_ROW] as T[] };
+        }
+        if (sql.includes('<=>')) {
+          throw new Error('vector search exploded');
+        }
+        return { rows: [] as T[] };
+      };
+      const mockRepository = new ThreadSearchRepository({ query: failingQuery });
+
+      await expect(
+        mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID })
+      ).rejects.toThrow('vector search exploded');
+      expect(queryCalls.map((call) => call.sql.trim())).toContain('ROLLBACK');
     });
   });
 });

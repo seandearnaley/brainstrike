@@ -2,6 +2,7 @@
   "name": "@brainstrike/db",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
@@ -12,7 +13,6 @@
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
-    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",

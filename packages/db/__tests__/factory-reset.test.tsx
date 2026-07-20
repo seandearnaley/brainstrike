@@ -197,7 +197,43 @@ describe('DbProvider factoryReset', () => {
     expect(result.current.reset).not.toBeNull();
   });
 
-  it('tolerates a missing prompt_items table during direct factory reset for older schemas', async () => {
+  it('propagates a real artifact delete failure while keeping direct reset retryable', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql === 'DELETE FROM brainstrike_assistant_tool_output_artifacts') {
+        throw new Error('artifact reset storage failure');
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).rejects.toThrow('artifact reset storage failure');
+    });
+    expect(initialDb.exec).not.toHaveBeenCalledWith('VACUUM');
+    expect(initialDb.close).not.toHaveBeenCalled();
+    expect(result.current.repo).not.toBeNull();
+    expect(result.current.reset).not.toBeNull();
+  });
+
+  it('tolerates missing pre-current assistant tables during direct factory reset', async () => {
     const { result } = renderHook(
       () => ({
         repo: useFileRecordRepository(),
@@ -218,6 +254,9 @@ describe('DbProvider factoryReset', () => {
       if (sql === 'DELETE FROM prompt_items') {
         throw new Error('table "prompt_items" does not exist');
       }
+      if (sql === 'DELETE FROM brainstrike_assistant_tool_output_artifacts') {
+        throw new Error('relation "brainstrike_assistant_tool_output_artifacts" does not exist');
+      }
       return { rows: [] };
     });
     initialDb.transaction.mockImplementation(
@@ -228,6 +267,7 @@ describe('DbProvider factoryReset', () => {
       await expect(result.current.reset?.()).resolves.toBeUndefined();
     });
     expect(query).toHaveBeenCalledWith('DELETE FROM prompt_items');
+    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_tool_output_artifacts');
     expect(initialDb.close).toHaveBeenCalledTimes(1);
   });
 

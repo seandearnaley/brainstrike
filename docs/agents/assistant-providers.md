@@ -485,12 +485,15 @@ declared byte span, require a continuation cursor exactly when bytes remain,
 and reject gaps, overlaps, extra fields, unsupported encodings, and malformed
 versions instead of guessing. U+0000 content uses an explicit reversible
 `json-string` encoding because PostgreSQL jsonb cannot represent it directly.
-This shared contract does **not** enable artifact storage or a reader tool by
-itself. Until a later PR atomically retains complete output during settlement,
-scopes resolution to the active thread/run, applies expiry, and exposes the
-reader, the temporary MCP inline ceilings above remain authoritative. The
-settlement implementation must fail visibly if complete retention fails; it
-must never emit an artifact envelope for data that was not durably stored.
+Migration 068 and `ToolOutputArtifactRepository` now provide the durable
+storage layer: exact UTF-8 `BYTEA`, resource+thread-scoped bounded range reads,
+seven-day expiry with bounded oldest-first purge, typed visible failures, and
+explicit web/desktop factory-reset cleanup. They do **not** yet settle live tool
+results or expose a reader tool. Until later PRs atomically retain complete
+output during settlement and expose scoped cursor-based resolution, the
+temporary MCP inline ceilings above remain authoritative. Settlement must fail
+visibly if complete retention fails; it must never emit an artifact envelope
+for data that was not durably stored.
 
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections

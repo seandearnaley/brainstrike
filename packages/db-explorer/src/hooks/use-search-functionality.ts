@@ -17,6 +17,7 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { useToast } from '@brainstrike/ui';
+import { getActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import {
@@ -24,7 +25,6 @@ import {
   type EffectiveModelInfo,
   resolveEmbeddingSetModelInfo,
 } from '../utils/embedding-models';
-import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 interface SearchEmbedder {
   dispose?: () => Promise<void> | void;

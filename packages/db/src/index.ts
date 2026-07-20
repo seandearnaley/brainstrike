@@ -146,6 +146,18 @@ export {
 } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
+export {
+  type PurgeExpiredToolOutputArtifactsOptions,
+  type ReadToolOutputArtifactRangeInput,
+  type StoreToolOutputArtifactInput,
+  TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
+  type ToolOutputArtifactDatabase,
+  type ToolOutputArtifactRangeResult,
+  ToolOutputArtifactRepository,
+  type ToolOutputArtifactRepositoryOptions,
+  ToolOutputArtifactStorageError,
+  type ToolOutputArtifactStorageOperation,
+} from './repositories/tool-output-artifact-repository.js';
 // Schema types for embedding cache (BST-170)
 // Schema types for view filter presets
 export type {

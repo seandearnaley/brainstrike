@@ -1,5 +1,6 @@
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTIVE_EMBEDDING_SET_KEY,
   getActiveEmbeddingSetId,
@@ -7,13 +8,61 @@ import {
 } from '../vector-preferences';
 
 describe('vector-preferences', () => {
+  const capturedWarnings: LogRecord[] = [];
+  let removeLogListener: () => void;
+
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
     vi.restoreAllMocks();
     // Reset store
     useVectorStatusUIStore.setState({ activeEmbeddingSetId: null });
+    capturedWarnings.length = 0;
+    removeLogListener = addLogListener((record) => {
+      if (record.scope === 'VectorPreferences' && record.level === LogLevel.WARN) {
+        capturedWarnings.push(record);
+      }
+    });
   });
+
+  afterEach(() => {
+    removeLogListener();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Replace the global localStorage with a Map-backed stand-in where selected
+   * operations throw. happy-dom's localStorage is a Proxy (prototype spies
+   * never fire and instance spies cannot be restored), so failure injection
+   * must go through vi.stubGlobal.
+   */
+  function stubThrowingLocalStorage(failing: ReadonlyArray<'getItem' | 'setItem' | 'removeItem'>) {
+    const backing = new Map<string, string>();
+    const fail = (operation: string) => {
+      throw new Error(`localStorage ${operation} error`);
+    };
+    vi.stubGlobal('localStorage', {
+      clear: () => backing.clear(),
+      getItem: (key: string) =>
+        failing.includes('getItem') ? fail('getItem') : (backing.get(key) ?? null),
+      key: (index: number) => [...backing.keys()][index] ?? null,
+      get length() {
+        return backing.size;
+      },
+      removeItem: (key: string) => {
+        if (failing.includes('removeItem')) {
+          fail('removeItem');
+        }
+        backing.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        if (failing.includes('setItem')) {
+          fail('setItem');
+        }
+        backing.set(key, value);
+      },
+    });
+  }
 
   describe('getActiveEmbeddingSetId', () => {
     it('returns value from Zustand store when available', () => {
@@ -56,22 +105,21 @@ describe('vector-preferences', () => {
       expect(getActiveEmbeddingSetId()).toBeNull();
     });
 
-    it('handles localStorage access errors gracefully', () => {
+    it('surfaces localStorage read failures via logger and returns null', () => {
       useVectorStatusUIStore.setState({ activeEmbeddingSetId: null });
-      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-        throw new Error('localStorage error');
-      });
+      stubThrowingLocalStorage(['getItem']);
 
       expect(getActiveEmbeddingSetId()).toBeNull();
+      expect(capturedWarnings).toHaveLength(1);
+      expect(capturedWarnings[0]?.args[0]).toContain('read');
     });
 
-    it('handles store access errors gracefully', () => {
+    it('propagates store read failures instead of silently falling back', () => {
       vi.spyOn(useVectorStatusUIStore, 'getState').mockImplementation(() => {
         throw new Error('Store error');
       });
-      localStorage.setItem(ACTIVE_EMBEDDING_SET_KEY, 'localStorage-456');
 
-      expect(getActiveEmbeddingSetId()).toBe('localStorage-456');
+      expect(() => getActiveEmbeddingSetId()).toThrow('Store error');
     });
   });
 
@@ -93,32 +141,51 @@ describe('vector-preferences', () => {
       expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBeNull();
     });
 
-    it('handles store write errors gracefully', () => {
+    it('propagates store write failures instead of silently swallowing them', () => {
       vi.spyOn(useVectorStatusUIStore, 'getState').mockImplementation(() => {
         throw new Error('Store error');
       });
 
-      expect(() => setActiveEmbeddingSetId('test-789')).not.toThrow();
-      expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBe('test-789');
+      expect(() => setActiveEmbeddingSetId('test-789')).toThrow('Store error');
     });
 
-    it('handles localStorage write errors gracefully', () => {
-      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-        throw new Error('localStorage error');
-      });
+    it('surfaces localStorage write failures via logger while store still updates', () => {
+      stubThrowingLocalStorage(['setItem']);
+      const events: Event[] = [];
+      const listener = (event: Event) => {
+        events.push(event);
+      };
+      window.addEventListener('brainstrike:embedding-set-updated', listener);
 
       expect(() => setActiveEmbeddingSetId('test-789')).not.toThrow();
+
+      window.removeEventListener('brainstrike:embedding-set-updated', listener);
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('test-789');
+      expect(capturedWarnings).toHaveLength(1);
+      expect(capturedWarnings[0]?.args[0]).toContain('persist');
+      // The update event still fires so listeners can react to the store update.
+      expect(events).toHaveLength(1);
     });
 
-    it('handles localStorage remove errors gracefully', () => {
+    it('surfaces localStorage remove failures via logger while store still updates', () => {
+      stubThrowingLocalStorage(['removeItem']);
       localStorage.setItem(ACTIVE_EMBEDDING_SET_KEY, 'old-value');
-      vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
-        throw new Error('localStorage error');
-      });
 
       expect(() => setActiveEmbeddingSetId(null)).not.toThrow();
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBeNull();
+      expect(capturedWarnings).toHaveLength(1);
+    });
+
+    it('surfaces dispatch failures via logger after store and localStorage update', () => {
+      vi.spyOn(window, 'dispatchEvent').mockImplementation(() => {
+        throw new Error('dispatch failed');
+      });
+
+      expect(() => setActiveEmbeddingSetId('set-789')).not.toThrow();
+      expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('set-789');
+      expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBe('set-789');
+      expect(capturedWarnings).toHaveLength(1);
+      expect(capturedWarnings[0]?.args[0]).toContain('dispatch');
     });
 
     it('dispatches brainstrike:embedding-set-updated event when setting id', () => {
@@ -132,8 +199,9 @@ describe('vector-preferences', () => {
 
       window.removeEventListener('brainstrike:embedding-set-updated', listener);
       expect(events).toHaveLength(1);
-      const dispatched = events[0] as CustomEvent<{ id?: string }>;
+      const dispatched = events[0] as CustomEvent<{ id?: string; reason?: string }>;
       expect(dispatched.detail?.id).toBe('set-123');
+      expect(dispatched.detail?.reason).toBe('selected');
     });
 
     it('dispatches brainstrike:embedding-set-updated event when clearing id', () => {
