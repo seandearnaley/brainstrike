@@ -203,10 +203,21 @@ describe('renderer main entry', () => {
     expect(existingRoot.render).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a fatal startup screen when the desktop preload bridge is incomplete', async () => {
+  it('renders a fatal startup screen when the preload bridge is incomplete inside Electron', async () => {
     window.logging = undefined;
+    // jsdom's default user agent has no Electron token; the fatal screen is
+    // reserved for real Electron renderers whose preload broke.
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) brainstrike-desktop/0.1.0 Chrome/150.0.0.0 Electron/43.0.0 Safari/537.36',
+    });
 
-    await import('../../renderer/main.tsx');
+    try {
+      await import('../../renderer/main.tsx');
+    } finally {
+      Reflect.deleteProperty(window.navigator, 'userAgent');
+    }
 
     const renderArg = mockRender.mock.calls[0]?.[0];
     expect(isReactElement(renderArg)).toBe(true);
@@ -218,5 +229,24 @@ describe('renderer main entry', () => {
       throw new Error('Expected startup failure to render a component');
     }
     expect(renderArg.type.name).toBe('DesktopStartupFailure');
+  });
+
+  it('renders the outside-Electron notice when the bridge is absent in a plain browser', async () => {
+    window.logging = undefined;
+    // jsdom's default user agent carries no Electron token, matching a plain
+    // browser tab pointed at the dev-server URL.
+
+    await import('../../renderer/main.tsx');
+
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(renderArg)).toBe(true);
+    if (!isReactElement(renderArg)) {
+      throw new Error('Expected outside-Electron render element');
+    }
+    expect(typeof renderArg.type).toBe('function');
+    if (typeof renderArg.type !== 'function') {
+      throw new Error('Expected outside-Electron notice to render a component');
+    }
+    expect(renderArg.type.name).toBe('DesktopRendererOutsideElectron');
   });
 });
