@@ -1,4 +1,5 @@
 import {
+  decodeToolOutputArtifactCursor,
   isToolOutputArtifactEnvelope,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
@@ -114,6 +115,13 @@ describe('tool output artifact settlement', () => {
       toolCallId: 'call-1',
     });
     expect(isToolOutputArtifactEnvelope(display)).toBe(true);
+    if (!isToolOutputArtifactEnvelope(display)) {
+      throw new TypeError('Expected a valid artifact envelope.');
+    }
+    expect(decodeToolOutputArtifactCursor(display.nextCursor)).toEqual({
+      artifactRef: display.artifactRef,
+      offsetByte: new TextEncoder().encode(display.preview).byteLength,
+    });
     expect(display).toMatchObject({
       artifactRef: { byteLength: new TextEncoder().encode(output).byteLength },
       code: 'tool_output_artifact',

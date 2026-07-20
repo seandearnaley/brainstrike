@@ -529,8 +529,17 @@ over-cap output, missing tool-call provenance, serialization failure, storage
 failure, or incoherent storage metadata throws visibly.
 Without the capability, the temporary MCP ceilings above remain authoritative.
 Desktop injects the capability only for a server-owned run with resource,
-thread, and run scope. A reader tool is still a later slice; the current cursor
-is versioned and opaque but not yet callable through the tool registry.
+thread, and run scope. The shared resolver accepts one strict discriminated
+input: either the initial artifact reference or an opaque continuation cursor.
+The cursor binds its version, complete reference identity, expiry, byte length,
+format, and exact next offset; envelope and page guards reject a cursor whose
+identity or offset differs. The resolver reads through a server-created
+capability closed over resource+thread scope, returns contiguous fatal-UTF-8
+pages with reversible U+0000 encoding, and surfaces malformed, expired,
+wrong-scope, incoherent, non-progress, and storage failures as typed errors.
+Settlement and continuation pages use the same cursor encoder. Desktop native
+tool registration remains the next slice; this resolver is not yet exposed to
+the model tool registry.
 
 Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections

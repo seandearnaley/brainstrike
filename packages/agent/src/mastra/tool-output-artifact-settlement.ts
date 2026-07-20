@@ -1,9 +1,9 @@
 import {
   encodeToolOutputArtifactContent,
+  encodeToolOutputArtifactCursor,
   isToolOutputArtifactEnvelope,
   isToolOutputArtifactReference,
   TOOL_OUTPUT_ARTIFACT_CODE,
-  TOOL_OUTPUT_ARTIFACT_CURSOR_PREFIX,
   TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   TOOL_OUTPUT_ARTIFACT_VERSION,
@@ -127,25 +127,6 @@ function readToolCallId(args: readonly unknown[]): string | undefined {
   return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }
 
-function base64UrlEncodeUtf8(value: string): string {
-  const bytes = TEXT_ENCODER.encode(value);
-  let binary = '';
-  const chunkSize = 8192;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/[=]+$/u, '');
-}
-
-function createContinuationCursor(
-  reference: ToolOutputArtifactReference,
-  offsetByte: number
-): string {
-  return `${TOOL_OUTPUT_ARTIFACT_CURSOR_PREFIX}${base64UrlEncodeUtf8(
-    JSON.stringify([reference.id, offsetByte])
-  )}`;
-}
-
 function serializedFieldByteLength(value: string): number {
   return TEXT_ENCODER.encode(JSON.stringify(value)).byteLength;
 }
@@ -202,7 +183,7 @@ function createArtifactEnvelope(
     code: TOOL_OUTPUT_ARTIFACT_CODE,
     ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
     hint: `The complete ${toolName} result is durable. Continue with the artifact reader using nextCursor.`,
-    nextCursor: createContinuationCursor(reference, preview.endByte),
+    nextCursor: encodeToolOutputArtifactCursor(reference, preview.endByte),
     preview: preview.preview,
     truncated: true,
     version: TOOL_OUTPUT_ARTIFACT_VERSION,
