@@ -54,8 +54,14 @@ directory (the EMFILE storm of PR #1761's incident).
    ~90k-entry write burst produced `Events were dropped by the FSEvents client.
    File system must be re-scanned.` delivered as an error to the subscribe
    callback. The adapter MUST map backend callback errors to the root-level
-   invalidation event (`{kind:'directory', path: root, type:'modified'}`) —
-   this is the ticket's "backend events that cannot identify a path" case.
+   invalidation SENTINEL `{kind:'directory', path: root, type:'added'}` —
+   the ticket's "backend events that cannot identify a path" case. Ruling
+   (PR #1779 review): the sentinel is `added`, NOT `modified`, because the
+   Explorer refresh consumer deliberately treats `modified` as content-only
+   and skips it; a root-path membership change is what triggers the full root
+   re-enumeration a drop requires. (The legacy null-filename path emitted
+   root/`modified` and therefore silently never refreshed the tree — a
+   pre-existing gap this closes.)
 2. **Callback errors arrive on the event callback, not as rejections.** The
    subscription stays alive after such an error; the adapter decides whether to
    degrade (invalidate root, keep watching) or fail. Slice 2 policy: invalidate

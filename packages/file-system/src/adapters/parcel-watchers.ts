@@ -143,7 +143,13 @@ export async function startParcelWatch(
           path: handle.path,
         });
       }
-      batcher.enqueue({ kind: 'directory', path: handle.path, type: 'modified' });
+      // ROOT-INVALIDATION SENTINEL: type 'added' on the root path, NOT
+      // 'modified'. The Explorer refresh consumer deliberately skips
+      // 'modified' as content-only (use-file-tree-refresh-events.ts), while a
+      // root-path membership change triggers a full root re-enumeration —
+      // exactly what "file system must be re-scanned" requires. The indexer
+      // path-scopes either type identically (mtime+hash skip keeps it cheap).
+      batcher.enqueue({ kind: 'directory', path: handle.path, type: 'added' });
       return;
     }
     for (const event of events) {

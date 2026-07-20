@@ -222,7 +222,10 @@ describe('startParcelWatch', () => {
     });
     fake.emitError(new Error('Events were dropped by the FSEvents client. Rescan needed.'));
     await waitForBatch(batches);
-    expect(batches[0]).toEqual([{ kind: 'directory', path: root, type: 'modified' }]);
+    // The sentinel is root/'added' (a MEMBERSHIP change): the Explorer refresh
+    // consumer skips 'modified' as content-only, so only 'added' on the root
+    // path forces the full root re-enumeration a backend drop requires.
+    expect(batches[0]).toEqual([{ kind: 'directory', path: root, type: 'added' }]);
     // Subscription survives: a later real event still flows.
     const filePath = join(root, 'after-error.txt');
     await writeFile(filePath, 'x');
