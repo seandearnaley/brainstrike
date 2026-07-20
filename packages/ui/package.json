@@ -119,7 +119,7 @@
     "clean": "pnpm run clean:generated && node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "clean:generated": "node ../../scripts/clean-generated-js.mjs src",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
-    "lint": "pnpm run --dir=../.. lint",
+    "lint": "pnpm -w lint",
     "test": "pnpm run clean:generated && vitest run --project unit",
     "test:browser": "pnpm run clean:generated && vitest run --project browser",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

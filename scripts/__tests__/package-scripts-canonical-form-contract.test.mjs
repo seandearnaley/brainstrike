@@ -18,6 +18,13 @@ import { fileURLToPath } from 'node:url';
  *                    broken path for any package at a different nesting depth)
  *   type-check   →  tsc --noEmit
  *              or   tsc --noEmit && tsc --noEmit --project tsconfig.test.json
+ *   lint         →  pnpm -w lint
+ *                    (the alias must carry NO extra args: pnpm appends anything
+ *                    after the script name to the LAST command of the root
+ *                    lint's && chain, silently breaking biome — the
+ *                    `pnpm -w lint --filter @brainstrike/<pkg>` form was broken
+ *                    this way since #519. `-w` is also depth-independent,
+ *                    unlike the retired `pnpm run --dir=../.. lint` form.)
  *
  * The contract governs SHAPE, not PRESENCE: a package that omits a script is not
  * required to add one (many packages legitimately have no clean/type-check), but
@@ -58,6 +65,16 @@ const CANONICAL_TYPE_CHECK_FORMS = [
 ];
 
 /**
+ * The one canonical per-package lint alias. `-w` runs the root `lint` script
+ * regardless of package nesting depth, and — critically — the alias carries no
+ * trailing args: pnpm forwards anything after the script name to the LAST
+ * command of the root script's && chain (all pnpm versions), so a form like
+ * `pnpm -w lint --filter @brainstrike/<pkg>` hands `--filter …` to biome and
+ * has been silently broken since #519.
+ */
+const CANONICAL_LINT = 'pnpm -w lint';
+
+/**
  * Packages whose `clean` legitimately diverges from the canonical rimraf form.
  * name → documented reason.
  */
@@ -88,6 +105,20 @@ const TYPE_CHECK_ALLOWLIST = new Map([
   [
     '@brainstrike/desktop',
     'app — splits main + e2e type-checks via `pnpm type-check:main && pnpm type-check:e2e`',
+  ],
+]);
+
+/**
+ * Packages whose `lint` legitimately diverges from the canonical root alias:
+ * they run a package-scoped linter directly instead of aliasing the whole-repo
+ * root lint. name → documented reason.
+ */
+const LINT_ALLOWLIST = new Map([
+  ['@brainstrike/desktop', 'app — runs a desktop-scoped `biome check .` instead of the root lint'],
+  ['@brainstrike/embeddings', 'runs a package-scoped `biome check .` instead of the root lint'],
+  [
+    '@brainstrike/pipeline',
+    'runs the package-scoped `ultracite check src` preset instead of the root lint',
   ],
 ]);
 
@@ -223,6 +254,29 @@ test('every package type-check script matches an allowed tsc --noEmit form', () 
   assert.deepEqual(violations, [], `Non-canonical type-check scripts:\n${violations.join('\n')}`);
 });
 
+test('every package lint script is the canonical root alias with no extra args', () => {
+  const violations = [];
+  for (const pkg of packages) {
+    const lint = pkg.scripts.lint;
+    if (lint === undefined || LINT_ALLOWLIST.has(pkg.name)) {
+      continue;
+    }
+    if (normalize(lint) !== CANONICAL_LINT) {
+      const carriesArgs = /pnpm (-w|--dir\S*) .*lint .+/.test(normalize(lint));
+      const argsWarning = carriesArgs
+        ? ' This alias carries extra args after the script name — pnpm forwards them to the LAST command of the ' +
+          "root lint's && chain (biome), silently breaking it (#519)."
+        : '';
+      violations.push(
+        `${pkg.relDir} (${pkg.name}) has lint = ${JSON.stringify(lint)}, but the canonical alias is ` +
+          `${JSON.stringify(CANONICAL_LINT)}.${argsWarning} Restore the canonical form, or — if this package ` +
+          'legitimately runs its own scoped linter — add it to LINT_ALLOWLIST with a documented reason.'
+      );
+    }
+  }
+  assert.deepEqual(violations, [], `Non-canonical lint scripts:\n${violations.join('\n')}`);
+});
+
 test('CLEAN_ALLOWLIST has no dead entries (each listed package actually diverges)', () => {
   const violations = [];
   for (const [name] of CLEAN_ALLOWLIST) {
@@ -277,6 +331,33 @@ test('TYPE_CHECK_ALLOWLIST has no dead entries (each listed package actually div
     }
   }
   assert.deepEqual(violations, [], `Stale TYPE_CHECK_ALLOWLIST entries:\n${violations.join('\n')}`);
+});
+
+test('LINT_ALLOWLIST has no dead entries (each listed package actually diverges)', () => {
+  const violations = [];
+  for (const [name] of LINT_ALLOWLIST) {
+    const pkg = packagesByName.get(name);
+    if (!pkg) {
+      violations.push(
+        `${name} is in LINT_ALLOWLIST but is not a workspace package (typo or removed?).`
+      );
+      continue;
+    }
+    const lint = pkg.scripts.lint;
+    if (lint === undefined) {
+      violations.push(
+        `${name} is in LINT_ALLOWLIST but has no lint script — there is nothing to exempt. Remove the entry.`
+      );
+      continue;
+    }
+    if (normalize(lint) === CANONICAL_LINT) {
+      violations.push(
+        `${name} is in LINT_ALLOWLIST but its lint already matches the canonical alias ` +
+          `(${JSON.stringify(CANONICAL_LINT)}). Remove the stale exemption so this guard protects the package.`
+      );
+    }
+  }
+  assert.deepEqual(violations, [], `Stale LINT_ALLOWLIST entries:\n${violations.join('\n')}`);
 });
 
 test('workspace enumeration is not vacuous (every configured glob group still yields packages)', () => {

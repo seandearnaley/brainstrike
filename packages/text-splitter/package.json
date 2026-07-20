@@ -48,7 +48,7 @@
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
-    "lint": "pnpm -w lint --filter @brainstrike/text-splitter",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "type-check": "tsc --noEmit",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
