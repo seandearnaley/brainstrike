@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -19,20 +19,14 @@ test('targets the exact desktop development dependency graph', () => {
   ]);
 });
 
-test('delegates stale output detection to Turbo when dependency source is newer', async () => {
+test('invokes the Turbo graph build even when a dependency output exists', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'brainstrike-dev-deps-'));
   const outputPath = path.join(repoRoot, 'packages/agent/dist/index.mjs');
-  const sourcePath = path.join(repoRoot, 'packages/agent/src/index.ts');
   const invocations = [];
 
   try {
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await mkdir(path.dirname(sourcePath), { recursive: true });
-    await writeFile(outputPath, 'stale output');
-    await writeFile(sourcePath, 'export const current = true;');
-    const now = Date.now();
-    await utimes(outputPath, new Date(now - 60_000), new Date(now - 60_000));
-    await utimes(sourcePath, new Date(now), new Date(now));
+    await writeFile(outputPath, 'existing output');
 
     const exitCode = runDesktopDevDependencyBuild({
       repoRoot,
