@@ -93,6 +93,19 @@ describe('workspace context model projection', () => {
     expect(Number(match?.[1])).toBeLessThan(130);
   });
 
+  it('derives continuation structurally instead of coupling to hint prose', () => {
+    const projected = projectListWorkspaceContextModelOutput({
+      ...baseResult(),
+      hint: 'Resume the selected-file listing at offset 2.',
+      selectedFileCount: 3,
+      truncated: true,
+    });
+
+    expect(projected.value).toContain(
+      'continue: reuse the prior brainstrike.listWorkspaceContext input with offset=2'
+    );
+  });
+
   it('compacts detailed curated files and their Tapestry ranges', () => {
     const raw = {
       ...baseResult(),

@@ -224,8 +224,7 @@ function parseListWorkspaceContextResult(output: unknown): ListWorkspaceContextR
   if (result.selectedFiles.length === 0) {
     throw new RangeError('listWorkspaceContext truncated without an advancing selected-file page');
   }
-  const nextOffset = result.offset + result.selectedFiles.length;
-  if (result.hint === undefined || !result.hint.includes(`Continue with offset: ${nextOffset}.`)) {
+  if (result.hint === undefined || result.hint.trim().length === 0) {
     return throwMalformed();
   }
   return result;
