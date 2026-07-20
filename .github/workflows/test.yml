@@ -306,8 +306,15 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
+      # Explicit build first: the package's `test` script deliberately does NOT
+      # build inline anymore (an inline `pnpm build &&` raced turbo's own
+      # `build` task — two concurrent node-gyp rebuilds in one directory; see
+      # packages/secure-fs-native/turbo.json). Under turbo the dependsOn edge
+      # supplies the addon; this job bypasses turbo, so it builds explicitly.
       - name: Build and test secure filesystem capability
-        run: pnpm --filter @brainstrike/secure-fs-native test
+        run: |
+          pnpm --filter @brainstrike/secure-fs-native build
+          pnpm --filter @brainstrike/secure-fs-native test
 
   native-electron:
     name: Native Electron Package

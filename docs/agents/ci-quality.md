@@ -182,7 +182,15 @@ vector; test-only over-invalidation is the cheaper failure mode). Explicit build
 imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
 need `@brainstrike/utils#build` (migration-runner-types test's nested
 `ts.createProgram` resolves utils types from `dist` — vitest aliases can't
-intercept tsc). The apps needed NO build edges: the B4 clean-state proof run
+intercept tsc); `@brainstrike/secure-fs-native#test`/`#test:coverage` need
+their own `build` (the tests load the compiled `.node` addon — and the edge
+must NOT be replaced by an inline `pnpm build &&` in the test script: that
+shape raced turbo's concurrently-scheduled `build` task as two simultaneous
+`node-gyp rebuild`s in one directory ("make: No targets specified and no
+makefile found"; reproduced 2026-07-19). Guarded by
+`scripts/__tests__/native-addon-build-uncached-contract.test.mjs`; the
+`native-windows` job bypasses turbo and therefore builds explicitly before
+testing). The apps needed NO build edges: the B4 clean-state proof run
 exposed gaps in their hand-maintained vitest alias maps (specifiers falling
 through `exports` to dist — invisible while `^build` guaranteed dist existed),
 closed by aliasing instead: apps/web gained the missing root aliases
