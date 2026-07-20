@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
-const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+const coverageEnabled = process.env['COVERAGE'] !== 'false' &&
+  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -203,7 +203,12 @@ jobs:
     # filter set = everything minus). Shard membership and the two-phase
     # split below must stay consistent — a package must never appear in two
     # shards' positive filters, and every package named in a positive filter
-    # here must be listed as a negation in `rest`.
+    # here must be listed as a negation in `rest` (and vice-versa: a package
+    # negated out of `rest` but given no positive shard would silently stop
+    # being tested while the fan-in check still passes). This is not a
+    # comment-only invariant: scripts/__tests__/unit-shard-partition.test.mjs
+    # parses this matrix and fails `pnpm test:scripts` (the Static job) on any
+    # such drift.
     # The required-check name "Unit" is preserved by the `unit` fan-in job
     # below — branch protection keeps pointing at "Unit", not at the shards.
     strategy:
@@ -212,7 +217,7 @@ jobs:
         include:
           - shard: db
             pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
-            push_filters: --filter=@brainstrike/db
+            push_filters: --filter="@brainstrike/db"
           - shard: heavy
             pr_filters: >-
               --filter="@brainstrike/desktop...[origin/$BASE_REF]"
@@ -220,10 +225,10 @@ jobs:
               --filter="@brainstrike/file-explorer-ui...[origin/$BASE_REF]"
               --filter="@brainstrike/app-shell...[origin/$BASE_REF]"
             push_filters: >-
-              --filter=@brainstrike/desktop
-              --filter=@brainstrike/ui
-              --filter=@brainstrike/file-explorer-ui
-              --filter=@brainstrike/app-shell
+              --filter="@brainstrike/desktop"
+              --filter="@brainstrike/ui"
+              --filter="@brainstrike/file-explorer-ui"
+              --filter="@brainstrike/app-shell"
           - shard: rest
             pr_filters: >-
               --filter="...[origin/$BASE_REF]"
