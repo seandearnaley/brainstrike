@@ -252,6 +252,39 @@ describe('PgliteVectorStore', () => {
         })
       ).rejects.toThrow(/range filter/i);
     });
+
+    it('matches any value in a $in filter', async () => {
+      const results = await store.query({
+        filter: { thread_id: { $in: ['thread-1', 'thread-2'] } },
+        indexName,
+        queryVector: [1, 0, 0],
+        topK: 5,
+      });
+
+      expect(results.map((result) => result.id).sort()).toEqual(['obs-mid', 'obs-new', 'obs-old']);
+    });
+
+    it('rejects a $in operand that is not an array', async () => {
+      await expect(
+        store.query({
+          filter: { thread_id: { $in: 'thread-1' } },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/\$in vector filter value must be an array/i);
+    });
+
+    it('rejects an empty operator object instead of silently matching everything', async () => {
+      await expect(
+        store.query({
+          filter: { observed_at: {} },
+          indexName,
+          queryVector: [1, 0, 0],
+          topK: 5,
+        })
+      ).rejects.toThrow(/must contain at least one operator/i);
+    });
   });
 
   describe('metadata filter shape (BST-577: containment so the GIN index serves it)', () => {
