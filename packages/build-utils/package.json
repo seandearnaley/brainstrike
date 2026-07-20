@@ -27,7 +27,7 @@
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "lint": "pnpm run --dir=../.. lint",
+    "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",

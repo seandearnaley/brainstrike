@@ -76,9 +76,6 @@ overrides:
   react-helmet-async>react: ^19.0.0
   react-helmet-async>react-dom: ^19.0.0
 
-patchedDependencies:
-  '@vitest/runner@4.1.10': f6c42a914826f21483f1595a69926aac99ff54db410b88926dfb9b39b8a2c331
-
 importers:
 
   .:
@@ -18514,7 +18511,7 @@ snapshots:
   '@typescript-eslint/project-service@8.62.1(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.62.1(typescript@6.0.3)
-      '@typescript-eslint/types': 8.63.0
+      '@typescript-eslint/types': 8.62.1
       debug: 4.4.3(supports-color@10.2.2)
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -19047,7 +19044,7 @@ snapshots:
     dependencies:
       tinyrainbow: 3.1.0
 
-  '@vitest/runner@4.1.10(patch_hash=f6c42a914826f21483f1595a69926aac99ff54db410b88926dfb9b39b8a2c331)':
+  '@vitest/runner@4.1.10':
     dependencies:
       '@vitest/utils': 4.1.10
       pathe: 2.0.3
@@ -24894,7 +24891,7 @@ snapshots:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10(patch_hash=f6c42a914826f21483f1595a69926aac99ff54db410b88926dfb9b39b8a2c331)
+      '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
       '@vitest/spy': 4.1.10
       '@vitest/utils': 4.1.10
@@ -24928,7 +24925,7 @@ snapshots:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@26.1.0)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10(patch_hash=f6c42a914826f21483f1595a69926aac99ff54db410b88926dfb9b39b8a2c331)
+      '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
       '@vitest/spy': 4.1.10
       '@vitest/utils': 4.1.10
@@ -24961,7 +24958,7 @@ snapshots:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10(patch_hash=f6c42a914826f21483f1595a69926aac99ff54db410b88926dfb9b39b8a2c331)
+      '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
       '@vitest/spy': 4.1.10
       '@vitest/utils': 4.1.10
