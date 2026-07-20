@@ -70,12 +70,13 @@ export const MAX_FS_WATCHERS_PER_OWNER = 32;
 interface LiveFileSystemWatcher {
   /** Consecutive failed transitions since the last healthy one. */
   consecutiveFailures: number;
-  lastHealthState: WatcherHealthTransition['state'] | null;
   /**
-   * The full latest transition, returned with the fs:watch response so a
-   * renderer that was not yet listening (setup-time failures push before the
-   * response resolves) still learns the current state. `lastHealthState` is
-   * kept separately because the retry path only ever needs the state.
+   * The latest transition recorded for this watch. Returned with the fs:watch
+   * response so a renderer that was not yet listening (setup-time failures push
+   * before the response resolves) still learns the current state; the retry
+   * path reads `.state` off it. Deliberately ONE field — a parallel
+   * `lastHealthState` would have to be hand-kept in sync with this, and two
+   * fields that can drift apart are a bug waiting to happen.
    */
   lastHealthTransition: WatcherHealthTransition | null;
   /** Earliest wall-clock time a manual retry may run. */
@@ -125,7 +126,6 @@ function makeHealthSink(
   return (transition) => {
     const entry = liveWatchers.get(watchId);
     if (entry) {
-      entry.lastHealthState = transition.state;
       entry.lastHealthTransition = transition;
       if (transition.state === 'failed') {
         entry.consecutiveFailures += 1;
@@ -289,7 +289,6 @@ export function registerFileSystemWatchIpcHandlers({
       if (isMockFileSystemIpcPath(requestedPath)) {
         liveWatchers.set(watchId, {
           consecutiveFailures: 0,
-          lastHealthState: null,
           lastHealthTransition: null,
           nextRetryAllowedAt: 0,
           ownerId: owner.id,
@@ -313,13 +312,12 @@ export function registerFileSystemWatchIpcHandlers({
         // synchronously during setup ('starting', and a 'failed' from a parcel
         // binding-load or subscribe error), and makeHealthSink silently skips
         // ALL its bookkeeping when the entry is missing — so a setup failure
-        // would leave lastHealthState null, making the retry handler answer
+        // would leave the recorded transition null, making retry answer
         // 'not-failed' and the user's Retry button inert. `stop` is patched in
         // below once the engine hands us its disposer; until then it is a
         // no-op, which is correct — there is nothing to stop yet.
         const entry: LiveFileSystemWatcher = {
           consecutiveFailures: 0,
-          lastHealthState: null,
           lastHealthTransition: null,
           nextRetryAllowedAt: 0,
           ownerId: owner.id,
@@ -382,7 +380,7 @@ export function registerFileSystemWatchIpcHandlers({
         }
         return { reason: 'unknown', retried: false };
       }
-      if (entry.lastHealthState !== 'failed') {
+      if (entry.lastHealthTransition?.state !== 'failed') {
         return { reason: 'not-failed', retried: false };
       }
       if (entry.retryInFlight) {

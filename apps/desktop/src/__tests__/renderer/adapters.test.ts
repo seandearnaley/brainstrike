@@ -304,6 +304,30 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     });
   });
 
+  it('surfaces an errored signal when fs:watch itself rejects', async () => {
+    // The snapshot path only runs on SUCCESS. When setup rejects outright —
+    // legacy fs.watch throwing EMFILE/EPERM, path validation failing, the
+    // per-renderer cap being hit — main deletes the entry and the invoke
+    // rejects, so there is no watchId to match the pushed 'failed' against AND
+    // no snapshot to fall back on. Console-only here would leave the root
+    // silently unwatched; the web adapter deliberately emits 'errored' for the
+    // exact analogue, and desktop must match.
+    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockRejectedValue(
+      new Error('EMFILE: too many open files')
+    );
+
+    const signals: Array<{ message?: string; type: string }> = [];
+    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => signals.push(signal));
+
+    await vi.waitFor(() => {
+      expect(signals).toHaveLength(1);
+    });
+    expect(signals[0]).toMatchObject({ type: 'errored' });
+    expect(signals[0]?.message).toContain('EMFILE: too many open files');
+
+    stop();
+  });
+
   it('applies the health snapshot returned with the watch response', async () => {
     // A watcher that dies during setup (parcel binding-load / subscribe
     // failure) has main push fs:watch-health BEFORE the fs:watch response

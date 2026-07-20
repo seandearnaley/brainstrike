@@ -239,12 +239,13 @@ function createWatchHarness(): WatchHarness {
 async function invokeWatch(
   owner: FakeWebContents,
   directoryPath: string
-): Promise<{ watchId: string }> {
+): Promise<{ health?: WatcherHealthTransition; watchId: string }> {
   const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watch);
   if (!handler) {
     throw new Error('fs:watch handler is not registered');
   }
   return (await handler(invokeEventFor(owner), toDirectoryHandle(directoryPath))) as {
+    health?: WatcherHealthTransition;
     watchId: string;
   };
 }
@@ -544,10 +545,20 @@ describe('file-system watch IPC domain', () => {
 
       const owner = new FakeWebContents(1);
       const dir = await makeDir();
-      const { watchId } = await invokeWatch(owner, dir);
+      const { health, watchId } = await invokeWatch(owner, dir);
 
       // The renderer is told either way — pushes do not depend on bookkeeping.
       expect(owner.healthEvents.map((event) => event.state)).toEqual(['starting', 'failed']);
+
+      // The snapshot MUST ride along on the response. Those pushes above were
+      // emitted before the renderer had a watchId to match them against, so it
+      // dropped them; without this field the failure is unrecoverable on the
+      // renderer side. Asserted here because the renderer-side test feeds
+      // itself a `health` field from a mock — nothing else proves main sends one.
+      expect(health).toMatchObject({
+        failure: FAILED_TRANSITION_FAILURE,
+        state: 'failed',
+      });
 
       // ...but main must also have RECORDED the failure. 'throttled' proves the
       // failure bookkeeping ran (it set the backoff window); 'not-failed' would

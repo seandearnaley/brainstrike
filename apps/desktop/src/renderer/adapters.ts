@@ -283,9 +283,18 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       .catch((error: unknown) => {
         // Visible capability failure (invalid path, watcher setup error) —
         // the folder stays unwatched, never a silent fallback.
+        const message = error instanceof Error ? error.message : String(error);
         logger.warn('watchDirectory: failed to start main-process watcher; folder is unwatched', {
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
           path: handle.path,
+        });
+        // A rejection means there is no watchId and no health snapshot, so
+        // NEITHER of the health paths above can report this. Console-only would
+        // leave the root silently unwatched — drive the shared signal channel
+        // directly, matching how the web adapter treats a failed observe().
+        onSignal?.({
+          message: `File watching could not start for ${handle.path}: ${message}`,
+          type: 'errored',
         });
       });
 
