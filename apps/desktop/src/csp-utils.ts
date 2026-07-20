@@ -78,16 +78,22 @@ function getCSPDirectives(env: Environment): CSPDirectives {
 
     'object-src': ["'none'"],
 
+    // WASM runtimes (transformers.js/ONNX, PGlite) need only
+    // 'wasm-unsafe-eval'; full 'unsafe-eval' stays DEV-ONLY (Vite tooling).
+    // jsdelivr is deliberately absent here: the CDN is a wasm/asset FETCH
+    // origin (connect-src) — allowing it in script-src would turn a CDN
+    // compromise into code execution in a renderer holding the
+    // secrets/terminal/git bridges (BST-573).
     'script-src': isDev
       ? [
           "'self'",
           'blob:',
           "'unsafe-inline'",
           "'unsafe-eval'",
+          "'wasm-unsafe-eval'",
           'http://localhost:*',
-          'https://cdn.jsdelivr.net',
         ]
-      : ["'self'", 'blob:', "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
+      : ["'self'", 'blob:', "'wasm-unsafe-eval'"],
 
     'style-src': isDev
       ? ["'self'", "'unsafe-inline'", 'http://localhost:*']
