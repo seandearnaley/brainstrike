@@ -264,7 +264,17 @@ export async function resolveEmbeddingSet(
 
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   const secrets = getSecretsService();
-  const fromSecrets = await secrets.getKey(provider);
+  let fromSecrets: string | null = null;
+  try {
+    fromSecrets = await secrets.getKey(provider);
+  } catch (error) {
+    // Surfaced, then fall through: an unreadable stored key must not disable
+    // a working env-var configuration (BST-574 review finding).
+    logger.warn('Stored embedding API key is unreadable; falling back to env', {
+      error,
+      provider,
+    });
+  }
   const normalized = normalizeOptionalText(fromSecrets ?? undefined);
   if (normalized) {
     return normalized;

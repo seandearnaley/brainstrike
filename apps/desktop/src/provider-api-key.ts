@@ -64,9 +64,18 @@ export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
         continue;
       }
       const supported = provider as SupportedProvider;
-      const key = await secretsService.getKey(supported);
-      if (normalizeSecretValue(key)) {
-        configured.add(supported);
+      try {
+        const key = await secretsService.getKey(supported);
+        if (normalizeSecretValue(key)) {
+          configured.add(supported);
+        }
+      } catch (error) {
+        // Per-provider: one unreadable key must not abort enumeration of the
+        // providers after it (BST-574 review finding). Surfaced, not counted.
+        logger.error('Stored provider key is unreadable; omitting from configured list', {
+          error,
+          provider: supported,
+        });
       }
     }
   } catch (error) {
