@@ -1,30 +1,59 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { getRequiredOutputPaths, shouldBuildDesktopDevDeps } from '../ensure-desktop-dev-deps.mjs';
+import {
+  getDesktopDevDependencyBuildArgs,
+  runDesktopDevDependencyBuild,
+} from '../ensure-desktop-dev-deps.mjs';
 
-test('resolves desktop dev dependency outputs from the repository root', () => {
-  const repoRoot = path.join(tmpdir(), 'brainstrike-root');
-
-  assert.deepEqual(getRequiredOutputPaths(repoRoot), [
-    path.join(repoRoot, 'packages/build-utils/dist/index.mjs'),
-    path.join(repoRoot, 'packages/agent/dist/index.mjs'),
-    path.join(repoRoot, 'packages/ui/dist/index.d.ts'),
+test('targets the exact desktop development dependency graph', () => {
+  assert.deepEqual(getDesktopDevDependencyBuildArgs(), [
+    'turbo',
+    'run',
+    'build',
+    '--filter=@brainstrike/build-utils',
+    '--filter=@brainstrike/agent',
+    '--filter=@brainstrike/ui',
   ]);
 });
 
-test('does not rebuild when required outputs exist under the repository root', async () => {
+test('delegates stale output detection to Turbo when dependency source is newer', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'brainstrike-dev-deps-'));
+  const outputPath = path.join(repoRoot, 'packages/agent/dist/index.mjs');
+  const sourcePath = path.join(repoRoot, 'packages/agent/src/index.ts');
+  const invocations = [];
 
   try {
-    for (const outputPath of getRequiredOutputPaths(repoRoot)) {
-      await mkdir(path.dirname(outputPath), { recursive: true });
-      await writeFile(outputPath, '');
-    }
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await mkdir(path.dirname(sourcePath), { recursive: true });
+    await writeFile(outputPath, 'stale output');
+    await writeFile(sourcePath, 'export const current = true;');
+    const now = Date.now();
+    await utimes(outputPath, new Date(now - 60_000), new Date(now - 60_000));
+    await utimes(sourcePath, new Date(now), new Date(now));
 
-    assert.equal(shouldBuildDesktopDevDeps(repoRoot), false);
+    const exitCode = runDesktopDevDependencyBuild({
+      repoRoot,
+      spawnSyncImpl(command, args, options) {
+        invocations.push({ args, command, options });
+        return { status: 0 };
+      },
+    });
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(invocations, [
+      {
+        args: getDesktopDevDependencyBuildArgs(),
+        command: 'pnpm',
+        options: {
+          cwd: repoRoot,
+          shell: process.platform === 'win32',
+          stdio: 'inherit',
+        },
+      },
+    ]);
   } finally {
     await rm(repoRoot, { force: true, recursive: true });
   }
