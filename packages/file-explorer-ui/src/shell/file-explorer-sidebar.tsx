@@ -885,6 +885,15 @@ const FileExplorerSidebar = memo(
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
+        {/* Watcher health must surface in the DEFAULT one-folder workspace
+            too, not only in forest sections (PR #1774 review). The chip
+            renders nothing while healthy, so this row is invisible on the
+            golden path. */}
+        {rootDirectoryHandle && (
+          <div className="flex items-center px-2">
+            <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
+          </div>
+        )}
         {rootDirectoryHandle ? (
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Subtle loading overlay during Select All operation */}
