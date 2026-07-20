@@ -6,7 +6,8 @@ import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-alias
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
-const coverageEnabled = process.env['COVERAGE'] !== 'false' &&
+const coverageEnabled =
+  process.env['COVERAGE'] !== 'false' &&
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 export default defineConfig({

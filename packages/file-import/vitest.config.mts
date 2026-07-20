@@ -12,8 +12,9 @@ export default defineConfig({
   test: {
     // Coverage consolidated at root vitest.config.mts
     coverage: {
-      enabled: process.env['COVERAGE'] !== 'false' &&
-  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true'),
+      enabled:
+        process.env['COVERAGE'] !== 'false' &&
+        (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true'),
       exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       provider: 'v8',

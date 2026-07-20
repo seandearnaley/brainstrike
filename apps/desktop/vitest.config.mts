@@ -5,7 +5,8 @@ import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
-const coverageEnabled = process.env['COVERAGE'] !== 'false' &&
+const coverageEnabled =
+  process.env['COVERAGE'] !== 'false' &&
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 export default defineConfig({
