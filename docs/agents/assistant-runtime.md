@@ -104,12 +104,20 @@ shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
 object is valid domain evidence; a future direct AI SDK adapter belongs at a
 separately typed boundary.
 
-MCP is the temporary exception while artifact storage is absent: text/JSON is
-bounded inside `execute()` before inline persistence; image/audio stays raw
-only within explicit media and non-media ceilings, then `toModelOutput`
-preserves it as model-native content. Do not remove that inline ceiling before
-artifact settlement. The UI data-stream bound is a separate transport
-backstop, not the model-context boundary.
+When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
+tool map is settlement-wrapped after policy/provider transforms and before
+`toModelOutput`. Results above 12,000 UTF-8 bytes are fully retained before an
+artifact envelope can reach display/transcript. A module-private WeakMap
+carrier keeps the original in-process result (including authenticated
+PostToolUse context) available only to model projection; public-shape guessing
+is forbidden. Storage failure, a missing tool-call id, incoherent returned
+metadata, or output above the explicit 16 MiB settlement cap throws visibly.
+The `skill` tool is excluded because its instruction payload cannot be paged.
+
+Without that trusted host capability, MCP keeps the temporary inline behavior:
+text/JSON is bounded inside `execute()` before inline persistence; image/audio
+stays raw only within explicit media and non-media ceilings. The UI data-stream
+bound is a separate transport backstop, not the model-context boundary.
 
 Mastra 1.51's TokenLimiter counts raw DB tool results before applying
 `toModelOutput`. `ProjectionAwareTokenLimiter` temporarily swaps each completed

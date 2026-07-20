@@ -21,6 +21,7 @@ export const MAX_MCP_INLINE_MEDIA_DATA_CHARS =
 export const MAX_MCP_NON_MEDIA_SERIALIZED_CHARS = MAX_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 
 export interface CollectCombinedToolsOptions {
+  durableArtifactSettlement?: boolean;
   mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
   sanitizedLocalTools: ToolsInput | undefined;
@@ -32,6 +33,7 @@ type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 type McpToolsets = Record<string, ToolsInput>;
 
 export async function collectCombinedTools({
+  durableArtifactSettlement = false,
   sanitizedLocalTools,
   mcpClient,
   mcpConfig,
@@ -76,7 +78,10 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap));
+      Object.assign(
+        combined,
+        durableArtifactSettlement ? enabled : wrapMcpToolOutputs(enabled, toolNameMap)
+      );
     }
   }
 

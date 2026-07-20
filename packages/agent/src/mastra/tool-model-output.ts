@@ -14,6 +14,7 @@ import {
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
 } from '../stream/tool-output-limits';
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner';
+import { readSettledToolOutputProjectionSource } from './tool-output-artifact-settlement';
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
@@ -528,11 +529,12 @@ function composeHookContextWithProjection(
 }
 
 function projectDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
-  if (isGuardedToolError(output)) {
-    return createDefaultModelOutput(toolName, output);
+  const projectionSource = readSettledToolOutputProjectionSource(output);
+  if (isGuardedToolError(projectionSource)) {
+    return createDefaultModelOutput(toolName, projectionSource);
   }
-  const envelope = readHookResultEnvelope(output);
-  const domainOutput = envelope ? envelope.result : output;
+  const envelope = readHookResultEnvelope(projectionSource);
+  const domainOutput = envelope ? envelope.result : projectionSource;
   const hookContext = envelope?.additionalContext;
   const defaultProjection = createDefaultModelOutput(toolName, domainOutput, Boolean(hookContext));
   if (!hookContext) {
@@ -547,15 +549,16 @@ function projectExistingModelOutput(
   receiver: ExecutableToolWithModelOutput,
   output: unknown
 ): unknown {
-  if (isGuardedToolError(output)) {
-    return projectDefaultModelOutput(toolName, output);
+  const projectionSource = readSettledToolOutputProjectionSource(output);
+  if (isGuardedToolError(projectionSource)) {
+    return projectDefaultModelOutput(toolName, projectionSource);
   }
-  const envelope = readHookResultEnvelope(output);
-  const domainOutput = envelope ? envelope.result : output;
+  const envelope = readHookResultEnvelope(projectionSource);
+  const domainOutput = envelope ? envelope.result : projectionSource;
   const hookContext = envelope?.additionalContext;
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
-      return projectDefaultModelOutput(toolName, output);
+      return projectDefaultModelOutput(toolName, projectionSource);
     }
     const domainProjection = assertDomainProjectionWithinBudget(toolName, resolved);
     if (hookContext) {

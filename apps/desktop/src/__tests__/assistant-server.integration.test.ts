@@ -2475,6 +2475,44 @@ describe('assistant-server', () => {
         expect.objectContaining({ assistantMessageId: 'assistant-client-id' }),
         expect.any(Object)
       );
+      const [, , streamOptions] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+        unknown,
+        unknown,
+        {
+          toolOutputArtifactStore?: {
+            store: (input: {
+              content: string;
+              format: 'text';
+              toolCallId: string;
+            }) => Promise<unknown>;
+          };
+        },
+      ];
+      expect(streamOptions.toolOutputArtifactStore).toBeDefined();
+      mockDesktopDatabase.query.mockResolvedValueOnce({
+        rows: [
+          {
+            byteLength: 8,
+            expiresAt: '2026-07-27T12:00:00.000Z',
+            format: 'text',
+            id: '019f7d67-7165-7c23-8e99-d70c2a2f168d',
+          },
+        ],
+      });
+      await expect(
+        streamOptions.toolOutputArtifactStore?.store({
+          content: 'complete',
+          format: 'text',
+          toolCallId: 'call-artifact-1',
+        })
+      ).resolves.toMatchObject({
+        byteLength: 8,
+        format: 'text',
+      });
+      expect(mockDesktopDatabase.query).toHaveBeenLastCalledWith(
+        expect.stringContaining('brainstrike_assistant_tool_output_artifacts'),
+        expect.arrayContaining(['workspace-a', 'thread-1', 'run-1', 'call-artifact-1', 'text'])
+      );
       expect(convertAssistantUiMessages).toHaveBeenCalledWith([
         {
           id: 'user-client-id',

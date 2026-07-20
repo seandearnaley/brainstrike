@@ -140,7 +140,7 @@ describe('ToolOutputArtifactRepository', () => {
     expect(remaining.rows).toEqual([{ id: active.id }]);
   });
 
-  it('fails visibly for duplicate ownership and storage failures', async () => {
+  it('makes exact replay idempotent but fails visibly for conflicting replay and storage errors', async () => {
     const input = {
       content: 'result',
       format: 'text' as const,
@@ -149,8 +149,9 @@ describe('ToolOutputArtifactRepository', () => {
       threadId: 'thread-a',
       toolCallId: 'call-a',
     };
-    await repository.store(input);
-    await expect(repository.store(input)).rejects.toMatchObject({
+    const first = await repository.store(input);
+    await expect(repository.store(input)).resolves.toEqual(first);
+    await expect(repository.store({ ...input, content: 'different' })).rejects.toMatchObject({
       name: 'ToolOutputArtifactStorageError',
       operation: 'store',
     });
