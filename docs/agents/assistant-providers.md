@@ -419,8 +419,11 @@ remains reserved for consumers that require the complete source, such as symbol,
 LSP, and tapestry-range processing.
 Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
 a continuation, the cursor's root id selects the same workspace root. An
-explicit different root is rejected. Cursor is mutually exclusive with
-`startLine`/`endLine`. Optional
+explicit different root is rejected. Prefer omitting `startLine`/`endLine` on
+a continuation. A v2 cursor also binds the original requested range so an
+exact provider replay of either field is accepted, while a changed range fails
+visibly. Existing v1 cursors remain valid when range fields are omitted.
+Optional
 cursor, range, root, and character-cap fields accept provider-emitted `null` as
 omission; invalid non-null values still fail schema validation. Both fit
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` (2750) before settlement. The Mastra
