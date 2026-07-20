@@ -29,6 +29,8 @@ type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly toModelOutput?: (output: unknown) => unknown;
 };
 
+export type ModelOutputProjectionObserver = (output: unknown) => void;
+
 const POST_TOOL_CONTEXT_LABEL = 'Post-tool context: ';
 const POST_TOOL_CONTEXT_TRUNCATION_SUFFIX = '… [post-tool context truncated]';
 
@@ -537,6 +539,27 @@ function projectExistingModelOutput(
   return boundResolvedProjection(projected);
 }
 
+function observeModelOutput(
+  output: unknown,
+  observer: ModelOutputProjectionObserver | undefined
+): unknown {
+  if (!observer) {
+    return output;
+  }
+  if (
+    output &&
+    (typeof output === 'object' || typeof output === 'function') &&
+    typeof (output as { then?: unknown }).then === 'function'
+  ) {
+    return Promise.resolve(output).then((resolved) => {
+      observer(resolved);
+      return resolved;
+    });
+  }
+  observer(output);
+  return output;
+}
+
 /**
  * Give every execute-backed tool a Mastra-native model projection while keeping
  * its raw execution result intact for persistence and application consumers.
@@ -548,7 +571,8 @@ function projectExistingModelOutput(
  */
 export function applyToolModelOutputProjections(
   tools: ToolsInput,
-  toolNameMap: ReadonlyMap<string, string>
+  toolNameMap: ReadonlyMap<string, string>,
+  observer?: ModelOutputProjectionObserver
 ): ToolsInput {
   const projected: ToolsInput = {};
 
@@ -571,7 +595,10 @@ export function applyToolModelOutputProjections(
         configurable: true,
         enumerable: true,
         value: (output: unknown) =>
-          projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
+          observeModelOutput(
+            projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
+            observer
+          ),
         writable: true,
       });
       projected[toolId] = cloned;
@@ -581,7 +608,8 @@ export function applyToolModelOutputProjections(
     Object.defineProperty(cloned, 'toModelOutput', {
       configurable: true,
       enumerable: true,
-      value: (output: unknown) => projectDefaultModelOutput(originalToolName, output),
+      value: (output: unknown) =>
+        observeModelOutput(projectDefaultModelOutput(originalToolName, output), observer),
       writable: true,
     });
     projected[toolId] = cloned;

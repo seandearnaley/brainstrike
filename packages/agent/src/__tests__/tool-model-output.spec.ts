@@ -49,10 +49,12 @@ describe('applyToolModelOutputProjections', () => {
     };
     const execute = vi.fn(() => Promise.resolve(rawOutput));
     const tool = asTool({ execute, id: 'read_file' });
+    const observeProjection = vi.fn();
 
     const projected = applyToolModelOutputProjections(
       { read_file: tool },
-      new Map([['read_file', 'filesystem.read_file']])
+      new Map([['read_file', 'filesystem.read_file']]),
+      observeProjection
     );
     const projectedTool = projected['read_file'] as TestTool;
 
@@ -64,6 +66,7 @@ describe('applyToolModelOutputProjections', () => {
     expect(modelOutput?.value).toContain('output was truncated');
     expect(modelOutput?.value).not.toContain(rawOnlyTail);
     expect(modelOutput?.value?.length).toBeLessThanOrEqual(12_000);
+    expect(observeProjection).toHaveBeenCalledExactlyOnceWith(modelOutput);
   });
 
   it('preserves an existing domain-specific projection unchanged', () => {

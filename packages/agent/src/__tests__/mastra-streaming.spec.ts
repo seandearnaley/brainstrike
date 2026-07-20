@@ -269,6 +269,57 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('records bounded token diagnostics with actual provider prompt usage', async () => {
+    setMockStreamParts([
+      { textDelta: 'hello', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 11, promptTokens: 7 } },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'gpt-5.6-terra',
+            provider: 'openai',
+          },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Drain the stream so the final diagnostics log is emitted.
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const diagnosticsRecord = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') &&
+          (arg as { code?: unknown }).code === 'mastra_agent_token_measurement'
+      )
+    );
+    const diagnosticsFields = diagnosticsRecord?.args.find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') &&
+        (arg as { code?: unknown }).code === 'mastra_agent_token_measurement'
+    );
+    expect(diagnosticsRecord?.level).toBe(LogLevel.INFO);
+    expect(diagnosticsFields).toMatchObject({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      model: 'gpt-5.6-terra',
+      modelVisibleProjectionCount: 0,
+      provider: 'openai',
+      providerReportedPromptTokens: 7,
+      tokenizer: 'o200k_base',
+      toolDefinitionCount: 0,
+    });
+  });
+
   it('carries Anthropic cache token usage through the message-finish chunk', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },

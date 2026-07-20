@@ -1,6 +1,7 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
   buildNativeToolRiskMap,
@@ -100,6 +101,7 @@ import {
   type DelegationLifecycleTracker,
   shouldEnablePersonas,
 } from './subagent-delegation';
+import { createRunTokenDiagnostics, type RunTokenDiagnostics } from './token-measurement';
 import {
   mapMastraToolEvent,
   readMastraStreamPartString,
@@ -201,6 +203,8 @@ export interface MastraAgentRuntime {
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   resilienceConfig: AssistantResilienceConfig;
+  /** Bounded, content-free token measurements for this concrete run/tool map. */
+  tokenDiagnostics: RunTokenDiagnostics;
   toolNameMap: Map<string, string>;
 }
 
@@ -674,18 +678,29 @@ export async function createMastraAgentRuntime(
         toolNameMap,
       })
     : finalTools;
-  // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
-  // returning the raw, post-hook result for persistence/application consumers,
-  // while the next model step receives only a bounded projection. Apply this
-  // AFTER every policy/provider transformation so no final execute-backed tool
-  // can bypass the projection; tool-specific projections remain authoritative.
-  const modelProjectedTools = applyToolModelOutputProjections(artifactSettledTools, toolNameMap);
-
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
   // resolved — listing suspended runs performs no inference and must not require
   // a provider key or a static default model.
   const modelName = model ?? getDefaultModel(normalizedProvider);
+  const tokenDiagnostics = await createRunTokenDiagnostics({
+    capability: resolveTokenMeasurementCapability(normalizedProvider, modelName),
+    tools: artifactSettledTools,
+  });
+
+  // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
+  // returning the raw, post-hook result for persistence/application consumers,
+  // while the next model step receives only a bounded projection. Apply this
+  // AFTER every policy/provider transformation so no final execute-backed tool
+  // can bypass the projection; tool-specific projections remain authoritative.
+  // The observer sees only the already-bounded projection and retains counts,
+  // never content.
+  const modelProjectedTools = applyToolModelOutputProjections(
+    artifactSettledTools,
+    toolNameMap,
+    (output) => tokenDiagnostics.recordModelOutput(output)
+  );
+
   const languageModel =
     modelOverride ??
     instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
@@ -802,6 +817,7 @@ export async function createMastraAgentRuntime(
     permissionEnforced: permissionSnapshot !== undefined,
     personasById,
     resilienceConfig,
+    tokenDiagnostics,
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
   };
@@ -1040,7 +1056,10 @@ function accumulateSteppedUsage(
 ): void {
   const prompt = usage?.promptTokens ?? usage?.inputTokens;
   const completion = usage?.completionTokens ?? usage?.outputTokens;
-  lifecycleState.steppedPromptTokens += Number.isFinite(prompt) ? (prompt as number) : 0;
+  if (typeof prompt === 'number' && Number.isFinite(prompt)) {
+    lifecycleState.steppedPromptTokens += prompt;
+    lifecycleState.providerReportedPromptTokens = lifecycleState.steppedPromptTokens;
+  }
   lifecycleState.steppedCompletionTokens += Number.isFinite(completion)
     ? (completion as number)
     : 0;
@@ -1105,6 +1124,8 @@ interface ToolLifecycleState {
    */
   includeCacheTokenClasses: boolean;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
+  /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
+  providerReportedPromptTokens?: number;
   requiresBilledCost: boolean;
   sawStepBilledCost: boolean;
   sawStepWithoutBilledCost: boolean;
@@ -1733,6 +1754,11 @@ function processMastraStreamPart(
       };
     }
     case 'finish': {
+      const terminalUsage = p.usage ?? p.payload?.output?.usage ?? p.payload?.metadata?.usage;
+      const terminalPromptTokens = terminalUsage?.promptTokens ?? terminalUsage?.inputTokens;
+      if (typeof terminalPromptTokens === 'number' && Number.isFinite(terminalPromptTokens)) {
+        lifecycleState.providerReportedPromptTokens = terminalPromptTokens;
+      }
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -2359,8 +2385,9 @@ async function* streamChunksFromMastra({
     }
     return;
   } finally {
+    logTokenDiagnostics(runtime, runtimeData, lifecycleState);
     logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
-    await runtime?.dispose();
+    await runtime.dispose();
   }
 }
 
@@ -2378,6 +2405,29 @@ function logStreamOutcome(aborted: boolean): void {
     return;
   }
   logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
+}
+
+function logTokenDiagnostics(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  lifecycleState: ToolLifecycleState
+): void {
+  const fields = runtime.tokenDiagnostics.toLogFields({
+    ...(lifecycleState.providerReportedPromptTokens === undefined
+      ? {}
+      : { providerReportedPromptTokens: lifecycleState.providerReportedPromptTokens }),
+  });
+  const context = {
+    code: 'mastra_agent_token_measurement',
+    ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+    ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+    ...fields,
+  };
+  if (fields['measurementStatus'] === 'failed') {
+    logger.warn('mastra run token measurement failed visibly', context);
+    return;
+  }
+  logger.info('mastra run token measurement recorded', context);
 }
 
 async function createStreamIteratorFromRuntime({
