@@ -1095,6 +1095,13 @@ interface ToolLifecycleState {
   requiresBilledCost: boolean;
   sawStepBilledCost: boolean;
   sawStepWithoutBilledCost: boolean;
+  /**
+   * Mid-run steering (BST-588): polled at each step boundary. When true after
+   * a step-finish, the run ends gracefully (run.steered event + normal
+   * finish) so the queued steer message dispatches as the next turn. Absent
+   * control = steering not offered for this run.
+   */
+  steering?: { stopRequested(): boolean } | undefined;
   stepBilledCostUsd: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
 }
@@ -1635,15 +1642,41 @@ function processMastraStreamPart(
         lifecycleState.sawStepBilledCost = true;
         lifecycleState.stepBilledCostUsd += billedCostUsd;
       }
+      const stepFinishedChunk = makeRunEventChunk(
+        'run.step.finished',
+        'completed',
+        'Generation step completed',
+        makeStepMetadata(part)
+      );
+      if (lifecycleState.steering?.stopRequested()) {
+        const steeredBaseFinish = makeFinishChunk(part, lifecycleState) as Extract<
+          StreamChunk,
+          { type: 'message-finish' }
+        >;
+        // Graceful steer stop (BST-588): the just-finished step is complete
+        // (its tool results are persisted by Mastra's per-step saves), so end
+        // the run here with a visible marker and a NORMAL finish. The queued
+        // steer message dispatches as the next turn via the follow-up queue's
+        // run-end bridge. The generator's early return cancels the underlying
+        // Mastra stream before the next step's model call streams.
+        return {
+          chunks: [
+            stepFinishedChunk,
+            makeRunEventChunk(
+              'run.steered',
+              'completed',
+              'Run steered: stopped at step boundary for a new user message',
+              makeStepMetadata(part)
+            ),
+            // A steer is a deliberate, successful stop; the step part itself
+            // carries no finishReason, so override the mapped 'unknown'.
+            { ...steeredBaseFinish, finishReason: 'stop' },
+          ],
+          finished: true,
+        };
+      }
       return {
-        chunks: [
-          makeRunEventChunk(
-            'run.step.finished',
-            'completed',
-            'Generation step completed',
-            makeStepMetadata(part)
-          ),
-        ],
+        chunks: [stepFinishedChunk],
         finished: false,
       };
     }
@@ -2215,6 +2248,7 @@ async function* streamChunksFromMastra({
     includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
+    ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
     sawStepBilledCost: false,
     sawStepWithoutBilledCost: false,
     stepBilledCostUsd: 0,

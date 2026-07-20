@@ -9,6 +9,15 @@ export interface RuntimeAgentLoopSettings {
   maxSteps?: number;
 }
 
+/**
+ * In-memory mid-run steering control (BST-588). Injected server-side (like
+ * `signal`); never serialized. `stopRequested()` is polled by the agent loop
+ * at step boundaries.
+ */
+export interface AssistantRunSteeringControl {
+  stopRequested(): boolean;
+}
+
 export type OpenAiReasoningEffort =
   | 'none'
   | 'minimal'
@@ -267,6 +276,16 @@ export interface RuntimeData {
    * engine is stripped.
    */
   skillsPreference?: SkillsContextRequest;
+  /**
+   * Mid-run steering control (BST-588). IN-MEMORY ONLY, exactly like `signal`:
+   * the server injects it after request validation; it never rides the wire.
+   * When `stopRequested()` turns true, the agent loop ends the run gracefully
+   * at the next step boundary (a `run.steered` event + normal finish) so the
+   * queued steer message can dispatch as the next turn on the same thread.
+   * Seam is shaped for a future swap onto Mastra's signals `sendMessage`
+   * live-delivery once that API graduates from beta.
+   */
+  steering?: AssistantRunSteeringControl;
   /**
    * Renderer-supplied subagent persona availability (from the subagent-personas
    * preferences store). A preference, not a security boundary — it can only

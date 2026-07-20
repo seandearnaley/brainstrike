@@ -352,6 +352,83 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('stops at the next step boundary when steering is requested and marks the run steered', async () => {
+    setMockStreamParts([
+      { type: 'start' },
+      { type: 'step-start' },
+      { textDelta: 'first step text', type: 'text-delta' },
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      { type: 'step-start' },
+      { textDelta: 'second step text — must never stream', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 9, promptTokens: 30 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'work on it', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: { stopRequested: () => true },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const texts = chunks.filter((chunk) => chunk.type === 'text-delta');
+    expect(texts.map((chunk) => (chunk as { value?: string }).value)).toEqual(['first step text']);
+
+    const steered = chunks.find(
+      (chunk) =>
+        chunk.type === 'run-event' &&
+        (chunk as { event?: { kind?: string } }).event?.kind === 'run.steered'
+    );
+    expect(steered).toBeDefined();
+
+    const finish = chunks.at(-1) as { finishReason?: string; type: string };
+    expect(finish.type).toBe('message-finish');
+    expect(finish.finishReason).toBe('stop');
+  });
+
+  it('ignores a steering request that never reaches a step boundary before natural finish', async () => {
+    setMockStreamParts([
+      { textDelta: 'hello', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          steering: { stopRequested: () => true },
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const steered = chunks.find(
+      (chunk) =>
+        chunk.type === 'run-event' &&
+        (chunk as { event?: { kind?: string } }).event?.kind === 'run.steered'
+    );
+    expect(steered).toBeUndefined();
+    expect((chunks.at(-1) as { type: string }).type).toBe('message-finish');
+  });
+
   it('aggregates provider-reported OpenRouter cost across model steps', async () => {
     setMockStreamParts([
       {
