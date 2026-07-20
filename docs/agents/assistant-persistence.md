@@ -36,7 +36,7 @@ contracts keep reloaded threads identical to live ones:
    domain result while `providerMetadata.mastra.modelOutput` retains the
    model-only guidance. MCP results remain inline only within the explicit temporary
    persistence ceilings documented in `assistant-providers.md`; text-only MCP
-   output is preview-bounded until the artifact store exists. Never replace a
+   output is preview-bounded until artifact settlement is wired. Never replace a
    native result inside `execute()` merely to save prompt tokens; that destroys
    reload/application evidence. The real-memory proof includes an oversized
    native sentinel and replays a second turn from the same thread in
@@ -589,6 +589,38 @@ Paired tests: `migration-054-assistant-thread-groups.test.ts` and
 `assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
 `thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
 `ThreadsPanel groups` suite in `threads-panel.test.tsx`.
+
+## TOOL OUTPUT ARTIFACT PERSISTENCE
+
+Migration 068 and `ToolOutputArtifactRepository` own complete oversized tool
+results independently of Mastra message rows:
+
+- `brainstrike_assistant_tool_output_artifacts.content` is `BYTEA`, populated
+  from exact UTF-8 bytes through hex text + PostgreSQL `decode`; this preserves
+  U+0000 and avoids typed-array realm drift across browser workers and Electron
+  IPC.
+- The public id is an opaque uuidv7 token. Every read also requires the active
+  `resource_id` and `thread_id`; a wrong scope is indistinguishable from a
+  missing artifact. `run_id` and `tool_call_id` retain execution provenance,
+  with one stored result per scoped tool call.
+- Range reads are byte-addressed and capped by the shared 8000-byte page
+  maximum. The repository returns bytes; the future reader/resolver owns
+  UTF-8-boundary adjustment and signed/opaque cursor validation.
+- Retention is seven days. `purgeExpired` deletes an explicitly bounded batch
+  in oldest-first order. Expired reads return metadata without content.
+- Storage, reads, and purge failures use a typed visible error. Settlement must
+  finish the complete write before publishing an artifact envelope; it must
+  never substitute a reference after a failed write.
+- There are deliberately no Mastra FKs because the numbered migration runner
+  operates on a bare schema. Both direct-PGlite reset paths and desktop
+  `db:clearAll` delete artifacts explicitly; only a pre-068 missing relation is
+  tolerated.
+
+This layer does not yet settle live tool results or expose a reader tool, so
+the temporary MCP inline ceilings remain authoritative. Paired tests:
+`migration-068-tool-output-artifacts.test.ts`,
+`tool-output-artifact-repository.test.ts`, `factory-reset.test.tsx`, and the
+desktop `ipc-handlers-db.test.ts`.
 
 ## THREADS PANEL HYBRID SEARCH
 
