@@ -166,8 +166,8 @@ jobs:
       - name: Type check
         run: pnpm run type-check
 
-  unit:
-    name: Unit
+  unit-shard:
+    name: Unit (${{ matrix.shard }})
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
@@ -184,6 +184,60 @@ jobs:
     # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
     # aligned with Coverage so broad but valid changes do not time out mid-run.
     timeout-minutes: 60
+    # SHARDING (2026-07-20, wall-clock audit in
+    # docs/test-wall-clock-optimization-2026-07-20.md): on whole-repo-selection
+    # PRs the single Unit job was the entire workflow critical path (measured
+    # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
+    # by ~9m), and `db#test`'s 5 sequential lanes alone accounted for ~30m of
+    # it. The matrix splits the package graph across three runners so the heavy
+    # lanes stop queuing behind each other:
+    #   db    — @brainstrike/db only (whole-task-uncached, 5 serial lanes; the
+    #           single longest turbo task by far).
+    #   heavy — the four biggest remaining suites by measured vitest duration
+    #           (desktop, ui, file-explorer-ui, app-shell).
+    #   rest  — affected-set minus the five packages above (negation filters).
+    # Filter grammar verified via `--dry=json`: `pkg...[ref]` selects pkg only
+    # when pkg-or-its-dependency-closure changed in the range (empty selection
+    # otherwise → the shard no-ops in seconds), multiple `--filter` flags
+    # union, and `!pkg` negations subtract from the selection (a negation-only
+    # filter set = everything minus). Shard membership and the two-phase
+    # split below must stay consistent — a package must never appear in two
+    # shards' positive filters, and every package named in a positive filter
+    # here must be listed as a negation in `rest`.
+    # The required-check name "Unit" is preserved by the `unit` fan-in job
+    # below — branch protection keeps pointing at "Unit", not at the shards.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: db
+            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            push_filters: --filter=@brainstrike/db
+          - shard: heavy
+            pr_filters: >-
+              --filter="@brainstrike/desktop...[origin/$BASE_REF]"
+              --filter="@brainstrike/ui...[origin/$BASE_REF]"
+              --filter="@brainstrike/file-explorer-ui...[origin/$BASE_REF]"
+              --filter="@brainstrike/app-shell...[origin/$BASE_REF]"
+            push_filters: >-
+              --filter=@brainstrike/desktop
+              --filter=@brainstrike/ui
+              --filter=@brainstrike/file-explorer-ui
+              --filter=@brainstrike/app-shell
+          - shard: rest
+            pr_filters: >-
+              --filter="...[origin/$BASE_REF]"
+              --filter="!@brainstrike/db"
+              --filter="!@brainstrike/desktop"
+              --filter="!@brainstrike/ui"
+              --filter="!@brainstrike/file-explorer-ui"
+              --filter="!@brainstrike/app-shell"
+            push_filters: >-
+              --filter="!@brainstrike/db"
+              --filter="!@brainstrike/desktop"
+              --filter="!@brainstrike/ui"
+              --filter="!@brainstrike/file-explorer-ui"
+              --filter="!@brainstrike/app-shell"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -274,19 +328,29 @@ jobs:
       # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
       # node), so phase 2's graph builds nothing and is cheap. turbo skips each
       # task for packages that do not define it (no `--if-present` needed).
+      # COVERAGE="false" (2026-07-20): the PR path previously omitted this,
+      # and per-package vitest configs enable V8 coverage whenever CI==='true'
+      # unless COVERAGE overrides it — so every PR unit run silently paid
+      # coverage-instrumentation overhead whose output nothing consumed (the
+      # push path already set it; coverage.yml/nightly-coverage.yml own real
+      # coverage). turbo.jsonc keeps COVERAGE in `passThroughEnv` (out of the
+      # cache key), so PR and push runs still share cache entries — and now
+      # also genuinely run the same uninstrumented workload.
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
+          COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --filter="...[origin/$BASE_REF]" --concurrency=4
+        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
+          COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration --filter="...[origin/$BASE_REF]" --concurrency=2
+        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -311,14 +375,42 @@ jobs:
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --concurrency=4
+        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration --concurrency=2
+        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+
+  # Fan-in job preserving the required-check name "Unit": branch protection
+  # points at this single check, not at the per-shard matrix jobs, so shard
+  # membership can change without touching repo settings.
+  #
+  # It carries the SAME quiet-head admission gate as `unit-shard` (and every
+  # other job): when the head is not admitted, both the shards and this fan-in
+  # skip together, so the required "Unit" check is neutral (not a red failure)
+  # exactly as it was when Unit was a single job. When the job DOES run
+  # (admitted, or admission itself failed), `needs.unit-shard.result` is a
+  # definitive success/failure — anything but `success` fails this job loudly
+  # instead of greying out the merge box (an admission failure propagates here
+  # because `unit-shard`'s own "Require successful admission" step fails it).
+  unit:
+    name: Unit
+    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission, unit-shard]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Check shard results
+        env:
+          SHARD_RESULT: ${{ needs.unit-shard.result }}
+        run: |
+          echo "unit-shard result: $SHARD_RESULT"
+          if [ "$SHARD_RESULT" != "success" ]; then
+            exit 1
+          fi
 
   # The `coverage` job MOVED to .github/workflows/coverage.yml. It needs a
   # `coverage`-label trigger, which would mean subscribing THIS workflow to
