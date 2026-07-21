@@ -28,6 +28,7 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const MAX_DIMENSION = 5000;
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
+const BUFFER_CHUNK_COMPACTION_THRESHOLD = 1024;
 
 export type CommandSessionErrorCode =
   | 'aborted'
@@ -99,7 +100,9 @@ type TreeKill = (pid: number, signal: string, callback?: (error?: Error) => void
 
 interface SessionEntry {
   abortListener: (() => void) | undefined;
-  buffer: string;
+  bufferChunks: string[];
+  bufferHeadIndex: number;
+  bufferLength: number;
   bufferStartCursor: number;
   exitPromise: Promise<void>;
   info: CommandSessionInfo;
@@ -297,18 +300,95 @@ export function createCommandSessionManager({
       });
   }
 
+  function evictOutputBufferOverflow(entry: SessionEntry, initialOverflow: number): void {
+    let overflow = initialOverflow;
+    while (overflow > 0) {
+      const head = entry.bufferChunks[entry.bufferHeadIndex];
+      if (head === undefined) {
+        throw new TypeError('Command-session output buffer lost its retained head chunk.');
+      }
+      if (head.length > overflow) {
+        entry.bufferChunks[entry.bufferHeadIndex] = head.slice(overflow);
+        overflow = 0;
+        break;
+      }
+      overflow -= head.length;
+      entry.bufferChunks[entry.bufferHeadIndex] = '';
+      entry.bufferHeadIndex += 1;
+    }
+    if (
+      entry.bufferHeadIndex >= BUFFER_CHUNK_COMPACTION_THRESHOLD ||
+      entry.bufferHeadIndex * 2 >= entry.bufferChunks.length
+    ) {
+      entry.bufferChunks = entry.bufferChunks.slice(entry.bufferHeadIndex);
+      entry.bufferHeadIndex = 0;
+    }
+  }
+
   function appendOutput(entry: SessionEntry, chunk: string): void {
     if (entry.removed || chunk.length === 0) {
       return;
     }
     entry.outputCursor += chunk.length;
-    entry.buffer += chunk;
-    if (entry.buffer.length <= maxBufferChars) {
+    if (chunk.length >= maxBufferChars) {
+      entry.bufferChunks = [
+        chunk.length === maxBufferChars ? chunk : chunk.slice(chunk.length - maxBufferChars),
+      ];
+      entry.bufferHeadIndex = 0;
+      entry.bufferLength = maxBufferChars;
+      entry.bufferStartCursor = entry.outputCursor - maxBufferChars;
       return;
     }
-    const overflow = entry.buffer.length - maxBufferChars;
-    entry.buffer = entry.buffer.slice(overflow);
+
+    entry.bufferChunks.push(chunk);
+    entry.bufferLength += chunk.length;
+    const overflow = entry.bufferLength - maxBufferChars;
+    if (overflow <= 0) {
+      return;
+    }
+    entry.bufferLength -= overflow;
     entry.bufferStartCursor += overflow;
+    evictOutputBufferOverflow(entry, overflow);
+  }
+
+  function collectBufferedOutputChunks(entry: SessionEntry, offset: number): string[] {
+    let remainingOffset = offset;
+    const outputChunks: string[] = [];
+    for (let index = entry.bufferHeadIndex; index < entry.bufferChunks.length; index += 1) {
+      const chunk = entry.bufferChunks[index];
+      if (chunk === undefined) {
+        throw new TypeError('Command-session output buffer contains a missing chunk.');
+      }
+      if (remainingOffset >= chunk.length) {
+        remainingOffset -= chunk.length;
+        continue;
+      }
+      if (remainingOffset > 0) {
+        outputChunks.push(chunk.slice(remainingOffset));
+        remainingOffset = 0;
+        continue;
+      }
+      outputChunks.push(chunk);
+    }
+    if (remainingOffset !== 0) {
+      throw new TypeError('Command-session output buffer is shorter than its retained length.');
+    }
+    return outputChunks;
+  }
+
+  function readBufferedOutput(entry: SessionEntry, offset: number): string {
+    if (offset === entry.bufferLength) {
+      return '';
+    }
+    if (offset < 0 || offset > entry.bufferLength) {
+      throw new TypeError('Command-session read offset is outside the retained output buffer.');
+    }
+
+    const outputChunks = collectBufferedOutputChunks(entry, offset);
+    if (outputChunks.length === 1) {
+      return outputChunks[0] ?? '';
+    }
+    return outputChunks.join('');
   }
 
   function recordExit(entry: SessionEntry, exitCode: number, signal?: number): void {
@@ -440,7 +520,9 @@ export function createCommandSessionManager({
     });
     const entry: SessionEntry = {
       abortListener: undefined,
-      buffer: '',
+      bufferChunks: [],
+      bufferHeadIndex: 0,
+      bufferLength: 0,
       bufferStartCursor: 0,
       exitPromise,
       info,
@@ -522,7 +604,7 @@ export function createCommandSessionManager({
     return {
       bufferStartCursor: entry.bufferStartCursor,
       nextCursor: entry.outputCursor,
-      output: entry.buffer.slice(replayCursor - entry.bufferStartCursor),
+      output: readBufferedOutput(entry, replayCursor - entry.bufferStartCursor),
       requestedCursor,
       truncatedBeforeCursor,
     };

@@ -181,6 +181,79 @@ describe('command session manager', () => {
     await manager.dispose();
   });
 
+  it('does not slice the full retained buffer when appending output', async () => {
+    const manager = createManager({ maxBufferChars: 24 });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const originalSlice = String.prototype.slice;
+    const retainedBufferSlices: number[] = [];
+    const sliceSpy = vi.spyOn(String.prototype, 'slice').mockImplementation(function (
+      this: string,
+      start?: number,
+      end?: number
+    ) {
+      const source = String(this);
+      if (source.length > 24 && source.startsWith('bolt-buffer-')) {
+        retainedBufferSlices.push(source.length);
+      }
+      return originalSlice.call(source, start, end);
+    });
+
+    try {
+      process?.emitData('bolt-buffer-');
+      process?.emitData('abcdefghijkl');
+      process?.emitData('mnopqrstuvwx');
+    } finally {
+      sliceSpy.mockRestore();
+    }
+
+    expect(retainedBufferSlices).toEqual([]);
+    expect(manager.read('root-a', session.id).output).toBe('abcdefghijklmnopqrstuvwx');
+    process?.emitData('yz');
+    expect(manager.read('root-a', session.id)).toMatchObject({
+      bufferStartCursor: 14,
+      nextCursor: 38,
+      output: 'cdefghijklmnopqrstuvwxyz',
+    });
+    expect(manager.read('root-a', session.id, 33).output).toBe('vwxyz');
+    await manager.dispose();
+  });
+
+  it('preserves bounded string semantics across mixed output chunk sizes', async () => {
+    const maxBufferChars = 37;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const chunks = ['abc', 'defghijklmnop', 'q', 'rstuvwxyz0123456789', 'L'.repeat(53), 'tail'];
+    let retained = '';
+    let outputCursor = 0;
+
+    for (const chunk of chunks) {
+      process?.emitData(chunk);
+      outputCursor += chunk.length;
+      retained = `${retained}${chunk}`.slice(-maxBufferChars);
+      const bufferStartCursor = outputCursor - retained.length;
+      expect(manager.read('root-a', session.id)).toMatchObject({
+        bufferStartCursor,
+        nextCursor: outputCursor,
+        output: retained,
+      });
+      for (const requestedCursor of [
+        0,
+        bufferStartCursor,
+        Math.max(0, outputCursor - 5),
+        outputCursor,
+      ]) {
+        const replayCursor = Math.max(requestedCursor, bufferStartCursor);
+        expect(manager.read('root-a', session.id, requestedCursor).output).toBe(
+          retained.slice(replayCursor - bufferStartCursor)
+        );
+      }
+    }
+
+    await manager.dispose();
+  });
+
   it('accepts stdin while running and retains natural non-zero exit state', async () => {
     const manager = createManager();
     const session = await manager.start({ command: 'interactive', rootId: 'root-a' });

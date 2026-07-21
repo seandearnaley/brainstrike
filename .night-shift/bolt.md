@@ -130,3 +130,7 @@
 ## 2026-07-18 - Queue telemetry percentiles share one sort
 **Learning:** `packages/queue/src/telemetry.ts` sorted the same completed-task latency distribution independently for p50 and p95 on every snapshot. Over 5,000 completed events x 300 snapshots on Node 24.16.0, two sorts took a 280.75ms median while one shared sort took 161.61ms with an identical percentile checksum.
 **Action:** Keep queue telemetry percentile reads on one sorted latency array per snapshot; do not sort independently for each percentile.
+
+## 2026-07-21 - Command-session output retention avoids full-buffer slices
+**Learning:** `apps/desktop/src/assistant-server/command-session-manager.ts` appended PTY chunks to one retained string and sliced that string after every append beyond the 2 Mi UTF-16 cap. On Node 24.16.0, seven measured trials of 5,000 x 1 KiB chunks took a 390.77ms median with one materialized read per 100 appends; a head-evicted chunk deque took 5.23ms with identical retained output. With one read per 10 appends, the medians were 391.42ms and 47.43ms.
+**Action:** Keep bounded command-session output in head-evicted chunks and materialize only the suffix requested by `read()`; do not restore per-append slicing of the full retained buffer.
