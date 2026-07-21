@@ -8,14 +8,12 @@ import {
   runDesktopDevDependencyBuild,
 } from '../ensure-desktop-dev-deps.mjs';
 
-test('targets the exact desktop development dependency graph', () => {
+test('derives the complete desktop development dependency graph through Turbo', () => {
   assert.deepEqual(getDesktopDevDependencyBuildArgs(), [
     'turbo',
     'run',
     'build',
-    '--filter=@brainstrike/build-utils',
-    '--filter=@brainstrike/agent',
-    '--filter=@brainstrike/ui',
+    '--filter=@brainstrike/desktop^...',
   ]);
 });
 

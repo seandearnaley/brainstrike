@@ -7,9 +7,7 @@ const desktopDevDependencyBuildArgs = [
   'turbo',
   'run',
   'build',
-  '--filter=@brainstrike/build-utils',
-  '--filter=@brainstrike/agent',
-  '--filter=@brainstrike/ui',
+  '--filter=@brainstrike/desktop^...',
 ];
 
 export function getDesktopDevDependencyBuildArgs() {
