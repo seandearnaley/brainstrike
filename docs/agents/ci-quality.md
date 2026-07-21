@@ -24,6 +24,22 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Deterministic agent-behavior evals (BST-589)
+
+`packages/agent/src/__tests__/agent-behavior-eval.spec.ts` runs Mastra
+`runEvals` through the real BrainStrike agent runtime with scripted
+`LanguageModelV2` fixtures. It is a zero-network, zero-LLM-cost unit-lane gate
+covering tool selection, error-free tool execution, and plan-mode omission of
+mutation tools. Every deterministic gate must average exactly `1.0`; a Mastra
+`failed` verdict fails Vitest. The suite also keeps a deliberately misbehaving
+control so a gate that can no longer detect its target cannot pass silently.
+
+The same spec demonstrates scored quality tracking with a deterministic
+threshold miss. Its expected Mastra verdict is `scored`, not `failed`, so it is
+advisory evidence and never weakens or replaces the merge-blocking gates. Real
+provider/model evals remain outside the merge gate and must use the package's
+`*.integration.spec.ts` lane if added later.
+
 ### Quiet-head admission before PR fan-out (BST-597)
 
 Every `pull_request` run of `test.yml` first enters the `Quiet-head admission`
