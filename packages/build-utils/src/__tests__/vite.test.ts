@@ -154,9 +154,13 @@ describe('fullReloadOnCompilerHotspots', () => {
   it('triggers full reload for hotspot files', () => {
     const plugin = fullReloadOnCompilerHotspots();
     const send = vi.fn();
+    const invalidateModule = vi.fn();
+    const modules = [{ id: 'provider' }, { id: 'consumer' }] as unknown as HmrContext['modules'];
     const ctx = {
       file: path.resolve('/packages/file-explorer-ui/src/foo.ts'),
-      server: { ws: { send } },
+      modules,
+      server: { moduleGraph: { invalidateModule }, ws: { send } },
+      timestamp: 42,
     } as unknown as HmrContext;
 
     const mockPluginContext = {} as never;
@@ -164,6 +168,11 @@ describe('fullReloadOnCompilerHotspots', () => {
     const handleHotUpdate = plugin.handleHotUpdate;
     if (typeof handleHotUpdate === 'function') {
       const result = handleHotUpdate.call(mockPluginContext, ctx);
+      expect(invalidateModule).toHaveBeenCalledTimes(2);
+      const invalidatedModules = invalidateModule.mock.calls[0]?.[1];
+      expect(invalidatedModules).toBeInstanceOf(Set);
+      expect(invalidateModule).toHaveBeenNthCalledWith(1, modules[0], invalidatedModules, 42, true);
+      expect(invalidateModule).toHaveBeenNthCalledWith(2, modules[1], invalidatedModules, 42, true);
       expect(send).toHaveBeenCalledWith({ type: 'full-reload' });
       expect(result).toEqual([]);
     } else if (
@@ -172,6 +181,11 @@ describe('fullReloadOnCompilerHotspots', () => {
       'handler' in handleHotUpdate
     ) {
       const result = handleHotUpdate.handler.call(mockPluginContext, ctx);
+      expect(invalidateModule).toHaveBeenCalledTimes(2);
+      const invalidatedModules = invalidateModule.mock.calls[0]?.[1];
+      expect(invalidatedModules).toBeInstanceOf(Set);
+      expect(invalidateModule).toHaveBeenNthCalledWith(1, modules[0], invalidatedModules, 42, true);
+      expect(invalidateModule).toHaveBeenNthCalledWith(2, modules[1], invalidatedModules, 42, true);
       expect(send).toHaveBeenCalledWith({ type: 'full-reload' });
       expect(result).toEqual([]);
     }

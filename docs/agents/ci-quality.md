@@ -303,6 +303,16 @@ On a warm graph this check is cache-only and does not rebuild the desktop
 renderer or unrelated packages. A non-zero Turbo result remains a visible
 startup failure.
 
+The shared `fullReloadOnCompilerHotspots` Vite plugin is the development HMR
+boundary for cross-package React providers and stores. A hotspot update must
+first call Vite's `moduleGraph.invalidateModule` for every affected module with
+one shared invalidation set, the update timestamp, and importer invalidation
+enabled; only then may it broadcast `full-reload` and return `[]`. Returning an
+empty module set without that explicit invalidation leaves cached importer
+transforms pointing at different timestamped module identities, which can make
+a context consumer fail to see its mounted provider after reload. The contract
+is pinned in `packages/build-utils/src/__tests__/vite.test.ts`.
+
 ### Agent-debug macOS automation identity
 
 On macOS, `dev:agent-debug` launches through a lightweight temporary

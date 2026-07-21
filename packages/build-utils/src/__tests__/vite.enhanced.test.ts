@@ -293,7 +293,9 @@ describe('fullReloadOnCompilerHotspots - Enhanced Coverage', () => {
 
     const ctx = {
       file: hotspotFile,
-      server: { ws: { send } },
+      modules: [],
+      server: { moduleGraph: { invalidateModule: vi.fn() }, ws: { send } },
+      timestamp: 42,
     } as never;
 
     const mockPluginContext = {} as never;
@@ -330,7 +332,9 @@ describe('fullReloadOnCompilerHotspots - Enhanced Coverage', () => {
 
     const ctx = {
       file: path.resolve('/packages/file-explorer-ui/src/index.ts'),
-      server: { ws: { send } },
+      modules: [],
+      server: { moduleGraph: { invalidateModule: vi.fn() }, ws: { send } },
+      timestamp: 42,
     } as never;
 
     const mockPluginContext = {} as never;
