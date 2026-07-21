@@ -149,6 +149,50 @@ function readCharterAssignment(charter, name) {
   return value;
 }
 
+function requireObject(value, context) {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(`${context} must be an object`);
+  }
+  return value;
+}
+
+function requireString(value, context) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${context} must be a non-empty string`);
+  }
+  return value;
+}
+
+function normalizeOpenPullRequest(value, index) {
+  const pullRequest = requireObject(value, `GitHub pull request ${index}`);
+  const head = requireObject(pullRequest.head, `GitHub pull request ${index}.head`);
+  const user = requireObject(pullRequest.user, `GitHub pull request ${index}.user`);
+  if (!Number.isInteger(pullRequest.number)) {
+    throw new Error(`GitHub pull request ${index}.number must be an integer`);
+  }
+  if (typeof pullRequest.draft !== 'boolean') {
+    throw new Error(`GitHub pull request ${index}.draft must be a boolean`);
+  }
+  return {
+    author: { login: requireString(user.login, `GitHub pull request ${index}.user.login`) },
+    headRefName: requireString(head.ref, `GitHub pull request ${index}.head.ref`),
+    headRefOid: requireString(head.sha, `GitHub pull request ${index}.head.sha`),
+    isDraft: pullRequest.draft,
+    number: pullRequest.number,
+    title: requireString(pullRequest.title, `GitHub pull request ${index}.title`),
+    updatedAt: requireString(pullRequest.updated_at, `GitHub pull request ${index}.updated_at`),
+    url: requireString(pullRequest.html_url, `GitHub pull request ${index}.html_url`),
+  };
+}
+
+function parseOpenPullRequestPages(raw) {
+  const pages = JSON.parse(raw);
+  if (!(Array.isArray(pages) && pages.every(Array.isArray))) {
+    throw new Error('GitHub paginated pull request response must be an array of pages');
+  }
+  return pages.flat().map(normalizeOpenPullRequest);
+}
+
 function assertRequiredFiles(repo) {
   const missing = REQUIRED_FILES.filter((file) => !existsSync(join(repo, file)));
   if (missing.length > 0) {
@@ -331,18 +375,14 @@ function githubContext(repo) {
     execute('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], repo)
   );
   const actor = execute('gh', ['api', 'user', '--jq', '.login'], repo).trim();
-  const openPullRequests = JSON.parse(
+  const openPullRequests = parseOpenPullRequestPages(
     execute(
       'gh',
       [
-        'pr',
-        'list',
-        '--state',
-        'open',
-        '--limit',
-        '100',
-        '--json',
-        'number,title,url,headRefName,headRefOid,isDraft,updatedAt,author',
+        'api',
+        '--paginate',
+        '--slurp',
+        `repos/${repository.nameWithOwner}/pulls?state=open&per_page=100`,
       ],
       repo
     )
