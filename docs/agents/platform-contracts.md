@@ -140,6 +140,11 @@ indexed state only.
   single-flight per watchId. Telemetry (`fs:watch-telemetry`) is in-memory
   counters only — deliberately NOT persisted, so it needs no factory-reset
   wiring; do not add persistence here without wiring factory reset.
+- **Assistant file-read cursors**: the short `readWorkspaceFile` continuation
+  registry is main-process, memory-only state. It survives renderer reloads,
+  expires entries after one hour, and is cleared through the
+  `read-workspace-file-cursors` factory-reset runtime. It must never move to
+  durable storage, and unknown handles must never trigger a fresh-read fallback.
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).

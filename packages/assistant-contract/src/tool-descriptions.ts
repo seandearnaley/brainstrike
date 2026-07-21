@@ -32,7 +32,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.readWorkspaceDirectory]:
     'List a workspace directory in a compact, token-efficient format',
   [NATIVE_TOOL_ID.readWorkspaceFile]:
-    'Read a file from a chosen open workspace root as bounded, line-numbered pages with an exact continuation cursor. For later pages pass path + cursor (and optional maxChars); omit root/startLine/endLine',
+    'Read a file from a chosen open workspace root as bounded, line-numbered pages with a short thread-scoped continuation handle. For later pages pass only cursor (and optional maxChars); omit path/root/startLine/endLine',
   [NATIVE_TOOL_ID.renameWorkspaceFile]:
     'Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]:

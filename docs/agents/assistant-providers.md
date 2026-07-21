@@ -412,13 +412,21 @@ enforced deterministically on serialized chars at 4 chars/token (mirrors
 and self-bounds its purpose-built JSON projection to the 6000-character domain
 budget before returning, so page metadata and `nextCursor` never fall into the
 generic prefix preview.
-If the requested page exceeds the envelope, it shortens the page and returns
-an opaque `nextCursor` that resumes at the exact source line and column,
-including within a long generated/minified line. The cursor is bound to the
-workspace root id, workspace path, byte size, and mtime; selecting another root
-or changing the file fails visibly instead of resuming against different
-content. `omittedChars` counts exact unread source characters; when a page ends
-after a complete line, that includes the source newline before the next line.
+If the requested page exceeds the envelope, it shortens the page and returns a
+26-character random `nextCursor` handle that resumes at the exact source line
+and column, including within a long generated/minified line. The authoritative
+root id, path, requested range, byte size, mtime, and source position remain in
+the main-process registry and are never echoed through the model. Handles are
+bound to the originating assistant resource/thread, expire after one hour,
+survive renderer reload while the desktop main process remains alive, and are
+cleared by factory reset or process restart. A handle is released only after its
+continuation page has been validated and built successfully, before the next
+handle is issued, so failed reads remain retryable while completed pages do not
+occupy registry capacity for the rest of the TTL. Malformed, unknown, expired,
+released, cross-thread, cross-root, and stale-file continuations fail visibly;
+there is no legacy-cursor decode or fresh-read fallback. `omittedChars` counts
+exact unread source characters; when a page ends after a complete line, that
+includes the source newline before the next line.
 Desktop reads each page from one containment-checked file handle: the same
 handle is statted before and after the read, binary-probed, and decoded as fatal
 UTF-8 in 64 KiB chunks. It retains only page-sized source fragments plus line
@@ -426,12 +434,11 @@ and character counters; it still scans to EOF because `totalLines` and
 `omittedChars` are exact public metadata, never estimates. Full-file allocation
 remains reserved for consumers that require the complete source, such as symbol,
 LSP, and tapestry-range processing.
-Pass `nextCursor` back unchanged as `cursor`; when `root` is omitted on
-a continuation, the cursor's root id selects the same workspace root. An
-explicit different root is rejected. Prefer omitting `startLine`/`endLine` on
-a continuation. A v2 cursor also binds the original requested range so an
-exact provider replay of either field is accepted, while a changed range fails
-visibly. Existing v1 cursors remain valid when range fields are omitted.
+Pass `nextCursor` back unchanged as `cursor` with optional `maxChars` and no
+other fields. `path` and `root` are initial-read inputs only and non-null
+continuation overrides are rejected. A provider-emitted replay of the original
+`startLine` or `endLine` is tolerated only when it exactly matches the
+registry-bound range; a changed range fails visibly.
 Optional
 cursor, range, root, and character-cap fields accept provider-emitted `null` as
 omission; invalid non-null values still fail schema validation. Both fit
