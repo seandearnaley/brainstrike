@@ -28,6 +28,12 @@ Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
 
 ## Deployment notes
 
+- PR stewardship (PROTOCOL.md) applies to every PR-authoring loop: at wake,
+  an open PR is reconciled — checks + review threads — before any new work;
+  every comment gets a reply, threads are resolved via gh once addressed,
+  and out-of-scope feedback becomes a linked Linear ticket. Bolt's charter
+  adds its reviewer-subagent specifics on top of this baseline.
+
 - Cadences are pre-staggered (offset-minute house style). Monday's chain
   composes: axiom → scribe → ledger → warden each benefit from the previous
   one's output landing first.
