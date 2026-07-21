@@ -144,12 +144,18 @@ function normalizeOpenPullRequest(value, index) {
   };
 }
 
-function parseOpenPullRequestPages(raw) {
+function parseOpenPullRequestPages(raw, branchPrefix) {
   const pages = JSON.parse(raw);
   if (!(Array.isArray(pages) && pages.every(Array.isArray))) {
     throw new Error('GitHub paginated pull request response must be an array of pages');
   }
-  return pages.flat().map(normalizeOpenPullRequest);
+  return pages
+    .flat()
+    .filter(
+      (pullRequest) =>
+        typeof pullRequest?.head?.ref === 'string' && pullRequest.head.ref.startsWith(branchPrefix)
+    )
+    .map(normalizeOpenPullRequest);
 }
 
 function assertRepository(repo) {
@@ -240,12 +246,7 @@ export function collectOpenPullRequests(repo, run = execute) {
     ['api', '--paginate', '--slurp', `repos/${REPOSITORY}/pulls?state=open&per_page=100`],
     repo
   );
-  const parsed = parseOpenPullRequestPages(raw);
-  const boltPullRequests = parsed.filter(
-    (pullRequest) =>
-      typeof pullRequest?.headRefName === 'string' &&
-      pullRequest.headRefName.startsWith('night-shift/bolt/')
-  );
+  const boltPullRequests = parseOpenPullRequestPages(raw, 'night-shift/bolt/');
   if (boltPullRequests.length > 1) {
     throw new Error(`Protocol violation: ${boltPullRequests.length} open Bolt pull requests`);
   }

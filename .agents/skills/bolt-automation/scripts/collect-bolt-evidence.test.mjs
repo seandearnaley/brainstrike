@@ -19,24 +19,11 @@ test('discovers an open Bolt PR after the first 100 open pull requests', () => {
   const firstPage = Array.from({ length: 100 }, (_, index) =>
     pullRequest(index + 1, `feature/${index + 1}`)
   );
+  firstPage[0].draft = undefined;
   const secondPage = [pullRequest(101, 'night-shift/bolt/existing-optimization')];
   const invocations = [];
   const run = (command, args, cwd) => {
     invocations.push({ args, command, cwd });
-    if (args[0] === 'pr') {
-      return JSON.stringify(
-        firstPage.map((item) => ({
-          baseRefName: item.base.ref,
-          headRefName: item.head.ref,
-          headRefOid: item.head.sha,
-          isDraft: item.draft,
-          number: item.number,
-          title: item.title,
-          updatedAt: item.updated_at,
-          url: item.html_url,
-        }))
-      );
-    }
     if (
       args[0] === 'api' &&
       args.includes('--paginate') &&

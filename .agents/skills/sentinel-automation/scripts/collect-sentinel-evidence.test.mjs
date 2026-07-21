@@ -74,6 +74,7 @@ const pullRequest = (number, headRefName) => ({
 const firstPage = Array.from({ length: 100 }, (_, index) =>
   pullRequest(index + 1, \`feature/\${index + 1}\`)
 );
+firstPage[0].user = null;
 const secondPage = [pullRequest(101, 'night-shift/sentinel/existing-hardening')];
 if (args[0] === 'repo' && args[1] === 'view') {
   process.stdout.write(JSON.stringify({
@@ -84,19 +85,6 @@ if (args[0] === 'repo' && args[1] === 'view') {
 }
 if (args[0] === 'api' && args[1] === 'user') {
   process.stdout.write('fixture-actor\\n');
-  process.exit(0);
-}
-if (args[0] === 'pr' && args[1] === 'list') {
-  process.stdout.write(JSON.stringify(firstPage.map((pullRequest) => ({
-    author: pullRequest.user,
-    headRefName: pullRequest.head.ref,
-    headRefOid: pullRequest.head.sha,
-    isDraft: pullRequest.draft,
-    number: pullRequest.number,
-    title: pullRequest.title,
-    updatedAt: pullRequest.updated_at,
-    url: pullRequest.html_url,
-  }))));
   process.exit(0);
 }
 if (
