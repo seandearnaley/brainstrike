@@ -109,6 +109,16 @@ contracts keep reloaded threads identical to live ones:
    of one response.
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
+   While this graph is loading, `ChatThreadUI` disables every composer send
+   path using assistant-ui's `state.thread.isLoading`. The installed runtime
+   captures a new message's parent from the current in-memory tail before its
+   async append waits for history initialization; allowing a send against the
+   initial empty snapshot would therefore persist an explicit `null` edge and
+   replay a normal continuation as a root carousel revision. Draft text remains
+   intact and sending re-enables when hydration settles. The real-runtime
+   regression pin is `history-hydration-composer.behavior.test.tsx`; existing
+   repository integration cases continue to pin genuine prompt edits and
+   regenerated responses as siblings.
 
 Approval/suspend ACTION messages are deliberately NEVER a Mastra row: the
 "Approved <tool>." / "Approved the plan." user message the notices append is
