@@ -132,6 +132,13 @@ describe('command session manager', () => {
     expect(process).toBeDefined();
 
     process?.emitData('abc');
+    const tail = manager.read('root-a', session.id, -1);
+    expect(tail).toMatchObject({
+      nextCursor: 3,
+      output: '',
+      requestedCursor: -1,
+      truncatedBeforeCursor: false,
+    });
     const first = manager.read('root-a', session.id);
     expect(first).toEqual({
       bufferStartCursor: 0,
@@ -142,6 +149,7 @@ describe('command session manager', () => {
     });
 
     process?.emitData('defghijk');
+    expect(manager.read('root-a', session.id, tail.nextCursor).output).toBe('defghijk');
     const incremental = manager.read('root-a', session.id, first.nextCursor);
     expect(incremental).toMatchObject({
       bufferStartCursor: 3,

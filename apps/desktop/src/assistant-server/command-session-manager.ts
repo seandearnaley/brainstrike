@@ -89,7 +89,7 @@ export interface CommandSessionRead {
   /** Cursor to pass to the next read. */
   readonly nextCursor: number;
   readonly output: string;
-  /** The caller's cursor, or the retained-buffer start when omitted. */
+  /** The caller cursor (`-1` means tail), or the retained-buffer start when omitted. */
   readonly requestedCursor: number;
   /** True when requested output was evicted and replay starts at the retained boundary. */
   readonly truncatedBeforeCursor: boolean;
@@ -484,6 +484,15 @@ export function createCommandSessionManager({
   function read(rootId: string, sessionId: string, cursor?: number): CommandSessionRead {
     const entry = resolveOwned(rootId, sessionId);
     const requestedCursor = cursor ?? entry.bufferStartCursor;
+    if (requestedCursor === -1) {
+      return {
+        bufferStartCursor: entry.bufferStartCursor,
+        nextCursor: entry.outputCursor,
+        output: '',
+        requestedCursor,
+        truncatedBeforeCursor: false,
+      };
+    }
     if (!Number.isSafeInteger(requestedCursor) || requestedCursor < 0) {
       throw new CommandSessionError(
         'cursor-out-of-range',

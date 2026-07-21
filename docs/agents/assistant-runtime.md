@@ -289,10 +289,11 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   escaping/nonexistent cwd, startup failure, exited writes, and invalid cursors
   surface typed errors; there is no cwd or cursor fallback.
 - Combined PTY output is memory-only and capped at 2 Mi UTF-16 code units.
-  Reads use absolute cursors. An evicted cursor returns the retained tail with
-  explicit `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the
-  produced output throws. This mirrors OpenCode's bounded absolute-cursor replay
-  shape and prevents duplicate polling output.
+  Reads use absolute cursors; `-1` attaches at the live tail without replay.
+  An evicted cursor returns the retained tail with explicit
+  `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced
+  output throws. This mirrors OpenCode's bounded absolute-cursor replay shape
+  and prevents duplicate polling output.
 - Running/exited state is typed. The newest 25 exited sessions per root remain
   readable; older exited sessions are evicted. Command text, cwd, environment,
   and raw output are never logged or persisted.
