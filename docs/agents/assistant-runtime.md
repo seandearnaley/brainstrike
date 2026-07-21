@@ -238,6 +238,11 @@ decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
 subscriptions detach on cancel without double-closing their stream controller.
+Desktop HTTP cancellation follows the response lifetime: a completed request's
+`close` event is normal and must not abort the run. A request close aborts only
+when `IncomingMessage.complete` is false, while a `ServerResponse.close` aborts
+only before `writableEnded`; this preserves genuine disconnect cleanup during a
+long response without cancelling approved tools after their POST body is read.
 
 Live shell output (executeCommand streaming): `executeCommand` streams its
 subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is

@@ -404,7 +404,7 @@ async function handleAssistantPost(
   if (await resumeStreamIfAvailable(res, lastEventId)) {
     return;
   }
-  const { signal, cleanup } = registerRequestAbort(req);
+  const { signal, cleanup } = registerRequestAbort(req, res);
   const runId = runtimeData.memory?.runId;
   // Only THIS leg's registration may be torn down below: on the defensive
   // duplicate-runId throw the entry belongs to the ORIGINAL still-streaming
@@ -1307,23 +1307,35 @@ async function collectAvailableProviders(): Promise<string[]> {
   return Array.from(providers);
 }
 
-function registerRequestAbort(req: http.IncomingMessage): {
+function registerRequestAbort(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): {
   signal: AbortSignal;
   cleanup: () => void;
 } {
-  // Propagate HTTP connection cancellation into the agent stream
   const abortController = new AbortController();
   const onAbort = () => {
     abortController.abort();
   };
+  const onRequestClose = () => {
+    if (!req.complete) {
+      onAbort();
+    }
+  };
+  const onResponseClose = () => {
+    if (!res.writableEnded) {
+      onAbort();
+    }
+  };
 
-  req.on('close', onAbort);
-  req.on('aborted', onAbort);
+  req.on('close', onRequestClose);
+  res.on('close', onResponseClose);
 
   return {
     cleanup: () => {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
+      req.removeListener('close', onRequestClose);
+      res.removeListener('close', onResponseClose);
     },
     signal: abortController.signal,
   };
