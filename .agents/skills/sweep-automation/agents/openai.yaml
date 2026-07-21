@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sweep Automation"
+  short_description: "Close stale Brainstrike nightly-failure tickets"
+  default_prompt: "Use $sweep-automation to run the Brainstrike Sweep nightly-noise janitor charter."

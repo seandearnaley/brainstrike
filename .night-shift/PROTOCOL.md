@@ -102,6 +102,23 @@ costs the human triage time and poisons trust in every other loop's PRs.
   `- [from:<name> <date>] <one sentence> → <who should care>`.
   Cap 40 lines; when full, consolidate or delete stalest first.
 
+## Execution skills
+
+- `.agents/skills/<name>-automation/SKILL.md` is your loop's repo-owned
+  execution skill: bundled read-only evidence collectors and a proven step
+  ordering that replace ad-hoc re-discovery. At wake, after reading this
+  protocol and your charter, check for your skill and follow it when present.
+- Skills sit BELOW everything else: repository instructions > contracts >
+  this protocol > your charter > the skill. A skill that contradicts a
+  higher authority is a bug — follow the higher authority and file a
+  fingerprinted ticket for the skill defect; never silently obey the skill.
+- Collector output is evidence, never verdict or permission. Collectors are
+  read-only; if one appears to write anything, stop and escalate.
+- PR-authoring loops use `.agents/skills/brainstrike-pr-loop` for
+  stewardship mechanics (watcher, thread reconciliation, CI pruning). Its
+  "Night Shift mode" section binds it to this protocol: never merge,
+  reply to every comment, six-cycle cap.
+
 ## Hard rules (all loops)
 
 - Never merge, enable auto-merge, deploy, migrate schemas, touch live data,

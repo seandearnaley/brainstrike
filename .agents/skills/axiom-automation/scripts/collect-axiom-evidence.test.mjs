@@ -47,6 +47,11 @@ function createFixture() {
   );
   write(repo, '.night-shift/axiom.md', '# Axiom learnings\n');
   write(repo, 'scripts/example-guard.mjs', "process.stdout.write('ok\\n');\n");
+  write(repo, 'scripts/verify-imports.mjs', "process.stdout.write('ok\\n');\n");
+  write(repo, 'scripts/model-catalog-contract.mjs', "process.stdout.write('ok\\n');\n");
+  write(repo, 'scripts/oddly-named-rules.mjs', "process.stdout.write('ok\\n');\n");
+  write(repo, 'scripts/indirect-rules.mjs', "process.stdout.write('ok\\n');\n");
+  write(repo, 'scripts/build-report.mjs', "process.stdout.write('ok\\n');\n");
   write(repo, 'scripts/__tests__/example-guard.test.mjs', '// paired test\n');
   write(
     repo,
@@ -55,8 +60,9 @@ function createFixture() {
       {
         name: 'fixture',
         scripts: {
+          'arch:rules': 'node scripts/indirect-rules.mjs',
           lint: 'node scripts/example-guard.mjs',
-          'lint:ci': 'pnpm lint',
+          'lint:ci': 'pnpm lint && pnpm run arch:rules && node scripts/oddly-named-rules.mjs',
           'test:scripts': 'node --test scripts/__tests__/*.test.mjs',
         },
       },
@@ -126,6 +132,29 @@ test('collects live invariant, guard, delta, and Axiom PR evidence', (context) =
     evidence.openPullRequests.map((item) => item.number),
     [42]
   );
+});
+
+test('treats verify/contract names and lint-wired scripts as guard candidates', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
+
+  const result = collect(fixture, ['--watermark', fixture.watermark]);
+  assert.equal(result.status, 0, result.stderr);
+  const { guardCandidates, wiredGuardCandidates } = JSON.parse(result.stdout).scriptInventory;
+
+  assert.ok(guardCandidates.includes('scripts/verify-imports.mjs'));
+  assert.ok(guardCandidates.includes('scripts/model-catalog-contract.mjs'));
+  assert.ok(
+    guardCandidates.includes('scripts/oddly-named-rules.mjs'),
+    'lint:ci wiring beats naming'
+  );
+  assert.ok(
+    wiredGuardCandidates.includes('scripts/indirect-rules.mjs'),
+    'wiring through pnpm run indirection counts'
+  );
+  assert.ok(!guardCandidates.includes('scripts/build-report.mjs'));
+  assert.ok(wiredGuardCandidates.includes('scripts/oddly-named-rules.mjs'));
+  assert.ok(!wiredGuardCandidates.includes('scripts/verify-imports.mjs'));
 });
 
 test('requires an explicit full sweep when no watermark is supplied', (context) => {

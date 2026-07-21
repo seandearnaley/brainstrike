@@ -161,6 +161,11 @@ function assignment(charter, name) {
 
 export function deriveCharter(charter) {
   const version = assignment(charter, 'CHARTER_VERSION');
+  if (!/^\d+$/.test(version)) {
+    throw new Error(
+      `Magnify CHARTER_VERSION must be an integer to round-trip through report markers; got "${version}"`
+    );
+  }
   const labels = [...new Set(charter.match(/review\/risk-[34]-[a-z0-9-]+/g) ?? [])];
   const risk3Label = labels.find((label) => label.includes('risk-3-'));
   const risk4Label = labels.find((label) => label.includes('risk-4-'));
@@ -228,6 +233,7 @@ function pullRequestDetails(repo, repository, number) {
         'baseRefOid',
         'headRefName',
         'headRefOid',
+        'changedFiles',
         'labels',
         'mergeable',
         'reviewDecision',
@@ -252,7 +258,10 @@ function normalizeComment(comment) {
 }
 
 export function parseReport(comment) {
-  const match = comment.body.match(/<!--\s*magnify:v(\d+)\s+(\d+):([0-9a-f]{40})\s*-->/i);
+  // Anchored to line start: a human quote-reply ("> <!-- magnify:... -->")
+  // or inline mention must never parse as a report, or one such comment
+  // would poison every later collection for this PR.
+  const match = comment.body.match(/^[ \t]*<!--\s*magnify:v(\d+)\s+(\d+):([0-9a-f]{40})\s*-->/im);
   if (!match) {
     return null;
   }
@@ -315,28 +324,37 @@ function basicEvidence(repo, repository, pullRequest, charter) {
       report.pullRequest === number &&
       report.headSha === pullRequest.headRefOid.toLowerCase()
   );
-  if (currentHeadReports.length > 1) {
-    throw new Error(`PR #${number} has duplicate current-head Magnify reports`);
-  }
+  // Duplicate current-head reports are a per-PR anomaly for the agent to
+  // surface, never a global abort: one anomalous PR must not block
+  // collection for the rest of the queue. The head IS covered (a report
+  // exists), so no re-post is triggered either.
+  const duplicateCurrentHeadReports =
+    currentHeadReports.length > 1 ? currentHeadReports.map((report) => report.comment) : [];
 
   const previousReports = reports
     .filter((report) => report.headSha !== pullRequest.headRefOid.toLowerCase())
     .sort((left, right) => left.comment.createdAt.localeCompare(right.comment.createdAt));
   const latestPrior = previousReports.at(-1) ?? null;
+  const discussion = comments.filter((comment) => !parseReport(comment));
 
   return {
     createdAt: pullRequest.createdAt,
-    currentHeadCovered: currentHeadReports.length === 1,
+    currentHeadCovered: currentHeadReports.length >= 1,
     currentHeadReport: currentHeadReports[0]?.comment ?? null,
+    // Full non-report comment history: dismissals can predate the latest
+    // prior report (heads A→B→C with a dismissal between A and B), so the
+    // windowed view alone must never be treated as the complete dismissal
+    // record.
+    discussion,
     discussionAfterLatestPriorReport: latestPrior
-      ? comments.filter(
-          (comment) => comment.createdAt > latestPrior.comment.createdAt && !parseReport(comment)
-        )
+      ? discussion.filter((comment) => comment.createdAt > latestPrior.comment.createdAt)
       : [],
+    duplicateCurrentHeadReports,
     expectedMarker,
     foreignMarkerComments,
     headRefName: pullRequest.headRefName,
     headRefOid: pullRequest.headRefOid,
+    isDraft: pullRequest.isDraft === true,
     labels: [...labelsOf(pullRequest)].sort(),
     number,
     previousReports,
@@ -365,6 +383,14 @@ function deepEvidence(repo, repository, basic) {
     rawUrl: file.raw_url,
     status: file.status,
   }));
+  if (typeof before.changedFiles !== 'number') {
+    throw new Error(`PR #${basic.number} details did not include changedFiles`);
+  }
+  if (files.length !== before.changedFiles) {
+    throw new Error(
+      `PR #${basic.number} file listing is incomplete: ${files.length} fetched, GitHub reports ${before.changedFiles}`
+    );
+  }
   const diff = run(
     'gh',
     ['pr', 'diff', String(basic.number), '--repo', repository, '--patch', '--color=never'],

@@ -35,15 +35,15 @@ node .agents/skills/sentinel-automation/scripts/collect-sentinel-evidence.mjs \
 
 The collector:
 
-- validates the live charter and required repository files;
-- proves the watermark is an ancestor of `origin/main`;
+- validates the live charter, the origin remote identity, and required repository files in both the working tree and the pinned `origin/main` head;
+- proves the watermark is an exact full SHA and an ancestor of `origin/main`, then pins the resolved head SHA for every subsequent read;
 - inventories first-parent commits and changed files;
 - checks for an existing Sentinel PR through `gh`;
-- runs the repository's own secret scanner against the changed blobs at `origin/main`;
+- runs the repository's own secret scanner against the changed blobs at the pinned head, using `secret-scan.config.json` as it exists at that head (a working-tree config edit cannot suppress a finding on main), and fails closed if the working-tree scanner file differs from the pinned head;
 - reports changed-file candidates for known hardening classes and security-boundary surfaces;
 - emits no secret contents and performs no GitHub, Linear, branch, or working-tree writes.
 
-Treat candidate matches as triage leads, never as findings. Inspect the exact diff and relevant contracts. The collector intentionally does not resolve Linear state, assess exploitability, choose a finding, edit code, or checkpoint the run.
+Treat candidate matches as triage leads, never as findings. The hardening-class taxonomy is bundled in the collector as static triage hints; it is not derived from the charter, and the live charter and learnings files override it. Inspect the exact diff and relevant contracts. The collector intentionally does not resolve Linear state, assess exploitability, choose a finding, edit code, or checkpoint the run.
 
 ## Apply the evidence gate
 
@@ -72,10 +72,12 @@ Before any external write, re-read the target and verify the fingerprint, labels
 
 ## Finish and checkpoint
 
-Append exactly one checkpoint comment in the protocol format using the fully swept `origin/main` SHA. Never edit the state issue description or an older checkpoint.
+Append exactly one checkpoint comment in the protocol format using the fully swept `origin/main` SHA. Use exactly the status enum defined by the live `.night-shift/PROTOCOL.md` (`NOOP|PR|READY|INCOMPLETE|BLOCKED`); the protocol is authoritative if this list drifts. Never edit the state issue description or an older checkpoint.
 
 - Empty delta, no open Sentinel PR, and no reopened Sentinel ticket: append `NOOP` and exit.
-- Public hardening PR: append `PR` with the PR reference and processed watermark.
+- Public hardening PR opened or still under stewardship: append `PR` with the PR reference and processed watermark.
+- The open Sentinel PR is stable and ready to merge per the protocol's stewardship bar: append `READY` with the PR reference and exact head.
+- Wall-clock budget or fix-cycle cap hit: append `INCOMPLETE` with the exact next action.
 - Human/security dependency: append `BLOCKED` with the exact safe next action.
 
 Add a bulletin line only when the charter's systemic-drift condition is met. Update the automation memory with the processed range, outcome, external objects changed, validation performed, and UTC completion time. Report repository files changed, nearby files intentionally untouched, and follow-ups.

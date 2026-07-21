@@ -2,7 +2,8 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import path from 'node:path';
+import path, { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MAX_BUFFER_BYTES = 100 * 1024 * 1024;
 
@@ -82,13 +83,15 @@ function uniqueSorted(values) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function deriveCharter(charterText) {
+export function deriveCharter(charterText) {
   const versionMatch = charterText.match(/\bCHARTER_VERSION=(\d+)\b/);
   if (!versionMatch) {
     throw new Error('Could not derive CHARTER_VERSION from Assay charter');
   }
 
-  const beatZeroMatch = charterText.match(/Beat 0\b([\s\S]*?)Beat 1\b/);
+  // Beat 1 must be at line start so a prose mention of "Beat 1" inside
+  // Beat 0 cannot truncate the allowlist mid-list.
+  const beatZeroMatch = charterText.match(/^Beat 0\b([\s\S]*?)^Beat 1\b/m);
   if (!beatZeroMatch) {
     throw new Error('Could not isolate Beat 0 label allowlist');
   }
@@ -129,6 +132,11 @@ function derivePinGuidance(repo) {
       }
     });
   }
+  if (guidance.length === 0) {
+    throw new Error(
+      'Derived no pin guidance from ci-quality.md/database.md; the touches-pins factor would silently lose its evidence feed'
+    );
+  }
   return guidance;
 }
 
@@ -150,25 +158,45 @@ function listFilesRecursively(directory) {
   return files;
 }
 
-function findWorkflowViolations(repo) {
-  const workflowRoot = path.join(repo, '.github', 'workflows');
+// This scan is a tripwire, not a proof: it catches literal `review/`
+// mentions and label-event-driven automation, but a workflow could still
+// consume labels through indirection it cannot see (repo variables,
+// scripts). Violations stop the run; labelSensitive entries are advisory
+// evidence for the agent to inspect.
+export function scanAutomationForReviewLabels(repo) {
   const violations = [];
-  for (const absolutePath of listFilesRecursively(workflowRoot)) {
-    if (!/\.ya?ml$/i.test(absolutePath)) {
-      continue;
-    }
-    const lines = readFileSync(absolutePath, 'utf8').split(/\r?\n/);
-    lines.forEach((line, index) => {
-      if (line.includes('review/')) {
-        violations.push({
-          line: index + 1,
-          path: path.relative(repo, absolutePath),
-          text: line.trim(),
+  const labelSensitive = [];
+  const roots = [path.join(repo, '.github', 'workflows'), path.join(repo, '.github', 'actions')];
+  for (const root of roots) {
+    for (const absolutePath of listFilesRecursively(root)) {
+      if (!/\.ya?ml$/i.test(absolutePath)) {
+        continue;
+      }
+      const relativePath = path.relative(repo, absolutePath);
+      const content = readFileSync(absolutePath, 'utf8');
+      const lines = content.split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (line.includes('review/')) {
+          violations.push({
+            line: index + 1,
+            path: relativePath,
+            text: line.trim(),
+          });
+        }
+      });
+      if (
+        /\btypes:[^\n]*\b(?:un)?labeled\b/.test(content) ||
+        /github\.event\.label\b/.test(content) ||
+        /github\.event\.pull_request\.labels\b/.test(content)
+      ) {
+        labelSensitive.push({
+          path: relativePath,
+          reason: 'reacts to label events or reads label names via expressions',
         });
       }
-    });
+    }
   }
-  return violations;
+  return { labelSensitive, violations };
 }
 
 function flattenPaginated(value, endpoint) {
@@ -339,8 +367,11 @@ function collectFactorCandidates(pr, files, patchText) {
   };
 }
 
-function extractAssayComments(comments, charter, workKey) {
-  const markerPattern = /<!--\s*assay:v(\d+)\s+(assay:[^\s]+)\s*-->/;
+export function extractAssayComments(comments, charter, workKey) {
+  // Anchored to line start: a human quote-reply ("> <!-- assay:... -->")
+  // must never parse as a brief, or one such comment would put this PR
+  // into permanent cache-invalid re-grade churn.
+  const markerPattern = /^[ \t]*<!--\s*assay:v(\d+)\s+(assay:[^\s]+)\s*-->/m;
   const allowed = new Set(charter.allowedLabels);
   const assayComments = comments
     .map((comment) => {
@@ -348,9 +379,17 @@ function extractAssayComments(comments, charter, workKey) {
       if (!marker) {
         return null;
       }
-      const assertedLabels = uniqueSorted(
-        (comment.body.match(/review\/[a-z0-9-]+/g) ?? []).filter((label) => allowed.has(label))
-      );
+      // Cache integrity is verified against the brief's explicit
+      // `Labels:` line only — prose in the brief legitimately mentions
+      // labels that are not applied (dropped factors, considered floors).
+      // A brief without a Labels: line cannot assert anything: null, so
+      // the cache never validates against it.
+      const labelsLine = comment.body.match(/^Labels:\s*(.*)$/m);
+      const assertedLabels = labelsLine
+        ? uniqueSorted(
+            (labelsLine[1].match(/review\/[a-z0-9-]+/g) ?? []).filter((label) => allowed.has(label))
+          )
+        : null;
       return {
         assertedLabels,
         author: comment.user?.login ?? null,
@@ -414,6 +453,7 @@ function collectPrEvidence(repo, repositoryName, pr, charter) {
   const cacheComment = matching.length === 1 ? matching[0] : null;
   const labelsMatch =
     cacheComment !== null &&
+    cacheComment.assertedLabels !== null &&
     JSON.stringify(cacheComment.assertedLabels) === JSON.stringify(reviewLabels);
 
   const { labels: _enumeratedLabels, ...prSummary } = pr;
@@ -452,10 +492,11 @@ function main() {
   assertFile(repo, 'docs/agents/database.md');
 
   const charter = deriveCharter(readFileSync(charterPath, 'utf8'));
-  const workflowViolations = findWorkflowViolations(repo);
+  const { labelSensitive, violations: workflowViolations } = scanAutomationForReviewLabels(repo);
   const base = {
     charter,
     generatedAt: new Date().toISOString(),
+    labelSensitiveAutomation: labelSensitive,
     pinGuidance: derivePinGuidance(repo),
     repo,
     workflowViolations,
@@ -478,11 +519,9 @@ function main() {
     throw new Error(`Could not prove GitHub repository identity: ${repositoryName}`);
   }
   const actor = run('gh', ['api', 'user', '--jq', '.login'], repo);
-  const repositoryLabels = runJson(
-    'gh',
-    ['label', 'list', '--limit', '1000', '--json', 'name'],
-    repo
-  ).map((label) => label.name);
+  const repositoryLabels = apiAllPages(repo, `repos/${repositoryName}/labels`).map(
+    (label) => label.name
+  );
   const repositoryReviewLabels = uniqueSorted(
     repositoryLabels.filter((label) => label.startsWith('review/'))
   );
@@ -523,9 +562,11 @@ function main() {
   process.stdout.write(`${JSON.stringify(output, null, pretty ? 2 : 0)}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`Assay evidence collection failed: ${error.message}\n`);
-  process.exit(1);
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`Assay evidence collection failed: ${error.message}\n`);
+    process.exit(1);
+  }
 }

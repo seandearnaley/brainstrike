@@ -1,0 +1,4 @@
+interface:
+  display_name: "Quartermaster Automation"
+  short_description: "Triage Brainstrike dependencies landmine-first"
+  default_prompt: "Use $quartermaster-automation to run the Brainstrike Quartermaster dependency-triage charter."

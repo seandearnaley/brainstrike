@@ -18,12 +18,36 @@ function git(repo, args) {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 }
 
-function createFixtureRepo(root) {
+const DEFAULT_FIXTURE_SCANNER =
+  'export function loadConfig() { return {}; }\nexport function scanFileList() { return []; }\n';
+
+const CONFIG_SENSITIVE_FIXTURE_SCANNER = `import { readFileSync } from 'node:fs';
+export function loadConfig(configPath) {
+  return JSON.parse(readFileSync(configPath, 'utf8'));
+}
+export function scanFileList({ config, files, readFile }) {
+  if (config.suppress === true) {
+    return [];
+  }
+  return files
+    .filter((file) => (readFile(file) ?? '').includes('FIXTURE-SECRET'))
+    .map((filePath) => ({
+      column: 1,
+      filePath,
+      line: 1,
+      ruleId: 'fixture-rule',
+      secretHash: 'fixture-hash',
+    }));
+}
+`;
+
+function createFixtureRepo(root, scannerContents = DEFAULT_FIXTURE_SCANNER) {
   const repo = join(root, 'repo');
   mkdirSync(repo);
   git(repo, ['init', '-b', 'main']);
   git(repo, ['config', 'user.email', 'sentinel-test@example.com']);
   git(repo, ['config', 'user.name', 'Sentinel Test']);
+  git(repo, ['remote', 'add', 'origin', 'git@github.com:seandearnaley/brainstrike.git']);
 
   writeFixtureFile(repo, 'AGENTS.md');
   writeFixtureFile(repo, '.night-shift/PROTOCOL.md');
@@ -41,11 +65,7 @@ function createFixtureRepo(root) {
   writeFixtureFile(repo, '.night-shift/sentinel.md', '## Fixture learning\n');
   writeFixtureFile(repo, 'docs/agents/platform-contracts.md');
   writeFixtureFile(repo, 'docs/agents/assistant-providers.md');
-  writeFixtureFile(
-    repo,
-    'scripts/secret-scan.mjs',
-    'export function loadConfig() { return {}; }\nexport function scanFileList() { return []; }\n'
-  );
+  writeFixtureFile(repo, 'scripts/secret-scan.mjs', scannerContents);
   writeFixtureFile(repo, 'secret-scan.config.json', '{}\n');
 
   git(repo, ['add', '.']);
@@ -127,4 +147,64 @@ test('discovers an open Sentinel PR after the first 100 open pull requests', (t)
     evidence.loopState.openPullRequest?.headRefName,
     'night-shift/sentinel/existing-hardening'
   );
+});
+
+function runCollector(repo, binDirectory, watermark) {
+  return spawnSync(process.execPath, [COLLECTOR_PATH, '--repo', repo, '--watermark', watermark], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${binDirectory}:${process.env.PATH}` },
+  });
+}
+
+test('scans with the secret-scan config pinned at origin/main, ignoring working-tree edits', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sentinel-config-pin-'));
+  t.after(() => rmSync(root, { force: true, recursive: true }));
+  const repo = createFixtureRepo(root, CONFIG_SENSITIVE_FIXTURE_SCANNER);
+  const binDirectory = createFakeGh(root);
+  const watermark = git(repo, ['rev-parse', 'HEAD']);
+
+  writeFixtureFile(repo, 'flagged.txt', 'FIXTURE-SECRET\n');
+  git(repo, ['add', 'flagged.txt']);
+  git(repo, ['commit', '-m', 'add flagged file']);
+  git(repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  const head = git(repo, ['rev-parse', 'HEAD']);
+
+  // A working-tree-only allowlist edit must not suppress a finding on main.
+  writeFixtureFile(repo, 'secret-scan.config.json', '{"suppress": true}\n');
+
+  const result = runCollector(repo, binDirectory, watermark);
+
+  assert.equal(result.status, 0, result.stderr);
+  const evidence = JSON.parse(result.stdout);
+  assert.equal(evidence.evidence.secretScan.passed, false);
+  assert.equal(evidence.evidence.secretScan.findings.length, 1);
+  assert.equal(evidence.evidence.secretScan.findings[0].filePath, 'flagged.txt');
+  assert.equal(evidence.evidence.secretScan.configSource, `${head}:secret-scan.config.json`);
+});
+
+test('fails closed when the working-tree secret scanner differs from origin/main', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sentinel-scanner-drift-'));
+  t.after(() => rmSync(root, { force: true, recursive: true }));
+  const repo = createFixtureRepo(root);
+  const binDirectory = createFakeGh(root);
+  const watermark = git(repo, ['rev-parse', 'HEAD']);
+
+  writeFixtureFile(repo, 'scripts/secret-scan.mjs', `${DEFAULT_FIXTURE_SCANNER}// drifted\n`);
+
+  const result = runCollector(repo, binDirectory, watermark);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /scripts\/secret-scan\.mjs in the working tree differs/);
+});
+
+test('rejects a watermark that is not an exact full commit SHA', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sentinel-watermark-'));
+  t.after(() => rmSync(root, { force: true, recursive: true }));
+  const repo = createFixtureRepo(root);
+  const binDirectory = createFakeGh(root);
+
+  const result = runCollector(repo, binDirectory, 'HEAD');
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--watermark must be an exact full commit SHA/);
 });

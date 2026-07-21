@@ -46,6 +46,13 @@ silently weaken their gates.
 - Treat `DANGLING` as a lead, not permission to rename a reference. Confirm
   whether the invariant was intentionally deleted before acting.
 - Treat `MANUAL` as required human/agent verification, never as ACCURATE.
+- The manifest mechanizes only existence: project paths, migration numbers,
+  package-script names, and backticked file references (root files included).
+  It does NOT settle symbol ownership, constant-value drift, paired-test
+  discovery, or prose semantics — the charter's RENAMED / VALUE-DRIFT
+  outcomes are your judgment, and most references land `MANUAL` by design.
+  A missing bare filename is `MANUAL`, not `DANGLING`: contracts cite
+  filenames as examples and contrasts, so absence is a lead, not a defect.
 - Keep the collector dependency-free and run it through `node`; it reads Git
   objects at the selected revision and makes no repository changes.
 - Fail visibly on an unreadable revision, missing repository, or empty

@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -113,6 +122,9 @@ function parseArgs(argv) {
   if (!isAbsolute(parsed.repo)) {
     throw new Error('--repo must be an absolute path');
   }
+  if (!/^[0-9a-f]{40}$/iu.test(parsed.watermark)) {
+    throw new Error('--watermark must be an exact full commit SHA; guessing is disabled');
+  }
   return parsed;
 }
 
@@ -203,6 +215,41 @@ function assertRequiredFiles(repo) {
   const missing = REQUIRED_FILES.filter((file) => !existsSync(join(repo, file)));
   if (missing.length > 0) {
     throw new Error(`Repository is missing required Sentinel files: ${missing.join(', ')}`);
+  }
+}
+
+function assertOriginRemote(repo) {
+  const remote = git(repo, ['remote', 'get-url', 'origin']).trim();
+  if (!/(?:github\.com[:/])seandearnaley\/brainstrike(?:\.git)?$/u.test(remote)) {
+    throw new Error(`Unexpected origin remote for Sentinel: ${remote}`);
+  }
+}
+
+function assertRequiredFilesAtHead(repo, head) {
+  const tracked = new Set(
+    splitNullDelimited(git(repo, ['ls-tree', '-r', '-z', '--name-only', head]))
+  );
+  const missing = REQUIRED_FILES.filter((file) => !tracked.has(file));
+  if (missing.length > 0) {
+    throw new Error(
+      `Pinned ${MAIN_REF} head ${head} is missing required Sentinel files: ${missing.join(', ')}`
+    );
+  }
+}
+
+function assertScannerMatchesHead(repo, head) {
+  const headBlobId = git(repo, ['rev-parse', `${head}:scripts/secret-scan.mjs`]).trim();
+  const worktreeBlobId = git(repo, [
+    'hash-object',
+    '--',
+    join(repo, 'scripts/secret-scan.mjs'),
+  ]).trim();
+  if (headBlobId !== worktreeBlobId) {
+    throw new Error(
+      `scripts/secret-scan.mjs in the working tree differs from the pinned ${MAIN_REF} head ${head}; ` +
+        'the collector imports the working-tree scanner, so a local edit could silently change scan behavior. ' +
+        'Restore scripts/secret-scan.mjs to the origin/main version before collecting.'
+    );
   }
 }
 
@@ -347,7 +394,23 @@ function readMainBlob(repo, ref, path) {
   return blob.toString('utf8');
 }
 
-async function scanChangedFiles(repo, ref, changedFiles) {
+function loadConfigFromHeadBlob(repo, head, scanner) {
+  const configBlob = readMainBlob(repo, head, 'secret-scan.config.json');
+  if (configBlob === null) {
+    throw new Error(`secret-scan.config.json at ${head} is not valid UTF-8 text`);
+  }
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'sentinel-secret-scan-'));
+  try {
+    const configPath = join(temporaryDirectory, 'secret-scan.config.json');
+    writeFileSync(configPath, configBlob);
+    return scanner.loadConfig(configPath);
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
+}
+
+async function scanChangedFiles(repo, head, changedFiles) {
+  assertScannerMatchesHead(repo, head);
   const scannerPath = join(repo, 'scripts/secret-scan.mjs');
   const scanner = await import(pathToFileURL(scannerPath).href);
   if (typeof scanner.loadConfig !== 'function' || typeof scanner.scanFileList !== 'function') {
@@ -356,14 +419,15 @@ async function scanChangedFiles(repo, ref, changedFiles) {
   const files = changedFiles
     .filter((file) => !file.status.startsWith('D'))
     .map((file) => file.path);
-  const config = scanner.loadConfig(join(repo, 'secret-scan.config.json'));
+  const config = loadConfigFromHeadBlob(repo, head, scanner);
   const findings = scanner.scanFileList({
     config,
     files,
-    readFile: (path) => readMainBlob(repo, ref, path),
+    readFile: (path) => readMainBlob(repo, head, path),
   });
   return {
     checkedFileCount: files.length,
+    configSource: `${head}:secret-scan.config.json`,
     findings: findings.map(({ column, filePath, line, ruleId, secretHash }) => ({
       column,
       filePath,
@@ -413,9 +477,11 @@ async function main() {
     throw new Error(`--repo must be the repository root: ${repo}`);
   }
   assertRequiredFiles(repo);
+  assertOriginRemote(repo);
 
   const head = git(repo, ['rev-parse', '--verify', `${MAIN_REF}^{commit}`]).trim();
   const watermark = git(repo, ['rev-parse', '--verify', `${args.watermark}^{commit}`]).trim();
+  assertRequiredFilesAtHead(repo, head);
   assertAncestor(repo, watermark, head);
   const range = `${watermark}..${head}`;
 
@@ -425,7 +491,7 @@ async function main() {
   const changedFiles = parseChangedFiles(repo, range);
   const commits = parseCommits(repo, range);
   const github = githubContext(repo);
-  const secretScan = await scanChangedFiles(repo, MAIN_REF, changedFiles);
+  const secretScan = await scanChangedFiles(repo, head, changedFiles);
   const learningHeadings = readFileSync(join(repo, learningsFile), 'utf8')
     .split('\n')
     .filter((line) => line.startsWith('## '))

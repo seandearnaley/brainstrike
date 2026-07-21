@@ -23,7 +23,8 @@ function usage() {
     'Usage: collect-watch-evidence.mjs --repo <path> [options]',
     '',
     'Options:',
-    '  --watermark <id[,id...]>  Previously processed workflow-run IDs',
+    '  --watermark <key[,key...]>  Previously checkpointed completed-run keys, each <runId>@<attempt>;',
+    '                             pass "none" (or an empty value) for an explicitly empty prior set',
     '  --preflight-port <port>    Check a local reproduction port (repeatable)',
     '  --pretty                   Pretty-print JSON',
     '  --help                     Show this help',
@@ -33,9 +34,10 @@ function usage() {
   ].join('\n');
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   let repo;
   let pretty = false;
+  let watermarkSupplied = false;
   const watermark = [];
   const preflightPorts = [];
 
@@ -51,22 +53,30 @@ function parseArgs(argv) {
     }
     if (argument === '--watermark') {
       const value = argv[index + 1];
-      if (!value) {
-        throw new Error('--watermark requires one or more run IDs');
+      if (value === undefined) {
+        throw new Error(
+          '--watermark requires a value: <runId>@<attempt> keys, or "none" for an empty prior set'
+        );
       }
-      watermark.push(
-        ...value
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean)
-      );
+      watermarkSupplied = true;
+      if (!(value === '' || value === 'none')) {
+        watermark.push(
+          ...value
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        );
+      }
       index += 1;
       continue;
     }
     if (argument === '--preflight-port') {
       const value = argv[index + 1];
-      const port = Number.parseInt(value ?? '', 10);
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      if (!/^\d+$/.test(value ?? '')) {
+        throw new Error('--preflight-port requires an integer from 1 to 65535');
+      }
+      const port = Number.parseInt(value, 10);
+      if (port < 1 || port > 65_535) {
         throw new Error('--preflight-port requires an integer from 1 to 65535');
       }
       preflightPorts.push(port);
@@ -88,16 +98,17 @@ function parseArgs(argv) {
     throw new Error('--repo is required');
   }
 
-  const invalidWatermark = watermark.find((value) => !/^\d+$/.test(value));
+  const invalidWatermark = watermark.find((value) => !/^\d+@\d+$/.test(value));
   if (invalidWatermark) {
-    throw new Error(`Invalid workflow-run ID in --watermark: ${invalidWatermark}`);
+    throw new Error(`Invalid watermark key (expected <runId>@<attempt>): ${invalidWatermark}`);
   }
 
   return {
     preflightPorts: uniqueSorted(preflightPorts),
     pretty,
     repo,
-    watermark: uniqueRunIds(watermark),
+    watermark: uniqueSorted(watermark.map(String)),
+    watermarkSupplied,
   };
 }
 
@@ -224,7 +235,7 @@ export function deriveWatchedWorkflows(repo) {
     throw new Error('Required workflow directory is missing: .github/workflows');
   }
 
-  const workflows = [];
+  const scheduled = [];
   for (const entry of readdirSync(workflowRoot, { withFileTypes: true })) {
     if (!(entry.isFile() && /\.ya?ml$/i.test(entry.name))) {
       continue;
@@ -251,16 +262,26 @@ export function deriveWatchedWorkflows(repo) {
         hasSchedule = true;
       }
     }
-    if (!(hasSchedule && /(?:\be2e\b|\bnightly\b)/i.test(name))) {
+    if (!hasSchedule) {
       continue;
     }
-    workflows.push({ name, path: relativePath });
+    const included = /(?:\be2e\b|\bnightly\b)/i.test(name);
+    scheduled.push({
+      exclusionReason: included ? null : 'name lacks an E2E or nightly token',
+      included,
+      name,
+      path: relativePath,
+    });
   }
 
-  if (workflows.length === 0) {
+  scheduled.sort((left, right) => left.path.localeCompare(right.path));
+  const watched = scheduled
+    .filter((workflow) => workflow.included)
+    .map((workflow) => ({ name: workflow.name, path: workflow.path }));
+  if (watched.length === 0) {
     throw new Error('Derived no scheduled E2E or nightly workflows');
   }
-  return workflows.sort((left, right) => left.path.localeCompare(right.path));
+  return { scheduled, watched };
 }
 
 function uniqueSorted(values) {
@@ -269,25 +290,39 @@ function uniqueSorted(values) {
   );
 }
 
-function uniqueRunIds(values) {
-  return uniqueSorted(values.map(String));
+function runKey(runItem) {
+  return `${runItem.id}@${runItem.attempt}`;
 }
 
-export function compareWatermark(provided, current) {
-  const previousIds = uniqueRunIds(provided);
-  const currentIds = uniqueRunIds(current);
-  const previousSet = new Set(previousIds);
-  const currentSet = new Set(currentIds);
-  const newRunIds = currentIds.filter((id) => !previousSet.has(id));
-  const expiredRunIds = previousIds.filter((id) => !currentSet.has(id));
-  const supplied = previousIds.length > 0;
-  const unchanged = supplied && newRunIds.length === 0 && expiredRunIds.length === 0;
+export function compareWatermark({ previousKeys, runs, supplied }) {
+  const previous = uniqueSorted(previousKeys.map(String));
+  const currentRunKeys = uniqueSorted(runs.map(runKey));
+  const checkpointWatermark = uniqueSorted(
+    runs.filter((runItem) => runItem.status === 'completed').map(runKey)
+  );
+  const pendingRuns = runs
+    .filter((runItem) => runItem.status !== 'completed')
+    .map((runItem) => ({ attempt: runItem.attempt, id: runItem.id, status: runItem.status }))
+    .sort((left, right) => runKey(left).localeCompare(runKey(right), undefined, { numeric: true }));
+  const previousSet = new Set(previous);
+  const currentSet = new Set(currentRunKeys);
+  const completedSet = new Set(checkpointWatermark);
+  const newRunKeys = currentRunKeys.filter((key) => !previousSet.has(key));
+  const expiredRunKeys = previous.filter((key) => !currentSet.has(key));
+  const unchanged = supplied && newRunKeys.length === 0 && expiredRunKeys.length === 0;
+  const noopEligible =
+    supplied &&
+    pendingRuns.length === 0 &&
+    checkpointWatermark.every((key) => previousSet.has(key)) &&
+    previous.every((key) => completedSet.has(key));
   return {
-    currentRunIds: currentIds,
-    expiredRunIds,
-    newRunIds,
-    noopEligible: unchanged,
-    previousRunIds: previousIds,
+    checkpointWatermark,
+    currentRunKeys,
+    expiredRunKeys,
+    newRunKeys,
+    noopEligible,
+    pendingRuns,
+    previousRunKeys: previous,
     supplied,
     unchanged,
   };
@@ -396,7 +431,7 @@ function normalizeRun(run, workflow) {
 
 function collectRunSnapshot(repo, repository, workflows, since) {
   const created = encodeURIComponent(`>=${since}`);
-  const endpoint = `/repos/${repository}/actions/runs?per_page=100&event=schedule&created=${created}`;
+  const endpoint = `/repos/${repository}/actions/runs?per_page=100&created=${created}`;
   const workflowById = new Map(workflows.map((workflow) => [workflow.id, workflow]));
   const runs = flattenObjectPages(apiPages(repo, endpoint), 'workflow_runs', endpoint)
     .filter((runItem) => workflowById.has(runItem.workflow_id))
@@ -497,6 +532,7 @@ function normalizeTitle(value) {
   return value
     .replace(/^\s*\d+\)\s*/, '')
     .replace(/^\[[^\]]+\]\s*›\s*/, '')
+    .replace(/\s*─+\s*$/, '')
     .replace(/\s*\(retry #\d+\)\s*$/i, '')
     .replace(/([/\\][^\s›]+):\d+:\d+/g, '$1')
     .replace(/\s+/g, ' ')
@@ -526,7 +562,7 @@ function retrySignalFromMessage(message) {
       testTitle: normalizeTitle(`[${progress[2]}] › ${progress[3]}`),
     };
   }
-  const failureSummary = message.match(/^\s*\d+\)\s+(.+?)\s+\(retry #(\d+)\)\s*$/i);
+  const failureSummary = message.match(/^\s*\d+\)\s+(.+?)\s+\(retry #(\d+)\)\s*─*\s*$/i);
   if (failureSummary) {
     return {
       outcome: 'failed',
@@ -596,9 +632,15 @@ function excerpt(records, centerIndex, radius = 2) {
   return records.slice(start, end).map((record) => record.message.slice(0, 500));
 }
 
-function fingerprint(workflowName, title, errorClass) {
-  const leafTitle = title.split('›').at(-1)?.trim() || title;
-  return `watch:${slug(workflowName)}:${slug(leafTitle)}:${errorClass}`;
+export function fingerprint(workflowName, title, errorClass) {
+  const fullPath = title
+    .split('›')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(' ');
+  const titleSlug = slug(fullPath);
+  const boundedSlug = titleSlug.length > 80 ? titleSlug.slice(0, 80).replace(/-+$/, '') : titleSlug;
+  return `watch:${slug(workflowName)}:${boundedSlug || 'unnamed'}:${errorClass}`;
 }
 
 function refineErrorEvidence(records, error) {
@@ -644,9 +686,11 @@ function runnerImage(records) {
   const version = records
     .map((record) => record.message.match(/^Version:\s*(.+)$/i)?.[1]?.trim())
     .find(Boolean);
-  const operatingSystem = records
-    .map((record) => record.message.match(/^Operating System\s*\n?\s*(.+)$/i)?.[1]?.trim())
-    .find(Boolean);
+  const osHeaderIndex = records.findIndex((record) =>
+    /^Operating System$/i.test(record.message.trim())
+  );
+  const operatingSystem =
+    osHeaderIndex >= 0 ? records[osHeaderIndex + 1]?.message.trim() || null : null;
   if (!(image || version || operatingSystem)) {
     return null;
   }
@@ -684,11 +728,50 @@ export function extractLogEvidence({ attempt, jobs, logText, workflowName }) {
   const records = logRecords(logText);
   const failureCandidates = [];
   const retrySignals = [];
+  const unattributedCandidates = [];
   const unparsedFailures = [];
   const imagesByJob = {};
 
+  const unattributedRecords = records.filter((record) => record.job === null);
+  for (let index = 0; index < unattributedRecords.length; index += 1) {
+    const record = unattributedRecords[index];
+    const retrySignal = retrySignalFromMessage(record.message);
+    if (retrySignal) {
+      retrySignals.push({
+        attempt,
+        excerpt: excerpt(unattributedRecords, index),
+        job: null,
+        ...retrySignal,
+      });
+    }
+
+    const title = testTitleFromMessage(record.message);
+    if (!title) {
+      continue;
+    }
+    const window = unattributedRecords.slice(index + 1, index + 31);
+    const error = strongestError(window);
+    if (!error) {
+      continue;
+    }
+    const refined = refineErrorEvidence(window, error);
+    unattributedCandidates.push({
+      attempt,
+      errorClass: refined.errorClass,
+      errorLine: error.record.message.slice(0, 500),
+      excerpt: excerpt(unattributedRecords, unattributedRecords.indexOf(error.record)),
+      fingerprintCandidate: fingerprint(workflowName, title, refined.errorClass),
+      fingerprintReady: fingerprintReady(refined.errorClass),
+      job: null,
+      mechanismSignals: refined.mechanismSignals,
+      phase: error.record.step,
+      syntheticPhaseTitle: false,
+      testTitle: title,
+    });
+  }
+
   for (const job of jobs) {
-    const jobRecords = records.filter((record) => !record.job || record.job === job.name);
+    const jobRecords = records.filter((record) => record.job === job.name);
     imagesByJob[job.name] = runnerImage(jobRecords);
 
     for (let index = 0; index < jobRecords.length; index += 1) {
@@ -781,6 +864,10 @@ export function extractLogEvidence({ attempt, jobs, logText, workflowName }) {
       retrySignals,
       (value) => `${value.attempt}:${value.job}:${value.retry}:${value.outcome}:${value.testTitle}`
     ),
+    unattributedCandidates: dedupe(
+      unattributedCandidates,
+      (value) => `${value.attempt}:${value.job}:${value.fingerprintCandidate}:${value.errorLine}`
+    ),
     unparsedFailures,
   };
 }
@@ -843,6 +930,9 @@ function collectRunEvidence(repo, repository, runItem) {
 
   const failureCandidates = attempts.flatMap((attempt) => attempt.failureCandidates ?? []);
   const retrySignals = attempts.flatMap((attempt) => attempt.retrySignals ?? []);
+  const unattributedCandidates = attempts.flatMap(
+    (attempt) => attempt.unattributedCandidates ?? []
+  );
   const unparsedFailures = attempts.flatMap((attempt) => attempt.unparsedFailures ?? []);
   const recoveries = workflowRetryRecoveries(attempts);
   const passOnRetryCandidates = [
@@ -861,6 +951,7 @@ function collectRunEvidence(repo, repository, runItem) {
     attempts,
     failureCandidates,
     passOnRetryCandidates,
+    unattributedCandidates,
     unparsedFailures,
   };
 }
@@ -926,8 +1017,8 @@ async function main() {
     readFileSync(path.join(repo, '.night-shift', 'charters', 'watch.md'), 'utf8')
   );
   const identity = repositoryIdentity(repo);
-  const derivedWorkflows = deriveWatchedWorkflows(repo);
-  const workflows = resolveWorkflowMetadata(repo, identity.nameWithOwner, derivedWorkflows);
+  const derived = deriveWatchedWorkflows(repo);
+  const workflows = resolveWorkflowMetadata(repo, identity.nameWithOwner, derived.watched);
   const until = new Date();
   const since = new Date(until.getTime() - charter.lookbackHours * 60 * 60 * 1000);
   const firstRunSnapshot = collectRunSnapshot(
@@ -938,14 +1029,17 @@ async function main() {
   );
   const runs = collectRunSnapshot(repo, identity.nameWithOwner, workflows, since.toISOString());
   assertStableRunSnapshots(firstRunSnapshot, runs);
-  const watermark = compareWatermark(
-    args.watermark,
-    runs.map((runItem) => runItem.id)
+  const watermark = compareWatermark({
+    previousKeys: args.watermark,
+    runs,
+    supplied: args.watermarkSupplied,
+  });
+  const keysToAnalyze = new Set(
+    watermark.supplied ? watermark.newRunKeys : watermark.currentRunKeys
   );
-  const idsToAnalyze = new Set(watermark.supplied ? watermark.newRunIds : watermark.currentRunIds);
   const selectedRuns = watermark.noopEligible
     ? []
-    : runs.filter((runItem) => idsToAnalyze.has(runItem.id));
+    : runs.filter((runItem) => keysToAnalyze.has(`${runItem.id}@${runItem.attempt}`));
   const analyzedRuns = selectedRuns.map((runItem) =>
     collectRunEvidence(repo, identity.nameWithOwner, runItem)
   );
@@ -965,7 +1059,7 @@ async function main() {
     charter,
     collection: {
       analysisComplete: blockingReasons.length === 0,
-      analyzedRunIds: analyzedRuns.map((runItem) => runItem.id),
+      analyzedRunKeys: analyzedRuns.map((runItem) => `${runItem.id}@${runItem.attempt}`),
       blockingReasons,
       skippedBecauseWatermarkUnchanged: watermark.noopEligible,
     },
@@ -973,7 +1067,8 @@ async function main() {
     repository: identity,
     reproductionPreflight,
     runs: analyzedRuns,
-    schemaVersion: 1,
+    scheduledWorkflows: derived.scheduled,
+    schemaVersion: 2,
     watermark,
     window: { since: since.toISOString(), until: until.toISOString() },
     workflows,

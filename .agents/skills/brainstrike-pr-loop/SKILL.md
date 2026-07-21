@@ -304,6 +304,15 @@ Prefer keep iterating when:
 
 If the PR is fundamentally good but only deeper hardening remains, merge and open a follow-up ticket or PR.
 
+### Night Shift mode (mandatory override)
+
+When this skill is invoked by a Night Shift loop (any `night-shift/*` branch, or any run governed by `.night-shift/PROTOCOL.md`), the protocol's PR-stewardship section overrides this step and parts of Step 3.5:
+
+- You NEVER merge or enable auto-merge, no matter how clean the PR is. The terminal state is the protocol's `status=READY` checkpoint: required checks green, every thread replied AND resolved, working tree clean, all on the same HEAD. Then hand off to the human.
+- EVERY review comment gets a reply — bots included, "covered" ones included. The reply is the fixing commit SHA, a concise reasoned decline, or a link to the follow-up Linear ticket. The "resolve silently when covered" shortcut in Step 3 does not apply.
+- Deferrals go to a fingerprinted Linear ticket per the protocol's ticket rules, linked in the thread reply before resolving.
+- The protocol's cap of six fix/push cycles per run applies; on hitting it, checkpoint `status=INCOMPLETE` with the exact next action instead of continuing.
+
 Non-blocking check policy:
 
 - Repo-owned GitHub checks and required status checks determine mergeability.

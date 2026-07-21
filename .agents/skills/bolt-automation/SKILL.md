@@ -39,7 +39,7 @@ The collector performs no repository or external writes. It:
 - validates repository identity, live charter assignments, and watermark ancestry;
 - compares local `origin/main` with `git ls-remote` and fails when a fetch is required;
 - inventories the first-parent delta, exact `origin/main` blob IDs, open Bolt PRs, learning files, and worktree state;
-- groups changed paths into advisory evidence leads derived from the live charter's performance surfaces;
+- groups changed paths into advisory evidence leads using a static performance-surface taxonomy bundled in the collector; the taxonomy is a routing hint, not derived from the charter, and the live charter and learnings override it;
 - fails visibly on missing state, malformed output, GitHub failure, or multiple open Bolt PRs.
 
 Treat `evidenceLeads` as routing hints, never findings. Read the full diff, relevant source, tests, benchmarks, and contracts. When the delta is empty, no Bolt PR is open, and no reopened Bolt ticket requires work, append a NOOP checkpoint and stop before expensive profiling.
@@ -102,9 +102,15 @@ node .agents/skills/bolt-automation/scripts/audit-bolt-readiness.mjs \
   --pretty
 ```
 
-The audit is deliberately stricter than GitHub's merge button: it requires the exact local/remote head, current base, clean tree, open non-draft PR, mergeable clean state, at least one observed check with every observed check terminal-green, and zero unresolved review threads. Both helpers disable Git optional locks, fsmonitor, and untracked-cache writes; they perform no repository or external writes.
+The audit derives the expected required-check set from the base branch's
+protection API. When that endpoint returns no contexts or is unavailable, it
+fails closed and demands `--required-checks <comma-list>` — re-derive that
+list from the required jobs in `.github/workflows/test.yml` at wake and pass
+it; never omit it to "get past" a missing protection API.
 
-`mechanicalReady=true` is necessary, not sufficient. Declare READY TO MERGE only when the exact same SHA also has passing evidence and two clean fresh reviewers.
+The audit is deliberately stricter than GitHub's merge button: it requires the exact local/remote head, current base, clean tree, open non-draft PR, mergeable clean state, EVERY expected required check present in the rollup AND terminal-green (a partial rollup with only a fast check reporting is NOT ready), no SKIPPED/NEUTRAL check standing in for a required one, and zero unresolved review threads. Both helpers disable Git optional locks, fsmonitor, and untracked-cache writes; they perform no repository or external writes.
+
+`mechanicalReady=true` is necessary, not sufficient. Checkpoint `status=READY` only when the exact same SHA also has passing evidence and two clean fresh reviewers.
 
 On a later wake with the same PR HEAD, reuse evidence and reviewer status only when a valid append-only Bolt checkpoint names that exact head and explicitly records `evidence=pass`, `reviewers=correctness+performance-clean`, and `threads=0`; the PR must still contain the exact reproducible evidence method. Re-read all PR discussion since that checkpoint. Any head drift, base drift, new actionable discussion, missing field, irreproducible method, or ambiguous checkpoint invalidates reuse and requires fresh verification. Never reconstruct a missing benchmark method by guesswork.
 

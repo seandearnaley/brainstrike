@@ -150,6 +150,16 @@ function extractScriptPaths(text) {
   return uniqueSorted(text.match(/scripts\/[A-Za-z0-9_./-]+\.(?:mjs|cjs)/g) ?? []);
 }
 
+// A commented-out `pnpm test:scripts` or `node scripts/x.mjs` line is not wiring.
+// Full-line YAML comments are blanked (not removed) so line numbers stay stable for
+// the evidence references built from the same text.
+function stripYamlFullLineComments(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => (/^\s*#/.test(line) ? '' : line))
+    .join('\n');
+}
+
 function extractLocalSpecifiers(text) {
   const specifiers = [];
   const pattern =
@@ -353,7 +363,7 @@ function main() {
   const workflowTexts = new Map(
     workflowFiles.map((relativePath) => [
       relativePath,
-      readFileSync(assertFile(repo, relativePath), 'utf8'),
+      stripYamlFullLineComments(readFileSync(assertFile(repo, relativePath), 'utf8')),
     ])
   );
   const combinedWorkflowText = [...workflowTexts.values()].join('\n');
@@ -445,6 +455,10 @@ function main() {
       ])
     );
     const signals = collectGuardSignals(relativePath, text);
+    // Distinct wiring class: the guard is enforced by a paired scripts/__tests__ test that
+    // CI executes (test:scripts). Whether that paired test asserts on the REAL repository
+    // tree (WIRED per charter) versus fixtures only remains a manual ARMED-style check.
+    const ciReachableTests = directTests.filter((testPath) => ciTestEntryFiles.has(testPath));
 
     return {
       arming: {
@@ -465,6 +479,8 @@ function main() {
       tracked: trackedFiles.has(relativePath),
       wiring: {
         ciReachable: ciReachableFiles.has(relativePath),
+        ciReachableTests,
+        ciTestReachable: ciReachableTests.length > 0,
         packageReferences,
         workflowReferences,
       },
@@ -491,9 +507,11 @@ function main() {
   if (dirtyLines.length > 0) {
     preflightBlockers.push('working tree is dirty');
   }
-  if (!inventoryExists) {
-    preflightBlockers.push('scripts/_guard-inventory.md is missing');
-  }
+  // A missing guard inventory is not a blocker: only Warden ever creates it (charter
+  // Beat 5), so blocking on its absence would deadlock the bootstrap run forever.
+  const firstRunEvidence = inventoryExists
+    ? []
+    : ['scripts/_guard-inventory.md does not exist yet; Warden creates it on the first run'];
 
   const output = {
     charter,
@@ -527,6 +545,7 @@ function main() {
     },
     preflight: {
       blockers: preflightBlockers,
+      firstRunEvidence,
       limitations: [
         'origin/main freshness is unverified because the read-only collector does not fetch',
         'guard classification and ARMED status require manual review',
@@ -538,6 +557,7 @@ function main() {
     summary: {
       candidateHintCount: inventory.filter((entry) => entry.candidateHint).length,
       ciReachableScriptCount: inventory.filter((entry) => entry.wiring.ciReachable).length,
+      ciTestReachableScriptCount: inventory.filter((entry) => entry.wiring.ciTestReachable).length,
       directlyPairedScriptCount: inventory.filter((entry) => entry.pairing.directTests.length > 0)
         .length,
     },
