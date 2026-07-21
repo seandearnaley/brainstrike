@@ -64,7 +64,7 @@ describe('persistent command-session native tools', () => {
       "const http = require('node:http')",
       `const server = http.createServer((_request, response) => response.end('session-ok'))`,
       `server.listen(${port}, '127.0.0.1', () => console.log('BST_SESSION_READY'))`,
-      "process.stdin.on('data', data => { if (data.toString().trim() === 'ping') console.log('BST_SESSION_PONG') })",
+      "process.stdin.on('data', data => { if (data.toString().trim() === 'ping😀') console.log('BST_SESSION_PONG') })",
     ].join(';');
 
     try {
@@ -91,10 +91,11 @@ describe('persistent command-session native tools', () => {
       });
       expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe('session-ok');
 
-      await manage.execute({
-        operation: { action: 'write', data: 'ping\n', sessionId: started.id },
+      const writeResult = await manage.execute({
+        operation: { action: 'write', data: 'ping😀\n', sessionId: started.id },
         root: 'api',
       });
+      expect(writeResult).toMatchObject({ writtenUtf16CodeUnits: 7 });
       await waitFor(async () => {
         const page = inspect.execute({
           operation: { action: 'read', cursor: ready.nextCursor, sessionId: started.id },

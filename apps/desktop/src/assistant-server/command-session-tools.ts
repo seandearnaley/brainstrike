@@ -22,7 +22,7 @@ type InspectCommandSessionsResult =
 type ManageCommandSessionResult =
   | CommandSessionInfo
   | { readonly id: string; readonly removed: true; readonly rootId: string }
-  | { readonly session: CommandSessionInfo; readonly writtenChars: number };
+  | { readonly session: CommandSessionInfo; readonly writtenUtf16CodeUnits: number };
 
 function resolveManager(dependencies: CommandSessionToolDependencies): CommandSessionManager {
   return dependencies.manager ?? getDesktopCommandSessionManager();
@@ -30,6 +30,10 @@ function resolveManager(dependencies: CommandSessionToolDependencies): CommandSe
 
 function resolveRootId(runtimeData: RuntimeData | undefined, root: string | undefined): string {
   return resolveWorkspaceRoot(runtimeData, root).rootId;
+}
+
+function unsupportedOperation(operation: never): never {
+  throw new Error(`Unsupported command-session action: ${JSON.stringify(operation)}`);
 }
 
 export function runInspectCommandSessions(
@@ -68,13 +72,16 @@ export async function runManageCommandSession(
     manager.write(rootId, operation.sessionId, operation.data);
     return {
       session: manager.get(rootId, operation.sessionId),
-      writtenChars: operation.data.length,
+      writtenUtf16CodeUnits: operation.data.length,
     };
   }
   if (operation.action === 'stop') {
     await manager.stop(rootId, operation.sessionId);
     return manager.get(rootId, operation.sessionId);
   }
-  await manager.remove(rootId, operation.sessionId);
-  return { id: operation.sessionId, removed: true as const, rootId };
+  if (operation.action === 'remove') {
+    await manager.remove(rootId, operation.sessionId);
+    return { id: operation.sessionId, removed: true as const, rootId };
+  }
+  return unsupportedOperation(operation);
 }
