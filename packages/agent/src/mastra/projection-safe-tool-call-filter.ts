@@ -346,7 +346,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
         return recentIds;
       }
     }
-    return this.#filterAfterToolSteps === 0 ? new Set() : recentIds;
+    return recentIds;
   }
 
   private collectSafeToolCallIds(messages: readonly MastraDBMessage[]): {
