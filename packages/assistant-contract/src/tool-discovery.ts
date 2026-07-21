@@ -263,7 +263,8 @@ export function resolveToolDiscoveryPhaseAccess(
 
 /**
  * Ordered seams for the live hosted runtime. Token limiting remains last so it
- * counts skills metadata, loaded definitions, and provider-history normalization.
+ * counts skills metadata, loaded definitions, filtered stale tool history, and
+ * provider-history normalization.
  */
 export const TOOL_DISCOVERY_PIPELINE_ORDER = [
   'capability-and-permission-eligibility',
@@ -273,6 +274,7 @@ export const TOOL_DISCOVERY_PIPELINE_ORDER = [
   'tool-output-settlement-and-projection',
   'skills-metadata-injection',
   'tool-discovery',
+  'projection-safe-tool-history-filter',
   'provider-history-compatibility',
   'projection-aware-token-limiter',
 ] as const;

@@ -261,6 +261,7 @@ describe('native tool discovery contract', () => {
       'tool-output-settlement-and-projection',
       'skills-metadata-injection',
       'tool-discovery',
+      'projection-safe-tool-history-filter',
       'provider-history-compatibility',
       'projection-aware-token-limiter',
     ]);

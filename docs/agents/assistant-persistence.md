@@ -50,6 +50,9 @@ contracts keep reloaded threads identical to live ones:
    reload/application evidence. The real-memory proof includes an oversized
    native sentinel and replays a second turn from the same thread in
    `packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`;
+   it also reconstructs a fresh hosted runtime over three stored native reads
+   and proves that transient stale-history filtering removes only the oldest
+   provider-facing call scaffolding while all three raw database rows remain.
    the live-provider proofs that raw sentinels are absent and MCP image/audio
    remain model-native live in `mastra-tool-execution.integration.spec.ts`.
 2. **Snapshot grouping + live-order interleaving:** observational-memory

@@ -85,6 +85,7 @@ interface PersistedPart {
   };
   readonly text?: string;
   readonly toolInvocation?: {
+    readonly args?: unknown;
     readonly result?: unknown;
     readonly state?: string;
     readonly toolCallId?: string;
@@ -109,12 +110,16 @@ function parseParts(row: PersistedMessageRow): PersistedPart[] {
  * contains the tool result, it emits the final visible answer.
  */
 function createScriptedToolCallModel(args: {
+  forceInitialToolCall?: boolean;
   toolName: string;
   toolCallId: string;
+  toolCallIds?: readonly string[];
   input: string;
   finalText: string;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
+  const toolCallIds = args.toolCallIds ?? [args.toolCallId];
+  let toolCallIndex = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
@@ -128,11 +133,37 @@ function createScriptedToolCallModel(args: {
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
+      const emitNextToolCall = () => {
+        const toolCallId = toolCallIds[toolCallIndex];
+        if (!toolCallId) {
+          throw new Error('scripted tool call sequence was exhausted');
+        }
+        toolCallIndex += 1;
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: args.input,
+              toolCallId,
+              toolName: args.toolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      };
+
+      if (args.forceInitialToolCall && toolCallIndex === 0) {
+        return emitNextToolCall();
+      }
       const promptHasToolResult =
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
       if (promptHasToolResult) {
         args.onToolResultPrompt?.(options.prompt);
+        if (toolCallIndex > 0 && toolCallIndex < toolCallIds.length) {
+          return emitNextToolCall();
+        }
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -145,18 +176,7 @@ function createScriptedToolCallModel(args: {
         });
       }
 
-      return Promise.resolve({
-        stream: enqueue([
-          { type: 'stream-start', warnings: [] },
-          {
-            input: args.input,
-            toolCallId: args.toolCallId,
-            toolName: args.toolName,
-            type: 'tool-call',
-          },
-          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
-        ]),
-      });
+      return emitNextToolCall();
     },
     modelId: 'fake-model',
     provider: 'fake',
@@ -263,8 +283,13 @@ const OM_TINY_THRESHOLD_SETTINGS: RuntimeAssistantMemorySettings = {
 async function runTurnWithMemory(args: {
   assistantMessageId?: string;
   database: PGlite;
+  forceInitialToolCall?: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   threadId: string;
+  toolCallId?: string;
+  toolCallIds?: readonly string[];
+  toolId?: string;
+  toolName?: string;
   hookRunner?: AgentHookRunner;
   signal?: AbortSignal;
   observationDelayMs?: number;
@@ -286,6 +311,7 @@ async function runTurnWithMemory(args: {
     >;
   }
   const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
+  const toolId = args.toolId ?? 'get_weather';
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
@@ -295,7 +321,7 @@ async function runTurnWithMemory(args: {
         temperatureC: 21,
         ...(args.weatherDetail === undefined ? {} : { detail: args.weatherDetail }),
       }),
-    id: 'get_weather',
+    id: toolId,
     inputSchema: z.object({ city: z.string() }),
     outputSchema: z.object({
       city: z.string(),
@@ -306,10 +332,12 @@ async function runTurnWithMemory(args: {
 
   modelHolder.current = createScriptedToolCallModel({
     finalText: 'It is 21C in Paris.',
+    ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
     input: JSON.stringify({ city: 'Paris' }),
     ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
-    toolCallId: 'call-memory-1',
-    toolName: 'get_weather',
+    toolCallId: args.toolCallId ?? 'call-memory-1',
+    ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
+    toolName: args.toolName ?? toolId,
   });
 
   const iterator = await streamMastraAgent(
@@ -335,7 +363,7 @@ async function runTurnWithMemory(args: {
         },
       },
       storage,
-      tools: { get_weather: weatherTool },
+      tools: { [toolId]: weatherTool },
     }
   );
 
@@ -508,6 +536,95 @@ describe('mastra memory persistence through the live stream path', () => {
 
     expect(replayedModelOutput).toContain('output was truncated');
     expect(replayedModelOutput).not.toContain(rawOnlyTail);
+  });
+
+  it('filters stale projected native reads after a thread reload without mutating storage', async () => {
+    const threadId = 'thread-stale-native-read-history';
+    const toolId = 'brainstrike.readWorkspaceFile';
+    const toolName = 'brainstrike_readWorkspaceFile';
+
+    for (const index of [1, 2, 3]) {
+      await runTurnWithMemory({
+        database,
+        forceInitialToolCall: true,
+        memorySettings: OM_DISABLED_SETTINGS,
+        threadId,
+        toolCallId: `call-stale-read-${index}`,
+        toolId,
+        toolName,
+        userMessageId: `u-stale-read-${index}`,
+        userText: `Read fixture ${index}.`,
+        weatherDetail: `${'x'.repeat(20_000)}raw-read-${index}`,
+      });
+    }
+
+    let reloadedProviderPrompt = '';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        reloadedProviderPrompt = JSON.stringify(prompt);
+      },
+      threadId,
+      toolId,
+      toolName,
+      userMessageId: 'u-stale-read-reload',
+      userText: 'Use the prior reads without running another tool.',
+    });
+
+    expect(reloadedProviderPrompt).not.toContain('call-stale-read-1');
+    expect(reloadedProviderPrompt).toContain('call-stale-read-2');
+    expect(reloadedProviderPrompt).toContain('call-stale-read-3');
+
+    const persisted = JSON.stringify(await listThreadMessages(database, threadId));
+    expect(persisted).toContain('call-stale-read-1');
+    expect(persisted).toContain('raw-read-1');
+    expect(persisted).toContain('call-stale-read-2');
+    expect(persisted).toContain('call-stale-read-3');
+  });
+
+  it('filters stale same-turn reads only from the provider prompt and persists every raw call', async () => {
+    const threadId = 'thread-same-turn-native-reads';
+    const toolId = 'brainstrike.readWorkspaceFile';
+    const toolName = 'brainstrike_readWorkspaceFile';
+    const toolCallIds = ['call-same-turn-1', 'call-same-turn-2', 'call-same-turn-3'] as const;
+    const providerPrompts: string[] = [];
+
+    await runTurnWithMemory({
+      database,
+      forceInitialToolCall: true,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        providerPrompts.push(JSON.stringify(prompt));
+      },
+      threadId,
+      toolCallIds,
+      toolId,
+      toolName,
+      userText: 'Read three fixtures before answering.',
+      weatherDetail: 'raw-same-turn-result',
+    });
+
+    const finalProviderPrompt = providerPrompts.at(-1);
+    expect(finalProviderPrompt).toBeDefined();
+    expect(finalProviderPrompt).not.toContain(toolCallIds[0]);
+    expect(finalProviderPrompt).toContain(toolCallIds[1]);
+    expect(finalProviderPrompt).toContain(toolCallIds[2]);
+
+    const invocations = (await listThreadMessages(database, threadId))
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .flatMap((part) => (part.type === 'tool-invocation' ? [part.toolInvocation] : []));
+    expect(invocations).toHaveLength(3);
+    expect(invocations.map((invocation) => invocation?.toolCallId)).toEqual(toolCallIds);
+    for (const invocation of invocations) {
+      expect(invocation?.args).toEqual({ city: 'Paris' });
+      expect(invocation?.result).toMatchObject({
+        city: 'Paris',
+        detail: 'raw-same-turn-result',
+        temperatureC: 21,
+      });
+    }
   });
 
   it('persists the exact domain result while PostToolUse context remains model-only', async () => {
