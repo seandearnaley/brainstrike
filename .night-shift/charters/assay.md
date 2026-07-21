@@ -7,8 +7,8 @@ SCHEDULE="11 */2 * * *"   # every 2 hours; cheap when nothing changed
 RECOMMENDED_MODEL=opus-class (risk judgment; taste matters in the brief)
 AUTONOMY=annotate-only (labels + one comment per PR; never approves,
          never requests changes, never edits code)
-CHARTER_VERSION=1
-RUBRIC_VERSION=1        # bump CHARTER_VERSION whenever the rubric changes
+CHARTER_VERSION=1      # the rubric IS the charter — bump this on any rubric
+                       # change; it is the sole cache-key version (Beat 1)
 STATE_ISSUE="[automation-state] Assay"
 LEARNINGS_FILE=".night-shift/assay.md"   # via pending-learnings; no PR authority
 WALL_CLOCK_BUDGET=30 minutes
@@ -41,9 +41,14 @@ factors: review/touches-schema  review/touches-ci  review/touches-guards
 Never invent labels beyond this set; propose additions via Linear ticket.
 
 Beat 1 — enumerate open PRs (exclude drafts). Per PR compute
-work_key = assay:<pr-number>:<head-sha>:<RUBRIC_VERSION>.
-If your brief comment on that PR already contains work_key, skip it —
-this makes every re-run free. All skipped → checkpoint NOOP.
+work_key = assay:<pr-number>:<head-sha>:<CHARTER_VERSION>.
+Skip a PR only when BOTH hold: your brief comment already contains
+work_key, AND the review/* labels currently on the PR still exactly match
+the grade+factors that brief asserts. A HEAD that hasn't moved but whose
+labels a human or another automation changed FAILS the second check — do
+not skip it; re-run Beats 2–4 so the labels are restored. This keeps
+re-runs free in the common case without letting the cache mask drifted
+labels. All PRs skipped → checkpoint NOOP.
 
 Beat 2 — grade each remaining PR against the rubric. Factors are
 detected from the DIFF plus changed-file paths, each with an explicit

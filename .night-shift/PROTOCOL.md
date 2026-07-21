@@ -16,10 +16,21 @@ protocol; their charters in charters/ are the deployed source of truth.
 - State checkpoints are APPEND-ONLY comments on your state issue:
   `<UTC-ISO> | watermark=<sha> | status=<NOOP|PR|BLOCKED> | <one line>`.
   Never edit the issue description or prior comments.
-- Watermark discipline: your state issue's latest checkpoint holds the last
-  main SHA you fully swept. At wake, diff `<watermark>..origin/main`. Empty
-  range + no open PR of yours + no reopened ticket of yours → append a NOOP
-  checkpoint and exit. NOOP is success.
+- Watermark discipline. Every loop records what it last processed and, at
+  wake, does the cheapest check that proves there is nothing new before doing
+  real work. The watermark's SHAPE depends on where your work comes from:
+  - MAIN-DIFF loops (axiom, scribe, ledger, warden, pruner, quartermaster,
+    bolt, sentinel, palette) watch the code on `main`. Watermark = last main
+    SHA fully swept. At wake, diff `<watermark>..origin/main`; empty range +
+    no open PR of yours + no reopened ticket of yours → NOOP checkpoint and
+    exit.
+  - EXTERNAL-STATE loops watch something other than the main diff and must
+    NOT exit just because `main` didn't advance — their inputs change on a
+    different clock. Assay/Magnify watch open-PR heads (watermark = set of
+    `<pr,head-sha>` already processed); Watch watches workflow-run IDs;
+    Sweep watches its open ticket set. Each exits NOOP only when ITS own
+    watched set is unchanged since last run, never on the main diff.
+  In all cases: an unchanged watched set means NOOP, and NOOP is success.
 
 ## Findings & tickets (Linear)
 
@@ -39,6 +50,12 @@ protocol; their charters in charters/ are the deployed source of truth.
 - A learning lands in the same PR that established it. Loops without PR
   authority append learnings to their state issue under `## pending-learnings`;
   the Librarian loop periodically moves those into `.night-shift/` via one PR.
+  INTERIM (until the Librarian ships — see charters/README.md Wave 2): the
+  diagnose-only loops (assay, watch, magnify) have no automated path from
+  `pending-learnings` into the tracked `.night-shift/*.md` files, so their
+  durable learnings live only on their Linear state issues meanwhile. This
+  is expected, not a bug; a human or any PR-authoring loop may hand-migrate
+  a high-value entry sooner.
 - Cross-loop observations go to `.night-shift/bulletin.md` as
   `- [from:<name> <date>] <one sentence> → <who should care>`.
   Cap 40 lines; when full, consolidate or delete stalest first.
