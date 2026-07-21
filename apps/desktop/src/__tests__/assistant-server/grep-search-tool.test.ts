@@ -121,6 +121,26 @@ describe('grep search tool', () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
   });
 
+  it('does not advertise a non-advancing offset when candidate limits yield no matches', async () => {
+    queryMock.mockResolvedValue({
+      rows: Array.from({ length: 500 }, (_, i) => ({
+        content: 'authoritative matcher finds no result',
+        path: `src/candidate-${i}.ts`,
+        start_line: 1,
+      })),
+    });
+
+    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.candidatesTruncated).toBe(true);
+    expect(result.files).toEqual([]);
+    expect(result.hint).toMatch(/narrow|different|specific/i);
+    expect(result.hint).not.toContain('Continue with offset:');
+  });
+
   it('advances the offset past a single match too large to fit the budget', async () => {
     // One indexed line larger than the whole output budget (e.g. minified bundle).
     queryMock.mockResolvedValue({

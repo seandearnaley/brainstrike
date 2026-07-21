@@ -261,6 +261,34 @@ function aggregateFileSummaries(matches: readonly LabeledGrepMatch[]): GrepFileS
   );
 }
 
+function buildFilesHint(args: {
+  candidatesTruncated: boolean;
+  filesShown: number;
+  hasPagedFiles: boolean;
+  offset: number;
+  totalFiles: number;
+  truncated: boolean;
+}): string | undefined {
+  if (!(args.truncated || args.candidatesTruncated)) {
+    return;
+  }
+
+  const nextOffset =
+    args.filesShown === 0 && args.hasPagedFiles ? args.offset + 1 : args.offset + args.filesShown;
+  if (nextOffset <= args.offset) {
+    return (
+      'Search limits were reached before this page could return additional matching files. ' +
+      'Narrow with filePaths or use a more specific or different pattern; repeating this offset cannot make progress.'
+    );
+  }
+
+  return (
+    `Showing ${args.filesShown} of ${args.totalFiles} matching files. ` +
+    `Continue with offset: ${nextOffset}, or call again with outputMode: 'content' and ` +
+    'filePaths set to the most relevant paths to see the matching lines.'
+  );
+}
+
 function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepFilesToolResult {
   const allFiles = aggregateFileSummaries(mergedResult.matches);
   const pagedFiles = allFiles.slice(offset);
@@ -271,16 +299,14 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
     // Truncated when files were dropped (by paging or budget fitting) or the
     // service hit its internal match cap (per-file counts may be incomplete).
     const truncated = files.length + offset < allFiles.length || mergedResult.truncated;
-    // A continuation hint must always ADVANCE: if even one summary cannot fit
-    // the budget, skip past it rather than re-suggesting the same offset.
-    const nextOffset =
-      files.length === 0 && pagedFiles.length > 0 ? offset + 1 : offset + files.length;
-    const hint =
-      truncated || mergedResult.candidatesTruncated
-        ? `Showing ${files.length} of ${allFiles.length} matching files. ` +
-          `Continue with offset: ${nextOffset}, or call again with outputMode: 'content' and ` +
-          'filePaths set to the most relevant paths to see the matching lines.'
-        : undefined;
+    const hint = buildFilesHint({
+      candidatesTruncated: mergedResult.candidatesTruncated,
+      filesShown: files.length,
+      hasPagedFiles: pagedFiles.length > 0,
+      offset,
+      totalFiles: allFiles.length,
+      truncated,
+    });
     return {
       candidatesTruncated: mergedResult.candidatesTruncated,
       files,
