@@ -208,6 +208,29 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## WORKSPACE INDEX TRAVERSAL
+
+The visible Explorer loads directories lazily. Recursive Workspace Index scans
+use `createBackgroundIndexingEntryPolicy` from
+`packages/utils/src/background-indexing-policy.ts`; keep traversal exclusions
+there rather than hiding entries after the adapter has already read them.
+
+- **Balanced (default):** prunes common dependency and generated directories
+  before recursive reads, including Python `.venv`, `venv`, `env`, and
+  `__pycache__` directory segments.
+- **Full root (explicit override):** continues to traverse those Python
+  directories. The Settings description calls this out so opting in does not
+  silently change scan breadth.
+- Workspace include/exclude filters control visible-tree filtering and
+  selection. They are not the Workspace Index traversal policy; do not mutate
+  custom filters to implement indexing exclusions.
+
+The policy test owns the preset contract. The parallel-directory-walker test
+must also prove excluded directories are rejected before `readDirectory` is
+called.
+
+---
+
 ## EXPLORER TREE LIVE REFRESH
 
 One pipeline keeps the visible tree, forest roots, and the background indexer

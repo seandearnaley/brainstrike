@@ -60,7 +60,9 @@ describe('SearchIndexingSettingsSection', () => {
     render(<SearchIndexingSettingsSection />);
 
     expect(
-      await screen.findByText(/skipping common generated, cache, lock, and minified artifacts/i)
+      await screen.findByText(
+        /skipping common dependency, generated, cache, lock, and minified artifacts/i
+      )
     ).not.toBeNull();
 
     fireEvent.click(screen.getByLabelText(/indexing policy/i));
@@ -71,6 +73,7 @@ describe('SearchIndexingSettingsSection', () => {
         'full-root'
       );
     });
+    expect(screen.getByText(/including Python virtual environments/i)).not.toBeNull();
   });
 
   it('renders Workspace Index product copy instead of the old background-indexing label', async () => {

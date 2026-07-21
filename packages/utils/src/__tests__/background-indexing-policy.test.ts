@@ -139,6 +139,43 @@ describe('background-indexing-policy', () => {
     expect(splitSpy).not.toHaveBeenCalled();
   });
 
+  it('balanced policy excludes Python environment and bytecode-cache directories', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+
+    for (const relativePath of [
+      '.venv',
+      'venv',
+      'env',
+      '__pycache__',
+      'services/api/.venv/lib/python3.13/site-packages',
+      'packages/jobs/venv/lib/python3.13/site-packages',
+      'scripts/env/lib/python3.13/site-packages',
+      'src/__pycache__',
+    ]) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+        })
+      ).toBe(false);
+    }
+  });
+
+  it('full-root policy remains the explicit override for Python environments', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+    for (const relativePath of ['.venv', 'venv', 'env', '__pycache__']) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath,
+          relativePath,
+        })
+      ).toBe(true);
+    }
+
+    expect(policy.description).toContain('Python virtual environments');
+  });
+
   it('full-root policy keeps non-binary text artifacts that balanced skips', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
 
