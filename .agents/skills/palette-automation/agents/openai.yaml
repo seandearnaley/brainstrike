@@ -1,0 +1,4 @@
+interface:
+  display_name: "Palette Automation"
+  short_description: "Run Palette UI maintenance safely"
+  default_prompt: "Use $palette-automation to execute the current Brainstrike Palette charter."

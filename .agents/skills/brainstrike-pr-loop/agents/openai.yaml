@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brainstrike PR Loop"
+  short_description: "Run Brainstrike PR and CI loops cleanly."
+  default_prompt: "Use $brainstrike-pr-loop to drive this Brainstrike PR through review threads, CI, and merge-or-follow-up decisions."

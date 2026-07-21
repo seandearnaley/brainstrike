@@ -1,0 +1,4 @@
+interface:
+  display_name: "Magnify Automation"
+  short_description: "Run adversarial Brainstrike PR reviews"
+  default_prompt: "Use $magnify-automation to execute the live Magnify charter for elevated-risk Brainstrike pull requests."

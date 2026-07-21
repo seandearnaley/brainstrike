@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ledger Automation"
+  short_description: "Audit migration registration parity safely"
+  default_prompt: "Use $ledger-automation to run the Ledger migration-parity charter."

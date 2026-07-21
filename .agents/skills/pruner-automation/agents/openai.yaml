@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pruner Automation"
+  short_description: "Run safe Brainstrike dead-code burndowns"
+  default_prompt: "Use $pruner-automation to execute the Brainstrike Pruner charter safely and checkpoint the result."

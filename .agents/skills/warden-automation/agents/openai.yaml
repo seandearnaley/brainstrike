@@ -1,0 +1,4 @@
+interface:
+  display_name: "Warden Automation"
+  short_description: "Audit Brainstrike guard health deterministically"
+  default_prompt: "Use $warden-automation to execute the Brainstrike Warden guard-health charter."
