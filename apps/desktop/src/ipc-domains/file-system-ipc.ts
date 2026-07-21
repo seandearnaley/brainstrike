@@ -652,8 +652,8 @@ export function registerFileSystemIpcHandlers({
       // (rootsList written, then a failed UPDATE) would leave the assistant
       // server serving a folder the UI no longer shows.
       const rootsDatabase = await getRootsDatabase();
-      const disconnectedRows = await markRootDisconnectedByPath(rootsDatabase, removed.path);
-      if (disconnectedRows === 0) {
+      const disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
+      if (disconnectedRootIds.length === 0) {
         // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
         // rows matched means the row's stored `path` diverged from this entry's
         // (normalization/case) or the row was never created — surface it (NO
@@ -679,9 +679,16 @@ export function registerFileSystemIpcHandlers({
       // Disconnecting that root therefore ends and forgets every session before
       // the UI can move on. Failure is visible, but does not roll back the DB +
       // rootsList transition that has already committed.
-      await disposeCommandSessionsForRoot(rootId).catch((error: unknown) => {
-        logger.warn('removeRoot: command session disposal failed', { error, rootId });
-      });
+      await Promise.all(
+        disconnectedRootIds.map(async (disconnectedRootId) => {
+          await disposeCommandSessionsForRoot(disconnectedRootId).catch((error: unknown) => {
+            logger.warn('removeRoot: command session disposal failed', {
+              error,
+              rootId: disconnectedRootId,
+            });
+          });
+        })
+      );
 
       // Keep the dual stores coherent: clear lastFolderPath only when it points
       // at the removed root's path.

@@ -115,10 +115,10 @@ describe('loadWorkspaceRootsFromDatabase', () => {
 });
 
 describe('markRootDisconnectedByPath', () => {
-  it("updates status to 'disconnected' keyed by path (never DELETEs), returning the match count", async () => {
+  it("updates status to 'disconnected' keyed by path (never DELETEs), returning durable ids", async () => {
     const db = mockDb([{ id: 'root-a' }]);
-    const count = await markRootDisconnectedByPath(db, '/Users/me/ProjectA');
-    expect(count).toBe(1);
+    const rootIds = await markRootDisconnectedByPath(db, '/Users/me/ProjectA');
+    expect(rootIds).toEqual(['root-a']);
     const firstCall = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(firstCall?.[0]).toMatch(/UPDATE roots/i);
     expect(firstCall?.[0]).toMatch(/status = 'disconnected'/);
@@ -130,9 +130,9 @@ describe('markRootDisconnectedByPath', () => {
     expect(firstCall?.[1]).toEqual(['/Users/me/ProjectA']);
   });
 
-  it('returns 0 when no row matches the path (session-only root / path mismatch)', async () => {
+  it('returns no ids when no row matches the path (session-only root / path mismatch)', async () => {
     const db = mockDb([]);
-    expect(await markRootDisconnectedByPath(db, '/Users/me/Ghost')).toBe(0);
+    expect(await markRootDisconnectedByPath(db, '/Users/me/Ghost')).toEqual([]);
   });
 
   it('propagates query failures (the disconnect IPC fails closed)', async () => {

@@ -300,14 +300,17 @@ remains the bounded, wait-for-exit path for normal tests/builds.
 - Tree reaping walks descendants before killing the PTY leader, then applies a
   POSIX process-group backstop and waits for the PTY exit event. Reaping is
   idempotent across abort/stop/remove/dispose races; operations on an already
-  exited session surface typed state. Root disconnect, factory reset, and
-  graceful shutdown dispose sessions.
+  exited session surface typed state. Bulk disposal settles every PTY and logs
+  any missing exit acknowledgement so one stuck process cannot skip the rest of
+  graceful shutdown. Root disconnect reaps by the durable DB id returned from
+  the path-keyed disconnect update (never the possibly divergent adapter id);
+  factory reset and graceful shutdown dispose all sessions.
 - Native model operations, permission/tool-search registration, preload bridge,
   and the human inventory UI are intentionally separate follow-up slices. Do
   not expose this manager by widening `executeCommand` in place.
 
 Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
-stdin, typed failures, abort/dispose races) and
+stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
 `command-session-manager.integration.test.ts` (real PTY HTTP server survival,
 natural non-zero exit, and leader/descendant reaping).
 

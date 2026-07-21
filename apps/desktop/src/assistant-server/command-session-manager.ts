@@ -117,6 +117,8 @@ export interface CommandSessionManagerOptions {
   readonly idFactory?: () => string;
   /** Maximum retained UTF-16 code units per session. */
   readonly maxBufferChars?: number;
+  /** Maximum wait for a PTY exit acknowledgement after reaping. */
+  readonly processExitTimeoutMs?: number;
   readonly resolver: WorkspaceRootResolver;
   readonly spawn?: typeof pty.spawn;
   readonly treeKill?: TreeKill;
@@ -241,6 +243,7 @@ export function createCommandSessionManager({
   exitedRetention: configuredExitedRetention,
   idFactory = () => `command-session-${randomUUID()}`,
   maxBufferChars: configuredMaxBufferChars,
+  processExitTimeoutMs: configuredProcessExitTimeoutMs,
   resolver,
   spawn = pty.spawn,
   treeKill: killTree = treeKill,
@@ -254,6 +257,11 @@ export function createCommandSessionManager({
     configuredExitedRetention,
     DEFAULT_EXITED_RETENTION,
     'exitedRetention'
+  );
+  const processExitTimeoutMs = positiveInteger(
+    configuredProcessExitTimeoutMs,
+    PROCESS_EXIT_TIMEOUT_MS,
+    'processExitTimeoutMs'
   );
   const sessions = new Map<string, SessionEntry>();
 
@@ -364,10 +372,10 @@ export function createCommandSessionManager({
             reject(
               new CommandSessionError(
                 'stop-failed',
-                `Command session "${entry.info.id}" did not report exit within ${PROCESS_EXIT_TIMEOUT_MS}ms.`
+                `Command session "${entry.info.id}" did not report exit within ${processExitTimeoutMs}ms.`
               )
             );
-          }, PROCESS_EXIT_TIMEOUT_MS);
+          }, processExitTimeoutMs);
           timeout.unref();
         }),
       ]);
@@ -463,6 +471,10 @@ export function createCommandSessionManager({
       };
       entry.abortListener = () => input.signal?.removeEventListener('abort', abort);
       input.signal.addEventListener('abort', abort, { once: true });
+      if (input.signal.aborted) {
+        await remove(rootId, id);
+        throw new CommandSessionError('aborted', 'Command session start was aborted.');
+      }
     }
 
     logger.info('Started command session', { rootId, sessionId: id });
@@ -564,12 +576,26 @@ export function createCommandSessionManager({
         disposeSubscriptions(entry);
       }
     }
-    await Promise.all(
+    const results = await Promise.allSettled(
       running.map(async ([, entry]) => {
         await reap(entry);
         await waitForExit(entry);
       })
     );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        return;
+      }
+      const entry = running[index]?.[1];
+      if (entry) {
+        disposeSubscriptions(entry);
+      }
+      logger.error('Command session did not finish disposal for workspace root', {
+        errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
+        rootId: trimmed,
+        sessionId: entry?.info.id,
+      });
+    });
     if (running.length > 0) {
       logger.info('Reaped command sessions for workspace root', {
         count: running.length,
@@ -590,12 +616,25 @@ export function createCommandSessionManager({
         disposeSubscriptions(entry);
       }
     }
-    await Promise.all(
+    const results = await Promise.allSettled(
       running.map(async (entry) => {
         await reap(entry);
         await waitForExit(entry);
       })
     );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        return;
+      }
+      const entry = running[index];
+      if (entry) {
+        disposeSubscriptions(entry);
+      }
+      logger.error('Command session did not finish disposal', {
+        errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
+        sessionId: entry?.info.id,
+      });
+    });
     if (running.length > 0) {
       logger.info('Reaped command sessions on dispose', { count: running.length });
     }

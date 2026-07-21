@@ -10,6 +10,7 @@ class FakePty {
   readonly pid: number;
   readonly writes: string[] = [];
   killCalls = 0;
+  killEmitsExit = true;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<
     (event: { exitCode: number; signal?: number }) => void
@@ -33,7 +34,9 @@ class FakePty {
 
   kill(): void {
     this.killCalls += 1;
-    this.emitExit(0, 9);
+    if (this.killEmitsExit) {
+      this.emitExit(0, 9);
+    }
   }
 
   onData(listener: (data: string) => void): { dispose: () => void } {
@@ -86,7 +89,11 @@ describe('command session manager', () => {
     );
   });
 
-  function createManager(options?: { exitedRetention?: number; maxBufferChars?: number }) {
+  function createManager(options?: {
+    exitedRetention?: number;
+    maxBufferChars?: number;
+    processExitTimeoutMs?: number;
+  }) {
     return createCommandSessionManager({
       ...options,
       idFactory: () => `session-${spawned.length + 1}`,
@@ -267,5 +274,49 @@ describe('command session manager', () => {
     expect(() => manager.get('root-a', aborted.id)).toThrowError(
       expect.objectContaining({ code: 'session-not-found' })
     );
+  });
+
+  it('rejects and reaps when cancellation races with PTY startup', async () => {
+    const abortController = new AbortController();
+    const manager = createCommandSessionManager({
+      idFactory: () => 'raced-session',
+      resolver: resolverFor([{ displayName: 'A', path: rootA, rootId: 'root-a' }]),
+      spawn: ((_file, _args, _options) => {
+        const process = new FakePty(nextPid++);
+        spawned.push(process);
+        abortController.abort();
+        return process as unknown as IPty;
+      }) as never,
+      treeKill: (_pid, _signal, callback) => callback?.(),
+    });
+
+    await expect(
+      manager.start({
+        command: 'server',
+        rootId: 'root-a',
+        signal: abortController.signal,
+      })
+    ).rejects.toMatchObject({ code: 'aborted' });
+    expect(spawned[0]?.killCalls).toBe(1);
+    expect(manager.list('root-a')).toEqual([]);
+  });
+
+  it('finishes root and global disposal when one PTY never reports exit', async () => {
+    const manager = createManager({ processExitTimeoutMs: 5 });
+    await manager.start({ command: 'hung-root', rootId: 'root-a' });
+    await manager.start({ command: 'healthy-root', rootId: 'root-a' });
+    spawned[0]!.killEmitsExit = false;
+
+    await expect(manager.disposeRoot('root-a')).resolves.toBe(2);
+    expect(spawned[0]?.killCalls).toBe(1);
+    expect(spawned[1]?.killCalls).toBe(1);
+
+    await manager.start({ command: 'hung-global', rootId: 'root-b' });
+    await manager.start({ command: 'healthy-global', rootId: 'root-b' });
+    spawned[2]!.killEmitsExit = false;
+
+    await expect(manager.dispose()).resolves.toBe(2);
+    expect(spawned[2]?.killCalls).toBe(1);
+    expect(spawned[3]?.killCalls).toBe(1);
   });
 });

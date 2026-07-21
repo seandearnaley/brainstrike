@@ -144,8 +144,8 @@ export async function loadWorkspaceRootsFromDatabase(
  * (app-shell) path-matches the row on re-add and restores `status = 'live'`,
  * so a remount resumes without re-indexing.
  *
- * Returns the number of rows transitioned (via `RETURNING id`, since the DB
- * host protocol surfaces only `rows`, not `affectedRows`). Zero is legitimate
+ * Returns the durable ids of rows transitioned (via `RETURNING id`, since the DB
+ * host protocol surfaces only `rows`, not `affectedRows`). No ids is legitimate
  * for a session-only root that never got a DB row, but for a persisted root it
  * signals a path mismatch — the caller decides whether that is worth surfacing
  * rather than swallowing it here.
@@ -153,12 +153,12 @@ export async function loadWorkspaceRootsFromDatabase(
 export async function markRootDisconnectedByPath(
   db: WorkspaceRootsQueryable,
   rootPath: string
-): Promise<number> {
+): Promise<readonly string[]> {
   const result = await db.query<{ id: string }>(
     `UPDATE roots SET status = 'disconnected' WHERE path = $1 RETURNING id`,
     [rootPath]
   );
-  return result.rows.length;
+  return result.rows.map((row) => row.id);
 }
 
 /**

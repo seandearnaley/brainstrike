@@ -92,8 +92,12 @@ disposed before process/database teardown:
 - graceful shutdown awaits `disposeDesktopCommandSessions()` inside the
   assistant-server shutdown step;
 - factory reset owns a `command-sessions` runtime disposer;
-- `fs:removeRoot` disposes only sessions owned by the disconnected root; and
+- `fs:removeRoot` disposes only sessions owned by the durable DB root id
+  returned by its path-keyed disconnect update (adapter ids can diverge); and
 - manager disposal clears retained exited output as well as reaping live PTYs.
+
+Bulk disposal must settle every reap attempt and log a missing PTY exit
+acknowledgement; one stuck PTY must never skip later application shutdown steps.
 
 Never log or persist command text, cwd, environment, or retained output. Adding
 durable restart survival changes the privacy/reset contract and requires a new

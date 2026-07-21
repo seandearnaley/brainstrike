@@ -66,8 +66,8 @@ describe('workspace roots disconnect lifecycle', () => {
 
     // Disconnect (the fs:removeRoot seam): the row is KEPT, only status moves.
     // A non-existent path matches 0 rows; the real one matches exactly 1.
-    expect(await markRootDisconnectedByPath(rootsDb, '/workspace/ghost')).toBe(0);
-    expect(await markRootDisconnectedByPath(rootsDb, ROOT_PATH)).toBe(1);
+    expect(await markRootDisconnectedByPath(rootsDb, '/workspace/ghost')).toEqual([]);
+    expect(await markRootDisconnectedByPath(rootsDb, ROOT_PATH)).toEqual(['adapter-1']);
     roots = await loadWorkspaceRootsFromDatabase(rootsDb);
     expect(roots).toEqual([]);
     const disconnected = await db.query('SELECT status FROM roots WHERE id = $1', ['adapter-1']);

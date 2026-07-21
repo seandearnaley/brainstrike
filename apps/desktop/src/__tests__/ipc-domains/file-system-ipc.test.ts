@@ -683,6 +683,7 @@ describe('fs:removeRoot', () => {
 
   it('disposes workspace-owned command sessions when their root is removed', async () => {
     storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+    rootsDbQuery.mockResolvedValueOnce({ rows: [{ id: 'durable-db-root-a' }] });
     const disposeCommandSessionsForRoot = vi.fn(async () => 1);
     registerFileSystemIpcHandlers({
       disposeCommandSessionsForRoot,
@@ -694,7 +695,7 @@ describe('fs:removeRoot', () => {
     await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
 
     expect(disposeCommandSessionsForRoot).toHaveBeenCalledOnce();
-    expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith('root-id-a');
+    expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith('durable-db-root-a');
   });
 
   it("transitions the DB roots row to status 'disconnected' by the removed root's path", async () => {
