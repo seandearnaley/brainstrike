@@ -99,6 +99,10 @@ disposed before process/database teardown:
 Bulk disposal must settle every reap attempt and log a missing PTY exit
 acknowledgement; one stuck PTY must never skip later application shutdown steps.
 
+Retained-output reads preserve valid UTF-16 surrogate pairs across bounded page
+boundaries. A high surrogate without a following low surrogate fails explicitly
+with `invalid-buffer`; it must never produce a retry-without-progress page.
+
 Never log or persist command text, cwd, environment, or retained output. Adding
 durable restart survival changes the privacy/reset contract and requires a new
 reviewed persistence design; it is not a transparent extension of this registry.
