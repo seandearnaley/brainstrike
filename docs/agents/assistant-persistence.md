@@ -523,7 +523,7 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   or zero-usage runs are never flagged on a fabricated number).
 
 When changing this flow, update this section and the paired tests
-(`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
+(`packages/db/__tests__/migration-062-assistant-run-outcomes.test.ts`,
 `packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
 run-ledger cases in `assistant-memory-repository.integration.test.ts`
 (including the hook-over-user precedence case), the
