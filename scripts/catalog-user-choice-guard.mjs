@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATION_DIRECTORY = 'packages/db/src/migrations';
+// Deliberately detect the assignment token without trying to infer its table
+// from surrounding embedded SQL. A regex-based table parser could silently
+// miss a model upsert; a future non-model match must instead be reviewed
+// explicitly before this detector is narrowed.
 const FORBIDDEN_ASSIGNMENT = /\bis_enabled\s*=\s*EXCLUDED\.is_enabled\b/g;
 
 // Shipped migrations cannot be edited safely after their checksums are recorded.
@@ -15,7 +19,7 @@ const FORBIDDEN_ASSIGNMENT = /\bis_enabled\s*=\s*EXCLUDED\.is_enabled\b/g;
 export const HISTORICAL_CATALOG_USER_CHOICE_ALLOWLIST = Object.freeze({
   // Shipped before the preservation invariant was documented. Editing these
   // migrations would invalidate recorded checksums; BST-667 owns the reviewed,
-  // forward-only remediation. The guard rejects any seventh occurrence.
+  // forward-only remediation. Any per-file count increase fails the guard.
   'packages/db/src/migrations/026-update-provider-models-2026-v2.ts': 4,
   'packages/db/src/migrations/028-gemma-local-llm.ts': 2,
 });
@@ -84,7 +88,7 @@ async function main() {
 
   if (result.violations.length > 0) {
     console.error(
-      'Catalog migrations must preserve models.is_enabled on conflict; use models.is_enabled, not EXCLUDED.is_enabled:'
+      'Potential model catalog user-choice overwrite found. Confirm each assignment belongs to models; model upserts must use models.is_enabled, not EXCLUDED.is_enabled:'
     );
     for (const violation of result.violations) {
       console.error(`- ${violation.filePath}:${violation.lineNumber}`);

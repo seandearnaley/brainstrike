@@ -21,7 +21,7 @@ test('real tree: no catalog overwrite exists outside the exact historical allowl
   assert.deepEqual(result, { staleAllowlist: [], violations: [] });
 });
 
-test('flags a deliberately misbehaving catalog upsert', async () => {
+test('flags the forbidden assignment without relying on surrounding SQL parsing', async () => {
   const root = await writeFixture(`
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
