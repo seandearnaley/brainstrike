@@ -14,7 +14,7 @@ Execute the repository-owned Watch charter without duplicating its policy. Use t
 3. Resolve automation memory when an Automation ID is present. Treat it as an execution aid, never as authority over repository, GitHub, or Linear state.
 4. Note the UTC start time and live wall-clock budget.
 5. Resolve the exact charter-named Linear state issue and select its newest comment matching the protocol checkpoint shape. Ignore newer discussion notes that are not checkpoints.
-6. Parse the prior external-state watermark as the exact set of workflow-run IDs. Never substitute a main SHA, date, remembered run list, or automation-memory value.
+6. Parse the prior external-state watermark as the exact set of completed workflow-run keys, each shaped `<runId>@<attempt>`. Never substitute a main SHA, date, remembered run list, or automation-memory value. One-time migration: a checkpoint written before the attempt-aware format holds plain run IDs — treat that wake as a first run (omit `--watermark`), rely on Linear fingerprint dedupe for the re-observed window, and checkpoint the new key format; do not invent `@1` suffixes for old IDs.
 7. Resolve conflicts in this order: repository instructions and subsystem contracts, protocol, Watch charter, this skill.
 
 Keep the live charter authoritative for the workflow lookback, fingerprint shape, investigation limit, ticket fields, quarantine recommendation, state title, labels, and schedule. Re-derive them every run.
@@ -33,16 +33,17 @@ node .agents/skills/watch-automation/scripts/collect-watch-evidence.mjs \
   --pretty > "$watch_logs/evidence.json"
 ```
 
-Omit `--watermark` only for a proven first run.
+Omit `--watermark` only for a proven first run. When the prior checkpoint records an explicitly empty set, pass `--watermark none` instead of omitting the flag; the two are distinct states.
 
 The collector performs no repository or external writes. It:
 
 - validates the live Watch safety boundary and derives the lookback from the charter;
-- derives scheduled E2E and nightly workflows from local workflow definitions, then requires an exact path-and-name match with GitHub;
-- fetches every run in the live window with complete pagination and compares the current run-ID set with the supplied watermark;
-- stops before job/log collection when the external-state set is unchanged;
+- derives scheduled E2E and nightly workflows from local workflow definitions, then requires an exact path-and-name match with GitHub; every scheduled workflow is emitted in `scheduledWorkflows` with an `included` marker and exclusion reason so watch coverage can be vetted each run;
+- fetches every run of the watched workflows in the live window regardless of trigger event (scheduled and manually dispatched runs alike) with complete pagination, and compares attempt-aware `<runId>@<attempt>` keys with the supplied watermark;
+- stops before job/log collection only when the completed-run key set is unchanged and no run in the window is still pending; any pending run is listed in `watermark.pendingRuns` and forces collection;
+- emits `watermark.checkpointWatermark` containing only completed runs' keys — checkpoint that value, never the raw current set, so in-progress runs and later reruns are re-observed;
 - collects all attempts, jobs, failed phases, bounded log excerpts, runner labels and image evidence, workflow rerun recoveries, and test retry signals for newly observed runs;
-- emits candidate fingerprints and visibly lists unparsed failures instead of inventing a test title or error class;
+- emits candidate fingerprints and visibly lists unparsed failures instead of inventing a test title or error class; log lines that cannot be attributed to a specific job are routed to `unattributedCandidates` and never count as coverage for a failed job;
 - records the current worktree state and optionally reports local listener ownership for reproduction ports.
 
 Treat `failureCandidates`, `passOnRetryCandidates`, and synthetic phase titles as evidence, not verdicts. Read the relevant raw log before accepting each fingerprint. Never search or file from a candidate with `fingerprintReady=false`; refine generic classes such as assertion, error, or test timeout to the demonstrated mechanism first. If `collection.analysisComplete=false`, inspect every listed run manually with `gh run view`; do not classify or file from incomplete parsing.
@@ -86,7 +87,7 @@ Finish by verifying:
 
 - every accepted occurrence maps to one exact fingerprint and Linear ticket;
 - every new-fingerprint investigation stayed within the live limit;
-- the checkpoint watermark equals the collector's current run-ID set;
+- the checkpoint watermark equals the collector's `watermark.checkpointWatermark` — completed runs' `<runId>@<attempt>` keys only; pending runs are never checkpointed;
 - no repository file, CI run, test, branch, or PR changed;
 - automation memory records UTC timing, watermark, ticket identifiers, classifications, reproduction status, blockers, and the exact next action.
 
