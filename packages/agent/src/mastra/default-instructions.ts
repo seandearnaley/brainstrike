@@ -509,7 +509,7 @@ export function buildDefaultInstructions(
           ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
           : '',
         names.readWorkspaceFile
-          ? `When there is no embedding result, ${names.readWorkspaceFile} returns content with 1-based line numbers; use those for the first and last line of the requested symbol, and pass nextCursor back unchanged when another page is needed.`
+          ? `When there is no embedding result, ${names.readWorkspaceFile} returns content with 1-based line numbers; use those for the first and last line of the requested symbol. When another page is needed, pass nextCursor back unchanged as cursor with no path, root, or range fields.`
           : '',
       ]
         .filter(Boolean)

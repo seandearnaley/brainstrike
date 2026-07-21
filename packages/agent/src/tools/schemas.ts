@@ -155,29 +155,57 @@ export const ReadWorkspaceFileInputSchema = z
   .object({
     cursor: z
       .string()
-      .min(1)
-      .max(12_000)
+      .regex(/^rfh_[A-Za-z0-9_-]{22}$/)
       .nullish()
       .describe(
-        'Opaque nextCursor from the previous page. Continue with path + cursor; omit range fields unless replaying original values unchanged'
+        'Short nextCursor handle from the previous page. Pass it unchanged with optional maxChars and omit every other field'
       ),
     endLine: z
       .number()
       .int()
       .positive()
       .nullish()
-      .describe('Last 1-based line; prefer omitting with cursor'),
+      .describe(
+        'Last 1-based line; omit with cursor unless replaying the original value unchanged'
+      ),
     maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
-    path: z.string().min(1).describe('Workspace-relative file path'),
+    path: z
+      .string()
+      .min(1)
+      .nullish()
+      .describe('Workspace-relative file path; required only when starting a new read'),
     root: z.string().nullish().describe(ROOT_QUALIFIER_DESCRIPTION),
     startLine: z
       .number()
       .int()
       .positive()
       .nullish()
-      .describe('First 1-based line; prefer omitting with cursor'),
+      .describe(
+        'First 1-based line; omit with cursor unless replaying the original value unchanged'
+      ),
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    if (input.cursor) {
+      for (const field of ['path', 'root'] as const) {
+        if (input[field] !== null && input[field] !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            message: `Omit ${field} when continuing with cursor`,
+            path: [field],
+          });
+        }
+      }
+      return;
+    }
+    if (!input.path) {
+      context.addIssue({
+        code: 'custom',
+        message: 'path is required when starting a new read',
+        path: ['path'],
+      });
+    }
+  });
 
 export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
 

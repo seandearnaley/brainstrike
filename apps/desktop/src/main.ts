@@ -21,6 +21,7 @@ import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-
 import { startAssistantServer } from './assistant-server';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
+import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -988,6 +989,10 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     {
       name: 'lsp-servers',
       stop: () => disposeLspServers(),
+    },
+    {
+      name: 'read-workspace-file-cursors',
+      stop: clearReadWorkspaceFileCursorRegistry,
     },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,

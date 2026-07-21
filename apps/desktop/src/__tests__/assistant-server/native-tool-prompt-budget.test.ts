@@ -328,9 +328,9 @@ describe('desktop native tool provider prompt budget', () => {
       eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
       eagerToolCount: eagerProviderTools.length,
     }).toEqual({
-      criticalDefinitionTokens: 1894,
+      criticalDefinitionTokens: 1923,
       criticalToolCount: 7,
-      eagerDefinitionTokens: 6180,
+      eagerDefinitionTokens: 6209,
       eagerToolCount: 27,
     });
   });
