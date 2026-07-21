@@ -505,6 +505,13 @@ installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
 markers), delegates to Mastra's limiter, and restores the exact raw result in a
 `finally`. Keep its canonical processor id `token-limiter`.
 
+Before compatibility normalization and token limiting, hosted runs apply the
+projection-safe stale-history filter documented in `assistant-runtime.md`.
+Mastra's stock `ToolCallFilter` performs the replacement, but Brainstrike owns
+the per-call eligibility and two-tool-step window because the stock processor
+filters by tool name. Filtering is provider-input-only: persisted raw evidence
+and artifact continuation data remain authoritative.
+
 Runtime token measurement is observational and MUST NOT replace those safety
 limits. `provider-registry.ts` resolves one explicit capability from the exact
 provider/model tuple: `exact-selected-model`, `declared-compatible-reference`,
@@ -817,13 +824,15 @@ evidence and live table are in
 The live assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
 capability/permission eligibility → guards/hooks → plan/permission/suspend gates
 → provider-native web-search swap → output settlement/projection → skills
-metadata → discovery → provider-history compatibility → projection-aware token
-limiting. Initial, approval-resume, and suspend-resume calls all use the same
-per-runtime discovery processor in the per-call input stack: SkillsProcessor →
-tool search → ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token
-limiting remains last so it counts injected skills metadata, loaded definitions,
-and normalized provider history. Public direct stream processor overrides stay
-rejected.
+metadata → discovery → projection-safe stale-history filtering →
+provider-history compatibility → projection-aware token limiting. Initial,
+approval-resume, and suspend-resume
+calls all use the same per-runtime processors in the per-call input stack:
+SkillsProcessor → tool search → ProjectionSafeToolCallFilter →
+ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting remains
+last so it counts injected skills metadata, loaded definitions, filtered tool
+history, and normalized provider history. Public direct stream processor
+overrides stay rejected.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`

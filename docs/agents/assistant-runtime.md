@@ -153,6 +153,15 @@ configured-limit path reaches the next provider step and preserves MCP media;
 `mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
 replays the stored projection rather than the raw sentinel.
 
+Hosted runs also install `ProjectionSafeToolCallFilter`, a strict shell around
+Mastra 1.51's `ToolCallFilter({ preserveModelOutput: true })`. On a cloned
+provider-input snapshot it replaces only old, completed, successful native
+read/search/retrieval calls that have a serializable non-multimodal stored
+projection. The two newest tool-producing steps stay verbatim, as do missing
+projections, errors, edits, commands, verification, tasks, discovery, skills,
+approvals, incomplete calls, and MCP tools. It never mutates the live
+`MessageList` or durable rows. Local, Ollama, and LM Studio runs omit it.
+
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one
 content-free `mastra_agent_token_measurement` log with the explicit
@@ -192,9 +201,10 @@ an isolated description, schema estimate, or hand-built provider payload is
 not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting is always
-last. Initial streams, approval resumes, and suspending-tool resumes reuse the
-same discovery processor instance so same-process approval executors remain
+ProjectionSafeToolCallFilter → ProviderHistoryCompat →
+ProjectionAwareTokenLimiter. Token limiting is always last. Initial streams,
+approval resumes, and suspending-tool resumes reuse the same discovery and
+history-filter processor instances so same-process approval executors remain
 available while persisted discovery results provide restart reconstruction.
 
 Default instructions should state cross-tool routing and non-negotiable

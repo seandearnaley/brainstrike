@@ -87,6 +87,7 @@ import {
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
+import { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
 import {
   computeInstructionBreakdown,
   computePromptBreakdown,
@@ -222,6 +223,8 @@ export interface MastraAgentRuntime {
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
   toolDiscovery?: ToolDiscoveryMetadata;
+  /** Hosted-only transient filter for safely projected stale tool history. */
+  toolHistoryFilter: ProjectionSafeToolCallFilter | undefined;
   toolNameMap: Map<string, string>;
   /** Internal per-runtime processor reused by initial and both resume paths. */
   toolSearchProcessor?: BrainstrikeToolSearchProcessor;
@@ -618,8 +621,7 @@ async function prepareHostedToolDiscovery(params: {
   tokenDiagnostics: RunTokenDiagnostics;
   toolSearchProcessor?: BrainstrikeToolSearchProcessor;
 }> {
-  const isHosted =
-    params.provider !== 'local' && params.provider !== 'ollama' && params.provider !== 'lmstudio';
+  const isHosted = isHostedProviderRuntime(params.provider);
   const discoveryResolution = isHosted
     ? resolveToolDiscoveryAdapter({
         modelId: params.modelName,
@@ -699,6 +701,20 @@ async function prepareHostedToolDiscovery(params: {
     tokenDiagnostics,
     ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
   };
+}
+
+function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
+  return !['local', 'ollama', 'lmstudio'].includes(provider);
+}
+
+function createToolHistoryFilter(
+  provider: ResolvedRuntimeConfiguration['provider'],
+  toolNameMap: ReadonlyMap<string, string>
+): ProjectionSafeToolCallFilter | undefined {
+  if (!isHostedProviderRuntime(provider)) {
+    return;
+  }
+  return new ProjectionSafeToolCallFilter({ toolNameMap });
 }
 
 function createPersistedDiscoveryMessageLoader(params: {
@@ -878,6 +894,7 @@ export async function createMastraAgentRuntime(
       provider: normalizedProvider,
       toolNameMap,
     });
+  const toolHistoryFilter = createToolHistoryFilter(normalizedProvider, toolNameMap);
 
   const budgetNote = buildContextBudgetNote(sanitizedRuntime.agentLoop?.inputTokenLimit);
   // The current per-thread plan, re-serialized into the instructions every turn
@@ -991,6 +1008,7 @@ export async function createMastraAgentRuntime(
     resilienceConfig,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
+    toolHistoryFilter,
     ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
@@ -2413,7 +2431,8 @@ function resolvePositiveIntegerOption(value: unknown, fieldName: string): number
 
 function buildToolLoopOptions(
   runtimeData: RuntimeData | undefined,
-  toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined
+  toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined,
+  toolHistoryFilter: ProjectionSafeToolCallFilter | undefined
 ): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
   const agentLoop = runtimeData?.agentLoop;
   const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
@@ -2450,6 +2469,7 @@ function buildToolLoopOptions(
   const inputProcessors: unknown[] = [
     skillsProcessor,
     toolSearchProcessor,
+    toolHistoryFilter,
     historyCompat,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
@@ -2646,7 +2666,7 @@ async function createStreamIteratorFromRuntime({
     const memoryOption = resolveMemoryOption(runtimeData, memory);
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
@@ -2806,7 +2826,7 @@ async function createToolApprovalIteratorFromRuntime({
       runId: string;
       toolCallId: string;
     } = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
@@ -3153,7 +3173,7 @@ async function createToolResumeIteratorFromRuntime({
     validateToolResumeAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumeOptions = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),

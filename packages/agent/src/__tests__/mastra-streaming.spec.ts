@@ -1570,6 +1570,7 @@ describe('mastra streaming integration', () => {
     // injecting an unusable search_tools surface. Token limiting stays LAST.
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
       'skills-processor',
+      'tool-call-filter',
       'provider-history-compat',
       'token-limiter',
     ]);
@@ -1937,6 +1938,7 @@ describe('mastra streaming integration', () => {
     expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
     expect(approvalOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'tool-call-filter',
       'provider-history-compat',
       'token-limiter',
     ]);
@@ -2012,6 +2014,7 @@ describe('mastra streaming integration', () => {
     expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
     expect(resumeOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'tool-call-filter',
       'provider-history-compat',
       'token-limiter',
     ]);

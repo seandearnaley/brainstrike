@@ -109,12 +109,14 @@ function parseParts(row: PersistedMessageRow): PersistedPart[] {
  * contains the tool result, it emits the final visible answer.
  */
 function createScriptedToolCallModel(args: {
+  forceInitialToolCall?: boolean;
   toolName: string;
   toolCallId: string;
   input: string;
   finalText: string;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
+  let toolCallEmitted = false;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
@@ -128,6 +130,21 @@ function createScriptedToolCallModel(args: {
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
+      if (args.forceInitialToolCall && !toolCallEmitted) {
+        toolCallEmitted = true;
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: args.input,
+              toolCallId: args.toolCallId,
+              toolName: args.toolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
       const promptHasToolResult =
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
@@ -263,8 +280,12 @@ const OM_TINY_THRESHOLD_SETTINGS: RuntimeAssistantMemorySettings = {
 async function runTurnWithMemory(args: {
   assistantMessageId?: string;
   database: PGlite;
+  forceInitialToolCall?: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   threadId: string;
+  toolCallId?: string;
+  toolId?: string;
+  toolName?: string;
   hookRunner?: AgentHookRunner;
   signal?: AbortSignal;
   observationDelayMs?: number;
@@ -286,6 +307,7 @@ async function runTurnWithMemory(args: {
     >;
   }
   const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
+  const toolId = args.toolId ?? 'get_weather';
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
@@ -295,7 +317,7 @@ async function runTurnWithMemory(args: {
         temperatureC: 21,
         ...(args.weatherDetail === undefined ? {} : { detail: args.weatherDetail }),
       }),
-    id: 'get_weather',
+    id: toolId,
     inputSchema: z.object({ city: z.string() }),
     outputSchema: z.object({
       city: z.string(),
@@ -306,10 +328,11 @@ async function runTurnWithMemory(args: {
 
   modelHolder.current = createScriptedToolCallModel({
     finalText: 'It is 21C in Paris.',
+    ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
     input: JSON.stringify({ city: 'Paris' }),
     ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
-    toolCallId: 'call-memory-1',
-    toolName: 'get_weather',
+    toolCallId: args.toolCallId ?? 'call-memory-1',
+    toolName: args.toolName ?? toolId,
   });
 
   const iterator = await streamMastraAgent(
@@ -335,7 +358,7 @@ async function runTurnWithMemory(args: {
         },
       },
       storage,
-      tools: { get_weather: weatherTool },
+      tools: { [toolId]: weatherTool },
     }
   );
 
@@ -508,6 +531,51 @@ describe('mastra memory persistence through the live stream path', () => {
 
     expect(replayedModelOutput).toContain('output was truncated');
     expect(replayedModelOutput).not.toContain(rawOnlyTail);
+  });
+
+  it('filters stale projected native reads after a thread reload without mutating storage', async () => {
+    const threadId = 'thread-stale-native-read-history';
+    const toolId = 'brainstrike.readWorkspaceFile';
+    const toolName = 'brainstrike_readWorkspaceFile';
+
+    for (const index of [1, 2, 3]) {
+      await runTurnWithMemory({
+        database,
+        forceInitialToolCall: true,
+        memorySettings: OM_DISABLED_SETTINGS,
+        threadId,
+        toolCallId: `call-stale-read-${index}`,
+        toolId,
+        toolName,
+        userMessageId: `u-stale-read-${index}`,
+        userText: `Read fixture ${index}.`,
+        weatherDetail: `${'x'.repeat(20_000)}raw-read-${index}`,
+      });
+    }
+
+    let reloadedProviderPrompt = '';
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        reloadedProviderPrompt = JSON.stringify(prompt);
+      },
+      threadId,
+      toolId,
+      toolName,
+      userMessageId: 'u-stale-read-reload',
+      userText: 'Use the prior reads without running another tool.',
+    });
+
+    expect(reloadedProviderPrompt).not.toContain('call-stale-read-1');
+    expect(reloadedProviderPrompt).toContain('call-stale-read-2');
+    expect(reloadedProviderPrompt).toContain('call-stale-read-3');
+
+    const persisted = JSON.stringify(await listThreadMessages(database, threadId));
+    expect(persisted).toContain('call-stale-read-1');
+    expect(persisted).toContain('raw-read-1');
+    expect(persisted).toContain('call-stale-read-2');
+    expect(persisted).toContain('call-stale-read-3');
   });
 
   it('persists the exact domain result while PostToolUse context remains model-only', async () => {
