@@ -2108,6 +2108,77 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('does not publish throttled progress after its sync run is superseded', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: 'export const value = 2;',
+          })),
+        },
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
+      let releaseSupersededImport!: () => void;
+      const supersededImportReleased = new Promise<void>((resolve) => {
+        releaseSupersededImport = resolve;
+      });
+      let firstImportStarted!: () => void;
+      const firstImportStartedPromise = new Promise<void>((resolve) => {
+        firstImportStarted = resolve;
+      });
+
+      runEnhancedImportMock
+        .mockImplementationOnce(async (params) => {
+          params.progressHandlers.emit?.({
+            completed: 0,
+            current: 'venv/lib/python3.11/site-packages/torch/first.py',
+            errors: [],
+            phase: 'importing',
+            total: 2,
+          });
+          params.progressHandlers.emit?.({
+            completed: 1,
+            current: 'venv/lib/python3.11/site-packages/torch/trailing.py',
+            errors: [],
+            phase: 'importing',
+            total: 2,
+          });
+          firstImportStarted();
+          await supersededImportReleased;
+          return [];
+        })
+        .mockResolvedValueOnce([]);
+
+      const supersededSync = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      await firstImportStartedPromise;
+
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      const currentRunStatus = vi.mocked(deps.setStatus).mock.lastCall?.[0];
+      const currentRunStatusCallCount = vi.mocked(deps.setStatus).mock.calls.length;
+      expect(currentRunStatus).toEqual(expect.objectContaining({ state: 'embedding' }));
+
+      await vi.advanceTimersByTimeAsync(100);
+      releaseSupersededImport();
+      await supersededSync;
+
+      expect(deps.setStatus).toHaveBeenCalledTimes(currentRunStatusCallCount);
+      expect(deps.setStatus).toHaveBeenLastCalledWith(currentRunStatus);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('clears stale chunk metadata before replacing an indexed file', async () => {
     const deps = createDeps({
       fileContentProcessor: {

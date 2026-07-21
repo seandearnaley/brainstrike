@@ -87,6 +87,35 @@ const FOREGROUND_DB_PRESSURE_STARVATION_MS = 5000;
 // deleted worktree) from monopolizing the host and starving other queries.
 const INVALIDATION_TARGETS_PER_REQUEST = 1000;
 
+function createRunOwnedProgressReporter<T>(args: {
+  canPublish: () => boolean;
+  emit: (value: T) => void;
+  throttleMs: number;
+}): {
+  finish: () => void;
+  report: (value: T) => void;
+} {
+  const reporter = createThrottledProgressReporter((value: T) => {
+    if (args.canPublish()) {
+      args.emit(value);
+    }
+  }, args.throttleMs);
+  return {
+    finish: () => {
+      if (args.canPublish()) {
+        reporter.flush();
+      }
+      reporter.dispose();
+    },
+    report: (value) => {
+      if (!args.canPublish()) {
+        return;
+      }
+      reporter.report(value);
+    },
+  };
+}
+
 interface RootDirectoryHandle {
   _internal?: unknown;
   kind: 'directory';
@@ -506,6 +535,7 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext;
     abortSignal: AbortSignal;
     qosPolicy: WorkspaceIndexingQosPolicy;
+    runId: number;
   }): Promise<PreparedSyncChanges> {
     return await collectPreparedWorkspaceSyncChanges({
       abortSignal: args.abortSignal,
@@ -519,6 +549,9 @@ export class WorkspaceCollectionSyncService {
         fileRecordRepository: this.deps.fileRecordRepository,
         fileSystemAdapter: this.deps.fileSystemAdapter,
         onScanningPath: (path) => {
+          if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
+            return;
+          }
           this.setScanningStatus(args.context, path);
         },
         ...(this.deps.fileContentProcessor
@@ -879,7 +912,9 @@ export class WorkspaceCollectionSyncService {
       context: args.context,
       qosPolicy: scanQosPolicy,
       request: args.request,
+      runId: args.runId,
     });
+    throwIfAborted(args.abortSignal);
     const { invalidationTargets, prepared } = syncChanges;
     this.setScanSummary(args.context, prepared);
     if (invalidationTargets.length > 0) {
@@ -903,9 +938,12 @@ export class WorkspaceCollectionSyncService {
       }
     }
     await this.persistStatRefreshes(prepared.statRefreshes);
+    throwIfAborted(args.abortSignal);
 
     if (prepared.changes.length === 0) {
-      if (await this.collectionNeedsBackfill(args.context.collection.id)) {
+      const needsBackfill = await this.collectionNeedsBackfill(args.context.collection.id);
+      throwIfAborted(args.abortSignal);
+      if (needsBackfill) {
         if (!this.shouldEnqueueBackfill(args.request)) {
           this.setIdleStatus({
             collection: args.context.collection,
@@ -960,8 +998,9 @@ export class WorkspaceCollectionSyncService {
     // workspace. Throttle the status-store writes (each one re-renders every
     // subscriber) to the same cadence the scanning phase uses; the flush in
     // `finally` guarantees the final progress state always lands.
-    const importStatusReporter = createThrottledProgressReporter<EnhancedImportProgress>(
-      (progress) => {
+    const importStatusReporter = createRunOwnedProgressReporter<EnhancedImportProgress>({
+      canPublish: () => !(this.isCancelled(args.runId) || args.abortSignal.aborted),
+      emit: (progress) => {
         this.deps.setStatus(
           mapEnhancedProgressToStatus(
             progress,
@@ -972,8 +1011,8 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
-      IMPORT_STATUS_THROTTLE_MS
-    );
+      throttleMs: IMPORT_STATUS_THROTTLE_MS,
+    });
     try {
       await runRootFolderCacheImport({
         abortSignal: args.abortSignal,
@@ -997,8 +1036,7 @@ export class WorkspaceCollectionSyncService {
         waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
       });
     } finally {
-      importStatusReporter.flush();
-      importStatusReporter.dispose();
+      importStatusReporter.finish();
     }
     throwIfAborted(args.abortSignal);
 

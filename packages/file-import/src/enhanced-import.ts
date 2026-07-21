@@ -27,6 +27,7 @@ import {
   LogLevel,
 } from '@brainstrike/utils';
 import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
@@ -1145,6 +1146,12 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     return enhancedResults;
   } catch (error) {
+    if (isAbortError(error)) {
+      logger.info('Enhanced import cancelled', {
+        filesCount: selectedFilePaths.size,
+      });
+      throw error;
+    }
     logger.error('Enhanced import failed catastrophically:', {
       error: error instanceof Error ? error.message : String(error),
       filesCount: selectedFilePaths.size,

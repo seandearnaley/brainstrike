@@ -1,4 +1,11 @@
 import type { FileImportResult } from '@brainstrike/db';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { runEnhancedImport } from '../enhanced-import';
 
@@ -29,6 +36,93 @@ describe('runEnhancedImport error handling', () => {
         },
       })
     ).rejects.toThrow('Catastrophic failure');
+  });
+
+  it('reports cancellation without misclassifying it as a catastrophic failure', async () => {
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileImport:Enhanced') {
+        captured.push(record);
+      }
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    try {
+      await expect(
+        runEnhancedImport({
+          abortSignal: controller.signal,
+          baseImportRunner: vi.fn(),
+          chunking: mockChunking,
+          progressHandlers: mockProgressHandlers,
+          request: {
+            fileContents: {},
+            fileTree: [],
+            selectedFilePaths: new Set(),
+          },
+        })
+      ).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(captured).toContainEqual(
+        expect.objectContaining({ level: 'info', message: 'Enhanced import cancelled' })
+      );
+      expect(captured).not.toContainEqual(
+        expect.objectContaining({
+          level: 'error',
+          message: 'Enhanced import failed catastrophically:',
+        })
+      );
+    } finally {
+      removeListener();
+      configureLogger({ enableInProduction: false });
+    }
+  });
+
+  it('reports a genuine failure even when the runner aborts its signal first', async () => {
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileImport:Enhanced') {
+        captured.push(record);
+      }
+    });
+    const controller = new AbortController();
+    const failure = new Error('Import teardown failed');
+
+    try {
+      await expect(
+        runEnhancedImport({
+          abortSignal: controller.signal,
+          baseImportRunner: vi.fn(async () => {
+            controller.abort();
+            throw failure;
+          }),
+          chunking: mockChunking,
+          progressHandlers: mockProgressHandlers,
+          request: {
+            fileContents: {},
+            fileTree: [],
+            selectedFilePaths: new Set(),
+          },
+        })
+      ).rejects.toBe(failure);
+
+      expect(captured).toContainEqual(
+        expect.objectContaining({
+          level: 'error',
+          message: 'Enhanced import failed catastrophically:',
+        })
+      );
+      expect(captured).not.toContainEqual(
+        expect.objectContaining({ level: 'info', message: 'Enhanced import cancelled' })
+      );
+    } finally {
+      removeListener();
+      configureLogger({ enableInProduction: false });
+    }
   });
 
   it('handles default progress creation when no progress reported', async () => {

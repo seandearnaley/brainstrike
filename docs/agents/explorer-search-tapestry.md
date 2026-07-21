@@ -222,13 +222,23 @@ there rather than hiding entries after the adapter has already read them.
 - **Full root (explicit override):** continues to traverse those Python
   directories. The Settings description calls this out so opting in does not
   silently change scan breadth.
+- **Policy changes supersede active work.** Changing Balanced/Full root restarts
+  the provider sync with a fresh service run and aborts the previous run. Scan
+  and import progress callbacks are run-owned: after cancellation they cannot
+  overwrite status from the replacement run. Cancellation is logged as an
+  expected cancellation, while non-abort import failures remain error-logged
+  and visible. An Electron `readdir` already executing in the OS cannot be
+  preempted; the walker checks the abort before processing its result or
+  scheduling any more descendants, bounding the drain to reads already in
+  flight.
 - Workspace include/exclude filters control visible-tree filtering and
   selection. They are not the Workspace Index traversal policy; do not mutate
   custom filters to implement indexing exclusions.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is
-called.
+called. Provider/service tests own policy-switch cancellation and stale-progress
+suppression.
 
 ---
 

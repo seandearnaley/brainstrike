@@ -2053,6 +2053,61 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ).toBe(false);
   });
 
+  it('aborts the active full-root scan before restarting with a changed policy', async () => {
+    useBackgroundIndexingPreferencesStore.setState({ indexingPolicyPreset: 'full-root' });
+    let firstRunSignal: AbortSignal | null = null;
+    let firstImportStarted!: () => void;
+    const firstImportStartedPromise = new Promise<void>((resolve) => {
+      firstImportStarted = resolve;
+    });
+    runEnhancedImportMock
+      .mockImplementationOnce(
+        async (params) =>
+          await new Promise<never>((_resolve, reject) => {
+            firstRunSignal = params.abortSignal ?? null;
+            firstImportStarted();
+            params.abortSignal?.addEventListener(
+              'abort',
+              () => {
+                const error = new Error('Superseded indexing policy');
+                error.name = 'AbortError';
+                reject(error);
+              },
+              { once: true }
+            );
+          })
+      )
+      .mockResolvedValueOnce([]);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+    await firstImportStartedPromise;
+
+    act(() => {
+      useBackgroundIndexingPreferencesStore.getState().setIndexingPolicyPreset('balanced');
+    });
+
+    await waitFor(() => expect(firstRunSignal?.aborted).toBe(true));
+    await waitFor(() => expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(2));
+    const fullRootPolicy = readFullTreeWithOptionsMock.mock.calls[0]?.[2]?.entryPolicy;
+    const balancedPolicy = readFullTreeWithOptionsMock.mock.calls[1]?.[2]?.entryPolicy;
+    expect(
+      fullRootPolicy?.shouldTraverseDirectory({
+        directoryName: 'venv',
+        relativePath: 'augmentoolkit/venv',
+      })
+    ).toBe(true);
+    expect(
+      balancedPolicy?.shouldTraverseDirectory({
+        directoryName: 'venv',
+        relativePath: 'augmentoolkit/venv',
+      })
+    ).toBe(false);
+  });
+
   it('waits for file explorer restoration to settle before starting background indexing', async () => {
     fileTreeContextState.current = {
       isLoading: false,
