@@ -5,6 +5,7 @@ export type DesktopIpcDomain =
   | 'assistantCheckpoint'
   | 'chunking-host'
   | 'clipboard'
+  | 'commandSessions'
   | 'contextFiles'
   | 'db'
   | 'diagnostics'

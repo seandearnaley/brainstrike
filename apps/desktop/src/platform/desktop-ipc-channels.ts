@@ -20,6 +20,13 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
+  commandSessions: {
+    list: 'command-sessions:list',
+    read: 'command-sessions:read',
+    remove: 'command-sessions:remove',
+    stop: 'command-sessions:stop',
+    write: 'command-sessions:write',
+  },
   contextFiles: {
     scan: 'context-files:scan',
   },

@@ -46,6 +46,13 @@ import type {
   ChunkingHostResponseReport,
   ChunkingHostStatus,
 } from '../chunking-host-shared';
+import type {
+  CommandSessionIpcResult,
+  CommandSessionListParams,
+  CommandSessionReadPage,
+  CommandSessionReadParams,
+  CommandSessionWriteParams,
+} from '../command-session-ipc-handlers';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillInfo,
@@ -116,6 +123,25 @@ declare global {
     };
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
+    };
+    /** Desktop-only view/control bridge for assistant-owned persistent commands. */
+    commandSessions?: {
+      list: (params: CommandSessionListParams) => Promise<
+        CommandSessionIpcResult<{
+          readonly rootId: string;
+          readonly sessions: readonly import('../assistant-server/command-session-manager').CommandSessionInfo[];
+        }>
+      >;
+      read: (
+        params: CommandSessionReadParams
+      ) => Promise<CommandSessionIpcResult<CommandSessionReadPage>>;
+      remove: (
+        params: import('../command-session-ipc-handlers').CommandSessionIdentityParams
+      ) => Promise<CommandSessionIpcResult>;
+      stop: (
+        params: import('../command-session-ipc-handlers').CommandSessionIdentityParams
+      ) => Promise<CommandSessionIpcResult>;
+      write: (params: CommandSessionWriteParams) => Promise<CommandSessionIpcResult>;
     };
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;

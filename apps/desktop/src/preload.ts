@@ -107,6 +107,11 @@ const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
 const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
 const TERMINAL_DATA_EVENT = 'terminal:data' as const;
 const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
+const COMMAND_SESSIONS_LIST_CHANNEL = 'command-sessions:list' as const;
+const COMMAND_SESSIONS_READ_CHANNEL = 'command-sessions:read' as const;
+const COMMAND_SESSIONS_WRITE_CHANNEL = 'command-sessions:write' as const;
+const COMMAND_SESSIONS_STOP_CHANNEL = 'command-sessions:stop' as const;
+const COMMAND_SESSIONS_REMOVE_CHANNEL = 'command-sessions:remove' as const;
 const NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL = 'notes-vault:ensure-default-vault' as const;
 const NOTES_VAULT_PICK_DIRECTORY_CHANNEL = 'notes-vault:pick-directory' as const;
 const NOTES_VAULT_REGISTER_ROOT_CHANNEL = 'notes-vault:register-root' as const;
@@ -1297,6 +1302,23 @@ if (shouldExposeBridge('terminal')) {
       ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
     write: (params: { terminalId: string; data: string }) =>
       ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+  });
+}
+
+// Command-session inventory bridge (desktop-only). These sessions are owned by
+// the main-process assistant runtime and intentionally survive renderer reloads.
+// The bridge exposes workspace-scoped observation/control only; web omits it.
+if (shouldExposeBridge('commandSessions')) {
+  contextBridge.exposeInMainWorld('commandSessions', {
+    list: (params: { rootId: string }) => ipcRenderer.invoke(COMMAND_SESSIONS_LIST_CHANNEL, params),
+    read: (params: { rootId: string; sessionId: string; cursor?: number }) =>
+      ipcRenderer.invoke(COMMAND_SESSIONS_READ_CHANNEL, params),
+    remove: (params: { rootId: string; sessionId: string }) =>
+      ipcRenderer.invoke(COMMAND_SESSIONS_REMOVE_CHANNEL, params),
+    stop: (params: { rootId: string; sessionId: string }) =>
+      ipcRenderer.invoke(COMMAND_SESSIONS_STOP_CHANNEL, params),
+    write: (params: { rootId: string; sessionId: string; data: string }) =>
+      ipcRenderer.invoke(COMMAND_SESSIONS_WRITE_CHANNEL, params),
   });
 }
 

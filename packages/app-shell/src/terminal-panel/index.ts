@@ -1,4 +1,9 @@
 export {
+  type CommandSessionBridge,
+  isCommandSessionBridgeAvailable,
+  resolveCommandSessionBridge,
+} from './command-session-bridge';
+export {
   isTerminalBridgeAvailable,
   resolveTerminalBridge,
   type TerminalBridge,
