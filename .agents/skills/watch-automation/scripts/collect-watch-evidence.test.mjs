@@ -46,7 +46,14 @@ watch:<workflow>:<test-title-slug>:<error-class>
 });
 
 test('parseArgs validates watermark keys, empty watermark, and preflight ports', () => {
-  const parsed = parseArgs(['--repo', '/x', '--watermark', '124@2,123@1', '--preflight-port', '8080']);
+  const parsed = parseArgs([
+    '--repo',
+    '/x',
+    '--watermark',
+    '124@2,123@1',
+    '--preflight-port',
+    '8080',
+  ]);
   assert.deepEqual(parsed.watermark, ['123@1', '124@2']);
   assert.equal(parsed.watermarkSupplied, true);
   assert.deepEqual(parsed.preflightPorts, [8080]);
@@ -172,13 +179,16 @@ test('compareWatermark surfaces reruns as new attempt-aware keys', () => {
 
 test('compareWatermark NOOPs only on an unchanged fully-completed set', () => {
   const runs = [{ attempt: 1, id: '1', status: 'completed' }];
-  assert.equal(compareWatermark({ previousKeys: ['1@1'], runs, supplied: true }).noopEligible, true);
   assert.equal(
-    compareWatermark({ previousKeys: [], runs, supplied: false }).noopEligible,
+    compareWatermark({ previousKeys: ['1@1'], runs, supplied: true }).noopEligible,
+    true
+  );
+  assert.equal(compareWatermark({ previousKeys: [], runs, supplied: false }).noopEligible, false);
+  assert.equal(compareWatermark({ previousKeys: [], runs: [], supplied: true }).noopEligible, true);
+  assert.equal(
+    compareWatermark({ previousKeys: [], runs: [], supplied: false }).noopEligible,
     false
   );
-  assert.equal(compareWatermark({ previousKeys: [], runs: [], supplied: true }).noopEligible, true);
-  assert.equal(compareWatermark({ previousKeys: [], runs: [], supplied: false }).noopEligible, false);
 });
 
 test('run snapshots fail closed when GitHub state drifts during collection', () => {

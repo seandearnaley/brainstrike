@@ -100,9 +100,7 @@ export function parseArgs(argv) {
 
   const invalidWatermark = watermark.find((value) => !/^\d+@\d+$/.test(value));
   if (invalidWatermark) {
-    throw new Error(
-      `Invalid watermark key (expected <runId>@<attempt>): ${invalidWatermark}`
-    );
+    throw new Error(`Invalid watermark key (expected <runId>@<attempt>): ${invalidWatermark}`);
   }
 
   return {
@@ -305,9 +303,7 @@ export function compareWatermark({ previousKeys, runs, supplied }) {
   const pendingRuns = runs
     .filter((runItem) => runItem.status !== 'completed')
     .map((runItem) => ({ attempt: runItem.attempt, id: runItem.id, status: runItem.status }))
-    .sort((left, right) =>
-      runKey(left).localeCompare(runKey(right), undefined, { numeric: true })
-    );
+    .sort((left, right) => runKey(left).localeCompare(runKey(right), undefined, { numeric: true }));
   const previousSet = new Set(previous);
   const currentSet = new Set(currentRunKeys);
   const completedSet = new Set(checkpointWatermark);
@@ -643,8 +639,7 @@ export function fingerprint(workflowName, title, errorClass) {
     .filter(Boolean)
     .join(' ');
   const titleSlug = slug(fullPath);
-  const boundedSlug =
-    titleSlug.length > 80 ? titleSlug.slice(0, 80).replace(/-+$/, '') : titleSlug;
+  const boundedSlug = titleSlug.length > 80 ? titleSlug.slice(0, 80).replace(/-+$/, '') : titleSlug;
   return `watch:${slug(workflowName)}:${boundedSlug || 'unnamed'}:${errorClass}`;
 }
 

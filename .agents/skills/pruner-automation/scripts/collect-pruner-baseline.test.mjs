@@ -5,21 +5,21 @@ import { parseDoctor, parseKnip } from './collect-pruner-baseline.mjs';
 
 function doctorReport(overrides = {}) {
   return JSON.stringify({
-    schemaVersion: 1,
-    version: '0.7.1',
-    ok: true,
-    directory: '.',
-    projects: [],
     diagnostics: [],
+    directory: '.',
+    error: null,
+    ok: true,
+    projects: [],
+    schemaVersion: 1,
     summary: {
-      errorCount: 0,
-      warningCount: 0,
       affectedFileCount: 0,
-      totalDiagnosticCount: 0,
+      errorCount: 0,
       score: 100,
       scoreLabel: 'excellent',
+      totalDiagnosticCount: 0,
+      warningCount: 0,
     },
-    error: null,
+    version: '0.7.1',
     ...overrides,
   });
 }
@@ -34,12 +34,12 @@ test('parseDoctor reads a clean scan from the JSON report', () => {
 test('parseDoctor treats error-severity diagnostics as a findings outcome, not a crash', () => {
   const report = doctorReport({
     summary: {
-      errorCount: 3,
-      warningCount: 1,
       affectedFileCount: 2,
-      totalDiagnosticCount: 4,
+      errorCount: 3,
       score: 60,
       scoreLabel: 'needs-work',
+      totalDiagnosticCount: 4,
+      warningCount: 1,
     },
   });
   // exit 1 is expected here (blocking diagnostics), and must NOT be an error.
@@ -59,12 +59,15 @@ test('parseDoctor surfaces skipped checks as incomplete results', () => {
 });
 
 test('parseDoctor fails operationally when the report is ok:false', () => {
-  const report = doctorReport({ ok: false, error: { message: 'boom' } });
+  const report = doctorReport({ error: { message: 'boom' }, ok: false });
   assert.throws(() => parseDoctor(report, 1), /failed operationally: boom/);
 });
 
 test('parseDoctor fails on non-JSON output rather than degrading silently', () => {
-  assert.throws(() => parseDoctor('react-doctor crashed before emitting json', 1), /parseable JSON report/);
+  assert.throws(
+    () => parseDoctor('react-doctor crashed before emitting json', 1),
+    /parseable JSON report/
+  );
 });
 
 test('parseDoctor rejects a report missing the summary shape', () => {

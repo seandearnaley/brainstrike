@@ -261,9 +261,7 @@ export function parseReport(comment) {
   // Anchored to line start: a human quote-reply ("> <!-- magnify:... -->")
   // or inline mention must never parse as a report, or one such comment
   // would poison every later collection for this PR.
-  const match = comment.body.match(
-    /^[ \t]*<!--\s*magnify:v(\d+)\s+(\d+):([0-9a-f]{40})\s*-->/im
-  );
+  const match = comment.body.match(/^[ \t]*<!--\s*magnify:v(\d+)\s+(\d+):([0-9a-f]{40})\s*-->/im);
   if (!match) {
     return null;
   }

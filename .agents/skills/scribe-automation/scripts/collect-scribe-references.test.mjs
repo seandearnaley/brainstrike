@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  classifyCommand,
-  classifyFileToken,
-  isFileToken,
-} from './collect-scribe-references.mjs';
+import { classifyCommand, classifyFileToken, isFileToken } from './collect-scribe-references.mjs';
 
 const tree = new Set([
   'AGENTS.md',
@@ -36,7 +32,7 @@ test('dotted code identifiers are not treated as file tokens at all', () => {
 });
 
 const packages = new Map([
-  ['__root__', { scripts: { doctor: 'react-doctor .' }, devDependencies: { vitest: '^2' } }],
+  ['__root__', { devDependencies: { vitest: '^2' }, scripts: { doctor: 'react-doctor .' } }],
 ]);
 
 test('pnpm <bin> invocations are not treated as missing root scripts', () => {

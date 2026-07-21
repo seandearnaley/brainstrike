@@ -101,11 +101,7 @@ function createFixture() {
   );
   write(repo, 'packages/db/src/db-provider.tsx', 'export const provider = true;\n');
   write(repo, 'apps/desktop/src/db-main.ts', 'export const dbMain = true;\n');
-  write(
-    repo,
-    'packages/db/__tests__/widgets-repository.test.ts',
-    "it('exists', () => {});\n"
-  );
+  write(repo, 'packages/db/__tests__/widgets-repository.test.ts', "it('exists', () => {});\n");
   const watermark = commitAll(repo, 'fixture base');
   return { repo, root, watermark };
 }
@@ -152,15 +148,7 @@ function registerMigration002InDrizzle(repo) {
 function collect(fixture) {
   return spawnSync(
     process.execPath,
-    [
-      SCRIPT_PATH,
-      '--repo',
-      fixture.repo,
-      '--watermark',
-      fixture.watermark,
-      '--revision',
-      'HEAD',
-    ],
+    [SCRIPT_PATH, '--repo', fixture.repo, '--watermark', fixture.watermark, '--revision', 'HEAD'],
     { encoding: 'utf8' }
   );
 }
@@ -182,10 +170,10 @@ test('scopes registration parity to added migrations; modified migrations route 
   assert.equal(result.status, 0, result.stderr);
   const evidence = JSON.parse(result.stdout);
 
-  assert.deepEqual(
-    evidence.mechanicalGaps.map((gap) => gap.kind).sort(),
-    ['missing-drizzle-custom-migration', 'missing-drizzle-import']
-  );
+  assert.deepEqual(evidence.mechanicalGaps.map((gap) => gap.kind).sort(), [
+    'missing-drizzle-custom-migration',
+    'missing-drizzle-import',
+  ]);
   assert.ok(evidence.mechanicalGaps.every((gap) => gap.migration === 2));
   assert.deepEqual(
     evidence.migrationDelta.map((migration) => migration.number),

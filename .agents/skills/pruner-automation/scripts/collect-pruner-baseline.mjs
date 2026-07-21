@@ -10,12 +10,7 @@ const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 // Read-only Git hardening, matching the Bolt collectors: never let a status
 // or rev-parse opportunistically rewrite .git/index or spawn fsmonitor.
 const GIT_READONLY_ENV = { GIT_OPTIONAL_LOCKS: '0' };
-const GIT_READONLY_CONFIG = [
-  '-c',
-  'core.fsmonitor=false',
-  '-c',
-  'core.untrackedCache=false',
-];
+const GIT_READONLY_CONFIG = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
 
 const fail = (message) => {
   process.stderr.write(`collect-pruner-baseline: ${message}\n`);

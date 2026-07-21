@@ -387,9 +387,7 @@ export function extractAssayComments(comments, charter, workKey) {
       const labelsLine = comment.body.match(/^Labels:\s*(.*)$/m);
       const assertedLabels = labelsLine
         ? uniqueSorted(
-            (labelsLine[1].match(/review\/[a-z0-9-]+/g) ?? []).filter((label) =>
-              allowed.has(label)
-            )
+            (labelsLine[1].match(/review\/[a-z0-9-]+/g) ?? []).filter((label) => allowed.has(label))
           )
         : null;
       return {

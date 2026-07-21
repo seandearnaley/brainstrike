@@ -284,8 +284,8 @@ function collect(args) {
     headContainsFetchedMain: isAncestor(repo, originMain, args.head),
     mergeable: pullRequest.mergeable === 'MERGEABLE',
     mergeStateClean: pullRequest.mergeStateStatus === 'CLEAN',
-    noSkippedOrNeutralChecks: skippedOrNeutralChecks.length === 0,
     nonDraft: pullRequest.isDraft === false,
+    noSkippedOrNeutralChecks: skippedOrNeutralChecks.length === 0,
     open: pullRequest.state === 'OPEN',
     repositoryMatches: /(?:github\.com[:/])seandearnaley\/brainstrike(?:\.git)?$/u.test(
       originRemote
@@ -306,7 +306,6 @@ function collect(args) {
     missingExpectedChecks,
     note: 'Mechanical readiness does not prove benchmark evidence or fresh reviewer status; verify both on this exact SHA.',
     originMain,
-    skippedOrNeutralChecks,
     pullRequest: {
       baseRefName: pullRequest.baseRefName,
       baseRefOid: pullRequest.baseRefOid,
@@ -320,6 +319,7 @@ function collect(args) {
       url: pullRequest.url,
     },
     reviewThreadCount: threads.length,
+    skippedOrNeutralChecks,
     unresolvedThreadIds,
   };
 }

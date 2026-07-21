@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { deriveCharter, extractAssayComments } from './collect-assay-evidence.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-const liveCharter = readFileSync(
-  path.join(repoRoot, '.night-shift/charters/assay.md'),
-  'utf8'
-);
+const liveCharter = readFileSync(path.join(repoRoot, '.night-shift/charters/assay.md'), 'utf8');
 
 test('deriveCharter parses the live charter, not a synthetic fixture', () => {
   const charter = deriveCharter(liveCharter);
