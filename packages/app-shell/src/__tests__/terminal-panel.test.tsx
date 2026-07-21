@@ -570,6 +570,93 @@ describe('TerminalPanel', () => {
     });
   });
 
+  it('discards a late read after the selected command session changes', async () => {
+    const firstSession: CommandSessionInfo = {
+      createdAt: 1,
+      cwd: '/abs/repo/apps/web',
+      id: 'command-session-first',
+      pid: 314,
+      rootId: 'root-1',
+      status: 'running',
+    };
+    const secondSession: CommandSessionInfo = {
+      createdAt: 2,
+      cwd: '/abs/repo/apps/desktop',
+      id: 'command-session-second',
+      pid: 2718,
+      rootId: 'root-1',
+      status: 'running',
+    };
+    let resolveFirstRead:
+      | ((value: CommandSessionResult<CommandSessionReadPage>) => void)
+      | undefined;
+    const firstRead = new Promise<CommandSessionResult<CommandSessionReadPage>>((resolve) => {
+      resolveFirstRead = resolve;
+    });
+    const commandSessions = installCommandSessionBridge({
+      list: vi.fn(
+        async (): Promise<
+          CommandSessionResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
+        > => ({
+          ok: true,
+          value: { rootId: 'root-1', sessions: [firstSession, secondSession] },
+        })
+      ),
+      read: vi.fn(
+        async ({
+          sessionId,
+        }: {
+          readonly cursor?: number;
+          readonly rootId: string;
+          readonly sessionId: string;
+        }): Promise<CommandSessionResult<CommandSessionReadPage>> => {
+          if (sessionId === firstSession.id) {
+            return firstRead;
+          }
+          return {
+            ok: true,
+            value: {
+              bufferStartCursor: 0,
+              hasMore: false,
+              nextCursor: 13,
+              output: 'second ready\n',
+              requestedCursor: 0,
+              session: secondSession,
+              truncatedBeforeCursor: false,
+            },
+          };
+        }
+      ),
+    });
+    const user = userEvent.setup();
+    render(<CommandSessionInventory rootId="root-1" />);
+
+    await waitFor(() =>
+      expect(commandSessions.read).toHaveBeenCalledWith({
+        rootId: 'root-1',
+        sessionId: firstSession.id,
+      })
+    );
+    await user.click(screen.getByRole('button', { name: /desktop/i }));
+    expect(await screen.findByText('second ready')).toBeInTheDocument();
+
+    resolveFirstRead?.({
+      ok: true,
+      value: {
+        bufferStartCursor: 0,
+        hasMore: false,
+        nextCursor: 11,
+        output: 'stale first\n',
+        requestedCursor: 0,
+        session: firstSession,
+        truncatedBeforeCursor: false,
+      },
+    });
+
+    await waitFor(() => expect(screen.queryByText('stale first')).not.toBeInTheDocument());
+    expect(screen.getByText('second ready')).toBeInTheDocument();
+  });
+
   it('stops, writes to, and removes the selected command session', async () => {
     installBridge();
     const commandSessions = installCommandSessionBridge();

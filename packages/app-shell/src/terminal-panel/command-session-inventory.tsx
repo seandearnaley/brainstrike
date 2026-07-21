@@ -23,8 +23,8 @@ interface CommandSessionInventoryProps {
 
 export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps): ReactElement {
   const bridge = resolveCommandSessionBridge();
-  const [cursor, setCursor] = useState<number | undefined>(undefined);
   const cursorRef = useRef<number | undefined>(undefined);
+  const readRequestVersionRef = useRef(0);
   const [error, setError] = useState<string | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
   const [input, setInput] = useState('');
@@ -41,11 +41,16 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
         setError('Command-session controls are unavailable in this runtime.');
         return;
       }
+      const requestVersion = readRequestVersionRef.current + 1;
+      readRequestVersionRef.current = requestVersion;
       const result = await bridge.read({
         rootId,
         sessionId,
         ...(nextCursor === undefined ? {} : { cursor: nextCursor }),
       });
+      if (selectedIdRef.current !== sessionId || readRequestVersionRef.current !== requestVersion) {
+        return;
+      }
       if (!result.ok) {
         setError(result.error.message);
         return;
@@ -57,7 +62,6 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
           session.id === result.value.session.id ? result.value.session : session
         )
       );
-      setCursor(result.value.nextCursor);
       cursorRef.current = result.value.nextCursor;
       setOutput((current) => {
         const combined =
@@ -99,7 +103,6 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     selectedIdRef.current = selected;
     if (selectionChanged) {
       cursorRef.current = undefined;
-      setCursor(undefined);
       setHasMore(false);
       setOutput('');
       setOutputOmitted(false);
@@ -123,7 +126,6 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     selectedIdRef.current = sessionId;
     cursorRef.current = undefined;
     setSelectedId(sessionId);
-    setCursor(undefined);
     setError(undefined);
     setHasMore(false);
     setOutput('');
@@ -277,7 +279,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
             {hasMore ? (
               <Button
                 className="rounded-none border-x-0 border-b-0"
-                onClick={() => selectedId && void readSession(selectedId, cursor)}
+                onClick={() => selectedId && void readSession(selectedId, cursorRef.current)}
                 size="sm"
                 type="button"
                 variant="outline"
