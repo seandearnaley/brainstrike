@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sentinel Automation"
+  short_description: "Sweep Brainstrike security deltas safely"
+  default_prompt: "Use $sentinel-automation to run the Brainstrike Sentinel security-maintainer charter."

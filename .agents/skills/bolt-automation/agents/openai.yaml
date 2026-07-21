@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bolt Automation"
+  short_description: "Run Brainstrike performance maintenance"
+  default_prompt: "Use $bolt-automation to execute the current Brainstrike Bolt charter safely."

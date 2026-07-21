@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scribe Automation"
+  short_description: "Audit Brainstrike agent contracts safely"
+  default_prompt: "Use $scribe-automation to run the Scribe contracts freshness audit."

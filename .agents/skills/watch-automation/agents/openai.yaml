@@ -1,0 +1,4 @@
+interface:
+  display_name: "Watch Automation"
+  short_description: "Investigate Brainstrike CI flakes reliably"
+  default_prompt: "Use $watch-automation to execute the current Brainstrike Watch flake-investigator charter."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Assay Automation"
+  short_description: "Grade Brainstrike PR risk queues reliably"
+  default_prompt: "Use $assay-automation to run the Brainstrike Assay PR risk-grading charter."

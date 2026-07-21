@@ -1,0 +1,4 @@
+interface:
+  display_name: "Axiom Automation"
+  short_description: "Run invariant sweeps with fail-closed evidence"
+  default_prompt: "Use $axiom-automation to execute the live Brainstrike Axiom charter."
