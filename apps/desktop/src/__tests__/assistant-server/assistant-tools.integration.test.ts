@@ -1204,6 +1204,7 @@ describe('assistant-tools', () => {
       list: vi.fn(() => [session]),
       read: vi.fn(() => ({
         bufferStartCursor: 0,
+        hasMore: false,
         nextCursor: 5,
         output: 'ready',
         requestedCursor: 0,

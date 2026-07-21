@@ -24,6 +24,7 @@ import { resolveShellInvocation } from './execute-command-tool';
 const logger = createLogger('CommandSessionManager');
 
 const DEFAULT_BUFFER_CHARS = 2 * 1024 * 1024;
+export const COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS = 32_768;
 const DEFAULT_EXITED_RETENTION = 25;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -90,6 +91,8 @@ export interface StartCommandSessionInput {
 export interface CommandSessionRead {
   /** Absolute cursor of the first currently retained code unit. */
   readonly bufferStartCursor: number;
+  /** True when retained output remains after this page. */
+  readonly hasMore: boolean;
   /** Cursor to pass to the next read. */
   readonly nextCursor: number;
   readonly output: string;
@@ -144,7 +147,12 @@ export interface CommandSessionManager {
   disposeRoot: (rootId: string) => Promise<number>;
   get: (rootId: string, sessionId: string) => CommandSessionInfo;
   list: (rootId: string) => readonly CommandSessionInfo[];
-  read: (rootId: string, sessionId: string, cursor?: number) => CommandSessionRead;
+  read: (
+    rootId: string,
+    sessionId: string,
+    cursor?: number,
+    maxUtf16CodeUnits?: number
+  ) => CommandSessionRead;
   remove: (rootId: string, sessionId: string) => Promise<void>;
   start: (input: StartCommandSessionInput) => Promise<RunningCommandSession>;
   stop: (rootId: string, sessionId: string) => Promise<void>;
@@ -446,8 +454,13 @@ export function createCommandSessionManager({
     evictOutputBufferOverflow(entry, overflow);
   }
 
-  function collectBufferedOutputChunks(entry: SessionEntry, offset: number): string[] {
+  function collectBufferedOutputChunks(
+    entry: SessionEntry,
+    offset: number,
+    maxUtf16CodeUnits: number
+  ): string[] {
     let remainingOffset = offset;
+    let remainingLength = Math.min(maxUtf16CodeUnits, entry.bufferLength - offset);
     const outputChunks: string[] = [];
     for (let index = entry.bufferHeadIndex; index < entry.bufferBlocks.length; index += 1) {
       const block = entry.bufferBlocks[index];
@@ -460,23 +473,32 @@ export function createCommandSessionManager({
         continue;
       }
       const readStartChar = block.startChar + remainingOffset;
+      const readLength = Math.min(block.endChar - readStartChar, remainingLength);
       const bytesPerChar = bytesPerOutputChar(block.encoding);
       outputChunks.push(
         block.data.toString(
           block.encoding,
           readStartChar * bytesPerChar,
-          block.endChar * bytesPerChar
+          (readStartChar + readLength) * bytesPerChar
         )
       );
       remainingOffset = 0;
+      remainingLength -= readLength;
+      if (remainingLength === 0) {
+        break;
+      }
     }
-    if (remainingOffset !== 0) {
+    if (remainingOffset !== 0 || remainingLength !== 0) {
       throw new TypeError('Command-session output buffer is shorter than its retained length.');
     }
     return outputChunks;
   }
 
-  function readBufferedOutput(entry: SessionEntry, offset: number): string {
+  function readBufferedOutput(
+    entry: SessionEntry,
+    offset: number,
+    maxUtf16CodeUnits: number
+  ): string {
     if (offset === entry.bufferLength) {
       return '';
     }
@@ -484,7 +506,7 @@ export function createCommandSessionManager({
       throw new TypeError('Command-session read offset is outside the retained output buffer.');
     }
 
-    const outputChunks = collectBufferedOutputChunks(entry, offset);
+    const outputChunks = collectBufferedOutputChunks(entry, offset, maxUtf16CodeUnits);
     if (outputChunks.length === 1) {
       return outputChunks[0] ?? '';
     }
@@ -675,12 +697,29 @@ export function createCommandSessionManager({
     return publicInfo(resolveOwned(rootId, sessionId).info);
   }
 
-  function read(rootId: string, sessionId: string, cursor?: number): CommandSessionRead {
+  function read(
+    rootId: string,
+    sessionId: string,
+    cursor?: number,
+    configuredMaxUtf16CodeUnits?: number
+  ): CommandSessionRead {
     const entry = resolveOwned(rootId, sessionId);
+    const maxUtf16CodeUnits = positiveInteger(
+      configuredMaxUtf16CodeUnits,
+      COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
+      'maxUtf16CodeUnits'
+    );
+    if (maxUtf16CodeUnits < 2) {
+      throw new CommandSessionError(
+        'invalid-input',
+        'maxUtf16CodeUnits must be at least 2 to preserve surrogate pairs.'
+      );
+    }
     const requestedCursor = cursor ?? entry.bufferStartCursor;
     if (requestedCursor === -1) {
       return {
         bufferStartCursor: entry.bufferStartCursor,
+        hasMore: false,
         nextCursor: entry.outputCursor,
         output: '',
         requestedCursor,
@@ -701,10 +740,22 @@ export function createCommandSessionManager({
     }
     const truncatedBeforeCursor = requestedCursor < entry.bufferStartCursor;
     const replayCursor = Math.max(requestedCursor, entry.bufferStartCursor);
+    const retainedOffset = replayCursor - entry.bufferStartCursor;
+    let output = readBufferedOutput(entry, retainedOffset, maxUtf16CodeUnits);
+    if (
+      replayCursor + output.length < entry.outputCursor &&
+      output.length > 0 &&
+      output.charCodeAt(output.length - 1) >= 0xd8_00 &&
+      output.charCodeAt(output.length - 1) <= 0xdb_ff
+    ) {
+      output = output.slice(0, -1);
+    }
+    const nextCursor = replayCursor + output.length;
     return {
       bufferStartCursor: entry.bufferStartCursor,
-      nextCursor: entry.outputCursor,
-      output: readBufferedOutput(entry, replayCursor - entry.bufferStartCursor),
+      hasMore: nextCursor < entry.outputCursor,
+      nextCursor,
+      output,
       requestedCursor,
       truncatedBeforeCursor,
     };

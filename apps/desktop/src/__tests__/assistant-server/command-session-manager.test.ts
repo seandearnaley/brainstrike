@@ -150,6 +150,7 @@ describe('command session manager', () => {
     const first = manager.read('root-a', session.id);
     expect(first).toEqual({
       bufferStartCursor: 0,
+      hasMore: false,
       nextCursor: 3,
       output: 'abc',
       requestedCursor: 0,
@@ -286,12 +287,73 @@ describe('command session manager', () => {
       for (let index = 0; index < maxBufferChars; index += 1) {
         process?.emitData('\uE000');
       }
-      expect(manager.read('root-a', session.id).output).toHaveLength(maxBufferChars);
+      expect(manager.read('root-a', session.id, undefined, maxBufferChars).output).toHaveLength(
+        maxBufferChars
+      );
     } finally {
       joinSpy.mockRestore();
     }
 
     expect(retainedBlockCounts).toEqual([3]);
+    await manager.dispose();
+  });
+
+  it('decodes only one bounded page from a near-cap retained buffer', async () => {
+    const maxBufferChars = 2 * 1024 * 1024;
+    const pageChars = 32_768;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+
+    process?.emitData('x'.repeat(maxBufferChars));
+    const originalToString = Buffer.prototype.toString;
+    const decodedByteLengths: number[] = [];
+    const toStringSpy = vi.spyOn(Buffer.prototype, 'toString').mockImplementation(function (
+      this: Buffer,
+      encoding?: BufferEncoding,
+      start?: number,
+      end?: number
+    ) {
+      if (encoding === 'latin1' && start !== undefined && end !== undefined) {
+        decodedByteLengths.push(end - start);
+      }
+      return originalToString.call(this, encoding, start, end);
+    });
+
+    let page: ReturnType<typeof manager.read>;
+    try {
+      page = manager.read('root-a', session.id, 0, pageChars);
+    } finally {
+      toStringSpy.mockRestore();
+    }
+
+    expect(page).toMatchObject({
+      hasMore: true,
+      nextCursor: pageChars,
+      output: 'x'.repeat(pageChars),
+      requestedCursor: 0,
+    });
+    expect(decodedByteLengths.reduce((total, length) => total + length, 0)).toBe(pageChars);
+    await manager.dispose();
+  });
+
+  it('backs a page cursor off a high surrogate without dropping the pair', async () => {
+    const pageChars = 8;
+    const manager = createManager({ maxBufferChars: 32 });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const prefix = 'a'.repeat(pageChars - 1);
+    const pairAndTail = '\uD83D\uDE80tail';
+
+    process?.emitData(`${prefix}${pairAndTail}`);
+
+    const first = manager.read('root-a', session.id, 0, pageChars);
+    expect(first).toMatchObject({ hasMore: true, nextCursor: pageChars - 1, output: prefix });
+    expect(manager.read('root-a', session.id, first.nextCursor, pageChars)).toMatchObject({
+      hasMore: false,
+      nextCursor: prefix.length + pairAndTail.length,
+      output: pairAndTail,
+    });
     await manager.dispose();
   });
 
@@ -315,7 +377,9 @@ describe('command session manager', () => {
     }
 
     expect(allocatedBlockBytes).toEqual([16_384, 16_384, 16_384]);
-    expect(manager.read('root-a', session.id).output).toBe('x'.repeat(maxBufferChars));
+    expect(manager.read('root-a', session.id, undefined, maxBufferChars).output).toBe(
+      'x'.repeat(maxBufferChars)
+    );
     await manager.dispose();
   });
 

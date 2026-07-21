@@ -1,14 +1,15 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import {
+  COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   CommandSessionError,
   type CommandSessionErrorCode,
   type CommandSessionInfo,
   type CommandSessionManager,
+  type CommandSessionRead,
   getDesktopCommandSessionManager,
 } from './assistant-server/command-session-manager';
 
 const logger = createLogger('CommandSessionIpc');
-const MAX_READ_CHARS = 32_768;
 
 export type CommandSessionIpcResult<T = void> =
   | (T extends void ? { readonly ok: true } : { readonly ok: true; readonly value: T })
@@ -84,16 +85,16 @@ function failure(error: unknown): CommandSessionIpcResult<never> {
   };
 }
 
-function sliceOutput(output: string): string {
-  if (output.length <= MAX_READ_CHARS) {
-    return output;
+function assertBoundedReadPage(read: CommandSessionRead): void {
+  if (read.output.length > COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS) {
+    throw new TypeError('Command-session manager returned an oversized IPC page.');
   }
-  const page = output.slice(0, MAX_READ_CHARS);
-  const finalCodeUnit = page.charCodeAt(page.length - 1);
-  if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
-    return page.slice(0, -1);
+  if (read.hasMore && read.output.length > 0) {
+    const finalCodeUnit = read.output.charCodeAt(read.output.length - 1);
+    if (finalCodeUnit >= 0xd8_00 && finalCodeUnit <= 0xdb_ff) {
+      throw new TypeError('Command-session manager split a surrogate pair across IPC pages.');
+    }
   }
-  return page;
 }
 
 export function createCommandSessionIpcHandlers({
@@ -115,18 +116,17 @@ export function createCommandSessionIpcHandlers({
 
   function read(params: CommandSessionReadParams): CommandSessionIpcResult<CommandSessionReadPage> {
     try {
-      const readResult = manager.read(params?.rootId, params?.sessionId, params?.cursor);
-      const output = sliceOutput(readResult.output);
-      const replayCursor = Math.max(readResult.requestedCursor, readResult.bufferStartCursor);
-      const nextCursor =
-        readResult.requestedCursor === -1 ? readResult.nextCursor : replayCursor + output.length;
+      const readResult = manager.read(
+        params?.rootId,
+        params?.sessionId,
+        params?.cursor,
+        COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS
+      );
+      assertBoundedReadPage(readResult);
       return {
         ok: true,
         value: {
           ...readResult,
-          hasMore: nextCursor < readResult.nextCursor,
-          nextCursor,
-          output,
           session: manager.get(params.rootId, params.sessionId),
         },
       };

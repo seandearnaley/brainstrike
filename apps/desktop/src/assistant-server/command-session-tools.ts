@@ -4,6 +4,7 @@ import type {
   RuntimeData,
 } from '@brainstrike/agent';
 import {
+  COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   type CommandSessionInfo,
   type CommandSessionManager,
   type CommandSessionRead,
@@ -46,7 +47,12 @@ export function runInspectCommandSessions(
   if (input.operation.action === 'list') {
     return { rootId, sessions: manager.list(rootId) };
   }
-  const read = manager.read(rootId, input.operation.sessionId, input.operation.cursor);
+  const read = manager.read(
+    rootId,
+    input.operation.sessionId,
+    input.operation.cursor,
+    COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS
+  );
   return { ...read, session: manager.get(rootId, input.operation.sessionId) };
 }
 
