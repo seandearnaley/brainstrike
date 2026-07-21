@@ -1,6 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  CommandSessionBridge,
+  CommandSessionInfo,
+  CommandSessionReadPage,
+  CommandSessionResult,
+} from '../terminal-panel/command-session-bridge';
+import { CommandSessionInventory } from '../terminal-panel/command-session-inventory';
 import type {
   TerminalBridge,
   TerminalDataEvent,
@@ -146,6 +154,60 @@ function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   return full;
 }
 
+function installCommandSessionBridge(
+  bridge: Partial<CommandSessionBridge> = {}
+): CommandSessionBridge {
+  const full: CommandSessionBridge = {
+    list: vi.fn(
+      async (): Promise<
+        CommandSessionResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
+      > => ({
+        ok: true,
+        value: {
+          rootId: 'root-1',
+          sessions: [
+            {
+              createdAt: 1,
+              cwd: '/abs/repo/apps/web',
+              id: 'command-session-1234567890',
+              pid: 314,
+              rootId: 'root-1',
+              status: 'running',
+            },
+          ],
+        },
+      })
+    ),
+    read: vi.fn(
+      async (): Promise<CommandSessionResult<CommandSessionReadPage>> => ({
+        ok: true,
+        value: {
+          bufferStartCursor: 0,
+          hasMore: false,
+          nextCursor: 12,
+          output: 'server ready\n',
+          requestedCursor: 0,
+          session: {
+            createdAt: 1,
+            cwd: '/abs/repo/apps/web',
+            id: 'command-session-1234567890',
+            pid: 314,
+            rootId: 'root-1',
+            status: 'running',
+          },
+          truncatedBeforeCursor: false,
+        },
+      })
+    ),
+    remove: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
+    stop: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
+    write: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
+    ...bridge,
+  };
+  (window as unknown as { commandSessions?: CommandSessionBridge }).commandSessions = full;
+  return full;
+}
+
 describe('TerminalPanel', () => {
   beforeEach(() => {
     mockRoot.handle = {
@@ -177,6 +239,10 @@ describe('TerminalPanel', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(window as unknown as { terminal?: TerminalBridge }, 'terminal');
+    Reflect.deleteProperty(
+      window as unknown as { commandSessions?: CommandSessionBridge },
+      'commandSessions'
+    );
     vi.clearAllMocks();
   });
 
@@ -396,5 +462,226 @@ describe('TerminalPanel', () => {
     render(<TerminalPanel />);
 
     expect(await screen.findByTestId('terminal-panel-no-root')).toBeInTheDocument();
+  });
+
+  it('reattaches to an assistant command session and exposes its bounded output', async () => {
+    installBridge();
+    const commandSessions = installCommandSessionBridge();
+    const user = userEvent.setup();
+    render(<TerminalPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+
+    expect(await screen.findByText('server ready')).toBeInTheDocument();
+    expect(screen.getByText(/command-session-1234567890/)).toBeInTheDocument();
+    expect(screen.getByText(/PID 314/)).toBeInTheDocument();
+    expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' });
+    expect(commandSessions.read).toHaveBeenCalledWith({
+      rootId: 'root-1',
+      sessionId: 'command-session-1234567890',
+    });
+  });
+
+  it('does not duplicate retained output when React replays mount effects', async () => {
+    installCommandSessionBridge();
+    render(
+      <StrictMode>
+        <CommandSessionInventory rootId="root-1" />
+      </StrictMode>
+    );
+
+    const output = await screen.findByRole('log', { name: 'Command session output' });
+    await waitFor(() => expect(output).toHaveTextContent('server ready'));
+    expect(output.textContent?.match(/server ready/g)).toHaveLength(1);
+  });
+
+  it('starts from the retained-output cursor when refresh selects a replacement session', async () => {
+    const replacement: CommandSessionInfo = {
+      createdAt: 2,
+      cwd: '/abs/repo/apps/desktop',
+      id: 'command-session-replacement',
+      pid: 2718,
+      rootId: 'root-1',
+      status: 'running',
+    };
+    const commandSessions = installCommandSessionBridge();
+    vi.mocked(commandSessions.list)
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          rootId: 'root-1',
+          sessions: [
+            {
+              createdAt: 1,
+              cwd: '/abs/repo/apps/web',
+              id: 'command-session-1234567890',
+              pid: 314,
+              rootId: 'root-1',
+              status: 'running',
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { rootId: 'root-1', sessions: [replacement] },
+      });
+    vi.mocked(commandSessions.read).mockResolvedValueOnce({
+      ok: true,
+      value: {
+        bufferStartCursor: 0,
+        hasMore: false,
+        nextCursor: 12,
+        output: 'server ready\n',
+        requestedCursor: 0,
+        session: {
+          createdAt: 1,
+          cwd: '/abs/repo/apps/web',
+          id: 'command-session-1234567890',
+          pid: 314,
+          rootId: 'root-1',
+          status: 'running',
+        },
+        truncatedBeforeCursor: false,
+      },
+    });
+    vi.mocked(commandSessions.read).mockResolvedValueOnce({
+      ok: true,
+      value: {
+        bufferStartCursor: 0,
+        hasMore: false,
+        nextCursor: 18,
+        output: 'replacement ready\n',
+        requestedCursor: 0,
+        session: replacement,
+        truncatedBeforeCursor: false,
+      },
+    });
+    const user = userEvent.setup();
+    render(<CommandSessionInventory rootId="root-1" />);
+    await screen.findByText('server ready');
+
+    await user.click(screen.getByRole('button', { name: 'Refresh command sessions' }));
+
+    expect(await screen.findByText('replacement ready')).toBeInTheDocument();
+    expect(commandSessions.read).toHaveBeenLastCalledWith({
+      rootId: 'root-1',
+      sessionId: 'command-session-replacement',
+    });
+  });
+
+  it('discards a late read after the selected command session changes', async () => {
+    const firstSession: CommandSessionInfo = {
+      createdAt: 1,
+      cwd: '/abs/repo/apps/web',
+      id: 'command-session-first',
+      pid: 314,
+      rootId: 'root-1',
+      status: 'running',
+    };
+    const secondSession: CommandSessionInfo = {
+      createdAt: 2,
+      cwd: '/abs/repo/apps/desktop',
+      id: 'command-session-second',
+      pid: 2718,
+      rootId: 'root-1',
+      status: 'running',
+    };
+    let resolveFirstRead:
+      | ((value: CommandSessionResult<CommandSessionReadPage>) => void)
+      | undefined;
+    const firstRead = new Promise<CommandSessionResult<CommandSessionReadPage>>((resolve) => {
+      resolveFirstRead = resolve;
+    });
+    const commandSessions = installCommandSessionBridge({
+      list: vi.fn(
+        async (): Promise<
+          CommandSessionResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
+        > => ({
+          ok: true,
+          value: { rootId: 'root-1', sessions: [firstSession, secondSession] },
+        })
+      ),
+      read: vi.fn(
+        async ({
+          sessionId,
+        }: {
+          readonly cursor?: number;
+          readonly rootId: string;
+          readonly sessionId: string;
+        }): Promise<CommandSessionResult<CommandSessionReadPage>> => {
+          if (sessionId === firstSession.id) {
+            return firstRead;
+          }
+          return {
+            ok: true,
+            value: {
+              bufferStartCursor: 0,
+              hasMore: false,
+              nextCursor: 13,
+              output: 'second ready\n',
+              requestedCursor: 0,
+              session: secondSession,
+              truncatedBeforeCursor: false,
+            },
+          };
+        }
+      ),
+    });
+    const user = userEvent.setup();
+    render(<CommandSessionInventory rootId="root-1" />);
+
+    await waitFor(() =>
+      expect(commandSessions.read).toHaveBeenCalledWith({
+        rootId: 'root-1',
+        sessionId: firstSession.id,
+      })
+    );
+    await user.click(screen.getByRole('button', { name: /desktop/i }));
+    expect(await screen.findByText('second ready')).toBeInTheDocument();
+
+    resolveFirstRead?.({
+      ok: true,
+      value: {
+        bufferStartCursor: 0,
+        hasMore: false,
+        nextCursor: 11,
+        output: 'stale first\n',
+        requestedCursor: 0,
+        session: firstSession,
+        truncatedBeforeCursor: false,
+      },
+    });
+
+    await waitFor(() => expect(screen.queryByText('stale first')).not.toBeInTheDocument());
+    expect(screen.getByText('second ready')).toBeInTheDocument();
+  });
+
+  it('stops, writes to, and removes the selected command session', async () => {
+    installBridge();
+    const commandSessions = installCommandSessionBridge();
+    const user = userEvent.setup();
+    render(<TerminalPanel />);
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+    await screen.findByText('server ready');
+
+    await user.type(screen.getByRole('textbox', { name: 'Command session input' }), 'y');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(commandSessions.write).toHaveBeenCalledWith({
+      data: 'y\n',
+      rootId: 'root-1',
+      sessionId: 'command-session-1234567890',
+    });
+    expect(commandSessions.stop).toHaveBeenCalledWith({
+      rootId: 'root-1',
+      sessionId: 'command-session-1234567890',
+    });
+    expect(commandSessions.remove).toHaveBeenCalledWith({
+      rootId: 'root-1',
+      sessionId: 'command-session-1234567890',
+    });
   });
 });

@@ -1,7 +1,9 @@
 import { Button } from '@brainstrike/ui';
-import { RotateCw, TerminalSquare } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { Bot, RotateCw, TerminalSquare } from 'lucide-react';
+import { type ReactElement, useMemo, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
+import { isCommandSessionBridgeAvailable } from './command-session-bridge';
+import { CommandSessionInventory } from './command-session-inventory';
 import { useActiveRootId } from './use-active-root-id';
 import { useTerminalSession } from './use-terminal-session';
 
@@ -20,26 +22,18 @@ import { useTerminalSession } from './use-terminal-session';
  * session keeps running (it is pinned to its cwd); switching the active root
  * starts a fresh session for the newly focused root.
  */
-export function TerminalPanel(): ReactElement {
-  const activeRootId = useActiveRootId();
-  const { containerRef, restart, state } = useTerminalSession(activeRootId);
+interface HumanTerminalProps {
+  readonly activeRootId: string;
+}
 
-  if (!activeRootId) {
-    return (
-      <div
-        className="flex h-full items-center justify-center bg-background p-6 text-center text-muted-foreground text-sm"
-        data-testid="terminal-panel-no-root"
-      >
-        Open a workspace folder to run a shell in it.
-      </div>
-    );
-  }
+function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
+  const { containerRef, restart, state } = useTerminalSession(activeRootId);
 
   const isExited = state.kind === 'exited';
   const isError = state.kind === 'error';
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="terminal-panel">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex items-center justify-between gap-2 border-border border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <TerminalSquare aria-hidden="true" className="shrink-0 text-muted-foreground" />
@@ -99,6 +93,61 @@ export function TerminalPanel(): ReactElement {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+export function TerminalPanel(): ReactElement {
+  const activeRootId = useActiveRootId();
+  const commandSessionsAvailable = useMemo(() => isCommandSessionBridgeAvailable(), []);
+  const [surface, setSurface] = useState<'command-sessions' | 'shell'>('shell');
+
+  if (!activeRootId) {
+    return (
+      <div
+        className="flex h-full items-center justify-center bg-background p-6 text-center text-muted-foreground text-sm"
+        data-testid="terminal-panel-no-root"
+      >
+        Open a workspace folder to run a shell in it.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="terminal-panel">
+      {commandSessionsAvailable ? (
+        <nav
+          aria-label="Terminal surfaces"
+          className="flex gap-1 border-border border-b px-2 py-1.5"
+        >
+          <Button
+            aria-current={surface === 'shell' ? 'page' : undefined}
+            onClick={() => setSurface('shell')}
+            size="sm"
+            type="button"
+            variant={surface === 'shell' ? 'secondary' : 'ghost'}
+          >
+            <TerminalSquare aria-hidden="true" className="mr-1" /> Shell
+          </Button>
+          <Button
+            aria-current={surface === 'command-sessions' ? 'page' : undefined}
+            onClick={() => setSurface('command-sessions')}
+            size="sm"
+            type="button"
+            variant={surface === 'command-sessions' ? 'secondary' : 'ghost'}
+          >
+            <Bot aria-hidden="true" className="mr-1" /> Command sessions
+          </Button>
+        </nav>
+      ) : null}
+      <div className="min-h-0 flex-1" hidden={surface !== 'shell'}>
+        <HumanTerminal activeRootId={activeRootId} />
+      </div>
+      {commandSessionsAvailable ? (
+        <div className="min-h-0 flex-1" hidden={surface !== 'command-sessions'}>
+          <CommandSessionInventory key={activeRootId} rootId={activeRootId} />
+        </div>
+      ) : null}
     </div>
   );
 }

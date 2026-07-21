@@ -842,4 +842,16 @@ no deferred-discovery path and would otherwise pay both schemas eagerly.
 Desktop registers the capability; Web has no desktop registry, uses the explicit
 `WEB_NATIVE_TOOL_IDS` UI/request partition, and therefore exposes neither tool.
 
+The desktop Terminal surface exposes those process-owned sessions through the
+capability-gated `window.commandSessions` bridge. Its list/read/write/stop/remove
+operations always include the durable workspace root id; the manager rejects a
+session owned by another root with the same not-found error. Reads are paged at
+32,768 UTF-16 code units with an advancing absolute cursor, explicit `hasMore`,
+and the manager's gap/truncation signal. The renderer retains at most 128 KiB of
+visible output. This bridge does not add a second process registry, persist the
+command/cwd/environment/output, or exist on Web. Because the manager lives in
+Electron main, the inventory reattaches after a renderer reload while normal
+shutdown, factory reset, and root removal still reap it through the existing
+lifecycle.
+
 ---
