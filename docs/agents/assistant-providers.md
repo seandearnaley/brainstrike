@@ -847,7 +847,11 @@ capability-gated `window.commandSessions` bridge. Its list/read/write/stop/remov
 operations always include the durable workspace root id; the manager rejects a
 session owned by another root with the same not-found error. Reads are paged at
 32,768 UTF-16 code units with an advancing absolute cursor, explicit `hasMore`,
-and the manager's gap/truncation signal. The renderer retains at most 128 KiB of
+and the manager's gap/truncation signal. The manager applies that limit while
+decoding retained blocks, before joining the page, and never splits a surrogate
+pair. IPC retains a fail-loud 32,768-unit assertion; it never materializes and
+then silently trims a larger manager result. The same manager-side page bound
+applies to the model inspection tool. The renderer retains at most 128 KiB of
 visible output. This bridge does not add a second process registry, persist the
 command/cwd/environment/output, or exist on Web. Because the manager lives in
 Electron main, the inventory reattaches after a renderer reload while normal

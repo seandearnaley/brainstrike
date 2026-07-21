@@ -22,8 +22,9 @@ function createManager(): CommandSessionManager {
     ]),
     read: vi.fn(() => ({
       bufferStartCursor: 0,
-      nextCursor: 80_000,
-      output: `${'a'.repeat(32_768)}${'b'.repeat(47_232)}`,
+      hasMore: true,
+      nextCursor: 32_768,
+      output: 'a'.repeat(32_768),
       requestedCursor: 0,
       truncatedBeforeCursor: false,
     })),
@@ -61,12 +62,35 @@ describe('command session IPC handlers', () => {
       }),
     });
     expect(JSON.stringify(result).length).toBeLessThan(34_000);
+    expect(manager.read).toHaveBeenCalledWith('root-1', 'session-1', 0, 32_768);
+  });
+
+  it('fails loudly when the manager violates the IPC page ceiling', () => {
+    const manager = createManager();
+    vi.mocked(manager.read).mockReturnValueOnce({
+      bufferStartCursor: 0,
+      hasMore: false,
+      nextCursor: 32_769,
+      output: 'x'.repeat(32_769),
+      requestedCursor: 0,
+      truncatedBeforeCursor: false,
+    });
+    const handlers = createCommandSessionIpcHandlers({ manager });
+
+    expect(handlers.read({ cursor: 0, rootId: 'root-1', sessionId: 'session-1' })).toEqual({
+      error: {
+        code: 'internal',
+        message: 'Command-session manager returned an oversized IPC page.',
+      },
+      ok: false,
+    });
   });
 
   it('preserves the manager live-tail cursor', () => {
     const manager = createManager();
     vi.mocked(manager.read).mockReturnValueOnce({
       bufferStartCursor: 10,
+      hasMore: false,
       nextCursor: 90,
       output: '',
       requestedCursor: -1,

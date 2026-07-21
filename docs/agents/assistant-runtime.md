@@ -302,7 +302,10 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   requested retained suffix. Oversized events copy their retained suffix so a
   V8 sliced string cannot pin the discarded parent.
   Reads use absolute cursors; `-1` attaches at the live tail without replay.
-  An evicted cursor returns the retained tail with explicit
+  The manager applies the requested UTF-16 page limit while decoding retained
+  blocks, before joining the page, and backs the page cursor off a high
+  surrogate rather than splitting a pair. An evicted cursor returns the
+  retained page with explicit `hasMore`,
   `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced
   output throws. This mirrors OpenCode's bounded absolute-cursor replay shape
   and prevents duplicate polling output.
