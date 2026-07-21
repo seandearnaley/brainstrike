@@ -14,8 +14,11 @@ protocol; their charters in charters/ are the deployed source of truth.
   open PRs under your name → repository HEAD → your Linear state issue
   (`[automation-state] <Name>`, label `night-shift`) → nothing.
 - State checkpoints are APPEND-ONLY comments on your state issue:
-  `<UTC-ISO> | watermark=<sha> | status=<NOOP|PR|BLOCKED> | <one line>`.
+  `<UTC-ISO> | watermark=<sha> | status=<NOOP|PR|READY|INCOMPLETE|BLOCKED> | <one line>`.
   Never edit the issue description or prior comments.
+  PR = opened or still stewarding an open PR; READY = that PR is stable and
+  ready to merge (see PR stewardship); INCOMPLETE = budget or cycle cap hit,
+  the one-line message states the exact next action.
 - Watermark discipline. Every loop records what it last processed and, at
   wake, does the cheapest check that proves there is nothing new before doing
   real work. The watermark's SHAPE depends on where your work comes from:
@@ -63,10 +66,10 @@ costs the human triage time and poisons trust in every other loop's PRs.
   do not churn retries against an external failure.
 - Repeat the reconcile after every push. The PR is stable only when, for
   one HEAD simultaneously: required checks green, every thread replied AND
-  resolved, working tree clean. Then checkpoint READY TO MERGE and hand
+  resolved, working tree clean. Then checkpoint `status=READY` and hand
   off. Cap of six fix/push cycles per run; on hitting it, checkpoint
-  INCOMPLETE with the exact next action.
-- READY TO MERGE is per-HEAD, not permanent: new review activity or a new
+  `status=INCOMPLETE` with the exact next action.
+- `status=READY` is per-HEAD, not permanent: new review activity or a new
   HEAD reopens stewardship at your next wake. The one-PR rule already
   blocks new work while your PR is open; stewardship is what you do with
   that time.
