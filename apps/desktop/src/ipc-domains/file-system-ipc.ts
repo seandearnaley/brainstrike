@@ -7,6 +7,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
+import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
   markRootDisconnectedByPath,
@@ -22,6 +23,7 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface RegisterFileSystemIpcHandlersOptions {
+  readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
   readonly fileSystem: ElectronFileSystemAdapter;
   /**
    * Main-process DB accessor for the roots status transition on disconnect
@@ -320,6 +322,7 @@ function toFileReadErrorPayload(error: unknown, filePath: string): FileReadError
 }
 
 export function registerFileSystemIpcHandlers({
+  disposeCommandSessionsForRoot = disposeDesktopCommandSessionsForRoot,
   fileSystem,
   getRootsDatabase,
   storage,
@@ -670,6 +673,14 @@ export function registerFileSystemIpcHandlers({
       // linger. Non-fatal — a stray server would otherwise idle until quit.
       await evictLspServersForRoot(rootId).catch((error: unknown) => {
         logger.debug('removeRoot: LSP server eviction failed (non-fatal)', { error, rootId });
+      });
+
+      // A command session is owned by the workspace root, not by a renderer.
+      // Disconnecting that root therefore ends and forgets every session before
+      // the UI can move on. Failure is visible, but does not roll back the DB +
+      // rootsList transition that has already committed.
+      await disposeCommandSessionsForRoot(rootId).catch((error: unknown) => {
+        logger.warn('removeRoot: command session disposal failed', { error, rootId });
       });
 
       // Keep the dual stores coherent: clear lastFolderPath only when it points

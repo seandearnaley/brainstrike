@@ -19,6 +19,10 @@ import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
+import {
+  configureDesktopCommandSessionManager,
+  disposeDesktopCommandSessions,
+} from './assistant-server/command-session-manager';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
@@ -461,6 +465,7 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
 const removeLogBufferListener = addLogListener((record) => {
@@ -763,6 +768,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         disposeLiveChildProcesses();
         // Reap any live terminal pty so no interactive shell survives the app.
         disposeAllTerminals();
+        // Reap workspace-owned persistent command sessions before the assistant
+        // host and database are torn down.
+        await disposeDesktopCommandSessions();
         // Reap any pooled LSP language servers (report R2) so no orphaned
         // server process survives the app quit.
         await disposeLspServers();
@@ -983,6 +991,12 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         disposeAllTerminals();
         return Promise.resolve();
       },
+    },
+    // Reap persistent assistant command sessions and clear retained output so
+    // reset leaves no process or in-memory session inventory behind.
+    {
+      name: 'command-sessions',
+      stop: disposeDesktopCommandSessions,
     },
     // Reap any pooled LSP language-server child processes (report R2) so a
     // factory reset is a true fresh start with no orphaned server surviving.
