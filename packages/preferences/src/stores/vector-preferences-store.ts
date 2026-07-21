@@ -1,5 +1,5 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type DevicePref = 'webgpu' | 'wasm';
@@ -52,7 +52,7 @@ function getElectronStorageBridge(): ElectronStorageBridge | null {
   return bridge;
 }
 
-function createVectorPreferencesStorage() {
+function createVectorPreferencesStorage(): StateStorage {
   const electronStorage = getElectronStorageBridge();
   if (electronStorage) {
     return {
@@ -63,6 +63,26 @@ function createVectorPreferencesStorage() {
   }
 
   return createBrowserJsonStorage();
+}
+
+/**
+ * Defer resolving the platform adapter until the first persistence operation.
+ * Production Web chunking can otherwise evaluate this store during a circular
+ * chunk import, causing `createJSONStorage` to swallow the construction error
+ * and omit Zustand's `persist` API entirely.
+ */
+function createLazyVectorPreferencesStorage(): StateStorage {
+  let resolvedStorage: StateStorage | null = null;
+  const getStorage = (): StateStorage => {
+    resolvedStorage ??= createVectorPreferencesStorage();
+    return resolvedStorage;
+  };
+
+  return {
+    getItem: (key: string) => getStorage().getItem(key),
+    removeItem: (key: string) => getStorage().removeItem(key),
+    setItem: (key: string, value: string) => getStorage().setItem(key, value),
+  };
 }
 
 function normalizePersistedVectorPreferences(
@@ -112,7 +132,7 @@ function installVectorPreferencesHydrationMarker(store: BoundVectorPreferencesSt
  * hidden hosts observe the same canonical settings as the visible UI.
  * Web/SSR/tests continue to use the safe browser storage adapter.
  */
-const storage = createJSONStorage(() => createVectorPreferencesStorage());
+const storage = createJSONStorage(() => createLazyVectorPreferencesStorage());
 
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
