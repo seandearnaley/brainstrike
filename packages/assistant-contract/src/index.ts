@@ -26,6 +26,7 @@ export * from './runtime-data.js';
 export * from './shell-output.js';
 export * from './skills.js';
 export * from './tool-approval.js';
+export * from './tool-discovery.js';
 export * from './tool-metadata.js';
 export * from './tool-output-artifact.js';
 export * from './tool-suspend.js';
