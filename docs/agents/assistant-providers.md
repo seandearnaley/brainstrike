@@ -786,6 +786,34 @@ example, trimming away its discovery result) throws the typed
 failure channels as `catalog-miss`, `permission-denied`, `host-unavailable`, and
 `unsupported-adapter`; adapters must not collapse them into an empty result.
 
+#### Provider-native decision (BST-614, 2026-07-21)
+
+Provider-native support is declarative, not live. The measured decision remains
+`mastra-catalog-search` for every hosted production route:
+
+- OpenAI GPT-5.4 Mini and GPT-5.6 Luna both reached native hosted search, then
+  failed on the second request because the AI SDK serialized the same stored
+  `tool_search_output` item reference twice. OpenAI rejected the request as a
+  duplicate item. The latest available OpenAI adapter source retained the same
+  branch, so a version bump is not an accepted fix without a captured-request
+  regression.
+- Anthropic Claude Sonnet 4.6 preserved deferred definitions, approval
+  suspension, execution, and approval resume. It missed the target tool from a
+  normal task prompt, however, and succeeded only when instructed to issue a
+  search query matching the tool description. That successful run had no
+  material token/cost advantage over the Mastra baseline.
+- The identical Mastra catalog scenario selected and executed the target on all
+  three models. Do not trade this quality floor for a smaller unsuccessful
+  request or a one-turn improvement that needs answer-specific prompting.
+
+There is no fallback between discovery adapters. A future provider-native slice
+must be selected explicitly and independently prove provider-history
+serialization, normal-prompt selection/miss quality, post-policy catalog
+admission, MCP/provider-web coexistence, approval suspension, durable restart
+resume, cache behavior, and non-inferior token/cost measurements. The complete
+evidence and live table are in
+`docs/agents/research/bst-614-native-tool-search-spike.md`.
+
 The live assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
 capability/permission eligibility → guards/hooks → plan/permission/suspend gates
 → provider-native web-search swap → output settlement/projection → skills
