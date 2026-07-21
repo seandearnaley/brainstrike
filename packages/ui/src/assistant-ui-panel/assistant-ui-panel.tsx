@@ -1172,6 +1172,8 @@ const ChatThreadUI = ({
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const messageCount = useAuiState((state) => state.thread.messages.length);
+  const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
+  const composerDisabled = isComposerDisabled || isHistoryLoading;
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
   const messagesRegionId = useId();
@@ -1316,9 +1318,9 @@ const ChatThreadUI = ({
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
         <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root
-          aria-disabled={isComposerDisabled}
+          aria-disabled={composerDisabled}
           className="aui-composer-root"
-          data-disabled={isComposerDisabled ? '' : undefined}
+          data-disabled={composerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
           {/* The composer input row, optionally wrapped in a shared
@@ -1332,7 +1334,7 @@ const ChatThreadUI = ({
               its preview + Remove button after a switch to a text-only model. */}
           {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
-            isComposerDisabled={isComposerDisabled}
+            isComposerDisabled={composerDisabled}
             queueControl={
               <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
             }
