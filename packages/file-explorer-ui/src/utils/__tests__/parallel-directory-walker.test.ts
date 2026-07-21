@@ -1,5 +1,6 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
 import { walkDirectoryParallel } from '../parallel-directory-walker';
 
@@ -119,6 +120,47 @@ describe('walkDirectoryParallel', () => {
     expect(tree).toEqual([
       expect.objectContaining({
         children: [expect.objectContaining({ name: 'index.ts' })],
+        name: 'src',
+      }),
+    ]);
+  });
+
+  it('prunes Python environments before balanced recursive reads', async () => {
+    const pythonDirectories = ['.venv', 'venv', '__pycache__'];
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/workspace/root') {
+        return [
+          ...pythonDirectories.map((name) => createDirectoryEntry(name, `/workspace/root/${name}`)),
+          createDirectoryEntry('env', '/workspace/root/env'),
+          createDirectoryEntry('src', '/workspace/root/src'),
+        ];
+      }
+      if (handle.path === '/workspace/root/env') {
+        return [createFileEntry('config.ts', '/workspace/root/env/config.ts')];
+      }
+      if (handle.path === '/workspace/root/src') {
+        return [createFileEntry('index.py', '/workspace/root/src/index.py')];
+      }
+      throw new Error(`Python environment should have been pruned: ${handle.path}`);
+    });
+
+    const tree = await walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {
+      entryPolicy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
+    });
+
+    expect(readDirectory).toHaveBeenCalledTimes(3);
+    for (const name of pythonDirectories) {
+      expect(readDirectory).not.toHaveBeenCalledWith(
+        expect.objectContaining({ path: `/workspace/root/${name}` })
+      );
+    }
+    expect(tree).toEqual([
+      expect.objectContaining({
+        children: [expect.objectContaining({ name: 'config.ts' })],
+        name: 'env',
+      }),
+      expect.objectContaining({
+        children: [expect.objectContaining({ name: 'index.py' })],
         name: 'src',
       }),
     ]);

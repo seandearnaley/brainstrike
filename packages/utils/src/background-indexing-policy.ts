@@ -38,14 +38,14 @@ export const DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE = 750 * 1024;
 export const BACKGROUND_INDEXING_POLICY_OPTIONS: readonly BackgroundIndexingPolicyOption[] = [
   {
     description:
-      'Indexes source, docs, and useful text files while skipping common generated, cache, lock, and minified artifacts.',
+      'Indexes source, docs, and useful text files while skipping common dependency, generated, cache, lock, and minified artifacts.',
     label: 'Balanced',
     recommended: true,
     value: 'balanced',
   },
   {
     description:
-      'Indexes every non-binary text file under the selected root except hard safety limits like oversized files.',
+      'Indexes broadly across the selected root, including Python virtual environments, while retaining hard safety limits like oversized files.',
     label: 'Full root',
     recommended: false,
     value: 'full-root',
@@ -62,6 +62,9 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.vercel',
   '.parcel-cache',
   '.vite',
+  '.venv',
+  'venv',
+  '__pycache__',
   'node_modules',
   'coverage',
   'dist',
