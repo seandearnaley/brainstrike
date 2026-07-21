@@ -37,7 +37,6 @@ export function useChainActivityDerivations(
   const toolDurations = useStableRecord(
     useMemo(() => collectToolDurations(messageParts), [messageParts])
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: messageId intentionally resets the stateful accumulator per message
   const accumulateShellOutputs = useMemo(() => createShellOutputAccumulator(), [messageId]);
   const shellOutputs = useMemo(
     () => accumulateShellOutputs(messageParts),

@@ -192,7 +192,6 @@ export function FileTreeProvider({
   // provider was the last registrant — see FileTreeIndexRegistry), so a
   // forest focus switch never wipes a sibling root's entries while a
   // single-root workspace switch still clears the departed folder.
-  // biome-ignore lint/plugin: intentional — index mutation must run after commit, not during render
   useEffect(() => {
     if (!currentRootIndexKey) {
       return;
