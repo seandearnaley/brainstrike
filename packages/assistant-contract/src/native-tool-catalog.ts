@@ -66,6 +66,12 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
   )
 );
 
+/** Native tool results that must never be retained by durable artifact settlement. */
+export const NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS: readonly DesktopNativeToolId[] = Object.freeze([
+  NATIVE_TOOL_ID.inspectCommandSessions,
+  NATIVE_TOOL_ID.manageCommandSession,
+]);
+
 export const SKILL_NATIVE_TOOL_IDS: readonly SkillNativeToolId[] = Object.freeze(
   Object.values(SKILL_NATIVE_TOOL_ID)
 );

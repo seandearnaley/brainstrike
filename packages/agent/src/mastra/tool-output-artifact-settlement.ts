@@ -1,3 +1,4 @@
+import { NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS } from '@brainstrike/assistant-contract';
 import {
   encodeToolOutputArtifactContent,
   encodeToolOutputArtifactCursor,
@@ -29,6 +30,9 @@ import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();
 const SETTLED_OUTPUTS = new WeakMap<object, SettledToolOutput>();
+const NON_DURABLE_TOOL_OUTPUT_NAMES: ReadonlySet<string> = new Set(
+  NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS
+);
 
 /** Results at or below this UTF-8 byte size remain inline. */
 export const TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES =
@@ -406,7 +410,7 @@ export function applyToolOutputArtifactSettlement(
       continue;
     }
     const toolName = options.toolNameMap.get(toolId) ?? toolId;
-    if (toolName === 'skill') {
+    if (toolName === 'skill' || NON_DURABLE_TOOL_OUTPUT_NAMES.has(toolName)) {
       settled[toolId] = tool;
       continue;
     }

@@ -917,7 +917,13 @@ tokens to the pre-session eager baseline. A single mixed-risk tool is forbidden 
 it would either hide harmless inspection behind execute approval or expose
 process control as read; top-level schema unions are forbidden because hosted
 providers require a root object. Plan mode keeps inspection and omits
-management. The built-in local provider gets neither definition because it has
+management. Inventory pages continue with `offset`, and PTY reads continue with
+the exact returned `nextCursor`; both raw result shapes stay below a 5,500-byte
+UTF-8 producer ceiling. Their canonical ids are also explicitly excluded from
+durable artifact settlement so a hook envelope cannot create a seven-day copy.
+Target-aware transcript transforms retain safe action, session, cursor, and
+length metadata but redact command strings, cwd, stdin, input deltas, and PTY
+output before persistence. The built-in local provider gets neither definition because it has
 no deferred-discovery path and would otherwise pay both schemas eagerly.
 Desktop registers the capability; Web has no desktop registry, uses the explicit
 `WEB_NATIVE_TOOL_IDS` UI/request partition, and therefore exposes neither tool.

@@ -53,3 +53,8 @@
 **Vulnerability:** The desktop hook loader read project-controlled hooks files fully into Electron main before checking their approval hash, allowing oversized or special files to exhaust or pin the main process even though their hooks were rejected.
 **Learning:** A post-read trust gate protects execution but cannot bound work already performed while acquiring the untrusted bytes, and every approval/load consumer must enforce the same bound.
 **Prevention:** Share one nonblocking, descriptor-owned reader across review and load paths; require a regular file within the byte cap and read only its initially observed size before hashing or parsing.
+
+## 2026-07-21 - Memory-only command sessions must stay out of durable tool history
+**Vulnerability:** Model-callable command-session tools inherited Mastra transcript and oversized-artifact persistence, so command strings, interactive stdin, cwd values, and PTY output could outlive the memory-only session.
+**Learning:** Keeping a process registry in memory is not sufficient when its tool inputs and results cross a framework-owned transcript or artifact seam.
+**Prevention:** Give sensitive session tools allowlisted transcript transforms, redact streamed input deltas, page raw results with source-owned continuation cursors, and explicitly exclude their canonical ids from durable artifact settlement.

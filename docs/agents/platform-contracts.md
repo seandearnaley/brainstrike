@@ -106,6 +106,11 @@ with `invalid-buffer`; it must never produce a retry-without-progress page.
 Never log or persist command text, cwd, environment, or retained output. Adding
 durable restart survival changes the privacy/reset contract and requires a new
 reviewed persistence design; it is not a transparent extension of this registry.
+The hosted native-tool bridge preserves that rule with transcript-only
+allowlist transforms, producer-owned list/output pages, and an explicit
+non-durable native-tool partition that artifact settlement must skip. Do not
+replace those pages with generic artifact settlement: that would create a
+seven-day copy of memory-only PTY data.
 
 ### Browser preference hydration
 

@@ -413,11 +413,11 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
   },
   'brainstrike.inspectCommandSessions': {
     description:
-      'Inspect persistent PTY sessions owned by one open workspace root. List returns compact state; read returns bounded output from an absolute cursor without exposing command text or environment.',
+      'Inspect persistent PTY sessions owned by one open workspace root. List and read are bounded pages; sensitive command-session input and output are redacted from durable history.',
     parameters: [
       {
         description:
-          'Exactly one operation: {action:"list"}, or {action:"read", sessionId, cursor?}.',
+          'Exactly one operation: {action:"list", offset?}, or {action:"read", sessionId, cursor?}.',
         name: 'operation',
         required: true,
         type: 'object',
@@ -430,7 +430,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'For list: compact running/exited session metadata. For read: output, nextCursor, retained buffer boundary, and explicit replay-gap state.',
+      'For list: a compact page with totalSessions and nextOffset when truncated. For read: bounded output, nextCursor, availableEndCursor, remaining count, retained buffer boundary, and explicit replay-gap state.',
     toolId: 'brainstrike.inspectCommandSessions',
   },
   'brainstrike.listEmbeddingSpaces': {

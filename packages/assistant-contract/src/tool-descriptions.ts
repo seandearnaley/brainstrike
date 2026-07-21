@@ -16,7 +16,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.hybridSearch]:
     'Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
   [NATIVE_TOOL_ID.inspectCommandSessions]:
-    'List persistent command sessions in one open workspace root, or read bounded incremental PTY output. Pass exactly one typed operation; use read cursor -1 to attach at the live tail without replay. Read-only and workspace-scoped; never reveals command text or environment',
+    'List persistent command sessions in one open workspace root, or read bounded incremental PTY output. Continue a truncated list with offset and output with nextCursor; use read cursor -1 to attach at the live tail without replay. Read-only and workspace-scoped; command text, stdin, cwd, and PTY output are redacted from durable history',
   [NATIVE_TOOL_ID.listEmbeddingSpaces]:
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   [NATIVE_TOOL_ID.listWorkspaceContext]:

@@ -56,6 +56,7 @@ describe('native tool catalog', () => {
     const desktopIds = readCanonicalIds('DESKTOP_NATIVE_TOOL_IDS');
     const skillIds = readCanonicalIds('SKILL_NATIVE_TOOL_IDS');
     const nativeIds = readCanonicalIds('NATIVE_TOOL_IDS');
+    const nonDurableOutputIds = readCanonicalIds('NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS');
     const webIds = readCanonicalIds('WEB_NATIVE_TOOL_IDS');
 
     expect(sorted(desktopIds)).toEqual(sorted(EXPECTED_DESKTOP_NATIVE_TOOL_IDS));
@@ -66,6 +67,10 @@ describe('native tool catalog', () => {
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
     expect(desktopIds).toHaveLength(26);
     expect(skillIds).toHaveLength(3);
+    expect(nonDurableOutputIds).toEqual([
+      'brainstrike.inspectCommandSessions',
+      'brainstrike.manageCommandSession',
+    ]);
     expect(webIds).toEqual(
       desktopIds.filter(
         (id) =>

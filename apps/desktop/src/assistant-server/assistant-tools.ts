@@ -73,7 +73,12 @@ import {
 } from '../secure-file-write';
 import { getWindowRole } from '../window-role';
 import type { CommandSessionManager } from './command-session-manager';
-import { runInspectCommandSessions, runManageCommandSession } from './command-session-tools';
+import {
+  INSPECT_COMMAND_SESSIONS_TRANSFORM,
+  MANAGE_COMMAND_SESSION_TRANSFORM,
+  runInspectCommandSessions,
+  runManageCommandSession,
+} from './command-session-tools';
 import {
   beforeStateToCapture,
   captureBeforeState,
@@ -3698,6 +3703,7 @@ export function buildDesktopAssistantTools(
             },
             id: NATIVE_TOOL_ID.inspectCommandSessions,
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
+            transform: INSPECT_COMMAND_SESSIONS_TRANSFORM,
           },
         }),
   };
@@ -3727,6 +3733,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.manageCommandSession,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
+      transform: MANAGE_COMMAND_SESSION_TRANSFORM,
     };
   }
 
