@@ -28,6 +28,17 @@ let mcpToolsets: Record<string, Record<string, { description: string; id: string
   },
 };
 let streamParts: unknown[] = [];
+let suspendedRuns: Array<{
+  runId: string;
+  suspendedAt: Date;
+  status: 'suspended';
+  toolCalls: Array<{
+    args: Record<string, unknown>;
+    requiresApproval: true;
+    toolCallId: string;
+    toolName: string;
+  }>;
+}> = [];
 
 function setMockStreamParts(parts: unknown[]) {
   streamParts = [...parts];
@@ -127,6 +138,10 @@ vi.mock('@mastra/core/agent', () => ({
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
       return createMockMastraOutput();
+    }
+
+    listSuspendedRuns() {
+      return Promise.resolve({ runs: suspendedRuns, total: suspendedRuns.length });
     }
 
     async resumeStream(resumeData: unknown, options: unknown) {
@@ -230,6 +245,47 @@ describe('mastra streaming integration', () => {
       },
     };
     setMockStreamParts([]);
+    suspendedRuns = [
+      {
+        runId: 'run-approval-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { path: 'src/index.ts' },
+            requiresApproval: true,
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        ],
+      },
+      {
+        runId: 'run-approval-2',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { command: 'echo declined' },
+            requiresApproval: true,
+            toolCallId: 'tool-call-2',
+            toolName: 'shell_tool',
+          },
+        ],
+      },
+      {
+        runId: 'run-approval-grant-all',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { path: 'src/index.ts' },
+            requiresApproval: true,
+            toolCallId: 'tool-call-grant-all',
+            toolName: 'workspace.writeFile',
+          },
+        ],
+      },
+    ];
   });
 
   it('yields streaming chunks by awaiting the Mastra fullStream promise', async () => {
@@ -2021,6 +2077,31 @@ describe('mastra streaming integration', () => {
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
+  });
+
+  it('fails visibly before approval when the suspended snapshot cannot restore tool arguments', async () => {
+    suspendedRuns = [];
+
+    await expectMastraAgentError(
+      streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: 'run-missing-snapshot',
+          toolCallId: 'tool-call-missing-snapshot',
+          toolName: 'workspace.writeFile',
+        },
+        {
+          requireToolApproval: true,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: { id: 'workflow-storage' } as never,
+        }
+      ),
+      'mastra_agent_stream_failure'
+    );
+
+    const agent = agentInstances.at(-1);
+    expect(agent?.approveToolCallCalls).toHaveLength(0);
+    expect(agent?.declineToolCallCalls).toHaveLength(0);
   });
 
   it('does NOT global-gate the approve resume when a policy allowed everything (empty ask set)', async () => {

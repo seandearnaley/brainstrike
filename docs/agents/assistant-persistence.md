@@ -24,7 +24,16 @@ contracts keep reloaded threads identical to live ones:
    Tool output uses a deliberate dual channel: Mastra persists
    `toolInvocation.result`, while `toModelOutput` supplies the bounded text or
    multimodal projection repeated into provider requests. Native tools keep the
-   raw domain result. PostToolUse context is model-only: hook execution uses a
+   raw domain result. Approval resumes seed the live stream from Mastra's exact
+   storage-backed suspended-tool snapshot before consuming resumed output. That
+   preserves the original `toolInvocation.args` when the resumed provider emits
+   only a terminal result; both the live completed card and this format-2 row
+   therefore hydrate with the same arguments. While the approval and resume
+   legs temporarily occupy separate assistant-ui messages, rendering correlates
+   their non-empty arguments by the unchanged `toolCallId`; a resumed live copy
+   exposing `{}` cannot replace the approved payload. Missing snapshot arguments
+   abort the decision before execution instead of persisting an invented empty object.
+   PostToolUse context is model-only: hook execution uses a
    discriminated internal carrier, `transform.display` unwraps it for the live
    UI, and `transform.transcript` unwraps it for storage. Mastra 1.51 attaches
    the correct transcript transform metadata but still hands its raw in-memory

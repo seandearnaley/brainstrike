@@ -479,7 +479,15 @@ Flow (desktop assistant server → agent runtime):
    `riskCategory`/`policyDecision` so the notice can name the reason. The
    data-stream mapper correlates Mastra's transient tool error emitted before a
    deliberate `suspend()` and suppresses only that call's false failure fallback;
-   unrelated tool failures remain visible. The
+   unrelated tool failures remain visible. Before either approval decision is
+   applied, the resume adapter reads Mastra's storage-backed
+   `listSuspendedRuns()` snapshot and exact-matches both `runId` and
+   `toolCallId`. That durable snapshot is the authority for the original tool
+   name and arguments. The resumed stream is seeded with that exact invocation
+   before terminal output is mapped, so live completed cards retain the same
+   arguments shown by the approval notice. A missing snapshot, tool name, or
+   argument payload fails visibly before approve/decline executes; never invent
+   `{}` or trust the client action as a fallback. The
    approve/decline resume (`streamMastraToolApprovalAction`) passes
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide

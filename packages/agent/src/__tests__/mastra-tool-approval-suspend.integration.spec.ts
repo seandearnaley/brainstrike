@@ -21,6 +21,7 @@ import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
+import { AssistantDataStreamSession } from '../stream/data-stream';
 import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
@@ -294,6 +295,16 @@ function makeAskTool(execute: (inputData: { command: string }) => Promise<{ ran:
   });
 }
 
+function makeFailingAskTool(execute: (inputData: { command: string }) => Promise<never>) {
+  return createTool({
+    description: 'An execute-risk tool gated to ask that fails after approval.',
+    execute,
+    id: 'shell_tool',
+    inputSchema: z.object({ command: z.string() }),
+    outputSchema: z.object({ ran: z.string() }),
+  });
+}
+
 function makeMemory(database: PGlite) {
   const options: PgliteMastraMemoryOptions = {
     database: database as unknown as PgliteDatabase,
@@ -326,6 +337,44 @@ async function drainYielding(iterator: AsyncIterable<StreamChunk>): Promise<Stre
     });
   }
   return chunks;
+}
+
+async function encodeChunks(chunks: StreamChunk[]): Promise<string> {
+  const session = new AssistantDataStreamSession(
+    {
+      async *[Symbol.asyncIterator]() {
+        yield* chunks;
+      },
+    },
+    () => {},
+    { messageId: 'resume-message', sessionId: 'resume-session' }
+  );
+  return await session.createResponse().text();
+}
+
+function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): unknown {
+  const parsed = typeof content === 'string' ? (JSON.parse(content) as unknown) : content;
+  if (!(parsed && typeof parsed === 'object')) {
+    return;
+  }
+  const parts = (parsed as { parts?: unknown }).parts;
+  if (!Array.isArray(parts)) {
+    return;
+  }
+  for (const part of parts) {
+    if (!(part && typeof part === 'object')) {
+      continue;
+    }
+    const invocation = (part as { toolInvocation?: unknown }).toolInvocation;
+    if (
+      invocation &&
+      typeof invocation === 'object' &&
+      (invocation as { toolCallId?: unknown }).toolCallId === toolCallId
+    ) {
+      return (invocation as { args?: unknown }).args;
+    }
+  }
+  return;
 }
 
 describe("'ask' suspends for approval and resumes (real @mastra/core/agent + real PGlite)", () => {
@@ -405,6 +454,26 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // The approved tool actually executed with the model's input.
     expect(askExecute).toHaveBeenCalledTimes(1);
     expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo approved' });
+    expect(resumeChunks).toContainEqual({
+      name: 'shell_tool',
+      payload: {
+        args: { command: 'echo approved' },
+        callId: 'call-ask-approve-1',
+        input: { command: 'echo approved' },
+        toolCallId: 'call-ask-approve-1',
+      },
+      status: 'start',
+      type: 'tool-event',
+    });
+    const resumeToolCallLines = (await encodeChunks(resumeChunks))
+      .split('\n')
+      .filter((line) => line.startsWith('9:'))
+      .map((line) => JSON.parse(line.slice(2)) as unknown);
+    expect(resumeToolCallLines).toContainEqual({
+      args: { command: 'echo approved' },
+      toolCallId: 'call-ask-approve-1',
+      toolName: 'shell_tool',
+    });
     const resumeRunEventKinds = resumeChunks
       .filter(
         (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
@@ -413,6 +482,101 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(resumeRunEventKinds).toContain('tool.completed');
     const resumeFinish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
     expect(resumeFinish).toBeDefined();
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    const persistedArgs = persisted.rows
+      .map((row) => readPersistedToolInvocationArgs(row.content, 'call-ask-approve-1'))
+      .filter((args) => args !== undefined);
+    expect(persistedArgs.length).toBeGreaterThan(0);
+    expect(persistedArgs).toEqual(persistedArgs.map(() => ({ command: 'echo approved' })));
+
+    await database.close();
+  });
+
+  it('preserves approved arguments in the wire and transcript when execution fails', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn(async (_inputData: { command: string }): Promise<never> => {
+      throw new Error('expected test failure');
+    });
+    const askTool = makeFailingAskTool(askExecute);
+    const thread = { resourceId: 'resource-approve-error', threadId: 'thread-approve-error' };
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Command failed.',
+      input: JSON.stringify({ command: 'echo approved error' }),
+      toolCallId: 'call-ask-approve-error',
+      toolName: 'shell_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-ap-error', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      )
+    );
+
+    expect(askExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'echo approved error' }),
+      expect.anything()
+    );
+    const resumeToolCallLines = (await encodeChunks(resumeChunks))
+      .split('\n')
+      .filter((line) => line.startsWith('9:'))
+      .map((line) => JSON.parse(line.slice(2)) as unknown);
+    expect(resumeToolCallLines).toContainEqual({
+      args: { command: 'echo approved error' },
+      toolCallId: 'call-ask-approve-error',
+      toolName: 'shell_tool',
+    });
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    const persistedArgs = persisted.rows
+      .map((row) => readPersistedToolInvocationArgs(row.content, 'call-ask-approve-error'))
+      .filter((args) => args !== undefined);
+    expect(persistedArgs.length).toBeGreaterThan(0);
+    expect(persistedArgs).toEqual(persistedArgs.map(() => ({ command: 'echo approved error' })));
 
     await database.close();
   });
@@ -746,6 +910,8 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       .map((chunk) => chunk.value)
       .join('');
     expect(declineText).toContain('will not run that');
+    const encodedDecline = await encodeChunks(resumeChunks);
+    expect(encodedDecline.split('\n').filter((line) => line.startsWith('b:'))).toEqual([]);
 
     await database.close();
   });

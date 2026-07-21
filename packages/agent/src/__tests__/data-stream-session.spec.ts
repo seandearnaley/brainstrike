@@ -1102,6 +1102,56 @@ describe('AssistantDataStreamSession', () => {
       expect(toolResult?.value).toHaveProperty('result');
     });
 
+    it('keeps trusted args when a duplicate tool start omits its input', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          name: 'approvedTool',
+          payload: {
+            args: { command: 'printf approved' },
+            callId: 'call_approved',
+            input: { command: 'printf approved' },
+            toolCallId: 'call_approved',
+          },
+          status: 'start',
+          type: 'tool-event',
+        },
+        {
+          name: 'approvedTool',
+          payload: {
+            args: {},
+            callId: 'call_approved',
+            input: {},
+            toolCallId: 'call_approved',
+          },
+          status: 'start',
+          type: 'tool-event',
+        },
+        {
+          name: 'approvedTool',
+          payload: {
+            callId: 'call_approved',
+            error: 'Tool failed',
+            toolCallId: 'call_approved',
+          },
+          status: 'error',
+          type: 'tool-event',
+        },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-approved-duplicate-start',
+        sessionId: 'approved-duplicate-start',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      expect(parsed.find((part) => part.code === '9')?.value).toMatchObject({
+        args: { command: 'printf approved' },
+        toolCallId: 'call_approved',
+        toolName: 'approvedTool',
+      });
+    });
+
     it('handles tool error with args text delta', async () => {
       const chunks: StreamChunk[] = [
         {

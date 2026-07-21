@@ -2222,6 +2222,7 @@ interface StreamGeneratorParams {
    * honestly omit it rather than re-emitting a partial figure).
    */
   promptBreakdown?: AssistantContextBreakdown;
+  resumedApprovalToolCall?: ResumedApprovalToolCall;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -2251,6 +2252,13 @@ interface ToolApprovalIterationParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
+}
+
+interface ResumedApprovalToolCall {
+  args: unknown;
+  displayToolName: string;
+  registeredToolName: string;
+  toolCallId: string;
 }
 
 /**
@@ -2497,6 +2505,7 @@ async function* streamChunksFromMastra({
   runtimeData,
   stream,
   sanitizedNameMap,
+  resumedApprovalToolCall,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
@@ -2519,6 +2528,20 @@ async function* streamChunksFromMastra({
     // (the mapper still applies the text-part deferral defensively).
     if (promptBreakdown) {
       yield { breakdown: promptBreakdown, type: 'context-breakdown' };
+    }
+    if (resumedApprovalToolCall) {
+      toolNames.set(resumedApprovalToolCall.toolCallId, resumedApprovalToolCall.registeredToolName);
+      yield {
+        name: resumedApprovalToolCall.displayToolName,
+        payload: {
+          args: resumedApprovalToolCall.args,
+          callId: resumedApprovalToolCall.toolCallId,
+          input: resumedApprovalToolCall.args,
+          toolCallId: resumedApprovalToolCall.toolCallId,
+        },
+        status: 'start',
+        type: 'tool-event',
+      };
     }
     const source = withInactivityTimeout(
       readableStreamIterator(stream, runtimeData?.signal),
@@ -2733,6 +2756,40 @@ function resolveResumeApprovalGate(
     !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
+async function readResumedApprovalToolCall(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  action: AssistantToolApprovalAction
+): Promise<ResumedApprovalToolCall> {
+  const memoryContext = runtimeData?.memory;
+  const { runs } = await runtime.agent.listSuspendedRuns(
+    memoryContext
+      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
+      : undefined
+  );
+  const run = runs.find((candidate) => candidate.runId === action.runId);
+  const toolCall = run?.toolCalls.find(
+    (candidate) => candidate.toolCallId === action.toolCallId && candidate.requiresApproval
+  );
+  if (!(toolCall?.toolName && toolCall.args !== undefined)) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail: 'Suspended approval snapshot is missing the requested tool call or its arguments.',
+    });
+  }
+
+  return {
+    args: toolCall.args,
+    displayToolName: resolveDiscoveredApprovalToolName(
+      toolCall.toolName,
+      runtime.toolNameMap,
+      action.runId
+    ),
+    registeredToolName: toolCall.toolName,
+    toolCallId: action.toolCallId,
+  };
+}
+
 async function createToolApprovalIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -2744,6 +2801,7 @@ async function createToolApprovalIteratorFromRuntime({
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const resumedApprovalToolCall = await readResumedApprovalToolCall(runtime, runtimeData, action);
     const approvalOptions: BrainstrikeAgentStreamOptions & {
       runId: string;
       toolCallId: string;
@@ -2796,6 +2854,7 @@ async function createToolApprovalIteratorFromRuntime({
     return streamChunksFromMastra({
       runtime,
       stream: fullStream,
+      ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
