@@ -1,6 +1,12 @@
 {
   "extends": ["//"],
   "tasks": {
+    "desktop-dev-dependencies": {
+      // Synthetic transit task: build the complete desktop dependency graph
+      // without a shell-sensitive `^...` filter or the desktop app itself.
+      "dependsOn": ["^build"],
+      "cache": false
+    },
     "test": {
       // vite-config.test.ts asserts desktop/web Vite alias parity by reading
       // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input

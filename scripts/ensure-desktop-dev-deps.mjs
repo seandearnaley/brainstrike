@@ -6,8 +6,8 @@ import { pathToFileURL } from 'node:url';
 const desktopDevDependencyBuildArgs = [
   'turbo',
   'run',
-  'build',
-  '--filter=@brainstrike/desktop^...',
+  'desktop-dev-dependencies',
+  '--filter=@brainstrike/desktop',
 ];
 
 export function getDesktopDevDependencyBuildArgs() {
