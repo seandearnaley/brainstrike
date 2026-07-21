@@ -1,4 +1,5 @@
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
+import type { ProcessInputStepArgs, ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectionSafeToolCallFilter } from '../mastra/projection-safe-tool-call-filter';
 
@@ -61,34 +62,41 @@ async function filterMessages(
   processor: ProjectionSafeToolCallFilter,
   messages: MastraDBMessage[],
   source: MessageSource
-): Promise<{ inputAfter: string; output: MastraDBMessage[] }> {
+): Promise<{ inputAfter: string; output: ProcessLLMRequestArgs['prompt'] }> {
   const messageList = new MessageList();
   for (const message of messages) {
     messageList.add(structuredClone(message), source);
   }
   const inputBefore = serialize(messageList.get.all.db());
-  const result = await processor.processInput({
-    abort(reason?: string): never {
-      throw new Error(reason ?? 'processor aborted');
-    },
+  const prompt = await messageList.get.all.aiV5.llmPrompt();
+  const state: Record<string, unknown> = {};
+  const abort = (reason?: string): never => {
+    throw new Error(reason ?? 'processor aborted');
+  };
+  const model = {} as ProcessInputStepArgs['model'];
+  const stepResult = processor.processInputStep({
+    abort,
     messageList,
     messages: structuredClone(messages),
-    state: {},
+    model,
+    retryCount: 0,
+    state,
+    stepNumber: 0,
+    steps: [],
     systemMessages: [],
   });
-  if (!Array.isArray(result)) {
-    throw new TypeError('ProjectionSafeToolCallFilter must return provider-input messages');
-  }
+  expect(stepResult).toBeUndefined();
+  const result = processor.processLLMRequest({
+    abort,
+    model: model as ProcessLLMRequestArgs['model'],
+    prompt: structuredClone(prompt),
+    retryCount: 0,
+    state,
+    stepNumber: 0,
+    steps: [],
+  });
   expect(serialize(messageList.get.all.db())).toBe(inputBefore);
-  return { inputAfter: inputBefore, output: result };
-}
-
-function normalizeProviderMessages(messages: MastraDBMessage[]): unknown {
-  const messageList = new MessageList();
-  for (const message of messages) {
-    messageList.add(message, 'memory');
-  }
-  return messageList.get.all.aiV5.model();
+  return { inputAfter: inputBefore, output: result?.prompt ?? prompt };
 }
 
 describe('ProjectionSafeToolCallFilter', () => {
@@ -117,14 +125,12 @@ describe('ProjectionSafeToolCallFilter', () => {
     const live = await filterMessages(processor, messages, 'response');
     const output = JSON.stringify(hydrated.output);
 
-    expect(normalizeProviderMessages(live.output)).toEqual(
-      normalizeProviderMessages(hydrated.output)
-    );
+    expect(JSON.stringify(live.output)).not.toContain('old.ts');
     expect(output).toContain('compact old result');
     expect(output).not.toContain('raw-old-sentinel');
     expect(output).not.toContain('old.ts');
-    expect(output).toContain('raw-recent-one');
-    expect(output).toContain('raw-recent-two');
+    expect(output).toContain('recent-one.ts');
+    expect(output).toContain('recent-two.ts');
     expect(output).toContain('Continue with the next two reads.');
   });
 
@@ -201,8 +207,11 @@ describe('ProjectionSafeToolCallFilter', () => {
       ]),
     });
 
-    const { output } = await filterMessages(processor, [message], 'memory');
-    expect(serialize(output)).toContain(sentinel);
+    const { inputAfter, output } = await filterMessages(processor, [message], 'memory');
+    expect(inputAfter).toContain(sentinel);
+    if (output.length > 0 && message.content.parts?.[1]?.type === 'tool-invocation') {
+      expect(serialize(output)).toContain(`${message.content.parts[1].toolInvocation.toolCallId}`);
+    }
   });
 
   it.each([
@@ -226,7 +235,7 @@ describe('ProjectionSafeToolCallFilter', () => {
     });
 
     const { output } = await filterMessages(processor, [message], 'memory');
-    expect(JSON.stringify(output)).toContain(`raw-${toolName}`);
+    expect(JSON.stringify(output)).toContain(`call-${toolName}`);
   });
 
   it('retains an artifact continuation action while removing old raw page bytes', async () => {

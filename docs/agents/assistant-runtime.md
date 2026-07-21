@@ -153,14 +153,19 @@ configured-limit path reaches the next provider step and preserves MCP media;
 `mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
 replays the stored projection rather than the raw sentinel.
 
-Hosted runs also install `ProjectionSafeToolCallFilter`, a strict shell around
-Mastra 1.51's `ToolCallFilter({ preserveModelOutput: true })`. On a cloned
-provider-input snapshot it replaces only old, completed, successful native
+Hosted runs also install `ProjectionSafeToolCallFilter`, a provider-boundary
+equivalent of Mastra 1.51's `ToolCallFilter({ preserveModelOutput: true })`.
+`processInputStep` computes eligibility without returning messages because
+Mastra applies that hook's result back to the live `MessageList`.
+`processLLMRequest` performs the transient rewrite after stored model
+projections are resolved. It replaces only old, completed, successful native
 read/search/retrieval calls that have a serializable non-multimodal stored
 projection. The two newest tool-producing steps stay verbatim, as do missing
 projections, errors, edits, commands, verification, tasks, discovery, skills,
 approvals, incomplete calls, and MCP tools. It never mutates the live
-`MessageList` or durable rows. Local, Ollama, and LM Studio runs omit it.
+`MessageList` or durable rows. Same-turn and reload integration tests must keep
+proving raw arguments/results remain persisted. Local, Ollama, and LM Studio
+runs omit it.
 
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one

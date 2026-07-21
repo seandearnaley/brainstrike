@@ -85,6 +85,7 @@ interface PersistedPart {
   };
   readonly text?: string;
   readonly toolInvocation?: {
+    readonly args?: unknown;
     readonly result?: unknown;
     readonly state?: string;
     readonly toolCallId?: string;
@@ -112,11 +113,13 @@ function createScriptedToolCallModel(args: {
   forceInitialToolCall?: boolean;
   toolName: string;
   toolCallId: string;
+  toolCallIds?: readonly string[];
   input: string;
   finalText: string;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
-  let toolCallEmitted = false;
+  const toolCallIds = args.toolCallIds ?? [args.toolCallId];
+  let toolCallIndex = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
@@ -130,26 +133,37 @@ function createScriptedToolCallModel(args: {
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
-      if (args.forceInitialToolCall && !toolCallEmitted) {
-        toolCallEmitted = true;
+      const emitNextToolCall = () => {
+        const toolCallId = toolCallIds[toolCallIndex];
+        if (!toolCallId) {
+          throw new Error('scripted tool call sequence was exhausted');
+        }
+        toolCallIndex += 1;
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
               input: args.input,
-              toolCallId: args.toolCallId,
+              toolCallId,
               toolName: args.toolName,
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
           ]),
         });
+      };
+
+      if (args.forceInitialToolCall && toolCallIndex === 0) {
+        return emitNextToolCall();
       }
       const promptHasToolResult =
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
       if (promptHasToolResult) {
         args.onToolResultPrompt?.(options.prompt);
+        if (toolCallIndex > 0 && toolCallIndex < toolCallIds.length) {
+          return emitNextToolCall();
+        }
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -162,18 +176,7 @@ function createScriptedToolCallModel(args: {
         });
       }
 
-      return Promise.resolve({
-        stream: enqueue([
-          { type: 'stream-start', warnings: [] },
-          {
-            input: args.input,
-            toolCallId: args.toolCallId,
-            toolName: args.toolName,
-            type: 'tool-call',
-          },
-          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
-        ]),
-      });
+      return emitNextToolCall();
     },
     modelId: 'fake-model',
     provider: 'fake',
@@ -284,6 +287,7 @@ async function runTurnWithMemory(args: {
   memorySettings: RuntimeAssistantMemorySettings;
   threadId: string;
   toolCallId?: string;
+  toolCallIds?: readonly string[];
   toolId?: string;
   toolName?: string;
   hookRunner?: AgentHookRunner;
@@ -332,6 +336,7 @@ async function runTurnWithMemory(args: {
     input: JSON.stringify({ city: 'Paris' }),
     ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
     toolCallId: args.toolCallId ?? 'call-memory-1',
+    ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
     toolName: args.toolName ?? toolId,
   });
 
@@ -576,6 +581,50 @@ describe('mastra memory persistence through the live stream path', () => {
     expect(persisted).toContain('raw-read-1');
     expect(persisted).toContain('call-stale-read-2');
     expect(persisted).toContain('call-stale-read-3');
+  });
+
+  it('filters stale same-turn reads only from the provider prompt and persists every raw call', async () => {
+    const threadId = 'thread-same-turn-native-reads';
+    const toolId = 'brainstrike.readWorkspaceFile';
+    const toolName = 'brainstrike_readWorkspaceFile';
+    const toolCallIds = ['call-same-turn-1', 'call-same-turn-2', 'call-same-turn-3'] as const;
+    const providerPrompts: string[] = [];
+
+    await runTurnWithMemory({
+      database,
+      forceInitialToolCall: true,
+      memorySettings: OM_DISABLED_SETTINGS,
+      onToolResultPrompt: (prompt) => {
+        providerPrompts.push(JSON.stringify(prompt));
+      },
+      threadId,
+      toolCallIds,
+      toolId,
+      toolName,
+      userText: 'Read three fixtures before answering.',
+      weatherDetail: 'raw-same-turn-result',
+    });
+
+    const finalProviderPrompt = providerPrompts.at(-1);
+    expect(finalProviderPrompt).toBeDefined();
+    expect(finalProviderPrompt).not.toContain(toolCallIds[0]);
+    expect(finalProviderPrompt).toContain(toolCallIds[1]);
+    expect(finalProviderPrompt).toContain(toolCallIds[2]);
+
+    const invocations = (await listThreadMessages(database, threadId))
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .flatMap((part) => (part.type === 'tool-invocation' ? [part.toolInvocation] : []));
+    expect(invocations).toHaveLength(3);
+    expect(invocations.map((invocation) => invocation?.toolCallId)).toEqual(toolCallIds);
+    for (const invocation of invocations) {
+      expect(invocation?.args).toEqual({ city: 'Paris' });
+      expect(invocation?.result).toMatchObject({
+        city: 'Paris',
+        detail: 'raw-same-turn-result',
+        temperatureC: 21,
+      });
+    }
   });
 
   it('persists the exact domain result while PostToolUse context remains model-only', async () => {
