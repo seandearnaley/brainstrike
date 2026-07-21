@@ -754,7 +754,12 @@ export function createCommandSessionManager({
         retainedOffset + output.length,
         1
       ).charCodeAt(0);
-      if (followingCodeUnit < 0xdc_00 || followingCodeUnit > 0xdf_ff) {
+      const precedingCodeUnit = output.charCodeAt(output.length - 2);
+      if (
+        followingCodeUnit < 0xdc_00 ||
+        followingCodeUnit > 0xdf_ff ||
+        (precedingCodeUnit >= 0xd8_00 && precedingCodeUnit <= 0xdb_ff)
+      ) {
         throw new CommandSessionError(
           'invalid-buffer',
           'Command-session output buffer contains malformed UTF-16.'
