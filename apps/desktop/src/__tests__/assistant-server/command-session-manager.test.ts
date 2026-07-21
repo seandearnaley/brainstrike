@@ -357,6 +357,30 @@ describe('command session manager', () => {
     await manager.dispose();
   });
 
+  it('rejects malformed consecutive high surrogates at a page boundary', async () => {
+    const pageChars = 8;
+    const manager = createManager({ maxBufferChars: 32 });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+
+    process?.emitData(`${'a'.repeat(pageChars - 2)}\uD83D\uD83Dtail`);
+
+    const read = () => manager.read('root-a', session.id, 0, pageChars);
+    expect(read).toThrowError(
+      expect.objectContaining({
+        code: 'invalid-buffer',
+        message: 'Command-session output buffer contains malformed UTF-16.',
+      })
+    );
+    expect(read).toThrowError(
+      expect.objectContaining({
+        code: 'invalid-buffer',
+        message: 'Command-session output buffer contains malformed UTF-16.',
+      })
+    );
+    await manager.dispose();
+  });
+
   it('keeps Latin-1 PTY output in compact one-byte blocks', async () => {
     const maxBufferChars = 40_000;
     const manager = createManager({ maxBufferChars });

@@ -39,6 +39,7 @@ export type CommandSessionErrorCode =
   | 'cursor-out-of-range'
   | 'cwd-not-found'
   | 'cwd-outside-root'
+  | 'invalid-buffer'
   | 'invalid-input'
   | 'root-unavailable'
   | 'session-exited'
@@ -748,6 +749,17 @@ export function createCommandSessionManager({
       output.charCodeAt(output.length - 1) >= 0xd8_00 &&
       output.charCodeAt(output.length - 1) <= 0xdb_ff
     ) {
+      const followingCodeUnit = readBufferedOutput(
+        entry,
+        retainedOffset + output.length,
+        1
+      ).charCodeAt(0);
+      if (followingCodeUnit < 0xdc_00 || followingCodeUnit > 0xdf_ff) {
+        throw new CommandSessionError(
+          'invalid-buffer',
+          'Command-session output buffer contains malformed UTF-16.'
+        );
+      }
       output = output.slice(0, -1);
     }
     const nextCursor = replayCursor + output.length;
