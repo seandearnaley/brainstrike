@@ -101,8 +101,11 @@ export interface CommandSessionRead {
 
 type TreeKill = (pid: number, signal: string, callback?: (error?: Error) => void) => void;
 
+type OutputBufferEncoding = 'latin1' | 'utf16le';
+
 interface OutputBufferBlock {
   data: Buffer;
+  encoding: OutputBufferEncoding;
   endChar: number;
   startChar: number;
 }
@@ -337,39 +340,86 @@ export function createCommandSessionManager({
     }
   }
 
+  function outputBufferEncoding(value: string): OutputBufferEncoding {
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit > 0xff) {
+        return 'utf16le';
+      }
+    }
+    return 'latin1';
+  }
+
+  function bytesPerOutputChar(encoding: OutputBufferEncoding): number {
+    return encoding === 'latin1' ? 1 : 2;
+  }
+
+  function upgradeOutputBufferBlock(block: OutputBufferBlock, blockChars: number): void {
+    const upgraded = Buffer.allocUnsafe(blockChars * 2);
+    for (let index = block.startChar; index < block.endChar; index += 1) {
+      const codeUnit = block.data[index];
+      if (codeUnit === undefined) {
+        throw new TypeError('Command-session output buffer lost a Latin-1 code unit.');
+      }
+      upgraded.writeUInt16LE(codeUnit, index * 2);
+    }
+    block.data = upgraded;
+    block.encoding = 'utf16le';
+  }
+
+  function outputSegment(value: string, start: number, length: number): string {
+    return start === 0 && length === value.length ? value : value.slice(start, start + length);
+  }
+
   function appendOutputBufferBlocks(entry: SessionEntry, chunk: string): void {
     const blockChars = Math.min(BUFFER_BLOCK_CHARS, maxBufferChars);
     let sourceOffset = 0;
     while (sourceOffset < chunk.length) {
       const tailIndex = entry.bufferBlocks.length - 1;
       let tail = tailIndex >= entry.bufferHeadIndex ? entry.bufferBlocks[tailIndex] : undefined;
-      if (tail === undefined || tail.endChar === blockChars) {
+      let availableChars = tail === undefined ? 0 : blockChars - tail.endChar;
+      if (tail === undefined || availableChars <= 0) {
+        const initialLength = Math.min(blockChars, chunk.length - sourceOffset);
+        const initialSegment = outputSegment(chunk, sourceOffset, initialLength);
+        const encoding = outputBufferEncoding(initialSegment);
         tail = {
-          data: Buffer.allocUnsafe(blockChars * 2),
+          data: Buffer.allocUnsafe(blockChars * bytesPerOutputChar(encoding)),
+          encoding,
           endChar: 0,
           startChar: 0,
         };
         entry.bufferBlocks.push(tail);
+        availableChars = blockChars;
       }
-      const writeLength = Math.min(blockChars - tail.endChar, chunk.length - sourceOffset);
-      const segment =
-        sourceOffset === 0 && writeLength === chunk.length
-          ? chunk
-          : chunk.slice(sourceOffset, sourceOffset + writeLength);
-      const bytesWritten = tail.data.write(segment, tail.endChar * 2, writeLength * 2, 'utf16le');
-      if (bytesWritten !== writeLength * 2) {
-        throw new TypeError(
-          'Command-session output buffer did not copy a complete UTF-16 segment.'
-        );
+      const writeLength = Math.min(availableChars, chunk.length - sourceOffset);
+      const segment = outputSegment(chunk, sourceOffset, writeLength);
+      if (tail.encoding === 'latin1' && outputBufferEncoding(segment) === 'utf16le') {
+        upgradeOutputBufferBlock(tail, blockChars);
+      }
+      const bytesPerChar = bytesPerOutputChar(tail.encoding);
+      const bytesWritten = tail.data.write(
+        segment,
+        tail.endChar * bytesPerChar,
+        writeLength * bytesPerChar,
+        tail.encoding
+      );
+      if (bytesWritten !== writeLength * bytesPerChar) {
+        throw new TypeError('Command-session output buffer did not copy a complete segment.');
       }
       tail.endChar += writeLength;
       sourceOffset += writeLength;
     }
   }
 
-  function copyUtf16Suffix(value: string, length: number): Buffer {
+  function copyOutputSuffix(value: string, length: number): OutputBufferBlock {
     const suffix = value.slice(value.length - length);
-    return Buffer.from(suffix, 'utf16le');
+    const encoding = outputBufferEncoding(suffix);
+    return {
+      data: Buffer.from(suffix, encoding),
+      encoding,
+      endChar: length,
+      startChar: 0,
+    };
   }
 
   function appendOutput(entry: SessionEntry, chunk: string): void {
@@ -378,17 +428,7 @@ export function createCommandSessionManager({
     }
     entry.outputCursor += chunk.length;
     if (chunk.length >= maxBufferChars) {
-      const retained =
-        chunk.length === maxBufferChars
-          ? Buffer.from(chunk, 'utf16le')
-          : copyUtf16Suffix(chunk, maxBufferChars);
-      entry.bufferBlocks = [
-        {
-          data: retained,
-          endChar: maxBufferChars,
-          startChar: 0,
-        },
-      ];
+      entry.bufferBlocks = [copyOutputSuffix(chunk, maxBufferChars)];
       entry.bufferHeadIndex = 0;
       entry.bufferLength = maxBufferChars;
       entry.bufferStartCursor = entry.outputCursor - maxBufferChars;
@@ -420,7 +460,14 @@ export function createCommandSessionManager({
         continue;
       }
       const readStartChar = block.startChar + remainingOffset;
-      outputChunks.push(block.data.toString('utf16le', readStartChar * 2, block.endChar * 2));
+      const bytesPerChar = bytesPerOutputChar(block.encoding);
+      outputChunks.push(
+        block.data.toString(
+          block.encoding,
+          readStartChar * bytesPerChar,
+          block.endChar * bytesPerChar
+        )
+      );
       remainingOffset = 0;
     }
     if (remainingOffset !== 0) {

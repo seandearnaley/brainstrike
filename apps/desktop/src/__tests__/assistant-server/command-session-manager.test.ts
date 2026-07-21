@@ -295,6 +295,47 @@ describe('command session manager', () => {
     await manager.dispose();
   });
 
+  it('keeps Latin-1 PTY output in compact one-byte blocks', async () => {
+    const maxBufferChars = 40_000;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const allocatedBlockBytes: number[] = [];
+    const allocUnsafeSpy = vi.spyOn(Buffer, 'allocUnsafe');
+
+    try {
+      for (let index = 0; index < maxBufferChars; index += 1) {
+        process?.emitData('x');
+      }
+      for (const call of allocUnsafeSpy.mock.calls) {
+        allocatedBlockBytes.push(call[0]);
+      }
+    } finally {
+      allocUnsafeSpy.mockRestore();
+    }
+
+    expect(allocatedBlockBytes).toEqual([16_384, 16_384, 16_384]);
+    expect(manager.read('root-a', session.id).output).toBe('x'.repeat(maxBufferChars));
+    await manager.dispose();
+  });
+
+  it('accepts incremental output after a cap-sized event with the default block scale', async () => {
+    const maxBufferChars = 20_000;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+
+    process?.emitData('a'.repeat(maxBufferChars));
+    process?.emitData('tail');
+
+    expect(manager.read('root-a', session.id)).toMatchObject({
+      bufferStartCursor: 4,
+      nextCursor: maxBufferChars + 4,
+      output: `${'a'.repeat(maxBufferChars - 4)}tail`,
+    });
+    await manager.dispose();
+  });
+
   it('copies an oversized retained suffix without changing UTF-16 code units', async () => {
     const maxBufferChars = 7;
     const manager = createManager({ maxBufferChars });
