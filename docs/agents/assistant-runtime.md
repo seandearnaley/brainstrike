@@ -289,9 +289,11 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   escaping/nonexistent cwd, startup failure, exited writes, and invalid cursors
   surface typed errors; there is no cwd or cursor fallback.
 - Combined PTY output is memory-only and capped at 2 Mi UTF-16 code units.
-  Retention uses a head-evicted chunk deque: appending output must not rebuild
-  the full retained buffer after it reaches the cap, and reads materialize only
-  the requested retained suffix.
+  Retention uses head-evicted, fixed-size UTF-16LE blocks: tiny PTY events are
+  copied into bounded blocks instead of retained as individual references,
+  appends never rebuild the full retained buffer after it reaches the cap, and
+  reads decode only the requested retained suffix. Oversized events copy their
+  retained suffix so a V8 sliced string cannot pin the discarded parent.
   Reads use absolute cursors; `-1` attaches at the live tail without replay.
   An evicted cursor returns the retained tail with explicit
   `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced

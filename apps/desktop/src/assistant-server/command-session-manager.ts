@@ -10,6 +10,7 @@
  * logged or persisted. Canonical cwd is returned as local session metadata;
  * retained output leaves the service only through an owning-root read.
  */
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
@@ -28,7 +29,9 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const MAX_DIMENSION = 5000;
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
-const BUFFER_CHUNK_COMPACTION_THRESHOLD = 1024;
+const BUFFER_BLOCK_CHARS = 16 * 1024;
+const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
+const EMPTY_BUFFER = Buffer.alloc(0);
 
 export type CommandSessionErrorCode =
   | 'aborted'
@@ -98,9 +101,15 @@ export interface CommandSessionRead {
 
 type TreeKill = (pid: number, signal: string, callback?: (error?: Error) => void) => void;
 
+interface OutputBufferBlock {
+  data: Buffer;
+  endChar: number;
+  startChar: number;
+}
+
 interface SessionEntry {
   abortListener: (() => void) | undefined;
-  bufferChunks: string[];
+  bufferBlocks: OutputBufferBlock[];
   bufferHeadIndex: number;
   bufferLength: number;
   bufferStartCursor: number;
@@ -303,26 +312,64 @@ export function createCommandSessionManager({
   function evictOutputBufferOverflow(entry: SessionEntry, initialOverflow: number): void {
     let overflow = initialOverflow;
     while (overflow > 0) {
-      const head = entry.bufferChunks[entry.bufferHeadIndex];
+      const head = entry.bufferBlocks[entry.bufferHeadIndex];
       if (head === undefined) {
-        throw new TypeError('Command-session output buffer lost its retained head chunk.');
+        throw new TypeError('Command-session output buffer lost its retained head block.');
       }
-      if (head.length > overflow) {
-        entry.bufferChunks[entry.bufferHeadIndex] = head.slice(overflow);
+      const retainedLength = head.endChar - head.startChar;
+      if (retainedLength > overflow) {
+        head.startChar += overflow;
         overflow = 0;
         break;
       }
-      overflow -= head.length;
-      entry.bufferChunks[entry.bufferHeadIndex] = '';
+      overflow -= retainedLength;
+      head.data = EMPTY_BUFFER;
+      head.startChar = 0;
+      head.endChar = 0;
       entry.bufferHeadIndex += 1;
     }
     if (
-      entry.bufferHeadIndex >= BUFFER_CHUNK_COMPACTION_THRESHOLD ||
-      entry.bufferHeadIndex * 2 >= entry.bufferChunks.length
+      entry.bufferHeadIndex >= BUFFER_BLOCK_COMPACTION_THRESHOLD ||
+      entry.bufferHeadIndex * 2 >= entry.bufferBlocks.length
     ) {
-      entry.bufferChunks = entry.bufferChunks.slice(entry.bufferHeadIndex);
+      entry.bufferBlocks = entry.bufferBlocks.slice(entry.bufferHeadIndex);
       entry.bufferHeadIndex = 0;
     }
+  }
+
+  function appendOutputBufferBlocks(entry: SessionEntry, chunk: string): void {
+    const blockChars = Math.min(BUFFER_BLOCK_CHARS, maxBufferChars);
+    let sourceOffset = 0;
+    while (sourceOffset < chunk.length) {
+      const tailIndex = entry.bufferBlocks.length - 1;
+      let tail = tailIndex >= entry.bufferHeadIndex ? entry.bufferBlocks[tailIndex] : undefined;
+      if (tail === undefined || tail.endChar === blockChars) {
+        tail = {
+          data: Buffer.allocUnsafe(blockChars * 2),
+          endChar: 0,
+          startChar: 0,
+        };
+        entry.bufferBlocks.push(tail);
+      }
+      const writeLength = Math.min(blockChars - tail.endChar, chunk.length - sourceOffset);
+      const segment =
+        sourceOffset === 0 && writeLength === chunk.length
+          ? chunk
+          : chunk.slice(sourceOffset, sourceOffset + writeLength);
+      const bytesWritten = tail.data.write(segment, tail.endChar * 2, writeLength * 2, 'utf16le');
+      if (bytesWritten !== writeLength * 2) {
+        throw new TypeError(
+          'Command-session output buffer did not copy a complete UTF-16 segment.'
+        );
+      }
+      tail.endChar += writeLength;
+      sourceOffset += writeLength;
+    }
+  }
+
+  function copyUtf16Suffix(value: string, length: number): Buffer {
+    const suffix = value.slice(value.length - length);
+    return Buffer.from(suffix, 'utf16le');
   }
 
   function appendOutput(entry: SessionEntry, chunk: string): void {
@@ -331,8 +378,16 @@ export function createCommandSessionManager({
     }
     entry.outputCursor += chunk.length;
     if (chunk.length >= maxBufferChars) {
-      entry.bufferChunks = [
-        chunk.length === maxBufferChars ? chunk : chunk.slice(chunk.length - maxBufferChars),
+      const retained =
+        chunk.length === maxBufferChars
+          ? Buffer.from(chunk, 'utf16le')
+          : copyUtf16Suffix(chunk, maxBufferChars);
+      entry.bufferBlocks = [
+        {
+          data: retained,
+          endChar: maxBufferChars,
+          startChar: 0,
+        },
       ];
       entry.bufferHeadIndex = 0;
       entry.bufferLength = maxBufferChars;
@@ -340,7 +395,7 @@ export function createCommandSessionManager({
       return;
     }
 
-    entry.bufferChunks.push(chunk);
+    appendOutputBufferBlocks(entry, chunk);
     entry.bufferLength += chunk.length;
     const overflow = entry.bufferLength - maxBufferChars;
     if (overflow <= 0) {
@@ -354,21 +409,19 @@ export function createCommandSessionManager({
   function collectBufferedOutputChunks(entry: SessionEntry, offset: number): string[] {
     let remainingOffset = offset;
     const outputChunks: string[] = [];
-    for (let index = entry.bufferHeadIndex; index < entry.bufferChunks.length; index += 1) {
-      const chunk = entry.bufferChunks[index];
-      if (chunk === undefined) {
-        throw new TypeError('Command-session output buffer contains a missing chunk.');
+    for (let index = entry.bufferHeadIndex; index < entry.bufferBlocks.length; index += 1) {
+      const block = entry.bufferBlocks[index];
+      if (block === undefined) {
+        throw new TypeError('Command-session output buffer contains a missing block.');
       }
-      if (remainingOffset >= chunk.length) {
-        remainingOffset -= chunk.length;
+      const retainedLength = block.endChar - block.startChar;
+      if (remainingOffset >= retainedLength) {
+        remainingOffset -= retainedLength;
         continue;
       }
-      if (remainingOffset > 0) {
-        outputChunks.push(chunk.slice(remainingOffset));
-        remainingOffset = 0;
-        continue;
-      }
-      outputChunks.push(chunk);
+      const readStartChar = block.startChar + remainingOffset;
+      outputChunks.push(block.data.toString('utf16le', readStartChar * 2, block.endChar * 2));
+      remainingOffset = 0;
     }
     if (remainingOffset !== 0) {
       throw new TypeError('Command-session output buffer is shorter than its retained length.');
@@ -520,7 +573,7 @@ export function createCommandSessionManager({
     });
     const entry: SessionEntry = {
       abortListener: undefined,
-      bufferChunks: [],
+      bufferBlocks: [],
       bufferHeadIndex: 0,
       bufferLength: 0,
       bufferStartCursor: 0,

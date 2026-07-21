@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -224,7 +225,14 @@ describe('command session manager', () => {
     const manager = createManager({ maxBufferChars });
     const session = await manager.start({ command: 'stream', rootId: 'root-a' });
     const process = spawned[0];
-    const chunks = ['abc', 'defghijklmnop', 'q', 'rstuvwxyz0123456789', 'L'.repeat(53), 'tail'];
+    const chunks = [
+      'abc',
+      'defghijklmnop',
+      'q\uD800',
+      '\uDCFFrstuvwxyz0123456789',
+      'L'.repeat(53),
+      'tail',
+    ];
     let retained = '';
     let outputCursor = 0;
 
@@ -251,6 +259,67 @@ describe('command session manager', () => {
       }
     }
 
+    await manager.dispose();
+  });
+
+  it('coalesces tiny PTY events into a bounded number of retained blocks', async () => {
+    const maxBufferChars = 40_000;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const originalJoin = Array.prototype.join;
+    const retainedBlockCounts: number[] = [];
+    const joinSpy = vi.spyOn(Array.prototype, 'join').mockImplementation(function (
+      this: unknown[],
+      separator?: string
+    ) {
+      if (
+        this.length > 0 &&
+        this.every((value) => typeof value === 'string' && /^\uE000+$/u.test(value))
+      ) {
+        retainedBlockCounts.push(this.length);
+      }
+      return originalJoin.call(this, separator);
+    });
+
+    try {
+      for (let index = 0; index < maxBufferChars; index += 1) {
+        process?.emitData('\uE000');
+      }
+      expect(manager.read('root-a', session.id).output).toHaveLength(maxBufferChars);
+    } finally {
+      joinSpy.mockRestore();
+    }
+
+    expect(retainedBlockCounts).toEqual([3]);
+    await manager.dispose();
+  });
+
+  it('copies an oversized retained suffix without changing UTF-16 code units', async () => {
+    const maxBufferChars = 7;
+    const manager = createManager({ maxBufferChars });
+    const session = await manager.start({ command: 'stream', rootId: 'root-a' });
+    const process = spawned[0];
+    const oversizedChunk = `discarded-parent-${'x'.repeat(40)}\uD800a\uDCFFtail`;
+    const retainedSuffix = oversizedChunk.slice(-maxBufferChars);
+    const bufferFromSpy = vi.spyOn(Buffer, 'from');
+    let copiedRetainedSuffix = false;
+
+    try {
+      process?.emitData(oversizedChunk);
+      copiedRetainedSuffix = bufferFromSpy.mock.calls.some(
+        (call) => call[0] === retainedSuffix && call[1] === 'utf16le'
+      );
+    } finally {
+      bufferFromSpy.mockRestore();
+    }
+
+    expect(copiedRetainedSuffix).toBe(true);
+    const output = manager.read('root-a', session.id).output;
+    expect(output).toBe(retainedSuffix);
+    expect(Array.from(output, (character) => character.charCodeAt(0))).toEqual(
+      Array.from(retainedSuffix, (character) => character.charCodeAt(0))
+    );
     await manager.dispose();
   });
 
