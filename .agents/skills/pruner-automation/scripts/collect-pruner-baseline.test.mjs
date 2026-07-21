@@ -82,3 +82,16 @@ test('parseKnip distinguishes findings from operational failure', () => {
   assert.equal(findings.findingsTotal, 7);
   assert.throws(() => parseKnip('boom', 2), /failed operationally/);
 });
+
+// Guards the ESC anchor in stripAnsi: category-name KEYS (uppercase letters
+// included) must survive verbatim, and a real ANSI escape sequence must be
+// stripped. If the leading ESC were ever dropped from the regex, `[@-Z]`
+// would eat uppercase letters and these keys would corrupt — findingsTotal
+// alone (digits/parens) would not catch it.
+test('parseKnip preserves category-name keys and strips real ANSI sequences', () => {
+  const esc = String.fromCharCode(0x1b);
+  const raw = `${esc}[1mUnused files${esc}[0m (2)\n${esc}[31mUNUSED Exports${esc}[0m (5)\n`;
+  const parsed = parseKnip(raw, 1);
+  assert.deepEqual(parsed.categories, { 'UNUSED Exports': 5, 'Unused files': 2 });
+  assert.equal(parsed.findingsTotal, 7);
+});

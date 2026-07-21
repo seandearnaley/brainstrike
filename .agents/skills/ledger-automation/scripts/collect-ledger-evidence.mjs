@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MIGRATIONS_ROOT = 'packages/db/src/migrations';
 const INDEX_PATH = `${MIGRATIONS_ROOT}/index.ts`;
@@ -560,4 +561,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
