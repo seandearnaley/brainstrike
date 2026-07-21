@@ -10,6 +10,7 @@
  * logged or persisted. Canonical cwd is returned as local session metadata;
  * retained output leaves the service only through an owning-root read.
  */
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
@@ -28,6 +29,9 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const MAX_DIMENSION = 5000;
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
+const BUFFER_BLOCK_CHARS = 16 * 1024;
+const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
+const EMPTY_BUFFER = Buffer.alloc(0);
 
 export type CommandSessionErrorCode =
   | 'aborted'
@@ -97,9 +101,20 @@ export interface CommandSessionRead {
 
 type TreeKill = (pid: number, signal: string, callback?: (error?: Error) => void) => void;
 
+type OutputBufferEncoding = 'latin1' | 'utf16le';
+
+interface OutputBufferBlock {
+  data: Buffer;
+  encoding: OutputBufferEncoding;
+  endChar: number;
+  startChar: number;
+}
+
 interface SessionEntry {
   abortListener: (() => void) | undefined;
-  buffer: string;
+  bufferBlocks: OutputBufferBlock[];
+  bufferHeadIndex: number;
+  bufferLength: number;
   bufferStartCursor: number;
   exitPromise: Promise<void>;
   info: CommandSessionInfo;
@@ -297,18 +312,183 @@ export function createCommandSessionManager({
       });
   }
 
+  function evictOutputBufferOverflow(entry: SessionEntry, initialOverflow: number): void {
+    let overflow = initialOverflow;
+    while (overflow > 0) {
+      const head = entry.bufferBlocks[entry.bufferHeadIndex];
+      if (head === undefined) {
+        throw new TypeError('Command-session output buffer lost its retained head block.');
+      }
+      const retainedLength = head.endChar - head.startChar;
+      if (retainedLength > overflow) {
+        head.startChar += overflow;
+        overflow = 0;
+        break;
+      }
+      overflow -= retainedLength;
+      head.data = EMPTY_BUFFER;
+      head.startChar = 0;
+      head.endChar = 0;
+      entry.bufferHeadIndex += 1;
+    }
+    if (
+      entry.bufferHeadIndex >= BUFFER_BLOCK_COMPACTION_THRESHOLD ||
+      entry.bufferHeadIndex * 2 >= entry.bufferBlocks.length
+    ) {
+      entry.bufferBlocks = entry.bufferBlocks.slice(entry.bufferHeadIndex);
+      entry.bufferHeadIndex = 0;
+    }
+  }
+
+  function outputBufferEncoding(value: string): OutputBufferEncoding {
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit > 0xff) {
+        return 'utf16le';
+      }
+    }
+    return 'latin1';
+  }
+
+  function bytesPerOutputChar(encoding: OutputBufferEncoding): number {
+    return encoding === 'latin1' ? 1 : 2;
+  }
+
+  function upgradeOutputBufferBlock(block: OutputBufferBlock, blockChars: number): void {
+    const upgraded = Buffer.allocUnsafe(blockChars * 2);
+    for (let index = block.startChar; index < block.endChar; index += 1) {
+      const codeUnit = block.data[index];
+      if (codeUnit === undefined) {
+        throw new TypeError('Command-session output buffer lost a Latin-1 code unit.');
+      }
+      upgraded.writeUInt16LE(codeUnit, index * 2);
+    }
+    block.data = upgraded;
+    block.encoding = 'utf16le';
+  }
+
+  function outputSegment(value: string, start: number, length: number): string {
+    return start === 0 && length === value.length ? value : value.slice(start, start + length);
+  }
+
+  function appendOutputBufferBlocks(entry: SessionEntry, chunk: string): void {
+    const blockChars = Math.min(BUFFER_BLOCK_CHARS, maxBufferChars);
+    let sourceOffset = 0;
+    while (sourceOffset < chunk.length) {
+      const tailIndex = entry.bufferBlocks.length - 1;
+      let tail = tailIndex >= entry.bufferHeadIndex ? entry.bufferBlocks[tailIndex] : undefined;
+      let availableChars = tail === undefined ? 0 : blockChars - tail.endChar;
+      if (tail === undefined || availableChars <= 0) {
+        const initialLength = Math.min(blockChars, chunk.length - sourceOffset);
+        const initialSegment = outputSegment(chunk, sourceOffset, initialLength);
+        const encoding = outputBufferEncoding(initialSegment);
+        tail = {
+          data: Buffer.allocUnsafe(blockChars * bytesPerOutputChar(encoding)),
+          encoding,
+          endChar: 0,
+          startChar: 0,
+        };
+        entry.bufferBlocks.push(tail);
+        availableChars = blockChars;
+      }
+      const writeLength = Math.min(availableChars, chunk.length - sourceOffset);
+      const segment = outputSegment(chunk, sourceOffset, writeLength);
+      if (tail.encoding === 'latin1' && outputBufferEncoding(segment) === 'utf16le') {
+        upgradeOutputBufferBlock(tail, blockChars);
+      }
+      const bytesPerChar = bytesPerOutputChar(tail.encoding);
+      const bytesWritten = tail.data.write(
+        segment,
+        tail.endChar * bytesPerChar,
+        writeLength * bytesPerChar,
+        tail.encoding
+      );
+      if (bytesWritten !== writeLength * bytesPerChar) {
+        throw new TypeError('Command-session output buffer did not copy a complete segment.');
+      }
+      tail.endChar += writeLength;
+      sourceOffset += writeLength;
+    }
+  }
+
+  function copyOutputSuffix(value: string, length: number): OutputBufferBlock {
+    const suffix = value.slice(value.length - length);
+    const encoding = outputBufferEncoding(suffix);
+    return {
+      data: Buffer.from(suffix, encoding),
+      encoding,
+      endChar: length,
+      startChar: 0,
+    };
+  }
+
   function appendOutput(entry: SessionEntry, chunk: string): void {
     if (entry.removed || chunk.length === 0) {
       return;
     }
     entry.outputCursor += chunk.length;
-    entry.buffer += chunk;
-    if (entry.buffer.length <= maxBufferChars) {
+    if (chunk.length >= maxBufferChars) {
+      entry.bufferBlocks = [copyOutputSuffix(chunk, maxBufferChars)];
+      entry.bufferHeadIndex = 0;
+      entry.bufferLength = maxBufferChars;
+      entry.bufferStartCursor = entry.outputCursor - maxBufferChars;
       return;
     }
-    const overflow = entry.buffer.length - maxBufferChars;
-    entry.buffer = entry.buffer.slice(overflow);
+
+    appendOutputBufferBlocks(entry, chunk);
+    entry.bufferLength += chunk.length;
+    const overflow = entry.bufferLength - maxBufferChars;
+    if (overflow <= 0) {
+      return;
+    }
+    entry.bufferLength -= overflow;
     entry.bufferStartCursor += overflow;
+    evictOutputBufferOverflow(entry, overflow);
+  }
+
+  function collectBufferedOutputChunks(entry: SessionEntry, offset: number): string[] {
+    let remainingOffset = offset;
+    const outputChunks: string[] = [];
+    for (let index = entry.bufferHeadIndex; index < entry.bufferBlocks.length; index += 1) {
+      const block = entry.bufferBlocks[index];
+      if (block === undefined) {
+        throw new TypeError('Command-session output buffer contains a missing block.');
+      }
+      const retainedLength = block.endChar - block.startChar;
+      if (remainingOffset >= retainedLength) {
+        remainingOffset -= retainedLength;
+        continue;
+      }
+      const readStartChar = block.startChar + remainingOffset;
+      const bytesPerChar = bytesPerOutputChar(block.encoding);
+      outputChunks.push(
+        block.data.toString(
+          block.encoding,
+          readStartChar * bytesPerChar,
+          block.endChar * bytesPerChar
+        )
+      );
+      remainingOffset = 0;
+    }
+    if (remainingOffset !== 0) {
+      throw new TypeError('Command-session output buffer is shorter than its retained length.');
+    }
+    return outputChunks;
+  }
+
+  function readBufferedOutput(entry: SessionEntry, offset: number): string {
+    if (offset === entry.bufferLength) {
+      return '';
+    }
+    if (offset < 0 || offset > entry.bufferLength) {
+      throw new TypeError('Command-session read offset is outside the retained output buffer.');
+    }
+
+    const outputChunks = collectBufferedOutputChunks(entry, offset);
+    if (outputChunks.length === 1) {
+      return outputChunks[0] ?? '';
+    }
+    return outputChunks.join('');
   }
 
   function recordExit(entry: SessionEntry, exitCode: number, signal?: number): void {
@@ -440,7 +620,9 @@ export function createCommandSessionManager({
     });
     const entry: SessionEntry = {
       abortListener: undefined,
-      buffer: '',
+      bufferBlocks: [],
+      bufferHeadIndex: 0,
+      bufferLength: 0,
       bufferStartCursor: 0,
       exitPromise,
       info,
@@ -522,7 +704,7 @@ export function createCommandSessionManager({
     return {
       bufferStartCursor: entry.bufferStartCursor,
       nextCursor: entry.outputCursor,
-      output: entry.buffer.slice(replayCursor - entry.bufferStartCursor),
+      output: readBufferedOutput(entry, replayCursor - entry.bufferStartCursor),
       requestedCursor,
       truncatedBeforeCursor,
     };
