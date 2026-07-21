@@ -6,7 +6,7 @@ import {
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/utils';
-import type { ToolsInput } from '@mastra/core/agent';
+import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core/agent';
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
@@ -135,30 +135,58 @@ function wrapSearchTelemetry(searchTool: SearchTool, stepNumber: number | undefi
     });
   }
 
-  searchTool.execute = async (...args: Parameters<typeof execute>) => {
-    const result = await execute(...args);
-    const searchResult = readSearchResult(result);
-    if (!searchResult) {
-      throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
-        context: { phase: 'search-result', stepNumber },
-        detail: 'search_tools returned an invalid result shape',
-      });
-    }
-    if (searchResult.resultCount === 0) {
-      logger.info('Mastra tool discovery search missed', {
-        code: 'mastra_tool_discovery_catalog_miss',
+  return {
+    ...searchTool,
+    execute: async (...args: Parameters<typeof execute>) => {
+      const result = await execute(...args);
+      const searchResult = readSearchResult(result);
+      if (!searchResult) {
+        throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+          context: { phase: 'search-result', stepNumber },
+          detail: 'search_tools returned an invalid result shape',
+        });
+      }
+      if (searchResult.resultCount === 0) {
+        logger.info('Mastra tool discovery search missed', {
+          code: 'mastra_tool_discovery_catalog_miss',
+          stepNumber,
+        });
+        return result;
+      }
+      logger.info('Mastra tool discovery search loaded tools', {
+        code: 'mastra_tool_discovery_search_loaded',
+        loadedToolCount: searchResult.resultCount,
         stepNumber,
       });
       return result;
-    }
-    logger.info('Mastra tool discovery search loaded tools', {
-      code: 'mastra_tool_discovery_search_loaded',
-      loadedToolCount: searchResult.resultCount,
-      stepNumber,
-    });
-    return result;
+    },
   };
-  return searchTool;
+}
+
+function createPersistedStepArgs(
+  messages: readonly MastraDBMessage[],
+  model: ToolSearchStepArgs['model'],
+  requestContext: ToolSearchStepArgs['requestContext']
+): ToolSearchStepArgs {
+  const messageList = new MessageList();
+  for (const message of messages) {
+    messageList.add(message, 'memory');
+  }
+  return {
+    abort(reason?: string): never {
+      throw new Error(reason ?? 'persisted tool discovery hydration aborted');
+    },
+    messageList,
+    messages: messageList.get.all.db(),
+    model,
+    ...(requestContext ? { requestContext } : {}),
+    retryCount: 0,
+    state: {},
+    stepNumber: 0,
+    steps: [],
+    systemMessages: [],
+    tools: {},
+  };
 }
 
 /**
@@ -172,11 +200,15 @@ export class BrainstrikeToolSearchProcessor {
   readonly id = 'tool-search';
   readonly name = 'Brainstrike Tool Search Processor';
   private readonly delegate: ToolSearchProcessor;
+  private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
+  private readonly model: ToolSearchStepArgs['model'];
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
   private readonly toolNameMap: ReadonlyMap<string, string>;
 
   constructor(options: {
     readonly deferredTools: ToolsInput;
+    readonly loadPersistedMessages?: () => Promise<readonly MastraDBMessage[]>;
+    readonly model: ToolSearchStepArgs['model'];
     readonly toolNameMap: ReadonlyMap<string, string>;
   }) {
     this.delegate = new ToolSearchProcessor({
@@ -184,6 +216,8 @@ export class BrainstrikeToolSearchProcessor {
       storage: 'context',
       tools: options.deferredTools as Record<string, Tool>,
     });
+    this.loadPersistedMessages = options.loadPersistedMessages;
+    this.model = options.model;
     this.toolNameMap = options.toolNameMap;
   }
 
@@ -191,7 +225,23 @@ export class BrainstrikeToolSearchProcessor {
     args?: Parameters<ToolSearchProcessor['getLoadedToolsForRequestContext']>[0]
   ): Promise<Record<string, Tool>> {
     try {
-      return await this.delegate.getLoadedToolsForRequestContext(args);
+      const loadedTools = await this.delegate.getLoadedToolsForRequestContext(args);
+      if (args?.stepArgs || Object.keys(loadedTools).length > 0 || !this.loadPersistedMessages) {
+        return loadedTools;
+      }
+
+      // Approval/suspension resume rebuilds the Agent and executes the paused
+      // tool before processInputStep runs. A fresh context-backed processor has
+      // no supplemental in-memory set, so rehydrate from the durable thread
+      // messages and let Mastra's own context-store parser resolve loaded ids.
+      const persistedMessages = await this.loadPersistedMessages();
+      if (persistedMessages.length === 0) {
+        return loadedTools;
+      }
+      return await this.delegate.getLoadedToolsForRequestContext({
+        ...args,
+        stepArgs: createPersistedStepArgs(persistedMessages, this.model, args?.requestContext),
+      });
     } catch (error) {
       throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
         cause: error,

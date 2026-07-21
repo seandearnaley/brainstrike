@@ -777,9 +777,11 @@ model-gated, not inferred from `provider === "openai"`. Anthropic native search
 likewise preserves provider search/tool-reference history. Live Mastra catalog
 search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
 Persisted `search_tools` results reconstruct loaded definitions after restart;
-anonymous calls never share a default store. A loaded-set shrink within one
-runtime/thread (for example, trimming away its discovery result) throws the
-typed `mastra_agent_tool_discovery_failure` instead of silently de-loading.
+approval and suspended-tool resume rehydrate those definitions from the durable
+Mastra thread before the paused call reaches execution. Anonymous calls never
+share a default store. A loaded-set shrink within one runtime/thread (for
+example, trimming away its discovery result) throws the typed
+`mastra_agent_tool_discovery_failure` instead of silently de-loading.
 `TOOL_DISCOVERY_FAILURE_CODES` pins the distinct
 failure channels as `catalog-miss`, `permission-denied`, `host-unavailable`, and
 `unsupported-adapter`; adapters must not collapse them into an empty result.

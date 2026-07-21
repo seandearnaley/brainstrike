@@ -1,4 +1,4 @@
-import type { MastraModelConfig } from '@mastra/core/llm';
+import type { LanguageModel } from '@mastra/core/llm';
 
 const LISTING_ONLY_INVARIANT =
   'listing-only runtime: model must never be invoked (suspended-run discovery performs no inference)';
@@ -17,7 +17,7 @@ const LISTING_ONLY_INVARIANT =
  * regression that accidentally routes inference here fails loudly instead of
  * silently degrading (no-silent-fallbacks).
  */
-export function createListingOnlyModel(): MastraModelConfig {
+export function createListingOnlyModel(): LanguageModel {
   const fail = (): never => {
     throw new Error(LISTING_ONLY_INVARIANT);
   };
@@ -28,5 +28,5 @@ export function createListingOnlyModel(): MastraModelConfig {
     provider: 'brainstrike-listing-only',
     specificationVersion: 'v2',
     supportedUrls: {},
-  } as unknown as MastraModelConfig;
+  };
 }
