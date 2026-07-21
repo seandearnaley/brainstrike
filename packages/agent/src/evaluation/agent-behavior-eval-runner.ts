@@ -4,7 +4,12 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
-import { calledToolGate, noToolErrorsGate, responseExactMatchScorer } from './agent-behavior-gates';
+import {
+  calledToolGate,
+  didNotCallToolGate,
+  noToolErrorsGate,
+  responseExactMatchScorer,
+} from './agent-behavior-gates';
 import {
   createPlanModeInventoryEvalModel,
   createTextOnlyEvalModel,
@@ -34,6 +39,7 @@ export interface AgentBehaviorEvaluationReport {
 const WEATHER_TOOL_ID = 'get_weather';
 const WRITE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
 const MODEL_FACING_WRITE_TOOL_ID = 'brainstrike_writeWorkspaceFile';
+const ERROR_TOOL_ID = 'fail_task';
 
 function makeWeatherTool() {
   return createTool({
@@ -55,6 +61,15 @@ function makeWriteTool() {
   });
 }
 
+function makeErrorTool() {
+  return createTool({
+    description: 'Fail deterministically for eval control coverage.',
+    execute: () => Promise.reject(new Error('intentional eval tool failure')),
+    id: ERROR_TOOL_ID,
+    inputSchema: z.object({}),
+  });
+}
+
 async function buildEvalAgent(model: LanguageModelV2) {
   const runtime = await createMastraAgentRuntime({
     // modelOverride bypasses createProvider entirely: the scripted fixture is
@@ -68,14 +83,23 @@ async function buildEvalAgent(model: LanguageModelV2) {
   return runtime.agent;
 }
 
-async function buildPlanModeEvalAgent(model: LanguageModelV2) {
+async function buildPlanModeEvalAgent(model: LanguageModelV2, planMode = true) {
   const runtime = await createMastraAgentRuntime({
     modelOverride: model as unknown as MastraModelConfig,
-    runtime: { apiKey: 'eval-key', planMode: true, provider: 'openai' },
+    runtime: { apiKey: 'eval-key', planMode, provider: 'openai' },
     tools: {
       [WEATHER_TOOL_ID]: makeWeatherTool(),
       [WRITE_TOOL_ID]: makeWriteTool(),
     },
+  });
+  return runtime.agent;
+}
+
+async function buildErrorEvalAgent(model: LanguageModelV2) {
+  const runtime = await createMastraAgentRuntime({
+    modelOverride: model as unknown as MastraModelConfig,
+    runtime: { apiKey: 'eval-key', provider: 'openai' },
+    tools: { [ERROR_TOOL_ID]: makeErrorTool() },
   });
   return runtime.agent;
 }
@@ -135,7 +159,11 @@ export async function runAgentBehaviorEvaluation(): Promise<AgentBehaviorEvaluat
   );
   const errorFree = await runEvals({
     data: [{ input: 'Check the weather in Lyon.' }],
-    gates: [calledToolGate(WEATHER_TOOL_ID), noToolErrorsGate()],
+    gates: [
+      calledToolGate(WEATHER_TOOL_ID),
+      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
+      noToolErrorsGate(),
+    ],
     target: errorFreeAgent,
   });
 
@@ -202,12 +230,46 @@ export async function runMisbehavingControlEvaluation(): Promise<AgentBehaviorEv
   const misbehavingAgent = await buildEvalAgent(
     createTextOnlyEvalModel('It is probably sunny somewhere.')
   );
-  const outcome = await runEvals({
+  const toolSelectionOutcome = await runEvals({
     data: [{ input: 'What is the weather in Paris?' }],
     gates: [calledToolGate(WEATHER_TOOL_ID)],
     target: misbehavingAgent,
   });
-  const flows = [toFlowResult('tool-selection-control', outcome as FlowOutcome)];
+
+  const planModeControlAgent = await buildPlanModeEvalAgent(
+    createPlanModeInventoryEvalModel({
+      finalText: 'I modified the workspace.',
+      forbiddenInput: JSON.stringify({ content: 'unsafe', path: 'plan.txt' }),
+      forbiddenToolName: MODEL_FACING_WRITE_TOOL_ID,
+      safeInput: JSON.stringify({ city: 'Berlin' }),
+      safeToolName: WEATHER_TOOL_ID,
+    }),
+    false
+  );
+  const planModeOutcome = await runEvals({
+    data: [{ input: 'Modify the workspace while plan mode is disabled.' }],
+    gates: [didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID)],
+    target: planModeControlAgent,
+  });
+
+  const errorControlAgent = await buildErrorEvalAgent(
+    createToolCallingEvalModel({
+      finalText: 'The failing tool was handled.',
+      input: JSON.stringify({}),
+      toolName: ERROR_TOOL_ID,
+    })
+  );
+  const errorOutcome = await runEvals({
+    data: [{ input: 'Call the deterministic failing tool.' }],
+    gates: [noToolErrorsGate()],
+    target: errorControlAgent,
+  });
+
+  const flows = [
+    toFlowResult('tool-selection-control', toolSelectionOutcome as FlowOutcome),
+    toFlowResult('plan-mode-tool-filter-control', planModeOutcome as FlowOutcome),
+    toFlowResult('tool-error-control', errorOutcome as FlowOutcome),
+  ];
   const failures = collectFailures(flows);
   return { failures, flows, passed: failures.length === 0 };
 }

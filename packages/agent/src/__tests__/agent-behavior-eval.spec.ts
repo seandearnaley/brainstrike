@@ -34,14 +34,18 @@ describe('agent behavior evaluation (runEvals gates)', () => {
     });
   }, 120_000);
 
-  it('CONTROL: the gates can fail — a misbehaving model flunks tool selection', async () => {
+  it('CONTROL: every deterministic gate can fail on its target regression', async () => {
     // An instrument that cannot fail on what it tests is not evidence
     // (hybrid-eval design-integrity rule): a scripted model that answers
     // without calling the required tool must produce a failed verdict.
     const report = await runMisbehavingControlEvaluation();
 
     expect(report.passed).toBe(false);
-    expect(report.flows[0]?.verdict).toBe('failed');
-    expect(report.failures.length).toBeGreaterThan(0);
+    expect(report.flows.map((flow) => ({ name: flow.name, verdict: flow.verdict }))).toEqual([
+      { name: 'tool-selection-control', verdict: 'failed' },
+      { name: 'plan-mode-tool-filter-control', verdict: 'failed' },
+      { name: 'tool-error-control', verdict: 'failed' },
+    ]);
+    expect(report.failures).toHaveLength(3);
   }, 120_000);
 });

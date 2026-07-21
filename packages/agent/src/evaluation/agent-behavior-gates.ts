@@ -28,12 +28,21 @@ function looksErrored(node: Record<string, unknown>): boolean {
   if (node['isError'] === true) {
     return true;
   }
+  if (node['type'] === 'tool-error') {
+    return true;
+  }
+  if (typeof node['errorText'] === 'string' || node['error'] !== undefined) {
+    return true;
+  }
   const state = node['state'];
   if (typeof state === 'string' && state.includes('error')) {
     return true;
   }
   const result = node['result'];
-  return isRecord(result) && result['isError'] === true;
+  return (
+    isRecord(result) &&
+    (result['isError'] === true || result['ok'] === false || result['error'] !== undefined)
+  );
 }
 
 function recordToolNode(node: Record<string, unknown>, activity: ToolActivity): void {
@@ -82,6 +91,17 @@ export function calledToolGate(toolName: string) {
     type: 'agent',
   }).generateScore(({ run }) =>
     collectToolActivity(run.output).toolNames.includes(toolName) ? 1 : 0
+  );
+}
+
+/** Gate: the run did not call the named tool. */
+export function didNotCallToolGate(toolName: string) {
+  return createScorer({
+    description: `Gate: the agent did not call the ${toolName} tool`,
+    id: `did-not-call-tool-${toolName}`,
+    type: 'agent',
+  }).generateScore(({ run }) =>
+    collectToolActivity(run.output).toolNames.includes(toolName) ? 0 : 1
   );
 }
 
