@@ -8,6 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactNode, useLayoutEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
 
@@ -55,11 +56,24 @@ describe('assistant composer history hydration', () => {
         })
     );
     const historyAdapter: ThreadHistoryAdapter = { append, load };
+    const firstCommitDisabled = vi.fn<(disabled: boolean) => void>();
+    const InitialCommitProbe = ({ children }: { children: ReactNode }) => {
+      useLayoutEffect(() => {
+        const input = document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Message input"]'
+        );
+        firstCommitDisabled(Boolean(input?.disabled));
+      }, []);
+      return children;
+    };
 
     render(
-      <AssistantUiPanel historyAdapter={historyAdapter} pickerModels={[]} pickerProviders={[]} />,
+      <InitialCommitProbe>
+        <AssistantUiPanel historyAdapter={historyAdapter} pickerModels={[]} pickerProviders={[]} />
+      </InitialCommitProbe>,
       { wrapper: TooltipProvider }
     );
+    expect(firstCommitDisabled.mock.calls).toEqual([[true]]);
 
     const input = await screen.findByRole<HTMLTextAreaElement>('textbox', {
       name: 'Message input',
