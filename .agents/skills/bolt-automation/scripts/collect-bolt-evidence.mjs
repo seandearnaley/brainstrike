@@ -108,6 +108,56 @@ function readAssignment(charter, name) {
   return value;
 }
 
+function requireObject(value, context) {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(`${context} must be an object`);
+  }
+  return value;
+}
+
+function requireString(value, context) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${context} must be a non-empty string`);
+  }
+  return value;
+}
+
+function normalizeOpenPullRequest(value, index) {
+  const pullRequest = requireObject(value, `GitHub pull request ${index}`);
+  const base = requireObject(pullRequest.base, `GitHub pull request ${index}.base`);
+  const head = requireObject(pullRequest.head, `GitHub pull request ${index}.head`);
+  if (!Number.isInteger(pullRequest.number)) {
+    throw new Error(`GitHub pull request ${index}.number must be an integer`);
+  }
+  if (typeof pullRequest.draft !== 'boolean') {
+    throw new Error(`GitHub pull request ${index}.draft must be a boolean`);
+  }
+  return {
+    baseRefName: requireString(base.ref, `GitHub pull request ${index}.base.ref`),
+    headRefName: requireString(head.ref, `GitHub pull request ${index}.head.ref`),
+    headRefOid: requireString(head.sha, `GitHub pull request ${index}.head.sha`),
+    isDraft: pullRequest.draft,
+    number: pullRequest.number,
+    title: requireString(pullRequest.title, `GitHub pull request ${index}.title`),
+    updatedAt: requireString(pullRequest.updated_at, `GitHub pull request ${index}.updated_at`),
+    url: requireString(pullRequest.html_url, `GitHub pull request ${index}.html_url`),
+  };
+}
+
+function parseOpenPullRequestPages(raw, branchPrefix) {
+  const pages = JSON.parse(raw);
+  if (!(Array.isArray(pages) && pages.every(Array.isArray))) {
+    throw new Error('GitHub paginated pull request response must be an array of pages');
+  }
+  return pages
+    .flat()
+    .filter(
+      (pullRequest) =>
+        typeof pullRequest?.head?.ref === 'string' && pullRequest.head.ref.startsWith(branchPrefix)
+    )
+    .map(normalizeOpenPullRequest);
+}
+
 function assertRepository(repo) {
   const missing = REQUIRED_FILES.filter((path) => !existsSync(join(repo, path)));
   if (missing.length > 0) {
@@ -190,32 +240,13 @@ function blobIdAtMain(repo, file) {
   return git(repo, ['rev-parse', `${MAIN_REF}:${file.path}`]).trim();
 }
 
-function collectOpenPullRequests(repo) {
-  const raw = execute(
+export function collectOpenPullRequests(repo, run = execute) {
+  const raw = run(
     'gh',
-    [
-      'pr',
-      'list',
-      '--repo',
-      REPOSITORY,
-      '--state',
-      'open',
-      '--limit',
-      '100',
-      '--json',
-      'number,title,url,headRefName,headRefOid,baseRefName,isDraft,updatedAt',
-    ],
+    ['api', '--paginate', '--slurp', `repos/${REPOSITORY}/pulls?state=open&per_page=100`],
     repo
   );
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error('GitHub returned an unexpected pull-request list');
-  }
-  const boltPullRequests = parsed.filter(
-    (pullRequest) =>
-      typeof pullRequest?.headRefName === 'string' &&
-      pullRequest.headRefName.startsWith('night-shift/bolt/')
-  );
+  const boltPullRequests = parseOpenPullRequestPages(raw, 'night-shift/bolt/');
   if (boltPullRequests.length > 1) {
     throw new Error(`Protocol violation: ${boltPullRequests.length} open Bolt pull requests`);
   }
