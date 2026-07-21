@@ -83,12 +83,14 @@ const MIXED_MEDIA_STDIO_SERVER_PATH = fileURLToPath(
  * This is the minimal real-model contract the Mastra loop drives.
  */
 function createScriptedToolCallModel(args: {
+  discover?: boolean;
   toolName: string;
   toolCallId: string;
   input: string;
   finalText: string;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
 }): LanguageModelV2 {
+  let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
@@ -102,6 +104,36 @@ function createScriptedToolCallModel(args: {
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
+      if (args.discover && turn === 0) {
+        turn += 1;
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ query: args.toolName }),
+              toolCallId: `${args.toolCallId}-search`,
+              toolName: 'search_tools',
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      if (args.discover && turn === 1) {
+        turn += 1;
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: args.input,
+              toolCallId: args.toolCallId,
+              toolName: args.toolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
       const promptHasToolResult =
         Array.isArray(options.prompt) && options.prompt.some((message) => message.role === 'tool');
 
@@ -390,7 +422,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       finalText: 'The projected output was bounded.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultText(toolMessage);
       },
       toolCallId: 'call-large-output-1',
@@ -452,7 +484,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       finalText: 'The durable output was projected.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = JSON.stringify(readToolResultOutput(toolMessage));
       },
       toolCallId: 'call-settled-large-output-1',
@@ -527,7 +559,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       finalText: 'The bounded default projection reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultOutput(toolMessage);
       },
       toolCallId: 'call-conditional-output-1',
@@ -590,7 +622,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       finalText: 'All domain evidence reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultText(toolMessage);
       },
       toolCallId: 'call-domain-envelope-shape-1',
@@ -621,6 +653,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
     const server = await startStreamableMcpServer();
     modelHolder.current = createScriptedToolCallModel({
+      discover: true,
       finalText: 'The remote server echoed hello.',
       input: JSON.stringify({ value: 'hello' }),
       toolCallId: 'call-remote-1',
@@ -686,10 +719,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const server = await startStreamableMcpServer();
     let modelFacingToolOutput: unknown;
     modelHolder.current = createScriptedToolCallModel({
+      discover: true,
       finalText: 'The remote media reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultOutput(toolMessage);
       },
       toolCallId: 'call-remote-multimodal-1',
@@ -757,10 +791,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   it('preserves mixed structured MCP media from a real stdio server', async () => {
     let modelFacingToolOutput: unknown;
     modelHolder.current = createScriptedToolCallModel({
+      discover: true,
       finalText: 'The stdio media reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultOutput(toolMessage);
       },
       toolCallId: 'call-stdio-multimodal-1',
@@ -826,10 +861,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     let modelFacingToolOutput: unknown;
     const chunks: StreamChunk[] = [];
     modelHolder.current = createScriptedToolCallModel({
+      discover: true,
       finalText: 'The stdio structured result reached the model.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultOutput(toolMessage);
       },
       toolCallId: 'call-stdio-structured-only-1',
@@ -877,6 +913,113 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect((modelFacingToolOutput as { value?: unknown }).value).toContain('structured-stdio-only');
     expect((modelFacingToolOutput as { value?: unknown }).value).not.toContain(
       'legacy unstructured duplicate'
+    );
+  });
+
+  it('discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
+    const executions: string[] = [];
+    const offeredToolNames: string[][] = [];
+    let turn = 0;
+    const deferredTool = createTool({
+      description: 'List workspace context files and metadata.',
+      execute: async () => {
+        executions.push('ran');
+        return { files: ['src/index.ts'] };
+      },
+      id: 'brainstrike.listWorkspaceContext',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ files: z.array(z.string()) }),
+    });
+    const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+      new ReadableStream<LanguageModelV2StreamPart>({
+        start(controller) {
+          for (const part of parts) {
+            controller.enqueue(part);
+          }
+          controller.close();
+        },
+      });
+
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+      doStream: (options: LanguageModelV2CallOptions) => {
+        offeredToolNames.push((options.tools ?? []).map((tool) => tool.name));
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              {
+                input: JSON.stringify({ query: 'workspace context files' }),
+                toolCallId: 'call-search-1',
+                toolName: 'search_tools',
+                type: 'tool-call',
+              },
+              { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+            ]),
+          });
+        }
+        if (turn === 2) {
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              {
+                input: '{}',
+                toolCallId: 'call-deferred-1',
+                toolName: 'brainstrike_listWorkspaceContext',
+                type: 'tool-call',
+              },
+              { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+            ]),
+          });
+        }
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            { id: 'text-final', type: 'text-start' },
+            {
+              delta: 'The deferred workspace context tool completed.',
+              id: 'text-final',
+              type: 'text-delta',
+            },
+            { id: 'text-final', type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
+          ]),
+        });
+      },
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    };
+
+    const chunks: StreamChunk[] = [];
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-deferred-tool',
+          parts: [{ text: 'inspect the workspace context', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.listWorkspaceContext': deferredTool },
+      }
+    );
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(offeredToolNames[0]).toEqual(['search_tools']);
+    expect(offeredToolNames[1]).toEqual(['search_tools', 'brainstrike_listWorkspaceContext']);
+    expect(executions).toEqual(['ran']);
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        name: 'brainstrike.listWorkspaceContext',
+        status: 'success',
+        type: 'tool-event',
+      })
     );
   });
 
@@ -1841,6 +1984,7 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
     });
 
     modelHolder.current = createScriptedToolCallModel({
+      discover: true,
       finalText: 'Recorded the plan.',
       input: JSON.stringify({
         tasks: [
@@ -2043,7 +2187,7 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
       finalText: 'I preserved the tool evidence.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultText(toolMessage);
       },
       toolCallId: 'call-forged-hook-carrier-1',
@@ -2158,7 +2302,7 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
       finalText: 'It is 21C in Paris.',
       input: JSON.stringify({ city: 'Paris' }),
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultText(toolMessage);
       },
       toolCallId: 'call-hook-custom-projection-1',
@@ -2216,7 +2360,7 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
       finalText: 'I retained the post-tool guidance.',
       input: '{}',
       onToolResultPrompt: (prompt) => {
-        const toolMessage = prompt.find((message) => message.role === 'tool');
+        const toolMessage = prompt.filter((message) => message.role === 'tool').at(-1);
         modelFacingToolOutput = readToolResultText(toolMessage);
       },
       toolCallId: 'call-large-hook-output-1',

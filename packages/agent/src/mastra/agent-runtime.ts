@@ -1,4 +1,5 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
@@ -13,6 +14,7 @@ import {
   Agent,
   type AgentMemoryOption,
   type DelegationConfig,
+  type MastraDBMessage,
   type ToolsInput,
 } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
@@ -114,6 +116,12 @@ import {
   type ToolOutputArtifactSettlementStore,
 } from './tool-output-artifact-settlement';
 import { sanitizeTools } from './tool-sanitizer';
+import {
+  BrainstrikeToolSearchProcessor,
+  resolveToolDiscoverySurface,
+  type ToolDiscoveryMetadata,
+  type ToolDiscoverySurface,
+} from './tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
   /**
@@ -122,6 +130,8 @@ export interface MastraAgentRuntimeOptions {
    * both are present. OPTIONAL — absent means no hooks (production default).
    */
   hookRunner?: AgentHookRunner;
+  /** @internal Rehydrate context-backed deferred tools before a fresh resume runtime executes. */
+  hydrateToolDiscoveryFromMemory?: boolean;
   instructions?: string;
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
@@ -210,7 +220,11 @@ export interface MastraAgentRuntime {
   resilienceConfig: AssistantResilienceConfig;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
+  /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
+  toolDiscovery?: ToolDiscoveryMetadata;
   toolNameMap: Map<string, string>;
+  /** Internal per-runtime processor reused by initial and both resume paths. */
+  toolSearchProcessor?: BrainstrikeToolSearchProcessor;
 }
 
 const logger = createLogger('MastraAgent');
@@ -558,6 +572,160 @@ function mergeSkillToolsIntoLocalTools(
   return { ...skillTools, ...localTools } as MastraAgentRuntimeOptions['tools'];
 }
 
+function applyRuntimeToolHooks(params: {
+  guardedTools: ToolsInput;
+  hookRunner: AgentHookRunner | undefined;
+  toolNameMap: ReadonlyMap<string, string>;
+}): ToolsInput {
+  if (!params.hookRunner) {
+    return params.guardedTools;
+  }
+  return applyToolHooks(params.guardedTools, {
+    hookRunner: params.hookRunner,
+    logger,
+    toolNameMap: params.toolNameMap,
+  });
+}
+
+function settleRuntimeToolOutputs(params: {
+  inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
+  store: ToolOutputArtifactSettlementStore | undefined;
+  toolNameMap: ReadonlyMap<string, string>;
+  tools: ToolsInput;
+}): ToolsInput {
+  if (!params.store) {
+    return params.tools;
+  }
+  return applyToolOutputArtifactSettlement(params.tools, {
+    ...(params.inlineMaxSerializedCharsByToolName
+      ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
+      : {}),
+    store: params.store,
+    toolNameMap: params.toolNameMap,
+  });
+}
+
+async function prepareHostedToolDiscovery(params: {
+  eligibleTools: ToolsInput;
+  localToolIds: ReadonlySet<string>;
+  modelName: string;
+  persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
+  provider: ResolvedRuntimeConfiguration['provider'];
+  toolNameMap: ReadonlyMap<string, string>;
+}): Promise<{
+  discoverySurface?: ToolDiscoverySurface;
+  modelProjectedTools: ToolsInput;
+  tokenDiagnostics: RunTokenDiagnostics;
+  toolSearchProcessor?: BrainstrikeToolSearchProcessor;
+}> {
+  const isHosted =
+    params.provider !== 'local' && params.provider !== 'ollama' && params.provider !== 'lmstudio';
+  const discoveryResolution = isHosted
+    ? resolveToolDiscoveryAdapter({
+        modelId: params.modelName,
+        provider: params.provider,
+        requestedAdapter: 'mastra-catalog-search',
+      })
+    : undefined;
+  if (discoveryResolution?.status === 'unsupported') {
+    throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+      context: {
+        phase: 'adapter-resolution',
+        provider: params.provider,
+        reason: discoveryResolution.reason,
+        requestedAdapter: 'mastra-catalog-search',
+      },
+      detail: `Mastra catalog discovery is unsupported for ${params.provider}/${params.modelName}: ${discoveryResolution.reason}`,
+    });
+  }
+
+  const discoverySurface = discoveryResolution
+    ? resolveToolDiscoverySurface({
+        adapter: discoveryResolution.adapter,
+        eligibleTools: params.eligibleTools,
+        localToolIds: params.localToolIds,
+        toolNameMap: params.toolNameMap,
+      })
+    : undefined;
+  const initialTools = discoverySurface?.coreTools ?? params.eligibleTools;
+  const tokenDiagnostics = await createRunTokenDiagnostics({
+    capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
+    tools: initialTools,
+  });
+  const recordModelOutput = (output: unknown): void => tokenDiagnostics.recordModelOutput(output);
+  const modelProjectedTools = applyToolModelOutputProjections(
+    initialTools,
+    params.toolNameMap,
+    recordModelOutput
+  );
+  const hasDeferredTools = Boolean(
+    discoverySurface && Object.keys(discoverySurface.deferredTools).length > 0
+  );
+  const modelProjectedDeferredTools =
+    hasDeferredTools && discoverySurface
+      ? applyToolModelOutputProjections(
+          discoverySurface.deferredTools,
+          params.toolNameMap,
+          recordModelOutput
+        )
+      : undefined;
+  const toolSearchProcessor = modelProjectedDeferredTools
+    ? new BrainstrikeToolSearchProcessor({
+        deferredTools: modelProjectedDeferredTools,
+        ...(params.persistedDiscoveryMessages
+          ? { loadPersistedMessages: params.persistedDiscoveryMessages }
+          : {}),
+        // This field is required by ProcessInputStepArgs but is never consulted
+        // by Mastra's context-store parser. Use the existing fail-loud inert
+        // model so any future accidental invocation cannot perform inference.
+        model: createListingOnlyModel(),
+        toolNameMap: params.toolNameMap,
+      })
+    : undefined;
+
+  if (discoverySurface) {
+    logger.info('Mastra tool discovery surface selected', {
+      adapter: discoverySurface.metadata.adapter,
+      code: 'mastra_tool_discovery_surface',
+      coreToolIds: discoverySurface.metadata.coreToolIds,
+      deferredToolIds: discoverySurface.metadata.deferredToolIds,
+      eligibleToolIds: discoverySurface.metadata.eligibleToolIds,
+    });
+  }
+
+  return {
+    ...(discoverySurface ? { discoverySurface } : {}),
+    modelProjectedTools,
+    tokenDiagnostics,
+    ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
+  };
+}
+
+function createPersistedDiscoveryMessageLoader(params: {
+  enabled: boolean | undefined;
+  memory: MastraMemory | undefined;
+  memoryContext: RuntimeData['memory'];
+}): (() => Promise<readonly MastraDBMessage[]>) | undefined {
+  if (!params.enabled) {
+    return;
+  }
+  if (!params.memory) {
+    return;
+  }
+  if (!params.memoryContext) {
+    return;
+  }
+  const { memory, memoryContext } = params;
+  return async (): Promise<readonly MastraDBMessage[]> => {
+    const recalled = await memory.recall({
+      perPage: false,
+      resourceId: memoryContext.resourceId,
+      threadId: memoryContext.threadId,
+    });
+    return recalled.messages;
+  };
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -577,6 +745,7 @@ export async function createMastraAgentRuntime(
     toolOutputArtifactStore,
     toolOutputArtifactInlineMaxSerializedCharsByToolName,
     modelOverride,
+    hydrateToolDiscoveryFromMemory,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -611,6 +780,7 @@ export async function createMastraAgentRuntime(
 
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
+  const sanitizedLocalToolIds = new Set(Object.keys(sanitizedLocalTools ?? {}));
   const combinedTools = await collectCombinedTools({
     durableArtifactSettlement: Boolean(toolOutputArtifactStore),
     mcpClient,
@@ -633,9 +803,7 @@ export async function createMastraAgentRuntime(
   // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
   // An explicit `options.hookRunner` wins over one carried on the runtime data.
   const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
-  const hookedTools = hookRunner
-    ? applyToolHooks(guardedTools, { hookRunner, logger, toolNameMap })
-    : guardedTools;
+  const hookedTools = applyRuntimeToolHooks({ guardedTools, hookRunner, toolNameMap });
 
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
@@ -678,46 +846,38 @@ export async function createMastraAgentRuntime(
     toolNameMap,
     tools: gatedTools,
   });
-  const artifactSettledTools = toolOutputArtifactStore
-    ? applyToolOutputArtifactSettlement(finalTools, {
-        ...(toolOutputArtifactInlineMaxSerializedCharsByToolName
-          ? {
-              inlineMaxSerializedCharsByToolName:
-                toolOutputArtifactInlineMaxSerializedCharsByToolName,
-            }
-          : {}),
-        store: toolOutputArtifactStore,
-        toolNameMap,
-      })
-    : finalTools;
+  const artifactSettledTools = settleRuntimeToolOutputs({
+    inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
+    store: toolOutputArtifactStore,
+    toolNameMap,
+    tools: finalTools,
+  });
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
   // resolved — listing suspended runs performs no inference and must not require
   // a provider key or a static default model.
   const modelName = model ?? getDefaultModel(normalizedProvider);
-  const tokenDiagnostics = await createRunTokenDiagnostics({
-    capability: resolveTokenMeasurementCapability(normalizedProvider, modelName),
-    tools: artifactSettledTools,
-  });
-
-  // Mastra's `toModelOutput` is the dual-channel boundary: execute() keeps
-  // returning the raw, post-hook result for persistence/application consumers,
-  // while the next model step receives only a bounded projection. Apply this
-  // AFTER every policy/provider transformation so no final execute-backed tool
-  // can bypass the projection; tool-specific projections remain authoritative.
-  // The observer sees only the already-bounded projection and retains counts,
-  // never content.
-  const modelProjectedTools = applyToolModelOutputProjections(
-    artifactSettledTools,
-    toolNameMap,
-    (output) => tokenDiagnostics.recordModelOutput(output)
-  );
-
   const languageModel =
     modelOverride ??
     instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
+  const persistedDiscoveryMessages = createPersistedDiscoveryMessageLoader({
+    enabled: hydrateToolDiscoveryFromMemory,
+    memory,
+    memoryContext: sanitizedRuntime.memory,
+  });
+  // Apply the raw/model projection boundary independently to the post-gate core
+  // and deferred surfaces, then reuse one discovery processor for every leg.
+  const { discoverySurface, modelProjectedTools, tokenDiagnostics, toolSearchProcessor } =
+    await prepareHostedToolDiscovery({
+      eligibleTools: artifactSettledTools,
+      localToolIds: sanitizedLocalToolIds,
+      modelName,
+      ...(persistedDiscoveryMessages ? { persistedDiscoveryMessages } : {}),
+      provider: normalizedProvider,
+      toolNameMap,
+    });
 
   const budgetNote = buildContextBudgetNote(sanitizedRuntime.agentLoop?.inputTokenLimit);
   // The current per-thread plan, re-serialized into the instructions every turn
@@ -830,6 +990,8 @@ export async function createMastraAgentRuntime(
     personasById,
     resilienceConfig,
     tokenDiagnostics,
+    ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
+    ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
   };
@@ -2242,7 +2404,8 @@ function resolvePositiveIntegerOption(value: unknown, fieldName: string): number
 }
 
 function buildToolLoopOptions(
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined
 ): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
   const agentLoop = runtimeData?.agentLoop;
   const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
@@ -2276,9 +2439,12 @@ function buildToolLoopOptions(
     runtimeData?.workspaceSkills && runtimeData.provider !== 'local'
       ? new SkillsProcessor({ skills: runtimeData.workspaceSkills })
       : undefined;
-  const inputProcessors: unknown[] = [skillsProcessor, tokenLimiter, historyCompat].filter(
-    (processor): processor is NonNullable<typeof processor> => processor !== undefined
-  );
+  const inputProcessors: unknown[] = [
+    skillsProcessor,
+    toolSearchProcessor,
+    historyCompat,
+    tokenLimiter,
+  ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 
   return {
     maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
@@ -2457,7 +2623,7 @@ async function createStreamIteratorFromRuntime({
     const memoryOption = resolveMemoryOption(runtimeData, memory);
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
-      ...buildToolLoopOptions(runtimeData),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
@@ -2582,7 +2748,7 @@ async function createToolApprovalIteratorFromRuntime({
       runId: string;
       toolCallId: string;
     } = {
-      ...buildToolLoopOptions(runtimeData),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
@@ -2743,7 +2909,7 @@ export async function streamMastraToolApprovalAction(
   // Thread runtime.mastraTools/model into the options so the rebuilt Agent keeps
   // the native tools on resume (see withRuntimeDerivedStreamOptions).
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions(options),
+    { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution
   );
 
@@ -2928,7 +3094,7 @@ async function createToolResumeIteratorFromRuntime({
     validateToolResumeAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumeOptions = {
-      ...buildToolLoopOptions(runtimeData),
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor),
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
@@ -3001,7 +3167,7 @@ export async function streamMastraToolResumeAction(
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions(options),
+    { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution
   );
 

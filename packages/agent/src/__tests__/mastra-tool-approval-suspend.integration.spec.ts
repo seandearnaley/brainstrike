@@ -137,6 +137,73 @@ function createTurnCountedToolCallModel(args: {
   };
 }
 
+function createDiscoveryThenToolApprovalModel(args: {
+  deferredToolCallId: string;
+  deferredToolName: string;
+  finalText: string;
+  searchQuery: string;
+}): LanguageModelV2 {
+  let turn = 0;
+  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+    new ReadableStream<LanguageModelV2StreamPart>({
+      start(controller) {
+        for (const part of parts) {
+          controller.enqueue(part);
+        }
+        controller.close();
+      },
+    });
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () => {
+      turn += 1;
+      if (turn === 1) {
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ query: args.searchQuery }),
+              toolCallId: 'call-search-before-approval',
+              toolName: 'search_tools',
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      if (turn === 2) {
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: '{}',
+              toolCallId: args.deferredToolCallId,
+              toolName: args.deferredToolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      const id = 'text-final';
+      return Promise.resolve({
+        stream: enqueue([
+          { type: 'stream-start', warnings: [] },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 /**
  * A three-turn scripted model for resume-gate proofs:
  *   turn 1 (initial)          → call the ask tool (suspends for approval)
@@ -346,6 +413,100 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(resumeRunEventKinds).toContain('tool.completed');
     const resumeFinish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
     expect(resumeFinish).toBeDefined();
+
+    await database.close();
+  });
+
+  it('rehydrates a discovered deferred tool before approval resume executes it', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const execute = vi.fn(() => Promise.resolve({ roots: ['brainstrike'] }));
+    const deferredTool = createTool({
+      description: 'List active workspace roots and context metadata.',
+      execute,
+      id: 'brainstrike.listWorkspaceContext',
+      inputSchema: z.object({}),
+      outputSchema: z.object({ roots: z.array(z.string()) }),
+    });
+    const permissionPolicy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'ask' },
+      riskByTool: { 'brainstrike.listWorkspaceContext': 'read' },
+      yolo: false,
+    } as const;
+    const thread = {
+      resourceId: 'resource-deferred-approval',
+      threadId: 'thread-deferred-approval',
+    } as const;
+
+    modelHolder.current = createDiscoveryThenToolApprovalModel({
+      deferredToolCallId: 'call-deferred-approval',
+      deferredToolName: 'brainstrike_listWorkspaceContext',
+      finalText: 'Workspace context listed.',
+      searchQuery: 'active workspace roots context',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [
+          {
+            id: 'u-deferred-approval',
+            parts: [{ text: 'list roots', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.listWorkspaceContext': deferredTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toMatchObject({
+      policyDecision: 'ask',
+      riskCategory: 'read',
+      toolName: 'brainstrike.listWorkspaceContext',
+    });
+    expect(execute).not.toHaveBeenCalled();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: approval?.toolName ?? '',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.listWorkspaceContext': deferredTool },
+        }
+      )
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(resumeChunks).toContainEqual(
+      expect.objectContaining({
+        name: 'brainstrike.listWorkspaceContext',
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();
   });

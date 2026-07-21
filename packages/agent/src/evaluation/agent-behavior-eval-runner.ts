@@ -37,8 +37,11 @@ export interface AgentBehaviorEvaluationReport {
 }
 
 const WEATHER_TOOL_ID = 'get_weather';
-const WRITE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
-const MODEL_FACING_WRITE_TOOL_ID = 'brainstrike_writeWorkspaceFile';
+// Critical edit tool: eager when plan mode is off and omitted when plan mode is
+// on. Using the critical mutator keeps this plan-mode control independent from
+// the deferred-discovery behavior evaluated separately in BST-613.
+const WRITE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile';
+const MODEL_FACING_WRITE_TOOL_ID = 'brainstrike_stringReplaceWorkspaceFile';
 const ERROR_TOOL_ID = 'fail_task';
 const MISSING_TOOL_ID = 'missing_tool';
 
