@@ -35,13 +35,14 @@ with a code-quality result while keeping real Preview failures visible.
 When `Vercel` is red:
 
 1. Inspect the status description and target deployment before classifying it.
-   A provider-capacity result (for example, the Vercel
-   `build-rate-limit` target) means no build was evaluated; an actual failed
-   deployment or build log is a product failure and remains blocking.
+   A provider-capacity description (rather than a build or deployment failure
+   log) means no build was evaluated; an actual failed deployment or build log
+   is a product failure and remains blocking. Do not depend on a specific
+   provider URL slug because integration URLs can change.
 2. Verify the current repository ruleset rather than relying on an old PR or
    this prose. `gh api repos/seandearnaley/brainstrike/rulesets/4797672`
-   should list only `Static`, `Unit`, `Build`, `Web E2E`, and `Desktop E2E`
-   under `required_status_checks`.
+   should match the required checks listed above under
+   `required_status_checks`.
 3. For capacity-only failures, do not push a no-op commit or restart the
    45-minute GitHub Actions pipeline. Once the exact-head required checks and
    reviews are clean, the PR may merge with the advisory capacity status red.
