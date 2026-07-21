@@ -216,8 +216,9 @@ use `createBackgroundIndexingEntryPolicy` from
 there rather than hiding entries after the adapter has already read them.
 
 - **Balanced (default):** prunes common dependency and generated directories
-  before recursive reads, including Python `.venv`, `venv`, `env`, and
-  `__pycache__` directory segments.
+  before recursive reads, including Python `.venv`, `venv`, and `__pycache__`
+  directory segments. A bare `env` remains eligible because it is also a common
+  source/config directory name and the segment alone does not prove a virtualenv.
 - **Full root (explicit override):** continues to traverse those Python
   directories. The Settings description calls this out so opting in does not
   silently change scan breadth.

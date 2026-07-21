@@ -126,13 +126,17 @@ describe('walkDirectoryParallel', () => {
   });
 
   it('prunes Python environments before balanced recursive reads', async () => {
-    const pythonDirectories = ['.venv', 'venv', 'env', '__pycache__'];
+    const pythonDirectories = ['.venv', 'venv', '__pycache__'];
     const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
       if (handle.path === '/workspace/root') {
         return [
           ...pythonDirectories.map((name) => createDirectoryEntry(name, `/workspace/root/${name}`)),
+          createDirectoryEntry('env', '/workspace/root/env'),
           createDirectoryEntry('src', '/workspace/root/src'),
         ];
+      }
+      if (handle.path === '/workspace/root/env') {
+        return [createFileEntry('config.ts', '/workspace/root/env/config.ts')];
       }
       if (handle.path === '/workspace/root/src') {
         return [createFileEntry('index.py', '/workspace/root/src/index.py')];
@@ -144,13 +148,17 @@ describe('walkDirectoryParallel', () => {
       entryPolicy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
     });
 
-    expect(readDirectory).toHaveBeenCalledTimes(2);
+    expect(readDirectory).toHaveBeenCalledTimes(3);
     for (const name of pythonDirectories) {
       expect(readDirectory).not.toHaveBeenCalledWith(
         expect.objectContaining({ path: `/workspace/root/${name}` })
       );
     }
     expect(tree).toEqual([
+      expect.objectContaining({
+        children: [expect.objectContaining({ name: 'config.ts' })],
+        name: 'env',
+      }),
       expect.objectContaining({
         children: [expect.objectContaining({ name: 'index.py' })],
         name: 'src',

@@ -8,8 +8,9 @@ from the recursive Workspace Index scan, which already owns a user-selectable
 
 ## Contract
 
-- Balanced indexing prunes `.venv`, `venv`, `env`, and `__pycache__` before a
-  recursive directory read is scheduled.
+- Balanced indexing prunes `.venv`, `venv`, and `__pycache__` before a recursive
+  directory read is scheduled. Bare `env` directories remain eligible because
+  the name alone is ambiguous without a Python marker such as `pyvenv.cfg`.
 - Full root remains the explicit opt-in override and continues to traverse those
   names; its Settings description must say that Python environments are included.
 - Existing custom Explorer include/exclude filters are untouched.

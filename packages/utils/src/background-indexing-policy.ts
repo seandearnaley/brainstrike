@@ -64,7 +64,6 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.vite',
   '.venv',
   'venv',
-  'env',
   '__pycache__',
   'node_modules',
   'coverage',

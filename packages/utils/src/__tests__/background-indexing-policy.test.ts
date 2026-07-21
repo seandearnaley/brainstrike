@@ -145,11 +145,9 @@ describe('background-indexing-policy', () => {
     for (const relativePath of [
       '.venv',
       'venv',
-      'env',
       '__pycache__',
       'services/api/.venv/lib/python3.13/site-packages',
       'packages/jobs/venv/lib/python3.13/site-packages',
-      'scripts/env/lib/python3.13/site-packages',
       'src/__pycache__',
     ]) {
       expect(
@@ -161,10 +159,25 @@ describe('background-indexing-policy', () => {
     }
   });
 
+  it('balanced policy preserves ordinary source directories named env', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+
+    expect(policy.shouldTraverseDirectory({ directoryName: 'env', relativePath: 'src/env' })).toBe(
+      true
+    );
+    expect(
+      policy.shouldIncludeFile({
+        fileName: 'config.ts',
+        fileSize: 128,
+        relativePath: 'src/env/config.ts',
+      })
+    ).toBe(true);
+  });
+
   it('full-root policy remains the explicit override for Python environments', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
 
-    for (const relativePath of ['.venv', 'venv', 'env', '__pycache__']) {
+    for (const relativePath of ['.venv', 'venv', '__pycache__']) {
       expect(
         policy.shouldTraverseDirectory({
           directoryName: relativePath,
