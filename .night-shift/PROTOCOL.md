@@ -30,7 +30,46 @@ protocol; their charters in charters/ are the deployed source of truth.
     `<pr,head-sha>` already processed); Watch watches workflow-run IDs;
     Sweep watches its open ticket set. Each exits NOOP only when ITS own
     watched set is unchanged since last run, never on the main diff.
-  In all cases: an unchanged watched set means NOOP, and NOOP is success.
+  In all cases: an unchanged watched set means NOOP, and NOOP is success —
+  but an open PR of yours is ALWAYS part of your watched set: while it has
+  failing checks, unreplied review comments, or unresolved threads, you are
+  not idle (see PR stewardship).
+
+## PR stewardship (any loop with an open PR)
+
+Opening a PR is the midpoint of your job, not the end. A PR abandoned after
+open — bot reviews unanswered, threads dangling — is worse than no PR: it
+costs the human triage time and poisons trust in every other loop's PRs.
+
+- Stewardship precedes new work. At wake, before any discovery, reconcile
+  your open PR: fetch required-check status and ALL review threads on the
+  current HEAD (`gh pr view`, and `gh api graphql` for reviewThreads —
+  thread resolution state is not visible through plain `gh pr view`).
+- EVERY review comment gets a reply, bots included. The reply is one of:
+  the fixing commit SHA, a concise reasoned decline, or a link to the
+  follow-up Linear ticket. Never leave a comment unanswered, and never
+  reply with content-free acknowledgments.
+- After replying, resolve the thread via `gh api graphql`
+  (`resolveReviewThread`) when the concern is genuinely addressed — fixed,
+  answered, or ticketed. Never resolve a thread whose question is still
+  open, and never resolve a human's thread without your reply visible.
+- Feedback that is real but out of your scope or too large for this PR →
+  fingerprinted Linear ticket (normal ticket rules), linked in your reply,
+  then resolve the thread. Deferral must leave a trail, not a dangling
+  thread.
+- Failing checks on your HEAD are yours: diagnose and fix, batching known
+  fixes into one push. Checks failing for external reasons (infra outage,
+  unrelated main breakage) → `needs-human` ticket + checkpoint BLOCKED;
+  do not churn retries against an external failure.
+- Repeat the reconcile after every push. The PR is stable only when, for
+  one HEAD simultaneously: required checks green, every thread replied AND
+  resolved, working tree clean. Then checkpoint READY TO MERGE and hand
+  off. Cap of six fix/push cycles per run; on hitting it, checkpoint
+  INCOMPLETE with the exact next action.
+- READY TO MERGE is per-HEAD, not permanent: new review activity or a new
+  HEAD reopens stewardship at your next wake. The one-PR rule already
+  blocks new work while your PR is open; stewardship is what you do with
+  that time.
 
 ## Findings & tickets (Linear)
 
