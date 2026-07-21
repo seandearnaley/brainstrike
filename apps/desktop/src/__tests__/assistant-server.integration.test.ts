@@ -1030,6 +1030,111 @@ describe('assistant-server', () => {
       await Promise.race([requestPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
     }, 15_000);
 
+    it('keeps the assistant stream alive when a completed request emits close', async () => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let observedSignal: AbortSignal | null | undefined;
+      let releaseResponse: (() => void) | undefined;
+      const responseReleased = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      (streamResponse as Mock).mockImplementationOnce(
+        async (
+          res: http.ServerResponse,
+          _response: unknown,
+          signal: AbortSignal | null | undefined
+        ) => {
+          observedSignal = signal;
+          await responseReleased;
+          res.end('done');
+        }
+      );
+
+      const req = new MockRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+      const res = new MockResponse();
+      const finished = new Promise<void>((resolve) => res.once('finish', resolve));
+      const requestPromise = handleAssistantRequest(
+        req as unknown as http.IncomingMessage,
+        res as unknown as http.ServerResponse,
+        { auth: 'disabled' }
+      );
+
+      await vi.waitUntil(() => observedSignal !== undefined, { timeout: 2000 });
+      Object.defineProperty(req, 'complete', { configurable: true, value: true });
+      req.emit('close');
+      releaseResponse?.();
+      await requestPromise;
+      await finished;
+
+      expect(res.statusCode).toBe(200);
+      expect(Buffer.concat(res.bodyChunks).toString('utf-8')).toBe('done');
+      expect(observedSignal).toBeDefined();
+      expect(observedSignal?.aborted).toBe(false);
+    });
+
+    it('aborts the assistant stream when the response connection closes prematurely', async () => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let observedSignal: AbortSignal | null | undefined;
+      let releaseResponse: (() => void) | undefined;
+      const responseReleased = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      (streamResponse as Mock).mockImplementationOnce(
+        async (
+          res: http.ServerResponse,
+          _response: unknown,
+          signal: AbortSignal | null | undefined
+        ) => {
+          observedSignal = signal;
+          await responseReleased;
+          res.end();
+        }
+      );
+
+      const req = new MockRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+      const res = new MockResponse();
+      const finished = new Promise<void>((resolve) => res.once('finish', resolve));
+      const requestPromise = handleAssistantRequest(
+        req as unknown as http.IncomingMessage,
+        res as unknown as http.ServerResponse,
+        { auth: 'disabled' }
+      );
+
+      await vi.waitUntil(() => observedSignal !== undefined, { timeout: 2000 });
+      res.emit('close');
+
+      expect(observedSignal?.aborted).toBe(true);
+
+      releaseResponse?.();
+      await requestPromise;
+      await finished;
+    });
+
     it('passes filesystem MCP config through to the Mastra runtime', async () => {
       const { loadMcpConfig } = await import('../mcp-loader');
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
