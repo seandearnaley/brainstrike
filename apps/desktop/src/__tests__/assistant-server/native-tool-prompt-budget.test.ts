@@ -330,7 +330,7 @@ describe('desktop native tool provider prompt budget', () => {
     }).toEqual({
       criticalDefinitionTokens: 1894,
       criticalToolCount: 7,
-      eagerDefinitionTokens: 6160,
+      eagerDefinitionTokens: 6180,
       eagerToolCount: 27,
     });
   });

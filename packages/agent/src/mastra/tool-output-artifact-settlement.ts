@@ -67,6 +67,12 @@ export interface ToolOutputArtifactSettlementStore {
 }
 
 export interface ApplyToolOutputArtifactSettlementOptions {
+  /**
+   * Optional stricter inline ceilings for tools whose complete model projection
+   * must fit a smaller character budget than the generic transport envelope.
+   * Keys are canonical (pre-sanitization) tool names.
+   */
+  readonly inlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
   readonly store: ToolOutputArtifactSettlementStore;
   readonly toolNameMap: ReadonlyMap<string, string>;
 }
@@ -83,7 +89,7 @@ interface SerializedToolOutput {
 }
 
 interface SettledToolOutput {
-  readonly displayOutput: ToolOutputArtifactEnvelope;
+  readonly displayOutput: unknown;
   readonly modelOutput: ReturnType<typeof projectToolOutputArtifactPage>;
   readonly projectionSource: unknown;
 }
@@ -182,9 +188,22 @@ function fitArtifactPreview(content: string): {
 function createArtifactOutputs(
   toolName: string,
   reference: ToolOutputArtifactReference,
-  content: string
+  content: string,
+  completeDisplayOutput: unknown
 ): Pick<SettledToolOutput, 'displayOutput' | 'modelOutput'> {
   const preview = fitArtifactPreview(content);
+  if (preview.endByte >= reference.byteLength) {
+    return {
+      displayOutput: completeDisplayOutput,
+      modelOutput: projectToolOutputArtifactPage({
+        artifactRef: reference,
+        ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
+        content: preview.preview,
+        endByte: preview.endByte,
+        offsetByte: 0,
+      }),
+    };
+  }
   const nextCursor = encodeToolOutputArtifactCursor(reference, preview.endByte);
   const displayOutput: ToolOutputArtifactEnvelope = {
     artifactRef: reference,
@@ -305,7 +324,7 @@ async function settleOutput(
   output: unknown,
   args: readonly unknown[],
   toolName: string,
-  store: ToolOutputArtifactSettlementStore
+  options: ApplyToolOutputArtifactSettlementOptions
 ): Promise<unknown> {
   if (isGuardedToolError(output) || isToolOutputArtifactEnvelope(output)) {
     return output;
@@ -316,7 +335,15 @@ async function settleOutput(
     return output;
   }
   const serialized = serializeToolOutput(domainOutput, toolName);
-  if (!(serialized && serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)) {
+  if (!serialized) {
+    return output;
+  }
+  const inlineMaxSerializedChars = options.inlineMaxSerializedCharsByToolName?.get(toolName);
+  const exceedsToolCharacterLimit =
+    inlineMaxSerializedChars !== undefined && serialized.content.length > inlineMaxSerializedChars;
+  if (
+    !(exceedsToolCharacterLimit || serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)
+  ) {
     return output;
   }
   if (serialized.byteLength > TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES) {
@@ -329,7 +356,7 @@ async function settleOutput(
 
   let reference: ToolOutputArtifactReference;
   try {
-    reference = await store.store({
+    reference = await options.store.store({
       content: serialized.content,
       format: serialized.format,
       toolCallId,
@@ -349,7 +376,7 @@ async function settleOutput(
     );
   }
   return createSettlementCarrier({
-    ...createArtifactOutputs(toolName, reference, serialized.content),
+    ...createArtifactOutputs(toolName, reference, serialized.content, domainOutput),
     projectionSource: output,
   });
 }
@@ -364,6 +391,14 @@ export function applyToolOutputArtifactSettlement(
   tools: ToolsInput,
   options: ApplyToolOutputArtifactSettlementOptions
 ): ToolsInput {
+  for (const [toolName, maxChars] of options.inlineMaxSerializedCharsByToolName ??
+    new Map<string, number>()) {
+    if (!(Number.isSafeInteger(maxChars) && maxChars > 0)) {
+      throw new TypeError(
+        `Invalid tool output artifact inline character limit for ${toolName}: ${maxChars}`
+      );
+    }
+  }
   const settled: ToolsInput = {};
   for (const [toolId, tool] of Object.entries(tools)) {
     if (!isExecutableTool(tool)) {
@@ -386,7 +421,7 @@ export function applyToolOutputArtifactSettlement(
     });
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
-      return settleOutput(output, args, toolName, options.store);
+      return settleOutput(output, args, toolName, options);
     };
     settled[toolId] = cloned as ToolsInput[string];
   }

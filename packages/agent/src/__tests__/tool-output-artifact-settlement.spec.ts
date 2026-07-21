@@ -86,6 +86,83 @@ describe('tool output artifact settlement', () => {
     expect(store).not.toHaveBeenCalled();
   });
 
+  it('settles a tool above its stricter serialized-character threshold', async () => {
+    const output = { payload: '雪\\n"quoted" 😀'.repeat(400) };
+    const serialized = JSON.stringify(output);
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(
+      TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES
+    );
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+      ...reference(new TextEncoder().encode(input.content).byteLength),
+      format: 'json',
+    }));
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => output) },
+      {
+        inlineMaxSerializedCharsByToolName: new Map([['brainstrike.webExtract', 1000]]),
+        store: settlementStore(store),
+        toolNameMap: new Map([['fixture', 'brainstrike.webExtract']]),
+      }
+    );
+
+    const result = await (
+      tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }
+    ).execute({}, { agent: { toolCallId: 'call-1' } });
+
+    expect(store).toHaveBeenCalledWith({
+      content: serialized,
+      format: 'json',
+      toolCallId: 'call-1',
+    });
+    expect(isToolOutputArtifactEnvelope(readOutputTransform(tools['fixture'], result))).toBe(true);
+  });
+
+  it('does not publish an EOF cursor when a character-threshold artifact fits one page', async () => {
+    const output = { payload: 'x'.repeat(3000) };
+    const serialized = JSON.stringify(output);
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(
+      TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES
+    );
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+      ...reference(new TextEncoder().encode(input.content).byteLength),
+      format: 'json',
+    }));
+    const settled = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => output) },
+      {
+        inlineMaxSerializedCharsByToolName: new Map([['brainstrike.webExtract', 1000]]),
+        store: settlementStore(store),
+        toolNameMap: new Map([['fixture', 'brainstrike.webExtract']]),
+      }
+    );
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map([['fixture', 'brainstrike.webExtract']])
+    );
+    const tool = projected['fixture'] as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+      toModelOutput: (output: unknown) => unknown;
+    };
+
+    const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
+    const display = readOutputTransform(tool, result);
+    const model = tool.toModelOutput(result);
+
+    expect(store).toHaveBeenCalledOnce();
+    expect(display).toEqual(output);
+    expect(isToolOutputArtifactEnvelope(display)).toBe(false);
+    expect(model).toMatchObject({
+      type: 'json',
+      value: {
+        complete: true,
+        endByte: new TextEncoder().encode(serialized).byteLength,
+        offsetByte: 0,
+      },
+    });
+    expect(JSON.stringify(model)).not.toContain('nextCursor');
+    expect(JSON.stringify(model)).not.toContain('readToolOutputArtifact');
+  });
+
   it('durably stores a complete oversized result before publishing a bounded envelope', async () => {
     const output = `head-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}-tail`;
     const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>

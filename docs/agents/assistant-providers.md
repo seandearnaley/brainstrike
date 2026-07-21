@@ -375,9 +375,18 @@ The assistant's search verbs, in the order the default instructions present them
    IPv6 `::1`/`fe80::/10`/`fc00::/7`; public hostnames are NOT DNS-resolved
    locally since the fetch runs on Tavily's servers, the guard keeps clearly
    internal URLs from leaving the machine) and reports every refusal per-URL
-   in `failed` — never a silent drop. Content is bounded per page (6000 chars)
-   and overall via `fitItemsToCharBudget`. Hermetic tests:
-   apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
+   in `failed` — never a silent drop. Its producer preserves complete page
+   content, URL identity, and failure reasons; it never clips a page or asks the
+   model to re-fetch a changed source. Inline results receive a purpose-built
+   complete projection. Results above 2400 serialized characters use the
+   central artifact settlement path before projection, which retains exact
+   UTF-8 JSON and gives the model an opaque `brainstrike.readToolOutputArtifact`
+   cursor only when unread bytes remain. A one-page settlement stays complete
+   without an EOF cursor. Without durable settlement, an oversized result
+   surfaces an explicit model-output-unavailable state while its raw application
+   result remains intact. Hermetic tests:
+   `apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts` and
+   `web-extract-model-projection.test.ts`.
 
 Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
 in ALL THREE chunk repositories — `FileChunkRepository`,
@@ -489,6 +498,32 @@ installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
 markers), delegates to Mastra's limiter, and restores the exact raw result in a
 `finally`. Keep its canonical processor id `token-limiter`.
 
+Runtime token measurement is observational and MUST NOT replace those safety
+limits. `provider-registry.ts` resolves one explicit capability from the exact
+provider/model tuple: `exact-selected-model`, `declared-compatible-reference`,
+or `deterministic-serialized-character-backstop`. The current direct OpenAI
+GPT-5.x registry entries deliberately declare local `o200k_base` as a compatible
+reference, not an exact selected-model tokenizer; `openai/gpt-4o` is the
+explicit verified exact mapping. Anthropic, Google, OpenRouter aliases, local
+runtimes, and unknown tuples keep the four-serialized-characters-per-token
+backstop. Never infer a tokenizer from a model-name substring.
+
+`RunTokenDiagnostics` initializes the declared local tokenizer once while the
+server-side Mastra runtime is built, normalizes the FINAL tool map through
+Mastra's Standard Schema conversion, and observes only already-bounded
+`toModelOutput` projections. Inline media bodies become deterministic markers
+before measurement. One `mastra_agent_token_measurement` structured log joins
+the mode, tokenizer (when declared), tool-definition count/tokens, projected
+result count/tokens, independent backstop totals, and actual provider/Mastra
+prompt usage when reported. It contains counts and bounded failure metadata
+only—never raw prompts, tool schemas, results, credentials, or user content.
+Counter initialization/execution failure retains the declared mode, omits the
+unavailable tokenizer counts, keeps the deterministic backstop totals, and logs
+at warning level; it never silently changes measurement semantics or disables
+the independent serialized-character safety envelope. Paired proofs:
+`provider-registry-token-measurement.test.ts`, `token-measurement.spec.ts`,
+`tool-model-output.spec.ts`, and `mastra-streaming.spec.ts`.
+
 MCP text/JSON uses a separate temporary inline ceiling only when the host does
 not supply durable artifact settlement: it is bounded to
 `MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
@@ -521,7 +556,17 @@ when format and complete bytes match; a conflicting replay is a hard failure.
 `applyToolOutputArtifactSettlement` is the central live settlement seam. With a
 trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
 retained completely before display/transcript receives the bounded envelope. A
-private carrier retains the original result without leaking it into persistence.
+tool may also declare a stricter canonical-name serialized-character ceiling
+when its complete domain projection must fit below that generic transport
+threshold. Desktop sets `brainstrike.webExtract` to 2400 characters so
+escape-heavy inline source still fits the 6000-character domain projection;
+larger extracts use the same durable artifact format and an exact cursor only
+when unread bytes remain. A settlement that fits one model page retains the raw
+display and returns `complete: true`; a host without a durable store receives
+an explicit model-output-unavailable projection instead of clipped source or a
+projection exception.
+A private carrier retains the original result without leaking it into
+persistence.
 After settlement, `toModelOutput` bypasses the original domain projector and
 projects a bounded initial-page view, composing authenticated hook context
 centrally. That model view omits the redundant artifact reference, exposes one
@@ -585,10 +630,12 @@ it never fabricates or duplicates the original pattern. When the whole raw page
 fits, the projection preserves the producer's bounded hint because the producer
 owns service caps and scan-limit semantics. Only when the tighter projection
 budget omits raw page items does the projector calculate an earlier advancing
-`offset`. A truncated result without producer guidance throws instead of
-guessing. Oversized paths and match context are clipped with an explicit
-omitted-character marker, and malformed result shapes throw rather than falling
-back to generic JSON.
+`offset`. Producer guidance includes an `offset` only when that offset strictly
+advances; when search or candidate limits yield an empty page with no reachable
+next offset, it instead gives terminal query-refinement guidance. A truncated
+result without producer guidance throws instead of guessing. Oversized paths and
+match context are clipped with an explicit omitted-character marker, and
+malformed result shapes throw rather than falling back to generic JSON.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output

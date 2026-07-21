@@ -271,6 +271,31 @@ describe('workspace search model projections', () => {
     expect(projected.value.split('\n').at(-1)).not.toContain('offset=');
   });
 
+  it('preserves terminal grep refinement when candidate limits yield an empty page', () => {
+    const projected = projectGrepSearchModelOutput({
+      candidatesTruncated: true,
+      files: [],
+      hint:
+        'Search limits were reached before this page could return additional matching files. ' +
+        'Narrow with filePaths or use a more specific or different pattern; repeating this offset cannot make progress.',
+      liveEngine: 'ripgrep',
+      offset: 0,
+      outputMode: 'files',
+      scanLimited: false,
+      totalFiles: 0,
+      totalMatches: 0,
+      truncated: false,
+    });
+
+    expect(projected.value).toContain(
+      'continue: reuse the prior brainstrike.grepSearch input; Search limits were reached'
+    );
+    expect(projected.value).toContain('repeating this offset cannot make progress');
+    expect(projected.value.split('\n').at(-1)).not.toMatch(
+      /(?:Continue with offset:|with offset=)\d+/
+    );
+  });
+
   it('advances one producer item when a non-empty raw page could not retain that item', () => {
     const projected = projectGrepSearchModelOutput({
       candidatesTruncated: false,

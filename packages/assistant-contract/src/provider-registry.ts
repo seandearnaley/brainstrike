@@ -29,6 +29,39 @@ export type ModelVisionSupport = 'supported' | 'unsupported' | 'unknown';
  */
 export type NativeToolSearchCapability = 'anthropic' | 'openai';
 
+export type TokenizerEncoding = 'o200k_base';
+
+export type TokenMeasurementCapability =
+  | {
+      /**
+       * The selected provider/model pair has an explicit local tokenizer
+       * implementation whose model mapping is verified.
+       */
+      mode: 'exact-selected-model';
+      tokenizer: TokenizerEncoding;
+    }
+  | {
+      /**
+       * A deliberately declared reference encoding. Useful for directional
+       * measurement, but never represented as the selected model's exact count.
+       */
+      mode: 'declared-compatible-reference';
+      tokenizer: TokenizerEncoding;
+    }
+  | {
+      /**
+       * Always-available deterministic measurement and the independent safety
+       * envelope. This is selected for every undeclared provider/model pair.
+       */
+      charactersPerToken: 4;
+      mode: 'deterministic-serialized-character-backstop';
+    };
+
+type TokenizerBackedMeasurementCapability = Exclude<
+  TokenMeasurementCapability,
+  { mode: 'deterministic-serialized-character-backstop' }
+>;
+
 interface BaseModelDefinition {
   /**
    * Flag a sensible default for the given model type.
@@ -97,6 +130,12 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * rather than invent copy: a model without a tagline renders name-only.
    */
   tagline?: string;
+  /**
+   * Optional explicit local tokenizer declaration. Absence is meaningful: the
+   * runtime uses the deterministic serialized-character backstop and never
+   * guesses from a model-name substring.
+   */
+  tokenMeasurement?: TokenizerBackedMeasurementCapability;
   type: 'llm';
   /**
    * Image-input support. REQUIRED: adding a model without it is a compile
@@ -160,6 +199,11 @@ export type ProviderId =
   | 'ollama'
   | 'lmstudio';
 
+const OPENAI_O200K_REFERENCE: TokenizerBackedMeasurementCapability = {
+  mode: 'declared-compatible-reference',
+  tokenizer: 'o200k_base',
+};
+
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
     capabilities: {
@@ -189,6 +233,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 5, outputPerMTok: 30 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -202,6 +247,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
         supportsStreaming: true,
         tagline: 'Most capable for everyday work',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -213,6 +259,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1, outputPerMTok: 6 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -224,6 +271,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -236,6 +284,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -247,6 +296,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -259,6 +309,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -270,6 +321,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         nativeToolSearch: 'openai',
         pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -282,6 +334,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.05, outputPerMTok: 0.4 },
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -292,6 +345,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -302,6 +356,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 128_000,
         pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
         supportsStreaming: true,
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -313,6 +368,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 15, outputPerMTok: 120 },
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
         type: 'llm',
         vision: 'supported',
       },
@@ -976,8 +1032,52 @@ const PROVIDER_BY_ID = Object.fromEntries(
   PROVIDER_DEFINITIONS.map((provider) => [provider.id, provider])
 ) as Record<ProviderId, ProviderDefinition>;
 
+const EXACT_TOKEN_MEASUREMENT_BY_PROVIDER_MODEL = new Map<
+  string,
+  TokenizerBackedMeasurementCapability
+>([
+  [
+    'openai\u0000gpt-4o',
+    {
+      mode: 'exact-selected-model',
+      tokenizer: 'o200k_base',
+    },
+  ],
+]);
+
+const DETERMINISTIC_TOKEN_MEASUREMENT_BACKSTOP: TokenMeasurementCapability = {
+  charactersPerToken: 4,
+  mode: 'deterministic-serialized-character-backstop',
+};
+
 export function listProviders(): readonly ProviderDefinition[] {
   return PROVIDER_DEFINITIONS;
+}
+
+/**
+ * Resolve measurement by an exact provider/model tuple. Dynamic or unknown
+ * routes remain measurable through the deterministic backstop, but they never
+ * inherit tokenizer semantics from substrings such as `openai/` or `gpt-`.
+ */
+export function resolveTokenMeasurementCapability(
+  providerId: string,
+  modelId: string
+): TokenMeasurementCapability {
+  const exactCapability = EXACT_TOKEN_MEASUREMENT_BY_PROVIDER_MODEL.get(
+    `${providerId}\u0000${modelId}`
+  );
+  if (exactCapability) {
+    return exactCapability;
+  }
+
+  const provider = PROVIDER_DEFINITIONS.find((definition) => definition.id === providerId);
+  const model = provider?.models.find(
+    (definition) => definition.type === 'llm' && definition.id === modelId
+  );
+  if (model?.type === 'llm' && model.tokenMeasurement) {
+    return model.tokenMeasurement;
+  }
+  return DETERMINISTIC_TOKEN_MEASUREMENT_BACKSTOP;
 }
 
 export function getProviderDefinition(provider: ProviderId): ProviderDefinition {

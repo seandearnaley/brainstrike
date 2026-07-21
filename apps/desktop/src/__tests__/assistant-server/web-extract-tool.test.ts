@@ -1,7 +1,7 @@
 /**
  * Hermetic unit coverage for the webExtract tool (report R5): Tavily's
  * /extract endpoint behind the SAME keyless-honest / non-fatal-error /
- * budget-bounded contract as webSearch (see web-search-tool.test.ts, whose
+ * exact-recovery contract as webSearch (see web-search-tool.test.ts, whose
  * injected-deps pattern this mirrors — no real network or keychain).
  *
  * Plus the URL guard, which webSearch does not need: model-supplied URLs are
@@ -62,7 +62,7 @@ describe('web-extract-tool', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('extracts pages and returns bounded markdown content', async () => {
+  it('extracts pages and returns byte-exact markdown content', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(
@@ -145,10 +145,7 @@ describe('web-extract-tool', () => {
     }
   });
 
-  it('bounds failure reasons and URLs so the failed list can never blow the budget', async () => {
-    // Refusal reasons are ours (short), but URLs are model-supplied (schema
-    // allows 2000 chars x 5) and Tavily-side error strings are unbounded —
-    // both must be capped like page content is (review finding).
+  it('preserves exact failure reasons and URL identity for durable recovery', async () => {
     const longPath = 'a'.repeat(1900);
     const hugeReason = 'upstream exploded: '.repeat(600);
     const fetchImpl = vi
@@ -171,16 +168,19 @@ describe('web-extract-tool', () => {
       deps({ fetchImpl })
     );
 
-    // 1 Tavily-side failure + 4 local refusals, every entry bounded.
+    // 1 Tavily-side failure + 4 local refusals, with no lossy producer clipping.
     expect(result.failed).toHaveLength(5);
-    for (const failure of result.failed) {
-      expect(failure.url.length).toBeLessThanOrEqual(201);
-      expect(failure.reason.length).toBeLessThanOrEqual(301);
-    }
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(2750 * 4);
+    expect(result.failed).toContainEqual({
+      reason: hugeReason,
+      url: `https://example.com/${longPath}`,
+    });
+    expect(result.failed).toContainEqual({
+      reason: 'refused: private/loopback/link-local hosts are never sent to the extraction service',
+      url: `http://10.0.0.1/${longPath}`,
+    });
   });
 
-  it('keeps a fully-refused oversized call inside the budget with no network use', async () => {
+  it('preserves fully-refused URL identity with no network use', async () => {
     const fetchImpl = vi.fn();
     const longPath = 'b'.repeat(1900);
     const result = await runWebExtract(
@@ -192,7 +192,9 @@ describe('web-extract-tool', () => {
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result.failed).toHaveLength(5);
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(2750 * 4);
+    expect(result.failed.map((failure) => failure.url)).toEqual(
+      Array.from({ length: 5 }, (_, index) => `http://192.168.0.${index}/${longPath}`)
+    );
   });
 
   it('extracts valid URLs while reporting refused ones alongside', async () => {
@@ -255,8 +257,8 @@ describe('web-extract-tool', () => {
     expect(result.error).toMatch(/timed out/i);
   });
 
-  it('bounds oversized page content per item and overall to the tool output budget', async () => {
-    const hugeContent = 'x'.repeat(60_000);
+  it('preserves oversized Unicode and escaped source content for central artifact settlement', async () => {
+    const hugeContent = `${'雪\\n"quoted" 😀'.repeat(6000)}\nTAIL-IS-EXACT`;
     const fetchImpl = vi.fn().mockResolvedValue(
       okJsonResponse(
         tavilyExtractBody([
@@ -270,11 +272,12 @@ describe('web-extract-tool', () => {
       deps({ fetchImpl })
     );
 
-    // Serialized result respects the 2750-token budget at 4 chars/token.
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(2750 * 4);
-    // Truncation is honest: flagged with an actionable hint, never an error.
-    expect(result.truncated).toBe(true);
-    expect(result.hint).toBeTruthy();
+    expect(result.results).toEqual([
+      { content: hugeContent, url: 'https://example.com/big-1' },
+      { content: hugeContent, url: 'https://example.com/big-2' },
+    ]);
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toBeUndefined();
     expect(result.error).toBeUndefined();
   });
 });

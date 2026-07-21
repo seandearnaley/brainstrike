@@ -49,7 +49,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import { ASSISTANT_AUTH_HEADER_NAME, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
@@ -122,6 +122,7 @@ import { prepareRequestSkills } from './assistant-server/request-skills';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
@@ -1571,6 +1572,7 @@ async function readThreadTaskListForTurn(
 interface InitialStreamMemoryOptions {
   memory?: DesktopMastraMemoryResult['memory'];
   storage?: DesktopMastraMemoryResult['storage'];
+  toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
 
@@ -1633,7 +1635,14 @@ function buildInitialStreamMemoryOptions(
 ): InitialStreamMemoryOptions {
   return {
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-    ...(toolOutputArtifactStore ? { toolOutputArtifactStore } : {}),
+    ...(toolOutputArtifactStore
+      ? {
+          toolOutputArtifactInlineMaxSerializedCharsByToolName: new Map([
+            [NATIVE_TOOL_ID.webExtract, WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS],
+          ]),
+          toolOutputArtifactStore,
+        }
+      : {}),
   };
 }
 
