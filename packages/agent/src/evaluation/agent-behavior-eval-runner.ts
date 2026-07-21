@@ -40,6 +40,7 @@ const WEATHER_TOOL_ID = 'get_weather';
 const WRITE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
 const MODEL_FACING_WRITE_TOOL_ID = 'brainstrike_writeWorkspaceFile';
 const ERROR_TOOL_ID = 'fail_task';
+const MISSING_TOOL_ID = 'missing_tool';
 
 function makeWeatherTool() {
   return createTool({
@@ -100,6 +101,15 @@ async function buildErrorEvalAgent(model: LanguageModelV2) {
     modelOverride: model as unknown as MastraModelConfig,
     runtime: { apiKey: 'eval-key', provider: 'openai' },
     tools: { [ERROR_TOOL_ID]: makeErrorTool() },
+  });
+  return runtime.agent;
+}
+
+async function buildEmptyEvalAgent(model: LanguageModelV2) {
+  const runtime = await createMastraAgentRuntime({
+    modelOverride: model as unknown as MastraModelConfig,
+    runtime: { apiKey: 'eval-key', provider: 'openai' },
+    tools: {},
   });
   return runtime.agent;
 }
@@ -265,10 +275,24 @@ export async function runMisbehavingControlEvaluation(): Promise<AgentBehaviorEv
     target: errorControlAgent,
   });
 
+  const missingToolControlAgent = await buildEmptyEvalAgent(
+    createToolCallingEvalModel({
+      finalText: 'The missing tool call was handled.',
+      input: JSON.stringify({}),
+      toolName: MISSING_TOOL_ID,
+    })
+  );
+  const missingToolOutcome = await runEvals({
+    data: [{ input: 'Call a tool that the runtime failed to register.' }],
+    gates: [noToolErrorsGate()],
+    target: missingToolControlAgent,
+  });
+
   const flows = [
     toFlowResult('tool-selection-control', toolSelectionOutcome as FlowOutcome),
     toFlowResult('plan-mode-tool-filter-control', planModeOutcome as FlowOutcome),
     toFlowResult('tool-error-control', errorOutcome as FlowOutcome),
+    toFlowResult('missing-tool-control', missingToolOutcome as FlowOutcome),
   ];
   const failures = collectFailures(flows);
   return { failures, flows, passed: failures.length === 0 };

@@ -45,7 +45,8 @@ describe('agent behavior evaluation (runEvals gates)', () => {
       { name: 'tool-selection-control', verdict: 'failed' },
       { name: 'plan-mode-tool-filter-control', verdict: 'failed' },
       { name: 'tool-error-control', verdict: 'failed' },
+      { name: 'missing-tool-control', verdict: 'failed' },
     ]);
-    expect(report.failures).toHaveLength(3);
+    expect(report.failures).toHaveLength(4);
   }, 120_000);
 });

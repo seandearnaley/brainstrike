@@ -24,6 +24,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isMissingToolResult(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('Tool "') &&
+    value.includes('" not found.. Call tools by their exact name only')
+  );
+}
+
 function looksErrored(node: Record<string, unknown>): boolean {
   if (node['isError'] === true) {
     return true;
@@ -39,6 +47,9 @@ function looksErrored(node: Record<string, unknown>): boolean {
     return true;
   }
   const result = node['result'];
+  if (isMissingToolResult(result)) {
+    return true;
+  }
   return (
     isRecord(result) &&
     (result['isError'] === true || result['ok'] === false || result['error'] !== undefined)
