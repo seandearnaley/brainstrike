@@ -2526,6 +2526,7 @@ describe('assistant-server', () => {
         unknown,
         unknown,
         {
+          toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
           toolOutputArtifactStore?: {
             store: (input: {
               content: string;
@@ -2536,6 +2537,11 @@ describe('assistant-server', () => {
         },
       ];
       expect(streamOptions.toolOutputArtifactStore).toBeDefined();
+      expect(
+        streamOptions.toolOutputArtifactInlineMaxSerializedCharsByToolName?.get(
+          'brainstrike.webExtract'
+        )
+      ).toBe(2400);
       mockDesktopDatabase.query.mockResolvedValueOnce({
         rows: [
           {

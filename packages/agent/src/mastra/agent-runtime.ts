@@ -152,6 +152,11 @@ export interface MastraAgentRuntimeOptions {
   runtime?: RuntimeData;
   storage?: MastraCompositeStore;
   /**
+   * Optional stricter inline ceilings for tools whose complete domain
+   * projection must fit below the generic artifact settlement threshold.
+   */
+  toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
+  /**
    * Trusted host capability for complete oversized tool-output retention.
    * Absent keeps the temporary inline MCP ceilings active.
    */
@@ -566,6 +571,7 @@ export async function createMastraAgentRuntime(
     memory,
     storage,
     toolOutputArtifactStore,
+    toolOutputArtifactInlineMaxSerializedCharsByToolName,
     modelOverride,
   } = options;
 
@@ -670,6 +676,12 @@ export async function createMastraAgentRuntime(
   });
   const artifactSettledTools = toolOutputArtifactStore
     ? applyToolOutputArtifactSettlement(finalTools, {
+        ...(toolOutputArtifactInlineMaxSerializedCharsByToolName
+          ? {
+              inlineMaxSerializedCharsByToolName:
+                toolOutputArtifactInlineMaxSerializedCharsByToolName,
+            }
+          : {}),
         store: toolOutputArtifactStore,
         toolNameMap,
       })

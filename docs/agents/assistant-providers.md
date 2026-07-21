@@ -375,9 +375,18 @@ The assistant's search verbs, in the order the default instructions present them
    IPv6 `::1`/`fe80::/10`/`fc00::/7`; public hostnames are NOT DNS-resolved
    locally since the fetch runs on Tavily's servers, the guard keeps clearly
    internal URLs from leaving the machine) and reports every refusal per-URL
-   in `failed` — never a silent drop. Content is bounded per page (6000 chars)
-   and overall via `fitItemsToCharBudget`. Hermetic tests:
-   apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
+   in `failed` — never a silent drop. Its producer preserves complete page
+   content, URL identity, and failure reasons; it never clips a page or asks the
+   model to re-fetch a changed source. Inline results receive a purpose-built
+   complete projection. Results above 2400 serialized characters use the
+   central artifact settlement path before projection, which retains exact
+   UTF-8 JSON and gives the model an opaque `brainstrike.readToolOutputArtifact`
+   cursor only when unread bytes remain. A one-page settlement stays complete
+   without an EOF cursor. Without durable settlement, an oversized result
+   surfaces an explicit model-output-unavailable state while its raw application
+   result remains intact. Hermetic tests:
+   `apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts` and
+   `web-extract-model-projection.test.ts`.
 
 Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
 in ALL THREE chunk repositories — `FileChunkRepository`,
@@ -521,7 +530,17 @@ when format and complete bytes match; a conflicting replay is a hard failure.
 `applyToolOutputArtifactSettlement` is the central live settlement seam. With a
 trusted host store, non-media native and MCP output above 12,000 UTF-8 bytes is
 retained completely before display/transcript receives the bounded envelope. A
-private carrier retains the original result without leaking it into persistence.
+tool may also declare a stricter canonical-name serialized-character ceiling
+when its complete domain projection must fit below that generic transport
+threshold. Desktop sets `brainstrike.webExtract` to 2400 characters so
+escape-heavy inline source still fits the 6000-character domain projection;
+larger extracts use the same durable artifact format and an exact cursor only
+when unread bytes remain. A settlement that fits one model page retains the raw
+display and returns `complete: true`; a host without a durable store receives
+an explicit model-output-unavailable projection instead of clipped source or a
+projection exception.
+A private carrier retains the original result without leaking it into
+persistence.
 After settlement, `toModelOutput` bypasses the original domain projector and
 projects a bounded initial-page view, composing authenticated hook context
 centrally. That model view omits the redundant artifact reference, exposes one

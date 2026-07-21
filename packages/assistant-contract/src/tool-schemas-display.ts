@@ -1015,7 +1015,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'Per-URL extracted markdown content (bounded per page and self-bound overall to the tool output budget, with a truncation flag and hint), plus a per-URL failed list (refused/unreachable URLs with reasons). When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+      'Complete per-URL extracted markdown content plus exact URLs and a per-URL failed list (refused/unreachable URLs with exact reasons). Larger results provide an exact brainstrike.readToolOutputArtifact continuation cursor instead of clipping or re-fetching. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
     toolId: WEB_EXTRACT_TOOL_ID,
   },
 
