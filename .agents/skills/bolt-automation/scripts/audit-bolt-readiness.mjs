@@ -7,18 +7,30 @@ import { pathToFileURL } from 'node:url';
 
 const MAX_BUFFER_BYTES = 128 * 1024 * 1024;
 const REPOSITORY = 'seandearnaley/brainstrike';
-const GREEN_CONCLUSIONS = new Set(['NEUTRAL', 'SKIPPED', 'SUCCESS']);
+const GREEN_CONCLUSIONS = new Set(['SUCCESS']);
+const SKIPPED_OR_NEUTRAL_CONCLUSIONS = new Set(['NEUTRAL', 'SKIPPED']);
 
 function usage() {
   return [
-    'Usage: audit-bolt-readiness.mjs --repo <absolute-path> --pr <number> --head <full-sha> [--pretty]',
+    'Usage: audit-bolt-readiness.mjs --repo <absolute-path> --pr <number> --head <full-sha> [--required-checks <comma-list>] [--pretty]',
     '',
     'Audit read-only mechanical readiness for one exact Bolt PR head.',
+    '',
+    'The expected required-check set is derived from the base branch protection API;',
+    'when that endpoint is unavailable, --required-checks is mandatory and must list',
+    'every required status-check context (derive it from .github/workflows/test.yml).',
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  const parsed = { head: null, help: false, pr: null, pretty: false, repo: null };
+  const parsed = {
+    head: null,
+    help: false,
+    pr: null,
+    pretty: false,
+    repo: null,
+    requiredChecks: null,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--help') {
@@ -29,12 +41,27 @@ function parseArgs(argv) {
       parsed.pretty = true;
       continue;
     }
-    if (argument === '--repo' || argument === '--pr' || argument === '--head') {
+    if (
+      argument === '--repo' ||
+      argument === '--pr' ||
+      argument === '--head' ||
+      argument === '--required-checks'
+    ) {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) {
         throw new Error(`${argument} requires a value`);
       }
-      parsed[argument.slice(2)] = value;
+      if (argument === '--required-checks') {
+        parsed.requiredChecks = value
+          .split(',')
+          .map((context) => context.trim())
+          .filter(Boolean);
+        if (parsed.requiredChecks.length === 0) {
+          throw new Error('--required-checks must list at least one status-check context');
+        }
+      } else {
+        parsed[argument.slice(2)] = value;
+      }
       index += 1;
       continue;
     }
@@ -144,15 +171,61 @@ function collectReviewThreads(repo, prNumber) {
 function normalizeCheck(check) {
   const name = check?.name ?? check?.context ?? '<unnamed>';
   if (typeof check?.status === 'string' && check.status !== 'COMPLETED') {
-    return { green: false, name, state: check.status };
+    return { green: false, name, skippedOrNeutral: false, state: check.status };
   }
-  if (typeof check?.conclusion === 'string') {
-    return { green: GREEN_CONCLUSIONS.has(check.conclusion), name, state: check.conclusion };
+  const terminalState =
+    typeof check?.conclusion === 'string'
+      ? check.conclusion
+      : typeof check?.state === 'string'
+        ? check.state
+        : 'UNKNOWN';
+  return {
+    green: GREEN_CONCLUSIONS.has(terminalState),
+    name,
+    skippedOrNeutral: SKIPPED_OR_NEUTRAL_CONCLUSIONS.has(terminalState),
+    state: terminalState,
+  };
+}
+
+function resolveExpectedChecks(repo, baseRefName, requiredChecksArgument) {
+  const result = spawnSync(
+    'gh',
+    [
+      'api',
+      `repos/${REPOSITORY}/branches/${baseRefName}/protection/required_status_checks/contexts`,
+    ],
+    { cwd: repo, encoding: 'utf8', maxBuffer: MAX_BUFFER_BYTES }
+  );
+  if (result.error) {
+    throw new Error(`gh api branch protection query could not start: ${result.error.message}`);
   }
-  if (typeof check?.state === 'string') {
-    return { green: GREEN_CONCLUSIONS.has(check.state), name, state: check.state };
+  if (result.status === 0) {
+    const contexts = JSON.parse(result.stdout);
+    if (!(Array.isArray(contexts) && contexts.every((context) => typeof context === 'string'))) {
+      throw new Error('GitHub returned an unexpected required-status-check contexts response');
+    }
+    if (contexts.length > 0) {
+      return { expectedChecks: contexts, expectedChecksSource: 'branch-protection-api' };
+    }
+    if (requiredChecksArgument) {
+      return { expectedChecks: requiredChecksArgument, expectedChecksSource: '--required-checks' };
+    }
+    throw new Error(
+      `Branch protection for ${baseRefName} lists zero required status-check contexts and --required-checks was not provided; ` +
+        'pass --required-checks with every required context from .github/workflows/test.yml'
+    );
   }
-  return { green: false, name, state: 'UNKNOWN' };
+  const stderr = (result.stderr ?? '').trim();
+  if (/HTTP 40[34]/u.test(stderr)) {
+    if (requiredChecksArgument) {
+      return { expectedChecks: requiredChecksArgument, expectedChecksSource: '--required-checks' };
+    }
+    throw new Error(
+      `Branch protection required-status-check contexts are unavailable (${stderr.split('\n')[0]}) and --required-checks was not provided; ` +
+        'pass --required-checks with every required context from .github/workflows/test.yml'
+    );
+  }
+  throw new Error(`gh api branch protection query failed${stderr ? `: ${stderr}` : ''}`);
 }
 
 function collect(args) {
@@ -180,12 +253,25 @@ function collect(args) {
     throw new Error('GitHub returned an unexpected status-check response');
   }
   const checks = pullRequest.statusCheckRollup.map(normalizeCheck);
+  const { expectedChecks, expectedChecksSource } = resolveExpectedChecks(
+    repo,
+    pullRequest.baseRefName,
+    args.requiredChecks
+  );
+  const observedCheckNames = new Set(checks.map((check) => check.name));
+  const missingExpectedChecks = expectedChecks.filter(
+    (context) => !observedCheckNames.has(context)
+  );
+  const skippedOrNeutralChecks = checks
+    .filter((check) => check.skippedOrNeutral)
+    .map((check) => check.name);
   const threads = collectReviewThreads(repo, Number.parseInt(args.pr, 10));
   const unresolvedThreadIds = threads
     .filter((thread) => thread?.isResolved !== true)
     .map((thread) => thread.id ?? '<missing-id>');
 
   const conditions = {
+    allExpectedChecksObserved: expectedChecks.length > 0 && missingExpectedChecks.length === 0,
     allObservedChecksTerminalGreen: checks.length > 0 && checks.every((check) => check.green),
     baseBranchMain: pullRequest.baseRefName === 'main',
     baseMatchesFetchedMain: pullRequest.baseRefOid === originMain,
@@ -198,6 +284,7 @@ function collect(args) {
     headContainsFetchedMain: isAncestor(repo, originMain, args.head),
     mergeable: pullRequest.mergeable === 'MERGEABLE',
     mergeStateClean: pullRequest.mergeStateStatus === 'CLEAN',
+    noSkippedOrNeutralChecks: skippedOrNeutralChecks.length === 0,
     nonDraft: pullRequest.isDraft === false,
     open: pullRequest.state === 'OPEN',
     repositoryMatches: /(?:github\.com[:/])seandearnaley\/brainstrike(?:\.git)?$/u.test(
@@ -211,11 +298,15 @@ function collect(args) {
     auditedAt: new Date().toISOString(),
     checks,
     conditions,
+    expectedChecks,
+    expectedChecksSource,
     expectedHead: args.head,
     localHead,
     mechanicalReady: Object.values(conditions).every(Boolean),
+    missingExpectedChecks,
     note: 'Mechanical readiness does not prove benchmark evidence or fresh reviewer status; verify both on this exact SHA.',
     originMain,
+    skippedOrNeutralChecks,
     pullRequest: {
       baseRefName: pullRequest.baseRefName,
       baseRefOid: pullRequest.baseRefOid,

@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 function fail(message) {
   throw new Error(`scribe reference collector: ${message}`);
@@ -87,7 +88,9 @@ function classifyCommand(command, packages, allPaths) {
   const pnpmBuiltin = normalized.match(/^pnpm\s+(?:run\s+)?(install|patch)(?:\s|$)/);
   const pnpmExec = normalized.match(/^pnpm\s+exec\s+([^\s]+)/);
   const filtered = normalized.match(/^pnpm\s+--filter\s+([^\s]+)\s+(?:run\s+)?([^\s]+)/);
-  const rootScript = normalized.match(/^pnpm\s+(?:run\s+)?([\w:-]+)/);
+  // Must start with a letter so `pnpm --version` / `pnpm -r` are not read as
+  // a script named "--version".
+  const rootScript = normalized.match(/^pnpm\s+(?:run\s+)?([A-Za-z][\w:-]*)/);
   const nodeScript = normalized.match(/^node\s+([^\s]+)/);
   const npxPackage = normalized.match(/^npx\s+([@\w/-]+)/);
 
@@ -110,7 +113,17 @@ function classifyCommand(command, packages, allPaths) {
     return packageJson?.scripts?.[filtered[2]] ? 'ACCURATE' : 'DANGLING';
   }
   if (rootScript) {
-    return root?.scripts?.[rootScript[1]] ? 'ACCURATE' : 'DANGLING';
+    const name = rootScript[1];
+    if (root?.scripts?.[name]) {
+      return 'ACCURATE';
+    }
+    // A bare `pnpm <bin>` invocation of a dependency binary (e.g.
+    // `pnpm vitest run`) is not a package script — never a DANGLING script.
+    const dependencies = { ...root?.dependencies, ...root?.devDependencies };
+    if (dependencies[name] || Object.keys(dependencies).some((dep) => dep.endsWith(`/${name}`))) {
+      return 'MANUAL';
+    }
+    return 'DANGLING';
   }
   if (nodeScript) {
     return allPaths.has(nodeScript[1]) ? 'ACCURATE' : 'MANUAL';
@@ -126,6 +139,38 @@ function isProjectPath(token) {
   return (
     /^(?:apps|packages|scripts|docs|\.github|\.night-shift)\//.test(token) && !/[{}*]/.test(token)
   );
+}
+
+// A backticked token that looks like a repository file but is not under a
+// known project directory (root files: AGENTS.md, db-test-lane-manifest.mjs,
+// secret-scan.config.json, …). Without this these fell through every branch
+// and were invisible. Confidence comes from the EXTENSION, not the name: a
+// real file extension (or an explicit relative path) — never a hyphen, which
+// appears in plenty of dotted identifiers (`subagent-personas.v1`).
+const FILE_TOKEN = /^[\w./-]+\.[A-Za-z0-9]+$/;
+const FILE_EXTENSION = /\.(?:md|mjs|cjs|mts|cts|jsonc?|ya?ml|toml|sh)$/i;
+
+function isFileToken(token) {
+  if (/[{}*\s]/.test(token) || isProjectPath(token) || !FILE_TOKEN.test(token)) {
+    return false;
+  }
+  // Known non-code file extension, or an explicit relative path with any
+  // extension. Bare dotted tokens with code-ish extensions stay symbols.
+  return FILE_EXTENSION.test(token) || (token.includes('/') && /\.[A-Za-z0-9]+$/.test(token));
+}
+
+// Found → ACCURATE (the mechanical win: previously these were invisible).
+// Absent → MANUAL, never DANGLING: docs/agents prose cites filenames as
+// examples and contrasts (`knip.json` vs `knip.jsonc`, the `AGENTS.md` →
+// `AGENT.md` lookup order), so a missing file token is a human-verify lead,
+// not a mechanical certainty. DANGLING stays reserved for the unambiguous
+// classes (project paths, migration numbers).
+function classifyFileToken(token, allPaths) {
+  if (allPaths.has(token)) {
+    return 'ACCURATE';
+  }
+  const base = token.split('/').pop();
+  return [...allPaths].some((path) => path.split('/').pop() === base) ? 'ACCURATE' : 'MANUAL';
 }
 
 function classifyProjectPath(token, allPaths) {
@@ -174,6 +219,13 @@ function collectDocument(path, text, allPaths, packages) {
           location: location(path, lineNumber),
           reference: token,
           status: classifyCommand(token, packages, allPaths),
+        });
+      } else if (isFileToken(token)) {
+        references.push({
+          kind: 'file',
+          location: location(path, lineNumber),
+          reference: token,
+          status: classifyFileToken(token, allPaths),
         });
       } else if (isSymbol(token)) {
         references.push({
@@ -242,6 +294,8 @@ function markdown(result) {
   ].join('\n');
 }
 
+export { classifyCommand, classifyFileToken, classifyProjectPath, isFileToken };
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!existsSync(options.repo)) {
@@ -293,4 +347,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

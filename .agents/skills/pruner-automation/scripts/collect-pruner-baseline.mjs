@@ -3,8 +3,19 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+
+// Read-only Git hardening, matching the Bolt collectors: never let a status
+// or rev-parse opportunistically rewrite .git/index or spawn fsmonitor.
+const GIT_READONLY_ENV = { GIT_OPTIONAL_LOCKS: '0' };
+const GIT_READONLY_CONFIG = [
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.untrackedCache=false',
+];
 
 const fail = (message) => {
   process.stderr.write(`collect-pruner-baseline: ${message}\n`);
@@ -42,7 +53,7 @@ const parseArgs = (argv) => {
 const stripAnsi = (value) =>
   value.replace(
     // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape parser
-    /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g,
+    /(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g,
     ''
   );
 
@@ -60,21 +71,25 @@ const run = (command, args, cwd, extraEnv = {}) => {
   if (result.signal) {
     fail(`${command} ${args.join(' ')} terminated by ${result.signal}`);
   }
+  const stdout = result.stdout ?? '';
+  const stderr = result.stderr ?? '';
   return {
     exitCode: result.status,
-    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+    output: `${stdout}${stderr}`,
+    stderr,
+    stdout,
   };
 };
 
 const git = (repoRoot, args) => {
-  const result = run('git', args, repoRoot);
+  const result = run('git', [...GIT_READONLY_CONFIG, ...args], repoRoot, GIT_READONLY_ENV);
   if (result.exitCode !== 0) {
     fail(`git ${args.join(' ')} failed with exit code ${result.exitCode}`);
   }
   return result.output.trim();
 };
 
-const parseKnip = (rawOutput, exitCode) => {
+export const parseKnip = (rawOutput, exitCode) => {
   const output = stripAnsi(rawOutput);
   const categories = {};
   const headingPattern = /^([^\n]+?) \((\d+)\)\s*$/gm;
@@ -89,93 +104,145 @@ const parseKnip = (rawOutput, exitCode) => {
     outcome = 'findings';
   }
   if (outcome === 'failed') {
-    fail(`pnpm knip failed operationally with exit code ${exitCode}`);
+    throw new Error(`pnpm knip failed operationally with exit code ${exitCode}`);
   }
   return { categories, exitCode, findingsTotal, outcome };
 };
 
-const parseDoctor = (rawOutput, exitCode) => {
-  const output = stripAnsi(rawOutput);
-  if (exitCode !== 0) {
-    fail(`pnpm doctor failed with exit code ${exitCode}`);
+// React Doctor is parsed from its structured `--json` report, not scraped
+// CLI copy: the report is a stable contract (ok/summary/projects) while the
+// human-readable summary strings change between releases. A completed scan
+// that surfaces error-severity diagnostics is a FINDINGS outcome (the
+// burndown Pruner acts on), never an operational failure — only ok:false is
+// operational. Skipped checks mean incomplete results and are surfaced, not
+// silently treated as a clean bill.
+export const parseDoctor = (stdoutText, exitCode) => {
+  const trimmed = stdoutText.trim();
+  let report;
+  try {
+    report = JSON.parse(trimmed);
+  } catch {
+    throw new Error(
+      `pnpm doctor --json did not emit a parseable JSON report (exit code ${exitCode})`
+    );
   }
-  const warningMatch = output.match(/All checks passed with (\d+) warning\(s\)/);
-  const cleanMatch = output.match(/All checks passed(?! with)/);
-  if (!(warningMatch || cleanMatch)) {
-    fail('pnpm doctor output did not contain a recognized pass summary');
+  if (
+    report === null ||
+    typeof report !== 'object' ||
+    typeof report.ok !== 'boolean' ||
+    report.summary === null ||
+    typeof report.summary !== 'object'
+  ) {
+    throw new Error('pnpm doctor --json report is missing the expected ok/summary shape');
   }
+  if (report.ok !== true) {
+    const detail = report.error?.message ? `: ${report.error.message}` : '';
+    throw new Error(`pnpm doctor failed operationally${detail}`);
+  }
+  const summary = report.summary;
+  if (typeof summary.errorCount !== 'number' || typeof summary.warningCount !== 'number') {
+    throw new Error('pnpm doctor --json summary is missing diagnostic counts');
+  }
+  const skippedChecks = Array.isArray(report.projects)
+    ? report.projects.reduce(
+        (total, project) =>
+          total + (Array.isArray(project.skippedChecks) ? project.skippedChecks.length : 0),
+        0
+      )
+    : 0;
   return {
+    affectedFileCount: summary.affectedFileCount ?? null,
+    errorCount: summary.errorCount,
     exitCode,
-    outcome: 'passed',
-    warnings: warningMatch ? Number.parseInt(warningMatch[1], 10) : 0,
+    incompleteResults: skippedChecks > 0,
+    outcome: summary.errorCount > 0 ? 'findings' : 'passed',
+    score: summary.score ?? null,
+    scoreLabel: summary.scoreLabel ?? null,
+    skippedChecks,
+    totalDiagnosticCount: summary.totalDiagnosticCount ?? summary.errorCount + summary.warningCount,
+    warnings: summary.warningCount,
   };
 };
 
-const options = parseArgs(process.argv.slice(2));
-if (!isAbsolute(options.logsDir)) {
-  fail('--logs-dir must be an absolute path');
-}
-if (!existsSync(options.logsDir)) {
-  fail(`--logs-dir does not exist: ${options.logsDir}`);
+function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (!isAbsolute(options.logsDir)) {
+    fail('--logs-dir must be an absolute path');
+  }
+  if (!existsSync(options.logsDir)) {
+    fail(`--logs-dir does not exist: ${options.logsDir}`);
+  }
+
+  const requestedRepo = resolve(options.repo);
+  if (!existsSync(requestedRepo)) {
+    fail(`repository does not exist: ${requestedRepo}`);
+  }
+  const repoRoot = realpathSync(requestedRepo);
+  const logsDir = realpathSync(options.logsDir);
+  const logsPathFromRepo = relative(repoRoot, logsDir);
+  if (
+    logsPathFromRepo === '' ||
+    !(logsPathFromRepo.startsWith('..') || isAbsolute(logsPathFromRepo))
+  ) {
+    fail('--logs-dir must be outside the repository');
+  }
+  const knipLog = join(logsDir, 'knip.log');
+  const doctorLog = join(logsDir, 'doctor.log');
+  for (const logPath of [knipLog, doctorLog]) {
+    if (existsSync(logPath)) {
+      fail(`refusing to overwrite existing log: ${logPath}`);
+    }
+  }
+  for (const requiredPath of [
+    'package.json',
+    'pnpm-workspace.yaml',
+    '.night-shift/PROTOCOL.md',
+    '.night-shift/charters/pruner.md',
+  ]) {
+    if (!existsSync(join(repoRoot, requiredPath))) {
+      fail(`required Brainstrike file is missing: ${requiredPath}`);
+    }
+  }
+  if (git(repoRoot, ['rev-parse', '--show-toplevel']) !== repoRoot) {
+    fail(`--repo is not the Git worktree root: ${repoRoot}`);
+  }
+
+  const knipRun = run('pnpm', ['knip'], repoRoot);
+  // `--` forwards --json to react-doctor unambiguously; --json suppresses the
+  // human-readable render and emits a single JSON report on stdout.
+  const doctorRun = run('pnpm', ['run', 'doctor', '--', '--json'], repoRoot, {
+    REACT_DOCTOR_NO_TELEMETRY: '1',
+  });
+  writeFileSync(knipLog, knipRun.output, { flag: 'wx' });
+  writeFileSync(doctorLog, doctorRun.output, { flag: 'wx' });
+
+  const result = {
+    doctor: {
+      ...parseDoctor(doctorRun.stdout, doctorRun.exitCode),
+      logPath: doctorLog,
+    },
+    generatedAt: new Date().toISOString(),
+    git: {
+      branch: git(repoRoot, ['branch', '--show-current']),
+      head: git(repoRoot, ['rev-parse', 'HEAD']),
+      originMain: git(repoRoot, ['rev-parse', 'origin/main']),
+      worktreeStatus: git(repoRoot, ['status', '--short']),
+    },
+    knip: {
+      ...parseKnip(knipRun.output, knipRun.exitCode),
+      logPath: knipLog,
+    },
+    repoRoot,
+    schemaVersion: 2,
+  };
+
+  process.stdout.write(`${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`);
 }
 
-const requestedRepo = resolve(options.repo);
-if (!existsSync(requestedRepo)) {
-  fail(`repository does not exist: ${requestedRepo}`);
-}
-const repoRoot = realpathSync(requestedRepo);
-const logsDir = realpathSync(options.logsDir);
-const logsPathFromRepo = relative(repoRoot, logsDir);
-if (
-  logsPathFromRepo === '' ||
-  !(logsPathFromRepo.startsWith('..') || isAbsolute(logsPathFromRepo))
-) {
-  fail('--logs-dir must be outside the repository');
-}
-const knipLog = join(logsDir, 'knip.log');
-const doctorLog = join(logsDir, 'doctor.log');
-for (const logPath of [knipLog, doctorLog]) {
-  if (existsSync(logPath)) {
-    fail(`refusing to overwrite existing log: ${logPath}`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main();
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
 }
-for (const requiredPath of [
-  'package.json',
-  'pnpm-workspace.yaml',
-  '.night-shift/PROTOCOL.md',
-  '.night-shift/charters/pruner.md',
-]) {
-  if (!existsSync(join(repoRoot, requiredPath))) {
-    fail(`required Brainstrike file is missing: ${requiredPath}`);
-  }
-}
-if (git(repoRoot, ['rev-parse', '--show-toplevel']) !== repoRoot) {
-  fail(`--repo is not the Git worktree root: ${repoRoot}`);
-}
-
-const knipRun = run('pnpm', ['knip'], repoRoot);
-const doctorRun = run('pnpm', ['doctor'], repoRoot, { REACT_DOCTOR_NO_TELEMETRY: '1' });
-writeFileSync(knipLog, knipRun.output, { flag: 'wx' });
-writeFileSync(doctorLog, doctorRun.output, { flag: 'wx' });
-
-const result = {
-  doctor: {
-    ...parseDoctor(doctorRun.output, doctorRun.exitCode),
-    logPath: doctorLog,
-  },
-  generatedAt: new Date().toISOString(),
-  git: {
-    branch: git(repoRoot, ['branch', '--show-current']),
-    head: git(repoRoot, ['rev-parse', 'HEAD']),
-    originMain: git(repoRoot, ['rev-parse', 'origin/main']),
-    worktreeStatus: git(repoRoot, ['status', '--short']),
-  },
-  knip: {
-    ...parseKnip(knipRun.output, knipRun.exitCode),
-    logPath: knipLog,
-  },
-  repoRoot,
-  schemaVersion: 1,
-};
-
-process.stdout.write(`${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`);
