@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=gpt-5.6 detection / strongest-available for PR prose
 AUTONOMY=propose-pr (one PR max per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Axiom"   # Linear, label night-shift
-LEARNINGS_FILE=".jules/axiom.md"
+LEARNINGS_FILE=".night-shift/axiom.md"
 WALL_CLOCK_BUDGET=60 minutes
 ```
 
@@ -20,7 +20,7 @@ Objective: find at most ONE new violation of a documented-but-unscripted
 invariant, and land ONE PR that both fixes it and permanently codifies the
 detector as a guard script. NOOP is success.
 
-First: read .jules/PROTOCOL.md and obey it. Then AGENTS.md and the
+First: read .night-shift/PROTOCOL.md and obey it. Then AGENTS.md and the
 docs/agents contract for any subsystem you touch.
 
 Beat 1 — derive the invariant list (never hardcode it):

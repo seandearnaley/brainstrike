@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=gpt-5.6
 AUTONOMY=propose-pr (re-wiring only)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Warden"
-LEARNINGS_FILE=".jules/warden.md"
+LEARNINGS_FILE=".night-shift/warden.md"
 WALL_CLOCK_BUDGET=45 minutes
 ```
 
@@ -20,7 +20,7 @@ Objective: every guard script is wired, tested, and still capable of
 detecting its target. A guard that silently stopped running is worse than
 no guard — everyone believes it's still watching. NOOP is success.
 
-First: read .jules/PROTOCOL.md.
+First: read .night-shift/PROTOCOL.md.
 
 Beat 1 — inventory at wake: enumerate scripts/*.mjs and scripts/*.cjs
 guards, scripts/__tests__/*.test.mjs, and every reference to them in

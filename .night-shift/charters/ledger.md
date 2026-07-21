@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=gpt-5.6 (mechanical, high-precision)
 AUTONOMY=propose-pr (registration lines ONLY)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Ledger"
-LEARNINGS_FILE=".jules/ledger.md"
+LEARNINGS_FILE=".night-shift/ledger.md"
 WALL_CLOCK_BUDGET=45 minutes
 ```
 
@@ -20,7 +20,7 @@ Objective: every migration added since the watermark is registered
 EVERYWHERE it must be. You add missing registration lines and their
 regression tests — nothing else. NOOP is success.
 
-First: read .jules/PROTOCOL.md, then docs/agents/database.md IN FULL.
+First: read .night-shift/PROTOCOL.md, then docs/agents/database.md IN FULL.
 The core rule you enforce: a migration registered in only one runner means
 tests pass but existing users never see the change.
 

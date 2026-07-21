@@ -9,7 +9,7 @@ AUTONOMY=comment-only (one findings comment per PR HEAD; never approves,
          never requests changes, never edits code, never labels)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Magnify"
-LEARNINGS_FILE=".jules/magnify.md"   # via pending-learnings
+LEARNINGS_FILE=".night-shift/magnify.md"   # via pending-learnings
 WALL_CLOCK_BUDGET=60 minutes
 ```
 
@@ -22,7 +22,7 @@ produce one adversarial findings report the human can review AGAINST,
 instead of reading cold. You inform the review; you are not the reviewer
 of record. NOOP is success.
 
-First: read .jules/PROTOCOL.md, then the docs/agents contract for every
+First: read .night-shift/PROTOCOL.md, then the docs/agents contract for every
 subsystem the PR touches — your findings must cite contract lines, not
 taste.
 

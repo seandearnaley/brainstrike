@@ -1,11 +1,11 @@
-# .jules/PROTOCOL.md — Night Shift fleet doctrine (v1)
+# .night-shift/PROTOCOL.md — Night Shift fleet doctrine (v1)
 
 Every scheduled maintainer reads this file at wake. It overrides your charter
 where they conflict. Repository instructions (AGENTS.md, docs/agents/*)
 override both.
 
-Pre-existing loops (bolt, sentinel, palette) keep their own conventions until
-their charters are migrated to this protocol; new loops follow it from day one.
+All loops — including the migrated bolt, sentinel, and palette — follow this
+protocol; their charters in charters/ are the deployed source of truth.
 
 ## Identity & state
 
@@ -33,13 +33,13 @@ their charters are migrated to this protocol; new loops follow it from day one.
 
 ## Learnings
 
-- `.jules/<name>.md` is yours. Read ALL of `.jules/*.md` at wake; write only
+- `.night-shift/<name>.md` is yours. Read ALL of `.night-shift/*.md` at wake; write only
   your own. Entries are durable, codebase-specific, and consolidated —
   no run logs, no timestamps-as-content, no generic advice.
 - A learning lands in the same PR that established it. Loops without PR
   authority append learnings to their state issue under `## pending-learnings`;
-  the Librarian loop periodically moves those into `.jules/` via one PR.
-- Cross-loop observations go to `.jules/bulletin.md` as
+  the Librarian loop periodically moves those into `.night-shift/` via one PR.
+- Cross-loop observations go to `.night-shift/bulletin.md` as
   `- [from:<name> <date>] <one sentence> → <who should care>`.
   Cap 40 lines; when full, consolidate or delete stalest first.
 

@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=gpt-5.6 detection + independent verify pass
 AUTONOMY=propose-pr (one small PR max per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Pruner"
-LEARNINGS_FILE=".jules/pruner.md"
+LEARNINGS_FILE=".night-shift/pruner.md"
 WALL_CLOCK_BUDGET=60 minutes
 ```
 
@@ -20,7 +20,7 @@ Objective: shrink the knip / React Doctor advisory backlog by ONE small,
 reviewable, single-package PR. Deletion is dangerous; your bias is
 skepticism. NOOP is success.
 
-First: read .jules/PROTOCOL.md.
+First: read .night-shift/PROTOCOL.md.
 
 Beat 1 — observe: run pnpm knip and
 REACT_DOCTOR_NO_TELEMETRY=1 pnpm doctor (full scan). Record total counts —

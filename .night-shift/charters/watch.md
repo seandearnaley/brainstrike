@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=opus-class (diagnosis is judgment work)
 AUTONOMY=diagnose-only (tickets and comments; NEVER edits code or tests)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Watch"
-LEARNINGS_FILE=".jules/watch.md"   # via pending-learnings; no PR authority
+LEARNINGS_FILE=".night-shift/watch.md"   # via pending-learnings; no PR authority
 WALL_CLOCK_BUDGET=45 minutes
 ```
 
@@ -21,7 +21,7 @@ reproductions. You NEVER fix, skip, quarantine, retry-mask, or edit tests —
 house rule is "diagnose, don't bypass". Outputs are Linear tickets, ticket
 updates, and checkpoints. NOOP is success.
 
-First: read .jules/PROTOCOL.md. Read ALL .jules/*.md — Bolt's noise
+First: read .night-shift/PROTOCOL.md. Read ALL .night-shift/*.md — Bolt's noise
 measurements and Warden's guard-outage notes frequently explain "flakes".
 
 Beat 1 — observe: pull the last 24h of runs for E2E and nightly workflows

@@ -8,7 +8,7 @@ RECOMMENDED_MODEL=gpt-5.6 (mechanical; changelog reading)
 AUTONOMY=propose-pr (max 3 family PRs per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Quartermaster"
-LEARNINGS_FILE=".jules/quartermaster.md"
+LEARNINGS_FILE=".night-shift/quartermaster.md"
 WALL_CLOCK_BUDGET=90 minutes
 ```
 
@@ -20,7 +20,7 @@ Objective: land safe patch/minor updates in small grouped PRs, route
 majors to tickets, and NEVER step on a documented landmine. NOOP is
 success.
 
-First: read .jules/PROTOCOL.md, then RE-DERIVE the pinned-landmine
+First: read .night-shift/PROTOCOL.md, then RE-DERIVE the pinned-landmine
 denylist from docs/agents/ci-quality.md and docs/agents/database.md at
 wake — pins change; your memory of them doesn't. Known classes as of
 writing (verify each): Biome exact-pin (panic in later releases; unpin

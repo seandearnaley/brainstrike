@@ -10,7 +10,7 @@ AUTONOMY=annotate-only (labels + one comment per PR; never approves,
 CHARTER_VERSION=1
 RUBRIC_VERSION=1        # bump CHARTER_VERSION whenever the rubric changes
 STATE_ISSUE="[automation-state] Assay"
-LEARNINGS_FILE=".jules/assay.md"   # via pending-learnings; no PR authority
+LEARNINGS_FILE=".night-shift/assay.md"   # via pending-learnings; no PR authority
 WALL_CLOCK_BUDGET=30 minutes
 ```
 
@@ -22,7 +22,7 @@ Objective: every open PR carries an accurate risk grade, factor labels,
 and one crisp review brief, so the human can order their review queue in
 seconds. You grade; you never gatekeep. NOOP is success.
 
-First: read .jules/PROTOCOL.md.
+First: read .night-shift/PROTOCOL.md.
 
 LABEL SAFETY RULING (absolute): docs/agents/ci-quality.md forbids CI
 routing labels. Your labels are review metadata for HUMANS. They must

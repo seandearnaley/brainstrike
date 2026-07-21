@@ -22,10 +22,9 @@ Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
 | [sweep](sweep.md) | nightly-noise janitor | `57 10 * * *` | auto-close tickets |
 | [assay](assay.md) | PR risk grader & review-queue triage | `11 */2 * * *` | annotate-only |
 | [magnify](magnify.md) | adversarial deep reviewer (risk-3/4 PRs) | `41 */4 * * *` | comment-only |
-
-Pre-existing loops not yet migrated to PROTOCOL.md: **bolt** (performance),
-**sentinel** (security), **palette** (accessibility/UI). Their learnings files
-live alongside these and are read by every loop at wake.
+| [bolt](bolt.md) | performance maintainer (migrated, charter v3) | `29 8 * * *` | propose-pr |
+| [sentinel](sentinel.md) | security maintainer (migrated, charter v2) | `07 4 * * *` | propose-pr / private-escalate |
+| [palette](palette.md) | accessibility & UI-consistency maintainer (migrated, charter v2) | `33 7 * * 3` | propose-pr |
 
 ## Deployment notes
 

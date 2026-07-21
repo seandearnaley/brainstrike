@@ -148,9 +148,9 @@ apps/desktop/build/
 icons/.generated/
 
 .codex/
-# Night Shift maintainer fleet: .jules/ is tracked (protocol, charters,
+# Night Shift maintainer fleet: .night-shift/ is tracked (protocol, charters,
 # learnings must survive fresh checkouts); only local scratch is ignored.
-.jules/tmp/
+.night-shift/tmp/
 
 .pnpm-store/
 packages/db/__tests__/__screenshots__/
