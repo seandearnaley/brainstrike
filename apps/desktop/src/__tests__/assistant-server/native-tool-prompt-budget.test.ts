@@ -321,17 +321,40 @@ describe('desktop native tool provider prompt budget', () => {
     );
     const eagerProviderTools = buildAuthoredProviderFunctionTools(eagerTools);
     const criticalProviderTools = buildAuthoredProviderFunctionTools(criticalTools);
+    const sessionProviderTools = eagerProviderTools.filter((tool) =>
+      tool.function.name.includes('CommandSession')
+    );
+    for (const tool of sessionProviderTools) {
+      const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
+      expect(
+        asRecord(properties?.['operation'])?.['oneOf'],
+        `${tool.function.name} must keep its action-specific fields in a nested union`
+      ).toEqual(expect.any(Array));
+    }
 
     expect({
       criticalDefinitionTokens: countO200kTokens(JSON.stringify(criticalProviderTools)),
       criticalToolCount: criticalProviderTools.length,
       eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
       eagerToolCount: eagerProviderTools.length,
+      sessionDefinitionTokens: Object.fromEntries(
+        sessionProviderTools.map((tool) => [
+          tool.function.name,
+          countO200kTokens(JSON.stringify(tool)),
+        ])
+      ),
     }).toEqual({
       criticalDefinitionTokens: 1923,
       criticalToolCount: 7,
-      eagerDefinitionTokens: 6209,
-      eagerToolCount: 27,
+      // Two deferred session tools add 763 authored-definition tokens while
+      // leaving the seven-tool critical request unchanged. Their nested unions
+      // prevent providers from filling fields that belong to another action.
+      eagerDefinitionTokens: 6972,
+      eagerToolCount: 29,
+      sessionDefinitionTokens: {
+        brainstrike_inspectCommandSessions: 283,
+        brainstrike_manageCommandSession: 482,
+      },
     });
   });
 

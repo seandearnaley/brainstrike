@@ -1,10 +1,10 @@
 import {
-  DESKTOP_NATIVE_TOOL_IDS,
   getNativeToolDescription,
   NATIVE_TOOL_DEFAULTS,
   SKILL_NATIVE_TOOL_IDS,
   type ToolCategory,
   type ToolLoadingTier,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
 import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -223,7 +223,7 @@ const renderPage = () =>
   );
 
 function getNativeToolIdAt(index: number): string {
-  const id = DESKTOP_NATIVE_TOOL_IDS[index];
+  const id = WEB_NATIVE_TOOL_IDS[index];
   if (id === undefined) {
     throw new Error(`Expected native tool at index ${index}`);
   }
@@ -255,7 +255,7 @@ describe('SettingsPageContent tool operations', () => {
     expect(operations).toBeDefined();
 
     const tools = await operations?.getTools();
-    const expectedTools: MockToolDisplayMetadata[] = DESKTOP_NATIVE_TOOL_IDS.map((id) => {
+    const expectedTools: MockToolDisplayMetadata[] = WEB_NATIVE_TOOL_IDS.map((id) => {
       const metadata = NATIVE_TOOL_DEFAULTS[id];
       return {
         category: metadata.category,

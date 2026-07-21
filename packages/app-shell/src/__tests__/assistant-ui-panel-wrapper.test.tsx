@@ -1,8 +1,8 @@
 import './assistant-ui-panel-wrapper-test-support';
 import {
-  DESKTOP_NATIVE_TOOL_IDS,
   HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   type SupportedProvider,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import {
   useAssistantMemoryPreferencesStore,
@@ -1252,8 +1252,10 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       const enabledNativeToolIds = readPanelRequestData()['enabledNativeToolIds'];
       expect(enabledNativeToolIds).toEqual(
-        DESKTOP_NATIVE_TOOL_IDS.filter((toolId) => toolId !== 'brainstrike.readWorkspaceFile')
+        WEB_NATIVE_TOOL_IDS.filter((toolId) => toolId !== 'brainstrike.readWorkspaceFile')
       );
+      expect(enabledNativeToolIds).not.toContain('brainstrike.inspectCommandSessions');
+      expect(enabledNativeToolIds).not.toContain('brainstrike.manageCommandSession');
       expect(enabledNativeToolIds).not.toContain('skill');
       expect(enabledNativeToolIds).not.toContain('skill_read');
       expect(enabledNativeToolIds).not.toContain('skill_search');

@@ -20,6 +20,7 @@ import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/
 import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import type { CommandSessionManager } from '../../assistant-server/command-session-manager';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
 import {
@@ -1185,6 +1186,87 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
     expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
+  });
+
+  it('registers compact workspace-scoped inspect and manage command-session tools', async () => {
+    const session = {
+      createdAt: 100,
+      cwd: '/workspace/api',
+      id: 'session-1',
+      pid: 4242,
+      rootId: 'db-root-api',
+      status: 'running' as const,
+    };
+    const manager = {
+      dispose: vi.fn(async () => 0),
+      disposeRoot: vi.fn(async () => 0),
+      get: vi.fn(() => session),
+      list: vi.fn(() => [session]),
+      read: vi.fn(() => ({
+        bufferStartCursor: 0,
+        nextCursor: 5,
+        output: 'ready',
+        requestedCursor: 0,
+        truncatedBeforeCursor: false,
+      })),
+      remove: vi.fn(async () => undefined),
+      start: vi.fn(async () => session),
+      stop: vi.fn(async () => undefined),
+      write: vi.fn(),
+    } satisfies CommandSessionManager;
+    const runtime = {
+      workspaceRoots: [
+        { displayName: 'api', path: '/workspace/api', rootId: 'db-root-api' },
+        { displayName: 'web', path: '/workspace/web', rootId: 'db-root-web' },
+      ],
+    } as RuntimeData;
+    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const abortController = new AbortController();
+
+    expect(
+      tools['brainstrike.inspectCommandSessions'].execute({
+        operation: { action: 'list' },
+        root: 'api',
+      })
+    ).toEqual({ rootId: 'db-root-api', sessions: [session] });
+    expect(
+      tools['brainstrike.inspectCommandSessions'].execute({
+        operation: { action: 'read', cursor: 0, sessionId: 'session-1' },
+        root: 'api',
+      })
+    ).toMatchObject({ nextCursor: 5, output: 'ready', session });
+    await expect(
+      tools['brainstrike.manageCommandSession'].execute(
+        {
+          operation: { action: 'start', command: 'pnpm dev' },
+          root: 'api',
+        },
+        { abortSignal: abortController.signal }
+      )
+    ).resolves.toEqual(session);
+    await tools['brainstrike.manageCommandSession'].execute({
+      operation: { action: 'write', data: 'q\n', sessionId: 'session-1' },
+      root: 'api',
+    });
+    await tools['brainstrike.manageCommandSession'].execute({
+      operation: { action: 'stop', sessionId: 'session-1' },
+      root: 'api',
+    });
+    await tools['brainstrike.manageCommandSession'].execute({
+      operation: { action: 'remove', sessionId: 'session-1' },
+      root: 'api',
+    });
+
+    expect(manager.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'pnpm dev',
+        rootId: 'db-root-api',
+        signal: abortController.signal,
+      })
+    );
+    expect(manager.write).toHaveBeenCalledWith('db-root-api', 'session-1', 'q\n');
+    expect(manager.stop).toHaveBeenCalledWith('db-root-api', 'session-1');
+    expect(manager.remove).toHaveBeenCalledWith('db-root-api', 'session-1');
   });
 
   it('registers the artifact reader only with a trusted scoped read capability', async () => {
@@ -4137,6 +4219,20 @@ describe('assistant-tools multi-root read tools', () => {
     it('omits manageTaskList for the local provider regardless of case/whitespace', () => {
       const tools = buildDesktopAssistantTools({ provider: '  Local  ' } as RuntimeData);
       expect(tools['brainstrike.manageTaskList']).toBeUndefined();
+    });
+  });
+
+  describe('command-session provider gating', () => {
+    it('registers both session tools for a hosted provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
+      expect(tools['brainstrike.inspectCommandSessions']).toBeDefined();
+      expect(tools['brainstrike.manageCommandSession']).toBeDefined();
+    });
+
+    it('omits both session tools for the built-in local provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
+      expect(tools['brainstrike.inspectCommandSessions']).toBeUndefined();
+      expect(tools['brainstrike.manageCommandSession']).toBeUndefined();
     });
   });
 

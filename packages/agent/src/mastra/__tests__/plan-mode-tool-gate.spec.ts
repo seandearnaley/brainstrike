@@ -13,6 +13,8 @@ function makeLogger() {
 // The gate keys tools by SANITIZED id; brainstrike.* ids sanitize to underscores.
 const toolNameMap = new Map<string, string>([
   ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+  ['brainstrike_inspectCommandSessions', 'brainstrike.inspectCommandSessions'],
+  ['brainstrike_manageCommandSession', 'brainstrike.manageCommandSession'],
   ['brainstrike_writeWorkspaceFile', 'brainstrike.writeWorkspaceFile'],
   ['brainstrike_submitPlan', 'brainstrike.submitPlan'],
   ['brainstrike_askUser', 'brainstrike.askUser'],
@@ -21,6 +23,8 @@ const toolNameMap = new Map<string, string>([
 
 const riskByTool: Record<string, ToolRiskCategory> = {
   'brainstrike.askUser': 'read',
+  'brainstrike.inspectCommandSessions': 'read',
+  'brainstrike.manageCommandSession': 'execute',
   'brainstrike.readWorkspaceFile': 'read',
   'brainstrike.submitPlan': 'read',
   'brainstrike.writeWorkspaceFile': 'edit',
@@ -29,6 +33,8 @@ const riskByTool: Record<string, ToolRiskCategory> = {
 function makeToolMap() {
   return {
     brainstrike_askUser: { id: 'brainstrike.askUser', suspendSchema: {} },
+    brainstrike_inspectCommandSessions: { id: 'brainstrike.inspectCommandSessions' },
+    brainstrike_manageCommandSession: { id: 'brainstrike.manageCommandSession' },
     brainstrike_readWorkspaceFile: { id: 'brainstrike.readWorkspaceFile' },
     brainstrike_submitPlan: { id: 'brainstrike.submitPlan', suspendSchema: {} },
     brainstrike_writeWorkspaceFile: { id: 'brainstrike.writeWorkspaceFile' },
@@ -49,11 +55,13 @@ describe('filterToolsForPlanMode', () => {
     const result = filterToolsForPlanMode(makeToolMap(), toolNameMap, riskByTool, makeLogger());
     expect(Object.keys(result).sort()).toEqual([
       'brainstrike_askUser',
+      'brainstrike_inspectCommandSessions',
       'brainstrike_readWorkspaceFile',
       'brainstrike_submitPlan',
       'some_mcp_tool',
     ]);
     expect(result).not.toHaveProperty('brainstrike_writeWorkspaceFile');
+    expect(result).not.toHaveProperty('brainstrike_manageCommandSession');
   });
 
   it('keeps a suspending tool even when its risk map entry is missing', () => {

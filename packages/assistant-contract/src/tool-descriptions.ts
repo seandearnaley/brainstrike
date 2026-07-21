@@ -15,12 +15,16 @@ export const TOOL_DESCRIPTIONS = {
     "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
   [NATIVE_TOOL_ID.hybridSearch]:
     'Hybrid workspace search fusing semantic (vector) and exact-term (BM25 keyword) rankings with reciprocal rank fusion; best default for code/doc retrieval mixing concepts with distinctive terms. Omit embeddingSetId to use the Workspace Index; fails visibly (never degrades) if the keyword index is unavailable',
+  [NATIVE_TOOL_ID.inspectCommandSessions]:
+    'List persistent command sessions in one open workspace root, or read bounded incremental PTY output. Pass exactly one typed operation; use read cursor -1 to attach at the live tail without replay. Read-only and workspace-scoped; never reveals command text or environment',
   [NATIVE_TOOL_ID.listEmbeddingSpaces]:
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   [NATIVE_TOOL_ID.listWorkspaceContext]:
     'Inspect open workspace roots, the Main operating-root path, Focused-root selected context, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
   [NATIVE_TOOL_ID.lspInspect]:
     "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript): the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, the 1-based line, and a `match` string that is that line's text (or a fragment occurring exactly once on it) with a `<<<` marker inserted right before the symbol (exactly one `<<<`); refuses with the actual line text if the match is not found on that line. Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
+  [NATIVE_TOOL_ID.manageCommandSession]:
+    'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers and interactive commands that must outlive one tool call; use executeCommand for normal bounded commands. Arbitrary execution with no sandbox; requires approval by default',
   [NATIVE_TOOL_ID.manageTaskList]:
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   [NATIVE_TOOL_ID.queryEmbeddingSpace]:

@@ -215,6 +215,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
   },
+  [NATIVE_TOOL_ID.inspectCommandSessions]: {
+    category: 'retrieval',
+    estimatedTokens: 283,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   [NATIVE_TOOL_ID.listEmbeddingSpaces]: {
     category: 'analysis',
     estimatedTokens: 110,
@@ -238,6 +245,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
+  },
+  [NATIVE_TOOL_ID.manageCommandSession]: {
+    category: 'action',
+    estimatedTokens: 482,
+    loadingTier: 'deferred',
+    requiresApproval: true,
+    riskCategory: 'execute',
   },
   // Whole-list replace of the assistant's own per-thread plan. `category:'action'`
   // is the UI/load taxonomy, but the risk bucket is EXPLICITLY 'read': it mutates

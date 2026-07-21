@@ -91,12 +91,17 @@ describe('resolveToolRiskCategory', () => {
       }
     });
 
-    it('classifies the shell tool as execute (via explicit annotation)', () => {
-      const metadata = NATIVE_TOOL_DEFAULTS['brainstrike.executeCommand'];
-      if (!metadata) {
-        expect.unreachable('brainstrike.executeCommand should exist in NATIVE_TOOL_DEFAULTS');
+    it('classifies command execution tools as execute (via explicit annotation)', () => {
+      for (const id of [
+        NATIVE_TOOL_ID.executeCommand,
+        NATIVE_TOOL_ID.manageCommandSession,
+      ] as const) {
+        const metadata = NATIVE_TOOL_DEFAULTS[id];
+        if (!metadata) {
+          expect.unreachable(`${id} should exist in NATIVE_TOOL_DEFAULTS`);
+        }
+        expect(resolveToolRiskCategory(metadata)).toBe('execute');
       }
-      expect(resolveToolRiskCategory(metadata)).toBe('execute');
     });
 
     it("classifies every other current native tool as 'read' (no throw)", () => {
@@ -109,6 +114,7 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.renameWorkspaceFile',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
+        'brainstrike.manageCommandSession',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyNonRead.has(id));
 
@@ -156,8 +162,13 @@ describe('buildNativeToolRiskMap', () => {
       expect(riskByTool[id]).toBe('edit');
     }
     expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
+    expect(riskByTool['brainstrike.manageCommandSession']).toBe('execute');
 
-    const nonRead = new Set<string>([...EDIT_TOOLS, 'brainstrike.executeCommand']);
+    const nonRead = new Set<string>([
+      ...EDIT_TOOLS,
+      'brainstrike.executeCommand',
+      'brainstrike.manageCommandSession',
+    ]);
     const readTools = Object.keys(riskByTool).filter((id) => !nonRead.has(id));
     expect(readTools.length).toBeGreaterThan(0);
     for (const id of readTools) {

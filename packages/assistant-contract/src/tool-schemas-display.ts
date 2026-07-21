@@ -411,6 +411,28 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       'Fused ranked chunks with rrfScore, sourceCount, per-arm scores (vectorSimilarity, ftsRank), file paths, and per-arm result counts',
     toolId: 'brainstrike.hybridSearch',
   },
+  'brainstrike.inspectCommandSessions': {
+    description:
+      'Inspect persistent PTY sessions owned by one open workspace root. List returns compact state; read returns bounded output from an absolute cursor without exposing command text or environment.',
+    parameters: [
+      {
+        description:
+          'Exactly one operation: {action:"list"}, or {action:"read", sessionId, cursor?}.',
+        name: 'operation',
+        required: true,
+        type: 'object',
+      },
+      {
+        description: 'Optional folder name or durable id; omit when only one folder is open.',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'For list: compact running/exited session metadata. For read: output, nextCursor, retained buffer boundary, and explicit replay-gap state.',
+    toolId: 'brainstrike.inspectCommandSessions',
+  },
   'brainstrike.listEmbeddingSpaces': {
     description:
       'List available embedding spaces and identify the configured workspace index. Use this when you need to inspect non-default embedding spaces or coverage.',
@@ -530,6 +552,29 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     returns:
       'Up to four groups: hover (type/docs), diagnostics (the inspected line), definition (declaration locations with a one-line preview), and implementation (usage/implementation locations). An available:false note for unsupported file types or when no server is available.',
     toolId: NATIVE_TOOL_ID.lspInspect,
+  },
+
+  'brainstrike.manageCommandSession': {
+    description:
+      'Start, write to, stop, or remove a persistent workspace PTY. Use for servers and interactive commands that must survive one tool call. Arbitrary execution, no sandbox, approval required by default.',
+    parameters: [
+      {
+        description:
+          'Exactly one operation: {action:"start", command, cwd?, cols?, rows?}, {action:"write", sessionId, data}, {action:"stop", sessionId}, or {action:"remove", sessionId}.',
+        name: 'operation',
+        required: true,
+        type: 'object',
+      },
+      {
+        description: 'Optional folder name or durable id; omit when only one folder is open.',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Typed session state for start/stop/write, or an explicit removed result. Failures distinguish invalid input, unavailable roots, unknown/cross-root sessions, exited sessions, startup failure, and stop failure.',
+    toolId: 'brainstrike.manageCommandSession',
   },
 
   'brainstrike.manageTaskList': {

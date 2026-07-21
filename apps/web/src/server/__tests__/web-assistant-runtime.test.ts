@@ -59,6 +59,23 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
+  it('rejects forced command-session tools because Hosted Web has no native tool registry', () => {
+    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+    expect(() =>
+      resolveWebAssistantRuntime(
+        asRuntimeData({
+          mastraTools: {
+            'brainstrike.inspectCommandSessions': { execute: vi.fn() },
+            'brainstrike.manageCommandSession': { execute: vi.fn() },
+          },
+        }),
+        'key-command-sessions'
+      )
+    ).toThrow('Unsupported web assistant runtime field: mastraTools');
+    expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
+  });
+
   it.each([
     '__proto__',
     'constructor',
