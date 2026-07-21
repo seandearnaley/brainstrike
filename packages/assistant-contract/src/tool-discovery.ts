@@ -12,6 +12,7 @@ export type NativeToolDiscoveryNamespace =
   | 'context'
   | 'embeddings'
   | 'semantics'
+  | 'sessions'
   | 'skills'
   | 'web'
   | 'workspace';
@@ -52,6 +53,10 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
       NATIVE_TOOL_ID.hybridSearch,
       NATIVE_TOOL_ID.lspInspect,
     ],
+  },
+  sessions: {
+    summary: 'Inspect and control persistent workspace command sessions and development servers.',
+    toolIds: [NATIVE_TOOL_ID.inspectCommandSessions, NATIVE_TOOL_ID.manageCommandSession],
   },
   skills: {
     summary: 'Discover, activate, and read installed Agent Skills.',

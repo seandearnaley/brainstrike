@@ -688,6 +688,84 @@ export const ExecuteCommandInputSchema = z
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
 // ============================================================================
+// Persistent Command Session Tool Schemas
+// ============================================================================
+
+const CommandSessionRootSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .optional()
+  .describe('Open folder name or durable id; omit when only one folder is open');
+
+const CommandSessionIdSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .describe('Opaque session id returned by start or list');
+
+export const InspectCommandSessionsInputSchema = z
+  .object({
+    operation: z
+      .discriminatedUnion('action', [
+        z.object({ action: z.literal('list') }).strict(),
+        z
+          .object({
+            action: z.literal('read'),
+            cursor: z
+              .number()
+              .int()
+              .min(-1)
+              .optional()
+              .describe(
+                'Absolute read cursor; omit for retained output or use -1 for the live tail'
+              ),
+            sessionId: CommandSessionIdSchema,
+          })
+          .strict(),
+      ])
+      .describe('Exactly one inspection operation and only its valid fields'),
+    root: CommandSessionRootSchema,
+  })
+  .strict();
+
+export type InspectCommandSessionsInput = z.infer<typeof InspectCommandSessionsInputSchema>;
+
+export const ManageCommandSessionInputSchema = z
+  .object({
+    operation: z
+      .discriminatedUnion('action', [
+        z
+          .object({
+            action: z.literal('start'),
+            cols: z.number().int().min(1).max(5000).optional(),
+            command: z.string().min(1).max(10_000).describe('Shell command to start'),
+            cwd: z
+              .string()
+              .max(4096)
+              .optional()
+              .describe('Absolute or workspace-relative directory inside the selected root'),
+            rows: z.number().int().min(1).max(5000).optional(),
+          })
+          .strict(),
+        z
+          .object({
+            action: z.literal('write'),
+            data: z.string().min(1).max(100_000).describe('Text to write verbatim'),
+            sessionId: CommandSessionIdSchema,
+          })
+          .strict(),
+        z.object({ action: z.literal('stop'), sessionId: CommandSessionIdSchema }).strict(),
+        z.object({ action: z.literal('remove'), sessionId: CommandSessionIdSchema }).strict(),
+      ])
+      .describe('Exactly one process-control operation and only its valid fields'),
+    root: CommandSessionRootSchema,
+  })
+  .strict();
+
+export type ManageCommandSessionInput = z.infer<typeof ManageCommandSessionInputSchema>;
+
+// ============================================================================
 // Manage Task List Tool Schema
 // ============================================================================
 
@@ -802,9 +880,11 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.globWorkspace]: GlobWorkspaceInputSchema,
   [NATIVE_TOOL_ID.grepSearch]: GrepSearchInputSchema,
   [NATIVE_TOOL_ID.hybridSearch]: HybridSearchInputSchema,
+  [NATIVE_TOOL_ID.inspectCommandSessions]: InspectCommandSessionsInputSchema,
   [NATIVE_TOOL_ID.listEmbeddingSpaces]: ListEmbeddingSetsInputSchema,
   [NATIVE_TOOL_ID.listWorkspaceContext]: ListWorkspaceContextInputSchema,
   [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
+  [NATIVE_TOOL_ID.manageCommandSession]: ManageCommandSessionInputSchema,
   [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
   [NATIVE_TOOL_ID.readToolOutputArtifact]: ReadToolOutputArtifactCursorInputSchema,

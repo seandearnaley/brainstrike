@@ -50,6 +50,36 @@ function snapshot(overrides: Partial<PermissionToolGateSnapshot> = {}): Permissi
 const NAME_MAP: ReadonlyMap<string, string> = new Map(Object.keys(TOOLS).map((id) => [id, id]));
 
 describe('filterToolsByPermissionWithMetadata', () => {
+  it('keeps session inspection free and approval-gates session management', () => {
+    const tools = {
+      brainstrike_inspectCommandSessions: { id: 'brainstrike.inspectCommandSessions' },
+      brainstrike_manageCommandSession: { id: 'brainstrike.manageCommandSession' },
+    };
+    const names = new Map([
+      ['brainstrike_inspectCommandSessions', 'brainstrike.inspectCommandSessions'],
+      ['brainstrike_manageCommandSession', 'brainstrike.manageCommandSession'],
+    ]);
+    const result = filterToolsByPermissionWithMetadata(
+      tools,
+      snapshot({
+        riskByTool: {
+          'brainstrike.inspectCommandSessions': 'read',
+          'brainstrike.manageCommandSession': 'execute',
+        },
+      }),
+      names,
+      noopLogger()
+    );
+
+    expect(result.tools).toHaveProperty('brainstrike_inspectCommandSessions');
+    expect(result.askToolIds.has('brainstrike_inspectCommandSessions')).toBe(false);
+    expect(result.askToolIds.has('brainstrike_manageCommandSession')).toBe(true);
+    expect(
+      (result.tools.brainstrike_manageCommandSession as { requireApproval?: unknown })
+        .requireApproval
+    ).toBe(true);
+  });
+
   it("keeps an 'ask' tool in the map AND records it in askToolIds", () => {
     const result = filterToolsByPermissionWithMetadata(
       { ...TOOLS },

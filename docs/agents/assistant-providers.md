@@ -731,7 +731,7 @@ the selected discovery adapter and must be exposed beside this set; it is not a
 second Brainstrike native-tool id. Every other native tool is `deferred` and
 belongs to exactly one concise namespace in
 `NATIVE_TOOL_DISCOVERY_NAMESPACES`: artifacts, context, embeddings, semantics,
-skills, web, or specialist workspace operations. Namespace parity tests prove
+sessions, skills, web, or specialist workspace operations. Namespace parity tests prove
 that the critical plus deferred partitions cover every canonical native id
 exactly once and that no namespace exceeds nine functions.
 
@@ -821,10 +821,23 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 27 tools / 6,209 `o200k_base` tokens, while the
+contract: the eager baseline is 29 tools / 6,972 `o200k_base` tokens, while the
 live critical definition surface is 7 tools / 1,923 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
 captured-request and last-position limiter budgets.
+
+Persistent commands use two deferred model tools, not six operation-specific
+definitions: `inspectCommandSessions` owns read-risk list/read, while
+`manageCommandSession` owns execute-risk start/write/stop/remove. Each schema is
+a provider-compatible root object containing a nested discriminated `operation`
+union. This prevents models from filling irrelevant action fields while keeping
+the critical request unchanged; together the two deferred definitions add 763
+tokens to the pre-session eager baseline. A single mixed-risk tool is forbidden because
+it would either hide harmless inspection behind execute approval or expose
+process control as read; top-level schema unions are forbidden because hosted
+providers require a root object. Plan mode keeps inspection and omits
+management. Desktop registers the capability; Web has no desktop registry and
+therefore exposes neither tool.
 
 ---

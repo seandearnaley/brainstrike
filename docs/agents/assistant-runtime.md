@@ -305,9 +305,13 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   graceful shutdown. Root disconnect reaps by the durable DB id returned from
   the path-keyed disconnect update (never the possibly divergent adapter id);
   factory reset and graceful shutdown dispose all sessions.
-- Native model operations, permission/tool-search registration, preload bridge,
-  and the human inventory UI are intentionally separate follow-up slices. Do
-  not expose this manager by widening `executeCommand` in place.
+- Hosted desktop models receive two deferred operations through the ordinary
+  native registry: read-risk `inspectCommandSessions` (list/read) and
+  execute-risk `manageCommandSession` (start/write/stop/remove). The latter is
+  omitted in plan mode and follows the normal ask/deny discovery and approval
+  gates. Web never constructs the desktop registry, so it exposes no stub or
+  fallback. Do not widen `executeCommand` in place. The human inventory UI is a
+  separate follow-up slice.
 
 Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
 stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
