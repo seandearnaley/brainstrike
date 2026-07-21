@@ -30,14 +30,15 @@ node .agents/skills/ledger-automation/scripts/collect-ledger-evidence.mjs \
   --pretty > /tmp/ledger-evidence.json
 ```
 
-The collector fails closed on unreadable revisions, an unproven watermark, unparseable runner ledgers, or incomplete test-lane assignment. It performs no network or repository writes.
+The collector fails closed on unreadable revisions, an unproven watermark, unparseable runner ledgers, missing hardcoded contract paths (runtime baseline, factory-reset files, runner ledgers, lane manifest), or incomplete test-lane assignment. It performs no network or repository writes. Exit codes follow the Axiom convention: `1` means collection failed (treat as an error, collect nothing from stdout); `2` means evidence was emitted but contains a blocking `db-test-lane-unassigned` or `db-test-lane-ambiguous` gap — resolve the lane assignment before treating the run as clean.
 
 Treat its output as evidence, not permission:
 
-- `mechanicalGaps` identifies missing numbered-runner or Drizzle `customMigrations` registration and broken ordering.
-- `semanticReviewCandidates` identifies exact migration statements that require the charter's human route; inspect the full changed migration and diff before filing or editing.
+- `mechanicalGaps` identifies missing numbered-runner or Drizzle `customMigrations` registration and broken ordering — computed ONLY for migrations added in the watermark range. Old migrations that predate the drizzle runner are legitimately absent from its append-only ledger and are never flagged.
+- `modifiedExistingMigrations` and `removedMigrations` list migrations changed, renamed, or deleted after the watermark. These are never mechanical gaps: route them through the charter's human/semantic review. Never "fix" them with registration lines — that would execute old DDL on every user database.
+- `semanticReviewCandidates` identifies exact migration statements (plus modified/removed migrations) that require the charter's human route; inspect the full changed migration and diff before filing or editing.
 - `factoryResetReview` and `runtimeBaselineReview` name affected tables/DDL and source references but never assert that a reset or baseline change is required.
-- `testLaneAssignments` mechanically checks every newly added DB test against the live manifest regexes. Confirm whether a changed test is actually part of the migration change.
+- `testLaneAssignments` mechanically checks every newly added or renamed DB test against the live manifest, grouping regexes by lane exactly as `buildDbUnitLaneMap` does: a test matching several regexes in ONE lane is assigned; only matches across distinct lanes are ambiguous.
 
 If `noMigrationDelta` is true, separately prove no Ledger-owned open PR or reopened ticket requires continuation, then take the protocol's NOOP path. Do not run unrelated expensive checks to manufacture activity.
 

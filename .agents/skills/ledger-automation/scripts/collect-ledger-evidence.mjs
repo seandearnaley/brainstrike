@@ -16,9 +16,11 @@ const FACTORY_RESET_PATHS = [
 ];
 const DB_TEST_ROOT = 'packages/db/__tests__/';
 
+// Exit codes follow the Axiom collector convention:
+// 1 = collection error (fail closed), 2 = evidence emitted with blocking gaps.
 function fail(message) {
   process.stderr.write(`collect-ledger-evidence: ${message}\n`);
-  process.exit(2);
+  process.exit(1);
 }
 
 function parseArgs(argv) {
@@ -76,13 +78,6 @@ function readRevisionFile(repo, revision, path) {
     const detail = error instanceof Error ? error.message : String(error);
     fail(`cannot read ${path} at ${revision}: ${detail}`);
   }
-}
-
-function listRevisionFiles(repo, revision, prefix) {
-  return run(repo, ['ls-tree', '-r', '--name-only', revision, '--', prefix])
-    .split('\n')
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
 }
 
 function parseNameStatus(raw) {
@@ -189,8 +184,11 @@ function orderProblems(entries, label) {
 
 function extractDdl(text) {
   const statements = [];
+  // UNIQUE (before INDEX) and CONCURRENTLY (after INDEX) are real Postgres syntax used by
+  // repo migrations; the schema qualifier is non-capturing so `public.foo` yields `foo`,
+  // never `public`, as the object name.
   const expression =
-    /\b(CREATE|ALTER|DROP)\s+(?:TABLE|TYPE|INDEX)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:["']?([A-Za-z_][A-Za-z0-9_]*)["']?)/gi;
+    /\b(CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:TABLE|TYPE|INDEX)\s+(?:CONCURRENTLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:["']?[A-Za-z_][A-Za-z0-9_]*["']?\s*\.\s*)?["']?([A-Za-z_][A-Za-z0-9_]*)["']?/gi;
   for (const match of text.matchAll(expression)) {
     statements.push({
       keyword: match[1].toUpperCase(),
@@ -218,43 +216,83 @@ function semanticSignals(text) {
   return signals;
 }
 
-function parseManifestRegexes(text) {
-  const regexes = [];
+// Mirrors buildDbUnitLaneMap semantics: a test is assigned when it matches exactly one
+// LANE. Multiple patterns per lane are house style and must not read as ambiguity, so
+// regexes are grouped by the manifest's per-lane `name:` boundary (which follows each
+// lane's `matches` array in the alphabetized object literal).
+function parseManifestLanes(text) {
+  const lanes = [];
+  let pending = [];
   text.split(/\r?\n/).forEach((line, offset) => {
-    const match = line.trim().match(/^\/((?:\\.|[^/])+)\/([a-z]*),?$/i);
-    if (!match) {
+    const trimmed = line.trim();
+    const regexMatch = trimmed.match(/^\/((?:\\.|[^/])+)\/([a-z]*),?$/i);
+    if (regexMatch) {
+      try {
+        pending.push({
+          line: offset + 1,
+          regex: new RegExp(regexMatch[1], regexMatch[2]),
+          source: `/${regexMatch[1]}/${regexMatch[2]}`,
+        });
+      } catch (error) {
+        fail(
+          `invalid lane-manifest regex at line ${offset + 1}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       return;
     }
+    const nameMatch = trimmed.match(/^name:\s*['"]([^'"]+)['"],?$/);
+    if (!nameMatch) {
+      return;
+    }
+    if (!pending.length) {
+      fail(`lane ${nameMatch[1]} declares no parseable regexes in the manifest`);
+    }
+    lanes.push({ name: nameMatch[1], regexes: pending });
+    pending = [];
+  });
+  if (pending.length) {
+    fail(
+      `${pending.length} lane-manifest regexes follow the last lane name and cannot be attributed to a lane`
+    );
+  }
+  if (!lanes.length) {
+    fail('no DB test-lane definitions could be parsed');
+  }
+  return lanes;
+}
+
+// Every hardcoded contract path must exist at the audited revision. A missing path is a
+// moved/renamed contract, and silently returning empty evidence is exactly the
+// stale-user-data fail-open this loop exists to catch.
+function assertContractPaths(repo, revision) {
+  const contractPaths = [
+    INDEX_PATH,
+    DRIZZLE_PATH,
+    LANE_MANIFEST_PATH,
+    RUNTIME_BASELINE_PATH,
+    ...FACTORY_RESET_PATHS,
+  ];
+  for (const contractPath of contractPaths) {
     try {
-      regexes.push({
-        line: offset + 1,
-        regex: new RegExp(match[1], match[2]),
-        source: `/${match[1]}/${match[2]}`,
+      execFileSync('git', ['-C', repo, 'cat-file', '-e', `${revision}:${contractPath}`], {
+        stdio: ['ignore', 'ignore', 'pipe'],
       });
-    } catch (error) {
+    } catch {
       fail(
-        `invalid lane-manifest regex at line ${offset + 1}: ${error instanceof Error ? error.message : String(error)}`
+        `required contract path missing at ${revision}: ${contractPath}; update the collector's hardcoded contract paths instead of failing open`
       );
     }
-  });
-  if (!regexes.length) {
-    fail('no DB test-lane regexes could be parsed');
   }
-  return regexes;
 }
 
 function resetReferences(repo, revision, table) {
-  return FACTORY_RESET_PATHS.flatMap((path) => {
-    const fileList = listRevisionFiles(repo, revision, path);
-    if (!fileList.includes(path)) {
-      return [];
-    }
-    return readRevisionFile(repo, revision, path)
+  return FACTORY_RESET_PATHS.flatMap((path) =>
+    readRevisionFile(repo, revision, path)
       .split(/\r?\n/)
       .flatMap((line, offset) =>
         line.includes(table) ? [{ line: offset + 1, path, text: line.trim() }] : []
-      );
-  });
+      )
+  );
 }
 
 function main() {
@@ -279,7 +317,9 @@ function main() {
       generatedAt: new Date().toISOString(),
       mechanicalGaps: [],
       migrationDelta: [],
+      modifiedExistingMigrations: [],
       noMigrationDelta: true,
+      removedMigrations: [],
       repo,
       revision,
       schemaVersion: 1,
@@ -290,6 +330,7 @@ function main() {
     return;
   }
   run(repo, ['merge-base', '--is-ancestor', watermark, revision]);
+  assertContractPaths(repo, revision);
 
   const changes = parseNameStatus(
     run(repo, [
@@ -305,10 +346,22 @@ function main() {
     ])
   );
   const migrationChanges = changes.filter((change) => migrationNumber(change.path));
+  // Only migrations ADDED in the delta are eligible for mechanical registration parity.
+  // Modified/renamed migrations route to the charter's human/semantic review: pre-drizzle
+  // migrations are legitimately absent from the append-only drizzle ledger, and
+  // "remediating" them mechanically would execute years-old DDL on every user DB.
+  // Deleted migrations have no content at the revision and are surfaced as evidence.
+  const addedMigrationChanges = migrationChanges.filter((change) => change.status.startsWith('A'));
+  const removedMigrations = migrationChanges
+    .filter((change) => change.status.startsWith('D'))
+    .map((change) => ({ change, number: Number(migrationNumber(change.path)), path: change.path }));
+  const modifiedExistingMigrations = migrationChanges
+    .filter((change) => !(change.status.startsWith('A') || change.status.startsWith('D')))
+    .map((change) => ({ change, number: Number(migrationNumber(change.path)), path: change.path }));
   const newDbTests = changes
     .filter(
       (change) =>
-        change.status.startsWith('A') &&
+        (change.status.startsWith('A') || change.status.startsWith('R')) &&
         change.path.startsWith(DB_TEST_ROOT) &&
         /\.test\.(?:ts|tsx)$/.test(change.path)
     )
@@ -321,9 +374,9 @@ function main() {
   const customEntries = customMigrationArray(drizzleText);
   const indexOrderProblems = orderProblems(indexEntries, 'numbered-runner');
   const drizzleOrderProblems = orderProblems(customEntries, 'drizzle-customMigrations');
-  const laneRegexes = parseManifestRegexes(manifestText);
+  const laneDefinitions = parseManifestLanes(manifestText);
 
-  const migrationDelta = migrationChanges.map((change) => {
+  const migrationDelta = addedMigrationChanges.map((change) => {
     const text = readRevisionFile(repo, revision, change.path);
     const symbol = parseMigrationExport(change.path, text);
     const number = Number(migrationNumber(change.path));
@@ -391,11 +444,24 @@ function main() {
   }
 
   const testLaneAssignments = newDbTests.map((path) => {
-    const matches = laneRegexes.filter((entry) => entry.regex.test(path));
+    const matchedLanes = laneDefinitions.filter((lane) =>
+      lane.regexes.some((entry) => entry.regex.test(path))
+    );
+    const matches = matchedLanes.flatMap((lane) =>
+      lane.regexes
+        .filter((entry) => entry.regex.test(path))
+        .map((entry) => ({ lane: lane.name, line: entry.line, source: entry.source }))
+    );
     return {
-      matches: matches.map((entry) => ({ line: entry.line, source: entry.source })),
+      lanes: matchedLanes.map((lane) => lane.name),
+      matches,
       path,
-      status: matches.length === 1 ? 'assigned' : matches.length === 0 ? 'unassigned' : 'ambiguous',
+      status:
+        matchedLanes.length === 1
+          ? 'assigned'
+          : matchedLanes.length === 0
+            ? 'unassigned'
+            : 'ambiguous',
     };
   });
   for (const assignment of testLaneAssignments.filter(
@@ -432,6 +498,22 @@ function main() {
       ...signal,
     }))
   );
+  for (const modified of modifiedExistingMigrations) {
+    semanticReviewCandidates.push({
+      kind: 'modified-existing-migration',
+      migration: modified.number,
+      path: modified.path,
+      text: 'An existing migration was modified after the watermark; route to the charter human/semantic review, never a registration-only edit.',
+    });
+  }
+  for (const removed of removedMigrations) {
+    semanticReviewCandidates.push({
+      kind: 'migration-removed',
+      migration: removed.number,
+      path: removed.path,
+      text: 'A migration was deleted or renamed away after the watermark; route to the charter human/semantic review.',
+    });
+  }
   if (indexOrderProblems.length || drizzleOrderProblems.length) {
     semanticReviewCandidates.push({
       kind: 'ordering-anomaly',
@@ -445,13 +527,21 @@ function main() {
     generatedAt: new Date().toISOString(),
     mechanicalGaps,
     migrationDelta,
-    noMigrationDelta: migrationDelta.length === 0,
+    modifiedExistingMigrations,
+    noMigrationDelta:
+      migrationDelta.length === 0 &&
+      modifiedExistingMigrations.length === 0 &&
+      removedMigrations.length === 0,
+    removedMigrations,
     repo,
     revision,
     runtimeBaselineReview: {
       changed: changes.some((change) => change.path === RUNTIME_BASELINE_PATH),
       path: RUNTIME_BASELINE_PATH,
-      requiredManualReview: migrationDelta.some((migration) => migration.schemaShape.length > 0),
+      requiredManualReview:
+        migrationDelta.some((migration) => migration.schemaShape.length > 0) ||
+        modifiedExistingMigrations.length > 0 ||
+        removedMigrations.length > 0,
     },
     schemaVersion: 1,
     semanticReviewCandidates,
@@ -459,6 +549,15 @@ function main() {
     watermark,
   };
   process.stdout.write(`${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`);
+  // Incomplete test-lane assignment is blocking evidence: emit it and exit 2 so the loop
+  // cannot treat an unassigned or ambiguous lane as a clean run.
+  if (
+    testLaneAssignments.some(
+      (assignment) => assignment.status === 'unassigned' || assignment.status === 'ambiguous'
+    )
+  ) {
+    process.exitCode = 2;
+  }
 }
 
 main();

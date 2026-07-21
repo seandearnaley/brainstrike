@@ -114,19 +114,50 @@ function selectPackageScripts(packageJson) {
   );
 }
 
-function collectScriptInventory(allFiles, packageScripts) {
+// Guard package scripts frequently chain through `pnpm run <name>` (e.g. lint:ci ->
+// arch:domain-boundaries -> node scripts/...); expand that indirection so the wiring
+// text contains the commands that actually execute scripts.
+function expandWiring(allPackageScripts, selectedNames) {
+  const reachable = new Set(selectedNames);
+  const queue = [...reachable];
+  while (queue.length > 0) {
+    const name = queue.shift();
+    const command = String(allPackageScripts[name] ?? '');
+    for (const candidate of Object.keys(allPackageScripts)) {
+      if (reachable.has(candidate)) {
+        continue;
+      }
+      const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      if (new RegExp(`\\bpnpm\\s+(?:run\\s+)?${escaped}(?=$|[\\s'";&|])`, 'u').test(command)) {
+        reachable.add(candidate);
+        queue.push(candidate);
+      }
+    }
+  }
+  return [...reachable].map((name) => String(allPackageScripts[name] ?? '')).join('\n');
+}
+
+function collectScriptInventory(allFiles, packageScripts, allPackageScripts) {
   const testFiles = allFiles.filter((filePath) =>
     /(?:^|\/)__tests__\/.*\.test\.[cm]?[jt]s$/u.test(filePath)
   );
   const executableFiles = allFiles.filter((filePath) => !testFiles.includes(filePath));
-  const guardCandidates = executableFiles.filter((filePath) =>
-    /(?:guard|check|validate|scan|lane)/iu.test(path.basename(filePath))
-  );
-  const wiring = Object.values(packageScripts).join('\n');
-  const wiredGuardCandidates = guardCandidates.filter((filePath) => {
+  const wiring = expandWiring(allPackageScripts, Object.keys(packageScripts));
+  const isWired = (filePath) => {
     const withoutScriptsPrefix = filePath.replace(/^scripts\//u, '');
     return wiring.includes(filePath) || wiring.includes(withoutScriptsPrefix);
-  });
+  };
+  // Name signals align with Warden's guard-signal regex (verify-*/contract/enforce/forbid
+  // guards are real), and wiring beats naming: any script executed by a guard-class
+  // package script is a candidate regardless of what it is called. Missing a live guard
+  // here means Axiom could file a duplicate guard for an already-guarded invariant.
+  const guardCandidates = executableFiles.filter(
+    (filePath) =>
+      /(?:guard|contract|verify|check|enforce|scan|forbid|validate|lane)/iu.test(
+        path.basename(filePath)
+      ) || isWired(filePath)
+  );
+  const wiredGuardCandidates = guardCandidates.filter(isWired);
 
   return {
     allFiles,
@@ -294,7 +325,8 @@ export function collectAxiomEvidence({ repo: repoInput, watermark, fullSweep = f
   }
   const scriptInventory = collectScriptInventory(
     listGitFiles(repo, sourceReference, 'scripts'),
-    packageScripts
+    packageScripts,
+    packageJson.scripts ?? {}
   );
 
   const evidence = {

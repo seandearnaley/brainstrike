@@ -39,9 +39,10 @@ The collector performs no writes. It:
 
 - derives Warden metadata from the live charter;
 - inventories every root `scripts/*.mjs` and `scripts/*.cjs` file plus every `scripts/__tests__/*.test.mjs` file;
-- traces CI workflow → root package-script → guard entry reachability separately from test-only reachability;
+- traces CI workflow → root package-script → guard entry reachability separately from test-only reachability, ignoring commented-out workflow lines;
+- emits two distinct wiring classes per script: `wiring.ciReachable` (a non-test CI entry runs the guard directly) and `wiring.ciTestReachable` (a direct paired `scripts/__tests__` test is executed by a CI-wired `test:scripts`, with the tests listed in `wiring.ciReachableTests`);
 - reports direct and transitive test pairings, candidate negative-control test titles, package/workflow references, guard-like signals, git history, main identity, and dirty state;
-- fails closed on missing required files, empty enumerations, malformed package metadata, or an unprovable repository root, and reports dirty/divergent checkout and missing-inventory blockers separately from successful evidence collection.
+- fails closed on missing required files, empty enumerations, malformed package metadata, or an unprovable repository root, and reports dirty/divergent checkout blockers separately from successful evidence collection. A missing `scripts/_guard-inventory.md` is first-run evidence (`preflight.firstRunEvidence`), never a blocker — only Warden creates that file.
 
 Treat `candidateHint` and `negativeControlCandidates` as routing evidence, never verdicts.
 
@@ -57,7 +58,7 @@ Read the script whenever its disposition is not obvious from the evidence. Recor
 
 For each guard, prove all three charter properties:
 
-- `WIRED`: `wiring.ciReachable` is true from a non-test CI entry for the actual guard behavior, not merely from its paired test or an unrelated exported helper.
+- `WIRED`: either `wiring.ciReachable` is true from a non-test CI entry for the actual guard behavior (not merely an unrelated exported helper), or `wiring.ciTestReachable` is true AND you manually confirm the listed paired test asserts the guard's verdict on the REAL repository tree under the CI-wired `test:scripts` (the `verify-workspace-src-aliases` pattern). A paired test that only exercises fixtures does not make a guard WIRED.
 - `PAIRED`: a direct test under `scripts/__tests__` exercises the guard. A test elsewhere or a transitive helper-only import does not satisfy the charter unless the live charter says otherwise.
 - `ARMED`: manually inspect at least one paired test whose fixture deliberately violates the protected invariant and assert that the guard detects it. A negative-sounding title is only a candidate.
 

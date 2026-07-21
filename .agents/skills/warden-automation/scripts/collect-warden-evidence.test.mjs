@@ -14,7 +14,7 @@ function write(root, relativePath, content) {
   writeFileSync(absolutePath, content);
 }
 
-function createFixture() {
+function createFixture({ includeInventory = true } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'warden-skill-'));
   temporaryRoots.push(root);
   write(root, 'AGENTS.md', '# Rules\n');
@@ -60,7 +60,9 @@ function createFixture() {
     'scripts/__tests__/good-guard.test.mjs',
     "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { findViolations } from '../good-guard.mjs';\ntest('flags deliberately bad fixture', () => assert.deepEqual(findViolations('bad'), ['bad']));\n"
   );
-  write(root, 'scripts/_guard-inventory.md', '# Guard inventory\n');
+  if (includeInventory) {
+    write(root, 'scripts/_guard-inventory.md', '# Guard inventory\n');
+  }
   execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'warden@example.invalid'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'Warden Test'], { cwd: root });
@@ -93,6 +95,10 @@ test('collects wiring, pairing, arming candidates, and history without making ve
   assert.deepEqual(output.ci.guardEntryFiles, ['scripts/good-guard.mjs']);
   assert.deepEqual(output.ci.testEntryFiles, ['scripts/__tests__/good-guard.test.mjs']);
   assert.equal(good.wiring.ciReachable, true);
+  assert.equal(good.wiring.ciTestReachable, true);
+  assert.deepEqual(good.wiring.ciReachableTests, ['scripts/__tests__/good-guard.test.mjs']);
+  assert.equal(orphan.wiring.ciTestReachable, false);
+  assert.equal(output.summary.ciTestReachableScriptCount, 1);
   assert.deepEqual(good.pairing.directTests, ['scripts/__tests__/good-guard.test.mjs']);
   assert.deepEqual(good.arming.negativeControlCandidates, [
     {
@@ -126,11 +132,57 @@ test('does not count test-only reachability as guard wiring and surfaces preflig
 
   assert.equal(output.status, 'blocked');
   assert.equal(good.wiring.ciReachable, false);
+  assert.equal(good.wiring.ciTestReachable, true);
   assert.deepEqual(output.ci.guardEntryFiles, []);
-  assert.deepEqual(output.preflight.blockers, [
-    'working tree is dirty',
-    'scripts/_guard-inventory.md is missing',
+  assert.deepEqual(output.preflight.blockers, ['working tree is dirty']);
+  assert.deepEqual(output.preflight.firstRunEvidence, [
+    'scripts/_guard-inventory.md does not exist yet; Warden creates it on the first run',
   ]);
+});
+
+test('reports a missing guard inventory as first-run evidence, not a bootstrap deadlock', () => {
+  const root = createFixture({ includeInventory: false });
+  const output = JSON.parse(
+    execFileSync('node', [collector, '--repo', root], { encoding: 'utf8' })
+  );
+
+  assert.equal(output.status, 'ok');
+  assert.equal(output.preflight.status, 'local-evidence-ready');
+  assert.deepEqual(output.preflight.blockers, []);
+  assert.equal(output.inventory.guardInventoryExists, false);
+  assert.deepEqual(output.preflight.firstRunEvidence, [
+    'scripts/_guard-inventory.md does not exist yet; Warden creates it on the first run',
+  ]);
+});
+
+test('ignores commented-out workflow lines when tracing CI wiring', () => {
+  const root = createFixture();
+  write(
+    root,
+    '.github/workflows/test.yml',
+    [
+      'jobs:',
+      '  static:',
+      '    steps:',
+      '      # - run: pnpm test:scripts',
+      '      # - run: node scripts/orphan-guard.mjs',
+      '      - run: pnpm run lint:ci',
+      '',
+    ].join('\n')
+  );
+
+  const output = JSON.parse(
+    execFileSync('node', [collector, '--repo', root], { encoding: 'utf8' })
+  );
+  const good = output.inventory.scripts.find((entry) => entry.name === 'good-guard.mjs');
+  const orphan = output.inventory.scripts.find((entry) => entry.name === 'orphan-guard.mjs');
+
+  assert.ok(!output.ci.reachablePackageScripts.includes('test:scripts'));
+  assert.deepEqual(output.ci.testEntryFiles, []);
+  assert.equal(good.wiring.ciReachable, true);
+  assert.equal(good.wiring.ciTestReachable, false);
+  assert.equal(orphan.wiring.ciReachable, false);
+  assert.deepEqual(orphan.wiring.workflowReferences, []);
 });
 
 test('fails closed when a required contract file is missing', () => {
