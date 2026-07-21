@@ -35,7 +35,7 @@ The collector performs no repository or external writes (its Git reads disable
 optional locks, fsmonitor, and the untracked cache so `status` never rewrites
 the index). It:
 
-- runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm run doctor -- --json` without shell pipelines;
+- runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm exec react-doctor . --json` without shell pipelines (invoking the binary directly, because `pnpm run doctor -- --json` leaks a literal `--` that makes react-doctor ignore `--json`; it asserts the root `doctor` script is react-doctor first);
 - preserves each command's real exit code and distinguishes findings from operational failure for BOTH tools — Knip via exit-code + category counts, Doctor via its structured `--json` report (`ok`/`summary`), never scraped CLI copy;
 - classifies a completed Doctor scan with error-severity diagnostics as a `findings` outcome (exit 1 is expected there), and only `ok:false` as operational failure; skipped checks are surfaced as `incompleteResults`, never treated as a clean bill;
 - records Git heads, branch, worktree status, and exact log paths;

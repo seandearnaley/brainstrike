@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -159,6 +159,20 @@ export const parseDoctor = (stdoutText, exitCode) => {
   };
 };
 
+function readRootDoctorScript(repoRoot) {
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+  } catch (error) {
+    fail(`could not read root package.json: ${error instanceof Error ? error.message : error}`);
+  }
+  const script = packageJson.scripts?.doctor;
+  if (typeof script !== 'string') {
+    fail('root package.json has no "doctor" script');
+  }
+  return script;
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
@@ -203,9 +217,17 @@ function main() {
   }
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
-  // `--` forwards --json to react-doctor unambiguously; --json suppresses the
-  // human-readable render and emits a single JSON report on stdout.
-  const doctorRun = run('pnpm', ['run', 'doctor', '--', '--json'], repoRoot, {
+  // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
+  // whose commander parser then treats --json as a positional operand and
+  // ignores it; `pnpm run doctor --json` fails because pnpm claims --json for
+  // itself. So invoke the binary directly with `pnpm exec`. Guard first: the
+  // doctor script must actually be react-doctor, or a tool swap would surface
+  // as an opaque JSON-parse error instead of a clear failure.
+  const doctorScript = readRootDoctorScript(repoRoot);
+  if (!/\breact-doctor\b/.test(doctorScript)) {
+    fail(`root "doctor" script is not react-doctor ("${doctorScript}"); update this collector`);
+  }
+  const doctorRun = run('pnpm', ['exec', 'react-doctor', '.', '--json'], repoRoot, {
     REACT_DOCTOR_NO_TELEMETRY: '1',
   });
   writeFileSync(knipLog, knipRun.output, { flag: 'wx' });
