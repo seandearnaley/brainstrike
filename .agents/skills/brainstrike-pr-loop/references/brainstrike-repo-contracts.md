@@ -43,6 +43,11 @@ CI is there to double-check, not to discover basic breakage you could have caugh
 
 ## Merge vs Follow-Up
 
+Night Shift loops never merge: for any `night-shift/*` branch or run governed
+by `.night-shift/PROTOCOL.md`, the terminal state is the protocol's
+`status=READY` checkpoint and human hand-off (see the SKILL.md "Night Shift
+mode" section). The guidance below is for human-driven PR work only.
+
 Merge now when:
 
 - the core feature is stable

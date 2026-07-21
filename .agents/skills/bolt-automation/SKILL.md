@@ -104,7 +104,7 @@ node .agents/skills/bolt-automation/scripts/audit-bolt-readiness.mjs \
 
 The audit is deliberately stricter than GitHub's merge button: it requires the exact local/remote head, current base, clean tree, open non-draft PR, mergeable clean state, at least one observed check with every observed check terminal-green, and zero unresolved review threads. Both helpers disable Git optional locks, fsmonitor, and untracked-cache writes; they perform no repository or external writes.
 
-`mechanicalReady=true` is necessary, not sufficient. Declare READY TO MERGE only when the exact same SHA also has passing evidence and two clean fresh reviewers.
+`mechanicalReady=true` is necessary, not sufficient. Checkpoint `status=READY` only when the exact same SHA also has passing evidence and two clean fresh reviewers.
 
 On a later wake with the same PR HEAD, reuse evidence and reviewer status only when a valid append-only Bolt checkpoint names that exact head and explicitly records `evidence=pass`, `reviewers=correctness+performance-clean`, and `threads=0`; the PR must still contain the exact reproducible evidence method. Re-read all PR discussion since that checkpoint. Any head drift, base drift, new actionable discussion, missing field, irreproducible method, or ambiguous checkpoint invalidates reuse and requires fresh verification. Never reconstruct a missing benchmark method by guesswork.
 

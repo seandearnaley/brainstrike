@@ -8,6 +8,11 @@ doctrine upgrades are one PR here instead of N scheduler edits.
 
 Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
 
+Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
+(deterministic evidence collectors + step ordering; see PROTOCOL.md
+"Execution skills" for the authority ordering). PR-authoring loops share
+`.agents/skills/brainstrike-pr-loop/` for stewardship mechanics.
+
 ## Roster
 
 | charter | role | schedule (UTC) | autonomy |

@@ -83,11 +83,11 @@ correctness reviewer over the full diff and a performance verifier
 challenging the benchmark, noise analysis, and mechanism. They report to
 you only. Batch fixes into one push; re-run reviewers only on a new HEAD;
 answer every review thread with a fixing commit or a concise decline.
-Max six fix/push cycles, then checkpoint and exit INCOMPLETE.
+Max six fix/push cycles, then checkpoint and exit `status=INCOMPLETE`.
 
 Ready-to-merge (for one stable HEAD): required checks green, evidence
 passes, all threads resolved, both reviewers clean on that exact SHA,
-tree clean → checkpoint and hand to the human as READY TO MERGE.
+tree clean → checkpoint `status=READY` and hand to the human.
 Learning (same PR): confirmed bottlenecks, rejected optimizations with
 reusable lessons, surprising benchmark behavior — nothing operational.
 </task>
