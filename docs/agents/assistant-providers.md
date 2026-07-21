@@ -791,7 +791,7 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the current eager baseline is 27 tools / 6,160 `o200k_base` tokens,
+contract: the current eager baseline is 27 tools / 6,180 `o200k_base` tokens,
 while the proposed critical-only surface is 7 tools / 1,894 tokens. These are
 measured schema-and-description footprints, not live prompt savings; system
 instructions, dynamically loaded definitions, provider conversion, and skills
