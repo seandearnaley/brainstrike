@@ -516,6 +516,7 @@ export function useExpandedPathRestoration(
     setRestorationProgress(null);
   }, [currentRootFolderId, restorationKey]);
 
+  // biome-ignore lint/plugin: Restores persisted local tree state after the matching root commits; no remote fetch occurs.
   useEffect(() => {
     if (disabled) {
       return;

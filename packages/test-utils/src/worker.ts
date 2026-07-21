@@ -23,7 +23,6 @@ export function installMockWorkers(options?: { maxWorkers?: number }) {
     onmessage: ((this: Worker, ev: MessageEvent) => void) | null = null;
     onerror: ((this: AbstractWorker, ev: ErrorEvent) => void) | null = null;
     onmessageerror: ((this: Worker, ev: MessageEvent) => void) | null = null;
-    // biome-ignore lint/style/useReadonlyClassProperties: Mutable property - set in terminate() method
     private _terminated = false;
 
     postMessage = vi.fn();

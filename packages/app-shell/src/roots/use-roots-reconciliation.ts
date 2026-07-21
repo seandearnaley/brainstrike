@@ -206,6 +206,7 @@ export function useRootsReconciliation({
     });
   }, []);
 
+  // biome-ignore lint/plugin: One-shot local adapter/DB reconciliation is lifecycle orchestration, not remote data fetching.
   useEffect(() => {
     if (hasRunRef.current) {
       return;

@@ -1289,6 +1289,7 @@ export function WorkspaceCollectionSyncProvider({
   // registration is enqueued before the sync loop starts; resolveDbRootId
   // awaits enqueued registrations, so the new root's first import sees its id.
   const registrationAttemptedRootIdsRef = useRef(new Set<string>());
+  // biome-ignore lint/plugin: Lifecycle registration reconciles local root capabilities; it is not remote data fetching.
   useEffect(() => {
     for (const handle of rootDirectoryHandles) {
       // Prefer the stamped handle.rootId — the path→id map collides for
