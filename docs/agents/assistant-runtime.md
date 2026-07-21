@@ -153,6 +153,17 @@ configured-limit path reaches the next provider step and preserves MCP media;
 `mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
 replays the stored projection rather than the raw sentinel.
 
+The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
+tool definitions and already-bounded model projections, then emits one
+content-free `mastra_agent_token_measurement` log with the explicit
+provider/model measurement mode and provider-reported prompt usage when
+available. It cannot alter `ProjectionAwareTokenLimiter`, the deterministic
+serialized-character ceilings, the outgoing prompt, or persisted run events.
+Tokenizer failures remain visible under their declared mode and retain separate
+backstop totals; they never relabel themselves as exact or silently select a
+different counter. The provider/model capability contract and supported modes
+live in `docs/agents/assistant-providers.md`.
+
 **Hosted native-tool definition and prompt budget (LIVE):**
 The runtime does not maintain a parallel provider-tool catalog.
 `@brainstrike/assistant-contract` supplies canonical ids and descriptions;

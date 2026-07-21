@@ -498,6 +498,32 @@ installs `ProjectionAwareTokenLimiter`: it temporarily substitutes the stored
 markers), delegates to Mastra's limiter, and restores the exact raw result in a
 `finally`. Keep its canonical processor id `token-limiter`.
 
+Runtime token measurement is observational and MUST NOT replace those safety
+limits. `provider-registry.ts` resolves one explicit capability from the exact
+provider/model tuple: `exact-selected-model`, `declared-compatible-reference`,
+or `deterministic-serialized-character-backstop`. The current direct OpenAI
+GPT-5.x registry entries deliberately declare local `o200k_base` as a compatible
+reference, not an exact selected-model tokenizer; `openai/gpt-4o` is the
+explicit verified exact mapping. Anthropic, Google, OpenRouter aliases, local
+runtimes, and unknown tuples keep the four-serialized-characters-per-token
+backstop. Never infer a tokenizer from a model-name substring.
+
+`RunTokenDiagnostics` initializes the declared local tokenizer once while the
+server-side Mastra runtime is built, normalizes the FINAL tool map through
+Mastra's Standard Schema conversion, and observes only already-bounded
+`toModelOutput` projections. Inline media bodies become deterministic markers
+before measurement. One `mastra_agent_token_measurement` structured log joins
+the mode, tokenizer (when declared), tool-definition count/tokens, projected
+result count/tokens, independent backstop totals, and actual provider/Mastra
+prompt usage when reported. It contains counts and bounded failure metadata
+only—never raw prompts, tool schemas, results, credentials, or user content.
+Counter initialization/execution failure retains the declared mode, omits the
+unavailable tokenizer counts, keeps the deterministic backstop totals, and logs
+at warning level; it never silently changes measurement semantics or disables
+the independent serialized-character safety envelope. Paired proofs:
+`provider-registry-token-measurement.test.ts`, `token-measurement.spec.ts`,
+`tool-model-output.spec.ts`, and `mastra-streaming.spec.ts`.
+
 MCP text/JSON uses a separate temporary inline ceiling only when the host does
 not supply durable artifact settlement: it is bounded to
 `MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
