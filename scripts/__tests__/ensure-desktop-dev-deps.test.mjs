@@ -8,15 +8,19 @@ import {
   runDesktopDevDependencyBuild,
 } from '../ensure-desktop-dev-deps.mjs';
 
-test('targets the exact desktop development dependency graph', () => {
-  assert.deepEqual(getDesktopDevDependencyBuildArgs(), [
+test('derives the complete desktop development dependency graph through Turbo', () => {
+  const args = getDesktopDevDependencyBuildArgs();
+
+  assert.deepEqual(args, [
     'turbo',
     'run',
-    'build',
-    '--filter=@brainstrike/build-utils',
-    '--filter=@brainstrike/agent',
-    '--filter=@brainstrike/ui',
+    'desktop-dev-dependencies',
+    '--filter=@brainstrike/desktop',
   ]);
+  assert.equal(
+    args.some((argument) => argument.includes('^')),
+    false
+  );
 });
 
 test('invokes the Turbo graph build even when a dependency output exists', async () => {
