@@ -837,7 +837,9 @@ tokens to the pre-session eager baseline. A single mixed-risk tool is forbidden 
 it would either hide harmless inspection behind execute approval or expose
 process control as read; top-level schema unions are forbidden because hosted
 providers require a root object. Plan mode keeps inspection and omits
-management. Desktop registers the capability; Web has no desktop registry and
-therefore exposes neither tool.
+management. The built-in local provider gets neither definition because it has
+no deferred-discovery path and would otherwise pay both schemas eagerly.
+Desktop registers the capability; Web has no desktop registry, uses the explicit
+`WEB_NATIVE_TOOL_IDS` UI/request partition, and therefore exposes neither tool.
 
 ---

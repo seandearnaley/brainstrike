@@ -4222,6 +4222,20 @@ describe('assistant-tools multi-root read tools', () => {
     });
   });
 
+  describe('command-session provider gating', () => {
+    it('registers both session tools for a hosted provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
+      expect(tools['brainstrike.inspectCommandSessions']).toBeDefined();
+      expect(tools['brainstrike.manageCommandSession']).toBeDefined();
+    });
+
+    it('omits both session tools for the built-in local provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
+      expect(tools['brainstrike.inspectCommandSessions']).toBeUndefined();
+      expect(tools['brainstrike.manageCommandSession']).toBeUndefined();
+    });
+  });
+
   describe('suspending tool registration (submitPlan / askUser)', () => {
     it('registers submitPlan and askUser for a hosted provider', () => {
       const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);

@@ -1,7 +1,7 @@
 import {
-  DESKTOP_NATIVE_TOOL_IDS,
   type LocalLlmBackendFactory,
   type SupportedProvider,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
@@ -15,7 +15,7 @@ import { __resetAssistantForegroundActivityForTests } from '../assistant-foregro
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
-export const NATIVE_TOOL_COUNT = DESKTOP_NATIVE_TOOL_IDS.length;
+export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 
 const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
   hasDesktopLlmHostMock: vi.fn((): boolean => false),

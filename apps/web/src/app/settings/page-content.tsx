@@ -1,8 +1,8 @@
 import {
-  DESKTOP_NATIVE_TOOL_IDS,
   getNativeToolDescription,
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
@@ -54,7 +54,7 @@ configureModelRuntimeServices({
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
-  return DESKTOP_NATIVE_TOOL_IDS.map((id) => {
+  return WEB_NATIVE_TOOL_IDS.map((id) => {
     const metadata = NATIVE_TOOL_DEFAULTS[id];
     return {
       category: metadata.category,

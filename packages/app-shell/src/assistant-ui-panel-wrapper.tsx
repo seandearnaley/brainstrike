@@ -7,6 +7,7 @@ import {
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_DEFAULTS,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
@@ -678,9 +679,10 @@ export function AssistantUiPanelWrapper({
     };
   }, [handleTapestryUpdate]);
 
+  const nativeToolIds = hasDesktopRuntimeBridge() ? DESKTOP_NATIVE_TOOL_IDS : WEB_NATIVE_TOOL_IDS;
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>
-      DESKTOP_NATIVE_TOOL_IDS.map((toolId) => {
+      nativeToolIds.map((toolId) => {
         const metadata = NATIVE_TOOL_DEFAULTS[toolId];
         const category =
           typeof (metadata as { category?: unknown }).category === 'string'
@@ -700,7 +702,7 @@ export function AssistantUiPanelWrapper({
           ...(category ? { category } : {}),
         };
       }),
-    [nativeToolStates]
+    [nativeToolIds, nativeToolStates]
   );
   const handleOpenToolSettings = useCallback(() => {
     openSettings();

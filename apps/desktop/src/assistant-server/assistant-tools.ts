@@ -3675,54 +3675,60 @@ export function buildDesktopAssistantTools(
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
       toModelOutput: projectHybridSearchModelOutput,
     },
-    [NATIVE_TOOL_ID.inspectCommandSessions]: {
-      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.inspectCommandSessions],
-      execute: (input: ToolExecuteInput<InspectCommandSessionsInput>) => {
+    ...(isLocalProvider
+      ? {}
+      : {
+          [NATIVE_TOOL_ID.inspectCommandSessions]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.inspectCommandSessions],
+            execute: (input: ToolExecuteInput<InspectCommandSessionsInput>) => {
+              const resolvedInput = parseToolExecuteInput(
+                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
+                input
+              );
+              try {
+                return runInspectCommandSessions(resolvedInput, runtimeData, {
+                  ...(dependencies.commandSessionManager
+                    ? { manager: dependencies.commandSessionManager }
+                    : {}),
+                });
+              } catch (error) {
+                logToolFailure('inspectCommandSessions failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: NATIVE_TOOL_ID.inspectCommandSessions,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
+          },
+        }),
+  };
+
+  if (!isLocalProvider) {
+    tools[NATIVE_TOOL_ID.manageCommandSession] = {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCommandSession],
+      execute: async (
+        input: ToolExecuteInput<ManageCommandSessionInput>,
+        options?: ToolExecuteContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(
-          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
           input
         );
         try {
-          return runInspectCommandSessions(resolvedInput, runtimeData, {
+          return await runManageCommandSession(resolvedInput, runtimeData, {
             ...(dependencies.commandSessionManager
               ? { manager: dependencies.commandSessionManager }
               : {}),
+            ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
           });
         } catch (error) {
-          logToolFailure('inspectCommandSessions failed', error, resolvedInput);
+          logToolFailure('manageCommandSession failed', error, resolvedInput);
           throw error;
         }
       },
-      id: NATIVE_TOOL_ID.inspectCommandSessions,
-      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
-    },
-  };
-
-  tools[NATIVE_TOOL_ID.manageCommandSession] = {
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCommandSession],
-    execute: async (
-      input: ToolExecuteInput<ManageCommandSessionInput>,
-      options?: ToolExecuteContext
-    ) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
-        input
-      );
-      try {
-        return await runManageCommandSession(resolvedInput, runtimeData, {
-          ...(dependencies.commandSessionManager
-            ? { manager: dependencies.commandSessionManager }
-            : {}),
-          ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
-        });
-      } catch (error) {
-        logToolFailure('manageCommandSession failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.manageCommandSession,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
-  };
+      id: NATIVE_TOOL_ID.manageCommandSession,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
+    };
+  }
 
   // Arbitrary shell execution is registered like every other native tool and
   // gated by the permission engine. With enforce-on-by-default, its 'execute'

@@ -309,9 +309,11 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   native registry: read-risk `inspectCommandSessions` (list/read) and
   execute-risk `manageCommandSession` (start/write/stop/remove). The latter is
   omitted in plan mode and follows the normal ask/deny discovery and approval
-  gates. Web never constructs the desktop registry, so it exposes no stub or
-  fallback. Do not widen `executeCommand` in place. The human inventory UI is a
-  separate follow-up slice.
+  gates. The built-in local provider omits both because it lacks deferred tool
+  discovery. Web never constructs the desktop registry, and its explicit native
+  tool-id partition omits both from settings, request allowlists, and the model
+  tool menu, so it exposes no stub or fallback. Do not widen `executeCommand` in
+  place. The command-session inventory UI is a separate follow-up slice.
 
 Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
 stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and

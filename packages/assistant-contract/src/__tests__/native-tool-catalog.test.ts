@@ -56,6 +56,7 @@ describe('native tool catalog', () => {
     const desktopIds = readCanonicalIds('DESKTOP_NATIVE_TOOL_IDS');
     const skillIds = readCanonicalIds('SKILL_NATIVE_TOOL_IDS');
     const nativeIds = readCanonicalIds('NATIVE_TOOL_IDS');
+    const webIds = readCanonicalIds('WEB_NATIVE_TOOL_IDS');
 
     expect(sorted(desktopIds)).toEqual(sorted(EXPECTED_DESKTOP_NATIVE_TOOL_IDS));
     expect(sorted(skillIds)).toEqual(sorted(EXPECTED_SKILL_NATIVE_TOOL_IDS));
@@ -65,6 +66,13 @@ describe('native tool catalog', () => {
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
     expect(desktopIds).toHaveLength(26);
     expect(skillIds).toHaveLength(3);
+    expect(webIds).toEqual(
+      desktopIds.filter(
+        (id) =>
+          id !== 'brainstrike.inspectCommandSessions' && id !== 'brainstrike.manageCommandSession'
+      )
+    );
+    expect(webIds).toHaveLength(24);
   });
 
   it('keeps every browser-safe registry in exact parity with the canonical ids', () => {

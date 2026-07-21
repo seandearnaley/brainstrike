@@ -9,6 +9,8 @@ export {
   type NativeToolId,
   SKILL_NATIVE_TOOL_IDS,
   type SkillNativeToolId,
+  WEB_NATIVE_TOOL_IDS,
+  type WebNativeToolId,
 } from './native-tool-catalog.js';
 export {
   DEFAULT_PERMISSION_POLICIES,
