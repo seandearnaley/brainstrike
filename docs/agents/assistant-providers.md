@@ -814,6 +814,37 @@ resume, cache behavior, and non-inferior token/cost measurements. The complete
 evidence and live table are in
 `docs/agents/research/bst-614-native-tool-search-spike.md`.
 
+#### Programmatic orchestration decision (BST-616, 2026-07-21)
+
+Do not add a production programmatic-orchestration mode yet. GPT-5.6 Luna's
+hosted Programmatic Tool Calling cut input tokens by 71–94% and estimated cost
+by 56–89% on three bounded fan-out workloads, but it was strictly correct on
+only one of three first runs; direct calling passed all three. The installed
+Mastra 1.51.0 / AI SDK OpenAI 4.0.8 path also cannot express the hosted tool,
+`allowed_callers`, function `output_schema`, nested `caller`, or `program` /
+`program_output` continuation items. Do not add casts or a raw parallel
+Responses loop around Mastra's provider-history, persistence, suspension,
+telemetry, and processor contracts.
+
+OpenCode Code Mode validates the local architecture shape: a confined
+interpreter over a permission-filtered catalog can reduce fixed read-only
+programs without ambient filesystem, process, network, or module authority.
+Its host must still reauthorize every nested call and set explicit timeout,
+call-count, concurrency, and output budgets. The measured fixed programs were
+correct and kept 98–99% of raw intermediate characters out of their final
+results, but they were hand-authored and therefore do not establish
+model-authored-program quality.
+
+If upstream support and model quality later clear the recorded gates, the exact
+program-visible candidate allowlist is `readWorkspaceFile`,
+`readWorkspaceDirectory`, `globWorkspace`, `grepSearch`, and
+`findWorkspaceSymbol`, intersected after capability, user-enabled, and
+permission admission. Keep semantic/adaptive retrieval, web/citation work,
+artifact continuation, MCP discovery, LSP diagnostics, command sessions,
+shell, approvals, writes, task/plan state, external actions, and unknown tools
+direct. There is no silent route switch. Full evidence is in
+`docs/agents/research/bst-616-programmatic-orchestration-spike.md`.
+
 The live assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
 capability/permission eligibility → guards/hooks → plan/permission/suspend gates
 → provider-native web-search swap → output settlement/projection → skills
