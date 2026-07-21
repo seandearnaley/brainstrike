@@ -27,6 +27,8 @@ import {
 } from './edit-checkpoint-context';
 import { LiveShellOutputPane } from './live-shell-output-pane';
 import { useShellOutput } from './shell-output-context';
+import { useRememberedToolArguments } from './tool-argument-context';
+import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
@@ -205,6 +207,18 @@ function truncatePrimaryArg(value: string): string {
     : singleLine;
 }
 
+function useDisplayToolArguments(
+  toolCallId: string,
+  args: unknown,
+  argsText: string | undefined
+): ToolArguments {
+  const remembered = useRememberedToolArguments(toolCallId);
+  if (!(remembered && shouldUseRememberedToolArguments(args))) {
+    return { args, ...(argsText === undefined ? {} : { argsText }) };
+  }
+  return remembered;
+}
+
 /**
  * Compact "what came back" summary for the header: item counts for arrays and
  * common collection-shaped results. Returns undefined when there is nothing
@@ -252,6 +266,11 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const policy = resolveToolDisplayPolicy(detailLevel);
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
+  const { args: displayArgs, argsText: displayArgsText } = useDisplayToolArguments(
+    toolCallId,
+    args,
+    argsText
+  );
 
   // Follow the Detail level (policy.defaultExpanded) until the user explicitly
   // toggles this card — so switching to Developer auto-expands already-rendered
@@ -267,9 +286,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
   const errorMessage = resolveErrorMessage(status, result, isErrorResult);
-  const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
+  const showDetails =
+    policy.showDetailsExpander && !isRunning && (Boolean(displayArgsText) || hasResult);
 
-  const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
+  const primaryArg = useMemo(
+    () => extractPrimaryArg(displayArgs, displayArgsText),
+    [displayArgs, displayArgsText]
+  );
   const resultSummary = useMemo(
     () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
     [isError, policy.showResultSummary, result]
@@ -359,7 +382,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
       {showDetails && !isCollapsed ? (
         <ToolDetailsPane
-          argsText={argsText}
+          argsText={displayArgsText}
           detailsId={detailsId}
           hasResult={hasResult}
           isError={isError}

@@ -194,6 +194,16 @@ function extractToolInput(payload: unknown): unknown {
   return;
 }
 
+function hasNonEmptyToolInput(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+  return value !== undefined && value !== null;
+}
+
 function readProgressStep(payload: unknown): string | undefined {
   const stepValue = (payload as { step?: unknown })?.step;
   return typeof stepValue === 'string' ? stepValue : undefined;
@@ -455,7 +465,13 @@ export class DataStreamMapper {
     if (chunk.status === 'start') {
       const existingState = this.toolState.get(callId);
       if (existingState) {
-        existingState.lastInput = extractToolInput(chunk.payload);
+        const nextInput = extractToolInput(chunk.payload);
+        if (
+          nextInput !== undefined &&
+          !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
+        ) {
+          existingState.lastInput = nextInput;
+        }
         return;
       }
       yield* this.handleToolStart(toolName, callId, chunk.payload);

@@ -66,12 +66,12 @@ import {
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import { AssistantRunEventProvider } from './assistant-run-event-context';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
+import { AssistantThreadStateProvider } from './assistant-thread-state-context';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
@@ -1263,7 +1263,7 @@ const ChatThreadUI = ({
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
         />
-        <AssistantRunEventProvider>
+        <AssistantThreadStateProvider>
           <ThreadPrimitive.Messages
             components={{
               /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
@@ -1274,7 +1274,7 @@ const ChatThreadUI = ({
               UserMessage,
             }}
           />
-        </AssistantRunEventProvider>
+        </AssistantThreadStateProvider>
       </ThreadPrimitive.Viewport>
 
       {/**
