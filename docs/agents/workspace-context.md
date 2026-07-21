@@ -527,13 +527,14 @@ Hosted default instructions are intentionally a compact routing layer, not a
 second copy of every tool description and input schema. Per-tool mechanics live
 in the canonical description and Zod schema registries documented in
 `docs/agents/assistant-providers.md`; the instructions state the cross-tool
-workflow and invariants below once. The complete resolved instruction + native
-tool payload is guarded at no more than 7,900 `o200k_base` tokens in its
-canonical authored form and 11,500 tokens after the current Mastra/OpenRouter
-conversion. Both use the real hosted registry, a default-enabled representative
-workspace skill, resolved conditional guidance, and first-turn
-`SkillsProcessor` metadata; see `docs/agents/assistant-providers.md` for the
-exact measurement boundary.
+workflow and invariants below once. The authored full-registry fixture remains
+guarded at 7,900 `o200k_base` tokens. The live actual Mastra/OpenRouter core and
+resolved instructions are guarded at 5,000 tokens, materially below the retired
+11,500-token eager boundary. Live hosted requests add `search_tools`; deferred
+tool mechanics arrive with the dynamically loaded definition. The fixture uses
+the real hosted registry, a default-enabled representative workspace skill,
+resolved conditional guidance, and first-turn `SkillsProcessor` metadata; see
+`docs/agents/assistant-providers.md` for the exact measurement boundary.
 
 Prompt compaction MUST preserve these semantics:
 - **Main vs Focused:** `listWorkspaceContext.workspaceRootPath` is the MAIN

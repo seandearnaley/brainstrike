@@ -28,7 +28,7 @@ vi.mock('../../db-main', () => ({
 }));
 
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 7900;
-const MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS = 11_500;
+const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
 const PROMPT_BUDGET_SKILL = {
@@ -371,7 +371,7 @@ describe('desktop native tool provider prompt budget', () => {
     }
   });
 
-  it('keeps the actual Mastra/OpenRouter full hosted registry and instructions within 11,500 o200k tokens', async () => {
+  it('keeps the actual Mastra/OpenRouter initial core surface materially below the eager baseline', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools();
@@ -391,10 +391,10 @@ describe('desktop native tool provider prompt budget', () => {
         throw new TypeError('Brainstrike hosted instructions must resolve to one string');
       }
       const coreTools = await runtime.agent.getToolsForExecution({});
-      const providerTools = Array.from(runtime.toolNameMap, ([name, originalName]) => {
-        const tool = coreTools[name];
-        if (!tool) {
-          throw new Error(`Mastra omitted desktop tool ${originalName} (${name})`);
+      const providerTools = Object.entries(coreTools).map(([name, tool]) => {
+        const originalName = runtime.toolNameMap.get(name);
+        if (!originalName) {
+          throw new Error(`Mastra returned unmapped initial tool ${name}`);
         }
         if (typeof tool.description !== 'string') {
           throw new TypeError(`Mastra tool ${name} lacks a description`);
@@ -416,10 +416,25 @@ describe('desktop native tool provider prompt budget', () => {
         };
       });
 
+      const skillToolIds = new Set(Object.keys(createAssistantSkillTools(workspaceSkills)));
+      const expectedCoreIds = Object.entries(NATIVE_TOOL_DEFAULTS)
+        .filter(
+          ([toolId, metadata]) => metadata.loadingTier === 'critical' || skillToolIds.has(toolId)
+        )
+        .map(([toolId]) => toolId)
+        .sort();
+      expect(runtime.toolDiscovery?.coreToolIds.slice().sort()).toEqual(expectedCoreIds);
+      expect(providerTools.map((tool) => tool.function.name).sort()).toEqual(
+        expectedCoreIds.map((toolId) => toolId.replace(/[^a-zA-Z0-9_-]/g, '_')).sort()
+      );
+      expect(runtime.toolDiscovery?.deferredToolIds).toHaveLength(
+        Object.keys(NATIVE_TOOL_DEFAULTS).length - expectedCoreIds.length
+      );
+
       expectProviderSurfaceWithinBudget({
-        budget: MAX_MASTRA_OPENROUTER_NATIVE_TOOL_TOKENS,
+        budget: MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS,
         instructions: withSkillsProcessorContext(resolvedInstructions),
-        label: 'Actual Mastra/OpenRouter native tool surface',
+        label: 'Actual Mastra/OpenRouter initial core surface',
         tools: providerTools,
       });
     } finally {

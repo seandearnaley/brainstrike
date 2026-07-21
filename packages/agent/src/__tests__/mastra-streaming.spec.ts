@@ -1496,6 +1496,7 @@ describe('mastra streaming integration', () => {
           },
           apiKey: 'test-key',
           provider: 'openai',
+          workspaceSkills: {} as never,
         } as never,
       }
     );
@@ -1509,13 +1510,12 @@ describe('mastra streaming integration', () => {
       maxSteps?: number;
     };
     expect(options.maxSteps).toBe(12);
-    // The per-call input array carries the TokenLimiter (token compaction) AND
-    // ProviderHistoryCompat (its preemptive processLLMRequest rules ride this
-    // array, not errorProcessors — composed here so the per-call replacement
-    // doesn't drop the limiter). Local provider would carry only the limiter.
+    // This fixture has no deferred tools, so discovery is omitted rather than
+    // injecting an unusable search_tools surface. Token limiting stays LAST.
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
-      'token-limiter',
+      'skills-processor',
       'provider-history-compat',
+      'token-limiter',
     ]);
   });
 
@@ -1856,6 +1856,7 @@ describe('mastra streaming integration', () => {
         memory: memory as never,
         requireToolApproval: true,
         runtime: {
+          agentLoop: { inputTokenLimit: 8192 },
           apiKey: 'test-key',
           assistantMessageId: 'assistant-resume-id',
           memory: {
@@ -1872,12 +1873,17 @@ describe('mastra streaming integration', () => {
     const agent = agentInstances.at(-1);
     const approvalOptions = agent?.approveToolCallCalls[0] as {
       experimental_generateMessageId?: () => string;
+      inputProcessors?: Array<{ id?: string }>;
     };
     const mastraConfig = mastraInstances.at(-1)?.config as {
       idGenerator?: () => string;
     };
     expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
+    expect(approvalOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'provider-history-compat',
+      'token-limiter',
+    ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
 
     const chunks: unknown[] = [];
@@ -1930,6 +1936,7 @@ describe('mastra streaming integration', () => {
       },
       {
         runtime: {
+          agentLoop: { inputTokenLimit: 8192 },
           apiKey: 'test-key',
           assistantMessageId: 'assistant-suspend-resume-id',
           provider: 'openai',
@@ -1941,12 +1948,17 @@ describe('mastra streaming integration', () => {
     const agent = agentInstances.at(-1);
     const resumeOptions = agent?.resumeStreamCalls[0]?.options as {
       experimental_generateMessageId?: () => string;
+      inputProcessors?: Array<{ id?: string }>;
     };
     const mastraConfig = mastraInstances.at(-1)?.config as {
       idGenerator?: () => string;
     };
     expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
+    expect(resumeOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'provider-history-compat',
+      'token-limiter',
+    ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
 
     const chunks: unknown[] = [];
@@ -2453,7 +2465,7 @@ describe('mastra streaming integration', () => {
       'mastra_agent_memory_unavailable'
     );
   });
-  it('merges local and MCP tools while tracking sanitized tool names', async () => {
+  it('keeps custom local tools eager while deferring post-gate MCP tools', async () => {
     const runtime = await createMastraAgentRuntime({
       mcpConfig: {
         servers: [
@@ -2476,15 +2488,58 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agentConfig = agentInstances[0]?.config.tools ?? {};
 
-    expect(Object.keys(agentConfig)).toEqual(
-      expect.arrayContaining(['local_tool', 'filesystem_remote_tool'])
-    );
+    expect(Object.keys(agentConfig)).toEqual(['local_tool']);
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
     expect(runtime.toolNameMap.get('filesystem_remote_tool')).toBe('filesystem.remote tool');
+    expect(runtime.toolDiscovery).toEqual({
+      adapter: 'mastra-catalog-search',
+      coreToolIds: ['local tool'],
+      deferredToolIds: ['filesystem.remote tool'],
+      eligibleToolIds: ['filesystem.remote tool', 'local tool'],
+    });
   });
 
-  it('uses model-facing Brainstrike native tool names in default instructions', async () => {
+  it('constructs hosted agents from critical plus custom tools and defers known noncritical tools', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.listWorkspaceContext': {
+          description: 'List workspace context',
+          id: 'brainstrike.listWorkspaceContext',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        customInspector: {
+          description: 'Inspect a custom domain',
+          id: 'customInspector',
+        },
+      },
+    });
+
+    expect(Object.keys(agentInstances[0]?.config.tools ?? {})).toEqual([
+      'brainstrike_readWorkspaceFile',
+      'customInspector',
+    ]);
+    expect(runtime.toolDiscovery).toEqual({
+      adapter: 'mastra-catalog-search',
+      coreToolIds: ['brainstrike.readWorkspaceFile', 'customInspector'],
+      deferredToolIds: ['brainstrike.listWorkspaceContext'],
+      eligibleToolIds: [
+        'brainstrike.listWorkspaceContext',
+        'brainstrike.readWorkspaceFile',
+        'customInspector',
+      ],
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
+  });
+
+  it('builds hosted instructions from the actual critical surface, not deferred definitions', async () => {
     mcpToolsets = {
       filesystem: {
         search_files: {
@@ -2494,7 +2549,7 @@ describe('mastra streaming integration', () => {
       },
     };
 
-    await createMastraAgentRuntime({
+    const runtime = await createMastraAgentRuntime({
       mcpConfig: {
         servers: [
           {
@@ -2538,15 +2593,18 @@ describe('mastra streaming integration', () => {
     });
 
     const instructions = agentInstances[0]?.config.instructions ?? '';
-    expect(instructions).toContain('brainstrike_listWorkspaceContext');
-    expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
-    expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(instructions).toContain(
-      'without embeddingSetId for purely conceptual Workspace Index queries'
-    );
-    expect(instructions).toContain('semantic chunks with persisted source line ranges');
-    expect(instructions).toContain('Read only the needed source ranges afterward');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
+    expect(instructions).not.toContain('brainstrike_listEmbeddingSpaces');
+    expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+    expect(runtime.toolDiscovery?.deferredToolIds).toEqual(
+      expect.arrayContaining([
+        'brainstrike.listEmbeddingSpaces',
+        'brainstrike.listWorkspaceContext',
+        'brainstrike.queryEmbeddingSpace',
+      ])
+    );
   });
 
   it('does not advertise unregistered Brainstrike native tools in default instructions', async () => {
@@ -2574,7 +2632,7 @@ describe('mastra streaming integration', () => {
     // Plan mode omits edit/execute tools from the map the Agent receives, so the
     // default instructions MUST NOT advertise those filtered tools (name listing
     // OR usage block) — otherwise the model is told to use tools it cannot call.
-    await createMastraAgentRuntime({
+    const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', planMode: true, provider: 'openai' },
       tools: {
         'brainstrike.executeCommand': {
@@ -2607,9 +2665,17 @@ describe('mastra streaming integration', () => {
     expect(instructions).not.toContain('brainstrike_executeCommand');
     expect(instructions).not.toContain('ARBITRARY shell command');
     expect(instructions).not.toContain('fully rewrite one');
+    expect(runtime.toolDiscovery?.eligibleToolIds).toEqual(['brainstrike.readWorkspaceFile']);
+    expect(runtime.toolDiscovery?.deferredToolIds).not.toEqual(
+      expect.arrayContaining([
+        'brainstrike.executeCommand',
+        'brainstrike.stringReplaceWorkspaceFile',
+        'brainstrike.writeWorkspaceFile',
+      ])
+    );
   });
 
-  it('still advertises edit/execute tools in default instructions when plan mode is OFF', async () => {
+  it('keeps critical execute guidance but defers noncritical edits when plan mode is OFF', async () => {
     await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
@@ -2631,7 +2697,7 @@ describe('mastra streaming integration', () => {
     const instructions = agentInstances[0]?.config.instructions ?? '';
     expect(instructions).not.toContain('PLAN MODE IS ACTIVE');
     expect(instructions).toContain('brainstrike_readWorkspaceFile');
-    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_writeWorkspaceFile');
     expect(instructions).toContain('brainstrike_executeCommand');
   });
 

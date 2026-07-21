@@ -159,8 +159,8 @@ function resolveRequestedAdapter(
 
 /**
  * Resolve one explicit adapter without substituting a different strategy.
- * This is contract-only: callers do not wire the result into the live runtime
- * until the behavior-switch slice has its own integration coverage.
+ * Hosted callers explicitly request Mastra catalog search in the live runtime;
+ * provider-native selections remain declarative until their later slices.
  */
 export function resolveToolDiscoveryAdapter(
   input: ResolveToolDiscoveryAdapterInput
@@ -168,6 +168,15 @@ export function resolveToolDiscoveryAdapter(
   const provider = getProviderDefinition(input.provider);
   if (!provider.capabilities.llm) {
     return unsupportedAdapter('provider-has-no-llm', input.requestedAdapter);
+  }
+
+  // Mastra catalog search is provider-runtime based, not model-capability
+  // based. A caller that supplies a valid hosted model adapter directly (for
+  // tests, evals, or an externally discovered model) must not be rejected only
+  // because the static registry does not know that model ID. Browser-local
+  // remains explicitly unsupported.
+  if (input.requestedAdapter === 'mastra-catalog-search') {
+    return resolveRequestedAdapter(input.requestedAdapter, undefined, provider.runtime);
   }
 
   const model = listProviderLlmModels(input.provider).find(({ id }) => id === input.modelId);
@@ -248,9 +257,8 @@ export function resolveToolDiscoveryPhaseAccess(
 }
 
 /**
- * Ordered seams for the future runtime behavior slice. Token limiting remains
- * last so it counts skills metadata, loaded definitions, and provider-history
- * normalization. This constant is not consumed by the live runtime yet.
+ * Ordered seams for the live hosted runtime. Token limiting remains last so it
+ * counts skills metadata, loaded definitions, and provider-history normalization.
  */
 export const TOOL_DISCOVERY_PIPELINE_ORDER = [
   'capability-and-permission-eligibility',

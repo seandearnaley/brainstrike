@@ -129,6 +129,16 @@ describe('native tool discovery contract', () => {
   it('does not silently substitute a requested unsupported adapter', () => {
     expect(
       resolveToolDiscoveryAdapter({
+        modelId: 'externally-supplied-model',
+        provider: 'openai',
+        requestedAdapter: 'mastra-catalog-search',
+      })
+    ).toEqual({
+      adapter: 'mastra-catalog-search',
+      status: 'supported',
+    });
+    expect(
+      resolveToolDiscoveryAdapter({
         modelId: 'gpt-5.6-terra',
         provider: 'openai',
         requestedAdapter: 'eager-core-only',

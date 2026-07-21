@@ -51,9 +51,11 @@ const { streamMastraAgent } = await import('../mastra/agent-runtime');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
-// The two approval-gated workspace mutators — the only `edit`-risk native tools.
-const EDIT_TOOL_A = 'brainstrike.updateWorkspaceContextSelection';
-const EDIT_TOOL_B = 'brainstrike.updateWorkspaceTapestrySelections';
+// One critical and one deferred edit-risk mutator. The critical tool keeps the
+// direct execution assertions independent from discovery; the deferred tool
+// proves the permission gate removes it before the searchable catalog is built.
+const EDIT_TOOL_A = 'brainstrike.stringReplaceWorkspaceFile';
+const EDIT_TOOL_B = 'brainstrike.writeWorkspaceFile';
 const READ_TOOL = 'brainstrike.readWorkspaceFile';
 
 // The agent sanitizes a tool's id (`.` → `_`) into the name the MODEL must call;

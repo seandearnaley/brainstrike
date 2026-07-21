@@ -712,14 +712,15 @@ the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
 
-### Tool discovery contract (DECLARATIVE — NOT LIVE)
+### Tool discovery contract (LIVE for hosted Mastra catalog search)
 
 `packages/assistant-contract/src/tool-discovery.ts` is the authoritative
-contract for a later dynamic-loading runtime slice. This contract deliberately
-does not change `createMastraAgentRuntime`: the current runtime still registers
-every user-enabled, available, permission-eligible tool eagerly. Do not claim
-prompt savings from this contract until the separate behavior PR wires an
-adapter through real Mastra/provider integration tests and desktop QA.
+adapter and loading-tier contract. `createMastraAgentRuntime` now selects
+`mastra-catalog-search` explicitly for hosted routes, constructs the Agent from
+the post-gate critical/custom surface, and gives only the post-gate deferred
+surface to `BrainstrikeToolSearchProcessor` (the fail-loud wrapper around
+Mastra 1.51 `ToolSearchProcessor`). Built-in/local runtime behavior is unchanged;
+provider-native tool-search adapters remain out of scope.
 
 The canonical native metadata has one exact seven-tool `critical` set:
 `askUser`, `executeCommand`, `globWorkspace`, `grepSearch`,
@@ -739,7 +740,16 @@ discovery. `resolveToolDiscoveryPhaseAccess` keeps disabled, permission-denied,
 and host-unavailable tools out of search, load, and active phases. An `ask`
 permission remains searchable/loadable, but the existing downstream permission
 gate must still suspend before execution. A loaded bit is required before an
-eligible deferred tool becomes active.
+eligible deferred tool becomes active. Runtime partitioning happens only after
+guards, hooks, plan mode, permission, approval-storage, provider web-search,
+artifact settlement, and model-output projection; it cannot restore a tool any
+earlier stage omitted. Unknown caller-supplied local tools remain eager because
+Brainstrike has no authoritative loading metadata for them. Existing
+provider-defined web search remains eager because its provider-owned id/type
+pair is not a normal function definition that catalog search may rename.
+Mastra's canonical `skill`, `skill_read`, and `skill_search` controls also stay
+eager: `SkillsProcessor` tells the model to call them directly, so deferring
+them would make Mastra's own injected instructions reference unavailable tools.
 
 `LlmModelDefinition.nativeToolSearch` records provider-native support on the
 exact model route:
@@ -753,27 +763,37 @@ exact model route:
   this contract does not alter its current runtime. Dynamically discovered
   Ollama/LM Studio model ids resolve `unsupported` until their authoritative
   catalog exposes a tool-search capability signal.
-- Unknown static model ids and non-LLM providers resolve `unsupported`.
+- Unknown static model ids and non-LLM providers resolve `unsupported` for
+  automatic or provider-native selection. An explicitly requested
+  `mastra-catalog-search` adapter is runtime-based: a hosted LLM supplied through
+  the supported model-override seam remains valid even when its model id is not
+  in the static catalog. Browser-local and non-LLM providers remain unsupported.
 
 `resolveToolDiscoveryAdapter` never substitutes another strategy when a caller
 requests an adapter the exact route does not support. The unsupported result
 retains a typed reason, keeping an adapter mismatch distinct from a catalog miss,
 permission denial, and host unavailability. OpenAI's native `tool_search` is
 model-gated, not inferred from `provider === "openai"`. Anthropic native search
-likewise preserves provider search/tool-reference history; Mastra catalog search
-must use durable context-derived loaded state rather than the process-local
-default when it is wired. `TOOL_DISCOVERY_FAILURE_CODES` pins the distinct
+likewise preserves provider search/tool-reference history. Live Mastra catalog
+search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
+Persisted `search_tools` results reconstruct loaded definitions after restart;
+anonymous calls never share a default store. A loaded-set shrink within one
+runtime/thread (for example, trimming away its discovery result) throws the
+typed `mastra_agent_tool_discovery_failure` instead of silently de-loading.
+`TOOL_DISCOVERY_FAILURE_CODES` pins the distinct
 failure channels as `catalog-miss`, `permission-denied`, `host-unavailable`, and
 `unsupported-adapter`; adapters must not collapse them into an empty result.
 
-The future assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
+The live assembly order is pinned by `TOOL_DISCOVERY_PIPELINE_ORDER`:
 capability/permission eligibility → guards/hooks → plan/permission/suspend gates
 → provider-native web-search swap → output settlement/projection → skills
 metadata → discovery → provider-history compatibility → projection-aware token
-limiting. Token limiting remains last so it counts injected skills metadata,
-loaded tool definitions, and normalized provider history. The live runtime
-keeps its current settled order until that behavior slice updates the paired
-runtime contract and integration tests.
+limiting. Initial, approval-resume, and suspend-resume calls all use the same
+per-runtime discovery processor in the per-call input stack: SkillsProcessor →
+tool search → ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token
+limiting remains last so it counts injected skills metadata, loaded definitions,
+and normalized provider history. Public direct stream processor overrides stay
+rejected.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`
@@ -782,12 +802,13 @@ skills engine enabled. That means both guards include `skill`, `skill_read`,
 and `skill_search`, the conditional skills guidance, and a representative
 first-turn `SkillsProcessor` metadata block. The canonical authored
 representation converts the real Zod inputs through the Standard Schema input
-protocol and must remain at or below 7,900 `o200k_base` tokens. The actual
-OpenRouter representation comes from Mastra's public
-`agent.getToolsForExecution({})` boundary and must remain at or below 11,500
-tokens. Mastra 1.51 currently expands optional fields for the routed
-`openai/*` model, so the actual-provider guard is intentionally higher and
-must not be replaced with the authored estimate.
+protocol and must remain at or below 7,900 `o200k_base` tokens. The live actual
+Mastra/OpenRouter core surface and resolved instructions must stay at or below
+5,000 tokens, materially below the retired 11,500-token eager boundary. A real
+Mastra-loop capture separately proves the first provider request contains that
+core plus `search_tools`, and that a later request appends the discovered
+definition. Dynamically loaded definitions are append-only within the active
+context and counted by the last-position token limiter.
 
 Both are whole-surface regressions, not estimates from descriptions alone.
 Recover budget by removing duplicated prose and preserving one canonical
@@ -798,10 +819,10 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the current eager baseline is 27 tools / 6,209 `o200k_base` tokens,
-while the proposed critical-only surface is 7 tools / 1,923 tokens. These are
-measured schema-and-description footprints, not live prompt savings; system
-instructions, dynamically loaded definitions, provider conversion, and skills
-metadata remain governed by the full-surface tests above.
+contract: the eager baseline is 27 tools / 6,209 `o200k_base` tokens, while the
+live critical definition surface is 7 tools / 1,923 tokens before the compact
+`search_tools` control is added. System instructions, provider conversion,
+skills metadata, and each dynamically loaded definition remain part of the
+captured-request and last-position limiter budgets.
 
 ---

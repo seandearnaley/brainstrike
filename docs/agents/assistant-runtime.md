@@ -175,10 +175,11 @@ browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display
 metadata and MUST NOT enter execution, validation, or provider registration.
 
 The hosted surface is guarded at both sides of Mastra's conversion boundary.
-Resolved default instructions plus every registered native function's name,
-description, and canonical Standard-Schema input must fit within 7,900
-`o200k_base` tokens. The actual OpenRouter payload extracted from Mastra's
-public `agent.getToolsForExecution({})` boundary must fit within 11,500 tokens.
+The authored full-registry red baseline must fit within 7,900 `o200k_base`
+tokens. The live actual Mastra/OpenRouter core surface and resolved instructions
+must fit within 5,000 tokens, materially below the retired 11,500-token eager
+boundary. Live hosted first requests add Mastra's compact `search_tools` control;
+deferred post-gate definitions are appended on later steps.
 The production-equivalent fixture enables a representative workspace skill so
 both numbers include the three default skill tools, conditional skills
 guidance, and first-turn `SkillsProcessor` metadata; a registry measured
@@ -189,6 +190,12 @@ regression constructs the real desktop registry and real hosted runtime
 (`apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`);
 an isolated description, schema estimate, or hand-built provider payload is
 not sufficient evidence.
+
+The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
+ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting is always
+last. Initial streams, approval resumes, and suspending-tool resumes reuse the
+same discovery processor instance so same-process approval executors remain
+available while persisted discovery results provide restart reconstruction.
 
 Default instructions should state cross-tool routing and non-negotiable
 invariants once, while canonical descriptions/schemas carry per-tool mechanics.
