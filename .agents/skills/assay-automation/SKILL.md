@@ -29,7 +29,7 @@ node .agents/skills/assay-automation/scripts/collect-assay-evidence.mjs \
 The collector performs no writes. It:
 
 - derives the charter version and allowed labels from the live charter;
-- fails closed if a workflow contains `review/*`, GitHub returns incomplete file pagination, or a PR head moves during collection;
+- fails closed if any workflow or composite action contains a literal `review/*`, GitHub returns incomplete file pagination, or a PR head moves during collection; this scan is a tripwire, not proof — also review `labelSensitiveAutomation` (workflows reacting to label events or reading label names via expressions) and confirm none consumes a `review/*` label;
 - enumerates open PRs and excludes drafts;
 - computes work keys and checks marker-plus-label cache validity;
 - gathers complete changed-file statistics, reads full patches for signals, and reports CI state, live pin guidance, factor candidates, and existing Assay comments;

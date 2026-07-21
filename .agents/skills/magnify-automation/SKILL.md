@@ -37,7 +37,7 @@ The collector performs no writes. It:
 - gathers complete changed-file pagination, the full diff, checks, prior reports, and discussion after the latest prior report;
 - inventories available subsystem contracts and records the working-tree status.
 
-Treat `discussionAfterLatestPriorReport` as evidence, not an automatic dismissal. A human must have explicitly dismissed a specific finding. If intent is ambiguous, do not mark it dismissed and do not guess.
+Treat `discussion` (the full non-report comment history) as the dismissal record; `discussionAfterLatestPriorReport` is a convenience window only — dismissals can predate the latest prior report, and review-thread replies on selected PRs (in deep evidence) count too. A human must have explicitly dismissed a specific finding. If intent is ambiguous, do not mark it dismissed and do not guess. A non-empty `duplicateCurrentHeadReports` is an anomaly to surface in your report and checkpoint — the head still counts as covered; never post another report to "fix" it and never delete comments.
 
 For a dry-run, audit, skill test, or collector-debug request, stop after reviewing the evidence. Make no GitHub or Linear writes.
 
