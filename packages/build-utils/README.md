@@ -87,8 +87,9 @@ Vite plugin that forces full page reload for files that may cause HMR issues.
 **Behavior:**
 - Monitors file changes during HMR
 - Detects "compiler hotspots" (files that require full reload)
+- Invalidates each affected module and its importer graph before suppressing normal HMR
 - Sends full-reload signal to Vite dev server
-- Prevents partial state corruption
+- Prevents a reload from reusing stale transformed import URLs and splitting React context identity
 
 ## Dependencies
 

@@ -288,6 +288,13 @@ export function fullReloadOnCompilerHotspots(): Plugin {
   return {
     handleHotUpdate(ctx: HmrContext) {
       if (isCompilerHotspot(ctx.file)) {
+        // Returning [] takes Vite's normal invalidation path away. Invalidate
+        // the complete importer graph first so the reload cannot reuse stale
+        // transformed import URLs and split a React context's identity.
+        const invalidatedModules = new Set<HmrContext['modules'][number]>();
+        for (const module of ctx.modules) {
+          ctx.server.moduleGraph.invalidateModule(module, invalidatedModules, ctx.timestamp, true);
+        }
         ctx.server.ws.send({ type: 'full-reload' });
         return [];
       }
