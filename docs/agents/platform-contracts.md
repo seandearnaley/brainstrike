@@ -81,6 +81,28 @@ explicitly; only a pre-068 missing relation is tolerated.
 
 Add tests when changing reset behavior.
 
+### Persistent command-session lifecycle
+
+The desktop command-session registry is main-process, memory-only state. It is
+configured once from the same DB-backed workspace-root resolver as git and the
+human terminal, survives renderer reloads, and is never written to the database
+or browser storage. Therefore it needs no storage deletion, but it MUST be
+disposed before process/database teardown:
+
+- graceful shutdown awaits `disposeDesktopCommandSessions()` inside the
+  assistant-server shutdown step;
+- factory reset owns a `command-sessions` runtime disposer;
+- `fs:removeRoot` disposes only sessions owned by the durable DB root id
+  returned by its path-keyed disconnect update (adapter ids can diverge); and
+- manager disposal clears retained exited output as well as reaping live PTYs.
+
+Bulk disposal must settle every reap attempt and log a missing PTY exit
+acknowledgement; one stuck PTY must never skip later application shutdown steps.
+
+Never log or persist command text, cwd, environment, or retained output. Adding
+durable restart survival changes the privacy/reset contract and requires a new
+reviewed persistence design; it is not a transparent extension of this registry.
+
 ### Browser preference hydration
 
 Zustand stores that choose between the Electron storage bridge and

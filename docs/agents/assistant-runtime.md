@@ -269,10 +269,50 @@ it with a full rescan per update (`collectShellOutputs` is the pure/batch
 variant): the full rebuild is quadratic over a chatty command and its
 per-chunk fresh record identity re-renders every tool card in the turn. Same
 rule for `ToolDurationProvider` (value-stable via `useStableRecord`).
-background:true (run the tool as a Mastra background task) is a documented
-FOLLOW-UP, not in v1. Proofs:
+`background:true` on the one-shot tool is not the persistence mechanism. The
+desktop application-layer command-session manager below owns that lifecycle;
+model exposure remains a separate permission/discovery slice. Proofs:
 mastra-tool-execution.integration.spec ('streams incremental shell-output …'),
 execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
+
+Persistent command sessions (desktop application layer):
+`apps/desktop/src/assistant-server/command-session-manager.ts` is the
+desktop-main source of truth for commands that must outlive one tool call (for
+example a dev server). It deliberately does NOT replace `executeCommand`, which
+remains the bounded, wait-for-exit path for normal tests/builds.
+
+- A session belongs to one DB-backed workspace `rootId`; all list/get/read/
+  write/stop/remove operations require that same root. A cross-root lookup is
+  indistinguishable from an unknown id.
+- `start()` resolves and realpaths the requested cwd inside that root, then
+  returns immediately after a real `node-pty` spawn. Unsupported roots,
+  escaping/nonexistent cwd, startup failure, exited writes, and invalid cursors
+  surface typed errors; there is no cwd or cursor fallback.
+- Combined PTY output is memory-only and capped at 2 Mi UTF-16 code units.
+  Reads use absolute cursors; `-1` attaches at the live tail without replay.
+  An evicted cursor returns the retained tail with explicit
+  `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced
+  output throws. This mirrors OpenCode's bounded absolute-cursor replay shape
+  and prevents duplicate polling output.
+- Running/exited state is typed. The newest 25 exited sessions per root remain
+  readable; older exited sessions are evicted. Command text, cwd, environment,
+  and raw output are never logged or persisted.
+- Tree reaping walks descendants before killing the PTY leader, then applies a
+  POSIX process-group backstop and waits for the PTY exit event. Reaping is
+  idempotent across abort/stop/remove/dispose races; operations on an already
+  exited session surface typed state. Bulk disposal settles every PTY and logs
+  any missing exit acknowledgement so one stuck process cannot skip the rest of
+  graceful shutdown. Root disconnect reaps by the durable DB id returned from
+  the path-keyed disconnect update (never the possibly divergent adapter id);
+  factory reset and graceful shutdown dispose all sessions.
+- Native model operations, permission/tool-search registration, preload bridge,
+  and the human inventory UI are intentionally separate follow-up slices. Do
+  not expose this manager by widening `executeCommand` in place.
+
+Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
+stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
+`command-session-manager.integration.test.ts` (real PTY HTTP server survival,
+natural non-zero exit, and leader/descendant reaping).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
