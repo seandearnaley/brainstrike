@@ -735,6 +735,10 @@ untouched. Flow:
   follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
   (`brainstrike-assistant`) is provider-independent, so listing constructs a
   keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
+  Desktop constructs the paired PGlite memory/storage with observational memory
+  and semantic recall disabled for this discovery request. The normal Desktop
+  defaults would otherwise resolve the configured observational-memory provider
+  key before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
   (`apps/desktop/src/assistant-server.ts`): recomputes `riskCategory` from
   `buildNativeToolRiskMap()` and stamps `stale` against
