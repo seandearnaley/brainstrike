@@ -169,13 +169,24 @@ function clipPath(value: string): string {
     .join('')}`;
 }
 
-function rootQualifier(
+function formatReadArgs(
   rootName: string | null | undefined,
-  rootId: string | null | undefined
+  rootId: string | null | undefined,
+  path: string,
+  startLine?: number
 ): string {
-  const name = clipEnd(rootName ?? 'unrooted', MAX_ROOT_LABEL_CHARS, 'root-name');
-  const id = clipEnd(rootId ?? 'unknown', MAX_ROOT_LABEL_CHARS, 'root-id');
-  return `[${name}|${id}]`;
+  const name = JSON.stringify(clipEnd(rootName ?? 'unrooted', MAX_ROOT_LABEL_CHARS, 'root-name'));
+  if (!rootId) {
+    return `read_args=unavailable(unrooted_result) | path_preview=${JSON.stringify(
+      clipPath(path)
+    )} | root_name=${name}`;
+  }
+  const args = {
+    path,
+    root: rootId,
+    ...(startLine === undefined ? {} : { startLine }),
+  };
+  return `read_args=${JSON.stringify(args)} | root_name=${name}`;
 }
 
 function formatContext(label: 'after' | 'before', lines: readonly string[]): string | null {
@@ -222,7 +233,7 @@ function nextOffset(offset: number, kept: number, total: number): number {
 
 function formatGrepFile(item: GrepFileSummary): string[] {
   return [
-    `${rootQualifier(item.rootName, item.rootId)} ${clipPath(item.path)}:${item.firstLine} | matches=${item.matchCount} | source=${item.source}`,
+    `${formatReadArgs(item.rootName, item.rootId, item.path, item.firstLine)} | matches=${item.matchCount} | source=${item.source}`,
   ];
 }
 
@@ -230,7 +241,7 @@ function formatGrepMatch(item: ModelFacingGrepMatch): string[] {
   const before = formatContext('before', item.before);
   const after = formatContext('after', item.after);
   return [
-    `${rootQualifier(item.rootName, item.rootId)} ${clipPath(item.path)}:${item.line} | source=${item.source}`,
+    `${formatReadArgs(item.rootName, item.rootId, item.path, item.line)} | source=${item.source}`,
     ...(before ? [before] : []),
     `match: ${clipEnd(item.lineText, MAX_LINE_TEXT_CHARS, 'line')}`,
     ...(after ? [after] : []),
@@ -379,7 +390,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
   let kept = 0;
 
   for (const item of result.matches) {
-    const itemLine = `${rootQualifier(item.rootName, item.rootId)} ${clipPath(item.path)}`;
+    const itemLine = formatReadArgs(item.rootName, item.rootId, item.path);
     const candidateKept = kept + 1;
     const continuation = globContinuation(result, candidateKept, true);
     const candidate = [

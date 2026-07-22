@@ -50,12 +50,16 @@ describe('workspace search model projections', () => {
       type: 'text',
       value: [
         'grep files | page=11-12/30 | matches=44 | live=ripgrep | candidates_truncated=false | scan_limited=false',
-        '[alpha|root-a] /src/alpha.ts:11 | matches=3 | source=both',
-        '[beta|root-b] /src/beta.ts:27 | matches=1 | source=live',
+        'read_args={"path":"/src/alpha.ts","root":"root-a","startLine":11} | root_name="alpha" | matches=3 | source=both',
+        'read_args={"path":"/src/beta.ts","root":"root-b","startLine":27} | root_name="beta" | matches=1 | source=live',
         'continue: reuse the prior brainstrike.grepSearch input; Showing 2 of 30 matching files. Continue with offset: 12.',
       ].join('\n'),
     });
-    expect(serializedChars(projected)).toBeLessThan(serializedChars(raw));
+    // A tiny page spends a few characters on a directly usable follow-up call,
+    // avoiding a failed multi-root retry while remaining under the domain cap.
+    expect(serializedChars(projected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
   });
 
   it('projects grep content without repeated JSON keys and makes clipped context explicit', () => {
@@ -90,14 +94,18 @@ describe('workspace search model projections', () => {
     expect(projected.value).toContain(
       'grep content | page=1-1/18+ | live=js-walk | candidates_truncated=true | scan_limited=true | skipped_missing_line_metadata=2'
     );
-    expect(projected.value).toContain('[alpha|root-a] /src/large.ts:42 | source=live');
+    expect(projected.value).toContain(
+      'read_args={"path":"/src/large.ts","root":"root-a","startLine":42} | root_name="alpha" | source=live'
+    );
     expect(projected.value).toContain('match: needle ');
     expect(projected.value).toContain('chars omitted]');
     expect(projected.value).toContain('note: ripgrep unavailable; bounded JavaScript walk used');
     expect(projected.value).toContain(
       'continue: reuse the prior brainstrike.grepSearch input; Showing matches 1-1 of 18. Continue with offset: 1 or narrow with filePaths.'
     );
-    expect(serializedChars(projected)).toBeLessThan(serializedChars(raw));
+    expect(serializedChars(projected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
   });
 
   it('fits a maximum grep page to the domain ceiling while retaining a continuation', () => {
@@ -153,8 +161,8 @@ describe('workspace search model projections', () => {
       type: 'text',
       value: [
         'glob | page=5-6/12+ | scan_limited=true',
-        '[alpha|root-a] /src/a.ts',
-        '[beta|root-b] /src/b.ts',
+        'read_args={"path":"/src/a.ts","root":"root-a"} | root_name="alpha"',
+        'read_args={"path":"/src/b.ts","root":"root-b"} | root_name="beta"',
         'continue: reuse the prior brainstrike.globWorkspace input; Showing matches 5-6 of 12+. Continue with offset: 6, or narrow the pattern because the workspace scan limit was reached.',
       ].join('\n'),
     });
@@ -235,7 +243,7 @@ describe('workspace search model projections', () => {
     );
   });
 
-  it('clips one oversized path without losing its exact advancing offset', () => {
+  it('omits an oversized item instead of emitting unusable clipped read args', () => {
     const raw = {
       count: 1,
       hint: 'Continue with offset: 8.',
@@ -248,9 +256,10 @@ describe('workspace search model projections', () => {
 
     const projected = projectGlobWorkspaceModelOutput(raw);
 
-    expect(projected.value).toContain('path clipped');
+    expect(projected.value).not.toContain('read_args=');
+    expect(projected.value).not.toContain('path clipped');
     expect(projected.value).toContain(
-      'continue: reuse the prior brainstrike.globWorkspace input; Continue with offset: 8.'
+      'continue: reuse the prior brainstrike.globWorkspace input with offset=8'
     );
   });
 
