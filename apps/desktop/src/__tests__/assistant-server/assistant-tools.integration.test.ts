@@ -4690,6 +4690,29 @@ describe('assistant-tools multi-root read tools', () => {
       }
     }, 30_000);
 
+    it('lspInspect tells repeated markerless identifiers to use an explicit cursor marker', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting = greeting;\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-repeated' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
     it('lspInspect does not match a markerless identifier inside a longer identifier', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {

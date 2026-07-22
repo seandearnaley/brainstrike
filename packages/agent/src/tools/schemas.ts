@@ -645,7 +645,7 @@ export const LspInspectInputSchema = z
     line: z.number().int().positive().describe('1-based line number of the symbol to inspect'),
     match: z
       .string()
-      .min(3)
+      .min(1)
       .max(2000)
       .describe(
         'Prefer one unique JS/TS identifier (cursor is its first character). If it repeats on the line, pass a unique fragment with exactly one `<<<` before the intended occurrence'

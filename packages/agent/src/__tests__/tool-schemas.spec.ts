@@ -162,6 +162,18 @@ describe('tool schemas', () => {
     );
   });
 
+  it('accepts short markerless LSP identifiers', () => {
+    for (const match of ['x', 'id', '$']) {
+      expect(
+        validateToolInput('brainstrike.lspInspect', {
+          line: 1,
+          match,
+          path: '/src/sym.ts',
+        }).ok
+      ).toBe(true);
+    }
+  });
+
   it('documents webSearch in schema display metadata with the external-service caveat', () => {
     const display = getToolSchemaDisplay('brainstrike.webSearch');
     expect(display).toBeDefined();

@@ -1212,6 +1212,11 @@ async function runLspInspect(
     ? markerlessOffsets.length > 1
     : lineText.indexOf(strippedMatch, fragmentStart + 1) !== -1;
   if (isAmbiguous) {
+    if (isMarkerlessIdentifier) {
+      throw new ToolInputError(
+        `The identifier occurs more than once on line ${input.line} of "${input.path}" — pass a unique line fragment with exactly one "${LSP_CURSOR_MARKER}" immediately before the intended occurrence.`
+      );
+    }
     throw new ToolInputError(
       `The "match" text (marker removed) occurs more than once on line ${input.line} of "${input.path}" — include more surrounding text so the cursor position is unambiguous.`
     );
