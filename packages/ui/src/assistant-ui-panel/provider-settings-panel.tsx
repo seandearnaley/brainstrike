@@ -1,3 +1,9 @@
+import {
+  CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
+  deriveEffectiveInputBudget,
+  getProviderDefinition,
+  type LlmModelDefinition,
+} from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
@@ -56,6 +62,41 @@ interface ProviderSettingsSectionProps {
   disabled: boolean;
   onUpdate: ProviderSettingsUpdate;
   settings: AssistantProviderSettings;
+}
+
+interface OpenRouterModelLimits {
+  contextWindow: number;
+  effectiveInputBudget: number;
+  label: string;
+  maxOutputTokens: number | undefined;
+  outputReservation: number;
+}
+
+function resolveOpenRouterModelLimits(
+  modelName: string | undefined,
+  settings: AssistantProviderSettings
+): OpenRouterModelLimits | undefined {
+  if (!modelName) {
+    return;
+  }
+  const model = getProviderDefinition('openrouter').models.find(
+    (candidate): candidate is LlmModelDefinition =>
+      candidate.type === 'llm' && candidate.id === modelName
+  );
+  if (!model) {
+    return;
+  }
+  const outputReservation =
+    typeof settings.maxOutputTokens === 'number'
+      ? Math.max(1, Math.floor(settings.maxOutputTokens))
+      : CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  return {
+    contextWindow: model.contextWindow,
+    effectiveInputBudget: deriveEffectiveInputBudget(model.contextWindow, outputReservation),
+    label: model.label ?? model.id,
+    maxOutputTokens: model.maxOutputTokens,
+    outputReservation,
+  };
 }
 
 const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
@@ -202,12 +243,18 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
   );
 };
 
-const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
+const MaxOutputSection = ({
+  settings,
+  onUpdate,
+  disabled,
+  defaultValue = MAX_OUTPUT_DEFAULT,
+  maximum = MAX_OUTPUT_MAX,
+}: ProviderSettingsSectionProps & { defaultValue?: number; maximum?: number }) => {
   const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
   const maxOutputValue = clampNumber(
-    settings.maxOutputTokens ?? MAX_OUTPUT_DEFAULT,
+    settings.maxOutputTokens ?? defaultValue,
     MAX_OUTPUT_MIN,
-    MAX_OUTPUT_MAX
+    maximum
   );
 
   return (
@@ -232,7 +279,7 @@ const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSect
           className="h-8 text-xs"
           disabled={disabled || !maxOutputEnabled}
           inputMode="numeric"
-          max={MAX_OUTPUT_MAX}
+          max={maximum}
           min={MAX_OUTPUT_MIN}
           onChange={(event) => {
             const parsed = parseNumber(event.target.value);
@@ -241,7 +288,7 @@ const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSect
               return;
             }
             onUpdate({
-              maxOutputTokens: clampNumber(parsed, MAX_OUTPUT_MIN, MAX_OUTPUT_MAX),
+              maxOutputTokens: clampNumber(parsed, MAX_OUTPUT_MIN, maximum),
             });
           }}
           placeholder="Auto"
@@ -256,20 +303,16 @@ const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSect
         aria-label="Max output tokens"
         className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
         disabled={disabled || !maxOutputEnabled}
-        max={MAX_OUTPUT_MAX}
+        max={maximum}
         min={MAX_OUTPUT_MIN}
         onChange={(event) =>
           onUpdate({
-            maxOutputTokens: clampNumber(
-              Number(event.target.value),
-              MAX_OUTPUT_MIN,
-              MAX_OUTPUT_MAX
-            ),
+            maxOutputTokens: clampNumber(Number(event.target.value), MAX_OUTPUT_MIN, maximum),
           })
         }
         step={MAX_OUTPUT_STEP}
         type="range"
-        value={maxOutputEnabled ? maxOutputValue : MAX_OUTPUT_DEFAULT}
+        value={maxOutputEnabled ? maxOutputValue : defaultValue}
       />
     </div>
   );
@@ -429,6 +472,7 @@ const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSetting
 // section is model-scoped (the model-constrained effort controls moved to the
 // composer model menu).
 export const ProviderSettingsPanel = ({
+  modelName,
   providerId,
   settings,
   onSettingsChange,
@@ -448,6 +492,10 @@ export const ProviderSettingsPanel = ({
   }
 
   const currentSettings = settings ?? {};
+  const openRouterLimits =
+    normalizedProvider === 'openrouter'
+      ? resolveOpenRouterModelLimits(modelName, currentSettings)
+      : undefined;
   const canUpdate = Boolean(onSettingsChange);
   const updateSettings: ProviderSettingsUpdate = (updates) => {
     if (!onSettingsChange) {
@@ -470,6 +518,32 @@ export const ProviderSettingsPanel = ({
         </div>
       </div>
 
+      {normalizedProvider === 'openrouter' ? (
+        openRouterLimits ? (
+          <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
+            <p className="font-medium text-foreground">{openRouterLimits.label}</p>
+            <p>
+              {settingsNumberFormatter.format(openRouterLimits.contextWindow)} context ·{' '}
+              {openRouterLimits.maxOutputTokens === undefined
+                ? 'max output not declared'
+                : `${settingsNumberFormatter.format(openRouterLimits.maxOutputTokens)} max output`}
+            </p>
+            <p>
+              {typeof currentSettings.maxOutputTokens === 'number'
+                ? `${settingsNumberFormatter.format(openRouterLimits.outputReservation)} configured output`
+                : `Auto requests ${settingsNumberFormatter.format(openRouterLimits.outputReservation)}`}{' '}
+              · {settingsNumberFormatter.format(openRouterLimits.effectiveInputBudget)} effective
+              input
+            </p>
+            <p>Source: built-in model catalog</p>
+          </div>
+        ) : (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] text-destructive">
+            OpenRouter limits unavailable for this model in the built-in catalog.
+          </p>
+        )
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2">
         <AgentRuntimeSection
           disabled={!canUpdate}
@@ -477,7 +551,13 @@ export const ProviderSettingsPanel = ({
           settings={currentSettings}
         />
         <MaxOutputSection
+          defaultValue={
+            normalizedProvider === 'openrouter'
+              ? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS
+              : MAX_OUTPUT_DEFAULT
+          }
           disabled={!canUpdate}
+          maximum={openRouterLimits?.maxOutputTokens ?? MAX_OUTPUT_MAX}
           onUpdate={updateSettings}
           settings={currentSettings}
         />

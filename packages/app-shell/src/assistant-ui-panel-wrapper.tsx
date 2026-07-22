@@ -393,8 +393,8 @@ export function AssistantUiPanelWrapper({
     // LlmProviderModelDefinition structurally satisfies SelectedModelBudgetDef
     // (contextWindow required, maxOutputTokens optional on both) — no
     // projection needed.
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef),
-    [selectedLlmModelDef, selectedProviderSettings]
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef, selectedProvider),
+    [selectedLlmModelDef, selectedProvider, selectedProviderSettings]
   );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(

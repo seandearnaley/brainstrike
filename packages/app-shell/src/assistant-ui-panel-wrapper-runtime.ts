@@ -1,5 +1,6 @@
 import {
   type AnthropicProviderOptions,
+  CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
@@ -991,15 +992,18 @@ export interface SelectedModelBudgetDef {
 
 export function buildAgentLoopSettings(
   settings: AssistantProviderSettings | undefined,
-  selectedModelDef?: SelectedModelBudgetDef
+  selectedModelDef?: SelectedModelBudgetDef,
+  providerId?: string | null
 ): RuntimeData['agentLoop'] | undefined {
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
-    inputTokenLimit = deriveEffectiveInputBudget(
-      selectedModelDef.contextWindow,
-      selectedModelDef.maxOutputTokens
-    );
+    const outputReservation =
+      providerId === 'openrouter'
+        ? (buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
+          CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS)
+        : selectedModelDef.maxOutputTokens;
+    inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
   }
   if (!(maxSteps || inputTokenLimit)) {
     return;
