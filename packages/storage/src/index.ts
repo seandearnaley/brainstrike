@@ -3,6 +3,5 @@ export * from './adapters/memory-storage-adapter.js';
 export * from './adapters/web-storage-adapter.js';
 export * from './debounced-storage.js';
 export * from './factory.js';
-export * from './lazy-state-storage.js';
 export * from './safe-storage.js';
 export * from './types.js';

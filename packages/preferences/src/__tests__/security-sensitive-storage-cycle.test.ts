@@ -1,5 +1,5 @@
-import type { StateStorage } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StateStorage } from 'zustand/middleware';
 
 interface PersistApi {
   readonly hasHydrated: () => boolean;
