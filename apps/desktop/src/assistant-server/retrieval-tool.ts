@@ -36,7 +36,7 @@ import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { getSecretsService } from '../secrets';
+import { getSecretsService, SecretReadError } from '../secrets';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
@@ -265,21 +265,31 @@ export async function resolveEmbeddingSet(
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   const secrets = getSecretsService();
   let fromSecrets: string | null = null;
+  let secretReadError: unknown;
   try {
     fromSecrets = await secrets.getKey(provider);
   } catch (error) {
-    // Surfaced, then fall through: an unreadable stored key must not disable
-    // a working env-var configuration (BST-574 review finding).
+    // Preserve the failure while checking the authoritative environment-key
+    // escape hatch (BST-574). If no env key exists, this is not equivalent to
+    // an absent credential and must remain visible to the caller.
     logger.warn('Stored embedding API key is unreadable; falling back to env', {
       error,
       provider,
     });
+    secretReadError = error;
   }
   const normalized = normalizeOptionalText(fromSecrets ?? undefined);
   if (normalized) {
     return normalized;
   }
-  return resolveHostedProviderApiKey(provider);
+  const fromEnvironment = await resolveHostedProviderApiKey(provider);
+  if (fromEnvironment) {
+    return fromEnvironment;
+  }
+  if (secretReadError) {
+    throw secretReadError;
+  }
+  return;
 }
 
 function createHostedProvider(
@@ -807,6 +817,9 @@ async function runRetrieval(
 }
 
 function handleRetrievalError(error: unknown): never {
+  if (error instanceof SecretReadError) {
+    throw error;
+  }
   const message = error instanceof Error ? error.message : ERROR_MESSAGES.retrievalFailed;
   if (RETRIEVAL_SAFE_ERROR_MESSAGES.has(message)) {
     throw new Error(message);

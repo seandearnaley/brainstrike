@@ -146,6 +146,7 @@ import {
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
+import { SecretReadError } from './secrets';
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
@@ -996,7 +997,12 @@ async function prepareAssistantPostRequest(
   // the absence of a token is not an error — most setups don't have auth.
   const providerAllowsMissingAuth =
     provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
-  const apiKey = provider === 'local' ? '' : await resolveProviderApiKey(provider);
+  const apiKeyResolution =
+    provider === 'local' ? { apiKey: '' } : await resolveProviderApiKeyOrRespond(provider, res);
+  if (!apiKeyResolution) {
+    return;
+  }
+  const { apiKey } = apiKeyResolution;
 
   const runtimeData: RuntimeData = hydrateRuntimeDataWithLocalRuntimeToken(
     withTrustedAssistantMessageId(data, provider, assistantMessageId),
@@ -1088,7 +1094,11 @@ async function handleOpenRouterModelMetadata(
     return;
   }
 
-  const apiKey = await resolveProviderApiKey('openrouter');
+  const apiKeyResolution = await resolveProviderApiKeyOrRespond('openrouter', res);
+  if (!apiKeyResolution) {
+    return;
+  }
+  const { apiKey } = apiKeyResolution;
   if (!apiKey) {
     respondJson(res, 400, {
       error: 'missing_api_key',
@@ -1388,6 +1398,10 @@ async function collectAvailableProviders(): Promise<string[]> {
       providers.add('openai');
     }
   } catch (error) {
+    if (error instanceof SecretReadError) {
+      logger.error('Legacy OpenAI key is unreadable; omitting it from provider status', { error });
+      return Array.from(providers);
+    }
     logger.error('Failed to read legacy OpenAI key', { error });
     throw error;
   }
@@ -1507,11 +1521,59 @@ function respondNotFound(res: http.ServerResponse): void {
 function respondJson(
   res: http.ServerResponse,
   status: number,
-  payload: { error: string; message: string; reason?: string }
+  payload: {
+    code?: string;
+    error: string;
+    message: string;
+    provider?: string;
+    reason?: string;
+  }
 ): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.statusCode = status;
   res.end(JSON.stringify(payload));
+}
+
+function getSecretReadErrorPayload(error: unknown):
+  | {
+      code: string;
+      error: 'api_key_unreadable';
+      message: string;
+      provider: string;
+    }
+  | undefined {
+  if (!(error instanceof SecretReadError)) {
+    return;
+  }
+  return {
+    code: error.code,
+    error: 'api_key_unreadable',
+    message: error.message,
+    provider: error.provider,
+  };
+}
+
+function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
+  const payload = getSecretReadErrorPayload(error);
+  if (!payload) {
+    return false;
+  }
+  respondJson(res, 400, payload);
+  return true;
+}
+
+async function resolveProviderApiKeyOrRespond(
+  provider: string,
+  res: http.ServerResponse
+): Promise<{ apiKey: string | undefined } | undefined> {
+  try {
+    return { apiKey: await resolveProviderApiKey(provider) };
+  } catch (error) {
+    if (respondToSecretReadError(res, error)) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function respondForbiddenOrigin(res: http.ServerResponse): void {
@@ -1886,6 +1948,26 @@ function buildHookRunVerdictRecorder(runId: string | undefined): {
   };
 }
 
+function buildAgentStreamInitializationFailure(error: unknown): AgentStreamFailure {
+  const secretReadErrorPayload = getSecretReadErrorPayload(error);
+  if (secretReadErrorPayload) {
+    return {
+      ok: false,
+      payload: secretReadErrorPayload,
+      status: 400,
+    };
+  }
+  logger.error('Failed to initialize assistant stream', { error });
+  return {
+    ok: false,
+    payload: {
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed.',
+    },
+    status: 502,
+  };
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -2120,15 +2202,7 @@ async function initializeAgentStream(
       }),
     };
   } catch (error) {
-    logger.error('Failed to initialize assistant stream', { error });
-    return {
-      ok: false,
-      payload: {
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed.',
-      },
-      status: 502,
-    };
+    return buildAgentStreamInitializationFailure(error);
   }
 }
 

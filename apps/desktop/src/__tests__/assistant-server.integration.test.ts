@@ -60,9 +60,13 @@ const mockSecretsService = {
   saveKey: vi.fn(),
 };
 
-vi.mock('../secrets', () => ({
-  getSecretsService: vi.fn(() => mockSecretsService),
-}));
+vi.mock('../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: vi.fn(() => mockSecretsService),
+  };
+});
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -389,6 +393,33 @@ describe('assistant-server', () => {
         metadata: { id: 'openai/gpt-5.4-mini' },
       });
       expect(get).toHaveBeenCalledWith('openai/gpt-5.4-mini', 'openrouter-key');
+    });
+
+    it('surfaces an unreadable OpenRouter key without calling the metadata service', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey.mockRejectedValueOnce(
+        new SecretReadError('decrypt_failed', 'openrouter')
+      );
+      const get = vi.fn();
+
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'decrypt_failed',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openrouter" is unreadable: stored secret could not be decrypted (the OS keychain entry may have changed). Re-enter the key to repair it.',
+        provider: 'openrouter',
+      });
+      expect(get).not.toHaveBeenCalled();
     });
 
     it('rejects an OpenRouter metadata request without an exact model id', async () => {
@@ -769,6 +800,20 @@ describe('assistant-server', () => {
       expect(data).toEqual({ enabled: true, providers: ['local'] });
     }, 10_000);
 
+    it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+      const { SecretReadError } = await import('../secrets');
+      (readOpenAIApiKey as Mock).mockRejectedValueOnce(
+        new SecretReadError('decrypt_failed', 'openai')
+      );
+      mockSecretsService.listProviders.mockResolvedValueOnce([]);
+
+      const response = await runRequest({ method: 'GET', url: '/status' });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ enabled: true, providers: ['local'] });
+    });
+
     it('should handle status route errors', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockRejectedValueOnce(new Error('API key read failed'));
@@ -983,6 +1028,32 @@ describe('assistant-server', () => {
       const data = JSON.parse(response.body) as { error: string; message: string };
       expect(data.error).toBe('missing_api_key');
       expect(data.message).toContain('openai');
+    }, 10_000);
+
+    it('should distinguish an unreadable provider key from a missing key', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey.mockRejectedValueOnce(
+        new SecretReadError('encryption_unavailable', 'openrouter')
+      );
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openrouter' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'encryption_unavailable',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openrouter" is unreadable: safeStorage encryption is unavailable or insecure on this system. Re-enter the key to repair it.',
+        provider: 'openrouter',
+      });
     }, 10_000);
 
     it('should reject assistant route with invalid JSON payload', async () => {
@@ -1544,6 +1615,55 @@ describe('assistant-server', () => {
         }),
         { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
       );
+    });
+
+    it('surfaces an unreadable observational-memory key during stream initialization', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey
+        .mockResolvedValueOnce('anthropic-key')
+        .mockRejectedValueOnce(new SecretReadError('decrypt_failed', 'openai'));
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  messageTokens: 20_000,
+                  modelTarget: 'openai/gpt-5.4-mini',
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                  scope: 'thread',
+                },
+                semanticRecall: {
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  enabled: false,
+                  messageRange: 2,
+                  scope: 'resource',
+                  topK: 5,
+                },
+              },
+              resourceId: 'workspace-memory-key-error',
+              threadId: 'thread-memory-key-error',
+            },
+            provider: 'anthropic',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'decrypt_failed',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openai" is unreadable: stored secret could not be decrypted (the OS keychain entry may have changed). Re-enter the key to repair it.',
+        provider: 'openai',
+      });
     });
 
     it('builds observational memory on the built-in local model via the llm-host proxy', async () => {

@@ -59,7 +59,7 @@ describe('provider-api-key', () => {
     expect(resolveProviderEnvKey('openai')).toBe('token');
   });
 
-  it('reads provider secret key and logs errors on failure', async () => {
+  it('reads provider secret key and preserves read failures', async () => {
     const secrets = {
       getKey: vi.fn().mockResolvedValue('  secret  '),
     };
@@ -67,8 +67,9 @@ describe('provider-api-key', () => {
 
     await expect(readProviderSecretKey('openai')).resolves.toBe('secret');
 
-    secrets.getKey.mockRejectedValueOnce(new Error('boom'));
-    await expect(readProviderSecretKey('openai')).resolves.toBeUndefined();
+    const readError = new Error('boom');
+    secrets.getKey.mockRejectedValueOnce(readError);
+    await expect(readProviderSecretKey('openai')).rejects.toBe(readError);
     expect(logger.error).toHaveBeenCalled();
   });
 
