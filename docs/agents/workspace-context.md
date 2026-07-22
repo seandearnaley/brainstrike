@@ -565,6 +565,19 @@ Prompt compaction MUST preserve these semantics:
   private workspace content, and never use web retrieval as a substitute for
   local workspace tools.
 
+The model-facing workspace projections share only mechanical invariants through
+`workspace-model-projection-helpers.ts`: record and integer guards, Unicode-safe
+end/middle clipping, text-envelope construction, and serialized-envelope budget
+measurement. Domain result types, parsing/coherence rules, pagination, ranking,
+producer constants, and omission guidance remain local to each projection.
+Path policy also remains explicit at each call site: context and retrieval
+escape CR, LF, U+2028, and U+2029 while preserving repeated whitespace needed
+by follow-up file tools (800- and 700-character path ceilings respectively);
+inspection and unrooted search previews collapse whitespace onto one line at an
+800-character ceiling. Rooted search `read_args` retain the producer path in
+JSON so it stays directly reusable. Malformed or over-budget output continues
+to fail visibly; the shared helpers must never add coercion or fallback.
+
 Conditional assembly still advertises only tools that survived runtime gates.
 Remove duplicated prose to recover prompt budget; do not remove or weaken the
 invariants above.

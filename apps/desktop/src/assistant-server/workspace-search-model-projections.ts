@@ -8,28 +8,24 @@ import type {
   GrepToolResult,
   ModelFacingGrepMatch,
 } from './grep-search-tool';
+import {
+  clipProjectionEnd as clipEnd,
+  clipProjectionMiddle,
+  isNonNegativeInteger,
+  isPositiveInteger,
+  isRecord,
+  makeWorkspaceTextModelOutput as makeTextModelOutput,
+  serializedWorkspaceTextModelOutputChars as serializedChars,
+  projectionSingleLine as singleLine,
+  type WorkspaceTextModelOutput,
+} from './workspace-model-projection-helpers';
 
-export interface WorkspaceSearchTextModelOutput {
-  type: 'text';
-  value: string;
-}
+export type WorkspaceSearchTextModelOutput = WorkspaceTextModelOutput;
 
 const MAX_CONTEXT_CHARS = 600;
 const MAX_LINE_TEXT_CHARS = 600;
 const MAX_PATH_CHARS = 800;
 const MAX_ROOT_LABEL_CHARS = 160;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
 
 function isOptionalString(value: unknown): value is string | null | undefined {
   return value === undefined || value === null || typeof value === 'string';
@@ -142,31 +138,8 @@ function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult 
   return output as unknown as GlobWorkspaceToolResult;
 }
 
-function singleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
-
-function clipEnd(value: string, maxChars: number, label: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  const suffix = `…[${codePoints.length - maxChars} ${label} chars omitted]`;
-  return `${codePoints.slice(0, maxChars).join('')}${suffix}`;
-}
-
 function clipPath(value: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= MAX_PATH_CHARS) {
-    return normalized;
-  }
-  const keptAtEachEnd = Math.floor(MAX_PATH_CHARS / 2);
-  const omitted = codePoints.length - keptAtEachEnd * 2;
-  return `${codePoints.slice(0, keptAtEachEnd).join('')}…[${omitted} path clipped]…${codePoints
-    .slice(-keptAtEachEnd)
-    .join('')}`;
+  return clipProjectionMiddle(singleLine(value), MAX_PATH_CHARS, 'path');
 }
 
 function formatReadArgs(
@@ -194,14 +167,6 @@ function formatContext(label: 'after' | 'before', lines: readonly string[]): str
     return null;
   }
   return `${label}: ${clipEnd(lines.join(' ⏎ '), MAX_CONTEXT_CHARS, 'context')}`;
-}
-
-function makeTextModelOutput(lines: readonly string[]): WorkspaceSearchTextModelOutput {
-  return { type: 'text', value: lines.join('\n') };
-}
-
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(makeTextModelOutput(lines)).length;
 }
 
 function assertProjectionFits(

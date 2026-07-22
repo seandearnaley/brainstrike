@@ -176,6 +176,15 @@ describe('workspace retrieval model projections', () => {
     );
   });
 
+  it('escapes hybrid path line breaks without collapsing other path whitespace', () => {
+    const raw = hybridResult();
+    raw.results[0]!.filePath = '/packages/path  with\r\nline\u2028separator\u2029file.ts';
+
+    expect(projectHybridSearchModelOutput(raw).value).toContain(
+      String.raw`[brainstrike] /packages/path  with\r\nline\u2028separator\u2029file.ts`
+    );
+  });
+
   it('self-fits hybrid results and retains producer guidance when truncated', () => {
     const results = Array.from({ length: 20 }, (_, index) => ({
       ...hybridResult().results[0],

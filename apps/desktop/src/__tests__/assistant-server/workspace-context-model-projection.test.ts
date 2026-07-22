@@ -147,6 +147,20 @@ describe('workspace context model projection', () => {
     expect(projected.value).not.toContain('/src/foo bar.ts');
   });
 
+  it('escapes path line breaks without collapsing other path whitespace', () => {
+    const path = '/src/foo  bar\r\nline\u2028separator\u2029file.ts';
+    const projected = projectListWorkspaceContextModelOutput({
+      ...baseResult(),
+      selectedFileCount: 1,
+      selectedFiles: [path],
+      tokenEstimates: [{ approxTokens: 42, path }],
+    });
+
+    expect(projected.value).toContain(
+      String.raw`selected /src/foo  bar\r\nline\u2028separator\u2029file.ts`
+    );
+  });
+
   it('derives continuation structurally instead of coupling to hint prose', () => {
     const projected = projectListWorkspaceContextModelOutput({
       ...baseResult(),
