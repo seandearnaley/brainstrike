@@ -78,6 +78,7 @@ import {
   mapMcpProgressStreamPart,
 } from './mcp-runtime-client';
 import { collectCombinedTools } from './mcp-tool-loader';
+import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
@@ -2448,6 +2449,9 @@ function buildToolLoopOptions(
   // per-call replacement doesn't drop either; their hooks are disjoint stages,
   // so token trimming is unaffected. Excluded for the local provider.
   const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
+  const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
+    runtimeData?.provider ?? ''
+  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -2471,6 +2475,7 @@ function buildToolLoopOptions(
     toolSearchProcessor,
     toolHistoryFilter,
     historyCompat,
+    openAIToolSearchHistoryCompat,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 

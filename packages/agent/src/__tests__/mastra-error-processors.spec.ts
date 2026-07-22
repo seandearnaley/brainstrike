@@ -365,6 +365,7 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
       streamOptions?.inputProcessors?.map((processor) => processor.id) ?? [];
     expect(inputProcessorIds).toContain('token-limiter');
     expect(inputProcessorIds).toContain('provider-history-compat');
+    expect(inputProcessorIds).toContain('openai-tool-search-history-compat');
   });
 
   it('pins maxProcessorRetries to the bounded value (not the Mastra default 10) and installs the three-processor stack', async () => {

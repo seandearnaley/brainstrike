@@ -1572,6 +1572,7 @@ describe('mastra streaming integration', () => {
       'skills-processor',
       'tool-call-filter',
       'provider-history-compat',
+      'openai-tool-search-history-compat',
       'token-limiter',
     ]);
   });
@@ -1940,6 +1941,7 @@ describe('mastra streaming integration', () => {
     expect(approvalOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
       'tool-call-filter',
       'provider-history-compat',
+      'openai-tool-search-history-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
@@ -2016,6 +2018,7 @@ describe('mastra streaming integration', () => {
     expect(resumeOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
       'tool-call-filter',
       'provider-history-compat',
+      'openai-tool-search-history-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
