@@ -177,10 +177,22 @@ function wrapSearchTelemetry(
     });
   }
 
-  return {
-    ...searchTool,
-    description: SEARCH_TOOL_DESCRIPTION,
-    execute: async (...args: Parameters<typeof execute>) => {
+  const descriptors = Object.getOwnPropertyDescriptors(searchTool);
+  const descriptionDescriptor = descriptors.description;
+  const executeDescriptor = descriptors.execute;
+  descriptors.description = {
+    configurable: descriptionDescriptor?.configurable ?? true,
+    enumerable: descriptionDescriptor?.enumerable ?? true,
+    value: SEARCH_TOOL_DESCRIPTION,
+    writable:
+      descriptionDescriptor && 'writable' in descriptionDescriptor
+        ? descriptionDescriptor.writable
+        : true,
+  };
+  descriptors.execute = {
+    configurable: executeDescriptor?.configurable ?? true,
+    enumerable: executeDescriptor?.enumerable ?? true,
+    value: async (...args: Parameters<typeof execute>) => {
       const query = readSearchQuery(args);
       if (query === undefined) {
         throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
@@ -218,7 +230,11 @@ function wrapSearchTelemetry(
       });
       return result;
     },
+    writable:
+      executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,
   };
+  const clone = Object.create(Object.getPrototypeOf(searchTool)) as object;
+  return Object.defineProperties(clone, descriptors) as SearchTool;
 }
 
 function createPersistedStepArgs(

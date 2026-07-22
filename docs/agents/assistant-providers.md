@@ -896,6 +896,17 @@ is neither logged nor persisted. The live evaluation also records the final
 tool choice and scorer verdict so a retrieval success cannot be mistaken for a
 successful model decision.
 
+The telemetry wrapper clones Mastra's `search_tools` value with its original
+prototype and complete own-property descriptors, then replaces only the
+description and executor on that fresh clone. It never mutates or wraps the
+Mastra-owned value in place. Mastra 1.51 context storage is also pinned as
+empty-or-complete for approval resume: its same-process supplemental set is
+additive by thread, while live message-derived names are unioned with that set.
+The adapter compatibility test loads two disjoint tools and requires the direct
+resume lookup to return both without durable recall. If a future Mastra release
+permits a partial non-empty set, update the adapter to merge the post-gate
+durable and delegate sets deterministically; do not add a speculative fallback.
+
 Mastra owns the fixed `search_tools` catalog meta-tool id. When a surviving
 eager/core or deferred definition has an original id whose canonical sanitized
 form is `search_tools` (including `search.tools`), a run with deferred catalog
