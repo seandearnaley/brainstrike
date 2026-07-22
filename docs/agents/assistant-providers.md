@@ -895,6 +895,20 @@ only to an explicit in-memory observer used by the opt-in live evaluation; it
 is neither logged nor persisted. The live evaluation also records the final
 tool choice and scorer verdict so a retrieval success cannot be mistaken for a
 successful model decision.
+
+Mastra owns the fixed `search_tools` catalog meta-tool id. When a surviving
+eager/core or deferred definition has an original id whose canonical sanitized
+form is `search_tools` (including `search.tools`), a run with deferred catalog
+discovery throws `mastra_agent_tool_name_collision` before constructing the
+Agent. The error reports only the original, sanitized, and reserved ids. A run
+with no deferred definitions installs no catalog processor and preserves a
+caller-owned `search_tools`; never rename the collision, disable discovery, or
+widen the eager surface silently.
+Brainstrike configures `search.autoLoad: true`, so Mastra omits its optional
+`load_tool` meta-tool and a caller-owned `load_tool` (including `load.tool`
+after sanitization) remains valid alongside catalog discovery. If discovery is
+ever changed to manual loading, reserve `load_tool` and update the compatibility
+tests in that same change.
 Persisted `search_tools` results reconstruct loaded definitions after restart;
 approval and suspended-tool resume rehydrate those definitions from the durable
 Mastra thread before the paused call reaches execution. Anonymous calls never
