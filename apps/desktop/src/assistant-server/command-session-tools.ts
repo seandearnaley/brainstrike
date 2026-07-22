@@ -7,7 +7,7 @@ import {
   InspectCommandSessionsInputSchema,
   ManageCommandSessionInputSchema,
 } from '@brainstrike/agent';
-import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { type GuardedToolError, isGuardedToolError } from '@brainstrike/assistant-contract';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   type CommandSessionInfo,
@@ -171,6 +171,7 @@ function buildSessionReadPage(
   return {
     ...read,
     availableEndCursor,
+    hasMore: read.hasMore || safeOutputLength < read.output.length,
     nextCursor,
     output: read.output.slice(0, safeOutputLength),
     remainingUtf16CodeUnits: availableEndCursor - nextCursor,
@@ -229,6 +230,17 @@ function projectInspectInputForTranscript(input: unknown): InspectCommandSession
   return input === undefined ? undefined : InspectCommandSessionsInputSchema.parse(input);
 }
 
+function projectGuardedErrorForTranscript(output: GuardedToolError): GuardedToolError {
+  return {
+    error: {
+      code: output.error.code,
+      message: 'Command-session tool failure details redacted.',
+      toolName: output.error.toolName,
+    },
+    ok: false,
+  };
+}
+
 function projectManageInputForTranscript(input: unknown): unknown {
   if (input === undefined) {
     return;
@@ -263,7 +275,7 @@ function projectManageInputForTranscript(input: unknown): unknown {
 
 function projectInspectOutputForTranscript(output: unknown): unknown {
   if (isGuardedToolError(output)) {
-    return output;
+    return projectGuardedErrorForTranscript(output);
   }
   const result = output as InspectCommandSessionsResult;
   if ('sessions' in result) {
@@ -280,7 +292,7 @@ function projectInspectOutputForTranscript(output: unknown): unknown {
 
 function projectManageOutputForTranscript(output: unknown): unknown {
   if (isGuardedToolError(output)) {
-    return output;
+    return projectGuardedErrorForTranscript(output);
   }
   const result = output as ManageCommandSessionResult;
   if ('removed' in result) {
@@ -354,6 +366,7 @@ export function runInspectCommandSessions(
   const manager = resolveManager(dependencies);
   const rootId = resolveRootId(runtimeData, input.root);
   if (input.operation.action === 'list') {
+    // Offsets are best-effort over the live, mutable in-memory session inventory.
     return fitSessionListPage(rootId, manager.list(rootId), input.operation.offset ?? 0);
   }
   const read = manager.read(

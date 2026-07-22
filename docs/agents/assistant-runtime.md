@@ -352,20 +352,23 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   execute-risk `manageCommandSession` (start/write/stop/remove). The latter is
   omitted in plan mode and follows the normal ask/deny discovery and approval
   gates. Both tools own a target-aware transcript transform: start command/cwd,
-  write data, streamed input deltas, session cwd, and PTY output are replaced by
-  allowlisted metadata before PGlite persistence, while the live display and
-  current model step retain the bounded domain result. The built-in local provider omits both because it lacks deferred tool
-  discovery. Web never constructs the desktop registry, and its explicit native
-  tool-id partition omits both from settings, request allowlists, and the model
-  tool menu, so it exposes no stub or fallback. Do not widen `executeCommand` in
-  place. The command-session inventory UI is a separate follow-up slice.
+  write data, streamed input deltas, session cwd, PTY output, and guarded error
+  messages/reasons are replaced by allowlisted metadata before PGlite
+  persistence, while the live display and current model step retain the bounded
+  domain result. The built-in local provider omits both because it lacks
+  deferred tool discovery. Web never constructs the desktop registry, and its
+  explicit native tool-id partition omits both from settings, request
+  allowlists, and the model tool menu, so it exposes no stub or fallback. Do not
+  widen `executeCommand` in place. The command-session inventory UI is a separate
+  follow-up slice.
 
 Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
 stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
 `command-session-manager.integration.test.ts` (real PTY HTTP server survival,
 natural non-zero exit, and leader/descendant reaping), plus the command-session
 cases in `assistant-tools.integration.test.ts` (transcript redaction, UTF-8
-result ceilings, list/output continuation, and surrogate-safe paging).
+result ceilings, manager/tool continuation composition, and surrogate-safe
+paging).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces

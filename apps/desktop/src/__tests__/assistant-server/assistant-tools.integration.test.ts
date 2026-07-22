@@ -1296,6 +1296,7 @@ describe('assistant-tools', () => {
       list: vi.fn(() => [session]),
       read: vi.fn(() => ({
         bufferStartCursor: 0,
+        hasMore: false,
         nextCursor: 18,
         output: 'TOKEN=secret-value',
         requestedCursor: 0,
@@ -1366,7 +1367,23 @@ describe('assistant-tools', () => {
       toolCallId: 'call-start',
       toolName: 'brainstrike.manageCommandSession',
     });
+    const persistedHookBlock = await manageTransform?.output?.({
+      output: {
+        error: {
+          code: 'tool_blocked_by_hook',
+          message: 'Blocked command: AUTH_TOKEN=secret-value pnpm dev',
+          toolName: 'brainstrike.manageCommandSession',
+        },
+        ok: false,
+        reason: 'Rejected cwd /workspace/api/private',
+      },
+      phase: 'output-available',
+      target: 'transcript',
+      toolCallId: 'call-blocked',
+      toolName: 'brainstrike.manageCommandSession',
+    });
     const serialized = JSON.stringify({
+      persistedHookBlock,
       persistedManageOutput,
       persistedReadOutput,
       persistedStartInput,
@@ -1400,6 +1417,14 @@ describe('assistant-tools', () => {
       rootId: 'db-root-api',
       status: 'running',
     });
+    expect(persistedHookBlock).toEqual({
+      error: {
+        code: 'tool_blocked_by_hook',
+        message: 'Command-session tool failure details redacted.',
+        toolName: 'brainstrike.manageCommandSession',
+      },
+      ok: false,
+    });
   });
 
   it('pages command-session inventory and output below the durable artifact threshold', () => {
@@ -1417,13 +1442,23 @@ describe('assistant-tools', () => {
       disposeRoot: vi.fn(async () => 0),
       get: vi.fn(() => sessions[0]!),
       list: vi.fn(() => sessions),
-      read: vi.fn((_rootId: string, _sessionId: string, cursor = 0) => ({
-        bufferStartCursor: 0,
-        nextCursor: output.length,
-        output: cursor === -1 ? '' : output.slice(cursor),
-        requestedCursor: cursor,
-        truncatedBeforeCursor: false,
-      })),
+      read: vi.fn(
+        (_rootId: string, _sessionId: string, cursor = 0, maxUtf16CodeUnits = output.length) => {
+          const requestedEnd = Math.min(output.length, cursor + maxUtf16CodeUnits);
+          const endsOnHighSurrogate =
+            output.charCodeAt(requestedEnd - 1) >= 0xd8_00 &&
+            output.charCodeAt(requestedEnd - 1) <= 0xdb_ff;
+          const end = endsOnHighSurrogate ? requestedEnd - 1 : requestedEnd;
+          return {
+            bufferStartCursor: 0,
+            hasMore: end < output.length,
+            nextCursor: end,
+            output: cursor === -1 ? '' : output.slice(cursor, end),
+            requestedCursor: cursor,
+            truncatedBeforeCursor: false,
+          };
+        }
+      ),
       remove: vi.fn(async () => undefined),
       start: vi.fn(async () => sessions[0]!),
       stop: vi.fn(async () => undefined),
@@ -1470,9 +1505,11 @@ describe('assistant-tools', () => {
       expect(Buffer.byteLength(JSON.stringify(page), 'utf8')).toBeLessThanOrEqual(
         COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES
       );
-      expect(page.availableEndCursor).toBe(output.length);
+      expect(page.availableEndCursor).toBeLessThanOrEqual(output.length);
+      expect(page.availableEndCursor).toBeGreaterThanOrEqual(page.nextCursor);
       expect(page.nextCursor).toBe(cursor + page.output.length);
       expect(page.nextCursor).toBeGreaterThan(cursor);
+      expect(page.hasMore).toBe(page.nextCursor < output.length);
       expect(page.remainingUtf16CodeUnits).toBe(page.availableEndCursor - page.nextCursor);
       expect(page.output.endsWith('\ud83d')).toBe(false);
       rebuiltOutput += page.output;

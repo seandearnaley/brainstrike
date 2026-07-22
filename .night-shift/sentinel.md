@@ -57,4 +57,4 @@
 ## 2026-07-21 - Memory-only command sessions must stay out of durable tool history
 **Vulnerability:** Model-callable command-session tools inherited Mastra transcript and oversized-artifact persistence, so command strings, interactive stdin, cwd values, and PTY output could outlive the memory-only session.
 **Learning:** Keeping a process registry in memory is not sufficient when its tool inputs and results cross a framework-owned transcript or artifact seam.
-**Prevention:** Give sensitive session tools allowlisted transcript transforms, redact streamed input deltas, page raw results with source-owned continuation cursors, and explicitly exclude their canonical ids from durable artifact settlement.
+**Prevention:** Give sensitive session tools allowlisted transcript transforms, redact streamed input and guarded error details, page raw results with source-owned continuation cursors, and explicitly exclude their canonical ids from durable artifact settlement.
