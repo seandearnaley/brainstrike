@@ -1172,7 +1172,10 @@ export function AssistantUiPanelWrapper({
     shouldSkipSelectionReconcile,
   ]);
 
-  const handleModelChange = useAssistantModelChange({
+  const [providerSettingsValidationReason, setProviderSettingsValidationReason] = useState<
+    string | undefined
+  >();
+  const changeModel = useAssistantModelChange({
     currentModel,
     draftRuntimeByThreadId,
     fixedProviderModels,
@@ -1182,6 +1185,13 @@ export function AssistantUiPanelWrapper({
     setProviderSettings,
     setThreadDraftRuntime,
   });
+  const handleModelChange = useCallback(
+    (compositeKey: string) => {
+      setProviderSettingsValidationReason(undefined);
+      changeModel(compositeKey);
+    },
+    [changeModel]
+  );
 
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {
@@ -1302,7 +1312,11 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
-  const disabledReason = memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+  const disabledReason =
+    memoryDisabledReason ??
+    providerDisabledReason ??
+    openRouterDisabledReason ??
+    providerSettingsValidationReason;
 
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
@@ -1582,6 +1596,7 @@ export function AssistantUiPanelWrapper({
                 : {})}
               onContextBreakdown={handleContextBreakdown}
               onProviderSettingsChange={handleProviderSettingsChange}
+              onProviderSettingsValidationChange={setProviderSettingsValidationReason}
               onRunFailed={handleRunFailed}
               onRunFinished={handleRunFinished}
               onStreamActivity={renewActiveAssistantForegroundActivity}
@@ -1608,7 +1623,12 @@ export function AssistantUiPanelWrapper({
               {...(selectedProvider ? { selectedProvider } : {})}
               {...(currentModel ? { selectedModel: currentModel } : {})}
               disabled={
-                !isProviderReady || Boolean(memoryDisabledReason ?? openRouterDisabledReason)
+                !isProviderReady ||
+                Boolean(
+                  memoryDisabledReason ??
+                    openRouterDisabledReason ??
+                    providerSettingsValidationReason
+                )
               }
               onModelChange={handleModelChange}
               onModelToggle={handleModelToggle}

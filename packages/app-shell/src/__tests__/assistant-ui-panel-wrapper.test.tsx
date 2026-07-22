@@ -1451,6 +1451,36 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('disables send while a provider setting draft is invalid', async () => {
+    const user = userEvent.setup();
+    await renderAssistantPanel(['openai', 'anthropic']);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+    });
+    await user.click(screen.getByTestId('provider-settings-invalid'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+      expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+        'Output limit exceeds the 65,535 maximum from OpenRouter live.'
+      );
+    });
+
+    await user.selectOptions(screen.getByTestId('provider-select'), 'anthropic');
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+      expect(screen.queryByTestId('disabled-reason')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('provider-settings-invalid'));
+    await user.click(screen.getByTestId('provider-settings-valid'));
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+      expect(screen.queryByTestId('disabled-reason')).not.toBeInTheDocument();
+    });
+  });
+
   test('stores model changes per thread and remembers them as the next thread default', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({

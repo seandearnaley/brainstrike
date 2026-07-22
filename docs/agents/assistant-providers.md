@@ -261,7 +261,11 @@
   explicit model switch clears a provider-wide output
   override that exceeds the newly selected model's declared maximum; it never
   carries a hidden incompatible limit or silently clamps it. Explicit compatible
-  user limits remain authoritative.
+  user limits remain authoritative. While editing the numeric output field, an
+  empty, fractional, below-minimum, or above-maximum value remains visible as an
+  uncommitted draft with an inline error and disables send until corrected; it
+  is never clamped or persisted. The range slider remains bounded to the known
+  model limits.
 - OpenRouter's canonical token-limit errors (`context_length_exceeded`,
   `max_tokens_exceeded`, and `token_limit_exceeded`) remain typed through the
   stream boundary. The visible bounded failure includes the canonical type,

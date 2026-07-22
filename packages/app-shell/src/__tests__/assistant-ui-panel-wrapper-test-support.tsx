@@ -678,6 +678,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange,
     onModelToggle,
     onProviderSettingsChange,
+    onProviderSettingsValidationChange,
     onThreadRunStart,
     onRunFinished,
     completePreparedRequest,
@@ -708,6 +709,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
+    onProviderSettingsValidationChange?: (reason: string | undefined) => void;
     onThreadRunStart?: () => void;
     onRunFinished?: (event: { runId: string; kind: string }) => void;
     completePreparedRequest?: (
@@ -904,6 +906,24 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Clear OpenAI settings
+        </button>
+        <button
+          data-testid="provider-settings-invalid"
+          onClick={() =>
+            onProviderSettingsValidationChange?.(
+              'Output limit exceeds the 65,535 maximum from OpenRouter live.'
+            )
+          }
+          type="button"
+        >
+          Report invalid provider settings
+        </button>
+        <button
+          data-testid="provider-settings-valid"
+          onClick={() => onProviderSettingsValidationChange?.(undefined)}
+          type="button"
+        >
+          Clear provider settings validation
         </button>
         <button
           data-testid="prepare-thread-request"

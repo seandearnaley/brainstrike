@@ -322,6 +322,8 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  /** Reports an uncommitted invalid provider-settings draft so send stays disabled. */
+  onProviderSettingsValidationChange?: ((reason: string | undefined) => void) | undefined;
   /**
    * Reports a `run.failed` run event exactly once (deduped by event id).
    * Only ever fires for the Mastra-loop transport (hosted providers / desktop
@@ -1404,6 +1406,7 @@ export const AssistantUiPanel = ({
   providerSettings,
   recentModels,
   onProviderSettingsChange,
+  onProviderSettingsValidationChange,
   selectedProvider,
   selectedModel,
   requestData,
@@ -1476,7 +1479,10 @@ export const AssistantUiPanel = ({
     useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
-    <AssistantPanelMetadataProviders value={openRouterModelMetadataLookup}>
+    <AssistantPanelMetadataProviders
+      onProviderSettingsValidationChange={onProviderSettingsValidationChange}
+      value={openRouterModelMetadataLookup}
+    >
       <section
         aria-label="Assistant chat"
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}

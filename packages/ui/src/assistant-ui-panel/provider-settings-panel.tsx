@@ -10,12 +10,16 @@ import type {
   AssistantProviderSettingsUpdate,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
+import { useId, useState } from 'react';
 import { Input } from '../input';
 import { Label } from '../label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
 import { clampNumber, parseNumber } from './assistant-ui-panel-utils';
-import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
+import {
+  useOpenRouterModelMetadataLookup,
+  useProviderSettingsValidationChange,
+} from './openrouter-model-metadata-context';
 import {
   ANTHROPIC_THINKING_DEFAULT,
   ANTHROPIC_THINKING_MAX,
@@ -54,6 +58,7 @@ interface ProviderSettingsPanelProps {
   onSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onValidationChange?: ((reason: string | undefined) => void) | undefined;
   openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
   providerId?: string | undefined;
   settings?: AssistantProviderSettings | undefined;
@@ -303,19 +308,65 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
   );
 };
 
+function resolveMaxOutputDraftError({
+  draft,
+  enabled,
+  maximum,
+  maximumSource,
+}: {
+  draft: string;
+  enabled: boolean;
+  maximum: number;
+  maximumSource?: string | undefined;
+}): string | undefined {
+  if (!enabled) {
+    return;
+  }
+  const parsed = parseNumber(draft);
+  if (parsed === undefined) {
+    return `Enter an output limit between ${settingsNumberFormatter.format(MAX_OUTPUT_MIN)} and ${settingsNumberFormatter.format(maximum)}.`;
+  }
+  if (!Number.isSafeInteger(parsed)) {
+    return 'Output limit must be a whole number.';
+  }
+  if (parsed < MAX_OUTPUT_MIN) {
+    return `Output limit must be at least ${settingsNumberFormatter.format(MAX_OUTPUT_MIN)}.`;
+  }
+  if (parsed > maximum) {
+    return `Output limit exceeds the ${settingsNumberFormatter.format(maximum)} maximum${maximumSource ? ` from ${maximumSource}` : ''}.`;
+  }
+  return;
+}
+
 const MaxOutputSection = ({
   settings,
   onUpdate,
+  onValidationChange,
   disabled,
   defaultValue = MAX_OUTPUT_DEFAULT,
   maximum = MAX_OUTPUT_MAX,
-}: ProviderSettingsSectionProps & { defaultValue?: number; maximum?: number }) => {
+  maximumSource,
+}: ProviderSettingsSectionProps & {
+  defaultValue?: number;
+  maximum?: number;
+  maximumSource?: string | undefined;
+  onValidationChange?: ((reason: string | undefined) => void) | undefined;
+}) => {
   const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
   const maxOutputValue = clampNumber(
     settings.maxOutputTokens ?? defaultValue,
     MAX_OUTPUT_MIN,
     maximum
   );
+  const [draft, setDraft] = useState(maxOutputEnabled ? String(settings.maxOutputTokens) : '');
+  const errorId = useId();
+  const parsedDraft = parseNumber(draft);
+  const draftError = resolveMaxOutputDraftError({
+    draft,
+    enabled: maxOutputEnabled,
+    maximum,
+    maximumSource,
+  });
 
   return (
     <div className="space-y-2 rounded-md bg-muted/30 p-2">
@@ -327,49 +378,73 @@ const MaxOutputSection = ({
           aria-label="Limit output tokens per step"
           checked={maxOutputEnabled}
           disabled={disabled}
-          onCheckedChange={(checked) =>
+          onCheckedChange={(checked) => {
+            onValidationChange?.(undefined);
             onUpdate({
               maxOutputTokens: checked ? maxOutputValue : undefined,
-            })
-          }
+            });
+          }}
         />
       </div>
       <div className="flex items-center gap-2">
         <Input
+          aria-describedby={draftError ? errorId : undefined}
+          aria-invalid={Boolean(draftError)}
+          aria-label="Output token limit"
           className="h-8 text-xs"
           disabled={disabled || !maxOutputEnabled}
           inputMode="numeric"
           max={maximum}
           min={MAX_OUTPUT_MIN}
           onChange={(event) => {
-            const parsed = parseNumber(event.target.value);
-            if (parsed === undefined) {
-              onUpdate({ maxOutputTokens: undefined });
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            const nextError = resolveMaxOutputDraftError({
+              draft: nextDraft,
+              enabled: maxOutputEnabled,
+              maximum,
+              maximumSource,
+            });
+            onValidationChange?.(nextError);
+            if (nextError) {
               return;
             }
-            onUpdate({
-              maxOutputTokens: clampNumber(parsed, MAX_OUTPUT_MIN, maximum),
-            });
+            const parsed = parseNumber(nextDraft);
+            if (parsed === undefined) {
+              return;
+            }
+            onUpdate({ maxOutputTokens: parsed });
           }}
           placeholder="Auto"
+          step={1}
           type="number"
-          value={maxOutputEnabled ? maxOutputValue : ''}
+          value={maxOutputEnabled ? draft : ''}
         />
         <span className="text-[10px] text-muted-foreground">
-          {maxOutputEnabled ? settingsNumberFormatter.format(maxOutputValue) : 'Auto'}
+          {maxOutputEnabled && !draftError
+            ? settingsNumberFormatter.format(parsedDraft ?? maxOutputValue)
+            : maxOutputEnabled
+              ? 'Invalid'
+              : 'Auto'}
         </span>
       </div>
+      {draftError ? (
+        <p className="text-[10px] text-destructive" id={errorId} role="alert">
+          {draftError}
+        </p>
+      ) : null}
       <input
         aria-label="Max output tokens"
         className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
         disabled={disabled || !maxOutputEnabled}
         max={maximum}
         min={MAX_OUTPUT_MIN}
-        onChange={(event) =>
+        onChange={(event) => {
+          onValidationChange?.(undefined);
           onUpdate({
             maxOutputTokens: clampNumber(Number(event.target.value), MAX_OUTPUT_MIN, maximum),
-          })
-        }
+          });
+        }}
         step={MAX_OUTPUT_STEP}
         type="range"
         value={maxOutputEnabled ? maxOutputValue : defaultValue}
@@ -576,8 +651,10 @@ export const ProviderSettingsPanel = ({
   providerId,
   settings,
   onSettingsChange,
+  onValidationChange,
 }: ProviderSettingsPanelProps) => {
   const contextOpenRouterModelMetadataLookup = useOpenRouterModelMetadataLookup();
+  const contextValidationChange = useProviderSettingsValidationChange();
   if (!providerId) {
     return null;
   }
@@ -642,8 +719,11 @@ export const ProviderSettingsPanel = ({
               : MAX_OUTPUT_DEFAULT
           }
           disabled={!canUpdate}
+          key={`${providerId}:${modelName ?? ''}:${currentSettings.maxOutputTokens ?? 'auto'}:${openRouterLimits?.maxOutputTokens ?? MAX_OUTPUT_MAX}`}
           maximum={openRouterLimits?.maxOutputTokens ?? MAX_OUTPUT_MAX}
+          maximumSource={openRouterLimits?.sourceLabel}
           onUpdate={updateSettings}
+          onValidationChange={onValidationChange ?? contextValidationChange}
           settings={currentSettings}
         />
         {isOpenAiFamily ? (
