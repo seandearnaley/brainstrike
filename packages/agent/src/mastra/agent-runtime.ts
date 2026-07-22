@@ -121,7 +121,7 @@ import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
 } from './tool-output-artifact-settlement';
-import { sanitizeTools } from './tool-sanitizer';
+import { sanitizeToolName, sanitizeTools } from './tool-sanitizer';
 import {
   BrainstrikeToolSearchProcessor,
   resolveToolDiscoverySurface,
@@ -617,6 +617,29 @@ function settleRuntimeToolOutputs(params: {
   });
 }
 
+const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools']);
+
+function assertCatalogMetaToolNamesAvailable(params: {
+  eligibleTools: ToolsInput;
+  toolNameMap: ReadonlyMap<string, string>;
+}): void {
+  for (const registeredToolId of Object.keys(params.eligibleTools)) {
+    const originalToolId = params.toolNameMap.get(registeredToolId) ?? registeredToolId;
+    const sanitizedToolId = sanitizeToolName(originalToolId);
+    if (!MASTRA_CATALOG_META_TOOL_IDS.has(sanitizedToolId)) {
+      continue;
+    }
+    throw createMastraAgentError('mastra_agent_tool_name_collision', {
+      context: {
+        originalToolId,
+        reservedToolId: sanitizedToolId,
+        sanitizedToolId,
+      },
+      detail: `Tool ${originalToolId} sanitizes to reserved catalog meta-tool id ${sanitizedToolId}`,
+    });
+  }
+}
+
 async function prepareHostedToolDiscovery(params: {
   eligibleTools: ToolsInput;
   localToolIds: ReadonlySet<string>;
@@ -658,6 +681,12 @@ async function prepareHostedToolDiscovery(params: {
         toolNameMap: params.toolNameMap,
       })
     : undefined;
+  const hasDeferredTools = Boolean(
+    discoverySurface && Object.keys(discoverySurface.deferredTools).length > 0
+  );
+  if (hasDeferredTools) {
+    assertCatalogMetaToolNamesAvailable(params);
+  }
   const initialTools = discoverySurface?.coreTools ?? params.eligibleTools;
   const tokenDiagnostics = await createRunTokenDiagnostics({
     capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
@@ -668,9 +697,6 @@ async function prepareHostedToolDiscovery(params: {
     initialTools,
     params.toolNameMap,
     recordModelOutput
-  );
-  const hasDeferredTools = Boolean(
-    discoverySurface && Object.keys(discoverySurface.deferredTools).length > 0
   );
   const modelProjectedDeferredTools =
     hasDeferredTools && discoverySurface
@@ -904,6 +930,11 @@ export async function createMastraAgentRuntime(
       ...(persistedDiscoveryMessages ? { persistedDiscoveryMessages } : {}),
       provider: normalizedProvider,
       toolNameMap,
+    }).catch(async (error: unknown) => {
+      // Discovery has already opened MCP transports, but ownership does not
+      // transfer to the returned runtime until initialization completes.
+      await mcpClient?.disconnect();
+      throw error;
     });
   const toolHistoryFilter = createToolHistoryFilter(normalizedProvider, toolNameMap);
 

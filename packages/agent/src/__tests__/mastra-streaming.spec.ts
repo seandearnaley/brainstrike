@@ -196,6 +196,7 @@ vi.mock('@mastra/core/mastra', () => ({
 
 vi.mock('../mcp/explicit-stdio-client', () => ({
   ExplicitStdioMcpClient: class {
+    closeCalls = 0;
     options: unknown;
 
     constructor(options: { name: string }) {
@@ -207,7 +208,9 @@ vi.mock('../mcp/explicit-stdio-client', () => ({
       return { content: [{ text: 'mock MCP output', type: 'text' }] };
     }
 
-    async close() {}
+    async close() {
+      this.closeCalls += 1;
+    }
 
     async listTools() {
       return {
@@ -2585,6 +2588,101 @@ describe('mastra streaming integration', () => {
       deferredToolIds: ['filesystem.remote tool'],
       eligibleToolIds: ['filesystem.remote tool', 'local tool'],
     });
+  });
+
+  it.each([
+    { originalToolId: 'search_tools', sanitizedToolId: 'search_tools' },
+    { originalToolId: 'search.tools', sanitizedToolId: 'search_tools' },
+  ])('rejects reserved catalog meta-tool collision for $originalToolId before agent construction', async ({
+    originalToolId,
+    sanitizedToolId,
+  }) => {
+    await expect(
+      createMastraAgentRuntime({
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.listWorkspaceContext': {
+            description: 'List the current workspace context.',
+            id: 'brainstrike.listWorkspaceContext',
+          },
+          [originalToolId]: {
+            description: 'Caller-owned tool.',
+            id: originalToolId,
+          },
+        },
+      })
+    ).rejects.toMatchObject({
+      code: 'mastra_agent_tool_name_collision',
+      context: {
+        originalToolId,
+        reservedToolId: 'search_tools',
+        sanitizedToolId,
+      },
+    });
+    expect(agentInstances).toHaveLength(0);
+  });
+
+  it('preserves caller-owned search_tools when no deferred catalog is installed', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        search_tools: {
+          description: 'Caller-owned tool.',
+          id: 'search_tools',
+        },
+      },
+    });
+
+    expect(Object.keys(agentInstances[0]?.config.tools ?? {})).toEqual(['search_tools']);
+    expect(runtime.toolSearchProcessor).toBeUndefined();
+  });
+
+  it.each([
+    'load_tool',
+    'load.tool',
+  ])('preserves caller-owned %s when auto-load catalog discovery is installed', async (originalToolId) => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.listWorkspaceContext': {
+          description: 'List the current workspace context.',
+          id: 'brainstrike.listWorkspaceContext',
+        },
+        [originalToolId]: {
+          description: 'Caller-owned load helper.',
+          id: originalToolId,
+        },
+      },
+    });
+
+    expect(agentInstances[0]?.config.tools).toHaveProperty('load_tool');
+    expect(runtime.toolSearchProcessor).toBeDefined();
+  });
+
+  it('rejects a deferred MCP tool whose canonical id collides with search_tools', async () => {
+    mcpToolsets = {
+      search: {
+        tools: { description: 'Caller-owned MCP tool.', id: 'tools' },
+      },
+    };
+
+    await expect(
+      createMastraAgentRuntime({
+        mcpConfig: {
+          servers: [{ command: 'echo', name: 'search', transport: 'stdio' }],
+        },
+        runtime: { apiKey: 'key', provider: 'openai' },
+      })
+    ).rejects.toMatchObject({
+      code: 'mastra_agent_tool_name_collision',
+      context: {
+        originalToolId: 'search.tools',
+        reservedToolId: 'search_tools',
+        sanitizedToolId: 'search_tools',
+      },
+    });
+    expect(agentInstances).toHaveLength(0);
+    expect(mcpInstances).toEqual([expect.objectContaining({ closeCalls: 1 })]);
   });
 
   it('constructs hosted agents from critical plus custom tools and defers known noncritical tools', async () => {

@@ -1,6 +1,6 @@
 import type { ToolsInput } from '@mastra/core/agent';
 
-function sanitizeToolNameBase(name: string): string {
+export function sanitizeToolName(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_');
   if (sanitized.trim().length > 0) {
     return sanitized;
@@ -20,7 +20,7 @@ function createSanitizedToolName(
   originalName: string,
   usedNames: Set<string>
 ): { originalName: string; sanitizedName: string } {
-  const baseName = sanitizeToolNameBase(originalName);
+  const baseName = sanitizeToolName(originalName);
   const sanitizedName = ensureUniqueSanitizedName(baseName, originalName, usedNames);
   return { originalName, sanitizedName };
 }
