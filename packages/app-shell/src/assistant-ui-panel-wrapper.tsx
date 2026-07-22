@@ -382,6 +382,7 @@ export function AssistantUiPanelWrapper({
       : undefined;
   const openRouterMetadata = useOpenRouterModelMetadata({
     modelId: resolvedModelName,
+    modelSettings,
     providerId: selectedProvider,
     selectedModelDef: selectedLlmModelDef,
     settings: selectedProviderSettings,

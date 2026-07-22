@@ -1,4 +1,4 @@
-import type { OpenRouterModelMetadataLookup } from '@brainstrike/assistant-contract';
+import type { OpenRouterModelMetadataLookup, RuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -22,6 +22,7 @@ interface OpenRouterMetadataBudgetModel extends SelectedModelBudgetDef {
 
 interface UseOpenRouterModelMetadataOptions {
   readonly modelId: string | undefined;
+  readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly providerId: string | null | undefined;
   readonly selectedModelDef: OpenRouterMetadataBudgetModel | undefined;
   readonly settings: AssistantProviderSettings | undefined;
@@ -35,6 +36,7 @@ interface UseOpenRouterModelMetadataResult {
 
 export function useOpenRouterModelMetadata({
   modelId,
+  modelSettings,
   providerId,
   selectedModelDef,
   settings,
@@ -101,8 +103,8 @@ export function useOpenRouterModelMetadata({
     };
   }, [lookup, selectedModelDef]);
   const disabledReason = useMemo(
-    () => resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup),
-    [lookup, providerId, settings]
+    () => resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings),
+    [lookup, modelSettings, providerId, settings]
   );
   return { lookup, modelDef: budgetModelDef, reason: disabledReason };
 }

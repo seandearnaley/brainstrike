@@ -921,6 +921,30 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
       'Configured input limit 390,000 exceeds OpenRouter live effective input budget 375,904.'
     );
   });
+
+  it('prefers a prompt draft output override over provider settings', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { maxOutputTokens: 1024 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_000_000,
+              id: 'anthropic/claude-sonnet-4.6',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        },
+        { maxOutputTokens: 200_000 }
+      )
+    ).toBe('Configured output limit 200,000 exceeds OpenRouter live maximum 128,000.');
+  });
 });
 
 describe('resolveComposerAttachmentsAvailability', () => {

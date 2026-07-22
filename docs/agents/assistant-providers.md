@@ -278,9 +278,11 @@
   using it for the selected model's context meter, derived input budget, and
   output control maximum. A configured output limit above the live maximum, or
   an input limit above the derived live effective budget, disables send with an
-  explicit correction message. An impossible persisted output reservation keeps
-  the settings panel available for repair instead of throwing during render; the
-  endpoint never silently mutates the registry.
+  explicit correction message. Validation uses the effective request setting,
+  including a Prompt Workbench draft `modelSettings.maxOutputTokens` override.
+  An impossible persisted output reservation keeps the settings panel available
+  for repair instead of throwing during render; the endpoint never silently
+  mutates the registry.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts

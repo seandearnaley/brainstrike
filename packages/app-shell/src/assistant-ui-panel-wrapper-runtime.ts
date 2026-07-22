@@ -969,12 +969,15 @@ const openRouterLimitFormatter = new Intl.NumberFormat();
 export function resolveOpenRouterMetadataDisabledReason(
   providerId: string | null | undefined,
   settings: AssistantProviderSettings | undefined,
-  lookup: OpenRouterModelMetadataLookup | undefined
+  lookup: OpenRouterModelMetadataLookup | undefined,
+  modelSettings?: RuntimeData['modelSettings']
 ): string | undefined {
   if (!(providerId === 'openrouter' && lookup?.state === 'resolved')) {
     return;
   }
-  const configuredOutput = buildPositiveIntegerSetting(settings?.maxOutputTokens);
+  const configuredOutput = buildPositiveIntegerSetting(
+    modelSettings?.maxOutputTokens ?? settings?.maxOutputTokens
+  );
   const metadata = lookup.snapshot.metadata;
   const maximum = metadata.maxOutputTokens;
   const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
