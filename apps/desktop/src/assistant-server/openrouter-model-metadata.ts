@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataSnapshot,
@@ -29,7 +30,7 @@ function requirePositiveInteger(value: number, field: string): number {
   return value;
 }
 
-function requireOpenRouterModelId(modelId: string): readonly [string, string] {
+export function requireOpenRouterModelId(modelId: string): readonly [string, string] {
   if (modelId.length > MAX_MODEL_ID_CHARS) {
     throw new Error(`OpenRouter model id must be at most ${MAX_MODEL_ID_CHARS} characters`);
   }
@@ -116,7 +117,8 @@ export function createOpenRouterModelMetadataService(
   return {
     async get(modelId: string, apiKey: string): Promise<OpenRouterModelMetadataSnapshot> {
       requireOpenRouterModelId(modelId);
-      if (apiKey.trim().length === 0) {
+      const normalizedApiKey = apiKey.trim();
+      if (normalizedApiKey.length === 0) {
         throw new Error('OpenRouter API key is required for model metadata');
       }
 
@@ -125,14 +127,15 @@ export function createOpenRouterModelMetadataService(
         return { freshness: 'fresh-cache', metadata: cached };
       }
 
-      const existing = pending.get(modelId);
+      const pendingKey = `${modelId}:${createHash('sha256').update(normalizedApiKey).digest('hex')}`;
+      const existing = pending.get(pendingKey);
       if (existing) {
         return existing;
       }
-      const request = refresh(modelId, apiKey.trim(), cached).finally(() => {
-        pending.delete(modelId);
+      const request = refresh(modelId, normalizedApiKey, cached).finally(() => {
+        pending.delete(pendingKey);
       });
-      pending.set(modelId, request);
+      pending.set(pendingKey, request);
       return request;
     },
   };

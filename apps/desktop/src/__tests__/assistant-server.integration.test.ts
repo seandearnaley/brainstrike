@@ -410,6 +410,25 @@ describe('assistant-server', () => {
       expect(get).not.toHaveBeenCalled();
     });
 
+    it('classifies a malformed OpenRouter model id as a client error', async () => {
+      const get = vi.fn();
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model?model=garbage',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid_model',
+        message: 'OpenRouter model id must use the provider/model form',
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
     it('surfaces OpenRouter metadata failures without a static silent fallback', async () => {
       mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
       const get = vi.fn().mockRejectedValue(new Error('OpenRouter Models API returned status 503'));

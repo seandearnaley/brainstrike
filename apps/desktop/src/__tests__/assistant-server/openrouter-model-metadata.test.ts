@@ -60,6 +60,26 @@ describe('OpenRouterModelMetadataService', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('does not deduplicate concurrent refreshes across different API keys', async () => {
+    const resolvers: Array<(response: Response) => void> = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      async () =>
+        await new Promise<Response>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    const first = service.get('openai/gpt-5.4-mini', 'old-key');
+    const second = service.get('openai/gpt-5.4-mini', 'new-key');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const resolve of resolvers) {
+      resolve(new Response(JSON.stringify(payload), { status: 200 }));
+    }
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
   it('returns an explicitly stale snapshot when refresh fails after the TTL', async () => {
     let now = 1000;
     const fetchImpl = vi

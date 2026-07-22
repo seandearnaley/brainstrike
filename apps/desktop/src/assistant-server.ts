@@ -126,6 +126,7 @@ import {
 import {
   createOpenRouterModelMetadataService,
   type OpenRouterModelMetadataService,
+  requireOpenRouterModelId,
 } from './assistant-server/openrouter-model-metadata';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { prepareRequestSkills } from './assistant-server/request-skills';
@@ -1059,6 +1060,19 @@ async function handleOpenRouterModelMetadata(
     respondJson(res, 400, {
       error: 'missing_model',
       message: 'OpenRouter model metadata requires a model query parameter.',
+    });
+    return;
+  }
+
+  try {
+    requireOpenRouterModelId(modelId);
+  } catch (error) {
+    respondJson(res, 400, {
+      error: 'invalid_model',
+      message:
+        error instanceof Error
+          ? error.message.slice(0, OPENROUTER_METADATA_ERROR_MAX_CHARS)
+          : 'OpenRouter model id is invalid',
     });
     return;
   }
