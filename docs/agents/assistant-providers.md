@@ -805,7 +805,7 @@ example, trimming away its discovery result) throws the typed
 failure channels as `catalog-miss`, `permission-denied`, `host-unavailable`, and
 `unsupported-adapter`; adapters must not collapse them into an empty result.
 
-#### Provider-native decision (BST-614, 2026-07-21)
+#### Provider-native decisions (BST-614 and BST-680, 2026-07-21)
 
 Provider-native support is declarative, not live. The measured decision remains
 `mastra-catalog-search` for every hosted production route:
@@ -825,13 +825,25 @@ Provider-native support is declarative, not live. The measured decision remains
   three models. Do not trade this quality floor for a smaller unsuccessful
   request or a one-turn improvement that needs answer-specific prompting.
 
+BST-680 subsequently removed OpenAI's duplicate-item blocker without a patched
+dependency. Live GPT-5.4 Mini and GPT-5.6 Luna native runs then selected and
+executed both semantic and exact-path targets with distinct `tsc_...` and
+`tso_...` references. Production adoption still failed its paired economic
+gate: compared with the same Mastra catalog, native used 69–117% more input
+tokens and cost an estimated 36–79% more across all four comparisons. It was
+also slower on both GPT-5.4 Mini scenarios; Luna's isolated exact-path latency
+win was not a consistent cross-model advantage. The broader paid matrix stopped
+at that failed gate. The full measurements and revisit condition are in
+`docs/agents/research/bst-680-openai-native-tool-search-requalification.md`.
+
 There is no fallback between discovery adapters. A future provider-native slice
 must be selected explicitly and independently prove provider-history
 serialization, normal-prompt selection/miss quality, post-policy catalog
 admission, MCP/provider-web coexistence, approval suspension, durable restart
 resume, cache behavior, and non-inferior token/cost measurements. The complete
-evidence and live table are in
-`docs/agents/research/bst-614-native-tool-search-spike.md`.
+evidence and live tables are in
+`docs/agents/research/bst-614-native-tool-search-spike.md` and
+`docs/agents/research/bst-680-openai-native-tool-search-requalification.md`.
 
 #### Programmatic orchestration decision (BST-616, 2026-07-21)
 

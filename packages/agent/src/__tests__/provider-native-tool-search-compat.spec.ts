@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 // Intentional dependency canary: when either evaluated SDK surface changes,
-// revisit the BST-614 evidence before accepting the dependency update.
+// revisit the BST-614/BST-680 evidence before accepting the dependency update.
 describe('provider-native tool-search compatibility seam', () => {
-  it('exposes the exact hosted search tools evaluated by BST-614', () => {
+  it('exposes the exact hosted search tools evaluated by BST-614 and BST-680', () => {
     const openaiSearch = createOpenAI({ apiKey: 'not-used' }).tools.toolSearch();
     const anthropicSearch = createAnthropic({ apiKey: 'not-used' }).tools.toolSearchBm25_20251119();
 
