@@ -154,6 +154,19 @@ Napi::Value TerminateOtherProcesses(const Napi::CallbackInfo& info) {
       ThrowWindowsError(env, "OpenProcess", error);
       return env.Undefined();
     }
+
+    BOOL is_in_job = FALSE;
+    if (!IsProcessInJob(process, job_handle, &is_in_job)) {
+      const DWORD error = GetLastError();
+      CloseHandle(process);
+      ThrowWindowsError(env, "IsProcessInJob", error);
+      return env.Undefined();
+    }
+    if (!is_in_job) {
+      CloseHandle(process);
+      continue;
+    }
+
     if (!TerminateProcess(process, static_cast<UINT>(exit_code_value))) {
       const DWORD error = GetLastError();
       DWORD observed_exit_code = STILL_ACTIVE;
