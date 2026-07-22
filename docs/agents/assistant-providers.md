@@ -267,12 +267,12 @@
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
-- When the user has not set an output limit, OpenRouter requests use a 4,096
-  token per-step default. Mastra's provider otherwise expands an omitted limit
-  to the model's full output ceiling, which can make OpenRouter reject even a
-  tiny prompt during credit preflight. The automatic input-token budget MUST
-  reserve that actual 4,096-token request default (or the explicit configured
-  output limit), not the model's full output ceiling. The Output & Limits panel
+- The OpenRouter `Auto` output profile is sent explicitly because Mastra's
+  provider otherwise expands an omitted limit to the model's full output
+  ceiling, which can make OpenRouter reject even a tiny prompt during credit
+  preflight. The automatic input-token budget MUST reserve the same resolved
+  coding default (or the explicit configured output limit), not the model's
+  full output ceiling. The Output & Limits panel
   shows the selected model's context/output metadata, the effective reservation,
   and the resulting input budget. Desktop selected models install a validated
   live OpenRouter snapshot for budgeting and label its `live`, `fresh-cache`, or
