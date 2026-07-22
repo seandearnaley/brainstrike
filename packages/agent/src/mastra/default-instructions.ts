@@ -435,14 +435,14 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
 
 /**
  * Guidance for the lsp_inspect tool (report R2 Phase B). Emitted only when the
- * tool is registered; teaches the `<<<` cursor-marker convention so the model
- * reaches for semantic inspection instead of grepping for definitions.
+ * tool is registered; teaches the simple identifier path and the `<<<`
+ * disambiguation convention so the model reaches for semantic inspection.
  */
 function buildLspInspectInstruction(names: ModelFacingToolNames): string {
   if (!names.lspInspect) {
     return '';
   }
-  return `Before editing TypeScript/JavaScript, use ${names.lspInspect} for a symbol's inferred type, definition, and implementations. Pass its path, 1-based line, and \`match\`: the line text or a fragment occurring exactly once, with exactly one \`<<<\` immediately before the symbol.`;
+  return `Before editing TypeScript/JavaScript, use ${names.lspInspect} for a symbol's inferred type, definition, and implementations. Pass its path, 1-based line, and \`match\`: prefer the unique identifier itself. If it repeats on that line, pass a unique line fragment with exactly one \`<<<\` immediately before the intended occurrence.`;
 }
 
 function buildPlanModeBlock(names: ModelFacingToolNames): string {

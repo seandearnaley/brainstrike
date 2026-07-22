@@ -4665,6 +4665,106 @@ describe('assistant-tools multi-root read tools', () => {
       }
     }, 30_000);
 
+    it('lspInspect accepts a unique markerless identifier at its first character', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        const result = await tools['brainstrike.lspInspect'].execute({
+          context: { line: 2, match: 'greeting', path: '/src/sym.ts' },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.hover).toMatch(/string/);
+        expect(result.definition?.[0]?.line).toBe(1);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect tells repeated markerless identifiers to use an explicit cursor marker', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting = greeting;\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-repeated' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect does not match a markerless identifier inside a longer identifier', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greetingSuffix = 1;\nexport const greeting: string = "hi";\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-boundary' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect gives candidate lines for a markerless identifier on the wrong line', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting = 1;\nexport function inspectTarget() {}\n',
+          'utf8'
+        );
+        const tools = buildDesktopAssistantTools({
+          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-line' },
+          workspaceRootPath,
+        } as RuntimeData);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            context: { line: 1, match: 'export const x', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/must be one JavaScript\/TypeScript identifier/i);
+
+        await expect(
+          tools['brainstrike.lspInspect'].execute({
+            context: { line: 1, match: 'inspectTarget', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
     it('lspInspect refuses a match that does not occur on the target line (review)', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {

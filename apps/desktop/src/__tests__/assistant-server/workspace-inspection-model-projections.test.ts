@@ -44,8 +44,9 @@ describe('workspace inspection model projections', () => {
     expect(projected.value).toContain(
       'inspect: call brainstrike.lspInspect with the header root/path and one returned declaration line'
     );
+    expect(projected.value).toContain('pass the returned unique symbol name directly as match');
     expect(projected.value).toContain(
-      'place exactly one <<< immediately before the intended symbol in the returned declaration text'
+      'place exactly one <<< before the intended occurrence in a unique line fragment'
     );
   });
 

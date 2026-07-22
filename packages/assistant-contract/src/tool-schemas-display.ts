@@ -536,7 +536,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
       {
         description:
-          "The target line's text — or a fragment that occurs exactly once on that line — with a `<<<` cursor marker inserted right before the symbol (exactly one `<<<`), e.g. `const total = <<<computeTotal(items)`",
+          'Prefer the unique identifier itself, e.g. `computeTotal` (cursor at its first character). If it repeats on the line, use a unique fragment with exactly one `<<<` before the intended occurrence, e.g. `const total = <<<computeTotal(items)`',
         minLength: 3,
         name: 'match',
         required: true,
