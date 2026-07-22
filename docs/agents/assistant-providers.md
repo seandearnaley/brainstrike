@@ -58,6 +58,12 @@
   - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
+    Chat and model-metadata environment credentials remain authoritative when
+    present. A stored-key `SecretReadError` must otherwise propagate as the typed
+    `api_key_unreadable` chat/model-metadata failure (or the original typed
+    embedding failure); it must never be coerced into `missing_api_key`.
+    Embeddings may continue with a valid environment credential after a stored
+    read failure, but must rethrow that failure when no environment key exists.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

@@ -60,9 +60,13 @@ const mockSecretsService = {
   saveKey: vi.fn(),
 };
 
-vi.mock('../secrets', () => ({
-  getSecretsService: vi.fn(() => mockSecretsService),
-}));
+vi.mock('../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: vi.fn(() => mockSecretsService),
+  };
+});
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -389,6 +393,33 @@ describe('assistant-server', () => {
         metadata: { id: 'openai/gpt-5.4-mini' },
       });
       expect(get).toHaveBeenCalledWith('openai/gpt-5.4-mini', 'openrouter-key');
+    });
+
+    it('surfaces an unreadable OpenRouter key without calling the metadata service', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey.mockRejectedValueOnce(
+        new SecretReadError('decrypt_failed', 'openrouter')
+      );
+      const get = vi.fn();
+
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'decrypt_failed',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openrouter" is unreadable: stored secret could not be decrypted (the OS keychain entry may have changed). Re-enter the key to repair it.',
+        provider: 'openrouter',
+      });
+      expect(get).not.toHaveBeenCalled();
     });
 
     it('rejects an OpenRouter metadata request without an exact model id', async () => {
@@ -983,6 +1014,32 @@ describe('assistant-server', () => {
       const data = JSON.parse(response.body) as { error: string; message: string };
       expect(data.error).toBe('missing_api_key');
       expect(data.message).toContain('openai');
+    }, 10_000);
+
+    it('should distinguish an unreadable provider key from a missing key', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey.mockRejectedValueOnce(
+        new SecretReadError('encryption_unavailable', 'openrouter')
+      );
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openrouter' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'encryption_unavailable',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openrouter" is unreadable: safeStorage encryption is unavailable or insecure on this system. Re-enter the key to repair it.',
+        provider: 'openrouter',
+      });
     }, 10_000);
 
     it('should reject assistant route with invalid JSON payload', async () => {

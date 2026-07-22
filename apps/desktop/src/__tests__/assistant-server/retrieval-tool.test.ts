@@ -161,17 +161,22 @@ vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
 }));
 
-vi.mock('../../secrets', () => ({
-  getSecretsService: () => ({
-    getKey: getKeyMock,
-  }),
-}));
+vi.mock('../../secrets', async () => {
+  const actual = await vi.importActual<typeof import('../../secrets')>('../../secrets');
+  return {
+    ...actual,
+    getSecretsService: () => ({
+      getKey: getKeyMock,
+    }),
+  };
+});
 
 import {
   createQueryEmbeddingSpaceTool,
   createRetrievalTool,
   runQueryEmbeddingSpace,
 } from '../../assistant-server/retrieval-tool';
+import { SecretReadError } from '../../secrets';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
@@ -269,6 +274,32 @@ describe('retrieval-tool', () => {
       threshold: 0.3,
     });
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('preserves an unreadable stored embedding key when no environment key exists', async () => {
+    const readError = new SecretReadError('decrypt_failed', 'openai');
+    getKeyMock.mockRejectedValueOnce(readError);
+    resolveHostedProviderApiKeyMock.mockResolvedValueOnce(undefined);
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
+    ).rejects.toBe(readError);
+    expect(embedMock).not.toHaveBeenCalled();
+  });
+
+  it('uses an environment embedding key when the stored key is unreadable', async () => {
+    getKeyMock.mockRejectedValueOnce(new Error('stored embedding key is unreadable'));
+    resolveHostedProviderApiKeyMock.mockResolvedValueOnce('environment-key');
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const result = await tool.execute({
+      context: { embeddingSetId: 'set-1', query: 'hello' },
+    });
+
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(embedMock).toHaveBeenCalledOnce();
   });
 
   it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {

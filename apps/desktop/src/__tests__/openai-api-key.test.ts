@@ -109,37 +109,17 @@ describe('readOpenAIApiKey', () => {
       expect(result).toBeUndefined();
     });
 
-    it('should return undefined when secrets service throws an error', async () => {
+    it('should preserve secrets service failures', async () => {
       process.env.BRAINSTRIKE_OPENAI_API_KEY = undefined;
       process.env.BS_OPENAI_API_KEY = undefined;
       process.env.OPENAI_API_KEY = undefined;
 
+      const readError = new Error('Service unavailable');
       vi.mocked(getSecretsService).mockImplementation(() => {
-        throw new Error('Service unavailable');
+        throw readError;
       });
 
-      const result = await readOpenAIApiKey();
-      expect(result).toBeUndefined();
-    });
-
-    it('should return undefined when secrets import fails', async () => {
-      process.env.BRAINSTRIKE_OPENAI_API_KEY = undefined;
-      process.env.BS_OPENAI_API_KEY = undefined;
-      process.env.OPENAI_API_KEY = undefined;
-
-      // Mock the dynamic import to throw an error
-      const originalImport = (global as unknown as { import?: unknown }).import;
-      // @ts-expect-error simulate failing dynamic import
-      (global as unknown as { import: unknown }).import = vi
-        .fn()
-        .mockRejectedValue(new Error('Module not found')) as unknown;
-
-      const result = await readOpenAIApiKey();
-      expect(result).toBeUndefined();
-
-      // Restore
-      // @ts-expect-error restore possibly undefined property
-      (global as unknown as { import?: unknown }).import = originalImport;
+      await expect(readOpenAIApiKey()).rejects.toBe(readError);
     });
 
     it('should not use secrets service when env var is present', async () => {
