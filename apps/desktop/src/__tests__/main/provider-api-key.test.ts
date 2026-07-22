@@ -29,11 +29,16 @@ vi.mock('../../agent-client-loader', () => ({
   listAgentProviders: () => mockListAgentProviders(),
 }));
 
-vi.mock('../../secrets', () => ({
-  getSecretsService: () => mockGetSecretsService(),
-}));
+vi.mock('../../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: () => mockGetSecretsService(),
+  };
+});
 
 import {
+  inspectProviderKeys,
   listConfiguredProviders,
   readProviderApiKey,
   readProviderSecretKey,
@@ -103,5 +108,24 @@ describe('provider-api-key', () => {
 
     const providers = await listConfiguredProviders();
     expect(providers).toEqual(expect.arrayContaining(['openai', 'anthropic']));
+  });
+
+  it('does not inspect a stale stored key when an env key is authoritative', async () => {
+    mockListAgentProviders.mockReturnValue(['openai']);
+    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+    process.env['OPENAI_KEY'] = 'env-openai';
+
+    const secrets = {
+      getKey: vi.fn().mockRejectedValue(new Error('stale stored key')),
+      listProviders: vi.fn().mockResolvedValue(['openai']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: ['openai'],
+      readFailures: [],
+    });
+    expect(secrets.getKey).not.toHaveBeenCalled();
   });
 });

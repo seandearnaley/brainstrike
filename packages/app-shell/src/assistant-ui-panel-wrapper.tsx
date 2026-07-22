@@ -143,6 +143,7 @@ export interface AssistantUiPanelWrapperProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
+  providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
@@ -182,6 +183,7 @@ export function AssistantUiPanelWrapper({
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
+  providerReadErrors,
 }: AssistantUiPanelWrapperProps) {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
@@ -1291,6 +1293,7 @@ export function AssistantUiPanelWrapper({
         getProviderLlmModels,
         localRuntimeHint,
         providerHasEnabledModels,
+        ...(providerReadErrors ? { providerReadErrors } : {}),
         selectedProvider,
       }),
     [
@@ -1299,6 +1302,7 @@ export function AssistantUiPanelWrapper({
       getProviderLlmModels,
       localRuntimeHint,
       providerHasEnabledModels,
+      providerReadErrors,
       selectedProvider,
     ]
   );

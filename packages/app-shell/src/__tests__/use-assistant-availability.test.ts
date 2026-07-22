@@ -1,3 +1,7 @@
+import {
+  __resetSecretsStoreForTests,
+  useSecretsStore,
+} from '@brainstrike/preferences/stores/secrets-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -10,6 +14,10 @@ import {
 } from '../hooks/use-assistant-availability';
 
 describe('useAssistantAvailability', () => {
+  beforeEach(() => {
+    __resetSecretsStoreForTests();
+  });
+
   afterEach(() => {
     Reflect.deleteProperty(window, '__assistantAvailabilityOverride');
   });
@@ -31,6 +39,40 @@ describe('useAssistantAvailability', () => {
     const { result } = renderHook(() => useAssistantAvailability(fetcher));
 
     await waitFor(() => expect(result.current).toEqual({ message: 'boom', state: 'error' }));
+  });
+
+  it('refetches provider status when a stored secret changes', async () => {
+    const fetcher = vi
+      .fn<AssistantStatusFetcher>()
+      .mockResolvedValueOnce({
+        providerErrors: [
+          {
+            code: 'decrypt_failed',
+            error: 'api_key_unreadable',
+            message: 'Re-enter the OpenRouter key.',
+            provider: 'openrouter',
+          },
+        ],
+        state: 'enabled',
+      })
+      .mockResolvedValueOnce({ state: 'enabled' });
+
+    const { result } = renderHook(() => useAssistantAvailability(fetcher));
+
+    await waitFor(() =>
+      expect(result.current).toMatchObject({
+        providerErrors: [{ provider: 'openrouter' }],
+        state: 'enabled',
+      })
+    );
+
+    act(() => {
+      useSecretsStore.getState().notifySecretsChanged();
+    });
+
+    expect(result.current).toEqual({ state: 'loading' });
+    await waitFor(() => expect(result.current).toEqual({ state: 'enabled' }));
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('reacts when the availability override is installed after mount', async () => {
@@ -220,6 +262,46 @@ describe('fetchAssistantStatusState', () => {
       provider: 'openai',
       state: 'enabled',
     });
+  });
+
+  it('preserves validated provider read errors from an enabled desktop status', async () => {
+    const providerError = {
+      code: 'decrypt_failed',
+      error: 'api_key_unreadable',
+      message: 'Stored OpenRouter key is unreadable. Re-enter the key to repair it.',
+      provider: 'openrouter',
+    } as const;
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, providerErrors: [providerError] }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      providerErrors: [providerError],
+      state: 'enabled',
+    });
+  });
+
+  it('rejects malformed provider read errors instead of guessing', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerErrors: [{ error: 'api_key_unreadable', provider: 'unknown' }],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Invalid assistant provider error');
   });
 
   it('rejects incomplete hosted runtime metadata', async () => {

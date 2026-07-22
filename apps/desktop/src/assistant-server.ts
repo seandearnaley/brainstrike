@@ -140,9 +140,8 @@ import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
-import { readOpenAIApiKey } from './openai-api-key';
 import {
-  listConfiguredProviders,
+  inspectProviderKeys,
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
@@ -1043,10 +1042,14 @@ async function prepareAssistantPostRequest(
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
   try {
-    const providers = await collectAvailableProviders();
+    const { providerErrors, providers } = await collectAvailableProviders();
     const enabled = providers.length > 0;
     const payload = enabled
-      ? { enabled, providers }
+      ? {
+          enabled,
+          ...(providerErrors.length > 0 ? { providerErrors } : {}),
+          providers,
+        }
       : { enabled, providers: [] as string[], reason: 'no_providers_configured' };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -1386,26 +1389,30 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
   return;
 }
 
-async function collectAvailableProviders(): Promise<string[]> {
-  const providers = new Set(await listConfiguredProviders());
+async function collectAvailableProviders(): Promise<{
+  providerErrors: Array<{
+    code: string;
+    error: 'api_key_unreadable';
+    message: string;
+    provider: SupportedProvider;
+  }>;
+  providers: string[];
+}> {
+  const inspection = await inspectProviderKeys();
+  const providers = new Set(inspection.configuredProviders);
 
   // Local provider is always available (runs in-browser, no API key needed)
   providers.add('local');
 
-  try {
-    const legacy = await readOpenAIApiKey();
-    if (legacy) {
-      providers.add('openai');
-    }
-  } catch (error) {
-    if (error instanceof SecretReadError) {
-      logger.error('Legacy OpenAI key is unreadable; omitting it from provider status', { error });
-      return Array.from(providers);
-    }
-    logger.error('Failed to read legacy OpenAI key', { error });
-    throw error;
-  }
-  return Array.from(providers);
+  return {
+    providerErrors: inspection.readFailures.map((failure) => ({
+      code: failure.code,
+      error: 'api_key_unreadable' as const,
+      message: failure.message,
+      provider: failure.provider,
+    })),
+    providers: Array.from(providers),
+  };
 }
 
 function registerRequestAbort(

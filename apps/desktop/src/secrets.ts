@@ -1,7 +1,8 @@
+import type { SecretReadErrorCode } from '@brainstrike/assistant-contract';
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
 
-export type SecretReadErrorCode = 'decrypt_failed' | 'encryption_unavailable';
+export type { SecretReadErrorCode } from '@brainstrike/assistant-contract';
 
 /**
  * A stored secret exists but cannot be read. Distinct from the `null` "not

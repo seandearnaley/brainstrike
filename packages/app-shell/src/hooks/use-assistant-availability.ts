@@ -1,15 +1,32 @@
-import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_AUTH_HEADER_NAME,
+  isSecretReadErrorCode,
+  type SecretReadErrorCode,
+} from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   isValidModelForProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+export interface AssistantProviderReadError {
+  readonly code: SecretReadErrorCode;
+  readonly error: 'api_key_unreadable';
+  readonly message: string;
+  readonly provider: SupportedProvider;
+}
+
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
-  | { state: 'enabled'; model?: string; provider?: SupportedProvider }
+  | {
+      state: 'enabled';
+      model?: string;
+      provider?: SupportedProvider;
+      providerErrors?: readonly AssistantProviderReadError[];
+    }
   | { state: 'disabled'; reason?: string }
   | { state: 'error'; message: string };
 
@@ -28,6 +45,7 @@ interface AssistantAvailabilityOverrideSnapshot {
 interface FetchedAssistantAvailability {
   readonly fetcher: AssistantStatusFetcher;
   readonly overrideRevision: number;
+  readonly secretsVersion: number;
   readonly status: AssistantAvailabilityStatus;
 }
 
@@ -47,6 +65,7 @@ declare global {
 export function useAssistantAvailability(
   fetcher: AssistantStatusFetcher = defaultFetcher
 ): AssistantAvailabilityStatus {
+  const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   const { override, revision: overrideRevision } = useSyncExternalStore(
     subscribeToAssistantAvailabilityOverride,
     getAssistantAvailabilityOverrideSnapshot,
@@ -56,6 +75,7 @@ export function useAssistantAvailability(
     () => ({
       fetcher,
       overrideRevision,
+      secretsVersion,
       status: loadingStatus,
     })
   );
@@ -74,6 +94,7 @@ export function useAssistantAvailability(
           setFetchedAvailability({
             fetcher,
             overrideRevision,
+            secretsVersion,
             status: next,
           });
         }
@@ -88,6 +109,7 @@ export function useAssistantAvailability(
         setFetchedAvailability({
           fetcher,
           overrideRevision,
+          secretsVersion,
           status: {
             message: error instanceof Error ? error.message : String(error),
             state: 'error',
@@ -99,7 +121,7 @@ export function useAssistantAvailability(
       cancelled = true;
       controller.abort();
     };
-  }, [fetcher, override, overrideRevision]);
+  }, [fetcher, override, overrideRevision, secretsVersion]);
 
   if (override !== undefined) {
     return override;
@@ -107,7 +129,8 @@ export function useAssistantAvailability(
 
   if (
     fetchedAvailability.fetcher !== fetcher ||
-    fetchedAvailability.overrideRevision !== overrideRevision
+    fetchedAvailability.overrideRevision !== overrideRevision ||
+    fetchedAvailability.secretsVersion !== secretsVersion
   ) {
     return loadingStatus;
   }
@@ -298,18 +321,23 @@ export async function fetchAssistantStatusState({
   const payload = (await response.json()) as {
     enabled: boolean;
     model?: string;
+    providerErrors?: unknown;
     provider?: string;
     reason?: string;
   };
 
   if (payload.enabled) {
+    const providerErrors = parseAssistantProviderReadErrors(payload.providerErrors);
     const hasProvider = payload.provider !== undefined;
     const hasModel = payload.model !== undefined;
     if (hasProvider !== hasModel) {
       throw new Error('Assistant status must advertise provider and model together');
     }
     if (!(hasProvider && hasModel)) {
-      return { state: 'enabled' };
+      return {
+        ...(providerErrors ? { providerErrors } : {}),
+        state: 'enabled',
+      };
     }
     if (!isSupportedProvider(payload.provider)) {
       throw new Error(`Unsupported assistant provider: ${payload.provider}`);
@@ -322,6 +350,7 @@ export async function fetchAssistantStatusState({
     }
     return {
       model: payload.model,
+      ...(providerErrors ? { providerErrors } : {}),
       provider: payload.provider,
       state: 'enabled',
     };
@@ -332,6 +361,45 @@ export async function fetchAssistantStatusState({
   }
 
   return { state: 'disabled' };
+}
+
+function parseAssistantProviderReadErrors(
+  value: unknown
+): readonly AssistantProviderReadError[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant provider error list');
+  }
+
+  const providers = new Set<SupportedProvider>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object')) {
+      throw new Error('Invalid assistant provider error');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const code = candidate['code'];
+    if (
+      typeof provider !== 'string' ||
+      !isSupportedProvider(provider) ||
+      providers.has(provider) ||
+      candidate['error'] !== 'api_key_unreadable' ||
+      !isSecretReadErrorCode(code) ||
+      typeof candidate['message'] !== 'string' ||
+      candidate['message'].trim().length === 0
+    ) {
+      throw new Error('Invalid assistant provider error');
+    }
+    providers.add(provider);
+    return {
+      code,
+      error: 'api_key_unreadable',
+      message: candidate['message'],
+      provider,
+    };
+  });
 }
 
 export const __private__ = {

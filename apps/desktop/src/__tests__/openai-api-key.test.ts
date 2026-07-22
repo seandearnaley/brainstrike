@@ -8,9 +8,13 @@ import {
 } from '../provider-api-key';
 import { getSecretsService } from '../secrets';
 
-vi.mock('../secrets', () => ({
-  getSecretsService: vi.fn(),
-}));
+vi.mock('../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: vi.fn(),
+  };
+});
 
 describe('readOpenAIApiKey', () => {
   const originalEnv = process.env;

@@ -787,6 +787,19 @@ describe('assistant runtime helpers', () => {
         selectedProvider: 'openai',
       })
     ).toBe('Enable at least one model for OpenAI to continue.');
+    expect(
+      resolveAssistantProviderDisabledReason({
+        configuredProviders: ['openrouter'],
+        currentModel: 'openrouter::openai/gpt-5.4-mini',
+        getProviderLlmModels: () => [],
+        localRuntimeHint: undefined,
+        providerHasEnabledModels: () => true,
+        providerReadErrors: {
+          openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+        },
+        selectedProvider: 'openrouter',
+      })
+    ).toBe('Stored OpenRouter key is unreadable. Re-enter it to repair access.');
   });
 });
 

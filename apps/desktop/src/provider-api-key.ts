@@ -2,7 +2,7 @@ import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
-import { getSecretsService } from './secrets';
+import { getSecretsService, SecretReadError, type SecretReadErrorCode } from './secrets';
 
 const logger = createLogger('ProviderApiKey');
 
@@ -46,8 +46,20 @@ export async function readProviderApiKey(provider: SupportedProvider): Promise<s
   return await readProviderSecretKey(provider);
 }
 
-export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
+export interface ProviderKeyReadFailure {
+  readonly code: SecretReadErrorCode;
+  readonly message: string;
+  readonly provider: SupportedProvider;
+}
+
+export interface ProviderKeyInspection {
+  readonly configuredProviders: SupportedProvider[];
+  readonly readFailures: ProviderKeyReadFailure[];
+}
+
+export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
   const configured = new Set<SupportedProvider>();
+  const readFailures: ProviderKeyReadFailure[] = [];
   const supportedProviders = listAgentProviders();
 
   for (const provider of supportedProviders) {
@@ -56,31 +68,43 @@ export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
     }
   }
 
-  try {
-    const secretsService = getSecretsService();
-    const storedProviders: string[] = await secretsService.listProviders();
-    for (const provider of storedProviders) {
-      if (!isSupportedProvider(provider)) {
-        continue;
-      }
-      const supported = provider as SupportedProvider;
-      try {
-        const key = await secretsService.getKey(supported);
-        if (normalizeSecretValue(key)) {
-          configured.add(supported);
-        }
-      } catch (error) {
-        // Per-provider: one unreadable key must not abort enumeration of the
-        // providers after it (BST-574 review finding). Surfaced, not counted.
-        logger.error('Stored provider key is unreadable; omitting from configured list', {
-          error,
-          provider: supported,
-        });
-      }
+  const secretsService = getSecretsService();
+  const storedProviders: string[] = await secretsService.listProviders();
+  for (const provider of storedProviders) {
+    if (!isSupportedProvider(provider)) {
+      continue;
     }
-  } catch (error) {
-    logger.error('Failed to enumerate stored provider keys', { error });
+    const supported = provider as SupportedProvider;
+    if (configured.has(supported)) {
+      continue;
+    }
+    try {
+      const key = await secretsService.getKey(supported);
+      if (normalizeSecretValue(key)) {
+        configured.add(supported);
+      }
+    } catch (error) {
+      if (!(error instanceof SecretReadError)) {
+        throw error;
+      }
+      logger.error('Stored provider key is unreadable; reporting provider failure', {
+        error,
+        provider: supported,
+      });
+      readFailures.push({
+        code: error.code,
+        message: error.message,
+        provider: supported,
+      });
+    }
   }
 
-  return Array.from(configured.values());
+  return {
+    configuredProviders: Array.from(configured.values()),
+    readFailures,
+  };
+}
+
+export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
+  return (await inspectProviderKeys()).configuredProviders;
 }

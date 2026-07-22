@@ -6,6 +6,7 @@ import {
 import type { ReactElement } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
+import type { AssistantProviderReadError } from './hooks/use-assistant-availability';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 
 export interface AssistantChatPanelProps {
@@ -44,6 +45,9 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
         {status.state === 'enabled' && (
           <AssistantUiPanelWrapperLazy
             {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+            {...(status.providerErrors
+              ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
+              : {})}
             {...(status.provider && status.model
               ? {
                   fixedProviderModels: { [status.provider]: [status.model] },
@@ -55,6 +59,12 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
       </div>
     </div>
   );
+}
+
+function toProviderReadErrors(
+  errors: readonly AssistantProviderReadError[]
+): Partial<Record<AssistantProviderReadError['provider'], string>> {
+  return Object.fromEntries(errors.map((error) => [error.provider, error.message]));
 }
 
 function getAssistantDisabledDescription(reason: string | undefined): string {

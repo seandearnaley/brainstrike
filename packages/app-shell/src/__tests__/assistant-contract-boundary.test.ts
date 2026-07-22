@@ -80,9 +80,9 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1625 → 1635 for mid-run steering (BST-588): the wrapper only calls
     // useSteerActiveRun (transport in use-steer-active-run.ts) and passes
     // onSteerActiveRun to the panel behind the desktop-bridge capability gate.
-    // Both features landed independently; this is the SUM of both documented
-    // deltas, reconciled when BST-588 rebased onto the merged BST-587.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1635);
+    // BST-593 adds the provider-read-error prop and threads it into the existing
+    // disabled-reason composition boundary without adding runtime ownership.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1639);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
