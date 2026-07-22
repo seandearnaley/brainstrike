@@ -54,6 +54,13 @@ test('every expensive test job is held behind the same admission decision', () =
   }
 });
 
+test('Static bounds type-check concurrency to the arm64 runner memory budget', () => {
+  assert.match(
+    jobBlock('static'),
+    /^ {6}- name: Type check\n {8}env:\n {10}TURBO_CONCURRENCY: 4\n {8}run: pnpm run type-check$/m
+  );
+});
+
 test('quiet-head admission is cheap, PR-only, exact-head, and fail-closed', () => {
   const admission = jobBlock('admission');
 

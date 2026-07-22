@@ -141,6 +141,15 @@ arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 stay on x64: P1 did not test them, and they are inherently
 Electron/Playwright/Windows-bound work.
 
+The Static job caps the monorepo type-check with Turbo's official
+`TURBO_CONCURRENCY=4` environment variable.
+Unbounded scheduling repeatedly exhausted the arm64 runner after the workspace
+reached 43 packages: Turbo received a shutdown signal while launching more than
+30 type-check tasks and the shell exited 137 without a TypeScript diagnostic.
+Keep the cap on the CI invocation rather than weakening package coverage or
+changing local developer defaults. The exact workflow command is guarded by
+`scripts/__tests__/quiet-head-admission-contract.test.mjs`.
+
 **Non-obvious trap for future maintainers:** the turbo *remote* cache
 (`TURBO_TOKEN`/`TURBO_TEAM`) is arch-agnostic — turbo's cache hash does not
 include CPU architecture, and `runner.os` reports `"Linux"` on both x64 and

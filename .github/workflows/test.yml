@@ -164,6 +164,8 @@ jobs:
         run: pnpm run lint:ci
 
       - name: Type check
+        env:
+          TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
   unit-shard:
