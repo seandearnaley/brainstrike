@@ -84,6 +84,30 @@ describe('workspace root manifest', () => {
     expect(manifestText(runtime).length).toBeLessThan(700);
   });
 
+  it('emits one entry when the Main root is also Focused', () => {
+    expect(
+      manifestPayload({
+        provider: 'anthropic',
+        selectionFolderId: ROOT_A.rootId,
+        workspaceRootPath: ROOT_A.path,
+        workspaceRoots: [ROOT_A],
+      })
+    ).toEqual({
+      count: 1,
+      focusedRoot: ROOT_A.rootId,
+      mainRoot: ROOT_A.rootId,
+      roots: [
+        {
+          name: ROOT_A.displayName,
+          path: ROOT_A.path,
+          roles: ['Main', 'Focused'],
+          root: ROOT_A.rootId,
+        },
+      ],
+      state: 'available',
+    });
+  });
+
   it('does not spend the compact local-model context budget on the hosted manifest', () => {
     const messages = [{ parts: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }];
     expect(

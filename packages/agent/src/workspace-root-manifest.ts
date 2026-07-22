@@ -61,11 +61,15 @@ function prioritizeRoots(
   roots: readonly RuntimeWorkspaceRoot[],
   focusedRoot: RuntimeWorkspaceRoot | null
 ): RuntimeWorkspaceRoot[] {
-  const priority = [roots[0], focusedRoot].filter(
-    (root): root is RuntimeWorkspaceRoot => root !== undefined && root !== null
-  );
-  const seen = new Set(priority.map((root) => root.rootId));
-  return [...priority, ...roots.filter((root) => !seen.has(root.rootId))];
+  const prioritized: RuntimeWorkspaceRoot[] = [];
+  const seen = new Set<string>();
+  for (const root of [roots[0], focusedRoot, ...roots]) {
+    if (root && !seen.has(root.rootId)) {
+      seen.add(root.rootId);
+      prioritized.push(root);
+    }
+  }
+  return prioritized;
 }
 
 function toManifestRoot(
