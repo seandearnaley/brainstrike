@@ -126,6 +126,7 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
@@ -322,7 +323,6 @@ export function AssistantUiPanelWrapper({
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
   );
-
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -376,25 +376,24 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
-  // Resolve the selected model's definition from the runtime model list.
-  // Using the runtime list (not getLlmModelDefinition) covers both static registry
-  // models AND dynamically-discovered ollama/lmstudio models, which have a conservative
-  // contextWindow floor set by toRuntimeProviderModels. Feeds the token budget
-  // and the composer attachment (vision) gate.
-  const selectedLlmModelDef = useMemo<LlmProviderModelDefinition | undefined>(() => {
-    if (!(selectedProvider && resolvedModelName)) {
-      return;
-    }
-    return getProviderLlmModels(selectedProvider).find(
-      (m: LlmProviderModelDefinition) => m.id === resolvedModelName
-    );
-  }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
+  const selectedLlmModelDef =
+    selectedProvider && resolvedModelName
+      ? getProviderLlmModels(selectedProvider).find((model) => model.id === resolvedModelName)
+      : undefined;
+  const openRouterMetadata = useOpenRouterModelMetadata({
+    modelId: resolvedModelName,
+    providerId: selectedProvider,
+    selectedModelDef: selectedLlmModelDef,
+    settings: selectedProviderSettings,
+  });
   const agentLoopSettings = useMemo(
-    // LlmProviderModelDefinition structurally satisfies SelectedModelBudgetDef
-    // (contextWindow required, maxOutputTokens optional on both) — no
-    // projection needed.
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef, selectedProvider),
-    [selectedLlmModelDef, selectedProvider, selectedProviderSettings]
+    () =>
+      buildAgentLoopSettings(
+        selectedProviderSettings,
+        openRouterMetadata.modelDef,
+        selectedProvider
+      ),
+    [openRouterMetadata.modelDef, selectedProvider, selectedProviderSettings]
   );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
@@ -1248,8 +1247,7 @@ export function AssistantUiPanelWrapper({
     isModelEnabled,
   });
 
-  // Recents feed the composer model menu's top rows. Filter to composite keys
-  // that are still valid selections (configured provider + enabled model) so
+  // Recents include only valid selections (configured provider + enabled model), so
   // a disabled/retired model never renders as a pickable recent.
   const validRecentModels = useMemo(() => {
     const validKeys = new Set(pickerModels.map((model) => `${model.providerId}::${model.id}`));
@@ -1304,7 +1302,8 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
-  const disabledReason = memoryDisabledReason ?? providerDisabledReason;
+  const disabledReason =
+    memoryDisabledReason ?? providerDisabledReason ?? openRouterMetadata.reason;
 
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
@@ -1571,10 +1570,11 @@ export function AssistantUiPanelWrapper({
               {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
               {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
               completePreparedRequest={completePreparedRequest}
-              contextWindow={selectedLlmModelDef?.contextWindow}
+              contextWindow={openRouterMetadata.modelDef?.contextWindow}
               {...(cumulativeUsage ? { cumulativeUsage } : {})}
               effectiveInputBudget={effectiveInputBudget}
               omSegment={omSegment}
+              openRouterModelMetadataLookup={openRouterMetadata.lookup}
               {...(selectedMemoryThreadId
                 ? {
                     onComposerDraftCommandApplied: handleComposerCommandApplied,
@@ -1608,7 +1608,11 @@ export function AssistantUiPanelWrapper({
               {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
               {...(selectedProvider ? { selectedProvider } : {})}
               {...(currentModel ? { selectedModel: currentModel } : {})}
-              disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+              disabled={
+                !isProviderReady ||
+                Boolean(memoryDisabledReason) ||
+                Boolean(openRouterMetadata.reason)
+              }
               onModelChange={handleModelChange}
               onModelToggle={handleModelToggle}
               {...(disabledReason ? { disabledReason } : {})}

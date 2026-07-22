@@ -7,6 +7,7 @@ import {
   type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
+  type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
@@ -961,6 +962,25 @@ export function buildModelSettings(
   }
   const value = Math.max(1, Math.floor(settings.maxOutputTokens));
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
+}
+
+const openRouterLimitFormatter = new Intl.NumberFormat();
+
+export function resolveOpenRouterMetadataDisabledReason(
+  providerId: string | null | undefined,
+  settings: AssistantProviderSettings | undefined,
+  lookup: OpenRouterModelMetadataLookup | undefined
+): string | undefined {
+  if (!(providerId === 'openrouter' && lookup?.state === 'resolved')) {
+    return;
+  }
+  const configured = buildPositiveIntegerSetting(settings?.maxOutputTokens);
+  const maximum = lookup.snapshot.metadata.maxOutputTokens;
+  if (!(configured && maximum && configured > maximum)) {
+    return;
+  }
+  const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
+  return `Configured output limit ${openRouterLimitFormatter.format(configured)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
 }
 
 function buildPositiveIntegerSetting(value: unknown): number | undefined {

@@ -3,6 +3,7 @@ import {
   deriveEffectiveInputBudget,
   getProviderDefinition,
   type LlmModelDefinition,
+  type OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
@@ -14,6 +15,7 @@ import { Label } from '../label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
 import { clampNumber, parseNumber } from './assistant-ui-panel-utils';
+import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import {
   ANTHROPIC_THINKING_DEFAULT,
   ANTHROPIC_THINKING_MAX,
@@ -52,6 +54,7 @@ interface ProviderSettingsPanelProps {
   onSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
   providerId?: string | undefined;
   settings?: AssistantProviderSettings | undefined;
 }
@@ -70,32 +73,75 @@ interface OpenRouterModelLimits {
   label: string;
   maxOutputTokens: number | undefined;
   outputReservation: number;
+  sourceLabel: string;
+  statusMessage?: string;
+  usesConfiguredOutput: boolean;
+  warning?: string;
+}
+
+function resolveOpenRouterSourceLabel(lookup: OpenRouterModelMetadataLookup | undefined): string {
+  if (lookup?.state !== 'resolved') {
+    return 'built-in model catalog';
+  }
+  switch (lookup.snapshot.freshness) {
+    case 'live':
+      return 'OpenRouter live';
+    case 'fresh-cache':
+      return 'OpenRouter cache (fresh)';
+    case 'stale-cache':
+      return 'OpenRouter cache (stale)';
+  }
 }
 
 function resolveOpenRouterModelLimits(
   modelName: string | undefined,
-  settings: AssistantProviderSettings
+  settings: AssistantProviderSettings,
+  lookup: OpenRouterModelMetadataLookup | undefined
 ): OpenRouterModelLimits | undefined {
   if (!modelName) {
     return;
   }
-  const model = getProviderDefinition('openrouter').models.find(
+  const staticModel = getProviderDefinition('openrouter').models.find(
     (candidate): candidate is LlmModelDefinition =>
       candidate.type === 'llm' && candidate.id === modelName
   );
-  if (!model) {
+  const liveMetadata =
+    lookup?.state === 'resolved' && lookup.snapshot.metadata.id === modelName
+      ? lookup.snapshot.metadata
+      : undefined;
+  if (!(staticModel || liveMetadata)) {
     return;
   }
+  const contextWindow = liveMetadata?.contextWindow ?? staticModel?.contextWindow;
+  if (contextWindow === undefined) {
+    return;
+  }
+  const maxOutputTokens = liveMetadata
+    ? liveMetadata.maxOutputTokens
+    : staticModel?.maxOutputTokens;
   const outputReservation =
     typeof settings.maxOutputTokens === 'number'
       ? Math.max(1, Math.floor(settings.maxOutputTokens))
       : CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
   return {
-    contextWindow: model.contextWindow,
-    effectiveInputBudget: deriveEffectiveInputBudget(model.contextWindow, outputReservation),
-    label: model.label ?? model.id,
-    maxOutputTokens: model.maxOutputTokens,
+    contextWindow,
+    effectiveInputBudget: deriveEffectiveInputBudget(contextWindow, outputReservation),
+    label: staticModel?.label ?? modelName,
+    maxOutputTokens,
     outputReservation,
+    sourceLabel: resolveOpenRouterSourceLabel(lookup),
+    usesConfiguredOutput: typeof settings.maxOutputTokens === 'number',
+    ...(lookup?.state === 'loading'
+      ? { statusMessage: 'Checking live OpenRouter metadata; using the built-in catalog.' }
+      : {}),
+    ...(lookup?.state === 'error'
+      ? {
+          statusMessage: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+        }
+      : {}),
+    ...(lookup?.state === 'resolved' && lookup.snapshot.freshness === 'stale-cache'
+      ? { warning: lookup.snapshot.warning }
+      : {}),
   };
 }
 
@@ -468,15 +514,52 @@ const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSetting
   </div>
 );
 
+function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits | undefined }) {
+  if (!limits) {
+    return (
+      <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] text-destructive">
+        OpenRouter limits unavailable for this model in the built-in catalog.
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
+      <p className="font-medium text-foreground">{limits.label}</p>
+      <p>
+        {settingsNumberFormatter.format(limits.contextWindow)} context ·{' '}
+        {limits.maxOutputTokens === undefined
+          ? 'max output not declared'
+          : `${settingsNumberFormatter.format(limits.maxOutputTokens)} max output`}
+      </p>
+      <p>
+        {limits.usesConfiguredOutput
+          ? `${settingsNumberFormatter.format(limits.outputReservation)} configured output`
+          : `Auto requests ${settingsNumberFormatter.format(limits.outputReservation)}`}{' '}
+        · {settingsNumberFormatter.format(limits.effectiveInputBudget)} effective input
+      </p>
+      <p>Source: {limits.sourceLabel}</p>
+      {limits.statusMessage ? <p className="text-destructive">{limits.statusMessage}</p> : null}
+      {limits.warning ? (
+        <p className="text-amber-700 dark:text-amber-300">
+          Stale metadata warning: {limits.warning}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 // `modelName` stays on the props contract for callers, but no remaining
 // section is model-scoped (the model-constrained effort controls moved to the
 // composer model menu).
 export const ProviderSettingsPanel = ({
   modelName,
+  openRouterModelMetadataLookup,
   providerId,
   settings,
   onSettingsChange,
 }: ProviderSettingsPanelProps) => {
+  const contextOpenRouterModelMetadataLookup = useOpenRouterModelMetadataLookup();
   if (!providerId) {
     return null;
   }
@@ -492,9 +575,15 @@ export const ProviderSettingsPanel = ({
   }
 
   const currentSettings = settings ?? {};
+  const effectiveOpenRouterModelMetadataLookup =
+    openRouterModelMetadataLookup ?? contextOpenRouterModelMetadataLookup;
   const openRouterLimits =
     normalizedProvider === 'openrouter'
-      ? resolveOpenRouterModelLimits(modelName, currentSettings)
+      ? resolveOpenRouterModelLimits(
+          modelName,
+          currentSettings,
+          effectiveOpenRouterModelMetadataLookup
+        )
       : undefined;
   const canUpdate = Boolean(onSettingsChange);
   const updateSettings: ProviderSettingsUpdate = (updates) => {
@@ -519,29 +608,7 @@ export const ProviderSettingsPanel = ({
       </div>
 
       {normalizedProvider === 'openrouter' ? (
-        openRouterLimits ? (
-          <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
-            <p className="font-medium text-foreground">{openRouterLimits.label}</p>
-            <p>
-              {settingsNumberFormatter.format(openRouterLimits.contextWindow)} context ·{' '}
-              {openRouterLimits.maxOutputTokens === undefined
-                ? 'max output not declared'
-                : `${settingsNumberFormatter.format(openRouterLimits.maxOutputTokens)} max output`}
-            </p>
-            <p>
-              {typeof currentSettings.maxOutputTokens === 'number'
-                ? `${settingsNumberFormatter.format(openRouterLimits.outputReservation)} configured output`
-                : `Auto requests ${settingsNumberFormatter.format(openRouterLimits.outputReservation)}`}{' '}
-              · {settingsNumberFormatter.format(openRouterLimits.effectiveInputBudget)} effective
-              input
-            </p>
-            <p>Source: built-in model catalog</p>
-          </div>
-        ) : (
-          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] text-destructive">
-            OpenRouter limits unavailable for this model in the built-in catalog.
-          </p>
-        )
+        <OpenRouterModelLimitsCard limits={openRouterLimits} />
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">

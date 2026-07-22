@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseOpenRouterModelMetadata } from '../openrouter-model-metadata.js';
+import {
+  parseOpenRouterModelMetadata,
+  parseOpenRouterModelMetadataSnapshot,
+} from '../openrouter-model-metadata.js';
 
 describe('parseOpenRouterModelMetadata', () => {
   it('parses the documented selected-model fields', () => {
@@ -113,5 +116,49 @@ describe('parseOpenRouterModelMetadata', () => {
         42
       )
     ).toThrow('at most 64');
+  });
+});
+
+describe('parseOpenRouterModelMetadataSnapshot', () => {
+  it('accepts a validated live assistant-server snapshot', () => {
+    expect(
+      parseOpenRouterModelMetadataSnapshot({
+        freshness: 'live',
+        metadata: {
+          checkedAt: 42,
+          contextWindow: 1_000_000,
+          id: 'anthropic/claude-sonnet-4.6',
+          maxOutputTokens: 128_000,
+          source: 'openrouter-models-api',
+          supportedParameters: ['tools', 'reasoning'],
+        },
+      })
+    ).toEqual({
+      freshness: 'live',
+      metadata: {
+        checkedAt: 42,
+        contextWindow: 1_000_000,
+        id: 'anthropic/claude-sonnet-4.6',
+        maxOutputTokens: 128_000,
+        source: 'openrouter-models-api',
+        supportedParameters: ['tools', 'reasoning'],
+      },
+    });
+  });
+
+  it('requires a bounded warning for stale cache data', () => {
+    expect(() =>
+      parseOpenRouterModelMetadataSnapshot({
+        freshness: 'stale-cache',
+        metadata: {
+          checkedAt: 42,
+          contextWindow: 400_000,
+          id: 'openai/gpt-5.4-mini',
+          source: 'openrouter-models-api',
+          supportedParameters: [],
+        },
+        warning: '',
+      })
+    ).toThrow(/warning/);
   });
 });

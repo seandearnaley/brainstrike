@@ -27,6 +27,7 @@ import {
   type AssistantToolApprovalRequest,
   CONTEXT_BREAKDOWN_DATA_NAME,
   type LocalLlmBackendFactory,
+  type OpenRouterModelMetadataLookup,
   SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
@@ -42,7 +43,6 @@ import {
   RefreshCwIcon,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-// @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
@@ -57,7 +57,6 @@ import {
 } from './approval-action-chip';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
-import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 import {
   assistantEndpointLogger,
   resolveAssistantAuthHeaders,
@@ -82,6 +81,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { AssistantPanelMetadataProviders } from './openrouter-model-metadata-context';
 import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
@@ -250,7 +250,6 @@ import type {
 } from '@brainstrike/types';
 
 export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
-  /** Models for the ModelPicker component */
   /**
    * Composer image-attachment availability, resolved by the app-shell
    * wrapper. Absent renders no attachment affordance and registers no
@@ -346,6 +345,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
+  openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
   /**
    * The assistant's operating root (MAIN root — activeRootIds[0]), shown as a
    * compact chip above the composer. App-shell passes it ONLY when 2+
@@ -1396,6 +1396,7 @@ export const AssistantUiPanel = ({
   contextWindow,
   cumulativeUsage,
   omSegment,
+  openRouterModelMetadataLookup,
   completePreparedRequest,
   effectiveInputBudget,
   providerGroups,
@@ -1475,7 +1476,7 @@ export const AssistantUiPanel = ({
     useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
-    <AssistantDetailLevelProvider>
+    <AssistantPanelMetadataProviders value={openRouterModelMetadataLookup}>
       <section
         aria-label="Assistant chat"
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
@@ -1578,7 +1579,7 @@ export const AssistantUiPanel = ({
           />
         )}
       </section>
-    </AssistantDetailLevelProvider>
+    </AssistantPanelMetadataProviders>
   );
 };
 

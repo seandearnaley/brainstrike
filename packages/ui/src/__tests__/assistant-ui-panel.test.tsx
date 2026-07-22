@@ -1324,6 +1324,57 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('shows and applies live OpenRouter model limits with provenance', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="anthropic/claude-sonnet-4.6"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_000_000,
+              id: 'anthropic/claude-sonnet-4.6',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: ['tools'],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/1,000,000 context.*128,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText('Source: OpenRouter live')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
+      'max',
+      '128000'
+    );
+  });
+
+  it('makes a live metadata failure visible while labeling the static limits in use', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="anthropic/claude-sonnet-4.6"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          message: 'OpenRouter request failed',
+          state: 'error',
+        }}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/200,000 context.*64,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
+    expect(screen.getByText(/Live metadata unavailable.*OpenRouter request failed/)).toBeVisible();
+  });
+
   it('surfaces missing built-in OpenRouter limits instead of silently guessing', () => {
     render(
       <ProviderSettingsPanel
