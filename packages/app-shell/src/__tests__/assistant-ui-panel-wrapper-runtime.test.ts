@@ -896,6 +896,31 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
       })
     ).toBeUndefined();
   });
+
+  it('blocks an explicitly configured input limit above the live effective budget', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { agentInputTokenLimit: 390_000 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 400_000,
+              id: 'openai/gpt-5.4-mini',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBe(
+      'Configured input limit 390,000 exceeds OpenRouter live effective input budget 375,904.'
+    );
+  });
 });
 
 describe('resolveComposerAttachmentsAvailability', () => {

@@ -1,5 +1,5 @@
 import type { OpenRouterModelMetadataLookup } from '@brainstrike/assistant-contract';
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type ReactNode, use } from 'react';
 import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 
 const OpenRouterModelMetadataContext = createContext<OpenRouterModelMetadataLookup | undefined>(
@@ -23,5 +23,5 @@ export function AssistantPanelMetadataProviders({
 }
 
 export function useOpenRouterModelMetadataLookup(): OpenRouterModelMetadataLookup | undefined {
-  return useContext(OpenRouterModelMetadataContext);
+  return use(OpenRouterModelMetadataContext);
 }

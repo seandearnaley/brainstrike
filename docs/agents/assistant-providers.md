@@ -276,9 +276,11 @@
   snapshot only as explicit `stale-cache` data with a warning; a first failure
   is a visible 502. The renderer validates the assistant-server snapshot before
   using it for the selected model's context meter, derived input budget, and
-  output control maximum. A configured output limit above the live maximum
-  disables send with an explicit correction message; the endpoint never silently
-  mutates the registry.
+  output control maximum. A configured output limit above the live maximum, or
+  an input limit above the derived live effective budget, disables send with an
+  explicit correction message. An impossible persisted output reservation keeps
+  the settings panel available for repair instead of throwing during render; the
+  endpoint never silently mutates the registry.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts

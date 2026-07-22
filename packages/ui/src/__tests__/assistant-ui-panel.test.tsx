@@ -1356,6 +1356,35 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('surfaces an impossible persisted output reservation without crashing the panel', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="openai/gpt-5.4-mini"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 400_000,
+              id: 'openai/gpt-5.4-mini',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 500_000 }}
+      />
+    );
+
+    expect(
+      screen.getByText(/effective input unavailable until the output limit is fixed/i)
+    ).toBeVisible();
+  });
+
   it('makes a live metadata failure visible while labeling the static limits in use', () => {
     render(
       <ProviderSettingsPanel

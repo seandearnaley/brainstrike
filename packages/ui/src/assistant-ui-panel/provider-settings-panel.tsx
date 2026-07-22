@@ -69,7 +69,7 @@ interface ProviderSettingsSectionProps {
 
 interface OpenRouterModelLimits {
   contextWindow: number;
-  effectiveInputBudget: number;
+  effectiveInputBudget?: number;
   label: string;
   maxOutputTokens: number | undefined;
   outputReservation: number;
@@ -123,9 +123,16 @@ function resolveOpenRouterModelLimits(
     typeof settings.maxOutputTokens === 'number'
       ? Math.max(1, Math.floor(settings.maxOutputTokens))
       : CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  let effectiveInputBudget: number | undefined;
+  try {
+    effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
+  } catch {
+    // The composer is disabled by the shared runtime validation. Keep the
+    // settings panel renderable so the user can repair the persisted value.
+  }
   return {
     contextWindow,
-    effectiveInputBudget: deriveEffectiveInputBudget(contextWindow, outputReservation),
+    ...(effectiveInputBudget === undefined ? {} : { effectiveInputBudget }),
     label: staticModel?.label ?? modelName,
     maxOutputTokens,
     outputReservation,
@@ -536,7 +543,10 @@ function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits |
         {limits.usesConfiguredOutput
           ? `${settingsNumberFormatter.format(limits.outputReservation)} configured output`
           : `Auto requests ${settingsNumberFormatter.format(limits.outputReservation)}`}{' '}
-        · {settingsNumberFormatter.format(limits.effectiveInputBudget)} effective input
+        ·{' '}
+        {limits.effectiveInputBudget === undefined
+          ? 'effective input unavailable until the output limit is fixed'
+          : `${settingsNumberFormatter.format(limits.effectiveInputBudget)} effective input`}
       </p>
       <p>Source: {limits.sourceLabel}</p>
       {limits.statusMessage ? <p className="text-destructive">{limits.statusMessage}</p> : null}

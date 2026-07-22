@@ -386,15 +386,21 @@ export function AssistantUiPanelWrapper({
     selectedModelDef: selectedLlmModelDef,
     settings: selectedProviderSettings,
   });
-  const agentLoopSettings = useMemo(
-    () =>
-      buildAgentLoopSettings(
-        selectedProviderSettings,
-        openRouterMetadata.modelDef,
-        selectedProvider
-      ),
-    [openRouterMetadata.modelDef, selectedProvider, selectedProviderSettings]
-  );
+  const agentLoopSettings = useMemo(() => {
+    if (openRouterMetadata.reason) {
+      return;
+    }
+    return buildAgentLoopSettings(
+      selectedProviderSettings,
+      openRouterMetadata.modelDef,
+      selectedProvider
+    );
+  }, [
+    openRouterMetadata.modelDef,
+    openRouterMetadata.reason,
+    selectedProvider,
+    selectedProviderSettings,
+  ]);
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
     () => buildAssistantMemoryOptions(selectedProviderSettings),

@@ -974,13 +974,27 @@ export function resolveOpenRouterMetadataDisabledReason(
   if (!(providerId === 'openrouter' && lookup?.state === 'resolved')) {
     return;
   }
-  const configured = buildPositiveIntegerSetting(settings?.maxOutputTokens);
-  const maximum = lookup.snapshot.metadata.maxOutputTokens;
-  if (!(configured && maximum && configured > maximum)) {
-    return;
-  }
+  const configuredOutput = buildPositiveIntegerSetting(settings?.maxOutputTokens);
+  const metadata = lookup.snapshot.metadata;
+  const maximum = metadata.maxOutputTokens;
   const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
-  return `Configured output limit ${openRouterLimitFormatter.format(configured)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
+  if (configuredOutput && maximum && configuredOutput > maximum) {
+    return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
+  }
+
+  const outputReservation = configuredOutput ?? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  let effectiveInputBudget: number;
+  try {
+    effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
+  } catch {
+    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(metadata.contextWindow)} plus its safety margin.`;
+  }
+
+  const configuredInput = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  if (configuredInput && configuredInput > effectiveInputBudget) {
+    return `Configured input limit ${openRouterLimitFormatter.format(configuredInput)} exceeds OpenRouter ${provenance} effective input budget ${openRouterLimitFormatter.format(effectiveInputBudget)}.`;
+  }
+  return;
 }
 
 function buildPositiveIntegerSetting(value: unknown): number | undefined {
