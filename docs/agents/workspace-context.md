@@ -685,8 +685,10 @@ server — a preference, not a security boundary; the id is a durable identity
 FOCUSED root (selection scope) — unchanged.
 
 **Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
-every fresh hosted-provider turn receives one prepended `system` message before
-the model's first action. The bounded JSON data block contains only the
+every fresh hosted-provider turn receives one `system` message before the
+model's first action. Existing leading system context stays ahead of it, so
+Desktop workspace instructions retain their documented frontmost precedence.
+The bounded JSON data block contains only the
 server-resolved root selector, display name, canonical path, and Main/Focused
 roles — never a tree, file list, selection list, or glob result. It is capped at
 3,000 serialized characters and five roots; Main and Focused are prioritized,

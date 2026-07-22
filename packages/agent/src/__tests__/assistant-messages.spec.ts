@@ -657,7 +657,7 @@ describe('toAiSdkStyleStream', () => {
     ]);
   });
 
-  it('preserves system context while trimming history when Mastra memory is active', async () => {
+  it('preserves leading system-context precedence while trimming memory history', async () => {
     const asyncStream = (async function* () {
       /* noop */
     })();
@@ -680,8 +680,8 @@ describe('toAiSdkStyleStream', () => {
     expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
     const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
     expect(passedMessages).toEqual([
-      buildWorkspaceRootManifestContextMessage(runtime),
       messages[0],
+      buildWorkspaceRootManifestContextMessage(runtime),
       messages[3],
     ]);
   });

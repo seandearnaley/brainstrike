@@ -163,5 +163,13 @@ export function injectWorkspaceRootManifestContext(
   if (!runtime || runtime.provider === 'local') {
     return messages;
   }
-  return [buildWorkspaceRootManifestContextMessage(runtime), ...messages];
+  let insertionIndex = 0;
+  while (messages[insertionIndex]?.role === 'system') {
+    insertionIndex += 1;
+  }
+  return [
+    ...messages.slice(0, insertionIndex),
+    buildWorkspaceRootManifestContextMessage(runtime),
+    ...messages.slice(insertionIndex),
+  ];
 }
