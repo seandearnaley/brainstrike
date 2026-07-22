@@ -132,6 +132,7 @@ describe('default assistant instructions', () => {
     });
     expect(withDiscovery).toContain('search_tools');
     expect(withDiscovery).toContain('open workspace roots and focused context');
+    expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
       'before brainstrike_globWorkspace / brainstrike_executeCommand'
     );

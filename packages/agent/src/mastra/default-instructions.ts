@@ -427,7 +427,7 @@ function buildToolDiscoveryInstruction(
   );
   const alternativesClause =
     eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
-  return `Some capabilities are deferred behind search_tools. For open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, skills, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
+  return `Some capabilities are deferred behind search_tools. For open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**
