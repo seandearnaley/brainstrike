@@ -211,6 +211,16 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenAI hosted `tool_search` response history has a temporary, provider-boundary
+  compatibility seam in `openai-tool-search-history-compat.ts`. AI SDK 4.0.8
+  preserves a hosted search output's distinct `tso_...` ID in
+  `providerMetadata.openai.itemId` but reads only
+  `providerOptions.openai.itemId` when serializing that assistant tool result.
+  The OpenAI-only `processLLMRequest` processor copies the preserved ID into the
+  supported option on the transient provider prompt, fails on conflicts or a
+  missing hosted output ID, and never mutates durable history. Remove the seam
+  after consuming an AI SDK release containing vercel/ai#17667; do not replace
+  it with `patchedDependencies` or a lossy history filter.
 - OpenRouter reasoning controls are model-capability-aware when the Models API
   publishes `reasoning.supported_efforts`. Declare those efforts on the static
   model definition; `resolveReasoningControlsAvailability` in
