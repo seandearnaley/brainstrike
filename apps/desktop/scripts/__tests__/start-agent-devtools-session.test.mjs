@@ -1,17 +1,30 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  cleanupChildAndProfile,
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
   formatMcpConfig,
   parsePort,
   resolveEndpoint,
   rewriteMacAgentDebugInfoPlist,
+  shutdownChildProcessTree,
   waitForEndpoint,
   waitForEndpointOrChildExit,
 } from '../start-agent-devtools-session.mjs';
@@ -30,6 +43,16 @@ const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>
 `;
+
+function forceKillProcessGroup(pid) {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch (error) {
+    if (error.code !== 'ESRCH' && error.code !== 'EPERM') {
+      throw error;
+    }
+  }
+}
 
 test('parsePort accepts a valid explicit port', () => {
   assert.equal(parsePort('9333'), 9333);
@@ -156,5 +179,73 @@ test('waitForEndpointOrChildExit rejects when the dev server exits before the en
     await assert.rejects(wait, /dev server exited with code 1/);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('shutdownChildProcessTree reaps a late-writing grandchild after the direct child exits', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-tree-test-'));
+  const profile = path.join(root, 'profile');
+  const readyPath = path.join(root, 'grandchild-ready');
+  const latePath = path.join(profile, 'late-write');
+  await mkdir(profile);
+
+  const grandchildSource = `
+      const fs = require('node:fs');
+      setTimeout(() => {
+        fs.mkdirSync(${JSON.stringify(profile)}, { recursive: true });
+        fs.writeFileSync(${JSON.stringify(latePath)}, 'late');
+      }, 400);
+      setTimeout(() => {}, 10_000);
+    `;
+  const childSource = `
+      const { spawn } = require('node:child_process');
+      const fs = require('node:fs');
+      const grandchild = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], {
+        stdio: 'ignore',
+      });
+      grandchild.unref();
+      fs.writeFileSync(${JSON.stringify(readyPath)}, 'ready');
+    `;
+  const child = spawn(process.execPath, ['-e', childSource], {
+    detached: true,
+    stdio: 'ignore',
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', resolve);
+    });
+    assert.equal(await readFile(readyPath, 'utf8'), 'ready');
+
+    await shutdownChildProcessTree(child);
+    await rm(profile, { force: true, recursive: true });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    await assert.rejects(stat(profile), { code: 'ENOENT' });
+  } finally {
+    if (child.pid) {
+      forceKillProcessGroup(child.pid);
+    }
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('cleanupChildAndProfile surfaces profile removal failures', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-cleanup-test-'));
+  const profile = path.join(root, 'profile');
+  await mkdir(profile);
+  await chmod(root, 0o500);
+
+  try {
+    await assert.rejects(
+      cleanupChildAndProfile({ exitCode: 0, pid: undefined, signalCode: null }, profile),
+      /EACCES|EPERM/
+    );
+  } finally {
+    await chmod(root, 0o700);
+    await rm(root, { force: true, recursive: true });
   }
 });
