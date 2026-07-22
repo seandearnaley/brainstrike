@@ -35,7 +35,7 @@ import {
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 interface PermissionPolicyData {
@@ -152,7 +152,46 @@ function createPermissionPolicyStorage() {
   return createBrowserJsonStorage();
 }
 
-const storage = createJSONStorage(() => createPermissionPolicyStorage());
+function createDeferredPermissionPolicyStorage(): StateStorage {
+  let lazyStorage: StateStorage | undefined;
+  let lazyStoragePromise: Promise<StateStorage> | undefined;
+  const resolveStorage = (): Promise<StateStorage> => {
+    lazyStoragePromise ??= Promise.resolve()
+      .then(createPermissionPolicyStorage)
+      .then((resolvedStorage) => {
+        lazyStorage = resolvedStorage;
+        return resolvedStorage;
+      })
+      .catch((error: unknown) => {
+        lazyStoragePromise = undefined;
+        throw error;
+      });
+    return lazyStoragePromise;
+  };
+
+  return {
+    getItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.getItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.getItem(key));
+    },
+    removeItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.removeItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.removeItem(key));
+    },
+    setItem: (key: string, value: string) => {
+      if (lazyStorage) {
+        return lazyStorage.setItem(key, value);
+      }
+      return resolveStorage().then((resolved) => resolved.setItem(key, value));
+    },
+  };
+}
+
+const storage = createJSONStorage(createDeferredPermissionPolicyStorage);
 
 function defaultPolicies(): PermissionPolicies {
   return { ...DEFAULT_PERMISSION_POLICIES };

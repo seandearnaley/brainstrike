@@ -1,4 +1,4 @@
-import { createBrowserJsonStorage, createLazyStateStorage } from '@brainstrike/storage';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -68,9 +68,46 @@ function createBackgroundIndexingPreferencesStorage(): StateStorage {
   return createBrowserJsonStorage();
 }
 
-const storage = createJSONStorage(() =>
-  createLazyStateStorage(createBackgroundIndexingPreferencesStorage)
-);
+function createDeferredBackgroundIndexingPreferencesStorage(): StateStorage {
+  let lazyStorage: StateStorage | undefined;
+  let lazyStoragePromise: Promise<StateStorage> | undefined;
+  const resolveStorage = (): Promise<StateStorage> => {
+    lazyStoragePromise ??= Promise.resolve()
+      .then(createBackgroundIndexingPreferencesStorage)
+      .then((resolvedStorage) => {
+        lazyStorage = resolvedStorage;
+        return resolvedStorage;
+      })
+      .catch((error: unknown) => {
+        lazyStoragePromise = undefined;
+        throw error;
+      });
+    return lazyStoragePromise;
+  };
+
+  return {
+    getItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.getItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.getItem(key));
+    },
+    removeItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.removeItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.removeItem(key));
+    },
+    setItem: (key: string, value: string) => {
+      if (lazyStorage) {
+        return lazyStorage.setItem(key, value);
+      }
+      return resolveStorage().then((resolved) => resolved.setItem(key, value));
+    },
+  };
+}
+
+const storage = createJSONStorage(createDeferredBackgroundIndexingPreferencesStorage);
 
 const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   enabled: true,
