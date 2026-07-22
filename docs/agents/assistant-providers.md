@@ -224,6 +224,14 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenRouter `Auto` is a zero-configuration coding profile, not an implicit
+  provider-wide 4,096-token cap. The shared contract resolves its output limit
+  as `min(model max completion, 32,000)` when live/static model metadata
+  publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
+  ceiling. That resolved value must drive both Mastra `modelSettings` and the
+  input-context reservation. Explicit user overrides remain strict: a value
+  above a known model maximum is surfaced and blocks the request rather than
+  being silently clamped.
 - OpenAI hosted `tool_search` response history has a temporary, provider-boundary
   compatibility seam in `openai-tool-search-history-compat.ts`. AI SDK 4.0.8
   preserves a hosted search output's distinct `tso_...` ID in

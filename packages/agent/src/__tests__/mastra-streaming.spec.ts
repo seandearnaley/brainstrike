@@ -782,7 +782,7 @@ describe('mastra streaming integration', () => {
     );
 
     expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
-      modelSettings: { maxOutputTokens: 4096 },
+      modelSettings: { maxOutputTokens: 32_000 },
     });
 
     const drain = async () => {
@@ -2989,7 +2989,7 @@ describe('mastra streaming integration', () => {
       // drain
     }
     expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
-      modelSettings: { maxOutputTokens: 4096 },
+      modelSettings: { maxOutputTokens: 32_000 },
     });
 
     const overrideIterator = await streamMastraAgent(
@@ -3029,7 +3029,7 @@ describe('mastra streaming integration', () => {
       // drain
     }
     expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
-      modelSettings: { maxOutputTokens: 4096, temperature: 0.2 },
+      modelSettings: { maxOutputTokens: 32_000, temperature: 0.2 },
     });
   });
 

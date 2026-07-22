@@ -7,6 +7,7 @@ import {
   buildAssistantMemoryOptions,
   buildAssistantRequestData,
   buildAssistantTapestryRange,
+  buildEffectiveModelSettings,
   buildEnabledModelIdSet,
   buildModelSettings,
   buildProviderOptions,
@@ -804,15 +805,25 @@ describe('assistant runtime helpers', () => {
 });
 
 describe('buildAgentLoopSettings input-token budget', () => {
-  it('reserves the actual OpenRouter Auto output default instead of the model maximum', () => {
+  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
     const settings = buildAgentLoopSettings(
       undefined,
       { contextWindow: 400_000, maxOutputTokens: 128_000 },
       'openrouter'
     );
 
-    // OpenRouter Auto sends 4,096 output tokens. The 5% safety margin is 20,000.
-    expect(settings?.inputTokenLimit).toBe(375_904);
+    // The coding default is min(model output limit, 32,000). The 5% safety margin is 20,000.
+    expect(settings?.inputTokenLimit).toBe(348_000);
+  });
+
+  it('caps the OpenRouter coding default to a smaller model output limit', () => {
+    const settings = buildAgentLoopSettings(
+      undefined,
+      { contextWindow: 64_000, maxOutputTokens: 16_000 },
+      'openrouter'
+    );
+
+    expect(settings?.inputTokenLimit).toBe(44_800);
   });
 
   it('reserves the configured OpenRouter output limit in the input budget', () => {
@@ -877,6 +888,31 @@ describe('buildAgentLoopSettings input-token budget', () => {
   });
 });
 
+describe('buildEffectiveModelSettings', () => {
+  it('applies the OpenRouter coding default when the user leaves output on Auto', () => {
+    expect(
+      buildEffectiveModelSettings('openrouter', undefined, {
+        contextWindow: 262_144,
+        maxOutputTokens: 128_000,
+      })
+    ).toEqual({ maxOutputTokens: 32_000 });
+  });
+
+  it('caps Auto to the selected OpenRouter model and preserves explicit overrides', () => {
+    const model = { contextWindow: 32_768, maxOutputTokens: 16_384 };
+    expect(buildEffectiveModelSettings('openrouter', undefined, model)).toEqual({
+      maxOutputTokens: 16_384,
+    });
+    expect(buildEffectiveModelSettings('openrouter', { maxOutputTokens: 2048 }, model)).toEqual({
+      maxOutputTokens: 2048,
+    });
+  });
+
+  it('does not inject OpenRouter defaults into other providers', () => {
+    expect(buildEffectiveModelSettings('anthropic', undefined)).toBeUndefined();
+  });
+});
+
 describe('resolveOpenRouterMetadataDisabledReason', () => {
   it('blocks an explicitly configured output limit above the live model maximum', () => {
     expect(
@@ -931,7 +967,7 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
         }
       )
     ).toBe(
-      'Configured input limit 390,000 exceeds OpenRouter live effective input budget 375,904.'
+      'Configured input limit 390,000 exceeds OpenRouter live effective input budget 348,000.'
     );
   });
 
