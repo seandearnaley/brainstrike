@@ -161,6 +161,8 @@ export interface MastraAgentRuntimeOptions {
    * `'local'` (D10), each persona becomes an `agent-<id>` delegation tool.
    */
   personas?: readonly AssistantPersonaDefinition[];
+  /** @internal Preserve the implementation captured by an already-suspended web-search call. */
+  preserveExecuteBackedWebSearch?: boolean;
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
@@ -754,6 +756,7 @@ export async function createMastraAgentRuntime(
     tools: localTools,
     mcpTimeoutMs,
     permissionPolicy,
+    preserveExecuteBackedWebSearch,
     personas,
     hookRunner: hookRunnerOption,
     resolved,
@@ -859,6 +862,7 @@ export async function createMastraAgentRuntime(
     apiKey,
     askTools,
     logger,
+    preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
     toolNameMap,
     tools: gatedTools,
@@ -3118,7 +3122,14 @@ export async function streamMastraToolApprovalAction(
   // Thread runtime.mastraTools/model into the options so the rebuilt Agent keeps
   // the native tools on resume (see withRuntimeDerivedStreamOptions).
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
-    { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
+    {
+      ...withRuntimeDerivedStreamOptions(options),
+      hydrateToolDiscoveryFromMemory: true,
+      // The durable run suspended against the execute-backed tool. A session
+      // grant changes authorization for this leg, not the stored invocation's
+      // implementation. The next fresh turn may select provider-native search.
+      preserveExecuteBackedWebSearch: true,
+    },
     runtimeResolution
   );
 

@@ -139,6 +139,7 @@ function createTurnCountedToolCallModel(args: {
 }
 
 function createDiscoveryThenToolApprovalModel(args: {
+  deferredInput?: string;
   deferredToolCallId: string;
   deferredToolName: string;
   finalText: string;
@@ -178,7 +179,7 @@ function createDiscoveryThenToolApprovalModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: '{}',
+              input: args.deferredInput ?? '{}',
               toolCallId: args.deferredToolCallId,
               toolName: args.deferredToolName,
               type: 'tool-call',
@@ -666,6 +667,101 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(resumeChunks).toContainEqual(
       expect.objectContaining({
         name: 'brainstrike.listWorkspaceContext',
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('keeps the suspended Tavily webSearch implementation when a session grant allows the resumed leg', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const execute = vi.fn((inputData: { query: string }) =>
+      Promise.resolve({ query: inputData.query, results: [] })
+    );
+    const webSearchTool = createTool({
+      description: 'Search the public web through the execute-backed Tavily integration.',
+      execute,
+      id: 'brainstrike.webSearch',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({ query: z.string(), results: z.array(z.unknown()) }),
+    });
+    const askPolicy = {
+      policies: { edit: 'deny', execute: 'deny', mcp: 'allow', read: 'ask' },
+      riskByTool: { 'brainstrike.webSearch': 'read' },
+      yolo: false,
+    } as const;
+    const allowedPolicy = {
+      ...askPolicy,
+      policies: { ...askPolicy.policies, read: 'allow' },
+    } as const;
+    const thread = {
+      resourceId: 'resource-web-search-approval',
+      threadId: 'thread-web-search-approval',
+    } as const;
+
+    modelHolder.current = createDiscoveryThenToolApprovalModel({
+      deferredInput: JSON.stringify({ query: 'Brainstrike' }),
+      deferredToolCallId: 'call-web-search-approval',
+      deferredToolName: 'brainstrike_webSearch',
+      finalText: 'Web search completed.',
+      searchQuery: 'public web search',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-web-search-approval', parts: [{ text: 'search', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: askPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toMatchObject({
+      policyDecision: 'ask',
+      riskCategory: 'read',
+      toolName: 'brainstrike.webSearch',
+    });
+    expect(execute).not.toHaveBeenCalled();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: approval?.toolName ?? '',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: allowedPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool },
+        }
+      )
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(resumeChunks).toContainEqual(
+      expect.objectContaining({
+        name: 'brainstrike.webSearch',
         status: 'success',
         type: 'tool-event',
       })

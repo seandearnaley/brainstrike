@@ -548,7 +548,12 @@ Flow (desktop assistant server → agent runtime):
    before terminal output is mapped, so live completed cards retain the same
    arguments shown by the approval notice. A missing snapshot, tool name, or
    argument payload fails visibly before approve/decline executes; never invent
-   `{}` or trust the client action as a fallback. The
+   `{}` or trust the client action as a fallback. Runtime reconstruction also
+   preserves the execute-backed `brainstrike.webSearch` implementation for the
+   resumed leg. A same-click read grant changes authorization immediately, but
+   must not replace the suspended Tavily function with provider-native search:
+   Mastra's durable invocation names the function and otherwise finishes without
+   executing it. A fresh later turn may select provider-native search. The
    approve/decline resume (`streamMastraToolApprovalAction`) passes
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide

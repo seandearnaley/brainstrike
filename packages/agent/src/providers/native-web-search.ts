@@ -98,6 +98,13 @@ export interface ApplyProviderNativeWebSearchParams {
    */
   askTools: ReadonlyMap<string, unknown>;
   logger?: NativeWebSearchLogger;
+  /**
+   * Keep the execute-backed implementation while resuming a call that already
+   * suspended against it. A permission grant may make the rebuilt runtime
+   * eligible for native search, but replacing the implementation would orphan
+   * Mastra's stored function invocation.
+   */
+  preserveExecuteBackedWebSearch?: boolean | undefined;
   /** The resolved provider id for this run (e.g. `anthropic`). */
   provider: string;
   /** Sanitized id → original tool id, as recorded by `sanitizeTools`. */
@@ -124,7 +131,8 @@ function findWebSearchSanitizedId(toolNameMap: ReadonlyMap<string, string>): str
 export function applyProviderNativeWebSearch(
   params: ApplyProviderNativeWebSearchParams
 ): ToolsInput {
-  const { apiKey, askTools, logger, provider, tools, toolNameMap } = params;
+  const { apiKey, askTools, logger, preserveExecuteBackedWebSearch, provider, tools, toolNameMap } =
+    params;
 
   if (!providerSupportsNativeWebSearch(provider)) {
     return tools;
@@ -145,6 +153,14 @@ export function applyProviderNativeWebSearch(
       'web search gated to ask; keeping approval-gatable Tavily tool (provider-native cannot suspend)',
       { code: 'provider_native_web_search_ask_keeps_tavily', provider }
     );
+    return tools;
+  }
+
+  if (preserveExecuteBackedWebSearch) {
+    logger?.info('approval resume keeping the suspended execute-backed web search', {
+      code: 'provider_native_web_search_approval_resume_keeps_tavily',
+      provider,
+    });
     return tools;
   }
 
