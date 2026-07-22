@@ -43,10 +43,20 @@ contracts keep reloaded threads identical to live ones:
    independently refuses to store or return a surviving internal carrier.
    The real-memory hook regression proves the stored invocation is the exact
    domain result while `providerMetadata.mastra.modelOutput` retains the
-   model-only guidance. MCP results remain inline only within the explicit temporary
-   persistence ceilings documented in `assistant-providers.md`; text-only MCP
-   output is preview-bounded until artifact settlement is wired. Never replace a
-   native result inside `execute()` merely to save prompt tokens; that destroys
+   model-only guidance. OpenAI hosted `tool_search` calls add a stricter
+   round-trip invariant: Mastra's consolidated invocation retains the `tsc_`
+   call as `toolCallId`, the distinct `tso_` output in provider metadata, and
+   `providerExecuted: true`. On reload Mastra projects the result metadata onto
+   both model parts, so the OpenAI-only request processor restores the call
+   reference from `toolCallId` and the output reference from the persisted
+   metadata at the transient provider boundary. The real PGlite integration
+   proof serializes the next turn with the production OpenAI Responses model
+   and requires each item reference exactly once; missing output metadata
+   remains a visible error, never a call-ID fallback. MCP results remain inline
+   only within the explicit temporary persistence ceilings documented in
+   `assistant-providers.md`; text-only MCP output is preview-bounded until
+   artifact settlement is wired. Never replace a native result inside
+   `execute()` merely to save prompt tokens; that destroys
    reload/application evidence. The real-memory proof includes an oversized
    native sentinel and replays a second turn from the same thread in
    `packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`;
