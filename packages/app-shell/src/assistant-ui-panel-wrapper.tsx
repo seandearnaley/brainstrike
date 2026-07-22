@@ -1172,7 +1172,7 @@ export function AssistantUiPanelWrapper({
     shouldSkipSelectionReconcile,
   ]);
 
-  const handleModelChange = useAssistantModelChange({
+  const { handleModelChange, providerDraft } = useAssistantModelChange({
     currentModel,
     draftRuntimeByThreadId,
     fixedProviderModels,
@@ -1302,8 +1302,9 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
-  const disabledReason = memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
-
+  const runtimeDisabledReason =
+    memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+  const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
@@ -1582,6 +1583,7 @@ export function AssistantUiPanelWrapper({
                 : {})}
               onContextBreakdown={handleContextBreakdown}
               onProviderSettingsChange={handleProviderSettingsChange}
+              onProviderSettingsValidationChange={providerDraft.report}
               onRunFailed={handleRunFailed}
               onRunFinished={handleRunFinished}
               onStreamActivity={renewActiveAssistantForegroundActivity}
@@ -1608,7 +1610,8 @@ export function AssistantUiPanelWrapper({
               {...(selectedProvider ? { selectedProvider } : {})}
               {...(currentModel ? { selectedModel: currentModel } : {})}
               disabled={
-                !isProviderReady || Boolean(memoryDisabledReason ?? openRouterDisabledReason)
+                !isProviderReady ||
+                Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
               }
               onModelChange={handleModelChange}
               onModelToggle={handleModelToggle}

@@ -3,7 +3,7 @@ import type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantThreadDraftRuntime } from '../assistant-thread-store';
 import {
   buildDraftRuntimeForProvider,
@@ -55,9 +55,17 @@ export function useAssistantModelChange({
   setModel,
   setProviderSettings,
   setThreadDraftRuntime,
-}: UseAssistantModelChangeOptions): (compositeKey: string) => void {
+}: UseAssistantModelChangeOptions): {
+  handleModelChange: (compositeKey: string) => void;
+  providerDraft: {
+    reason: string | undefined;
+    report: (reason: string | undefined) => void;
+  };
+} {
+  const [providerSettingsValidationReason, reportProviderSettingsValidation] = useState<string>();
   const handleModelChange = useCallback(
     (compositeKey: string) => {
+      reportProviderSettingsValidation(undefined);
       const provider = resolveProviderFromComposite(compositeKey);
       const model = resolveModelNameFromComposite(compositeKey);
       if (memoryThreadId && provider && model) {
@@ -123,5 +131,11 @@ export function useAssistantModelChange({
     );
     handleModelChange(fixedModel);
   }, [currentModel, fixedProviderModels, handleModelChange, memoryThreadId]);
-  return handleModelChange;
+  return {
+    handleModelChange,
+    providerDraft: {
+      reason: providerSettingsValidationReason,
+      report: reportProviderSettingsValidation,
+    },
+  };
 }

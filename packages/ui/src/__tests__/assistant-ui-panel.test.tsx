@@ -1356,6 +1356,81 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('keeps an above-maximum output draft visible and does not persist it', () => {
+    const onSettingsChange = vi.fn();
+    const onValidationChange = vi.fn();
+    render(
+      <ProviderSettingsPanel
+        modelName="google/gemini-2.5-flash"
+        onSettingsChange={onSettingsChange}
+        onValidationChange={onValidationChange}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'google/gemini-2.5-flash',
+              maxOutputTokens: 65_535,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 4096 }}
+      />
+    );
+
+    const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    fireEvent.change(input, { target: { value: '65536' } });
+
+    expect(input).toHaveValue(65_536);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('65,535 maximum from OpenRouter live');
+    expect(onSettingsChange).not.toHaveBeenCalled();
+    expect(onValidationChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('65,535 maximum from OpenRouter live')
+    );
+  });
+
+  it('rejects empty, below-minimum, and fractional output drafts before recovering', () => {
+    const onSettingsChange = vi.fn();
+    const onValidationChange = vi.fn();
+    render(
+      <ProviderSettingsPanel
+        modelName="openai/gpt-5.4-mini"
+        onSettingsChange={onSettingsChange}
+        onValidationChange={onValidationChange}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 4096 }}
+      />
+    );
+
+    const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.getByRole('alert')).toHaveTextContent(/enter an output limit/i);
+    expect(onSettingsChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '127' } });
+    expect(input).toHaveValue(127);
+    expect(screen.getByRole('alert')).toHaveTextContent(/at least 128/i);
+    expect(onSettingsChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '128.5' } });
+    expect(screen.getByRole('alert')).toHaveTextContent(/whole number/i);
+    expect(onSettingsChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '512' } });
+    expect(input).toHaveValue(512);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onSettingsChange).toHaveBeenLastCalledWith('openrouter', {
+      maxOutputTokens: 512,
+    });
+    expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
+  });
+
   it('surfaces an impossible persisted output reservation without crashing the panel', () => {
     render(
       <ProviderSettingsPanel

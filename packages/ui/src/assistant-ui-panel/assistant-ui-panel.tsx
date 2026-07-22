@@ -81,7 +81,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
-import { AssistantPanelMetadataProviders } from './openrouter-model-metadata-context';
+import { MetadataProviders } from './openrouter-model-metadata-context';
 import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
@@ -322,6 +322,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onProviderSettingsValidationChange?: (reason: string | undefined) => void;
   /**
    * Reports a `run.failed` run event exactly once (deduped by event id).
    * Only ever fires for the Mastra-loop transport (hosted providers / desktop
@@ -1404,6 +1405,7 @@ export const AssistantUiPanel = ({
   providerSettings,
   recentModels,
   onProviderSettingsChange,
+  onProviderSettingsValidationChange: onSettingsValidation,
   selectedProvider,
   selectedModel,
   requestData,
@@ -1471,12 +1473,10 @@ export const AssistantUiPanel = ({
   // Check if using local provider
   const isLocalProvider = selectedProvider === 'local';
   const localViaDataStream = isLocalProvider && localChatTransport === 'data-stream';
-
   const { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel } =
     useLocalModelLoading({ localViaDataStream, modelName });
-
   return (
-    <AssistantPanelMetadataProviders value={openRouterModelMetadataLookup}>
+    <MetadataProviders onValidation={onSettingsValidation} value={openRouterModelMetadataLookup}>
       <section
         aria-label="Assistant chat"
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
@@ -1579,7 +1579,7 @@ export const AssistantUiPanel = ({
           />
         )}
       </section>
-    </AssistantPanelMetadataProviders>
+    </MetadataProviders>
   );
 };
 
