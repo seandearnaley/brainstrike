@@ -1,3 +1,4 @@
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyToolGuards,
@@ -49,6 +50,40 @@ describe('guardToolExecution', () => {
     expect(result.error.code).toBe('tool_failed');
     expect(result.error.message).not.toContain('SECRET');
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('returns a correctable input error without hiding its trusted model-facing message', async () => {
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new ToolInputError(
+          'Multiple folders are open. Specify "root". Open folders: ProjectA, ProjectB.'
+        );
+      }),
+      { timeoutMs: 1000, toolName: 'brainstrike.lspInspect' }
+    );
+
+    await expect(tool.execute({ context: {} })).resolves.toEqual({
+      error: {
+        code: 'tool_input_invalid',
+        message: 'Multiple folders are open. Specify "root". Open folders: ProjectA, ProjectB.',
+        toolName: 'brainstrike.lspInspect',
+      },
+      ok: false,
+    });
+  });
+
+  it('bounds an oversized correctable input error before returning it to the model', async () => {
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new ToolInputError(`Stale match. Current line: ${'x'.repeat(2_000_000)}`);
+      }),
+      { timeoutMs: 1000, toolName: 'brainstrike.lspInspect' }
+    );
+
+    const result = (await tool.execute({ context: {} })) as GuardedToolError;
+    expect(result.error.code).toBe('tool_input_invalid');
+    expect(result.error.message.length).toBeLessThanOrEqual(1000);
+    expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/);
   });
 
   it('leaves a tool without an execute function untouched', () => {

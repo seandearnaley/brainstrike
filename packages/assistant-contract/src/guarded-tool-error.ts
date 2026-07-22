@@ -1,6 +1,7 @@
 export const GUARDED_TOOL_ERROR_CODES = [
   'tool_timeout',
   'tool_failed',
+  'tool_input_invalid',
   'tool_blocked_by_hook',
 ] as const;
 
@@ -15,6 +16,20 @@ export interface GuardedToolError {
     toolName: string;
   };
   ok: false;
+}
+
+/**
+ * A trusted, model-correctable tool-input error whose message is intentionally
+ * safe to return to the model. Generic exceptions must stay redacted by the
+ * execution guard because they can contain host paths, secrets, or internals.
+ */
+export class ToolInputError extends Error {
+  readonly code = 'tool_input_invalid' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ToolInputError';
+  }
 }
 
 export function isGuardedToolError(value: unknown): value is GuardedToolError {

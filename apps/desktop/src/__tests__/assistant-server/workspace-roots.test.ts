@@ -1,4 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   enrichRuntimeDataWithWorkspaceRoots,
@@ -50,6 +51,7 @@ describe('getWorkspaceRoots', () => {
 
 describe('resolveWorkspaceRoot', () => {
   it('throws a clear "no folder open" error when there are no roots', () => {
+    expect(() => resolveWorkspaceRoot(runtime())).toThrow(ToolInputError);
     expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/i);
   });
 
@@ -58,6 +60,9 @@ describe('resolveWorkspaceRoot', () => {
   });
 
   it('errors and lists the open folders when ambiguous (multiple roots, no qualifier)', () => {
+    expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
+      ToolInputError
+    );
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
       /multiple folders.*ProjectA.*ProjectB/is
     );

@@ -23,7 +23,11 @@ below are LIVE.
    the combined Mastra tool map in `createMastraAgentRuntime` after local and MCP
    tools are sanitized/discovered. Tool timeouts and throws resolve to structured
    `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
-   failed tool events, not successful completions.
+   failed tool events, not successful completions. Generic exceptions retain a
+   redacted `tool_failed` message because they may contain host paths or secrets.
+   Trusted `ToolInputError` validation failures instead retain their bounded,
+   model-correctable message as `tool_input_invalid`; only application-owned
+   validation code may construct that error.
 
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,

@@ -406,6 +406,19 @@ describe('multi-root guidance', () => {
     expect(instructions).not.toContain('workspaceRoots');
   });
 
+  it('qualifies deferred LSP inspection when it is the only path-based tool loaded', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([
+        ['listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
+        ['lspInspect', 'brainstrike.lspInspect'],
+      ])
+    );
+
+    expect(instructions).toContain('lspInspect');
+    expect(instructions).toMatch(/several roots[^.]*pass "root"/i);
+    expect(instructions).toContain('no implicit Main-root fallback');
+  });
+
   it('keeps multi-root guidance out of the compact local instruction set', () => {
     const localInstructions = buildLocalDefaultInstructions(FULL_TOOL_MAP);
     expect(localInstructions).not.toContain('workspaceRoots');

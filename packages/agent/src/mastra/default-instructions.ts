@@ -239,6 +239,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.grepSearch,
     names.globWorkspace,
     names.hybridSearch,
+    names.lspInspect,
     names.queryEmbeddingSpace,
     names.readWorkspaceDirectory,
     names.readWorkspaceFile,
