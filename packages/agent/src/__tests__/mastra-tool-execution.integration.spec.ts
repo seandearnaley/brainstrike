@@ -67,6 +67,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 });
 
 const { streamMastraAgent } = await import('../mastra/agent-runtime');
+const { toAiSdkStyleStream } = await import('../message-utils');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
@@ -349,6 +350,96 @@ function readToolResultText(message: unknown): string {
 }
 
 describe('mastra real tool execution (real @mastra/core/agent)', () => {
+  it('uses the initial multi-root manifest for a qualified read on the first model turn', async () => {
+    const executions: Array<{ path: string; root: string }> = [];
+    let modelTurns = 0;
+    const readTool = createTool({
+      description: 'Read one workspace file from an explicitly qualified root.',
+      execute: async (input: { path: string; root: string }) => {
+        executions.push(input);
+        return { content: 'manifest-qualified read succeeded' };
+      },
+      id: 'brainstrike.readWorkspaceFile',
+      inputSchema: z.object({ path: z.string(), root: z.string() }),
+      outputSchema: z.object({ content: z.string() }),
+    });
+    const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+      new ReadableStream<LanguageModelV2StreamPart>({
+        start(controller) {
+          for (const part of parts) {
+            controller.enqueue(part);
+          }
+          controller.close();
+        },
+      });
+
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+      doStream: (options: LanguageModelV2CallOptions) => {
+        modelTurns += 1;
+        const hasToolResult = options.prompt.some((message) => message.role === 'tool');
+        if (hasToolResult) {
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              { id: 'final', type: 'text-start' },
+              { delta: 'Read completed.', id: 'final', type: 'text-delta' },
+              { id: 'final', type: 'text-end' },
+              { finishReason: 'stop', type: 'finish', usage: USAGE },
+            ]),
+          });
+        }
+
+        const systemText = options.prompt
+          .filter((message) => message.role === 'system')
+          .flatMap((message) => message.content)
+          .map((part) => (typeof part === 'string' ? part : 'text' in part ? part.text : ''))
+          .join('\n');
+        const rootMatch = systemText.match(/"roles":\["Focused"\],"root":"([^"]+)"/);
+        if (!rootMatch?.[1]) {
+          throw new Error('Initial workspace-root manifest did not expose the focused selector');
+        }
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ path: 'src/index.ts', root: rootMatch[1] }),
+              toolCallId: 'call-read-turn-one',
+              toolName: 'brainstrike_readWorkspaceFile',
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      },
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    };
+
+    const iterator = await toAiSdkStyleStream(
+      [{ id: 'user-turn-one', parts: [{ text: 'Read src/index.ts', type: 'text' }], role: 'user' }],
+      {
+        apiKey: 'test-key',
+        mastraTools: { 'brainstrike.readWorkspaceFile': readTool },
+        provider: 'openai',
+        selectionFolderId: 'root-focused',
+        workspaceRootPath: '/work/focused',
+        workspaceRoots: [
+          { displayName: 'Main', path: '/work/main', rootId: 'root-main' },
+          { displayName: 'Focused', path: '/work/focused', rootId: 'root-focused' },
+        ],
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Consuming the real stream drives the first-turn qualified read and final answer.
+    }
+
+    expect(modelTurns).toBe(2);
+    expect(executions).toEqual([{ path: 'src/index.ts', root: 'root-focused' }]);
+  });
+
   beforeEach(() => {
     modelHolder.current = undefined;
   });
