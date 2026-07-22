@@ -163,3 +163,22 @@ export function responseExactMatchScorer() {
     return response === run.groundTruth.trim() ? 1 : 0;
   });
 }
+
+/** Advisory scorer: the normalized response contains the required ground truth. */
+export function responseContainsGroundTruthScorer() {
+  return createScorer({
+    description: 'Advisory: the final response contains the expected response',
+    id: 'response-contains-ground-truth',
+    type: 'agent',
+  }).generateScore(({ run }) => {
+    if (typeof run.groundTruth !== 'string') {
+      throw new TypeError('response-contains-ground-truth requires a string groundTruth');
+    }
+    const groundTruth = run.groundTruth.trim();
+    if (groundTruth.length === 0) {
+      throw new TypeError('response-contains-ground-truth requires non-empty groundTruth');
+    }
+    const response = collectTextParts(run.output).join('\n').trim();
+    return response.includes(groundTruth) ? 1 : 0;
+  });
+}

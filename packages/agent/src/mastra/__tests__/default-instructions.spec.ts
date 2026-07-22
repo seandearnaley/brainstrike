@@ -121,6 +121,26 @@ describe('lspInspect advertisement', () => {
 });
 
 describe('default assistant instructions', () => {
+  it('routes deferred workspace-root intent through discovery before eager shell or glob tools', () => {
+    const toolNameMap = new Map<string, string>([
+      ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
+      ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+    ]);
+
+    const withDiscovery = buildDefaultInstructions(toolNameMap, {
+      toolDiscoveryEnabled: true,
+    });
+    expect(withDiscovery).toContain('search_tools');
+    expect(withDiscovery).toContain('open workspace roots and focused context');
+    expect(withDiscovery).not.toContain('web, skills, or embeddings');
+    expect(withDiscovery).toContain(
+      'before brainstrike_globWorkspace / brainstrike_executeCommand'
+    );
+
+    const withoutDiscovery = buildDefaultInstructions(toolNameMap);
+    expect(withoutDiscovery).not.toContain('search_tools');
+  });
+
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
     const toolNameMap = new Map<string, string>([
       ['brainstrike_listWorkspaceContext', 'brainstrike.listWorkspaceContext'],

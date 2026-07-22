@@ -115,7 +115,33 @@ type ToolSearchStepArgs = Parameters<ToolSearchProcessor['processInputStep']>[0]
 type ToolSearchStepResult = Awaited<ReturnType<ToolSearchProcessor['processInputStep']>>;
 type SearchTool = ToolSearchStepResult['tools']['search_tools'];
 
-function readSearchResult(value: unknown): { readonly resultCount: number } | undefined {
+export interface ToolDiscoverySearchObservation {
+  readonly query: string;
+  readonly rankedResults: readonly {
+    readonly score: number;
+    readonly toolId: string;
+  }[];
+  readonly stepNumber: number | undefined;
+}
+
+type ToolDiscoverySearchObserver = (observation: ToolDiscoverySearchObservation) => void;
+
+const SEARCH_TOOL_DESCRIPTION =
+  'Search deferred capabilities, including open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, skills, and embeddings. Matches load automatically for the next turn.';
+
+function readSearchQuery(args: readonly unknown[]): string | undefined {
+  const input = args[0];
+  if (!input || typeof input !== 'object') {
+    return;
+  }
+  const query = (input as { readonly query?: unknown }).query;
+  return typeof query === 'string' ? query : undefined;
+}
+
+function readSearchResult(
+  value: unknown,
+  toolNameMap: ReadonlyMap<string, string>
+): Pick<ToolDiscoverySearchObservation, 'rankedResults'> | undefined {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -123,10 +149,26 @@ function readSearchResult(value: unknown): { readonly resultCount: number } | un
   if (!Array.isArray(results)) {
     return;
   }
-  return { resultCount: results.length };
+  const rankedResults: { score: number; toolId: string }[] = [];
+  for (const result of results) {
+    if (!result || typeof result !== 'object') {
+      return;
+    }
+    const { name, score } = result as { readonly name?: unknown; readonly score?: unknown };
+    if (typeof name !== 'string' || typeof score !== 'number' || !Number.isFinite(score)) {
+      return;
+    }
+    rankedResults.push({ score, toolId: toolNameMap.get(name) ?? name });
+  }
+  return { rankedResults };
 }
 
-function wrapSearchTelemetry(searchTool: SearchTool, stepNumber: number | undefined): SearchTool {
+function wrapSearchTelemetry(
+  searchTool: SearchTool,
+  stepNumber: number | undefined,
+  toolNameMap: ReadonlyMap<string, string>,
+  notify: ToolDiscoverySearchObserver
+): SearchTool {
   const execute = searchTool.execute;
   if (!execute) {
     throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
@@ -137,25 +179,41 @@ function wrapSearchTelemetry(searchTool: SearchTool, stepNumber: number | undefi
 
   return {
     ...searchTool,
+    description: SEARCH_TOOL_DESCRIPTION,
     execute: async (...args: Parameters<typeof execute>) => {
+      const query = readSearchQuery(args);
+      if (query === undefined) {
+        throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+          context: { phase: 'search-query', stepNumber },
+          detail: 'search_tools received an invalid query shape',
+        });
+      }
       const result = await execute(...args);
-      const searchResult = readSearchResult(result);
+      const searchResult = readSearchResult(result, toolNameMap);
       if (!searchResult) {
         throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
           context: { phase: 'search-result', stepNumber },
           detail: 'search_tools returned an invalid result shape',
         });
       }
-      if (searchResult.resultCount === 0) {
+      const observation: ToolDiscoverySearchObservation = {
+        query,
+        rankedResults: searchResult.rankedResults,
+        stepNumber,
+      };
+      notify(observation);
+      if (searchResult.rankedResults.length === 0) {
         logger.info('Mastra tool discovery search missed', {
           code: 'mastra_tool_discovery_catalog_miss',
+          queryLength: query.length,
           stepNumber,
         });
         return result;
       }
       logger.info('Mastra tool discovery search loaded tools', {
         code: 'mastra_tool_discovery_search_loaded',
-        loadedToolCount: searchResult.resultCount,
+        queryLength: query.length,
+        rankedResults: searchResult.rankedResults,
         stepNumber,
       });
       return result;
@@ -203,6 +261,7 @@ export class BrainstrikeToolSearchProcessor {
   private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
   private readonly model: ToolSearchStepArgs['model'];
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
+  private readonly searchObservers = new Set<ToolDiscoverySearchObserver>();
   private readonly toolNameMap: ReadonlyMap<string, string>;
 
   constructor(options: {
@@ -219,6 +278,25 @@ export class BrainstrikeToolSearchProcessor {
     this.loadPersistedMessages = options.loadPersistedMessages;
     this.model = options.model;
     this.toolNameMap = options.toolNameMap;
+  }
+
+  subscribeSearchObservations(observer: ToolDiscoverySearchObserver): () => void {
+    this.searchObservers.add(observer);
+    return () => {
+      this.searchObservers.delete(observer);
+    };
+  }
+
+  private notifySearchObservers(observation: ToolDiscoverySearchObservation): void {
+    for (const observer of this.searchObservers) {
+      try {
+        observer(observation);
+      } catch {
+        logger.warn('Mastra tool discovery observer failed', {
+          code: 'mastra_tool_discovery_observer_failure',
+        });
+      }
+    }
   }
 
   async getLoadedToolsForRequestContext(
@@ -299,7 +377,14 @@ export class BrainstrikeToolSearchProcessor {
         loadedToolIds,
         stepNumber: args.stepNumber,
       });
-      result.tools.search_tools = wrapSearchTelemetry(result.tools.search_tools, args.stepNumber);
+      result.tools.search_tools = wrapSearchTelemetry(
+        result.tools.search_tools,
+        args.stepNumber,
+        this.toolNameMap,
+        (observation) => {
+          this.notifySearchObservers(observation);
+        }
+      );
       return result;
     } catch (error) {
       if (
