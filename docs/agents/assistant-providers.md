@@ -524,6 +524,11 @@ root-qualification rule as reads and searches.
 `lspInspect` also brands its cursor-marker, line-range, missing-fragment, and
 ambiguous-fragment rejections as trusted input errors; its catalog description
 spells out the `LSP` acronym so the common `search_tools("lsp")` query loads it.
+The desktop LSP pool is keyed by the durable database `roots.id` returned by
+workspace-tool resolution. Root disconnect therefore evicts every LSP pool
+entry using the durable ids returned by the path-keyed database transition,
+never the renderer adapter id from `rootsList`; those identities can diverge
+after remove/re-add reconciliation.
 For successful
 hooked results, every original result shape and its control metadata travel in
 the explicitly discriminated internal `HOOK_RESULT_ENVELOPE_FIELD` protocol.
