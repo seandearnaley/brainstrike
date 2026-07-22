@@ -1,4 +1,4 @@
-import { createBrowserJsonStorage } from '@brainstrike/storage';
+import { createBrowserJsonStorage, createLazyStateStorage } from '@brainstrike/storage';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -68,32 +68,9 @@ function createBackgroundIndexingPreferencesStorage(): StateStorage {
   return createBrowserJsonStorage();
 }
 
-/**
- * Keep the platform-storage import lazy until Zustand performs an operation.
- *
- * The optimized Web bundle can place this store and `@brainstrike/storage` in
- * mutually dependent chunks. Calling the imported factory while those chunks
- * are still evaluating throws; `createJSONStorage` treats that construction
- * error as "storage unavailable", so Zustand never installs its `persist` API.
- * Returning a concrete delegating adapter here keeps the capability advertised
- * while preserving fail-loud behavior when the adapter itself is actually
- * broken.
- */
-function createLazyBackgroundIndexingPreferencesStorage(): StateStorage {
-  let resolvedStorage: StateStorage | null = null;
-  const getStorage = (): StateStorage => {
-    resolvedStorage ??= createBackgroundIndexingPreferencesStorage();
-    return resolvedStorage;
-  };
-
-  return {
-    getItem: (key: string) => getStorage().getItem(key),
-    removeItem: (key: string) => getStorage().removeItem(key),
-    setItem: (key: string, value: string) => getStorage().setItem(key, value),
-  };
-}
-
-const storage = createJSONStorage(() => createLazyBackgroundIndexingPreferencesStorage());
+const storage = createJSONStorage(() =>
+  createLazyStateStorage(createBackgroundIndexingPreferencesStorage)
+);
 
 const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   enabled: true,

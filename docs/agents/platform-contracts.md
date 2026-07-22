@@ -120,10 +120,13 @@ module graph is still evaluating. Optimized Web chunking can place preferences
 and storage exports in mutually dependent chunks; `createJSONStorage` catches a
 factory error at that point and constructs a store without the `persist` API.
 
-Return a concrete delegating storage object to `createJSONStorage` and resolve
-the platform adapter on its first `getItem`, `setItem`, or `removeItem` call.
-This preserves the Web persistence capability without hiding a genuinely broken
-adapter. The production-build regression is covered by
+Return `createLazyStateStorage(platformAdapterFactory)` from the
+`createJSONStorage` callback. The shared `@brainstrike/storage` helper returns a
+concrete delegating object immediately, then resolves and memoizes the platform
+adapter on its first `getItem`, `setItem`, or `removeItem` call. A factory that
+throws is retried by the next operation; factory and operation errors propagate
+unchanged. This preserves the Web persistence capability without hiding a
+genuinely broken adapter. The production-build regression is covered by
 `apps/web/e2e/web-db-worker-startup.test.ts`, which treats both console errors
 and unhandled page errors during startup as failures in the PR smoke lane.
 
