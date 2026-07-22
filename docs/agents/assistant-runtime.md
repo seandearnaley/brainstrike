@@ -422,12 +422,16 @@ capability-gated, no `isElectron()`).
   before the "clean" verdict is trusted. Python/Go/Rust discovery + the config
   surface are the remaining Phase B work.
 - **`lspInspect` tool (Phase B).** A read-risk native tool for semantic
-  navigation: `{path, line (1-based), match}` where `match` is the line's text
-  with exactly one `<<<` cursor marker before the symbol (a unique fragment of
-  the line also works). The tool reads the file through the checked reader,
-  anchors `match` (marker removed) against the REAL line text — refusing with
-  the actual line if it isn't found, or if it occurs more than once — and
-  resolves the column as fragment-start + marker-offset, so a partial or stale
+  navigation: `{path, line (1-based), match}`. Prefer a markerless single
+  JavaScript/TypeScript identifier as `match`; the cursor is its first character
+  when it occurs exactly once on the target line. If the identifier repeats on
+  that line, use a unique line fragment with exactly one `<<<` cursor marker
+  before the intended occurrence. The tool reads the file through the checked
+  reader and anchors the identifier or marker-stripped fragment against the REAL
+  line text. A markerless identifier missing from the requested line returns up
+  to five actual candidate line numbers for an explicit retry; it never jumps
+  lines itself. Missing and ambiguous matches refuse, while marked fragments
+  resolve the column as fragment-start + marker-offset, so a partial or stale
   quote can never silently inspect the wrong position (same
   validate-before-position convention as `stringReplace`). Returns up to four
   groups — hover (inferred type/docs), the inspected line's diagnostics,

@@ -521,9 +521,14 @@ root-qualified tool omits, misnames, or ambiguously names `root`: it never
 silently falls back to Main. The default multi-root instruction includes
 deferred `lspInspect`, so a newly activated semantic tool receives the same
 root-qualification rule as reads and searches.
-`lspInspect` also brands its cursor-marker, line-range, missing-fragment, and
-ambiguous-fragment rejections as trusted input errors; its catalog description
-spells out the `LSP` acronym so the common `search_tools("lsp")` query loads it.
+`lspInspect` also brands its identifier/marker, line-range, missing-fragment, and
+ambiguous-fragment rejections as trusted input errors. A markerless single
+JavaScript/TypeScript identifier is the preferred model input and anchors the
+cursor at its unique occurrence on the requested line; a repeated occurrence
+still requires the exact `<<<` fragment form. A wrong-line markerless identifier
+returns bounded candidate line numbers for an explicit retry and never silently
+moves the request. Its catalog description spells out the `LSP` acronym so the
+common `search_tools("lsp")` query loads it.
 The desktop LSP pool is keyed by the durable database `roots.id` returned by
 workspace-tool resolution. Root disconnect therefore evicts every LSP pool
 entry using the durable ids returned by the path-keyed database transition,
@@ -726,7 +731,8 @@ display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output
 retains the root/path, 1-based declaration line and enclosing range,
 declaration text, preview, total/truncation state, and honest instructions for
-forming the existing `lspInspect` cursor marker. It does not invent a symbol
+passing the returned unique identifier directly or forming the `lspInspect`
+cursor marker when that identifier repeats. It does not invent a symbol
 kind or the original symbol query: Mastra's one-argument projector receives the
 raw result but not the original input. LSP output retains availability/reason,
 language, hover text, diagnostics, and definition/implementation locations.
@@ -972,7 +978,7 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 29 tools / 7,019 `o200k_base` tokens, while the
+contract: the eager baseline is 29 tools / 7,028 `o200k_base` tokens, while the
 live critical definition surface is 7 tools / 1,923 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the

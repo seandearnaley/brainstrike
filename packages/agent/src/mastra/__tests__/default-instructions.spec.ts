@@ -106,8 +106,9 @@ describe('lspInspect advertisement', () => {
       new Map<string, string>([['lspInspect', 'brainstrike.lspInspect']])
     );
     expect(withTool).toContain('lspInspect');
+    expect(withTool).toContain('prefer the unique identifier itself');
     expect(withTool).toContain('<<<');
-    expect(withTool).toContain('fragment occurring exactly once');
+    expect(withTool).toContain('If it repeats on that line');
     expect(withTool).toMatch(/definition/i);
     expect(withTool).toMatch(/implementations/i);
 

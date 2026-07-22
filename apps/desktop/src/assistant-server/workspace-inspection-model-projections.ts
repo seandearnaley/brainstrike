@@ -242,7 +242,7 @@ function formatSymbolMatch(match: SymbolMatchResult): string[] {
 }
 
 const SYMBOL_INSPECTION_GUIDANCE =
-  'inspect: call brainstrike.lspInspect with the header root/path and one returned declaration line; place exactly one <<< immediately before the intended symbol in the returned declaration text';
+  'inspect: call brainstrike.lspInspect with the header root/path and one returned declaration line; pass the returned unique symbol name directly as match, or place exactly one <<< before the intended occurrence in a unique line fragment when the name repeats';
 
 function symbolContinuation(result: FindWorkspaceSymbolResult, kept: number): string | null {
   if (kept < result.matches.length) {

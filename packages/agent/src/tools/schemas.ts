@@ -648,7 +648,7 @@ export const LspInspectInputSchema = z
       .min(3)
       .max(2000)
       .describe(
-        'Target line or unique fragment with exactly one `<<<` before the symbol; refused when marker-stripped text is absent'
+        'Prefer one unique JS/TS identifier (cursor is its first character). If it repeats on the line, pass a unique fragment with exactly one `<<<` before the intended occurrence'
       ),
     path: z.string().min(1).describe('Workspace-relative file path to inspect'),
     root: z
