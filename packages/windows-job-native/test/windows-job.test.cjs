@@ -25,6 +25,43 @@ async function waitForFile(filePath, timeoutMs = 5000) {
   throw new Error(`Timed out waiting for ${filePath}.`);
 }
 
+async function waitForChildExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = () => {
+      cleanup();
+      resolve();
+    };
+
+    child.once('error', onError);
+    child.once('exit', onExit);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      onExit();
+    }
+  });
+}
+
+test('observes a child that exited before the waiter attached', async () => {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', resolve);
+  });
+
+  await waitForChildExit(child);
+});
+
 test('owns an orphaned late-writing grandchild without terminating an unrelated process', {
   skip: process.platform !== 'win32',
 }, async () => {
@@ -59,10 +96,7 @@ test('owns an orphaned late-writing grandchild without terminating an unrelated 
       `;
     const child = spawn(process.execPath, ['-e', childSource], { stdio: 'ignore' });
     await waitForFile(readyPath);
-    await new Promise((resolve, reject) => {
-      child.once('error', reject);
-      child.once('exit', resolve);
-    });
+    await waitForChildExit(child);
 
     assert.ok(windowsJob.activeProcessCount() > 1);
     assert.ok(windowsJob.terminateOtherProcesses(91) > 0);
@@ -77,6 +111,7 @@ test('owns an orphaned late-writing grandchild without terminating an unrelated 
     assert.doesNotThrow(() => process.kill(unrelated.pid, 0));
   } finally {
     unrelated.kill('SIGKILL');
+    await waitForChildExit(unrelated);
     await rm(root, { force: true, recursive: true });
   }
 });
@@ -114,10 +149,7 @@ test('kills inherited descendants when an owning launcher exits unexpectedly', {
       `;
     const helper = spawn(process.execPath, ['-e', helperSource], { stdio: 'ignore' });
     await waitForFile(readyPath);
-    await new Promise((resolve, reject) => {
-      helper.once('error', reject);
-      helper.once('exit', resolve);
-    });
+    await waitForChildExit(helper);
 
     await rm(profile, { force: true, recursive: true });
     await sleep(900);
