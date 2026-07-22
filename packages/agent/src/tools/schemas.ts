@@ -708,7 +708,18 @@ export const InspectCommandSessionsInputSchema = z
   .object({
     operation: z
       .discriminatedUnion('action', [
-        z.object({ action: z.literal('list') }).strict(),
+        z
+          .object({
+            action: z.literal('list'),
+            offset: z
+              .number()
+              .int()
+              .min(0)
+              .max(10_000)
+              .optional()
+              .describe('Session offset from a previous truncated list page'),
+          })
+          .strict(),
         z
           .object({
             action: z.literal('read'),

@@ -74,6 +74,10 @@ describe('native tool input schema catalog', () => {
 
     expect(inspect.safeParse({ operation: { action: 'list' }, root: 'api' }).success).toBe(true);
     expect(
+      inspect.safeParse({ operation: { action: 'list', offset: 25 }, root: 'api' }).success
+    ).toBe(true);
+    expect(inspect.safeParse({ operation: { action: 'list', offset: -1 } }).success).toBe(false);
+    expect(
       inspect.safeParse({
         operation: { action: 'read', cursor: -1, sessionId: 'session-1' },
         root: 'api',

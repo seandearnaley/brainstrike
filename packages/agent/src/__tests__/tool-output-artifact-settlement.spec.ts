@@ -215,6 +215,33 @@ describe('tool output artifact settlement', () => {
     expect(JSON.stringify(model).length).toBeLessThanOrEqual(8000);
   });
 
+  it.each([
+    'brainstrike.inspectCommandSessions',
+    'brainstrike.manageCommandSession',
+  ])('never durably settles command-session output from %s', async (toolName) => {
+    const output = {
+      output: `secret-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}`,
+    };
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+      ...reference(new TextEncoder().encode(input.content).byteLength),
+      format: 'json',
+    }));
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => output) },
+      {
+        store: settlementStore(store),
+        toolNameMap: new Map([['fixture', toolName]]),
+      }
+    );
+
+    const result = await (
+      tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }
+    ).execute({}, { agent: { toolCallId: 'call-1' } });
+
+    expect(result).toBe(output);
+    expect(store).not.toHaveBeenCalled();
+  });
+
   it('bypasses a custom projector after settlement so the model receives the artifact cursor', async () => {
     const output = { payload: 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES), tail: 'kept' };
     const projector = vi.fn((value: unknown) => ({

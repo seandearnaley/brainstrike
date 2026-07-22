@@ -326,6 +326,16 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced
   output throws. This mirrors OpenCode's bounded absolute-cursor replay shape
   and prevents duplicate polling output.
+- Model-facing inventory and reads are producer-paged below a 5,500 UTF-8 byte
+  result ceiling, which is deliberately below the durable artifact-settlement
+  threshold. List continuation uses `offset`/`nextOffset`; read continuation
+  advances `nextCursor` only through the emitted UTF-16 code units and exposes
+  `availableEndCursor` plus `remainingUtf16CodeUnits`. A page never splits a
+  surrogate pair. This source-owned paging is load-bearing for bounded live
+  delivery. The canonical session-tool ids are additionally registered as
+  non-durable outputs, so artifact settlement skips them even when a lifecycle
+  hook wraps a result: command-session output must never be copied into the
+  seven-day tool-output artifact store.
 - Running/exited state is typed. The newest 25 exited sessions per root remain
   readable; older exited sessions are evicted. Command text, cwd, environment,
   and raw output are never logged or persisted.
@@ -341,16 +351,24 @@ remains the bounded, wait-for-exit path for normal tests/builds.
   native registry: read-risk `inspectCommandSessions` (list/read) and
   execute-risk `manageCommandSession` (start/write/stop/remove). The latter is
   omitted in plan mode and follows the normal ask/deny discovery and approval
-  gates. The built-in local provider omits both because it lacks deferred tool
-  discovery. Web never constructs the desktop registry, and its explicit native
-  tool-id partition omits both from settings, request allowlists, and the model
-  tool menu, so it exposes no stub or fallback. Do not widen `executeCommand` in
-  place. The command-session inventory UI is a separate follow-up slice.
+  gates. Both tools own a target-aware transcript transform: start command/cwd,
+  write data, streamed input deltas, session cwd, PTY output, and guarded error
+  messages/reasons are replaced by allowlisted metadata before PGlite
+  persistence, while the live display and current model step retain the bounded
+  domain result. The built-in local provider omits both because it lacks
+  deferred tool discovery. Web never constructs the desktop registry, and its
+  explicit native tool-id partition omits both from settings, request
+  allowlists, and the model tool menu, so it exposes no stub or fallback. Do not
+  widen `executeCommand` in place. The command-session inventory UI is a separate
+  follow-up slice.
 
 Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
 stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
 `command-session-manager.integration.test.ts` (real PTY HTTP server survival,
-natural non-zero exit, and leader/descendant reaping).
+natural non-zero exit, and leader/descendant reaping), plus the command-session
+cases in `assistant-tools.integration.test.ts` (transcript redaction, UTF-8
+result ceilings, manager/tool continuation composition, and surrogate-safe
+paging).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces

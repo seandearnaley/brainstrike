@@ -21,6 +21,10 @@ import type { BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import type { CommandSessionManager } from '../../assistant-server/command-session-manager';
+import {
+  COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES,
+  type CommandSessionPayloadTransform,
+} from '../../assistant-server/command-session-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
 import {
@@ -1229,7 +1233,13 @@ describe('assistant-tools', () => {
         operation: { action: 'list' },
         root: 'api',
       })
-    ).toEqual({ rootId: 'db-root-api', sessions: [session] });
+    ).toEqual({
+      offset: 0,
+      rootId: 'db-root-api',
+      sessions: [session],
+      totalSessions: 1,
+      truncated: false,
+    });
     expect(
       tools['brainstrike.inspectCommandSessions'].execute({
         operation: { action: 'read', cursor: 0, sessionId: 'session-1' },
@@ -1268,6 +1278,244 @@ describe('assistant-tools', () => {
     expect(manager.write).toHaveBeenCalledWith('db-root-api', 'session-1', 'q\n');
     expect(manager.stop).toHaveBeenCalledWith('db-root-api', 'session-1');
     expect(manager.remove).toHaveBeenCalledWith('db-root-api', 'session-1');
+  });
+
+  it('keeps command-session secrets out of the durable transcript', async () => {
+    const session = {
+      createdAt: 100,
+      cwd: '/workspace/api/private',
+      id: 'session-1',
+      pid: 4242,
+      rootId: 'db-root-api',
+      status: 'running' as const,
+    };
+    const manager = {
+      dispose: vi.fn(async () => 0),
+      disposeRoot: vi.fn(async () => 0),
+      get: vi.fn(() => session),
+      list: vi.fn(() => [session]),
+      read: vi.fn(() => ({
+        bufferStartCursor: 0,
+        hasMore: false,
+        nextCursor: 18,
+        output: 'TOKEN=secret-value',
+        requestedCursor: 0,
+        truncatedBeforeCursor: false,
+      })),
+      remove: vi.fn(async () => undefined),
+      start: vi.fn(async () => session),
+      stop: vi.fn(async () => undefined),
+      write: vi.fn(),
+    } satisfies CommandSessionManager;
+    const runtime = {
+      workspaceRoots: [{ displayName: 'api', path: '/workspace/api', rootId: 'db-root-api' }],
+    } as RuntimeData;
+    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const inspectTransform = (
+      tools['brainstrike.inspectCommandSessions'] as { transform?: CommandSessionPayloadTransform }
+    ).transform?.transcript;
+    const manageTransform = (
+      tools['brainstrike.manageCommandSession'] as { transform?: CommandSessionPayloadTransform }
+    ).transform?.transcript;
+
+    expect(inspectTransform?.output).toBeTypeOf('function');
+    expect(manageTransform?.input).toBeTypeOf('function');
+    expect(manageTransform?.output).toBeTypeOf('function');
+
+    const persistedStartInput = await manageTransform?.input?.({
+      input: {
+        operation: {
+          action: 'start',
+          command: 'AUTH_TOKEN=secret-value pnpm dev',
+          cwd: '/workspace/api/private',
+        },
+        root: 'api',
+      },
+      phase: 'input-available',
+      target: 'transcript',
+      toolCallId: 'call-start',
+      toolName: 'brainstrike.manageCommandSession',
+    });
+    const persistedWriteInput = await manageTransform?.input?.({
+      input: {
+        operation: { action: 'write', data: 'secret-password\n', sessionId: 'session-1' },
+        root: 'api',
+      },
+      phase: 'input-available',
+      target: 'transcript',
+      toolCallId: 'call-write',
+      toolName: 'brainstrike.manageCommandSession',
+    });
+    const persistedReadOutput = await inspectTransform?.output?.({
+      output: {
+        bufferStartCursor: 0,
+        nextCursor: 18,
+        output: 'TOKEN=secret-value',
+        requestedCursor: 0,
+        session,
+        truncatedBeforeCursor: false,
+      },
+      phase: 'output-available',
+      target: 'transcript',
+      toolCallId: 'call-read',
+      toolName: 'brainstrike.inspectCommandSessions',
+    });
+    const persistedManageOutput = await manageTransform?.output?.({
+      output: session,
+      phase: 'output-available',
+      target: 'transcript',
+      toolCallId: 'call-start',
+      toolName: 'brainstrike.manageCommandSession',
+    });
+    const persistedHookBlock = await manageTransform?.output?.({
+      output: {
+        error: {
+          code: 'tool_blocked_by_hook',
+          message: 'Blocked command: AUTH_TOKEN=secret-value pnpm dev',
+          toolName: 'brainstrike.manageCommandSession',
+        },
+        ok: false,
+        reason: 'Rejected cwd /workspace/api/private',
+      },
+      phase: 'output-available',
+      target: 'transcript',
+      toolCallId: 'call-blocked',
+      toolName: 'brainstrike.manageCommandSession',
+    });
+    const serialized = JSON.stringify({
+      persistedHookBlock,
+      persistedManageOutput,
+      persistedReadOutput,
+      persistedStartInput,
+      persistedWriteInput,
+    });
+
+    expect(serialized).not.toContain('secret-value');
+    expect(serialized).not.toContain('secret-password');
+    expect(serialized).not.toContain('/workspace/api/private');
+    expect(persistedStartInput).toMatchObject({
+      operation: { action: 'start', redactedFields: ['command', 'cwd'] },
+      root: 'api',
+    });
+    expect(persistedWriteInput).toMatchObject({
+      operation: {
+        action: 'write',
+        redactedFields: ['data'],
+        sessionId: 'session-1',
+        writtenUtf16CodeUnits: 16,
+      },
+      root: 'api',
+    });
+    expect(persistedReadOutput).toMatchObject({
+      nextCursor: 18,
+      outputRedacted: true,
+      outputUtf16CodeUnits: 18,
+      session: { id: 'session-1', rootId: 'db-root-api' },
+    });
+    expect(persistedManageOutput).toMatchObject({
+      id: 'session-1',
+      rootId: 'db-root-api',
+      status: 'running',
+    });
+    expect(persistedHookBlock).toEqual({
+      error: {
+        code: 'tool_blocked_by_hook',
+        message: 'Command-session tool failure details redacted.',
+        toolName: 'brainstrike.manageCommandSession',
+      },
+      ok: false,
+    });
+  });
+
+  it('pages command-session inventory and output below the durable artifact threshold', () => {
+    const sessions = Array.from({ length: 100 }, (_, index) => ({
+      createdAt: index,
+      cwd: `/workspace/api/${'nested/'.repeat(20)}session-${index}`,
+      id: `session-${index}`,
+      pid: 4000 + index,
+      rootId: 'db-root-api',
+      status: 'running' as const,
+    }));
+    const output = `${'😀 secret-output '.repeat(2000)}tail`;
+    const manager = {
+      dispose: vi.fn(async () => 0),
+      disposeRoot: vi.fn(async () => 0),
+      get: vi.fn(() => sessions[0]!),
+      list: vi.fn(() => sessions),
+      read: vi.fn(
+        (_rootId: string, _sessionId: string, cursor = 0, maxUtf16CodeUnits = output.length) => {
+          const requestedEnd = Math.min(output.length, cursor + maxUtf16CodeUnits);
+          const endsOnHighSurrogate =
+            output.charCodeAt(requestedEnd - 1) >= 0xd8_00 &&
+            output.charCodeAt(requestedEnd - 1) <= 0xdb_ff;
+          const end = endsOnHighSurrogate ? requestedEnd - 1 : requestedEnd;
+          return {
+            bufferStartCursor: 0,
+            hasMore: end < output.length,
+            nextCursor: end,
+            output: cursor === -1 ? '' : output.slice(cursor, end),
+            requestedCursor: cursor,
+            truncatedBeforeCursor: false,
+          };
+        }
+      ),
+      remove: vi.fn(async () => undefined),
+      start: vi.fn(async () => sessions[0]!),
+      stop: vi.fn(async () => undefined),
+      write: vi.fn(),
+    } satisfies CommandSessionManager;
+    const runtime = {
+      workspaceRoots: [{ displayName: 'api', path: '/workspace/api', rootId: 'db-root-api' }],
+    } as RuntimeData;
+    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const inspect = tools['brainstrike.inspectCommandSessions'];
+
+    const listedSessionIds: string[] = [];
+    let offset = 0;
+    while (offset < sessions.length) {
+      const page = inspect.execute({
+        operation: { action: 'list', offset },
+        root: 'api',
+      });
+      expect(Buffer.byteLength(JSON.stringify(page), 'utf8')).toBeLessThanOrEqual(
+        COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES
+      );
+      expect(page).toMatchObject({
+        offset,
+        rootId: 'db-root-api',
+        totalSessions: 100,
+      });
+      expect(page.sessions.length).toBeGreaterThan(0);
+      listedSessionIds.push(...page.sessions.map((session) => session.id));
+      if (!page.truncated) {
+        break;
+      }
+      expect(page.nextOffset).toBeGreaterThan(offset);
+      offset = page.nextOffset;
+    }
+    expect(listedSessionIds).toEqual(sessions.map((session) => session.id));
+
+    let rebuiltOutput = '';
+    let cursor = 0;
+    while (cursor < output.length) {
+      const page = inspect.execute({
+        operation: { action: 'read', cursor, sessionId: 'session-0' },
+        root: 'api',
+      });
+      expect(Buffer.byteLength(JSON.stringify(page), 'utf8')).toBeLessThanOrEqual(
+        COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES
+      );
+      expect(page.availableEndCursor).toBeLessThanOrEqual(output.length);
+      expect(page.availableEndCursor).toBeGreaterThanOrEqual(page.nextCursor);
+      expect(page.nextCursor).toBe(cursor + page.output.length);
+      expect(page.nextCursor).toBeGreaterThan(cursor);
+      expect(page.hasMore).toBe(page.nextCursor < output.length);
+      expect(page.remainingUtf16CodeUnits).toBe(page.availableEndCursor - page.nextCursor);
+      expect(page.output.endsWith('\ud83d')).toBe(false);
+      rebuiltOutput += page.output;
+      cursor = page.nextCursor;
+    }
+    expect(rebuiltOutput).toBe(output);
   });
 
   it('registers the artifact reader only with a trusted scoped read capability', async () => {

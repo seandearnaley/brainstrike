@@ -901,7 +901,7 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 29 tools / 6,972 `o200k_base` tokens, while the
+contract: the eager baseline is 29 tools / 7,016 `o200k_base` tokens, while the
 live critical definition surface is 7 tools / 1,923 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
@@ -912,13 +912,20 @@ definitions: `inspectCommandSessions` owns read-risk list/read, while
 `manageCommandSession` owns execute-risk start/write/stop/remove. Each schema is
 a provider-compatible root object containing a nested discriminated `operation`
 union. This prevents models from filling irrelevant action fields while keeping
-the critical request unchanged; together the two deferred definitions add 763
-tokens to the pre-session eager baseline. A single mixed-risk tool is forbidden because
-it would either hide harmless inspection behind execute approval or expose
+the critical request unchanged; together the two deferred definitions add 809
+tokens to the pre-session eager baseline. A single mixed-risk tool is forbidden
+because it would either hide harmless inspection behind execute approval or expose
 process control as read; top-level schema unions are forbidden because hosted
 providers require a root object. Plan mode keeps inspection and omits
-management. The built-in local provider gets neither definition because it has
-no deferred-discovery path and would otherwise pay both schemas eagerly.
+management. Inventory pages continue with `offset`, and PTY reads continue with
+the exact returned `nextCursor`; both raw result shapes stay below a 5,500-byte
+UTF-8 producer ceiling. Their canonical ids are also explicitly excluded from
+durable artifact settlement so a hook envelope cannot create a seven-day copy.
+Target-aware transcript transforms retain safe action, session, cursor, and
+length metadata but redact command strings, cwd, stdin, input deltas, PTY
+output, and guarded error messages/reasons before persistence. The built-in local
+provider gets neither definition because it has no deferred-discovery path and
+would otherwise pay both schemas eagerly.
 Desktop registers the capability; Web has no desktop registry, uses the explicit
 `WEB_NATIVE_TOOL_IDS` UI/request partition, and therefore exposes neither tool.
 
