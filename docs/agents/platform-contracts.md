@@ -160,6 +160,18 @@ all renderer state.
 
 ---
 
+## AGENT DEVTOOLS PROFILE ISOLATION
+
+The official `dev:agent-debug` launcher owns a temporary Electron profile for
+each run. When Agent DevTools is enabled, desktop startup MUST apply the
+launcher's absolute `BRAINSTRIKE_E2E_USER_DATA_DIR` to both Electron `userData`
+and its nested `sessionData` path before any store or window is created. A
+missing path fails startup; it must never fall through to the production
+profile. This path isolation does not enable E2E runtime semantics: live
+provider, storage, and single-instance behavior remain production-equivalent.
+
+---
+
 ## FILE WATCHER SERVICE LIFECYCLE (BST-568)
 
 OS file watching is a PLATFORM capability beneath the assistant runtime —

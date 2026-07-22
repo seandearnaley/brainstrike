@@ -52,11 +52,12 @@ export function configureAgentDevtoolsCommandLine(
   commandLine: ElectronCommandLineLike,
   env: EnvLike,
   argv: readonly string[]
-): void {
+): AgentDevtoolsConfig {
   const config = resolveAgentDevtoolsConfig(env, argv);
   for (const [name, value] of toAgentDevtoolsSwitches(config)) {
     commandLine.appendSwitch(name, value);
   }
+  return config;
 }
 
 export function resolveAgentDevtoolsWindowTitle(

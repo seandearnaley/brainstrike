@@ -122,6 +122,7 @@ vi.mock('electron-store', () => {
 });
 
 const ORIGINAL_ARGV = [...process.argv];
+const ORIGINAL_AGENT_DEVTOOLS = process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
 const ORIGINAL_E2E_USER_DATA_DIR = process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
 
@@ -131,6 +132,8 @@ describe('main E2E window isolation', () => {
     vi.clearAllMocks();
     process.argv = ORIGINAL_ARGV.filter((arg) => arg !== '--test-mode');
     // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+    delete process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
+    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
     delete process.env['ELECTRON_IS_E2E_TEST'];
     // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
     delete process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
@@ -138,6 +141,12 @@ describe('main E2E window isolation', () => {
 
   afterEach(() => {
     process.argv = [...ORIGINAL_ARGV];
+    if (ORIGINAL_AGENT_DEVTOOLS === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+      delete process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
+    } else {
+      process.env['BRAINSTRIKE_AGENT_DEVTOOLS'] = ORIGINAL_AGENT_DEVTOOLS;
+    }
     if (ORIGINAL_ELECTRON_E2E === undefined) {
       // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
       delete process.env['ELECTRON_IS_E2E_TEST'];
@@ -189,6 +198,35 @@ describe('main E2E window isolation', () => {
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'sessionData',
       path.join('/tmp/brainstrike-e2e-isolated-profile', 'session-data')
+    );
+  });
+
+  it('isolates Agent DevTools paths without enabling E2E runtime semantics', async () => {
+    process.env['BRAINSTRIKE_AGENT_DEVTOOLS'] = '1';
+    process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'] = '/tmp/brainstrike-agent-isolated-profile';
+
+    await import('../../main');
+    await Promise.resolve();
+
+    const mockedApp = electronMockState.app;
+
+    expect(mockedApp).not.toBeNull();
+    expect(mockedApp.setPath).toHaveBeenCalledWith(
+      'userData',
+      '/tmp/brainstrike-agent-isolated-profile'
+    );
+    expect(mockedApp.setPath).toHaveBeenCalledWith(
+      'sessionData',
+      path.join('/tmp/brainstrike-agent-isolated-profile', 'session-data')
+    );
+    expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when Agent DevTools has no isolated profile path', async () => {
+    process.env['BRAINSTRIKE_AGENT_DEVTOOLS'] = '1';
+
+    await expect(import('../../main')).rejects.toThrow(
+      'BRAINSTRIKE_E2E_USER_DATA_DIR is required when Agent DevTools is enabled.'
     );
   });
 
