@@ -82,7 +82,9 @@ describe('app-shell assistant contract boundary', () => {
     // onSteerActiveRun to the panel behind the desktop-bridge capability gate.
     // BST-593 adds the provider-read-error prop and threads it into the existing
     // disabled-reason composition boundary without adding runtime ownership.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1639);
+    // BST-697 adds only the OpenRouter defaults hook call; policy and mutation
+    // remain isolated in the hook and model-registry store action.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1645);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

@@ -21,6 +21,10 @@ const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
   hasDesktopLlmHostMock: vi.fn((): boolean => false),
 }));
 
+const { initializeProviderModelDefaultsMock } = vi.hoisted(() => ({
+  initializeProviderModelDefaultsMock: vi.fn(async () => 'preserved' as const),
+}));
+
 const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
@@ -325,12 +329,14 @@ vi.mock('@brainstrike/preferences', async () => {
       models: ReturnType<typeof buildRegistryModels>;
       hasLoaded: boolean;
       error: Error | null;
+      initializeProviderModelDefaults: typeof initializeProviderModelDefaultsMock;
       toggleModel: (_db: unknown, modelId: string, enabled: boolean) => void;
     }) => T
   ): T =>
     selector({
       error: null,
       hasLoaded: true,
+      initializeProviderModelDefaults: initializeProviderModelDefaultsMock,
       models: buildRegistryModels(),
       toggleModel: (_db: unknown, modelId: string, enabled: boolean) => {
         if (enabled) {
@@ -1050,6 +1056,7 @@ beforeEach(() => {
   fileExplorerMocks.setSelectedFiles.mockReset();
   fileExplorerMocks.setTokenBudget.mockReset();
   mockDb.query.mockReset();
+  initializeProviderModelDefaultsMock.mockClear();
   mockDb.exec.mockReset();
   mockDb.exec.mockResolvedValue(undefined);
   mockDb.query.mockImplementation(async (sql: string) => {

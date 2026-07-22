@@ -232,6 +232,20 @@
   input-context reservation. Explicit user overrides remain strict: a value
   above a known model maximum is surfaced and blocks the request rather than
   being silently clamped.
+- A newly readable OpenRouter configuration must be usable without visiting
+  model settings. When the DB-backed OpenRouter catalog is untouched, app-shell
+  enables the small `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` set (balanced
+  GPT-5.6 Terra, long-horizon Kimi K3, and Qwen3.7 Max) in one durable write.
+  The database model registry remains the picker source of truth. Any existing
+  enabled model, or any row whose `updated_at` is later than `created_at`, is an
+  explicit prior choice—including an intentional all-disabled choice—and must
+  be preserved exactly. Catalog migrations therefore continue preserving both
+  `is_enabled` and the timestamps on existing rows. Key replacement, reload,
+  and catalog refresh never reapply defaults; an unreadable key never triggers
+  initialization. Missing recommended catalog rows or failed persistence are
+  surfaced visibly rather than enabling a partial set or falling back to the
+  whole OpenRouter catalog. Hosted fixed-provider runtimes do not run this
+  desktop/local configuration initializer.
 - OpenAI hosted `tool_search` response history has a temporary, provider-boundary
   compatibility seam in `openai-tool-search-history-compat.ts`. AI SDK 4.0.8
   preserves a hosted search output's distinct `tso_...` ID in

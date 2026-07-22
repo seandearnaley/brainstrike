@@ -125,6 +125,7 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useOpenRouterDefaults } from './hooks/use-openrouter-model-defaults';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
@@ -232,6 +233,14 @@ export function AssistantUiPanelWrapper({
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
+
+  useOpenRouterDefaults(
+    configuredProviders,
+    db,
+    secretsVersion,
+    initialProviders,
+    providerReadErrors
+  );
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {

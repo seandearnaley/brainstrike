@@ -530,6 +530,172 @@ describe('model-registry-store', () => {
     });
   });
 
+  describe('initializeProviderModelDefaults', () => {
+    const untouchedRows = [
+      {
+        created_at: '2026-07-22T12:00:00.000Z',
+        id: 'model-a',
+        is_enabled: false,
+        updated_at: '2026-07-22T12:00:00.000Z',
+      },
+      {
+        created_at: '2026-07-22T12:00:00.000Z',
+        id: 'model-b',
+        is_enabled: false,
+        updated_at: '2026-07-22T12:00:00.000Z',
+      },
+    ];
+
+    it('durably enables the recommended set for an untouched provider catalog', async () => {
+      useModelRegistryStore.setState({
+        models: [
+          createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' }),
+          createMockModel({ id: 'model-b', isEnabled: false, providerId: 'openrouter' }),
+        ],
+      });
+      const events: string[] = [];
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({ rows: untouchedRows })
+          .mockImplementationOnce(async () => {
+            events.push('update');
+            return { rows: [{ id: 'model-a' }, { id: 'model-b' }] };
+          }),
+        syncToFs: vi.fn(async () => {
+          events.push('sync');
+        }),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+
+      expect(result).toBe('initialized');
+      expect(events).toEqual(['update', 'sync']);
+      expect(mockDb.query).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('FROM models WHERE provider_id = $1'),
+        ['openrouter']
+      );
+      expect(mockDb.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('UPDATE models SET is_enabled = true, updated_at = NOW()'),
+        ['openrouter', 'model-a', 'model-b']
+      );
+      expect(useModelRegistryStore.getState().models.map((model) => model.isEnabled)).toEqual([
+        true,
+        true,
+      ]);
+    });
+
+    it('preserves an existing enabled-model choice exactly', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({
+          rows: [{ ...untouchedRows[0], is_enabled: 1 }, untouchedRows[1]],
+        }),
+        syncToFs: vi.fn(),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('preserves an explicit choice before requiring every recommended catalog row', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({
+          rows: [{ ...untouchedRows[0], is_enabled: 1 }],
+        }),
+        syncToFs: vi.fn(),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('fails closed on malformed catalog timestamps even when an enabled choice exists', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({
+          rows: [
+            { ...untouchedRows[0], is_enabled: true },
+            { ...untouchedRows[1], updated_at: 'not-a-timestamp' },
+          ],
+        }),
+      };
+
+      await expect(
+        useModelRegistryStore
+          .getState()
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b'])
+      ).rejects.toThrow('invalid updated_at timestamp');
+    });
+
+    it('preserves an explicit all-disabled choice using the durable update timestamp', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({
+          rows: [
+            {
+              ...untouchedRows[0],
+              updated_at: '2026-07-22T12:01:00.000Z',
+            },
+            untouchedRows[1],
+          ],
+        }),
+        syncToFs: vi.fn(),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when a recommended model is missing from the provider catalog', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [untouchedRows[0]] }),
+      };
+
+      await expect(
+        useModelRegistryStore
+          .getState()
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b'])
+      ).rejects.toThrow('model-b');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a failed write without changing the in-memory registry', async () => {
+      useModelRegistryStore.setState({
+        models: [createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' })],
+      });
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({ rows: [untouchedRows[0]] })
+          .mockRejectedValueOnce(new Error('disk write failed')),
+      };
+
+      await expect(
+        useModelRegistryStore
+          .getState()
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a'])
+      ).rejects.toThrow('disk write failed');
+      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
+    });
+  });
+
   describe('toggleProvider', () => {
     it('optimistically updates provider enabled state', async () => {
       const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
