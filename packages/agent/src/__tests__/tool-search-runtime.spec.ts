@@ -184,6 +184,50 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(JSON.stringify(observations)).not.toContain('inputSchema');
   });
 
+  it('preserves the Mastra search-tool prototype and own property descriptors', async () => {
+    const processor = createProcessor();
+    const prototype = {
+      compatibilityMarker(): string {
+        return 'mastra-search-tool';
+      },
+    };
+    const mastraSearchTool = createTool({
+      description: 'Mastra search tool',
+      execute: async ({ query }: { query: string }) => ({
+        message: `Found ${query}`,
+        results: [],
+      }),
+      id: 'search_tools',
+      inputSchema: z.object({ query: z.string() }),
+    });
+    Object.setPrototypeOf(mastraSearchTool, prototype);
+    Object.defineProperty(mastraSearchTool, 'compatibilityMetadata', {
+      configurable: false,
+      enumerable: false,
+      value: 'preserve-me',
+      writable: false,
+    });
+    const originalExecute = mastraSearchTool.execute;
+    Reflect.set(processor, 'delegate', {
+      processInputStep: async () => ({ tools: { search_tools: mastraSearchTool } }),
+    });
+
+    const result = await processor.processInputStep(createStepArgs());
+    const wrappedSearchTool = result.tools.search_tools;
+
+    expect(Object.getPrototypeOf(wrappedSearchTool)).toBe(prototype);
+    expect(Object.getOwnPropertyDescriptor(wrappedSearchTool, 'compatibilityMetadata')).toEqual({
+      configurable: false,
+      enumerable: false,
+      value: 'preserve-me',
+      writable: false,
+    });
+    expect(mastraSearchTool.execute).toBe(originalExecute);
+    await expect(wrappedSearchTool.execute?.({ query: 'workspace' })).resolves.toMatchObject({
+      results: [],
+    });
+  });
+
   it('does not let an observer failure abort successful tool discovery', async () => {
     const processor = createRankingProcessor();
     const observations: unknown[] = [];
@@ -260,6 +304,48 @@ describe('BrainstrikeToolSearchProcessor', () => {
     await expect(processor.getLoadedToolsForRequestContext()).resolves.toHaveProperty(
       DEFERRED_TOOL_ID
     );
+  });
+
+  it('pins Mastra context storage as empty-or-complete for loaded approval tools', async () => {
+    const alphaToolId = 'brainstrike_alphaWorkspaceTool';
+    const betaToolId = 'brainstrike_betaWorkspaceTool';
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: {
+        [alphaToolId]: createTool({
+          description: 'Perform the unique alpha workspace operation.',
+          execute: async () => ({ ok: true }),
+          id: alphaToolId,
+          inputSchema: z.object({}),
+        }),
+        [betaToolId]: createTool({
+          description: 'Perform the unique beta workspace operation.',
+          execute: async () => ({ ok: true }),
+          id: betaToolId,
+          inputSchema: z.object({}),
+        }),
+      },
+      loadPersistedMessages: async () => {
+        throw new Error('durable recall must not run for a non-empty same-process set');
+      },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([
+        [alphaToolId, 'brainstrike.alphaWorkspaceTool'],
+        [betaToolId, 'brainstrike.betaWorkspaceTool'],
+      ]),
+    });
+    const firstArgs = createStepArgs({ threadId: 'complete-loaded-set' });
+    const first = await processor.processInputStep(firstArgs);
+    await first.tools.search_tools.execute?.({ query: 'unique alpha operation' });
+    const second = await processor.processInputStep(
+      createStepArgs({ stepNumber: 1, threadId: 'complete-loaded-set' })
+    );
+    await second.tools.search_tools.execute?.({ query: 'unique beta operation' });
+
+    const loadedTools = await processor.getLoadedToolsForRequestContext({
+      requestContext: firstArgs.requestContext,
+    });
+
+    expect(Object.keys(loadedTools).sort()).toEqual([alphaToolId, betaToolId]);
   });
 
   it('fails visibly when approval-runtime hydration cannot recall persisted messages', async () => {
