@@ -682,6 +682,10 @@ a debug log. `roots[0]` is therefore GENUINELY the main root — no
 load/query failure leaves RuntimeData untouched, so tools fall back to the
 single FOCUSED `workspaceRootPath` synthesis (the main declaration cannot
 apply there).
+When a successful DB query returns zero roots and there is no legacy focused
+path, enrichment records an explicit `workspaceRoots: []`. This is distinct
+from an unresolved/query-failed root inventory and lets `listWorkspaceContext`
+report the valid empty-workspace state without disguising a bridge failure.
 
 **Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
 chrome):

@@ -28,6 +28,35 @@ function baseResult() {
 }
 
 describe('workspace context model projection', () => {
+  it('projects an authoritative zero-root result without inventing a main or focused root', () => {
+    const projected = projectListWorkspaceContextModelOutput({
+      offset: 0,
+      selectedFileCount: 0,
+      selectedFiles: [],
+      selectionFolderId: null,
+      truncated: false,
+      workspaceIndex: {
+        embeddingSetId: null,
+        enabled: false,
+        mode: null,
+        paused: false,
+      },
+      workspaceRootPath: null,
+      workspaceRoots: [],
+    });
+
+    expect(projected).toEqual({
+      type: 'text',
+      value: [
+        'workspace context | roots=0 | main=none | focused_root_id=none | selected=0 | outside=0 | page=empty/0 | truncated=false',
+        'index | enabled=false | paused=false | mode=unavailable | embedding_set=unavailable',
+      ].join('\n'),
+    });
+    expect(serializedChars(projected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+  });
+
   it('projects a concise multi-root selection with index and curated-token state', () => {
     const raw = {
       ...baseResult(),
