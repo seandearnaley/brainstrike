@@ -255,7 +255,10 @@
   shows the selected model's built-in context/output metadata, the effective
   reservation, and the resulting input budget. It labels the built-in catalog
   as the source; an unknown OpenRouter model surfaces unavailable limits instead
-  of silently guessing. Explicit user limits remain authoritative.
+  of silently guessing. An explicit model switch clears a provider-wide output
+  override that exceeds the newly selected model's declared maximum; it never
+  carries a hidden incompatible limit or silently clamps it. Explicit compatible
+  user limits remain authoritative.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts

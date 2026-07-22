@@ -744,6 +744,21 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({ maxOutputTokens: 2048 });
     expect(
+      reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
+        maxOutputTokens: 128_000,
+      })
+    ).toEqual({});
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
+        maxOutputTokens: 65_536,
+      })
+    ).toEqual({ maxOutputTokens: 65_536 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'custom/unknown-model', {
+        maxOutputTokens: 128_000,
+      })
+    ).toEqual({ maxOutputTokens: 128_000 });
+    expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
       })
