@@ -284,21 +284,10 @@ function hasLiveProcessGroupMembers(pid) {
 }
 
 async function isProcessGroupRunning(pid) {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (error.code === 'ESRCH') {
-      return false;
-    }
-    if (error.code === 'EPERM') {
-      // Darwin can return EPERM for a mixed Electron process group after it has
-      // been signalled. Enumerate the exact owned pgid so a live renderer is not
-      // mistaken for an unsignalable zombie and allowed to recreate the profile.
-      return await hasLiveProcessGroupMembers(pid);
-    }
-    throw error;
-  }
+  // Signal 0 still reports an all-zombie group as present. Enumerate the exact
+  // owned pgid on every poll so an unreaped descendant cannot exhaust both
+  // grace periods after every live process has already stopped.
+  return await hasLiveProcessGroupMembers(pid);
 }
 
 async function waitForProcessGroupExit(pid, timeoutMs) {
@@ -312,13 +301,19 @@ async function waitForProcessGroupExit(pid, timeoutMs) {
   return true;
 }
 
-function signalProcessGroup(pid, signal) {
+export function signalProcessGroup(pid, signal, kill = process.kill) {
   try {
-    process.kill(-pid, signal);
+    kill(-pid, signal);
     return true;
   } catch (error) {
     if (error.code === 'ESRCH') {
       return false;
+    }
+    if (error.code === 'EPERM') {
+      // Darwin may report EPERM for a mixed Electron group after a prior
+      // signal. The group still exists; let the bounded membership poll decide
+      // whether cleanup succeeded or must fail visibly.
+      return true;
     }
     throw error;
   }
@@ -392,9 +387,9 @@ export async function shutdownChildProcessTree(child, platform = process.platfor
   }
 }
 
-export async function cleanupChildAndProfile(child, userDataDir) {
-  await shutdownChildProcessTree(child);
-  await removeUserDataDir(userDataDir);
+export async function cleanupChildAndProfile(child, userDataDir, options = {}) {
+  await shutdownChildProcessTree(child, options.platform);
+  await (options.removeUserDataDir ?? removeUserDataDir)(userDataDir);
 }
 
 function installSignalCleanup(child, userDataDir) {

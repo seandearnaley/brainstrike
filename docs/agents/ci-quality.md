@@ -364,7 +364,9 @@ leader of a detached process group; shutdown signals that exact group with
 SIGTERM, waits for quiescence, and escalates to SIGKILL after a bounded grace
 period. This remains effective when the direct `pnpm` child exits before a
 late-writing Electron or PGlite grandchild. Windows uses `tree-kill` to stop the
-corresponding task tree. Only after the owned tree is stopped may the launcher
+corresponding task tree while the direct child remains addressable; preserving
+ownership after a naturally exited Windows parent requires a Job Object and is
+tracked separately. Only after the owned tree is stopped may the launcher
 remove its temporary profile. Process-tree or profile cleanup failures are
 visible fatal errors with a non-zero exit, never warning-only cleanup.
 

@@ -1,17 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  readlink,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -25,6 +15,7 @@ import {
   resolveEndpoint,
   rewriteMacAgentDebugInfoPlist,
   shutdownChildProcessTree,
+  signalProcessGroup,
   waitForEndpoint,
   waitForEndpointOrChildExit,
 } from '../start-agent-devtools-session.mjs';
@@ -233,19 +224,34 @@ test('shutdownChildProcessTree reaps a late-writing grandchild after the direct 
   }
 });
 
+test('signalProcessGroup treats Darwin mixed-group EPERM as present for bounded verification', () => {
+  const kill = () => {
+    const error = new Error('operation not permitted');
+    error.code = 'EPERM';
+    throw error;
+  };
+
+  assert.equal(signalProcessGroup(42, 'SIGKILL', kill), true);
+});
+
 test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-cleanup-test-'));
   const profile = path.join(root, 'profile');
   await mkdir(profile);
-  await chmod(root, 0o500);
+  const removalError = Object.assign(new Error('injected profile removal failure'), {
+    code: 'EACCES',
+  });
 
   try {
     await assert.rejects(
-      cleanupChildAndProfile({ exitCode: 0, pid: undefined, signalCode: null }, profile),
-      /EACCES|EPERM/
+      cleanupChildAndProfile({ exitCode: 0, pid: undefined, signalCode: null }, profile, {
+        removeUserDataDir: async () => {
+          throw removalError;
+        },
+      }),
+      removalError
     );
   } finally {
-    await chmod(root, 0o700);
     await rm(root, { force: true, recursive: true });
   }
 });
