@@ -52,11 +52,27 @@ export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtime
 }
 
 function describeRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
-  return roots.map((root) => root.displayName).join(', ');
+  return describeRootsWithIds(roots);
 }
 
 function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
-  return roots.map((root) => `${root.displayName} (id ${root.rootId})`).join(', ');
+  const maxChars = 800;
+  const descriptions: string[] = [];
+  let usedChars = 0;
+  for (const root of roots) {
+    const description = `${root.displayName} (id ${root.rootId})`;
+    const separatorChars = descriptions.length === 0 ? 0 : 2;
+    if (usedChars + separatorChars + description.length > maxChars) {
+      break;
+    }
+    descriptions.push(description);
+    usedChars += separatorChars + description.length;
+  }
+  const omitted = roots.length - descriptions.length;
+  if (omitted === 0) {
+    return descriptions.join(', ');
+  }
+  return `${descriptions.join(', ')}; ${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
 }
 
 /**

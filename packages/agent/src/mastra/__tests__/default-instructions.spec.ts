@@ -388,8 +388,8 @@ describe('multi-root guidance', () => {
     expect(instructions).toMatch(/several roots/i);
     expect(instructions).toContain('workspaceRoots');
     expect(instructions).toMatch(/pass "root"/i);
-    // Results are labelled with their owning root so the model can disambiguate.
-    expect(instructions).toContain('rootName');
+    // Search handoffs expose the exact fields accepted by the read tool.
+    expect(instructions).toContain('copyable read_args with root and path');
     // The root-qualified tools are named in the guidance.
     expect(instructions).toContain('grepSearch');
     expect(instructions).toContain('readWorkspaceDirectory');

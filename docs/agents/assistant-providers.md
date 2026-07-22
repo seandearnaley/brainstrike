@@ -520,7 +520,10 @@ model-correctable message. Multi-root resolution uses that path when a
 root-qualified tool omits, misnames, or ambiguously names `root`: it never
 silently falls back to Main. The default multi-root instruction includes
 deferred `lspInspect`, so a newly activated semantic tool receives the same
-root-qualification rule as reads and searches.
+root-qualification rule as reads and searches. Correctable multi-root errors
+list complete `displayName (id rootId)` choices within an 800-character budget;
+if the inventory exceeds that budget, they direct the model to
+`listWorkspaceContext` rather than truncating an identifier.
 `lspInspect` also brands its identifier/marker, line-range, missing-fragment, and
 ambiguous-fragment rejections as trusted input errors. A markerless single
 JavaScript/TypeScript identifier is the preferred model input and anchors the
@@ -711,9 +714,12 @@ active budget. Proofs:
 `grepSearch` and `globWorkspace` keep their complete typed raw pages for
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
 projections are deterministic line-oriented text. Those projections retain
-root-qualified paths, 1-based grep locations, count/source/scan-limit state,
-and authoritative continuation guidance while fitting the 6000-character
-domain budget.
+copyable `read_args` JSON containing the exact `root`, `path`, and (for grep)
+1-based `startLine` accepted by `readWorkspaceFile`, plus root display name,
+count/source/scan-limit state, and authoritative continuation guidance while
+fitting the 6000-character domain budget. This is Brainstrike's local-first
+multi-root equivalent of OpenCode's absolute-path grep/glob/read handoff: the
+model does not need to translate a display-only root label into a tool input.
 Because Mastra's one-argument projector receives the raw result but not the
 original tool input, paging guidance tells the model to reuse the prior call;
 it never fabricates or duplicates the original pattern. When the whole raw page

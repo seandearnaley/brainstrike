@@ -904,15 +904,75 @@ describe('assistant-tools', () => {
       type: 'text',
       value: [
         'grep files | page=1-1/1 | matches=1 | live=ripgrep | candidates_truncated=false | scan_limited=false',
-        '[alpha|root-a] /src/x.ts:11 | matches=1 | source=both',
+        'read_args={"path":"/src/x.ts","root":"root-a","startLine":11} | root_name="alpha" | matches=1 | source=both',
       ].join('\n'),
     });
     expect(tools['brainstrike.globWorkspace'].toModelOutput?.(globRaw)).toEqual({
       type: 'text',
-      value: ['glob | page=1-1/1 | scan_limited=false', '[alpha|root-a] /src/x.ts'].join('\n'),
+      value: [
+        'glob | page=1-1/1 | scan_limited=false',
+        'read_args={"path":"/src/x.ts","root":"root-a"} | root_name="alpha"',
+      ].join('\n'),
     });
     expect(grepRaw).toEqual(grepBefore);
     expect(globRaw).toEqual(globBefore);
+  });
+
+  it('hands grep read_args directly into an exact read in a multi-root workspace', async () => {
+    const rootA = await createWorkspaceFixture();
+    const rootB = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      memory: { resourceId: 'workspace', threadId: 'thread-multi-root-handoff' },
+      workspaceRoots: [
+        { displayName: 'alpha', path: rootA, rootId: 'root-a' },
+        { displayName: 'beta', path: rootB, rootId: 'root-b' },
+      ],
+    } as RuntimeData);
+
+    try {
+      const projected = tools['brainstrike.grepSearch'].toModelOutput?.({
+        candidatesTruncated: false,
+        files: [
+          {
+            firstLine: 2,
+            matchCount: 1,
+            path: '/src/main.ts',
+            rootId: 'root-b',
+            rootName: 'beta',
+            source: 'both',
+          },
+        ],
+        liveEngine: 'ripgrep',
+        offset: 0,
+        outputMode: 'files',
+        scanLimited: false,
+        totalFiles: 1,
+        totalMatches: 1,
+        truncated: false,
+      });
+      expect(projected?.type).toBe('text');
+      const match = projected?.value.match(/read_args=(\{.*\}) \| root_name=/u);
+      expect(match?.[1]).toBeDefined();
+      const readInput = NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'].parse(
+        JSON.parse(match?.[1] ?? '')
+      );
+
+      await expect(
+        tools['brainstrike.readWorkspaceFile'].execute(readInput)
+      ).resolves.toMatchObject({
+        content: '2: line 2\n3: line 3\n4: line 4',
+        path: '/src/main.ts',
+        startLine: 2,
+      });
+      await expect(
+        tools['brainstrike.readWorkspaceFile'].execute({ path: '/src/main.ts', root: null })
+      ).rejects.toThrow(ToolInputError);
+    } finally {
+      await Promise.all([
+        fsPromises.rm(rootA, { force: true, recursive: true }),
+        fsPromises.rm(rootB, { force: true, recursive: true }),
+      ]);
+    }
   });
 
   it('registers compact symbol and LSP projections without mutating raw results', () => {

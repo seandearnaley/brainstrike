@@ -66,6 +66,9 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
       /multiple folders.*ProjectA.*ProjectB/is
     );
+    expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
+      /ProjectA \(id root-a\).*ProjectB \(id root-b\)/is
+    );
   });
 
   it('resolves by rootId', () => {
@@ -83,7 +86,7 @@ describe('resolveWorkspaceRoot', () => {
   it('errors with the available folders for an unknown qualifier', () => {
     expect(() =>
       resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }), 'Nope')
-    ).toThrow(/no folder "Nope".*ProjectA.*ProjectB/is);
+    ).toThrow(/no folder "Nope".*ProjectA \(id root-a\).*ProjectB \(id root-b\)/is);
   });
 
   it('errors and asks for the root id when two roots share a display name', () => {
