@@ -69,7 +69,13 @@ import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
-type AssistantRoute = 'status' | 'assistant' | 'steer' | 'suspended-runs' | 'not-found';
+type AssistantRoute =
+  | 'status'
+  | 'assistant'
+  | 'openrouter-model'
+  | 'steer'
+  | 'suspended-runs'
+  | 'not-found';
 interface AssistantRequestPayload {
   assistantMessageId?: string;
   data: RuntimeData | undefined;
@@ -117,6 +123,11 @@ import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import {
+  createOpenRouterModelMetadataService,
+  type OpenRouterModelMetadataService,
+  requireOpenRouterModelId,
+} from './assistant-server/openrouter-model-metadata';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { prepareRequestSkills } from './assistant-server/request-skills';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
@@ -138,6 +149,7 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
 const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
@@ -209,6 +221,7 @@ export interface AssistantServerOptions {
   host?: string;
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
+  openRouterModelMetadataService?: OpenRouterModelMetadataService;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
@@ -298,6 +311,11 @@ export async function handleAssistantRequest(
   const route = resolveAssistantRoute(req);
   if (route === 'status') {
     await handleAssistantStatus(res);
+    return;
+  }
+
+  if (route === 'openrouter-model') {
+    await handleOpenRouterModelMetadata(req, res, options);
     return;
   }
 
@@ -1030,6 +1048,64 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
   }
 }
 
+const OPENROUTER_METADATA_ERROR_MAX_CHARS = 300;
+
+async function handleOpenRouterModelMetadata(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions
+): Promise<void> {
+  const modelId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('model')?.trim();
+  if (!modelId) {
+    respondJson(res, 400, {
+      error: 'missing_model',
+      message: 'OpenRouter model metadata requires a model query parameter.',
+    });
+    return;
+  }
+
+  try {
+    requireOpenRouterModelId(modelId);
+  } catch (error) {
+    respondJson(res, 400, {
+      error: 'invalid_model',
+      message:
+        error instanceof Error
+          ? error.message.slice(0, OPENROUTER_METADATA_ERROR_MAX_CHARS)
+          : 'OpenRouter model id is invalid',
+    });
+    return;
+  }
+
+  const apiKey = await resolveProviderApiKey('openrouter');
+  if (!apiKey) {
+    respondJson(res, 400, {
+      error: 'missing_api_key',
+      message: 'No API key configured for provider "openrouter".',
+    });
+    return;
+  }
+
+  try {
+    const service = options.openRouterModelMetadataService ?? defaultOpenRouterModelMetadataService;
+    const snapshot = await service.get(modelId, apiKey);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
+    res.end(JSON.stringify(snapshot));
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, OPENROUTER_METADATA_ERROR_MAX_CHARS)
+        : 'OpenRouter Models API request failed';
+    logger.warn('OpenRouter model metadata request failed', { error, modelId });
+    respondJson(res, 502, {
+      error: 'openrouter_model_metadata_failed',
+      message,
+    });
+  }
+}
+
 /**
  * Restart-safe rediscovery of pending tool approvals for a thread. On reload the
  * live-stream approval notice is gone (it was never persisted), but the suspended
@@ -1385,6 +1461,9 @@ function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
   const requestPath = resolveRequestPath(req);
   if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
     return 'status';
+  }
+  if (req.method === 'GET' && requestPath === '/assistant/openrouter-model') {
+    return 'openrouter-model';
   }
   if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
     return 'steer';
