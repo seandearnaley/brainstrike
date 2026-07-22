@@ -2,6 +2,8 @@ export const OPENROUTER_MODEL_METADATA_SOURCE = 'openrouter-models-api' as const
 
 const MAX_SUPPORTED_PARAMETERS = 64;
 const MAX_SUPPORTED_PARAMETER_LENGTH = 64;
+const MAX_MODEL_ID_LENGTH = 256;
+const MAX_WARNING_LENGTH = 300;
 
 export interface OpenRouterModelMetadata {
   readonly checkedAt: number;
@@ -22,6 +24,11 @@ export type OpenRouterModelMetadataSnapshot =
       readonly metadata: OpenRouterModelMetadata;
       readonly warning: string;
     };
+
+export type OpenRouterModelMetadataLookup =
+  | { readonly state: 'loading' }
+  | { readonly state: 'resolved'; readonly snapshot: OpenRouterModelMetadataSnapshot }
+  | { readonly message: string; readonly state: 'error' };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -103,4 +110,56 @@ export function parseOpenRouterModelMetadata(
     source: OPENROUTER_MODEL_METADATA_SOURCE,
     supportedParameters,
   };
+}
+
+function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
+  if (!isRecord(value)) {
+    throw new Error('OpenRouter model metadata snapshot requires metadata');
+  }
+  const id = value['id'];
+  if (!(typeof id === 'string' && id.length > 0 && id.length <= MAX_MODEL_ID_LENGTH)) {
+    throw new Error('OpenRouter model metadata snapshot requires a valid model id');
+  }
+  if (value['source'] !== OPENROUTER_MODEL_METADATA_SOURCE) {
+    throw new Error('OpenRouter model metadata snapshot has an invalid source');
+  }
+
+  const checkedAt = requirePositiveInteger(value['checkedAt'], 'checkedAt');
+  const topProvider: Record<string, unknown> = {};
+  if (value['maxOutputTokens'] !== undefined) {
+    topProvider['max_completion_tokens'] = value['maxOutputTokens'];
+  }
+  const data: Record<string, unknown> = { id };
+  data['context_length'] = value['contextWindow'];
+  data['supported_parameters'] = value['supportedParameters'];
+  data['top_provider'] = topProvider;
+  return parseOpenRouterModelMetadata({ data }, id, checkedAt);
+}
+
+export function parseOpenRouterModelMetadataSnapshot(
+  value: unknown
+): OpenRouterModelMetadataSnapshot {
+  if (!isRecord(value)) {
+    throw new Error('OpenRouter model metadata snapshot requires an object');
+  }
+  const freshness = value['freshness'];
+  if (!(freshness === 'live' || freshness === 'fresh-cache' || freshness === 'stale-cache')) {
+    throw new Error('OpenRouter model metadata snapshot has invalid freshness');
+  }
+  const metadata = parseSnapshotMetadata(value['metadata']);
+  if (freshness !== 'stale-cache') {
+    return { freshness, metadata };
+  }
+
+  const warning = value['warning'];
+  if (
+    !(
+      typeof warning === 'string' &&
+      warning.trim().length > 0 &&
+      warning.length <= MAX_WARNING_LENGTH
+    )
+  ) {
+    throw new Error('OpenRouter stale metadata snapshot requires a bounded warning');
+  }
+  return { freshness, metadata, warning };
 }

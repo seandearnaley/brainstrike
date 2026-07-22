@@ -7,6 +7,7 @@ import {
   type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
+  type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
@@ -961,6 +962,42 @@ export function buildModelSettings(
   }
   const value = Math.max(1, Math.floor(settings.maxOutputTokens));
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
+}
+
+const openRouterLimitFormatter = new Intl.NumberFormat();
+
+export function resolveOpenRouterMetadataDisabledReason(
+  providerId: string | null | undefined,
+  settings: AssistantProviderSettings | undefined,
+  lookup: OpenRouterModelMetadataLookup | undefined,
+  modelSettings?: RuntimeData['modelSettings']
+): string | undefined {
+  if (!(providerId === 'openrouter' && lookup?.state === 'resolved')) {
+    return;
+  }
+  const configuredOutput = buildPositiveIntegerSetting(
+    modelSettings?.maxOutputTokens ?? settings?.maxOutputTokens
+  );
+  const metadata = lookup.snapshot.metadata;
+  const maximum = metadata.maxOutputTokens;
+  const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
+  if (configuredOutput && maximum && configuredOutput > maximum) {
+    return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
+  }
+
+  const outputReservation = configuredOutput ?? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  let effectiveInputBudget: number;
+  try {
+    effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
+  } catch {
+    return `Configured output limit ${openRouterLimitFormatter.format(outputReservation)} cannot fit within the OpenRouter ${provenance} context window ${openRouterLimitFormatter.format(metadata.contextWindow)} plus its safety margin.`;
+  }
+
+  const configuredInput = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  if (configuredInput && configuredInput > effectiveInputBudget) {
+    return `Configured input limit ${openRouterLimitFormatter.format(configuredInput)} exceeds OpenRouter ${provenance} effective input budget ${openRouterLimitFormatter.format(effectiveInputBudget)}.`;
+  }
+  return;
 }
 
 function buildPositiveIntegerSetting(value: unknown): number | undefined {

@@ -24,6 +24,7 @@ import {
   resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
+  resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
   toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
@@ -860,6 +861,89 @@ describe('buildAgentLoopSettings input-token budget', () => {
     // budget = 32_768 − 4_096 (DEFAULT) − max(1024, ceil(32_768 × 0.05)) = 32_768 − 4_096 − 1_639 = 27_033
     const settings = buildAgentLoopSettings(undefined, { contextWindow: 32_768 });
     expect(settings?.inputTokenLimit).toBe(27_033);
+  });
+});
+
+describe('resolveOpenRouterMetadataDisabledReason', () => {
+  it('blocks an explicitly configured output limit above the live model maximum', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { maxOutputTokens: 200_000 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_000_000,
+              id: 'anthropic/claude-sonnet-4.6',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBe('Configured output limit 200,000 exceeds OpenRouter live maximum 128,000.');
+  });
+
+  it('does not block Auto output or a metadata lookup failure', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason('openrouter', undefined, {
+        message: 'unavailable',
+        state: 'error',
+      })
+    ).toBeUndefined();
+  });
+
+  it('blocks an explicitly configured input limit above the live effective budget', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { agentInputTokenLimit: 390_000 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 400_000,
+              id: 'openai/gpt-5.4-mini',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBe(
+      'Configured input limit 390,000 exceeds OpenRouter live effective input budget 375,904.'
+    );
+  });
+
+  it('prefers a prompt draft output override over provider settings', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { maxOutputTokens: 1024 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_000_000,
+              id: 'anthropic/claude-sonnet-4.6',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        },
+        { maxOutputTokens: 200_000 }
+      )
+    ).toBe('Configured output limit 200,000 exceeds OpenRouter live maximum 128,000.');
   });
 });
 
