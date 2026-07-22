@@ -24,6 +24,7 @@ import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
+  readonly evictLspServersForRoot?: (rootId: string) => Promise<void>;
   readonly fileSystem: ElectronFileSystemAdapter;
   /**
    * Main-process DB accessor for the roots status transition on disconnect
@@ -323,10 +324,12 @@ function toFileReadErrorPayload(error: unknown, filePath: string): FileReadError
 
 export function registerFileSystemIpcHandlers({
   disposeCommandSessionsForRoot = disposeDesktopCommandSessionsForRoot,
+  evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
   getRootsDatabase,
   storage,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
+  const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
@@ -671,9 +674,16 @@ export function registerFileSystemIpcHandlers({
       // Tear down any pooled LSP language server for this root (report R2): the
       // folder is leaving the workspace, so its server child process must not
       // linger. Non-fatal — a stray server would otherwise idle until quit.
-      await evictLspServersForRoot(rootId).catch((error: unknown) => {
-        logger.debug('removeRoot: LSP server eviction failed (non-fatal)', { error, rootId });
-      });
+      await Promise.all(
+        disconnectedRootIds.map(async (disconnectedRootId) => {
+          await evictLspServerForRoot(disconnectedRootId).catch((error: unknown) => {
+            logger.debug('removeRoot: LSP server eviction failed (non-fatal)', {
+              error,
+              rootId: disconnectedRootId,
+            });
+          });
+        })
+      );
 
       // A command session is owned by the workspace root, not by a renderer.
       // Disconnecting that root therefore ends and forgets every session before

@@ -698,6 +698,24 @@ describe('fs:removeRoot', () => {
     expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith('durable-db-root-a');
   });
 
+  it('evicts pooled LSP servers with the durable DB root id when adapter identity differs', async () => {
+    storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+    rootsDbQuery.mockResolvedValueOnce({ rows: [{ id: 'durable-db-root-a' }] });
+    const evictLspServersForRoot = vi.fn(async () => undefined);
+    registerFileSystemIpcHandlers({
+      evictLspServersForRoot,
+      fileSystem,
+      getRootsDatabase,
+      storage,
+    });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+    expect(evictLspServersForRoot).toHaveBeenCalledOnce();
+    expect(evictLspServersForRoot).toHaveBeenCalledWith('durable-db-root-a');
+    expect(evictLspServersForRoot).not.toHaveBeenCalledWith('root-id-a');
+  });
+
   it("transitions the DB roots row to status 'disconnected' by the removed root's path", async () => {
     storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
     rootsDbQuery.mockResolvedValueOnce({ rows: [{ id: 'db-root-a' }] });
