@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
   OPENROUTER_CODING_MAX_OUTPUT_TOKENS,
+  OPENROUTER_RECOMMENDED_CODING_MODEL_IDS,
   resolveOpenRouterCodingMaxOutputTokens,
 } from '../openrouter-coding-defaults';
+import { listProviderLlmModels } from '../provider-registry';
+
+describe('OPENROUTER_RECOMMENDED_CODING_MODEL_IDS', () => {
+  it('provides the curated, live-tested coding routes in preference order', () => {
+    expect(OPENROUTER_RECOMMENDED_CODING_MODEL_IDS).toEqual([
+      'openai/gpt-5.6-terra',
+      'moonshotai/kimi-k3',
+      'qwen/qwen3.7-max',
+    ]);
+  });
+
+  it('contains only supported OpenRouter models', () => {
+    const supportedIds = new Set(listProviderLlmModels('openrouter').map((model) => model.id));
+    for (const modelId of OPENROUTER_RECOMMENDED_CODING_MODEL_IDS) {
+      expect(supportedIds.has(modelId), modelId).toBe(true);
+    }
+  });
+});
 
 describe('resolveOpenRouterCodingMaxOutputTokens', () => {
   it('uses the OpenCode coding ceiling when model metadata is unavailable', () => {

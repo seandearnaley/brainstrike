@@ -50,6 +50,11 @@ interface ModelRegistryState {
   // Actions
   fetchRegistry: (db: IDatabase) => Promise<void>;
   hasLoaded: boolean;
+  initializeProviderModelDefaults: (
+    db: DbHandle,
+    providerId: string,
+    modelIds: readonly string[]
+  ) => Promise<'initialized' | 'preserved'>;
   isDownloading: Record<string, boolean>; // modelId -> boolean
   isLoading: boolean;
 
@@ -90,6 +95,34 @@ interface RawModel {
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
   tagline: string | null;
+}
+
+interface RawProviderModelChoice {
+  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+  created_at: Date | string;
+  id: string;
+  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+  is_enabled: boolean;
+  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+  updated_at: Date | string;
+}
+
+function timestampMillis(value: Date | string, field: 'created_at' | 'updated_at'): number {
+  const millis = value instanceof Date ? value.getTime() : Date.parse(value);
+  if (!Number.isFinite(millis)) {
+    throw new Error(`Model registry returned an invalid ${field} timestamp.`);
+  }
+  return millis;
+}
+
+function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[]): boolean {
+  let hasExplicitChoice = false;
+  for (const row of rows) {
+    const updatedAt = timestampMillis(row.updated_at, 'updated_at');
+    const createdAt = timestampMillis(row.created_at, 'created_at');
+    hasExplicitChoice ||= row.is_enabled || updatedAt > createdAt;
+  }
+  return hasExplicitChoice;
 }
 
 interface FileSystemAccess {
@@ -295,6 +328,57 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           logger.error('Failed to fetch model registry', error);
           set({ error: (error as Error).message, isLoading: false });
         }
+      },
+
+      initializeProviderModelDefaults: async (db, providerId, modelIds) => {
+        const uniqueModelIds = Array.from(new Set(modelIds));
+        if (uniqueModelIds.length === 0) {
+          throw new Error(`No recommended model defaults were provided for ${providerId}.`);
+        }
+
+        const choiceResult = await db.query<RawProviderModelChoice>(
+          `SELECT id, is_enabled, created_at, updated_at
+           FROM models WHERE provider_id = $1`,
+          [providerId]
+        );
+        const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
+        const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
+        if (missingModelIds.length > 0) {
+          throw new Error(
+            `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
+          );
+        }
+
+        if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+          return 'preserved';
+        }
+
+        const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');
+        const updateResult = await db.query<{ id: string }>(
+          `UPDATE models SET is_enabled = true, updated_at = NOW()
+           WHERE provider_id = $1 AND id IN (${placeholders})
+           RETURNING id`,
+          [providerId, ...uniqueModelIds]
+        );
+        const updatedModelIds = new Set(updateResult.rows.map((row) => row.id));
+        const notUpdatedModelIds = uniqueModelIds.filter(
+          (modelId) => !updatedModelIds.has(modelId)
+        );
+        if (notUpdatedModelIds.length > 0) {
+          throw new Error(
+            `Failed to initialize recommended ${providerId} models: ${notUpdatedModelIds.join(', ')}`
+          );
+        }
+
+        await syncDurableDatabaseWrites(db);
+        set((state) => ({
+          models: state.models.map((model) =>
+            model.providerId === providerId && updatedModelIds.has(model.id)
+              ? { ...model, isEnabled: true }
+              : model
+          ),
+        }));
+        return 'initialized';
       },
 
       setDownloading: (modelId: string, isDownloading: boolean) => {
