@@ -924,7 +924,7 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 29 tools / 7,016 `o200k_base` tokens, while the
+contract: the eager baseline is 29 tools / 7,019 `o200k_base` tokens, while the
 live critical definition surface is 7 tools / 1,923 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
