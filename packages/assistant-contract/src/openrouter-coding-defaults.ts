@@ -13,6 +13,8 @@ export const OPENROUTER_RECOMMENDED_CODING_MODEL_IDS = [
   'openai/gpt-5.6-terra',
   'moonshotai/kimi-k3',
   'qwen/qwen3.7-max',
+  'z-ai/glm-5.2',
+  'minimax/minimax-m3',
 ] as const;
 
 export function resolveOpenRouterCodingMaxOutputTokens(modelMaxOutputTokens?: number): number {

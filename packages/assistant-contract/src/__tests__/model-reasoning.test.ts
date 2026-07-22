@@ -13,12 +13,13 @@ describe('resolveModelReasoningSupport', () => {
     // Declared reasoning models resolve from the model definition itself.
     ['openrouter', 'moonshotai/kimi-k3', { source: 'model', state: 'supported' }],
     ['openrouter', 'meta/muse-spark-1.1', { source: 'model', state: 'supported' }],
+    ['openrouter', 'z-ai/glm-5.2', { source: 'model', state: 'supported' }],
     // Hosted reasoning-first providers default to supported.
     ['openai', 'gpt-5.6-terra', { source: 'provider-default', state: 'supported' }],
     ['anthropic', 'claude-sonnet-5', { source: 'provider-default', state: 'supported' }],
     ['google', 'gemini-3.5-flash', { source: 'provider-default', state: 'supported' }],
     // Undeclared OpenRouter models are visibly unverified, never silently on.
-    ['openrouter', 'z-ai/glm-5.2', { reason: 'openrouter-undeclared', state: 'unknown' }],
+    ['openrouter', 'qwen/qwen3.7-max', { reason: 'openrouter-undeclared', state: 'unknown' }],
     [
       'openrouter',
       'not-in-catalog/anything',
@@ -68,8 +69,16 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('keeps the full effort list for undeclared OpenRouter models', () => {
+  it('constrains GLM 5.2 to its published efforts', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'z-ai/glm-5.2')).toEqual({
+      available: true,
+      efforts: ['xhigh', 'high'],
+      family: 'openrouter',
+    });
+  });
+
+  it('keeps the full effort list for undeclared OpenRouter models', () => {
+    expect(resolveReasoningControlsAvailability('openrouter', 'qwen/qwen3.7-max')).toEqual({
       available: true,
       efforts: OPENAI_FAMILY_DEFAULT_EFFORTS,
       family: 'openrouter',

@@ -697,6 +697,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'GLM-5.2 (OpenRouter)',
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.9282, outputPerMTok: 2.9172 },
+        reasoning: {
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'high'],
+        },
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
@@ -709,7 +713,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
         supportsStreaming: true,
         type: 'llm',
-        vision: 'unsupported',
+        vision: 'supported',
       },
       {
         contextWindow: 1_048_576,

@@ -12,6 +12,8 @@ describe('OPENROUTER_RECOMMENDED_CODING_MODEL_IDS', () => {
       'openai/gpt-5.6-terra',
       'moonshotai/kimi-k3',
       'qwen/qwen3.7-max',
+      'z-ai/glm-5.2',
+      'minimax/minimax-m3',
     ]);
   });
 
@@ -20,6 +22,19 @@ describe('OPENROUTER_RECOMMENDED_CODING_MODEL_IDS', () => {
     for (const modelId of OPENROUTER_RECOMMENDED_CODING_MODEL_IDS) {
       expect(supportedIds.has(modelId), modelId).toBe(true);
     }
+  });
+
+  it('declares MiniMax M3 image input support', () => {
+    const model = listProviderLlmModels('openrouter').find(({ id }) => id === 'minimax/minimax-m3');
+    expect(model?.vision).toBe('supported');
+  });
+
+  it('restricts GLM 5.2 reasoning to its documented efforts', () => {
+    const model = listProviderLlmModels('openrouter').find(({ id }) => id === 'z-ai/glm-5.2');
+    expect(model?.reasoning).toEqual({
+      mandatory: false,
+      supportedEfforts: ['xhigh', 'high'],
+    });
   });
 });
 

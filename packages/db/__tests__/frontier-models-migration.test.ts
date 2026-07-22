@@ -181,6 +181,7 @@ describe('frontier models migrations', () => {
     expect(await vision('gpt-5.6-terra')).toBe('true');
     expect(await vision('gemini-3.5-flash')).toBe('true');
     expect(await vision('anthropic/claude-sonnet-5')).toBe('true');
+    expect(await vision('minimax/minimax-m3')).toBe('true');
 
     // Text-only models (vision ships as separate -V/-VL variants; the
     // built-in Gemma runtime is a text-only pipeline).
@@ -235,6 +236,27 @@ describe('frontier models migrations', () => {
       // …and carry the SAME vision value (jsonb boolean vs registry string).
       expect(row.vision, row.id).toBe(registryVision === 'supported' ? 'true' : 'false');
     }
+  });
+
+  it('corrects MiniMax M3 vision for existing catalogs and rolls back to the prior value', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter(({ version }) => version <= 69));
+
+    const vision = async (): Promise<string | null | undefined> => {
+      const result = await db.query(
+        "SELECT capabilities->>'vision' AS vision FROM models WHERE id = 'minimax/minimax-m3'"
+      );
+      return (result.rows[0] as { vision: string | null } | undefined)?.vision;
+    };
+
+    expect(await vision()).toBe('false');
+    await runner.up(migrations);
+    expect(await vision()).toBe('true');
+
+    await runner.down(migrations, 69);
+    expect(await vision()).toBe('false');
   });
 
   it('adds and rolls back the provider billed-cost column', { timeout: 60_000 }, async () => {
