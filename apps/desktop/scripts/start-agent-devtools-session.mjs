@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import treeKill from 'tree-kill';
 import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
 const require = createRequire(import.meta.url);
@@ -13,6 +14,9 @@ const MIN_PORT = agentDevToolsDefaults.minPort;
 const MAX_PORT = agentDevToolsDefaults.maxPort;
 const POLL_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
+const PROCESS_TREE_POLL_INTERVAL_MS = 50;
+const PROCESS_TREE_TERM_GRACE_MS = 2000;
+const PROCESS_TREE_KILL_GRACE_MS = 2000;
 const MAC_AGENT_DEBUG_APP_NAME = 'BrainStrike Agent Debug';
 const MAC_AGENT_DEBUG_BUNDLE_ID = 'com.brainstrike.desktop.agent-debug';
 
@@ -170,17 +174,14 @@ export async function waitForEndpoint(endpoint, options = {}) {
 function spawnPnpm(args, env) {
   return spawn('pnpm', [...args], {
     cwd: path.resolve(import.meta.dirname, '..'),
+    detached: true,
     env,
     stdio: 'inherit',
   });
 }
 
 async function removeUserDataDir(userDataDir) {
-  try {
-    await fs.rm(userDataDir, { force: true, recursive: true });
-  } catch (error) {
-    console.warn(`Failed to remove Agent DevTools profile ${userDataDir}:`, error);
-  }
+  await fs.rm(userDataDir, { force: true, recursive: true });
 }
 
 export async function createAgentDevtoolsProfile(options = {}) {
@@ -261,15 +262,134 @@ export async function waitForEndpointOrChildExit(endpoint, child) {
   }
 }
 
-function stopChild(child) {
-  if (isChildRunning(child)) {
-    child.kill('SIGTERM');
+function hasLiveProcessGroupMembers(pid) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/bin/ps',
+      ['-axo', 'pid=,pgid=,state='],
+      { maxBuffer: 2_000_000 },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const liveMember = stdout.split('\n').some((line) => {
+          const [, groupText, state] = line.trim().split(/\s+/u);
+          return Number(groupText) === pid && state !== undefined && !state.startsWith('Z');
+        });
+        resolve(liveMember);
+      }
+    );
+  });
+}
+
+async function isProcessGroupRunning(pid) {
+  // Signal 0 still reports an all-zombie group as present. Enumerate the exact
+  // owned pgid on every poll so an unreaped descendant cannot exhaust both
+  // grace periods after every live process has already stopped.
+  return await hasLiveProcessGroupMembers(pid);
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (await isProcessGroupRunning(pid)) {
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await sleep(PROCESS_TREE_POLL_INTERVAL_MS);
+  }
+  return true;
+}
+
+export function signalProcessGroup(pid, signal, kill = process.kill) {
+  try {
+    kill(-pid, signal);
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') {
+      return false;
+    }
+    if (error.code === 'EPERM') {
+      // Darwin may report EPERM for a mixed Electron group after a prior
+      // signal. The group still exists; let the bounded membership poll decide
+      // whether cleanup succeeded or must fail visibly.
+      return true;
+    }
+    throw error;
   }
 }
 
-async function cleanupChildAndProfile(child, userDataDir) {
-  stopChild(child);
-  await removeUserDataDir(userDataDir);
+function signalWindowsProcessTree(pid, signal) {
+  return new Promise((resolve, reject) => {
+    treeKill(pid, signal, (error) => {
+      if (!error || /no such process/i.test(error.message)) {
+        resolve();
+        return;
+      }
+      reject(error);
+    });
+  });
+}
+
+async function waitForChildExitWithin(child, timeoutMs) {
+  if (!isChildRunning(child)) {
+    return true;
+  }
+  return await new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once('exit', onExit);
+  });
+}
+
+/**
+ * Stop only the detached process tree owned by this launcher and wait until it
+ * is gone. On POSIX, the direct child is its process-group leader, so the group
+ * remains addressable even when that child exits before a late-writing
+ * grandchild. Windows uses tree-kill's native task-tree traversal.
+ */
+export async function shutdownChildProcessTree(child, platform = process.platform) {
+  const pid = child.pid;
+  if (!Number.isInteger(pid) || pid <= 0) {
+    if (isChildRunning(child)) {
+      throw new Error('Cannot stop the Agent DevTools process tree without a child pid.');
+    }
+    return;
+  }
+
+  if (platform === 'win32') {
+    await signalWindowsProcessTree(pid, 'SIGTERM');
+    if (await waitForChildExitWithin(child, PROCESS_TREE_TERM_GRACE_MS)) {
+      return;
+    }
+    await signalWindowsProcessTree(pid, 'SIGKILL');
+    if (!(await waitForChildExitWithin(child, PROCESS_TREE_KILL_GRACE_MS))) {
+      throw new Error(`Agent DevTools process tree ${pid} did not stop after SIGKILL.`);
+    }
+    return;
+  }
+
+  if (!signalProcessGroup(pid, 'SIGTERM')) {
+    return;
+  }
+  if (await waitForProcessGroupExit(pid, PROCESS_TREE_TERM_GRACE_MS)) {
+    return;
+  }
+  signalProcessGroup(pid, 'SIGKILL');
+  if (!(await waitForProcessGroupExit(pid, PROCESS_TREE_KILL_GRACE_MS))) {
+    throw new Error(`Agent DevTools process group ${pid} did not stop after SIGKILL.`);
+  }
+}
+
+export async function cleanupChildAndProfile(child, userDataDir, options = {}) {
+  await shutdownChildProcessTree(child, options.platform);
+  await (options.removeUserDataDir ?? removeUserDataDir)(userDataDir);
 }
 
 function installSignalCleanup(child, userDataDir) {
@@ -279,13 +399,23 @@ function installSignalCleanup(child, userDataDir) {
       return;
     }
     cleanupStarted = true;
-    void cleanupChildAndProfile(child, userDataDir).finally(() => {
-      process.exit(signal === 'SIGINT' ? 130 : 143);
-    });
+    console.log(`Agent DevTools received ${signal}; stopping its owned process tree...`);
+    void cleanupChildAndProfile(child, userDataDir).then(
+      () => process.exit(signal === 'SIGHUP' ? 129 : signal === 'SIGINT' ? 130 : 143),
+      (error) => {
+        console.error(`Agent DevTools shutdown failed for profile ${userDataDir}:`, error);
+        process.exit(1);
+      }
+    );
   };
-  process.once('SIGINT', cleanup);
-  process.once('SIGTERM', cleanup);
+  // The outer `pnpm --filter` wrapper can close its PTY after SIGINT while this
+  // child is still awaiting its detached tree. Keep SIGHUP/repeated signals from
+  // restoring Node's default immediate exit until cleanup has settled.
+  process.on('SIGHUP', cleanup);
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
   return () => {
+    process.off('SIGHUP', cleanup);
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
   };

@@ -359,6 +359,17 @@ layout or malformed plist aborts startup rather than falling back to the
 ambiguous `com.github.Electron` identity. Agent-debug windows pin the native
 and accessibility title `BrainStrike Agent Debug`.
 
+The launcher owns its development subprocess tree. On POSIX, `pnpm dev` is the
+leader of a detached process group; shutdown signals that exact group with
+SIGTERM, waits for quiescence, and escalates to SIGKILL after a bounded grace
+period. This remains effective when the direct `pnpm` child exits before a
+late-writing Electron or PGlite grandchild. Windows uses `tree-kill` to stop the
+corresponding task tree while the direct child remains addressable; preserving
+ownership after a naturally exited Windows parent requires a Job Object and is
+tracked separately. Only after the owned tree is stopped may the launcher
+remove its temporary profile. Process-tree or profile cleanup failures are
+visible fatal errors with a non-zero exit, never warning-only cleanup.
+
 Manual QA must cover both automation surfaces while another Electron app is
 running:
 
@@ -370,6 +381,10 @@ running:
    `get_app_state({ app: "com.brainstrike.desktop.agent-debug" })`.
 3. Confirm the accessibility tree describes the same renderer URL/title seen
    through CDP. Do not stop or retarget unrelated Electron processes.
+4. Stop the documented root command with Ctrl-C, wait for it to exit, and
+   confirm the printed `brainstrike-agent-devtools-*` profile remains absent
+   after a bounded post-exit observation. Keep unrelated Electron processes
+   running throughout this check.
 
 ---
 
