@@ -545,7 +545,10 @@ Prompt compaction MUST preserve these semantics:
   several roots are open, so path-bearing read/search/edit/shell calls must
   name the owning root. A rootless search means an intentional all-roots
   search only where its schema promises that behavior; it never means “guess
-  Main.” Results carry root identity for follow-up calls.
+  Main.” Results carry root identity for follow-up calls. Root-resolution
+  errors include only complete, copyable root ids inside an 800-character
+  descriptor budget; overflow guidance points to `listWorkspaceContext` and
+  never emits a leading delimiter when no root description fits.
 - **Tapestry precision:** ranges are 1-based and inclusive. When the user names
   a symbol, section, or line range, select its exact verified span and report
   the exact range applied. Never silently fall back to whole-file selection;
