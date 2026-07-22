@@ -9,18 +9,18 @@ const ProviderSettingsValidationContext = createContext<
   ((reason: string | undefined) => void) | undefined
 >(undefined);
 
-export function AssistantPanelMetadataProviders({
+export function MetadataProviders({
   children,
-  onProviderSettingsValidationChange,
+  onValidation,
   value,
 }: {
   readonly children: ReactNode;
-  readonly onProviderSettingsValidationChange?: ((reason: string | undefined) => void) | undefined;
+  readonly onValidation?: ((reason: string | undefined) => void) | undefined;
   readonly value: OpenRouterModelMetadataLookup | undefined;
 }) {
   return (
     <AssistantDetailLevelProvider>
-      <ProviderSettingsValidationContext.Provider value={onProviderSettingsValidationChange}>
+      <ProviderSettingsValidationContext.Provider value={onValidation}>
         <OpenRouterModelMetadataContext.Provider value={value}>
           {children}
         </OpenRouterModelMetadataContext.Provider>

@@ -1172,10 +1172,7 @@ export function AssistantUiPanelWrapper({
     shouldSkipSelectionReconcile,
   ]);
 
-  const [providerSettingsValidationReason, setProviderSettingsValidationReason] = useState<
-    string | undefined
-  >();
-  const changeModel = useAssistantModelChange({
+  const { handleModelChange, providerDraft } = useAssistantModelChange({
     currentModel,
     draftRuntimeByThreadId,
     fixedProviderModels,
@@ -1185,13 +1182,6 @@ export function AssistantUiPanelWrapper({
     setProviderSettings,
     setThreadDraftRuntime,
   });
-  const handleModelChange = useCallback(
-    (compositeKey: string) => {
-      setProviderSettingsValidationReason(undefined);
-      changeModel(compositeKey);
-    },
-    [changeModel]
-  );
 
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {
@@ -1312,12 +1302,9 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
-  const disabledReason =
-    memoryDisabledReason ??
-    providerDisabledReason ??
-    openRouterDisabledReason ??
-    providerSettingsValidationReason;
-
+  const runtimeDisabledReason =
+    memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+  const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
@@ -1596,7 +1583,7 @@ export function AssistantUiPanelWrapper({
                 : {})}
               onContextBreakdown={handleContextBreakdown}
               onProviderSettingsChange={handleProviderSettingsChange}
-              onProviderSettingsValidationChange={setProviderSettingsValidationReason}
+              onProviderSettingsValidationChange={providerDraft.report}
               onRunFailed={handleRunFailed}
               onRunFinished={handleRunFinished}
               onStreamActivity={renewActiveAssistantForegroundActivity}
@@ -1624,11 +1611,7 @@ export function AssistantUiPanelWrapper({
               {...(currentModel ? { selectedModel: currentModel } : {})}
               disabled={
                 !isProviderReady ||
-                Boolean(
-                  memoryDisabledReason ??
-                    openRouterDisabledReason ??
-                    providerSettingsValidationReason
-                )
+                Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
               }
               onModelChange={handleModelChange}
               onModelToggle={handleModelToggle}
