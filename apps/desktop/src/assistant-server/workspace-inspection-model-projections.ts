@@ -5,11 +5,19 @@ import type {
   LspInspectionResult,
   LspUnavailableReason,
 } from './lsp-diagnostics';
+import {
+  clipProjectionEnd as clipEnd,
+  clipProjectionMiddle,
+  isNonNegativeInteger,
+  isPositiveInteger,
+  isRecord,
+  makeWorkspaceTextModelOutput as makeTextModelOutput,
+  serializedWorkspaceTextModelOutputChars as serializedChars,
+  projectionSingleLine as singleLine,
+  type WorkspaceTextModelOutput,
+} from './workspace-model-projection-helpers';
 
-export interface WorkspaceInspectionTextModelOutput {
-  type: 'text';
-  value: string;
-}
+export type WorkspaceInspectionTextModelOutput = WorkspaceTextModelOutput;
 
 interface SymbolMatchResult {
   declarationLine: number;
@@ -46,18 +54,6 @@ const MAX_HOVER_CHARS = 1400;
 const MAX_PATH_CHARS = 800;
 const MAX_PREVIEW_CHARS = 800;
 const MAX_ROOT_LABEL_CHARS = 160;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
 
 function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string';
@@ -165,21 +161,6 @@ function parseLspInspectResult(output: unknown): LspInspectResult {
   return output as unknown as LspInspectResult;
 }
 
-function singleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
-
-function clipEnd(value: string, maxChars: number, label: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } ${label} chars omitted]`;
-}
-
 function formatDeclaration(value: string): string[] {
   const codePoints = Array.from(value);
   if (codePoints.length <= MAX_DECLARATION_CHARS) {
@@ -192,24 +173,7 @@ function formatDeclaration(value: string): string[] {
 }
 
 function clipPath(value: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= MAX_PATH_CHARS) {
-    return normalized;
-  }
-  const keptAtEachEnd = Math.floor(MAX_PATH_CHARS / 2);
-  const omitted = codePoints.length - keptAtEachEnd * 2;
-  return `${codePoints.slice(0, keptAtEachEnd).join('')}…[${omitted} path clipped]…${codePoints
-    .slice(-keptAtEachEnd)
-    .join('')}`;
-}
-
-function makeTextModelOutput(lines: readonly string[]): WorkspaceInspectionTextModelOutput {
-  return { type: 'text', value: lines.join('\n') };
-}
-
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(makeTextModelOutput(lines)).length;
+  return clipProjectionMiddle(singleLine(value), MAX_PATH_CHARS, 'path');
 }
 
 function assertProjectionFits(

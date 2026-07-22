@@ -1,9 +1,18 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  clipProjectionEnd as clipEnd,
+  clipProjectionMiddle,
+  escapeProjectionPathLineBreaks as escapePathLineBreaks,
+  isNonNegativeInteger,
+  isPositiveInteger,
+  isRecord,
+  makeWorkspaceTextModelOutput as output,
+  serializedWorkspaceTextModelOutputChars as serializedChars,
+  projectionSingleLine as singleLine,
+  type WorkspaceTextModelOutput,
+} from './workspace-model-projection-helpers';
 
-export interface WorkspaceRetrievalTextModelOutput {
-  type: 'text';
-  value: string;
-}
+export type WorkspaceRetrievalTextModelOutput = WorkspaceTextModelOutput;
 
 interface SemanticChunk {
   rank: number;
@@ -79,18 +88,6 @@ const MAX_ID_CHARS = 160;
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_PATH_CHARS = 700;
 const MAX_ROOT_CHARS = 160;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -218,47 +215,8 @@ function parseHybridResult(output: unknown): HybridResult {
   return result;
 }
 
-function singleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
-
-function escapePathLineBreaks(value: string): string {
-  return value
-    .replace(/\r/gu, String.raw`\r`)
-    .replace(/\n/gu, String.raw`\n`)
-    .replace(/\u2028/gu, String.raw`\u2028`)
-    .replace(/\u2029/gu, String.raw`\u2029`);
-}
-
-function clipEnd(value: string, maxChars: number, label: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } ${label} chars omitted]`;
-}
-
 function clipPath(value: string): string {
-  const escaped = escapePathLineBreaks(value);
-  const codePoints = Array.from(escaped);
-  if (codePoints.length <= MAX_PATH_CHARS) {
-    return escaped;
-  }
-  const half = Math.floor(MAX_PATH_CHARS / 2);
-  return `${codePoints.slice(0, half).join('')}…[${codePoints.length - half * 2} path clipped]…${codePoints
-    .slice(-half)
-    .join('')}`;
-}
-
-function output(lines: readonly string[]): WorkspaceRetrievalTextModelOutput {
-  return { type: 'text', value: lines.join('\n') };
-}
-
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(output(lines)).length;
+  return clipProjectionMiddle(escapePathLineBreaks(value), MAX_PATH_CHARS, 'path');
 }
 
 function semanticHeader(result: SemanticResult): string {

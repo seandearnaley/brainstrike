@@ -74,6 +74,19 @@ describe('workspace inspection model projections', () => {
     );
   });
 
+  it('collapses path whitespace to keep inspection locations on one line', () => {
+    const projected = projectFindWorkspaceSymbolModelOutput({
+      matches: [],
+      path: '/src/foo\t bar\nfile.ts',
+      rootName: 'brainstrike',
+      totalMatches: 0,
+      truncated: false,
+    });
+
+    expect(projected.value).toContain('path=/src/foo bar file.ts');
+    expect(projected.value).not.toContain('/src/foo\t bar\nfile.ts');
+  });
+
   it('self-fits a maximum symbol page and makes omitted matches explicit', () => {
     const raw = {
       matches: Array.from({ length: 20 }, (_, index) => ({

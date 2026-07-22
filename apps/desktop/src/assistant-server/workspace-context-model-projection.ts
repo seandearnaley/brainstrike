@@ -5,11 +5,18 @@ import {
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
+import {
+  clipProjectionEnd as clipEnd,
+  clipProjectionMiddle,
+  escapeProjectionPathLineBreaks as escapePathLineBreaks,
+  isNonNegativeInteger,
+  isRecord,
+  makeWorkspaceTextModelOutput as makeOutput,
+  serializedWorkspaceTextModelOutputChars as serializedChars,
+  type WorkspaceTextModelOutput,
+} from './workspace-model-projection-helpers';
 
-export interface WorkspaceContextTextModelOutput {
-  type: 'text';
-  value: string;
-}
+export type WorkspaceContextTextModelOutput = WorkspaceTextModelOutput;
 
 interface WorkspaceIndexSummary {
   embeddingSetId: string | null;
@@ -55,14 +62,6 @@ interface ProjectionState {
 const MAX_ID_CHARS = 160;
 const MAX_NAME_CHARS = 160;
 const MAX_PATH_CHARS = 800;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
 
 function isOptionalMetric(value: unknown): value is number | null | undefined {
   return (
@@ -230,52 +229,12 @@ function parseListWorkspaceContextResult(output: unknown): ListWorkspaceContextR
   return result;
 }
 
-function singleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
-
-function escapePathLineBreaks(value: string): string {
-  return value
-    .replace(/\r/gu, String.raw`\r`)
-    .replace(/\n/gu, String.raw`\n`)
-    .replace(/\u2028/gu, String.raw`\u2028`)
-    .replace(/\u2029/gu, String.raw`\u2029`);
-}
-
-function clipEnd(value: string, maxChars: number, label: string): string {
-  const normalized = singleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } ${label} chars omitted]`;
-}
-
 function clipPath(value: string): string {
-  const escaped = escapePathLineBreaks(value);
-  const codePoints = Array.from(escaped);
-  if (codePoints.length <= MAX_PATH_CHARS) {
-    return escaped;
-  }
-  const keptAtEachEnd = Math.floor(MAX_PATH_CHARS / 2);
-  const omitted = codePoints.length - keptAtEachEnd * 2;
-  return `${codePoints.slice(0, keptAtEachEnd).join('')}…[${omitted} path clipped]…${codePoints
-    .slice(-keptAtEachEnd)
-    .join('')}`;
+  return clipProjectionMiddle(escapePathLineBreaks(value), MAX_PATH_CHARS, 'path');
 }
 
 function metric(value: number | null | undefined): string {
   return value === undefined || value === null ? 'unavailable' : String(value);
-}
-
-function makeOutput(lines: readonly string[]): WorkspaceContextTextModelOutput {
-  return { type: 'text', value: lines.join('\n') };
-}
-
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(makeOutput(lines)).length;
 }
 
 function pageLabel(result: ListWorkspaceContextResult, kept: number): string {

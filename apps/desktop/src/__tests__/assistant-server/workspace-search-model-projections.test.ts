@@ -108,6 +108,33 @@ describe('workspace search model projections', () => {
     );
   });
 
+  it('collapses whitespace in unrooted path previews without inventing a root', () => {
+    const projected = projectGrepSearchModelOutput({
+      candidatesTruncated: false,
+      files: [
+        {
+          firstLine: 7,
+          matchCount: 1,
+          path: '/src/foo\t bar\nfile.ts',
+          rootName: 'alpha',
+          source: 'live',
+        },
+      ],
+      liveEngine: 'ripgrep',
+      offset: 0,
+      outputMode: 'files',
+      scanLimited: false,
+      totalFiles: 1,
+      totalMatches: 1,
+      truncated: false,
+    });
+
+    expect(projected.value).toContain(
+      'read_args=unavailable(unrooted_result) | path_preview="/src/foo bar file.ts"'
+    );
+    expect(projected.value).not.toContain('root=');
+  });
+
   it('fits a maximum grep page to the domain ceiling while retaining a continuation', () => {
     const raw = {
       candidatesTruncated: false,
