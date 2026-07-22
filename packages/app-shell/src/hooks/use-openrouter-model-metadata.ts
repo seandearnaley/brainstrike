@@ -2,6 +2,8 @@ import type { OpenRouterModelMetadataLookup, RuntimeData } from '@brainstrike/as
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  buildAgentLoopSettings,
+  buildEffectiveModelSettings,
   resolveOpenRouterMetadataDisabledReason,
   type SelectedModelBudgetDef,
 } from '../assistant-ui-panel-wrapper-runtime';
@@ -29,8 +31,10 @@ interface UseOpenRouterModelMetadataOptions {
 }
 
 interface UseOpenRouterModelMetadataResult {
+  readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   readonly lookup: OpenRouterModelMetadataLookup | undefined;
   readonly modelDef: SelectedModelBudgetDef | undefined;
+  readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly reason: string | undefined;
 }
 
@@ -106,5 +110,22 @@ export function useOpenRouterModelMetadata({
     () => resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings),
     [lookup, modelSettings, providerId, settings]
   );
-  return { lookup, modelDef: budgetModelDef, reason: disabledReason };
+  const effectiveModelSettings = useMemo(
+    () => buildEffectiveModelSettings(providerId, modelSettings, budgetModelDef),
+    [budgetModelDef, modelSettings, providerId]
+  );
+  const agentLoopSettings = useMemo(
+    () =>
+      disabledReason
+        ? undefined
+        : buildAgentLoopSettings(settings, budgetModelDef, providerId, effectiveModelSettings),
+    [budgetModelDef, disabledReason, effectiveModelSettings, providerId, settings]
+  );
+  return {
+    agentLoopSettings,
+    lookup,
+    modelDef: budgetModelDef,
+    modelSettings: effectiveModelSettings,
+    reason: disabledReason,
+  };
 }

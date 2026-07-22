@@ -1,9 +1,9 @@
 import {
-  CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   deriveEffectiveInputBudget,
   getProviderDefinition,
   type LlmModelDefinition,
   type OpenRouterModelMetadataLookup,
+  resolveOpenRouterCodingMaxOutputTokens,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
@@ -128,7 +128,7 @@ function resolveOpenRouterModelLimits(
   const outputReservation =
     typeof settings.maxOutputTokens === 'number'
       ? Math.max(1, Math.floor(settings.maxOutputTokens))
-      : CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+      : resolveOpenRouterCodingMaxOutputTokens(maxOutputTokens);
   const sourceLabel = resolveOpenRouterSourceLabel(lookup);
   let effectiveInputBudget: number | undefined;
   try {
@@ -680,6 +680,10 @@ export const ProviderSettingsPanel = ({
           effectiveOpenRouterModelMetadataLookup
         )
       : undefined;
+  const maximumOutputTokens =
+    normalizedProvider === 'openrouter'
+      ? (openRouterLimits?.maxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens())
+      : MAX_OUTPUT_MAX;
   const canUpdate = Boolean(onSettingsChange);
   const updateSettings: ProviderSettingsUpdate = (updates) => {
     if (!onSettingsChange) {
@@ -715,12 +719,12 @@ export const ProviderSettingsPanel = ({
         <MaxOutputSection
           defaultValue={
             normalizedProvider === 'openrouter'
-              ? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS
+              ? (openRouterLimits?.outputReservation ?? resolveOpenRouterCodingMaxOutputTokens())
               : MAX_OUTPUT_DEFAULT
           }
           disabled={!canUpdate}
-          key={`${providerId}:${modelName ?? ''}:${currentSettings.maxOutputTokens ?? 'auto'}:${openRouterLimits?.maxOutputTokens ?? MAX_OUTPUT_MAX}`}
-          maximum={openRouterLimits?.maxOutputTokens ?? MAX_OUTPUT_MAX}
+          key={`${providerId}:${modelName ?? ''}:${currentSettings.maxOutputTokens ?? 'auto'}:${maximumOutputTokens}`}
+          maximum={maximumOutputTokens}
           maximumSource={openRouterLimits?.sourceLabel}
           onUpdate={updateSettings}
           onValidationChange={onValidationChange ?? contextValidationChange}

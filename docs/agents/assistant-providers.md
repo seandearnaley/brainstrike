@@ -224,6 +224,14 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenRouter `Auto` is a zero-configuration coding profile, not an implicit
+  provider-wide 4,096-token cap. The shared contract resolves its output limit
+  as `min(model max completion, 32,000)` when live/static model metadata
+  publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
+  ceiling. That resolved value must drive both Mastra `modelSettings` and the
+  input-context reservation. Explicit user overrides remain strict: a value
+  above a known model maximum is surfaced and blocks the request rather than
+  being silently clamped.
 - OpenAI hosted `tool_search` response history has a temporary, provider-boundary
   compatibility seam in `openai-tool-search-history-compat.ts`. AI SDK 4.0.8
   preserves a hosted search output's distinct `tso_...` ID in
@@ -259,12 +267,12 @@
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
-- When the user has not set an output limit, OpenRouter requests use a 4,096
-  token per-step default. Mastra's provider otherwise expands an omitted limit
-  to the model's full output ceiling, which can make OpenRouter reject even a
-  tiny prompt during credit preflight. The automatic input-token budget MUST
-  reserve that actual 4,096-token request default (or the explicit configured
-  output limit), not the model's full output ceiling. The Output & Limits panel
+- The OpenRouter `Auto` output profile is sent explicitly because Mastra's
+  provider otherwise expands an omitted limit to the model's full output
+  ceiling, which can make OpenRouter reject even a tiny prompt during credit
+  preflight. The automatic input-token budget MUST reserve the same resolved
+  coding default (or the explicit configured output limit), not the model's
+  full output ceiling. The Output & Limits panel
   shows the selected model's context/output metadata, the effective reservation,
   and the resulting input budget. Desktop selected models install a validated
   live OpenRouter snapshot for budgeting and label its `live`, `fresh-cache`, or

@@ -1,5 +1,8 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
+import {
+  resolveOpenRouterCodingMaxOutputTokens,
+  resolveToolDiscoveryAdapter,
+} from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
@@ -2467,15 +2470,13 @@ interface BrainstrikeAgentStreamOptions {
   requireToolApproval?: ApprovalGate;
 }
 
-const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 4096;
-
 function buildModelSettingsOption(
   runtimeData: RuntimeData | undefined
 ): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
   const modelSettings =
     runtimeData?.provider === 'openrouter'
       ? {
-          maxOutputTokens: DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
+          maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(),
           ...runtimeData.modelSettings,
         }
       : runtimeData?.modelSettings;

@@ -1,6 +1,5 @@
 import {
   type AnthropicProviderOptions,
-  CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
@@ -11,6 +10,7 @@ import {
   type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
+  resolveOpenRouterCodingMaxOutputTokens,
 } from '@brainstrike/assistant-contract';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
@@ -969,6 +969,23 @@ export function buildModelSettings(
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
 }
 
+export function buildEffectiveModelSettings(
+  providerId: string | null | undefined,
+  configuredSettings: RuntimeData['modelSettings'] | undefined,
+  selectedModelDef?: SelectedModelBudgetDef
+): RuntimeData['modelSettings'] | undefined {
+  if (providerId !== 'openrouter') {
+    return configuredSettings;
+  }
+  if (configuredSettings?.maxOutputTokens !== undefined) {
+    return configuredSettings;
+  }
+  return {
+    ...configuredSettings,
+    maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(selectedModelDef?.maxOutputTokens),
+  };
+}
+
 const openRouterLimitFormatter = new Intl.NumberFormat();
 
 export function resolveOpenRouterMetadataDisabledReason(
@@ -990,7 +1007,7 @@ export function resolveOpenRouterMetadataDisabledReason(
     return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
   }
 
-  const outputReservation = configuredOutput ?? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  const outputReservation = configuredOutput ?? resolveOpenRouterCodingMaxOutputTokens(maximum);
   let effectiveInputBudget: number;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
@@ -1035,15 +1052,17 @@ export interface SelectedModelBudgetDef {
 export function buildAgentLoopSettings(
   settings: AssistantProviderSettings | undefined,
   selectedModelDef?: SelectedModelBudgetDef,
-  providerId?: string | null
+  providerId?: string | null,
+  modelSettings?: RuntimeData['modelSettings']
 ): RuntimeData['agentLoop'] | undefined {
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
     const outputReservation =
       providerId === 'openrouter'
-        ? (buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
-          CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS)
+        ? (buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
+          buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
+          resolveOpenRouterCodingMaxOutputTokens(selectedModelDef.maxOutputTokens))
         : selectedModelDef.maxOutputTokens;
     inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
   }

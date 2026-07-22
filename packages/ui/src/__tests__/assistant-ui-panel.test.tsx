@@ -1317,11 +1317,39 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText('GPT-5.4 Mini (OpenRouter)')).toBeInTheDocument();
     expect(screen.getByText(/400,000 context.*128,000 max output/)).toBeInTheDocument();
-    expect(screen.getByText(/Auto requests 4,096.*375,904 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 32,000.*348,000 effective input/)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
       'max',
       '128000'
     );
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
+  });
+
+  it('uses the coding default when OpenRouter does not declare a model output maximum', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'moonshotai/kimi-k3',
+              source: 'openrouter-models-api',
+              supportedParameters: ['tools'],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
   });
 
   it('shows and applies live OpenRouter model limits with provenance', () => {
@@ -1638,7 +1666,7 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.change(screen.getByRole('slider', { name: 'Max output tokens' }), {
       target: { value: '999999' },
     });
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { maxOutputTokens: 8192 });
+    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { maxOutputTokens: 32_000 });
   });
 
   it('caps the OpenRouter output control at the selected model maximum', () => {

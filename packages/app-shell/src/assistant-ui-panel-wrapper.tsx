@@ -86,7 +86,6 @@ import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   type AssistantRunUsagePayload,
   addValuesToSet,
-  buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
   buildEnabledModelIdSet,
@@ -389,14 +388,12 @@ export function AssistantUiPanelWrapper({
     selectedModelDef: selectedLlmModelDef,
     settings: selectedProviderSettings,
   });
-  const { modelDef: openRouterModelDef, reason: openRouterDisabledReason } = openRouterMetadata;
-  const agentLoopSettings = useMemo(
-    () =>
-      openRouterDisabledReason
-        ? undefined
-        : buildAgentLoopSettings(selectedProviderSettings, openRouterModelDef, selectedProvider),
-    [openRouterDisabledReason, openRouterModelDef, selectedProvider, selectedProviderSettings]
-  );
+  const {
+    agentLoopSettings,
+    modelDef: openRouterModelDef,
+    modelSettings: effectiveModelSettings,
+    reason: openRouterDisabledReason,
+  } = openRouterMetadata;
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
     () => buildAssistantMemoryOptions(selectedProviderSettings),
@@ -975,7 +972,7 @@ export function AssistantUiPanelWrapper({
     mainRootPath,
     memoryOptions: assistantMemoryOptions,
     memoryResourceId,
-    modelSettings,
+    modelSettings: effectiveModelSettings,
     observationalMemorySettings,
     permissionPolicyRequest,
     planMode,
@@ -1003,7 +1000,7 @@ export function AssistantUiPanelWrapper({
     // roots.id). Snapshotted at request start for durable per-root cost.
     focusedRootId: currentFolderId,
     memoryResourceId,
-    modelSettings,
+    modelSettings: effectiveModelSettings,
     // Only the desktop data-stream server runs the runtime permission gate;
     // mirrors the `permissionPolicyRequest` useMemo transport gate above.
     permissionEnforceable: localChatTransport === 'data-stream',
