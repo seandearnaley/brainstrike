@@ -1,4 +1,8 @@
-import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_AUTH_HEADER_NAME,
+  isSecretReadErrorCode,
+  type SecretReadErrorCode,
+} from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   isValidModelForProvider,
@@ -8,7 +12,7 @@ import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 export interface AssistantProviderReadError {
-  readonly code: 'decrypt_failed' | 'encryption_unavailable';
+  readonly code: SecretReadErrorCode;
   readonly error: 'api_key_unreadable';
   readonly message: string;
   readonly provider: SupportedProvider;
@@ -375,7 +379,7 @@ function parseAssistantProviderReadErrors(
       !isSupportedProvider(provider) ||
       providers.has(provider) ||
       candidate['error'] !== 'api_key_unreadable' ||
-      (code !== 'decrypt_failed' && code !== 'encryption_unavailable') ||
+      !isSecretReadErrorCode(code) ||
       typeof candidate['message'] !== 'string' ||
       candidate['message'].trim().length === 0
     ) {
