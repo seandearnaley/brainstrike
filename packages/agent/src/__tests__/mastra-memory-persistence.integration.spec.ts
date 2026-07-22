@@ -30,10 +30,12 @@
 // Uses the global (DOM-typed) ReadableStream rather than `node:stream/web`:
 // the runtime class is the same in Node >= 18, and @ai-sdk/provider's stream
 // types are declared against the DOM ReadableStream.
+import { createOpenAI } from '@ai-sdk/openai';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
+  LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
@@ -77,10 +79,27 @@ const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
+function streamParts(
+  parts: LanguageModelV2StreamPart[]
+): ReadableStream<LanguageModelV2StreamPart> {
+  return new ReadableStream({
+    start(controller) {
+      for (const part of parts) {
+        controller.enqueue(part);
+      }
+      controller.close();
+    },
+  });
+}
+
 interface PersistedPart {
+  readonly providerExecuted?: boolean;
   readonly providerMetadata?: {
     readonly mastra?: {
       readonly modelOutput?: unknown;
+    };
+    readonly openai?: {
+      readonly itemId?: string;
     };
   };
   readonly text?: string;
@@ -120,15 +139,6 @@ function createScriptedToolCallModel(args: {
 }): LanguageModelV2 {
   const toolCallIds = args.toolCallIds ?? [args.toolCallId];
   let toolCallIndex = 0;
-  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
-    new ReadableStream<LanguageModelV2StreamPart>({
-      start(controller) {
-        for (const part of parts) {
-          controller.enqueue(part);
-        }
-        controller.close();
-      },
-    });
 
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
@@ -140,7 +150,7 @@ function createScriptedToolCallModel(args: {
         }
         toolCallIndex += 1;
         return Promise.resolve({
-          stream: enqueue([
+          stream: streamParts([
             { type: 'stream-start', warnings: [] },
             {
               input: args.input,
@@ -166,7 +176,7 @@ function createScriptedToolCallModel(args: {
         }
         const id = 'text-final';
         return Promise.resolve({
-          stream: enqueue([
+          stream: streamParts([
             { type: 'stream-start', warnings: [] },
             { id, type: 'text-start' },
             { delta: args.finalText, id, type: 'text-delta' },
@@ -180,6 +190,90 @@ function createScriptedToolCallModel(args: {
     },
     modelId: 'fake-model',
     provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+function createProviderExecutedToolSearchModel(args: {
+  callItemId: string;
+  outputItemId: string;
+}): LanguageModelV2 {
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () =>
+      Promise.resolve({
+        stream: streamParts([
+          { type: 'stream-start', warnings: [] },
+          {
+            input: JSON.stringify({
+              arguments: { paths: ['read_workspace_file'] },
+              call_id: null,
+            }),
+            providerExecuted: true,
+            providerMetadata: { openai: { itemId: args.callItemId } },
+            toolCallId: args.callItemId,
+            toolName: 'tool_search',
+            type: 'tool-call',
+          },
+          {
+            providerExecuted: true,
+            providerMetadata: { openai: { itemId: args.outputItemId } },
+            result: { tools: [{ name: 'read_workspace_file', type: 'function' }] },
+            toolCallId: args.callItemId,
+            toolName: 'tool_search',
+            type: 'tool-result',
+          },
+          { id: 'hosted-text', type: 'text-start' },
+          { delta: 'Hosted tool search completed.', id: 'hosted-text', type: 'text-delta' },
+          { id: 'hosted-text', type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      }),
+    modelId: 'fake-hosted-tool-search-model',
+    provider: 'openai.responses',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+function createOpenAIRequestCaptureModel(onRequestBody: (body: unknown) => void): LanguageModelV2 {
+  const provider = createOpenAI({
+    apiKey: 'not-used',
+    fetch: async (_input, init) => {
+      onRequestBody(JSON.parse(String(init?.body)) as unknown);
+      return new Response(
+        JSON.stringify({
+          created_at: 0,
+          id: 'resp_hydration_test',
+          model: 'gpt-5.6-luna',
+          output: [],
+          usage: { input_tokens: 0, output_tokens: 0 },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    },
+  });
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: async (options) => {
+      await provider.responses('gpt-5.6-luna').doGenerate({
+        prompt: options.prompt as LanguageModelV4Prompt,
+        providerOptions: { openai: { store: true } },
+      });
+      return {
+        stream: streamParts([
+          { type: 'stream-start', warnings: [] },
+          { id: 'capture-text', type: 'text-start' },
+          { delta: 'Hydrated history accepted.', id: 'capture-text', type: 'text-delta' },
+          { id: 'capture-text', type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      };
+    },
+    modelId: 'fake-openai-request-capture-model',
+    provider: 'openai.responses',
     specificationVersion: 'v2',
     supportedUrls: {},
   };
@@ -285,6 +379,7 @@ async function runTurnWithMemory(args: {
   database: PGlite;
   forceInitialToolCall?: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
+  model?: LanguageModelV2;
   threadId: string;
   toolCallId?: string;
   toolCallIds?: readonly string[];
@@ -330,15 +425,17 @@ async function runTurnWithMemory(args: {
     }),
   });
 
-  modelHolder.current = createScriptedToolCallModel({
-    finalText: 'It is 21C in Paris.',
-    ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
-    input: JSON.stringify({ city: 'Paris' }),
-    ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
-    toolCallId: args.toolCallId ?? 'call-memory-1',
-    ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
-    toolName: args.toolName ?? toolId,
-  });
+  modelHolder.current =
+    args.model ??
+    createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
+      input: JSON.stringify({ city: 'Paris' }),
+      ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
+      toolCallId: args.toolCallId ?? 'call-memory-1',
+      ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
+      toolName: args.toolName ?? toolId,
+    });
 
   const iterator = await streamMastraAgent(
     [
@@ -536,6 +633,65 @@ describe('mastra memory persistence through the live stream path', () => {
 
     expect(replayedModelOutput).toContain('output was truncated');
     expect(replayedModelOutput).not.toContain(rawOnlyTail);
+  });
+
+  it('preserves hosted OpenAI tool-search item references through persistence and hydration', async () => {
+    const callItemId = 'tsc_hosted_persistence_123';
+    const outputItemId = 'tso_hosted_persistence_456';
+    const threadId = 'thread-hosted-tool-search-hydration';
+
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      model: createProviderExecutedToolSearchModel({ callItemId, outputItemId }),
+      threadId,
+      userText: 'Find the workspace read tool.',
+    });
+
+    const invocationPart = (await listThreadMessages(database, threadId))
+      .filter((row) => row.role === 'assistant')
+      .flatMap(parseParts)
+      .find((part) => part.type === 'tool-invocation');
+    expect(invocationPart).toMatchObject({
+      providerExecuted: true,
+      providerMetadata: { openai: { itemId: outputItemId } },
+      toolInvocation: {
+        state: 'result',
+        toolCallId: callItemId,
+        toolName: 'tool_search',
+      },
+    });
+
+    let capturedBody: unknown;
+    await runTurnWithMemory({
+      database,
+      memorySettings: OM_DISABLED_SETTINGS,
+      model: createOpenAIRequestCaptureModel((body) => {
+        capturedBody = body;
+      }),
+      threadId,
+      userMessageId: 'u-hosted-tool-search-reload',
+      userText: 'Continue with the tool you found.',
+    });
+
+    const requestBody = z
+      .object({
+        input: z.array(
+          z
+            .object({
+              id: z.string().optional(),
+              type: z.string().optional(),
+            })
+            .passthrough()
+        ),
+      })
+      .parse(capturedBody);
+    expect(
+      requestBody.input.filter((item) => item.type === 'item_reference' && item.id === callItemId)
+    ).toHaveLength(1);
+    expect(
+      requestBody.input.filter((item) => item.type === 'item_reference' && item.id === outputItemId)
+    ).toHaveLength(1);
   });
 
   it('filters stale projected native reads after a thread reload without mutating storage', async () => {

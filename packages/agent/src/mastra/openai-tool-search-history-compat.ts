@@ -56,6 +56,43 @@ function collectProviderExecutedToolSearchCallIds(
   return callIds;
 }
 
+function canonicalizeToolSearchCall(part: AssistantPart): AssistantPart {
+  if (
+    part.type !== 'tool-call' ||
+    part.toolName !== TOOL_SEARCH_NAME ||
+    part.providerExecuted !== true
+  ) {
+    return part;
+  }
+  const supportedItemId = readOpenAIItemId(part.providerOptions, 'providerOptions');
+  const persistedItemId = readOpenAIItemId(
+    isRecord(part) ? part['providerMetadata'] : undefined,
+    'providerMetadata'
+  );
+  const hasCanonicalItemId =
+    supportedItemId === part.toolCallId || persistedItemId === part.toolCallId;
+  const hasConflictingItemId =
+    (supportedItemId !== undefined && supportedItemId !== part.toolCallId) ||
+    (persistedItemId !== undefined && persistedItemId !== part.toolCallId);
+  if (hasCanonicalItemId && !hasConflictingItemId) {
+    return part;
+  }
+  const existingProviderOptions = isRecord(part.providerOptions) ? part.providerOptions : {};
+  const existingOpenAIOptions = isRecord(existingProviderOptions[OPENAI_NAMESPACE])
+    ? existingProviderOptions[OPENAI_NAMESPACE]
+    : {};
+  return {
+    ...part,
+    providerOptions: {
+      ...existingProviderOptions,
+      [OPENAI_NAMESPACE]: {
+        ...existingOpenAIOptions,
+        itemId: part.toolCallId,
+      },
+    },
+  };
+}
+
 function canonicalizeToolSearchResult(
   part: AssistantPart,
   providerExecutedCallIds: ReadonlySet<string>
@@ -101,10 +138,13 @@ function canonicalizeToolSearchResult(
  * Canonicalizes persisted OpenAI hosted tool-search output references at the
  * transient provider boundary.
  *
- * AI SDK 4.0.8 preserves the output item ID in providerMetadata when reading a
- * response but reads only providerOptions when serializing an assistant
- * tool-result back into request history. Copying the preserved ID into that
- * supported option prevents the converter from falling back to the call ID.
+ * Mastra v2 persists a completed provider tool as one invocation with the
+ * result's provider metadata, then hydrates that metadata onto both the call
+ * and result. The call therefore incorrectly carries the `tso_` output ID
+ * instead of its `tsc_` toolCallId. AI SDK 4.0.8 also reads providerOptions,
+ * not providerMetadata, when serializing the result. Canonicalizing both parts
+ * here preserves exactly one distinct call and output reference without
+ * mutating durable history.
  */
 export class OpenAIToolSearchHistoryCompat
   implements Processor<'openai-tool-search-history-compat'>
@@ -121,7 +161,8 @@ export class OpenAIToolSearchHistoryCompat
       const providerExecutedCallIds = collectProviderExecutedToolSearchCallIds(message.content);
       let contentChanged = false;
       const content = message.content.map((part) => {
-        const canonicalPart = canonicalizeToolSearchResult(part, providerExecutedCallIds);
+        const canonicalCall = canonicalizeToolSearchCall(part);
+        const canonicalPart = canonicalizeToolSearchResult(canonicalCall, providerExecutedCallIds);
         if (canonicalPart !== part) {
           contentChanged = true;
           rewrittenCount += 1;
