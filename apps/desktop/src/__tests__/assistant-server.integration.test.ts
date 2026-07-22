@@ -800,6 +800,20 @@ describe('assistant-server', () => {
       expect(data).toEqual({ enabled: true, providers: ['local'] });
     }, 10_000);
 
+    it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+      const { SecretReadError } = await import('../secrets');
+      (readOpenAIApiKey as Mock).mockRejectedValueOnce(
+        new SecretReadError('decrypt_failed', 'openai')
+      );
+      mockSecretsService.listProviders.mockResolvedValueOnce([]);
+
+      const response = await runRequest({ method: 'GET', url: '/status' });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ enabled: true, providers: ['local'] });
+    });
+
     it('should handle status route errors', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockRejectedValueOnce(new Error('API key read failed'));

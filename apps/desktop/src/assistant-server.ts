@@ -1398,6 +1398,10 @@ async function collectAvailableProviders(): Promise<string[]> {
       providers.add('openai');
     }
   } catch (error) {
+    if (error instanceof SecretReadError) {
+      logger.error('Legacy OpenAI key is unreadable; omitting it from provider status', { error });
+      return Array.from(providers);
+    }
     logger.error('Failed to read legacy OpenAI key', { error });
     throw error;
   }
