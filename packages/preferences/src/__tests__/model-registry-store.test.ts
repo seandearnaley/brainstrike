@@ -592,7 +592,24 @@ describe('model-registry-store', () => {
     it('preserves an existing enabled-model choice exactly', async () => {
       const mockDb = {
         query: vi.fn().mockResolvedValue({
-          rows: [{ ...untouchedRows[0], is_enabled: true }, untouchedRows[1]],
+          rows: [{ ...untouchedRows[0], is_enabled: 1 }, untouchedRows[1]],
+        }),
+        syncToFs: vi.fn(),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('preserves an explicit choice before requiring every recommended catalog row', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({
+          rows: [{ ...untouchedRows[0], is_enabled: 1 }],
         }),
         syncToFs: vi.fn(),
       };

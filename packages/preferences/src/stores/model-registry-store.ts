@@ -102,7 +102,7 @@ interface RawProviderModelChoice {
   created_at: Date | string;
   id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  is_enabled: boolean;
+  is_enabled: number | boolean;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   updated_at: Date | string;
 }
@@ -120,7 +120,7 @@ function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[])
   for (const row of rows) {
     const updatedAt = timestampMillis(row.updated_at, 'updated_at');
     const createdAt = timestampMillis(row.created_at, 'created_at');
-    hasExplicitChoice ||= row.is_enabled || updatedAt > createdAt;
+    hasExplicitChoice ||= Boolean(row.is_enabled) || updatedAt > createdAt;
   }
   return hasExplicitChoice;
 }
@@ -341,16 +341,17 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
            FROM models WHERE provider_id = $1`,
           [providerId]
         );
+
+        if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+          return 'preserved';
+        }
+
         const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
         const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
         if (missingModelIds.length > 0) {
           throw new Error(
             `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
           );
-        }
-
-        if (hasExplicitProviderModelChoice(choiceResult.rows)) {
-          return 'preserved';
         }
 
         const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');
