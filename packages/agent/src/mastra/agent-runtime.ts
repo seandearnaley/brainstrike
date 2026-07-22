@@ -30,7 +30,11 @@ import {
 } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createListingOnlyModel } from '../providers/listing-only-model';
-import { applyProviderNativeWebSearch } from '../providers/native-web-search';
+import {
+  applyProviderNativeWebSearch,
+  providerSupportsNativeWebSearch,
+  WEB_SEARCH_TOOL_ID,
+} from '../providers/native-web-search';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
   AssistantRunEventKind,
@@ -3119,6 +3123,29 @@ export async function streamMastraToolApprovalAction(
 
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  let preserveExecuteBackedWebSearch = false;
+  if (providerSupportsNativeWebSearch(runtimeResolution.provider)) {
+    // The action's optional toolName is display-only and client-controlled. Use
+    // Mastra's storage-backed snapshot as the authority before deciding whether
+    // this immutable resumed leg must keep the execute-backed web-search tool.
+    const { runtime: discoveryRuntime } = await initializeMastraRuntime(
+      withRuntimeDerivedStreamOptions({
+        ...options,
+        modelOverride: createListingOnlyModel(),
+      }),
+      runtimeResolution
+    );
+    try {
+      const suspendedToolCall = await readResumedApprovalToolCall(
+        discoveryRuntime,
+        runtimeResolution.runtime,
+        action
+      );
+      preserveExecuteBackedWebSearch = suspendedToolCall.displayToolName === WEB_SEARCH_TOOL_ID;
+    } finally {
+      await discoveryRuntime.dispose();
+    }
+  }
   // Thread runtime.mastraTools/model into the options so the rebuilt Agent keeps
   // the native tools on resume (see withRuntimeDerivedStreamOptions).
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
@@ -3128,7 +3155,7 @@ export async function streamMastraToolApprovalAction(
       // The durable run suspended against the execute-backed tool. A session
       // grant changes authorization for this leg, not the stored invocation's
       // implementation. The next fresh turn may select provider-native search.
-      preserveExecuteBackedWebSearch: true,
+      preserveExecuteBackedWebSearch,
     },
     runtimeResolution
   );

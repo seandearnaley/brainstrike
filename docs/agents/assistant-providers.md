@@ -423,13 +423,14 @@ The assistant's search verbs, in the order the default instructions present them
    `apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts` and
    `web-extract-model-projection.test.ts`.
 
-   Approval resume is the deliberate exception to that fresh-turn swap. If a
-   read grant changes `webSearch` from ask to allow while its Tavily-backed call
-   is suspended, the rebuilt immutable Mastra runtime keeps the execute-backed
-   implementation for that resumed leg. Replacing it with the provider-native
-   definition would orphan the durable function invocation and complete without
-   executing or continuing. The next fresh turn observes the grant and selects
-   provider-native search normally.
+   Approval resume is the deliberate exception to that fresh-turn swap only
+   when Mastra's durable suspended-call snapshot identifies the exact resumed
+   tool as `webSearch`. If a read grant changes that call from ask to allow, the
+   rebuilt immutable runtime keeps its execute-backed Tavily implementation;
+   replacing it with the provider-native definition would orphan the durable
+   function invocation and complete without executing or continuing. Resuming a
+   different tool keeps provider-native search available, and the next fresh
+   turn observes the grant normally.
 
 Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
 in ALL THREE chunk repositories — `FileChunkRepository`,
