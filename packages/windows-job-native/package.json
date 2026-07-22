@@ -1,0 +1,29 @@
+{
+  "name": "@brainstrike/windows-job-native",
+  "version": "0.1.0",
+  "description": "Authoritative Windows Job Object ownership for development process trees",
+  "dependencies": {
+    "bindings": "1.5.0"
+  },
+  "devDependencies": {
+    "node-addon-api": "8.9.0",
+    "node-gyp": "13.0.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.cjs",
+      "default": "./index.cjs"
+    }
+  },
+  "gypfile": true,
+  "main": "./index.cjs",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "install": "node scripts/install.cjs",
+    "test": "node test/ensure-addon.cjs && node --test test/*.test.cjs",
+    "test:coverage": "pnpm test",
+    "type-check": "node --check index.cjs"
+  },
+  "types": "./index.d.ts"
+}

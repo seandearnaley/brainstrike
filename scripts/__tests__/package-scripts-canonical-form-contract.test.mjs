@@ -99,6 +99,10 @@ const TYPE_CHECK_ALLOWLIST = new Map([
     'native CJS package (no TypeScript) — validates syntax with `node --check index.cjs`',
   ],
   [
+    '@brainstrike/windows-job-native',
+    'native CJS package (no TypeScript) — validates syntax with `node --check index.cjs`',
+  ],
+  [
     '@brainstrike/web',
     'app — `tsc --build --force` primes referenced-project outputs before the --noEmit passes',
   ],

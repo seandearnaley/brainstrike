@@ -94,6 +94,7 @@
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/server-filesystem": "^2026.7.4",
     "@playwright/test": "catalog:",
     "@radix-ui/react-accordion": "^1.2.15",

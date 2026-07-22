@@ -5,7 +5,6 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import treeKill from 'tree-kill';
 import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
 const require = createRequire(import.meta.url);
@@ -171,13 +170,40 @@ export async function waitForEndpoint(endpoint, options = {}) {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
-function spawnPnpm(args, env) {
+export function resolvePnpmSpawnOptions(platform = process.platform) {
+  return { detached: platform !== 'win32' };
+}
+
+function spawnPnpm(args, env, platform = process.platform) {
   return spawn('pnpm', [...args], {
     cwd: path.resolve(import.meta.dirname, '..'),
-    detached: true,
+    ...resolvePnpmSpawnOptions(platform),
     env,
     stdio: 'inherit',
   });
+}
+
+export function initializeWindowsJob(platform = process.platform, load = require) {
+  if (platform !== 'win32') {
+    return;
+  }
+  let windowsJob;
+  try {
+    windowsJob = load('@brainstrike/windows-job-native');
+  } catch (error) {
+    throw new Error('Agent DevTools cannot start on Windows without its Job Object capability.', {
+      cause: error,
+    });
+  }
+  if (
+    typeof windowsJob?.initialize !== 'function' ||
+    typeof windowsJob.activeProcessCount !== 'function' ||
+    typeof windowsJob.terminateOtherProcesses !== 'function'
+  ) {
+    throw new Error('Agent DevTools Windows Job Object capability has an invalid interface.');
+  }
+  windowsJob.initialize();
+  return windowsJob;
 }
 
 async function removeUserDataDir(userDataDir) {
@@ -319,58 +345,70 @@ export function signalProcessGroup(pid, signal, kill = process.kill) {
   }
 }
 
-function signalWindowsProcessTree(pid, signal) {
-  return new Promise((resolve, reject) => {
-    treeKill(pid, signal, (error) => {
-      if (!error || /no such process/i.test(error.message)) {
-        resolve();
-        return;
-      }
-      reject(error);
-    });
-  });
+function readWindowsJobActiveProcessCount(windowsJob) {
+  const activeProcessCount = windowsJob.activeProcessCount();
+  if (!Number.isSafeInteger(activeProcessCount) || activeProcessCount < 1) {
+    throw new Error(
+      `Agent DevTools Windows Job Object returned invalid active process count ${activeProcessCount}.`
+    );
+  }
+  return activeProcessCount;
 }
 
-async function waitForChildExitWithin(child, timeoutMs) {
-  if (!isChildRunning(child)) {
-    return true;
+async function waitForWindowsJobExit(windowsJob, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (readWindowsJobActiveProcessCount(windowsJob) > 1) {
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await sleep(PROCESS_TREE_POLL_INTERVAL_MS);
   }
-  return await new Promise((resolve) => {
-    const onExit = () => {
-      clearTimeout(timeout);
-      resolve(true);
-    };
-    const timeout = setTimeout(() => {
-      child.off('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    child.once('exit', onExit);
-  });
+  return true;
+}
+
+async function forceWindowsJobExit(windowsJob, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (readWindowsJobActiveProcessCount(windowsJob) > 1) {
+    windowsJob.terminateOtherProcesses(1);
+    if (readWindowsJobActiveProcessCount(windowsJob) <= 1) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await sleep(PROCESS_TREE_POLL_INTERVAL_MS);
+  }
+  return true;
 }
 
 /**
  * Stop only the detached process tree owned by this launcher and wait until it
  * is gone. On POSIX, the direct child is its process-group leader, so the group
  * remains addressable even when that child exits before a late-writing
- * grandchild. Windows uses tree-kill's native task-tree traversal.
+ * grandchild. Windows descendants inherit the launcher's Job Object, which
+ * remains authoritative after an intermediate parent exits.
  */
-export async function shutdownChildProcessTree(child, platform = process.platform) {
-  const pid = child.pid;
-  if (!Number.isInteger(pid) || pid <= 0) {
-    if (isChildRunning(child)) {
-      throw new Error('Cannot stop the Agent DevTools process tree without a child pid.');
+export async function shutdownChildProcessTree(child, platform = process.platform, options = {}) {
+  if (platform === 'win32') {
+    const { windowsJob } = options;
+    if (!windowsJob) {
+      throw new Error('Cannot stop Agent DevTools on Windows without its Job Object capability.');
+    }
+    const termGraceMs = options.termGraceMs ?? PROCESS_TREE_TERM_GRACE_MS;
+    if (await waitForWindowsJobExit(windowsJob, termGraceMs)) {
+      return;
+    }
+    const killGraceMs = options.killGraceMs ?? PROCESS_TREE_KILL_GRACE_MS;
+    if (!(await forceWindowsJobExit(windowsJob, killGraceMs))) {
+      throw new Error('Agent DevTools Windows Job Object did not stop after forced termination.');
     }
     return;
   }
 
-  if (platform === 'win32') {
-    await signalWindowsProcessTree(pid, 'SIGTERM');
-    if (await waitForChildExitWithin(child, PROCESS_TREE_TERM_GRACE_MS)) {
-      return;
-    }
-    await signalWindowsProcessTree(pid, 'SIGKILL');
-    if (!(await waitForChildExitWithin(child, PROCESS_TREE_KILL_GRACE_MS))) {
-      throw new Error(`Agent DevTools process tree ${pid} did not stop after SIGKILL.`);
+  const pid = child.pid;
+  if (!Number.isInteger(pid) || pid <= 0) {
+    if (isChildRunning(child)) {
+      throw new Error('Cannot stop the Agent DevTools process tree without a child pid.');
     }
     return;
   }
@@ -388,11 +426,11 @@ export async function shutdownChildProcessTree(child, platform = process.platfor
 }
 
 export async function cleanupChildAndProfile(child, userDataDir, options = {}) {
-  await shutdownChildProcessTree(child, options.platform);
+  await shutdownChildProcessTree(child, options.platform, options);
   await (options.removeUserDataDir ?? removeUserDataDir)(userDataDir);
 }
 
-function installSignalCleanup(child, userDataDir) {
+function installSignalCleanup(child, userDataDir, options = {}) {
   let cleanupStarted = false;
   const cleanup = (signal) => {
     if (cleanupStarted) {
@@ -400,7 +438,7 @@ function installSignalCleanup(child, userDataDir) {
     }
     cleanupStarted = true;
     console.log(`Agent DevTools received ${signal}; stopping its owned process tree...`);
-    void cleanupChildAndProfile(child, userDataDir).then(
+    void cleanupChildAndProfile(child, userDataDir, options).then(
       () => process.exit(signal === 'SIGHUP' ? 129 : signal === 'SIGINT' ? 130 : 143),
       (error) => {
         console.error(`Agent DevTools shutdown failed for profile ${userDataDir}:`, error);
@@ -429,6 +467,7 @@ async function main() {
     return;
   }
 
+  const windowsJob = initializeWindowsJob();
   const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
   const env = {
     ...process.env,
@@ -449,7 +488,8 @@ async function main() {
   }
 
   const child = spawnPnpm(['dev'], env);
-  const uninstallSignalCleanup = installSignalCleanup(child, userDataDir);
+  const cleanupOptions = windowsJob ? { windowsJob } : {};
+  const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, cleanupOptions);
   try {
     await waitForEndpointOrChildExit(endpoint, child);
     console.log('\nMCP config:\n');
@@ -458,7 +498,7 @@ async function main() {
     process.exitCode = exitCode;
   } finally {
     uninstallSignalCleanup();
-    await cleanupChildAndProfile(child, userDataDir);
+    await cleanupChildAndProfile(child, userDataDir, cleanupOptions);
   }
 }
 

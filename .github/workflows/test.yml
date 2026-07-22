@@ -511,6 +511,11 @@ jobs:
           pnpm --filter @brainstrike/secure-fs-native build
           pnpm --filter @brainstrike/secure-fs-native test
 
+      - name: Build and test Agent DevTools process ownership
+        run: |
+          pnpm --filter @brainstrike/windows-job-native build
+          pnpm --filter @brainstrike/windows-job-native test
+
   native-electron:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true'
