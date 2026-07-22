@@ -1617,6 +1617,55 @@ describe('assistant-server', () => {
       );
     });
 
+    it('surfaces an unreadable observational-memory key during stream initialization', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.getKey
+        .mockResolvedValueOnce('anthropic-key')
+        .mockRejectedValueOnce(new SecretReadError('decrypt_failed', 'openai'));
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  messageTokens: 20_000,
+                  modelTarget: 'openai/gpt-5.4-mini',
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                  scope: 'thread',
+                },
+                semanticRecall: {
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  enabled: false,
+                  messageRange: 2,
+                  scope: 'resource',
+                  topK: 5,
+                },
+              },
+              resourceId: 'workspace-memory-key-error',
+              threadId: 'thread-memory-key-error',
+            },
+            provider: 'anthropic',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        code: 'decrypt_failed',
+        error: 'api_key_unreadable',
+        message:
+          'Secret for "openai" is unreadable: stored secret could not be decrypted (the OS keychain entry may have changed). Re-enter the key to repair it.',
+        provider: 'openai',
+      });
+    });
+
     it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
       const { createProvider, toAiSdkStyleStream, convertAssistantUiMessages } = await import(
         '@brainstrike/agent'

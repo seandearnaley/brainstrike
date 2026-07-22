@@ -1534,16 +1534,31 @@ function respondJson(
   res.end(JSON.stringify(payload));
 }
 
-function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
+function getSecretReadErrorPayload(error: unknown):
+  | {
+      code: string;
+      error: 'api_key_unreadable';
+      message: string;
+      provider: string;
+    }
+  | undefined {
   if (!(error instanceof SecretReadError)) {
-    return false;
+    return;
   }
-  respondJson(res, 400, {
+  return {
     code: error.code,
     error: 'api_key_unreadable',
     message: error.message,
     provider: error.provider,
-  });
+  };
+}
+
+function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
+  const payload = getSecretReadErrorPayload(error);
+  if (!payload) {
+    return false;
+  }
+  respondJson(res, 400, payload);
   return true;
 }
 
@@ -1933,6 +1948,26 @@ function buildHookRunVerdictRecorder(runId: string | undefined): {
   };
 }
 
+function buildAgentStreamInitializationFailure(error: unknown): AgentStreamFailure {
+  const secretReadErrorPayload = getSecretReadErrorPayload(error);
+  if (secretReadErrorPayload) {
+    return {
+      ok: false,
+      payload: secretReadErrorPayload,
+      status: 400,
+    };
+  }
+  logger.error('Failed to initialize assistant stream', { error });
+  return {
+    ok: false,
+    payload: {
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed.',
+    },
+    status: 502,
+  };
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -2167,15 +2202,7 @@ async function initializeAgentStream(
       }),
     };
   } catch (error) {
-    logger.error('Failed to initialize assistant stream', { error });
-    return {
-      ok: false,
-      payload: {
-        error: 'agent_stream_init_failed',
-        message: 'Assistant stream initialization failed.',
-      },
-      status: 502,
-    };
+    return buildAgentStreamInitializationFailure(error);
   }
 }
 
