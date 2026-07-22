@@ -91,7 +91,7 @@ describe('resolveWorkspaceRoot', () => {
     expect(message).not.toContain('Open folders: ;');
   });
 
-  it('reserves room for the overflow guidance inside the root descriptor budget', () => {
+  it('keeps the complete root inventory when it fits without overflow guidance', () => {
     const longRootId = 'x'.repeat(735);
     const longRoot = {
       displayName: 'Project',
@@ -102,6 +102,31 @@ describe('resolveWorkspaceRoot', () => {
     expect.assertions(2);
     try {
       resolveWorkspaceRoot(runtime({ workspaceRoots: [longRoot, ROOT_B] }), 'Nope');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const descriptor = message.slice(
+        message.indexOf('Open folders: ') + 'Open folders: '.length,
+        -1
+      );
+      expect(descriptor.length).toBeLessThanOrEqual(800);
+      expect(descriptor).toContain(longRootId);
+    }
+  });
+
+  it('reserves room for overflow guidance when the complete root inventory does not fit', () => {
+    const longRootId = 'x'.repeat(735);
+    const longRoot = {
+      displayName: 'Project',
+      path: '/Users/me/Project',
+      rootId: longRootId,
+    };
+
+    expect.assertions(2);
+    try {
+      resolveWorkspaceRoot(
+        runtime({ workspaceRoots: [longRoot, ROOT_A, ROOT_B, ROOT_A, ROOT_B] }),
+        'Nope'
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const descriptor = message.slice(

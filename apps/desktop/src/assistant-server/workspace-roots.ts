@@ -57,6 +57,10 @@ function describeRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
 
 function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
   const maxChars = 800;
+  const fullDescription = roots.map((root) => `${root.displayName} (id ${root.rootId})`).join(', ');
+  if (fullDescription.length <= maxChars) {
+    return fullDescription;
+  }
   const descriptions: string[] = [];
   for (const root of roots) {
     const description = `${root.displayName} (id ${root.rootId})`;
@@ -73,9 +77,6 @@ function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
     descriptions.push(description);
   }
   const omitted = roots.length - descriptions.length;
-  if (omitted === 0) {
-    return descriptions.join(', ');
-  }
   const overflow = `${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
   if (descriptions.length === 0) {
     return overflow;
