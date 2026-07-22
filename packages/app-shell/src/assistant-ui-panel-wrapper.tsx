@@ -387,21 +387,14 @@ export function AssistantUiPanelWrapper({
     selectedModelDef: selectedLlmModelDef,
     settings: selectedProviderSettings,
   });
-  const agentLoopSettings = useMemo(() => {
-    if (openRouterMetadata.reason) {
-      return;
-    }
-    return buildAgentLoopSettings(
-      selectedProviderSettings,
-      openRouterMetadata.modelDef,
-      selectedProvider
-    );
-  }, [
-    openRouterMetadata.modelDef,
-    openRouterMetadata.reason,
-    selectedProvider,
-    selectedProviderSettings,
-  ]);
+  const { modelDef: openRouterModelDef, reason: openRouterDisabledReason } = openRouterMetadata;
+  const agentLoopSettings = useMemo(
+    () =>
+      openRouterDisabledReason
+        ? undefined
+        : buildAgentLoopSettings(selectedProviderSettings, openRouterModelDef, selectedProvider),
+    [openRouterDisabledReason, openRouterModelDef, selectedProvider, selectedProviderSettings]
+  );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
     () => buildAssistantMemoryOptions(selectedProviderSettings),
@@ -1309,8 +1302,7 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
-  const disabledReason =
-    memoryDisabledReason ?? providerDisabledReason ?? openRouterMetadata.reason;
+  const disabledReason = memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
 
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
@@ -1577,7 +1569,7 @@ export function AssistantUiPanelWrapper({
               {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
               {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
               completePreparedRequest={completePreparedRequest}
-              contextWindow={openRouterMetadata.modelDef?.contextWindow}
+              contextWindow={openRouterModelDef?.contextWindow}
               {...(cumulativeUsage ? { cumulativeUsage } : {})}
               effectiveInputBudget={effectiveInputBudget}
               omSegment={omSegment}
@@ -1616,9 +1608,7 @@ export function AssistantUiPanelWrapper({
               {...(selectedProvider ? { selectedProvider } : {})}
               {...(currentModel ? { selectedModel: currentModel } : {})}
               disabled={
-                !isProviderReady ||
-                Boolean(memoryDisabledReason) ||
-                Boolean(openRouterMetadata.reason)
+                !isProviderReady || Boolean(memoryDisabledReason ?? openRouterDisabledReason)
               }
               onModelChange={handleModelChange}
               onModelToggle={handleModelToggle}
