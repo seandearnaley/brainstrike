@@ -164,6 +164,8 @@ jobs:
         run: pnpm run lint:ci
 
       - name: Type check
+        env:
+          TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
   unit-shard:
@@ -510,6 +512,11 @@ jobs:
         run: |
           pnpm --filter @brainstrike/secure-fs-native build
           pnpm --filter @brainstrike/secure-fs-native test
+
+      - name: Build and test Agent DevTools process ownership
+        run: |
+          pnpm --filter @brainstrike/windows-job-native build
+          pnpm --filter @brainstrike/windows-job-native test
 
   native-electron:
     name: Native Electron Package

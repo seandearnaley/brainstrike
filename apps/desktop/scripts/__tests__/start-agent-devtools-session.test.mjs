@@ -11,8 +11,10 @@ import {
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
   formatMcpConfig,
+  initializeWindowsJob,
   parsePort,
   resolveEndpoint,
+  resolvePnpmSpawnOptions,
   rewriteMacAgentDebugInfoPlist,
   shutdownChildProcessTree,
   signalProcessGroup,
@@ -63,6 +65,38 @@ test('formatMcpConfig renders chrome-devtools-mcp browser-url config', () => {
   assert.match(rendered, /chrome-devtools-mcp@0\.26\.0/);
   assert.match(rendered, /--browser-url=http:\/\/127\.0\.0\.1:9222/);
   assert.match(rendered, /--no-usage-statistics/);
+});
+
+test('keeps the Windows dev tree in the launcher console for graceful Ctrl-C delivery', () => {
+  assert.equal(resolvePnpmSpawnOptions('win32').detached, false);
+  assert.equal(resolvePnpmSpawnOptions('darwin').detached, true);
+});
+
+test('fails closed when the Windows Job Object capability cannot load', () => {
+  assert.throws(
+    () =>
+      initializeWindowsJob('win32', () => {
+        throw new Error('injected missing addon');
+      }),
+    /cannot start on Windows without its Job Object capability/
+  );
+});
+
+test('initializes the Windows Job Object before returning its controller', () => {
+  let initialized = false;
+  const controller = {
+    activeProcessCount: () => 1,
+    initialize: () => {
+      initialized = true;
+    },
+    terminateOtherProcesses: () => 0,
+  };
+
+  assert.equal(
+    initializeWindowsJob('win32', () => controller),
+    controller
+  );
+  assert.equal(initialized, true);
 });
 
 test('creates a lightweight macOS Electron shim with a unique BrainStrike identity', async () => {
@@ -222,6 +256,67 @@ test('shutdownChildProcessTree reaps a late-writing grandchild after the direct 
     }
     await rm(root, { force: true, recursive: true });
   }
+});
+
+test('Windows cleanup waits for authoritative job membership after the direct child exits', async () => {
+  let membershipPolls = 0;
+  let terminationCalls = 0;
+  const windowsJob = {
+    activeProcessCount() {
+      membershipPolls += 1;
+      return membershipPolls === 1 ? 2 : 1;
+    },
+    terminateOtherProcesses() {
+      terminationCalls += 1;
+    },
+  };
+
+  await shutdownChildProcessTree({ exitCode: 0, pid: 42, signalCode: null }, 'win32', {
+    windowsJob,
+  });
+
+  assert.equal(terminationCalls, 0);
+  assert.equal(membershipPolls, 2);
+});
+
+test('Windows cleanup escalates only through the owned job after a bounded grace period', async () => {
+  let terminated = false;
+  const windowsJob = {
+    activeProcessCount() {
+      return terminated ? 1 : 2;
+    },
+    terminateOtherProcesses() {
+      terminated = true;
+    },
+  };
+
+  await shutdownChildProcessTree({ exitCode: null, pid: 42, signalCode: null }, 'win32', {
+    killGraceMs: 0,
+    termGraceMs: 0,
+    windowsJob,
+  });
+
+  assert.equal(terminated, true);
+});
+
+test('Windows cleanup repeats owned-job termination when membership races the first sweep', async () => {
+  let terminationCalls = 0;
+  const windowsJob = {
+    activeProcessCount() {
+      return terminationCalls >= 2 ? 1 : 2;
+    },
+    terminateOtherProcesses() {
+      terminationCalls += 1;
+    },
+  };
+
+  await shutdownChildProcessTree({ exitCode: null, pid: 42, signalCode: null }, 'win32', {
+    killGraceMs: 100,
+    termGraceMs: 0,
+    windowsJob,
+  });
+
+  assert.equal(terminationCalls, 2);
 });
 
 test('signalProcessGroup treats Darwin mixed-group EPERM as present for bounded verification', () => {

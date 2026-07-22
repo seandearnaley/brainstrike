@@ -141,6 +141,15 @@ arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 stay on x64: P1 did not test them, and they are inherently
 Electron/Playwright/Windows-bound work.
 
+The Static job caps the monorepo type-check with Turbo's official
+`TURBO_CONCURRENCY=4` environment variable.
+Unbounded scheduling repeatedly exhausted the arm64 runner after the workspace
+reached 43 packages: Turbo received a shutdown signal while launching more than
+30 type-check tasks and the shell exited 137 without a TypeScript diagnostic.
+Keep the cap on the CI invocation rather than weakening package coverage or
+changing local developer defaults. The exact workflow command is guarded by
+`scripts/__tests__/quiet-head-admission-contract.test.mjs`.
+
 **Non-obvious trap for future maintainers:** the turbo *remote* cache
 (`TURBO_TOKEN`/`TURBO_TEAM`) is arch-agnostic — turbo's cache hash does not
 include CPU architecture, and `runner.os` reports `"Linux"` on both x64 and
@@ -363,12 +372,20 @@ The launcher owns its development subprocess tree. On POSIX, `pnpm dev` is the
 leader of a detached process group; shutdown signals that exact group with
 SIGTERM, waits for quiescence, and escalates to SIGKILL after a bounded grace
 period. This remains effective when the direct `pnpm` child exits before a
-late-writing Electron or PGlite grandchild. Windows uses `tree-kill` to stop the
-corresponding task tree while the direct child remains addressable; preserving
-ownership after a naturally exited Windows parent requires a Job Object and is
-tracked separately. Only after the owned tree is stopped may the launcher
-remove its temporary profile. Process-tree or profile cleanup failures are
-visible fatal errors with a non-zero exit, never warning-only cleanup.
+late-writing Electron or PGlite grandchild. Although other Windows process-tree
+helpers may use an ancestry walk while their direct child remains addressable,
+agent-debug does not use that weaker path: its launcher first joins a private
+Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, then starts
+`pnpm dev` console-bound so Ctrl-C can be handled gracefully. Every descendant
+inherits the non-breakaway job, so membership remains authoritative after an
+intermediate parent exits. Cleanup waits for the job to contain only the
+launcher, then terminates only the remaining job members after a bounded grace
+period. Missing or malformed native Job Object support aborts Windows startup;
+there is no ancestry-walk fallback. Only after the owned tree is stopped may
+the launcher remove its temporary profile. Process-tree or profile cleanup
+failures are visible fatal errors with a non-zero exit, never warning-only
+cleanup. The `Native Windows` required check builds and exercises the native
+addon with a late-writing orphan plus an unrelated-process survival assertion.
 
 Manual QA must cover both automation surfaces while another Electron app is
 running:
