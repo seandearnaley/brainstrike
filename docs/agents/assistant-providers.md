@@ -399,7 +399,8 @@ The assistant's search verbs, in the order the default instructions present them
 5. Web retrieval pair (external service — Tavily via the shared `'tavily'`
    secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):
    `brainstrike.webSearch` (snippets; provider-native search swapped in on
-   Anthropic/OpenAI) and `brainstrike.webExtract` (report R5 — reads up to 5
+   Anthropic/OpenAI for fresh allowed turns) and `brainstrike.webExtract`
+   (report R5 — reads up to 5
    PUBLIC pages behind results/user URLs as markdown, Tavily `/extract`; it has
    NO provider-native swap and must stay Tavily-backed). Both are keyless-
    HONEST (`available:false` + actionable message, never a throw) and
@@ -421,6 +422,15 @@ The assistant's search verbs, in the order the default instructions present them
    result remains intact. Hermetic tests:
    `apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts` and
    `web-extract-model-projection.test.ts`.
+
+   Approval resume is the deliberate exception to that fresh-turn swap only
+   when Mastra's durable suspended-call snapshot identifies the exact resumed
+   tool as `webSearch`. If a read grant changes that call from ask to allow, the
+   rebuilt immutable runtime keeps its execute-backed Tavily implementation;
+   replacing it with the provider-native definition would orphan the durable
+   function invocation and complete without executing or continuing. Resuming a
+   different tool keeps provider-native search available, and the next fresh
+   turn observes the grant normally.
 
 Vector search adaptive routing (selective-filter recall fix): `searchSimilar`
 in ALL THREE chunk repositories — `FileChunkRepository`,

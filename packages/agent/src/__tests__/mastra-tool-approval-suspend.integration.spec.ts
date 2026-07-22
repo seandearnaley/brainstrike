@@ -15,7 +15,11 @@
  * tests in that file, which mutate `BRAINSTRIKE_*` env vars and add log
  * listeners — interleaving them in one module made the Mastra resume stall.
  */
-import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
+import type {
+  LanguageModelV2,
+  LanguageModelV2CallOptions,
+  LanguageModelV2StreamPart,
+} from '@ai-sdk/provider';
 import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -68,6 +72,7 @@ function createTurnCountedToolCallModel(args: {
   input: string;
   finalText: string;
   openRouterStepCosts?: readonly [number, number];
+  onTurn?: (turn: number, options: LanguageModelV2CallOptions) => void;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -82,8 +87,9 @@ function createTurnCountedToolCallModel(args: {
 
   return {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
-    doStream: () => {
+    doStream: (options: LanguageModelV2CallOptions) => {
       turn += 1;
+      args.onTurn?.(turn, options);
       if (turn === 1) {
         return Promise.resolve({
           stream: enqueue([
@@ -139,6 +145,7 @@ function createTurnCountedToolCallModel(args: {
 }
 
 function createDiscoveryThenToolApprovalModel(args: {
+  deferredInput?: string;
   deferredToolCallId: string;
   deferredToolName: string;
   finalText: string;
@@ -178,7 +185,7 @@ function createDiscoveryThenToolApprovalModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: '{}',
+              input: args.deferredInput ?? '{}',
               toolCallId: args.deferredToolCallId,
               toolName: args.deferredToolName,
               type: 'tool-call',
@@ -669,6 +676,202 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
         status: 'success',
         type: 'tool-event',
       })
+    );
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('keeps the suspended Tavily webSearch implementation when a session grant allows the resumed leg', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const execute = vi.fn((inputData: { query: string }) =>
+      Promise.resolve({ query: inputData.query, results: [] })
+    );
+    const webSearchTool = createTool({
+      description: 'Search the public web through the execute-backed Tavily integration.',
+      execute,
+      id: 'brainstrike.webSearch',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({ query: z.string(), results: z.array(z.unknown()) }),
+    });
+    const askPolicy = {
+      policies: { edit: 'deny', execute: 'deny', mcp: 'allow', read: 'ask' },
+      riskByTool: { 'brainstrike.webSearch': 'read' },
+      yolo: false,
+    } as const;
+    const allowedPolicy = {
+      ...askPolicy,
+      policies: { ...askPolicy.policies, read: 'allow' },
+    } as const;
+    const thread = {
+      resourceId: 'resource-web-search-approval',
+      threadId: 'thread-web-search-approval',
+    } as const;
+
+    modelHolder.current = createDiscoveryThenToolApprovalModel({
+      deferredInput: JSON.stringify({ query: 'Brainstrike' }),
+      deferredToolCallId: 'call-web-search-approval',
+      deferredToolName: 'brainstrike_webSearch',
+      finalText: 'Web search completed.',
+      searchQuery: 'public web search',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-web-search-approval', parts: [{ text: 'search', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: askPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toMatchObject({
+      policyDecision: 'ask',
+      riskCategory: 'read',
+      toolName: 'brainstrike.webSearch',
+    });
+    expect(execute).not.toHaveBeenCalled();
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: approval?.toolName ?? '',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: allowedPolicy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool },
+        }
+      )
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(resumeChunks).toContainEqual(
+      expect.objectContaining({
+        name: 'brainstrike.webSearch',
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('keeps provider-native web search when resuming a different approved tool', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const shellExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const webSearchExecute = vi.fn((inputData: { query: string }) =>
+      Promise.resolve({ query: inputData.query, results: [] })
+    );
+    const shellTool = makeAskTool(shellExecute);
+    const webSearchTool = createTool({
+      description: 'Search the public web through the execute-backed Tavily integration.',
+      execute: webSearchExecute,
+      id: 'brainstrike.webSearch',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({ query: z.string(), results: z.array(z.unknown()) }),
+    });
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: {
+        'brainstrike.webSearch': 'read',
+        shell_tool: 'execute',
+      },
+      yolo: false,
+    } as const;
+    const thread = {
+      resourceId: 'resource-non-search-approval',
+      threadId: 'thread-non-search-approval',
+    } as const;
+    const offeredToolsByTurn: LanguageModelV2CallOptions['tools'][] = [];
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Command finished.',
+      input: JSON.stringify({ command: 'echo approved' }),
+      onTurn: (_turn, options) => offeredToolsByTurn.push(options.tools),
+      toolCallId: 'call-non-search-approval',
+      toolName: 'shell_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [
+          {
+            id: 'u-non-search-approval',
+            parts: [{ text: 'run echo', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool, shell_tool: shellTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toMatchObject({
+      toolCallId: 'call-non-search-approval',
+      toolName: 'shell_tool',
+    });
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: approval?.toolName ?? '',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.webSearch': webSearchTool, shell_tool: shellTool },
+        }
+      )
+    );
+
+    expect(shellExecute).toHaveBeenCalledTimes(1);
+    expect(webSearchExecute).not.toHaveBeenCalled();
+    expect(offeredToolsByTurn).toHaveLength(2);
+    expect(offeredToolsByTurn[1]).toContainEqual(
+      expect.objectContaining({ id: 'openai.web_search', type: 'provider-defined' })
     );
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 

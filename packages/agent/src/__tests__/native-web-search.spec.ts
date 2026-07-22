@@ -130,6 +130,16 @@ describe('applyProviderNativeWebSearch — selection table', () => {
     expect(hasExecute(picked)).toBe(false);
   });
 
+  it('openai + approval resume → preserves the execute-backed suspended implementation', () => {
+    const params = baseParams({
+      preserveExecuteBackedWebSearch: true,
+      provider: 'openai',
+    });
+    const result = applyProviderNativeWebSearch(params);
+    expect(result[SANITIZED_ID]).toBe(params.tools[SANITIZED_ID]);
+    expect(hasExecute(result[SANITIZED_ID])).toBe(true);
+  });
+
   it.each([
     'google',
     'openrouter',
