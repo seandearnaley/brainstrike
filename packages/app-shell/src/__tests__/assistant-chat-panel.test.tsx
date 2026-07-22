@@ -121,6 +121,32 @@ describe('AssistantChatPanel', () => {
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
   });
 
+  it('passes provider read failures to the enabled assistant UI', async () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      providerErrors: [
+        {
+          code: 'decrypt_failed',
+          error: 'api_key_unreadable',
+          message: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+          provider: 'openrouter',
+        },
+      ],
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerReadErrors: {
+          openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+        },
+      }),
+      undefined
+    );
+  });
+
   it('seeds the model picker with the provider advertised by Hosted Web', async () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
       model: 'gpt-5.6-terra',

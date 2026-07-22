@@ -7,9 +7,21 @@ import {
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+export interface AssistantProviderReadError {
+  readonly code: 'decrypt_failed' | 'encryption_unavailable';
+  readonly error: 'api_key_unreadable';
+  readonly message: string;
+  readonly provider: SupportedProvider;
+}
+
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
-  | { state: 'enabled'; model?: string; provider?: SupportedProvider }
+  | {
+      state: 'enabled';
+      model?: string;
+      provider?: SupportedProvider;
+      providerErrors?: readonly AssistantProviderReadError[];
+    }
   | { state: 'disabled'; reason?: string }
   | { state: 'error'; message: string };
 
@@ -298,18 +310,23 @@ export async function fetchAssistantStatusState({
   const payload = (await response.json()) as {
     enabled: boolean;
     model?: string;
+    providerErrors?: unknown;
     provider?: string;
     reason?: string;
   };
 
   if (payload.enabled) {
+    const providerErrors = parseAssistantProviderReadErrors(payload.providerErrors);
     const hasProvider = payload.provider !== undefined;
     const hasModel = payload.model !== undefined;
     if (hasProvider !== hasModel) {
       throw new Error('Assistant status must advertise provider and model together');
     }
     if (!(hasProvider && hasModel)) {
-      return { state: 'enabled' };
+      return {
+        ...(providerErrors ? { providerErrors } : {}),
+        state: 'enabled',
+      };
     }
     if (!isSupportedProvider(payload.provider)) {
       throw new Error(`Unsupported assistant provider: ${payload.provider}`);
@@ -322,6 +339,7 @@ export async function fetchAssistantStatusState({
     }
     return {
       model: payload.model,
+      ...(providerErrors ? { providerErrors } : {}),
       provider: payload.provider,
       state: 'enabled',
     };
@@ -332,6 +350,45 @@ export async function fetchAssistantStatusState({
   }
 
   return { state: 'disabled' };
+}
+
+function parseAssistantProviderReadErrors(
+  value: unknown
+): readonly AssistantProviderReadError[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant provider error list');
+  }
+
+  const providers = new Set<SupportedProvider>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object')) {
+      throw new Error('Invalid assistant provider error');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const code = candidate['code'];
+    if (
+      typeof provider !== 'string' ||
+      !isSupportedProvider(provider) ||
+      providers.has(provider) ||
+      candidate['error'] !== 'api_key_unreadable' ||
+      (code !== 'decrypt_failed' && code !== 'encryption_unavailable') ||
+      typeof candidate['message'] !== 'string' ||
+      candidate['message'].trim().length === 0
+    ) {
+      throw new Error('Invalid assistant provider error');
+    }
+    providers.add(provider);
+    return {
+      code,
+      error: 'api_key_unreadable',
+      message: candidate['message'],
+      provider,
+    };
+  });
 }
 
 export const __private__ = {

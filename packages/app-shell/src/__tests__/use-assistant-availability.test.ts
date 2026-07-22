@@ -222,6 +222,46 @@ describe('fetchAssistantStatusState', () => {
     });
   });
 
+  it('preserves validated provider read errors from an enabled desktop status', async () => {
+    const providerError = {
+      code: 'decrypt_failed',
+      error: 'api_key_unreadable',
+      message: 'Stored OpenRouter key is unreadable. Re-enter the key to repair it.',
+      provider: 'openrouter',
+    } as const;
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, providerErrors: [providerError] }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      providerErrors: [providerError],
+      state: 'enabled',
+    });
+  });
+
+  it('rejects malformed provider read errors instead of guessing', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerErrors: [{ error: 'api_key_unreadable', provider: 'unknown' }],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Invalid assistant provider error');
+  });
+
   it('rejects incomplete hosted runtime metadata', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({ enabled: true, provider: 'openai' }),

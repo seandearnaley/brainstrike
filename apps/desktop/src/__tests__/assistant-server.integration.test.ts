@@ -49,6 +49,14 @@ vi.mock('../mcp-loader', () => ({
   loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
 }));
 
+vi.mock('../agent-client-loader', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agent-client-loader')>();
+  return {
+    ...actual,
+    getAgentProviderEnvKeys: vi.fn(() => []),
+  };
+});
+
 vi.mock('../openai-api-key', () => ({
   readOpenAIApiKey: vi.fn(() => Promise.resolve('test-api-key')),
 }));
@@ -289,8 +297,8 @@ describe('assistant-server', () => {
     // other queries override this.
     mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
     resetDesktopMastraMemoryCacheForTests();
-    mockSecretsService.getKey.mockResolvedValue('test-api-key');
-    mockSecretsService.listProviders.mockResolvedValue(['openai']);
+    mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
+    mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
   }, 15_000);
 
@@ -351,6 +359,35 @@ describe('assistant-server', () => {
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
+
+    it('reports an unreadable provider key without disabling other providers', async () => {
+      const { SecretReadError } = await import('../secrets');
+      mockSecretsService.listProviders.mockResolvedValueOnce(['openrouter']);
+      mockSecretsService.getKey.mockRejectedValueOnce(
+        new SecretReadError('encryption_unavailable', 'openrouter')
+      );
+
+      const response = await runRequest({
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        enabled: true,
+        providerErrors: [
+          {
+            code: 'encryption_unavailable',
+            error: 'api_key_unreadable',
+            message:
+              'Secret for "openrouter" is unreadable: safeStorage encryption is unavailable or insecure on this system. Re-enter the key to repair it.',
+            provider: 'openrouter',
+          },
+        ],
+        providers: ['local'],
+      });
+    });
 
     it('should handle status route with query parameters', async () => {
       const response = await runRequest({
@@ -790,7 +827,6 @@ describe('assistant-server', () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockResolvedValueOnce(undefined);
       mockSecretsService.listProviders.mockResolvedValueOnce([]);
-      mockSecretsService.getKey.mockResolvedValueOnce(null);
 
       const response = await runRequest({ method: 'GET', url: '/status' });
 
@@ -801,22 +837,29 @@ describe('assistant-server', () => {
     }, 10_000);
 
     it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
-      const { readOpenAIApiKey } = await import('../openai-api-key');
       const { SecretReadError } = await import('../secrets');
-      (readOpenAIApiKey as Mock).mockRejectedValueOnce(
+      mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+      mockSecretsService.getKey.mockRejectedValueOnce(
         new SecretReadError('decrypt_failed', 'openai')
       );
-      mockSecretsService.listProviders.mockResolvedValueOnce([]);
 
       const response = await runRequest({ method: 'GET', url: '/status' });
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({ enabled: true, providers: ['local'] });
+      expect(JSON.parse(response.body)).toMatchObject({
+        enabled: true,
+        providerErrors: [
+          {
+            error: 'api_key_unreadable',
+            provider: 'openai',
+          },
+        ],
+        providers: ['local'],
+      });
     });
 
     it('should handle status route errors', async () => {
-      const { readOpenAIApiKey } = await import('../openai-api-key');
-      (readOpenAIApiKey as Mock).mockRejectedValueOnce(new Error('API key read failed'));
+      mockSecretsService.listProviders.mockRejectedValueOnce(new Error('API key read failed'));
 
       const response = await runRequest({ method: 'GET', url: '/status' });
 

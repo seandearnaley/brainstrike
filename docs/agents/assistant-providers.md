@@ -315,6 +315,15 @@ Desktop status may omit both fields, in which case its encrypted-key discovery
 remains authoritative. The pair is atomic, and incomplete or unknown runtime
 metadata fails visibly.
 
+Desktop status also reports each unreadable stored credential as a validated
+`providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and
+the safe repair message). One unreadable credential never hides other working
+providers. The shared shell preserves these entries and disables only the
+selected affected provider with the re-entry guidance; malformed or duplicate
+entries fail the availability probe instead of being guessed at. An environment
+credential remains authoritative and suppresses a stale stored-key read failure
+for that provider.
+
 Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts
 

@@ -454,6 +454,7 @@ export function resolveAssistantProviderDisabledReason(args: {
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
   localRuntimeHint: string | undefined;
   providerHasEnabledModels: (provider: SupportedProvider) => boolean;
+  providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   selectedProvider: SupportedProvider | null;
 }): string | undefined {
   const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
@@ -476,6 +477,10 @@ export function resolveAssistantProviderDisabledReason(args: {
   }
   if (!args.selectedProvider) {
     return 'Select an AI provider to start chatting.';
+  }
+  const providerReadError = args.providerReadErrors?.[args.selectedProvider];
+  if (providerReadError) {
+    return providerReadError;
   }
   if (!args.configuredProviders.includes(args.selectedProvider)) {
     return 'The selected provider is no longer configured.';
