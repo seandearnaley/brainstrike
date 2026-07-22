@@ -1828,7 +1828,8 @@ function processMastraStreamPart(
   lifecycleState: ToolLifecycleState,
   sanitizedNameMap?: Map<string, string>,
   askTools?: ReadonlyMap<string, PermissionAskToolMetadata>,
-  delegationToolPersonas: ReadonlyMap<string, string> = new Map()
+  delegationToolPersonas: ReadonlyMap<string, string> = new Map(),
+  runtimeData?: RuntimeData
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
 
@@ -2031,10 +2032,12 @@ function processMastraStreamPart(
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
       // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
+      const providerError = resolveProviderError(p.error ?? p.payload?.error, runtimeData);
       return makeProviderErrorTermination(
-        extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
+        providerError.detail,
         lifecycleState,
-        part
+        part,
+        providerError.metadata
       );
     }
     case 'tripwire': {
@@ -2077,10 +2080,126 @@ function processMastraStreamPart(
  * error bodies can be verbose; the full detail is preserved in the log. */
 const MAX_VISIBLE_PROVIDER_ERROR_CHARS = 600;
 
+const OPENROUTER_TOKEN_ERROR_TYPES = new Set([
+  'context_length_exceeded',
+  'max_tokens_exceeded',
+  'token_limit_exceeded',
+]);
+
+interface ResolvedProviderError {
+  detail: string;
+  metadata?: AssistantRunEventMetadata;
+}
+
+interface OpenRouterTokenErrorMetadata extends AssistantRunEventMetadata {
+  errorType: string;
+  httpStatus?: number;
+  providerCode?: string;
+}
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readBoundedString(value: unknown, maximumLength: number): string | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  return trimmed.slice(0, maximumLength);
+}
+
+function readHttpStatus(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
+}
+
+/**
+ * OpenRouter's documented canonical error type is carried in
+ * `error.metadata.error_type` on Chat Completions, `error.error_type` on the
+ * Anthropic skin, and top-level `error_type` on Responses. Mastra's official
+ * OpenRouter router currently uses Chat Completions, but pre-stream failures
+ * can be wrapped in an AI SDK `APICallError.data` envelope. Inspect only those
+ * documented/wrapper locations and retain only the token-limit vocabulary this
+ * runtime can act on; arbitrary provider metadata is never persisted.
+ */
+function readOpenRouterTokenError(value: unknown): OpenRouterTokenErrorMetadata | undefined {
+  const root = readObject(value);
+  if (!root) {
+    return;
+  }
+
+  const data = readObject(root['data']);
+  const candidates = [
+    root,
+    readObject(root['error']),
+    data,
+    readObject(data?.['error']),
+    readObject(readObject(root['cause'])?.['data']),
+    readObject(readObject(readObject(root['cause'])?.['data'])?.['error']),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const providerMetadata = readObject(candidate['metadata']);
+    const errorType = readBoundedString(
+      providerMetadata?.['error_type'] ?? candidate['error_type'],
+      80
+    );
+    if (!(errorType && OPENROUTER_TOKEN_ERROR_TYPES.has(errorType))) {
+      continue;
+    }
+    const providerCode = readBoundedString(providerMetadata?.['provider_code'], 120);
+    const httpStatus =
+      readHttpStatus(candidate['code']) ??
+      readHttpStatus(root['statusCode']) ??
+      readHttpStatus(readObject(root['cause'])?.['statusCode']);
+    return {
+      errorType,
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+      ...(providerCode ? { providerCode } : {}),
+    };
+  }
+  return;
+}
+
+function resolveProviderError(
+  value: unknown,
+  runtimeData: RuntimeData | undefined
+): ResolvedProviderError {
+  const detail = extractErrorMessage(value) ?? 'agent_stream_error';
+  if (runtimeData?.provider?.trim().toLowerCase() !== 'openrouter') {
+    return { detail };
+  }
+  const typedMetadata = readOpenRouterTokenError(value);
+  if (!typedMetadata) {
+    return { detail };
+  }
+  const model = runtimeData.model?.trim() || getDefaultModel('openrouter');
+  return {
+    detail: `[${typedMetadata.errorType}] ${detail}`,
+    metadata: {
+      ...typedMetadata,
+      ...(model ? { model } : {}),
+      provider: 'openrouter',
+    },
+  };
+}
+
 function makeProviderErrorTermination(
   detail: string,
   lifecycleState: ToolLifecycleState,
-  part: unknown
+  part: unknown,
+  providerErrorMetadata?: AssistantRunEventMetadata
 ): ProcessStreamPartResult {
   // Preserve the server-side breadcrumb. We terminate the run gracefully here
   // (visible message + run.failed) instead of throwing through
@@ -2101,11 +2220,16 @@ function makeProviderErrorTermination(
     detail.length > MAX_VISIBLE_PROVIDER_ERROR_CHARS
       ? `${detail.slice(0, MAX_VISIBLE_PROVIDER_ERROR_CHARS)}…`
       : detail;
+  const stepMetadata = makeStepMetadata(part);
+  const runMetadata =
+    stepMetadata || providerErrorMetadata
+      ? { ...stepMetadata, ...providerErrorMetadata }
+      : undefined;
   return {
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
       { type: 'text-delta', value: `The model request failed: ${visibleDetail}` },
-      makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', makeStepMetadata(part)),
+      makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', runMetadata),
       makeErrorFinishChunk(),
     ],
     finished: true,
@@ -2579,7 +2703,8 @@ async function* streamChunksFromMastra({
         lifecycleState,
         sanitizedNameMap,
         runtime.askTools,
-        runtime.delegationToolPersonas
+        runtime.delegationToolPersonas,
+        runtimeData
       );
       for (const chunk of chunks) {
         yield chunk;

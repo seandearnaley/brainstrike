@@ -80,6 +80,13 @@ below are LIVE.
    provider (the hidden llm-host owns its own engine-fault recovery; no
    hosted-provider wire quirks apply).
 
+OpenRouter provider errors that reach the stream mapper preserve the provider's
+documented canonical token-limit vocabulary across both the mid-stream raw error
+shape and the AI SDK pre-stream `APICallError.data` envelope. The mapper keeps
+the existing bounded visible message and terminal `run.failed` behavior, adds
+the canonical type visibly, and persists only explicitly whitelisted diagnostic
+fields. Other provider errors retain the generic bounded path.
+
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order:
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend

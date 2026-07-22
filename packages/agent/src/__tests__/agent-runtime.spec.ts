@@ -735,6 +735,140 @@ describe('agent-runtime edge cases', () => {
       }
     });
 
+    it.each([
+      'context_length_exceeded',
+      'max_tokens_exceeded',
+      'token_limit_exceeded',
+    ] as const)('preserves OpenRouter typed token error %s', async (errorType) => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'step-start' });
+            controller.enqueue({
+              error: {
+                code: 400,
+                message: 'The selected model rejected the request token budget.',
+                metadata: {
+                  error_type: errorType,
+                  provider_code: 'upstream_limit',
+                },
+              },
+              type: 'error',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'openrouter-limit', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          {
+            runtime: {
+              apiKey: 'test-key',
+              model: 'google/gemini-2.5-flash',
+              provider: 'openrouter',
+            },
+          }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const visibleText = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+              chunk.type === 'text-delta'
+          )
+          .map((chunk) => chunk.value)
+          .join('');
+        expect(visibleText).toContain(errorType);
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.metadata).toMatchObject({
+          errorType,
+          httpStatus: 400,
+          model: 'google/gemini-2.5-flash',
+          provider: 'openrouter',
+          providerCode: 'upstream_limit',
+        });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
+    it('preserves a pre-stream OpenRouter token error from the AI SDK data envelope', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              error: {
+                data: {
+                  error: {
+                    code: 400,
+                    message: 'The request is larger than the selected context window.',
+                    metadata: { error_type: 'context_length_exceeded' },
+                  },
+                },
+                message: 'The request is larger than the selected context window.',
+                name: 'AI_APICallError',
+                statusCode: 400,
+              },
+              type: 'error',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'openrouter-pre-stream', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          {
+            runtime: {
+              apiKey: 'test-key',
+              model: 'openai/gpt-5.4-mini',
+              provider: 'openrouter',
+            },
+          }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.metadata).toMatchObject({
+          errorType: 'context_length_exceeded',
+          httpStatus: 400,
+          model: 'openai/gpt-5.4-mini',
+          provider: 'openrouter',
+        });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
     it('terminates gracefully (visible reason + run.failed + finish) on a tripwire chunk', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');

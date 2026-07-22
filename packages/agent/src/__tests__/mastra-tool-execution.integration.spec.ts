@@ -1490,6 +1490,75 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
   });
 
+  it('preserves a typed OpenRouter token error through the real Mastra loop', async () => {
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('unused')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({
+                error: {
+                  code: 400,
+                  message: 'The combined input and output exceed the context window.',
+                  metadata: {
+                    error_type: 'context_length_exceeded',
+                    provider_code: 'context_window_exceeded',
+                  },
+                },
+                type: 'error',
+              });
+              controller.close();
+            },
+          }),
+        }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    };
+
+    const chunks: StreamChunk[] = [];
+    const iterator = await streamMastraAgent(
+      [{ id: 'openrouter-typed-error', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'google/gemini-2.5-flash',
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const visibleText = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+          chunk.type === 'text-delta'
+      )
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(visibleText).toContain('context_length_exceeded');
+
+    const failure = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failure?.event.metadata).toMatchObject({
+      errorType: 'context_length_exceeded',
+      httpStatus: 400,
+      model: 'google/gemini-2.5-flash',
+      provider: 'openrouter',
+      providerCode: 'context_window_exceeded',
+    });
+    expect(chunks.find((chunk) => chunk.type === 'message-finish')).toMatchObject({
+      finishReason: 'error',
+    });
+  });
+
   it('terminates gracefully when the model stream stalls after starting', async () => {
     const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];

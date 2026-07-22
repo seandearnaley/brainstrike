@@ -259,6 +259,12 @@
   override that exceeds the newly selected model's declared maximum; it never
   carries a hidden incompatible limit or silently clamps it. Explicit compatible
   user limits remain authoritative.
+- OpenRouter's canonical token-limit errors (`context_length_exceeded`,
+  `max_tokens_exceeded`, and `token_limit_exceeded`) remain typed through the
+  stream boundary. The visible bounded failure includes the canonical type,
+  while `run.failed` retains only the whitelisted type, HTTP status, bounded
+  upstream code, provider, and selected model. Do not persist arbitrary error
+  metadata or reduce these failures to message text alone.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts
