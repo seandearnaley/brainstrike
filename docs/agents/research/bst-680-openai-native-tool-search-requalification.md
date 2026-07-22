@@ -14,9 +14,9 @@ select the intended deferred tool, and execute it once.
 Native search still fails the production-adoption gate. Against the same model,
 prompt, thirteen-tool post-policy catalog, schemas, and fixed tool outputs, it
 used 69–117% more input tokens and cost an estimated 36–79% more than Mastra.
-It was slower on both GPT-5.4 Mini scenarios. GPT-5.6 Luna saved one model turn
-and was materially faster only for exact-path lookup; that isolated latency win
-does not offset the cross-model token and cost regression.
+It saved one model turn in every scenario, but was slower on both GPT-5.4 Mini
+scenarios. GPT-5.6 Luna was materially faster only for exact-path lookup; that
+isolated latency win does not offset the cross-model token and cost regression.
 
 Production therefore continues to request `mastra-catalog-search` explicitly.
 This is a supported no-go, not a fallback: the OpenAI native adapter remains
