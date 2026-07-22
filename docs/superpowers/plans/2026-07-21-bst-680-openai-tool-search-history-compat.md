@@ -23,11 +23,15 @@ and metadata remain byte-for-byte untouched.
    call/output pair. Red: installed AI SDK repeats the call ID for the output.
 2. Green: the transient processor produces distinct `tsc_...` and `tso_...`
    item references without mutating its input.
-3. Pin conflict rejection, no-op behavior, processor ordering, reload history,
-   and the existing provider-native capability canary.
+3. Pin conflict rejection, no-op behavior for ordinary tool search, processor
+   ordering, and the existing provider-native capability canary.
 4. Run the focused package suite, then the root lint/type-check/build/test gate.
-5. Run one live GPT-5.6 native semantic lookup through Desktop/CDT. Do not widen
-   the PR into the full rollout matrix unless this foundational gate passes.
+5. Run live GPT-5.6 and Anthropic same-thread Desktop QA plus a Web smoke test.
+   Native routing remains disabled; use the captured OpenAI request as the
+   serialization proof rather than claiming a live native lookup.
+
+A real database persistence-to-hydration proof is tracked separately in
+BST-684 and must land before native OpenAI tool search is enabled.
 
 ## Removal
 

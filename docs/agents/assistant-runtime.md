@@ -207,10 +207,12 @@ not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
 ProjectionSafeToolCallFilter → ProviderHistoryCompat →
-ProjectionAwareTokenLimiter. Token limiting is always last. Initial streams,
-approval resumes, and suspending-tool resumes reuse the same discovery and
-history-filter processor instances so same-process approval executors remain
-available while persisted discovery results provide restart reconstruction.
+OpenAIToolSearchHistoryCompat → ProjectionAwareTokenLimiter. The OpenAI-only
+compatibility seam is absent for every other provider; token limiting is always
+last. Initial streams, approval resumes, and suspending-tool resumes reuse the
+same discovery and history-filter processor instances so same-process approval
+executors remain available while persisted discovery results provide restart
+reconstruction.
 
 Default instructions should state cross-tool routing and non-negotiable
 invariants once, while canonical descriptions/schemas carry per-tool mechanics.
