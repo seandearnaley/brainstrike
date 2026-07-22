@@ -744,6 +744,21 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({ maxOutputTokens: 2048 });
     expect(
+      reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
+        maxOutputTokens: 128_000,
+      })
+    ).toEqual({});
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
+        maxOutputTokens: 65_536,
+      })
+    ).toEqual({ maxOutputTokens: 65_536 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'custom/unknown-model', {
+        maxOutputTokens: 128_000,
+      })
+    ).toEqual({ maxOutputTokens: 128_000 });
+    expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
       })
@@ -775,6 +790,27 @@ describe('assistant runtime helpers', () => {
 });
 
 describe('buildAgentLoopSettings input-token budget', () => {
+  it('reserves the actual OpenRouter Auto output default instead of the model maximum', () => {
+    const settings = buildAgentLoopSettings(
+      undefined,
+      { contextWindow: 400_000, maxOutputTokens: 128_000 },
+      'openrouter'
+    );
+
+    // OpenRouter Auto sends 4,096 output tokens. The 5% safety margin is 20,000.
+    expect(settings?.inputTokenLimit).toBe(375_904);
+  });
+
+  it('reserves the configured OpenRouter output limit in the input budget', () => {
+    const settings = buildAgentLoopSettings(
+      { maxOutputTokens: 8192 },
+      { contextWindow: 400_000, maxOutputTokens: 128_000 },
+      'openrouter'
+    );
+
+    expect(settings?.inputTokenLimit).toBe(371_808);
+  });
+
   it('auto-derives inputTokenLimit from the model contextWindow when the pref is unset', () => {
     // claude-sonnet-4-6: contextWindow=200k, maxOutputTokens=64k
     // budget = 200_000 − 64_000 − max(1024, ceil(200_000 × 0.05)) = 200_000 − 64_000 − 10_000 = 126_000

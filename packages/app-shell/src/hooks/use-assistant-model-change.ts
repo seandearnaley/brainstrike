@@ -29,6 +29,23 @@ interface UseAssistantModelChangeOptions {
   readonly setThreadDraftRuntime: (threadId: string, runtime: AssistantThreadDraftRuntime) => void;
 }
 
+function buildReconciledProviderSettingsUpdate(
+  currentSettings: AssistantProviderSettings | undefined,
+  compatibleSettings: AssistantProviderSettings | undefined
+): AssistantProviderSettingsUpdate | undefined {
+  if (compatibleSettings === currentSettings) {
+    return;
+  }
+  const updates: AssistantProviderSettingsUpdate = {};
+  if (compatibleSettings?.reasoningEffort !== currentSettings?.reasoningEffort) {
+    updates.reasoningEffort = undefined;
+  }
+  if (compatibleSettings?.maxOutputTokens !== currentSettings?.maxOutputTokens) {
+    updates.maxOutputTokens = undefined;
+  }
+  return updates;
+}
+
 export function useAssistantModelChange({
   currentModel,
   draftRuntimeByThreadId,
@@ -66,10 +83,14 @@ export function useAssistantModelChange({
       }
       if (provider && model) {
         const currentSettings = providerSettings[provider];
-        if (
-          reconcileProviderSettingsForModel(provider, model, currentSettings) !== currentSettings
-        ) {
-          setProviderSettings(provider, { reasoningEffort: undefined });
+        const compatibleSettings = reconcileProviderSettingsForModel(
+          provider,
+          model,
+          currentSettings
+        );
+        const updates = buildReconciledProviderSettingsUpdate(currentSettings, compatibleSettings);
+        if (updates) {
+          setProviderSettings(provider, updates);
         }
       }
       setModel(compositeKey);

@@ -1,5 +1,6 @@
 import {
   type AnthropicProviderOptions,
+  CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
@@ -991,15 +992,18 @@ export interface SelectedModelBudgetDef {
 
 export function buildAgentLoopSettings(
   settings: AssistantProviderSettings | undefined,
-  selectedModelDef?: SelectedModelBudgetDef
+  selectedModelDef?: SelectedModelBudgetDef,
+  providerId?: string | null
 ): RuntimeData['agentLoop'] | undefined {
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
-    inputTokenLimit = deriveEffectiveInputBudget(
-      selectedModelDef.contextWindow,
-      selectedModelDef.maxOutputTokens
-    );
+    const outputReservation =
+      providerId === 'openrouter'
+        ? (buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
+          CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS)
+        : selectedModelDef.maxOutputTokens;
+    inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
   }
   if (!(maxSteps || inputTokenLimit)) {
     return;
@@ -1182,23 +1186,49 @@ export function buildProviderOptions(
 }
 
 /**
- * Clear a provider-wide effort override when the user explicitly switches to
- * an OpenRouter model that rejects it or has no declared effort support. The
- * model's documented default then remains visible as "Auto" in the settings
- * control; request construction still throws if incompatible state reaches it
- * by any other path.
+ * Clear provider-wide overrides when the user explicitly switches to an
+ * OpenRouter model that cannot honor them. The model's documented defaults
+ * then remain visible as "Auto" in the settings controls. This reconciler owns
+ * explicit switches only; request validation separately owns stale persisted
+ * state.
  */
 export function reconcileProviderSettingsForModel(
   providerId: SupportedProvider,
   modelName: string,
   settings: AssistantProviderSettings | undefined
 ): AssistantProviderSettings | undefined {
-  if (!(providerId === 'openrouter' && settings?.reasoningEffort)) {
+  if (!(providerId === 'openrouter' && settings)) {
     return settings;
   }
-  const model = getLlmModelDefinition('openrouter', modelName);
-  if (model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)) {
+  const model = getProviderDefinition('openrouter').models.find(
+    (candidate) => candidate.id === modelName
+  );
+  if (model?.type !== 'llm') {
     return settings;
+  }
+  const clearReasoningEffort = Boolean(
+    settings.reasoningEffort &&
+      !model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)
+  );
+  const clearMaxOutputTokens = Boolean(
+    settings.maxOutputTokens &&
+      model.maxOutputTokens &&
+      settings.maxOutputTokens > model.maxOutputTokens
+  );
+  if (!(clearReasoningEffort || clearMaxOutputTokens)) {
+    return settings;
+  }
+  if (clearReasoningEffort && clearMaxOutputTokens) {
+    const {
+      maxOutputTokens: _unsupportedMaxOutputTokens,
+      reasoningEffort: _unsupportedReasoningEffort,
+      ...compatibleSettings
+    } = settings;
+    return compatibleSettings;
+  }
+  if (clearMaxOutputTokens) {
+    const { maxOutputTokens: _unsupportedMaxOutputTokens, ...compatibleSettings } = settings;
+    return compatibleSettings;
   }
   const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
   return compatibleSettings;

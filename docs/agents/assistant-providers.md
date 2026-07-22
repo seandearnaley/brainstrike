@@ -249,7 +249,16 @@
 - When the user has not set an output limit, OpenRouter requests use a 4,096
   token per-step default. Mastra's provider otherwise expands an omitted limit
   to the model's full output ceiling, which can make OpenRouter reject even a
-  tiny prompt during credit preflight. Explicit user limits remain authoritative.
+  tiny prompt during credit preflight. The automatic input-token budget MUST
+  reserve that actual 4,096-token request default (or the explicit configured
+  output limit), not the model's full output ceiling. The Output & Limits panel
+  shows the selected model's built-in context/output metadata, the effective
+  reservation, and the resulting input budget. It labels the built-in catalog
+  as the source; an unknown OpenRouter model surfaces unavailable limits instead
+  of silently guessing. An explicit model switch clears a provider-wide output
+  override that exceeds the newly selected model's declared maximum; it never
+  carries a hidden incompatible limit or silently clamps it. Explicit compatible
+  user limits remain authoritative.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts

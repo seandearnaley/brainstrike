@@ -1305,6 +1305,38 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('Reasoning summary')).toBeInTheDocument();
   });
 
+  it('shows OpenRouter model limits and the effective Auto output reservation', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="openai/gpt-5.4-mini"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText('GPT-5.4 Mini (OpenRouter)')).toBeInTheDocument();
+    expect(screen.getByText(/400,000 context.*128,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 4,096.*375,904 effective input/)).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
+      'max',
+      '128000'
+    );
+  });
+
+  it('surfaces missing built-in OpenRouter limits instead of silently guessing', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="vendor/new-model"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/limits unavailable.*built-in catalog/i)).toBeInTheDocument();
+  });
+
   it('renders anthropic settings and updates the thinking budget input', () => {
     const onSettingsChange = vi.fn();
 
@@ -1422,6 +1454,26 @@ describe('AssistantUiPanel model picker', () => {
       target: { value: '999999' },
     });
     expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { maxOutputTokens: 8192 });
+  });
+
+  it('caps the OpenRouter output control at the selected model maximum', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        modelName="openai/gpt-5.4-mini"
+        onSettingsChange={onSettingsChange}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 8192 }}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Max output tokens' }), {
+      target: { value: '999999' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('openrouter', {
+      maxOutputTokens: 128_000,
+    });
   });
 
   it('returns nothing when no provider is selected', () => {
