@@ -1670,6 +1670,56 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('returns an explicit empty workspace context when root resolution completed with zero roots', async () => {
+    const tool = buildDesktopAssistantTools({
+      provider: 'openai',
+      workspaceRoots: [],
+    } as RuntimeData)['brainstrike.listWorkspaceContext'];
+
+    await expect(tool.execute({ context: {} })).resolves.toEqual({
+      offset: 0,
+      selectedFileCount: 0,
+      selectedFiles: [],
+      selectionFolderId: null,
+      truncated: false,
+      workspaceIndex: {
+        embeddingSetId: null,
+        enabled: false,
+        mode: null,
+        paused: false,
+      },
+      workspaceRootPath: null,
+      workspaceRoots: [],
+    });
+  });
+
+  it('still fails when root resolution did not produce an authoritative result', async () => {
+    const tool = buildDesktopAssistantTools({
+      provider: 'openai',
+    } as RuntimeData)['brainstrike.listWorkspaceContext'];
+
+    await expect(tool.execute({ context: {} })).rejects.toThrow(/no folder is open/i);
+  });
+
+  it('still fails when resolved root metadata is malformed', async () => {
+    const tool = buildDesktopAssistantTools({
+      provider: 'openai',
+      workspaceRoots: [{ displayName: 'broken', path: 'relative', rootId: 'root-broken' }],
+    } as unknown as RuntimeData)['brainstrike.listWorkspaceContext'];
+
+    await expect(tool.execute({ context: {} })).rejects.toThrow(/root metadata is malformed/i);
+  });
+
+  it('fails when zero roots retain a selection count from other roots', async () => {
+    const tool = buildDesktopAssistantTools({
+      provider: 'openai',
+      selectionFilePathsFromOtherRoots: 1,
+      workspaceRoots: [],
+    } as RuntimeData)['brainstrike.listWorkspaceContext'];
+
+    await expect(tool.execute({ context: {} })).rejects.toThrow(/root metadata is inconsistent/i);
+  });
+
   it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({

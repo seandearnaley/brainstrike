@@ -2502,7 +2502,7 @@ interface ListWorkspaceContextToolResult {
    * user instead of acting as if the selection were complete.
    */
   selectedFilesOutsideWorkspace?: number;
-  selectionFolderId?: string;
+  selectionFolderId?: string | null;
   tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
   truncated: boolean;
   workspaceIndex: WorkspaceIndexSummary;
@@ -2511,7 +2511,7 @@ interface ListWorkspaceContextToolResult {
    * client-declared with a created_at fallback). NOT the focused root:
    * selected files live in the FOCUSED root — see selectionFolderId.
    */
-  workspaceRootPath: string;
+  workspaceRootPath: string | null;
   /**
    * Every open workspace root (id + display name + path). The model reads these
    * to pass a `root` qualifier to the read/search tools when several are open.
@@ -2524,10 +2524,35 @@ function runListWorkspaceContext(
   runtimeData: RuntimeData | undefined
 ): ListWorkspaceContextToolResult {
   const workspaceRoots = getWorkspaceRoots(runtimeData);
+  const resolvedWorkspaceRoots = runtimeData?.workspaceRoots;
+  if (
+    resolvedWorkspaceRoots !== undefined &&
+    resolvedWorkspaceRoots.length !== workspaceRoots.length
+  ) {
+    throw new TypeError('Workspace root metadata is malformed. Refresh the workspace and retry.');
+  }
   if (workspaceRoots.length === 0) {
-    throw new Error(
-      'No folder is open in the workspace. Add a folder in the left file tree first.'
-    );
+    if (resolvedWorkspaceRoots === undefined) {
+      throw new Error(
+        'No folder is open in the workspace. Add a folder in the left file tree first.'
+      );
+    }
+    if ((runtimeData?.selectionFilePathsFromOtherRoots ?? 0) > 0) {
+      throw new TypeError(
+        'Workspace root metadata is inconsistent: a zero-root workspace cannot retain selections from other roots.'
+      );
+    }
+    return {
+      offset: input.offset ?? 0,
+      selectedFileCount: 0,
+      selectedFiles: [],
+      selectionFolderId: null,
+      truncated: false,
+      workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
+      workspaceRootPath: null,
+      workspaceRoots: [],
+      ...(input.includeTokenEstimates === true ? { tokenEstimates: [] } : {}),
+    };
   }
   // The first root is the MAIN root (client-declared via mainRootId, with the
   // DB created_at order as fallback — see orderWorkspaceRoots). Identical to

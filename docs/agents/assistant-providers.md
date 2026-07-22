@@ -762,6 +762,10 @@ clipped. Projection-only omissions are explicit. When the projection cannot
 retain the whole producer page, its continuation uses the exact advancing
 selected-file offset; malformed, incoherent, or non-advancing producer results
 throw instead of falling back to generic JSON.
+An authoritatively resolved zero-root Desktop workspace is a successful compact
+result with `workspaceRoots: []`, null main/focused identities, and an explicit
+`roots=0` model line. An absent or malformed root-resolution result still fails
+visibly and is never coerced to that valid empty state.
 `queryEmbeddingSpace` and `hybridSearch` retain their typed raw results while
 purpose-built Mastra projections emit bounded workspace evidence. Semantic
 retrieval keeps the producer's canonical ranked, root-qualified context string

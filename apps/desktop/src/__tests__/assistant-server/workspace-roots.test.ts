@@ -37,6 +37,12 @@ describe('getWorkspaceRoots', () => {
     expect(roots[0]?.rootId.length).toBeGreaterThan(0);
   });
 
+  it('rejects an explicit empty root list combined with a legacy path', () => {
+    expect(() =>
+      getWorkspaceRoots(runtime({ workspaceRootPath: '/Users/me/Solo', workspaceRoots: [] }))
+    ).toThrow(/root metadata is inconsistent/i);
+  });
+
   it('drops roots without an absolute path', () => {
     const roots = getWorkspaceRoots(
       runtime({ workspaceRoots: [ROOT_A, { displayName: 'web', path: '', rootId: 'x' }] })
@@ -302,6 +308,11 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     expect(enriched?.workspaceRoots).toBeUndefined();
   });
 
+  it('records an authoritative empty root list when the DB has no roots or legacy path', async () => {
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(runtime(), mockDb([]));
+    expect(enriched?.workspaceRoots).toEqual([]);
+  });
+
   it('falls back (unchanged) when the roots query throws', async () => {
     const db: WorkspaceRootsQueryable = {
       query: vi.fn(async () => {
@@ -310,6 +321,16 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     };
     const input = runtime({ workspaceRootPath: '/Users/me/Solo' });
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(input, db);
+    expect(enriched?.workspaceRoots).toBeUndefined();
+  });
+
+  it('does not fabricate an empty root list when the roots query throws', async () => {
+    const db: WorkspaceRootsQueryable = {
+      query: vi.fn(async () => {
+        throw new Error('db down');
+      }),
+    };
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(runtime(), db);
     expect(enriched?.workspaceRoots).toBeUndefined();
   });
 });

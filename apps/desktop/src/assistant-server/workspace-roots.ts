@@ -38,7 +38,12 @@ function normalizeRoot(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot | null 
  */
 export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeWorkspaceRoot[] {
   const explicit = runtimeData?.workspaceRoots;
-  if (explicit && explicit.length > 0) {
+  if (explicit) {
+    if (explicit.length === 0 && runtimeData?.workspaceRootPath?.trim()) {
+      throw new TypeError(
+        'Workspace root metadata is inconsistent: an authoritative empty root list cannot include a legacy workspace path.'
+      );
+    }
     return explicit
       .map((root) => normalizeRoot(root))
       .filter((root): root is RuntimeWorkspaceRoot => root !== null);
@@ -243,10 +248,12 @@ export function orderWorkspaceRoots(
  * client populates `workspaceRoots`, so the DB path always runs; this contract
  * keeps a future client from silently diverging the two id sources.
  *
- * On an empty result or a query failure we leave RuntimeData unchanged so the
- * resolver falls back to the single `workspaceRootPath` (the FOCUSED root —
- * degraded mode; the main-root declaration cannot apply there) — logged,
- * never silent.
+ * On an empty result with a legacy `workspaceRootPath`, RuntimeData remains
+ * unchanged so the resolver can use that single FOCUSED root. Without a legacy
+ * path, an empty successful query is recorded as `workspaceRoots: []`; this is
+ * the authoritative zero-root state consumed by `listWorkspaceContext`. Query
+ * failures remain absent/unchanged so they cannot be mistaken for that valid
+ * empty state. The main-root declaration cannot apply in degraded mode.
  */
 export async function enrichRuntimeDataWithWorkspaceRoots(
   runtimeData: RuntimeData | undefined,
@@ -262,7 +269,12 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   try {
     const roots = await loadWorkspaceRootsFromDatabase(db);
     if (roots.length === 0) {
-      return runtimeData;
+      return runtimeData.workspaceRootPath
+        ? runtimeData
+        : {
+            ...runtimeData,
+            workspaceRoots: [],
+          };
     }
     return {
       ...runtimeData,

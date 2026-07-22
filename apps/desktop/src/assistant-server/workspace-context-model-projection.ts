@@ -43,11 +43,11 @@ interface ListWorkspaceContextResult {
   selectedFileCount: number;
   selectedFiles: string[];
   selectedFilesOutsideWorkspace?: number;
-  selectionFolderId?: string;
+  selectionFolderId?: string | null;
   tokenEstimates?: Array<{ approxTokens: number | null; path: string }>;
   truncated: boolean;
   workspaceIndex: WorkspaceIndexSummary;
-  workspaceRootPath: string;
+  workspaceRootPath: string | null;
   workspaceRoots: RuntimeWorkspaceRoot[];
 }
 
@@ -73,6 +73,10 @@ function isOptionalMetric(value: unknown): value is number | null | undefined {
 
 function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string';
+}
+
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+  return value === null || isOptionalString(value);
 }
 
 function isWorkspaceRoot(value: unknown): value is RuntimeWorkspaceRoot {
@@ -166,39 +170,55 @@ function throwMalformed(): never {
   throw new TypeError('listWorkspaceContext model projection received a malformed result');
 }
 
+function hasCoherentRootState(result: ListWorkspaceContextResult): boolean {
+  const mainRoot = result.workspaceRoots[0];
+  if (mainRoot) {
+    return result.workspaceRootPath === mainRoot.path && result.selectionFolderId !== null;
+  }
+  return (
+    result.workspaceRootPath === null &&
+    result.selectionFolderId === null &&
+    result.selectedFileCount === 0 &&
+    result.selectedFiles.length === 0 &&
+    result.selectedFilesOutsideWorkspace === undefined &&
+    result.curatedContext === undefined &&
+    result.curatedContextSummary === undefined
+  );
+}
+
+function isListWorkspaceContextResultShape(value: unknown): value is ListWorkspaceContextResult {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value['offset']) &&
+    isNonNegativeInteger(value['selectedFileCount']) &&
+    Array.isArray(value['selectedFiles']) &&
+    value['selectedFiles'].every((pathValue) => typeof pathValue === 'string') &&
+    typeof value['truncated'] === 'boolean' &&
+    isWorkspaceIndex(value['workspaceIndex']) &&
+    (value['workspaceRootPath'] === null || typeof value['workspaceRootPath'] === 'string') &&
+    Array.isArray(value['workspaceRoots']) &&
+    value['workspaceRoots'].every(isWorkspaceRoot) &&
+    isOptionalString(value['hint']) &&
+    isOptionalNullableString(value['selectionFolderId']) &&
+    (value['selectedFilesOutsideWorkspace'] === undefined ||
+      (isNonNegativeInteger(value['selectedFilesOutsideWorkspace']) &&
+        value['selectedFilesOutsideWorkspace'] > 0)) &&
+    (value['tokenEstimates'] === undefined ||
+      (Array.isArray(value['tokenEstimates']) && value['tokenEstimates'].every(isTokenEstimate))) &&
+    (value['curatedContext'] === undefined || isCuratedContext(value['curatedContext'])) &&
+    (value['curatedContextSummary'] === undefined ||
+      isCuratedSummary(value['curatedContextSummary']))
+  );
+}
+
 function parseListWorkspaceContextResult(output: unknown): ListWorkspaceContextResult {
-  if (
-    !(
-      isRecord(output) &&
-      isNonNegativeInteger(output['offset']) &&
-      isNonNegativeInteger(output['selectedFileCount']) &&
-      Array.isArray(output['selectedFiles']) &&
-      output['selectedFiles'].every((pathValue) => typeof pathValue === 'string') &&
-      typeof output['truncated'] === 'boolean' &&
-      isWorkspaceIndex(output['workspaceIndex']) &&
-      typeof output['workspaceRootPath'] === 'string' &&
-      Array.isArray(output['workspaceRoots']) &&
-      output['workspaceRoots'].length > 0 &&
-      output['workspaceRoots'].every(isWorkspaceRoot) &&
-      isOptionalString(output['hint']) &&
-      isOptionalString(output['selectionFolderId']) &&
-      (output['selectedFilesOutsideWorkspace'] === undefined ||
-        (isNonNegativeInteger(output['selectedFilesOutsideWorkspace']) &&
-          output['selectedFilesOutsideWorkspace'] > 0)) &&
-      (output['tokenEstimates'] === undefined ||
-        (Array.isArray(output['tokenEstimates']) &&
-          output['tokenEstimates'].every(isTokenEstimate))) &&
-      (output['curatedContext'] === undefined || isCuratedContext(output['curatedContext'])) &&
-      (output['curatedContextSummary'] === undefined ||
-        isCuratedSummary(output['curatedContextSummary']))
-    )
-  ) {
+  if (!isListWorkspaceContextResultShape(output)) {
     return throwMalformed();
   }
 
-  const result = output as unknown as ListWorkspaceContextResult;
+  const result = output;
   if (
-    result.workspaceRootPath !== result.workspaceRoots[0]?.path ||
+    !hasCoherentRootState(result) ||
     result.selectedFiles.length > result.selectedFileCount ||
     (result.curatedContext !== undefined && result.curatedContextSummary !== undefined) ||
     (result.tokenEstimates !== undefined &&
@@ -245,11 +265,20 @@ function pageLabel(result: ListWorkspaceContextResult, kept: number): string {
 }
 
 function contextHeader(result: ListWorkspaceContextResult, kept: number): string {
+  if (result.workspaceRoots.length === 0) {
+    return (
+      'workspace context | roots=0 | main=none | focused_root_id=none' +
+      ` | selected=${result.selectedFileCount}` +
+      ` | outside=${result.selectedFilesOutsideWorkspace ?? 0}` +
+      ` | page=${pageLabel(result, kept)}` +
+      ` | truncated=${result.truncated}`
+    );
+  }
   const focusedRoot = result.selectionFolderId
     ? ` | focused_root_id=${clipEnd(result.selectionFolderId, MAX_ID_CHARS, 'root-id')}`
     : '';
   return (
-    `workspace context | main=${clipPath(result.workspaceRootPath)}` +
+    `workspace context | main=${clipPath(result.workspaceRootPath ?? '')}` +
     ` | selected=${result.selectedFileCount}` +
     ` | outside=${result.selectedFilesOutsideWorkspace ?? 0}` +
     ` | page=${pageLabel(result, kept)}` +
@@ -369,7 +398,7 @@ function omissionLine(result: ListWorkspaceContextResult, state: ProjectionState
   const omitted = {
     contextFiles: detail.files - state.keptContextFiles,
     ranges: detail.ranges - state.keptRanges,
-    roots: result.workspaceRoots.length - 1 - state.keptOtherRoots,
+    roots: Math.max(0, result.workspaceRoots.length - 1) - state.keptOtherRoots,
     selectedFiles: result.selectedFiles.length - state.keptSelectedFiles,
   };
   if (Object.values(omitted).every((count) => count === 0)) {
@@ -401,7 +430,9 @@ function buildLines(result: ListWorkspaceContextResult, state: ProjectionState):
   return [
     contextHeader(result, state.keptSelectedFiles),
     indexLine(result),
-    rootLine(result.workspaceRoots[0] as RuntimeWorkspaceRoot, true),
+    ...(result.workspaceRoots[0]
+      ? [rootLine(result.workspaceRoots[0] as RuntimeWorkspaceRoot, true)]
+      : []),
     ...result.workspaceRoots
       .slice(1, state.keptOtherRoots + 1)
       .map((root) => rootLine(root, false)),
@@ -457,7 +488,7 @@ function assertProjectionCanAdvance(
 }
 
 function fitOtherRoots(result: ListWorkspaceContextResult, state: ProjectionState): void {
-  const otherRootCount = result.workspaceRoots.length - 1;
+  const otherRootCount = Math.max(0, result.workspaceRoots.length - 1);
   while (state.keptOtherRoots < otherRootCount) {
     const candidate = { ...state, keptOtherRoots: state.keptOtherRoots + 1 };
     if (!fits(result, candidate)) {
