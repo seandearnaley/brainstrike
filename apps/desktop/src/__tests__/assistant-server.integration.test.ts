@@ -2310,6 +2310,7 @@ describe('assistant-server', () => {
 
     it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
       const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
       // NAME-FORM CONTRACT: `listSuspendedMastraRuns` returns the ORIGINAL
       // dotted tool name (it maps Mastra's registered/sanitized id back via the
       // runtime toolNameMap + the static native map) — the SAME form
@@ -2341,6 +2342,25 @@ describe('assistant-server', () => {
           runtime: expect.objectContaining({ provider: 'ollama' }),
           storage: mockPgliteMastraStorage,
         })
+      );
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memorySettings: {
+            observationalMemory: {
+              ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+              enabled: false,
+              retrievalMode: 'off',
+            },
+            semanticRecall: {
+              ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+              enabled: false,
+            },
+          },
+        })
+      );
+      expect(mockSecretsService.getKey).not.toHaveBeenCalled();
+      expect((createPgliteMastraMemory as Mock).mock.calls[0]?.[0]).not.toHaveProperty(
+        'observationalMemoryModel'
       );
       const body = JSON.parse(response.body);
       expect(body).toEqual({

@@ -150,6 +150,17 @@ import {
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
+const SUSPENDED_RUN_DISCOVERY_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
+  observationalMemory: {
+    ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+    enabled: false,
+    retrievalMode: 'off',
+  },
+  semanticRecall: {
+    ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+    enabled: false,
+  },
+};
 const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
@@ -1137,7 +1148,7 @@ async function handleSuspendedRunsRequest(
 
   try {
     const memoryResult = await getDesktopMastraMemory(
-      DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      SUSPENDED_RUN_DISCOVERY_MEMORY_SETTINGS,
       undefined,
       undefined,
       undefined,
