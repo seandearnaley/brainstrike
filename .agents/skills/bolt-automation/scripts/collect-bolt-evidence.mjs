@@ -188,10 +188,14 @@ function assertAncestor(repo, ancestor, descendant) {
   throw new Error(`Unable to validate watermark ancestry: ${result.stderr.trim()}`);
 }
 
-function parseCommits(repo, range) {
-  const fields = splitNull(
-    git(repo, ['log', '--first-parent', '--format=%H%x00%aI%x00%s%x00', range, '--'])
-  ).map((field) => field.replace(/^\n/u, '').trim());
+export function parseCommitLog(value) {
+  if (value.length === 0) {
+    return [];
+  }
+  if (!value.endsWith('\0')) {
+    throw new Error('First-parent log must be NUL-terminated');
+  }
+  const fields = value.slice(0, -1).split('\0');
   if (fields.length % 3 !== 0) {
     throw new Error('Unexpected first-parent log record shape');
   }
@@ -200,6 +204,12 @@ function parseCommits(repo, range) {
     commits.push({ authoredAt: fields[index + 1], sha: fields[index], subject: fields[index + 2] });
   }
   return commits;
+}
+
+export function collectFirstParentCommits(repo, range) {
+  return parseCommitLog(
+    git(repo, ['log', '-z', '--first-parent', '--format=%H%x00%aI%x00%s', range, '--'])
+  );
 }
 
 function parseChangedFiles(repo, range) {
@@ -307,7 +317,7 @@ function collect(args) {
     );
   }
   const range = `${args.watermark}..${originMainSha}`;
-  const commits = parseCommits(repo, range);
+  const commits = collectFirstParentCommits(repo, range);
   const changedFiles = parseChangedFiles(repo, range).map((file) => ({
     ...file,
     originMainBlobId: blobIdAtMain(repo, file),
