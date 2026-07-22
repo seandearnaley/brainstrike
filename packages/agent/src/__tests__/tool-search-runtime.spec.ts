@@ -184,6 +184,23 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(JSON.stringify(observations)).not.toContain('inputSchema');
   });
 
+  it('does not let an observer failure abort successful tool discovery', async () => {
+    const processor = createRankingProcessor();
+    const observations: unknown[] = [];
+    processor.subscribeSearchObservations(() => {
+      throw new Error('observer failed');
+    });
+    processor.subscribeSearchObservations((observation) => {
+      observations.push(observation);
+    });
+    const step = await processor.processInputStep(createStepArgs());
+
+    await expect(
+      step.tools.search_tools.execute?.({ query: 'workspace context listing focused root' })
+    ).resolves.toEqual(expect.objectContaining({ results: expect.any(Array) }));
+    expect(observations).toHaveLength(1);
+  });
+
   it('loads lspInspect for the common LSP acronym query', async () => {
     const lspTool = createTool({
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],

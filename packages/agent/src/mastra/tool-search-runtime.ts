@@ -289,7 +289,13 @@ export class BrainstrikeToolSearchProcessor {
 
   private notifySearchObservers(observation: ToolDiscoverySearchObservation): void {
     for (const observer of this.searchObservers) {
-      observer(observation);
+      try {
+        observer(observation);
+      } catch {
+        logger.warn('Mastra tool discovery observer failed', {
+          code: 'mastra_tool_discovery_observer_failure',
+        });
+      }
     }
   }
 
