@@ -68,7 +68,9 @@
     contract; desktop producers and renderer status parsing must use that single
     definition. Malformed provider-error payloads fail the status probe visibly
     rather than being dropped, so a protocol violation can never masquerade as
-    healthy provider availability.
+    healthy provider availability. Saving, replacing, or deleting a provider
+    secret must re-probe assistant status so an unreadable-key error cannot
+    remain latched after the credential is repaired.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

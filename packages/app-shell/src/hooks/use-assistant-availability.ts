@@ -8,6 +8,7 @@ import {
   isValidModelForProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
@@ -44,6 +45,7 @@ interface AssistantAvailabilityOverrideSnapshot {
 interface FetchedAssistantAvailability {
   readonly fetcher: AssistantStatusFetcher;
   readonly overrideRevision: number;
+  readonly secretsVersion: number;
   readonly status: AssistantAvailabilityStatus;
 }
 
@@ -63,6 +65,7 @@ declare global {
 export function useAssistantAvailability(
   fetcher: AssistantStatusFetcher = defaultFetcher
 ): AssistantAvailabilityStatus {
+  const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   const { override, revision: overrideRevision } = useSyncExternalStore(
     subscribeToAssistantAvailabilityOverride,
     getAssistantAvailabilityOverrideSnapshot,
@@ -72,6 +75,7 @@ export function useAssistantAvailability(
     () => ({
       fetcher,
       overrideRevision,
+      secretsVersion,
       status: loadingStatus,
     })
   );
@@ -90,6 +94,7 @@ export function useAssistantAvailability(
           setFetchedAvailability({
             fetcher,
             overrideRevision,
+            secretsVersion,
             status: next,
           });
         }
@@ -104,6 +109,7 @@ export function useAssistantAvailability(
         setFetchedAvailability({
           fetcher,
           overrideRevision,
+          secretsVersion,
           status: {
             message: error instanceof Error ? error.message : String(error),
             state: 'error',
@@ -115,7 +121,7 @@ export function useAssistantAvailability(
       cancelled = true;
       controller.abort();
     };
-  }, [fetcher, override, overrideRevision]);
+  }, [fetcher, override, overrideRevision, secretsVersion]);
 
   if (override !== undefined) {
     return override;
@@ -123,7 +129,8 @@ export function useAssistantAvailability(
 
   if (
     fetchedAvailability.fetcher !== fetcher ||
-    fetchedAvailability.overrideRevision !== overrideRevision
+    fetchedAvailability.overrideRevision !== overrideRevision ||
+    fetchedAvailability.secretsVersion !== secretsVersion
   ) {
     return loadingStatus;
   }
