@@ -485,7 +485,10 @@ store (`packages/preferences/src/stores/permission-policy-store.ts`) defaults to
 `enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
 so by default read/MCP tools run free while edits and shell commands suspend the
 run for user approval. A user can turn `enforce` off (explicit opt-out), set a
-category to `allow`/YOLO, or grant a session category.
+category to `allow`/YOLO, or grant a session category. Its platform storage is
+resolved through a local deferred state-storage proxy, so an optimized
+chunk-evaluation cycle cannot make Zustand silently omit the `persist` API; a
+later hydration retries resolution and genuine adapter failures remain visible.
 
 Flow (desktop assistant server → agent runtime):
 1. The renderer attaches the persisted policy snapshot to the request only when
@@ -873,6 +876,9 @@ user's own machine) run without approval. **Project** hooks
 per-root approval **pinned to the file's SHA-256**. The trust store
 (`packages/preferences/src/stores/hook-trust-store.ts`, persisted,
 factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
+store resolves its platform storage through a local deferred state-storage
+proxy, preserving the `persist` API across optimized chunk cycles and retrying
+resolution on a later hydration without defaulting trust open. The
 renderer only ATTESTS approved hashes over the wire (`HookTrustRequest`); the
 server independently RE-READS + RE-HASHES disk (`trust.ts` `resolveTrustedRoots`)
 and runs a root's hooks only when `sha256(disk) === approvedSha256`. The trust

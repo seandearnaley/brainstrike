@@ -1,4 +1,4 @@
-import { createBrowserJsonStorage, createLazyStateStorage } from '@brainstrike/storage';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -107,12 +107,51 @@ function installVectorPreferencesHydrationMarker(store: BoundVectorPreferencesSt
   }
 }
 
+function createDeferredVectorPreferencesStorage(): StateStorage {
+  let lazyStorage: StateStorage | undefined;
+  let lazyStoragePromise: Promise<StateStorage> | undefined;
+  const resolveStorage = (): Promise<StateStorage> => {
+    lazyStoragePromise ??= Promise.resolve()
+      .then(createVectorPreferencesStorage)
+      .then((resolvedStorage) => {
+        lazyStorage = resolvedStorage;
+        return resolvedStorage;
+      })
+      .catch((error: unknown) => {
+        lazyStoragePromise = undefined;
+        throw error;
+      });
+    return lazyStoragePromise;
+  };
+
+  return {
+    getItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.getItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.getItem(key));
+    },
+    removeItem: (key: string) => {
+      if (lazyStorage) {
+        return lazyStorage.removeItem(key);
+      }
+      return resolveStorage().then((resolved) => resolved.removeItem(key));
+    },
+    setItem: (key: string, value: string) => {
+      if (lazyStorage) {
+        return lazyStorage.setItem(key, value);
+      }
+      return resolveStorage().then((resolved) => resolved.setItem(key, value));
+    },
+  };
+}
+
 /**
  * Desktop renderers must share preferences through the Electron storage bridge so
  * hidden hosts observe the same canonical settings as the visible UI.
  * Web/SSR/tests continue to use the safe browser storage adapter.
  */
-const storage = createJSONStorage(() => createLazyStateStorage(createVectorPreferencesStorage));
+const storage = createJSONStorage(createDeferredVectorPreferencesStorage);
 
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
