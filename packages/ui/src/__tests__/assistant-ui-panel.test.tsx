@@ -1385,6 +1385,36 @@ describe('AssistantUiPanel model picker', () => {
     ).toBeVisible();
   });
 
+  it('shows the persisted OpenRouter output value when the slider display is clamped', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="anthropic/claude-sonnet-4.6"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_000_000,
+              id: 'anthropic/claude-sonnet-4.6',
+              maxOutputTokens: 128_000,
+              source: 'openrouter-models-api',
+              supportedParameters: [],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 200_000 }}
+      />
+    );
+
+    expect(
+      screen.getByText(/configured output 200,000 exceeds the OpenRouter live maximum 128,000/i)
+    ).toBeVisible();
+    expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('128000');
+  });
+
   it('makes a live metadata failure visible while labeling the static limits in use', () => {
     render(
       <ProviderSettingsPanel

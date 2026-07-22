@@ -73,6 +73,7 @@ interface OpenRouterModelLimits {
   label: string;
   maxOutputTokens: number | undefined;
   outputReservation: number;
+  outputWarning?: string;
   sourceLabel: string;
   statusMessage?: string;
   usesConfiguredOutput: boolean;
@@ -123,6 +124,7 @@ function resolveOpenRouterModelLimits(
     typeof settings.maxOutputTokens === 'number'
       ? Math.max(1, Math.floor(settings.maxOutputTokens))
       : CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
+  const sourceLabel = resolveOpenRouterSourceLabel(lookup);
   let effectiveInputBudget: number | undefined;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
@@ -136,7 +138,12 @@ function resolveOpenRouterModelLimits(
     label: staticModel?.label ?? modelName,
     maxOutputTokens,
     outputReservation,
-    sourceLabel: resolveOpenRouterSourceLabel(lookup),
+    ...(maxOutputTokens !== undefined && outputReservation > maxOutputTokens
+      ? {
+          outputWarning: `Configured output ${settingsNumberFormatter.format(outputReservation)} exceeds the ${sourceLabel} maximum ${settingsNumberFormatter.format(maxOutputTokens)}.`,
+        }
+      : {}),
+    sourceLabel,
     usesConfiguredOutput: typeof settings.maxOutputTokens === 'number',
     ...(lookup?.state === 'loading'
       ? { statusMessage: 'Checking live OpenRouter metadata; using the built-in catalog.' }
@@ -549,6 +556,7 @@ function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits |
           : `${settingsNumberFormatter.format(limits.effectiveInputBudget)} effective input`}
       </p>
       <p>Source: {limits.sourceLabel}</p>
+      {limits.outputWarning ? <p className="text-destructive">{limits.outputWarning}</p> : null}
       {limits.statusMessage ? <p className="text-destructive">{limits.statusMessage}</p> : null}
       {limits.warning ? (
         <p className="text-amber-700 dark:text-amber-300">
