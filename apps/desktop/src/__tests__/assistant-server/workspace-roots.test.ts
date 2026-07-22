@@ -71,6 +71,73 @@ describe('resolveWorkspaceRoot', () => {
     );
   });
 
+  it('formats an oversized first root without a leading overflow delimiter', () => {
+    const oversized = {
+      displayName: 'Project',
+      path: '/Users/me/Project',
+      rootId: 'x'.repeat(801),
+    };
+    const getErrorMessage = () => {
+      try {
+        resolveWorkspaceRoot(runtime({ workspaceRoots: [oversized, ROOT_B] }), 'Nope');
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      throw new Error('Expected root resolution to fail');
+    };
+
+    const message = getErrorMessage();
+    expect(message).toContain('Open folders: 2 more not shown.');
+    expect(message).not.toContain('Open folders: ;');
+  });
+
+  it('keeps the complete root inventory when it fits without overflow guidance', () => {
+    const longRootId = 'x'.repeat(735);
+    const longRoot = {
+      displayName: 'Project',
+      path: '/Users/me/Project',
+      rootId: longRootId,
+    };
+
+    expect.assertions(2);
+    try {
+      resolveWorkspaceRoot(runtime({ workspaceRoots: [longRoot, ROOT_B] }), 'Nope');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const descriptor = message.slice(
+        message.indexOf('Open folders: ') + 'Open folders: '.length,
+        -1
+      );
+      expect(descriptor.length).toBeLessThanOrEqual(800);
+      expect(descriptor).toContain(longRootId);
+    }
+  });
+
+  it('reserves room for overflow guidance when the complete root inventory does not fit', () => {
+    const longRootId = 'x'.repeat(735);
+    const longRoot = {
+      displayName: 'Project',
+      path: '/Users/me/Project',
+      rootId: longRootId,
+    };
+
+    expect.assertions(2);
+    try {
+      resolveWorkspaceRoot(
+        runtime({ workspaceRoots: [longRoot, ROOT_A, ROOT_B, ROOT_A, ROOT_B] }),
+        'Nope'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const descriptor = message.slice(
+        message.indexOf('Open folders: ') + 'Open folders: '.length,
+        -1
+      );
+      expect(descriptor.length).toBeLessThanOrEqual(800);
+      expect(descriptor).not.toContain(longRootId.slice(0, 100));
+    }
+  });
+
   it('resolves by rootId', () => {
     expect(resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }), 'root-b')).toEqual(
       ROOT_B

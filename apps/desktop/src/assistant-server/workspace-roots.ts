@@ -57,22 +57,31 @@ function describeRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
 
 function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
   const maxChars = 800;
+  const fullDescription = roots.map((root) => `${root.displayName} (id ${root.rootId})`).join(', ');
+  if (fullDescription.length <= maxChars) {
+    return fullDescription;
+  }
   const descriptions: string[] = [];
-  let usedChars = 0;
   for (const root of roots) {
     const description = `${root.displayName} (id ${root.rootId})`;
-    const separatorChars = descriptions.length === 0 ? 0 : 2;
-    if (usedChars + separatorChars + description.length > maxChars) {
+    const candidateDescriptions = [...descriptions, description];
+    const omitted = roots.length - candidateDescriptions.length;
+    const overflow = `${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
+    const candidate =
+      omitted === 0
+        ? candidateDescriptions.join(', ')
+        : `${candidateDescriptions.join(', ')}; ${overflow}`;
+    if (candidate.length > maxChars) {
       break;
     }
     descriptions.push(description);
-    usedChars += separatorChars + description.length;
   }
   const omitted = roots.length - descriptions.length;
-  if (omitted === 0) {
-    return descriptions.join(', ');
+  const overflow = `${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
+  if (descriptions.length === 0) {
+    return overflow;
   }
-  return `${descriptions.join(', ')}; ${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
+  return `${descriptions.join(', ')}; ${overflow}`;
 }
 
 /**
