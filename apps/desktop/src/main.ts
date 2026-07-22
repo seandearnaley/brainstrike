@@ -113,7 +113,11 @@ const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
-configureAgentDevtoolsCommandLine(app.commandLine, process.env, process.argv);
+const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
+  app.commandLine,
+  process.env,
+  process.argv
+);
 
 // MUST run before app.whenReady(): privileged scheme registration is only
 // honored if it happens before the app is ready.
@@ -134,13 +138,17 @@ function readExplicitE2eUserDataDir(): string | null {
   return candidate;
 }
 
-function applyE2EPathIsolation(): void {
-  if (!isElectronE2ETestMode()) {
+function applyExplicitPathIsolation(): void {
+  const electronE2ETestMode = isElectronE2ETestMode();
+  if (!(electronE2ETestMode || agentDevtoolsConfig.enabled)) {
     return;
   }
 
   const userDataDir = readExplicitE2eUserDataDir();
   if (!userDataDir) {
+    if (agentDevtoolsConfig.enabled) {
+      throw new Error(`${E2E_USER_DATA_DIR_ENV} is required when Agent DevTools is enabled.`);
+    }
     return;
   }
 
@@ -152,7 +160,7 @@ function applyE2EPathIsolation(): void {
   app.setPath('sessionData', sessionDataDir);
 }
 
-applyE2EPathIsolation();
+applyExplicitPathIsolation();
 
 function tryShowStartupErrorDialog(message: string): void {
   try {
