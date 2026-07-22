@@ -265,6 +265,15 @@
   while `run.failed` retains only the whitelisted type, HTTP status, bounded
   upstream code, provider, and selected model. Do not persist arbitrary error
   metadata or reduce these failures to message text alone.
+- Desktop exposes `GET /assistant/openrouter-model?model=<provider/model>` for
+  selected-model metadata. It resolves the stored OpenRouter key in main,
+  requests the official single-model endpoint, validates exact model identity,
+  positive context/output limits, and bounded supported parameters, and keeps a
+  bounded five-minute in-memory cache. A refresh failure may return a prior
+  snapshot only as explicit `stale-cache` data with a warning; a first failure
+  is a visible 502. The renderer keeps its built-in model definition visibly
+  labeled as static until a consumer explicitly installs a validated live
+  snapshot; the endpoint never silently mutates the registry.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts

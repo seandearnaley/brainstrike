@@ -359,6 +359,76 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
     });
 
+    it('returns selected OpenRouter model metadata from the bounded service', async () => {
+      mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+      const get = vi.fn().mockResolvedValue({
+        freshness: 'live',
+        metadata: {
+          checkedAt: 1000,
+          contextWindow: 400_000,
+          id: 'openai/gpt-5.4-mini',
+          maxOutputTokens: 128_000,
+          source: 'openrouter-models-api',
+          supportedParameters: ['tools', 'reasoning'],
+        },
+      });
+
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(JSON.parse(response.body)).toMatchObject({
+        freshness: 'live',
+        metadata: { id: 'openai/gpt-5.4-mini' },
+      });
+      expect(get).toHaveBeenCalledWith('openai/gpt-5.4-mini', 'openrouter-key');
+    });
+
+    it('rejects an OpenRouter metadata request without an exact model id', async () => {
+      const get = vi.fn();
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'missing_model',
+        message: 'OpenRouter model metadata requires a model query parameter.',
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('surfaces OpenRouter metadata failures without a static silent fallback', async () => {
+      mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+      const get = vi.fn().mockRejectedValue(new Error('OpenRouter Models API returned status 503'));
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+        },
+        { openRouterModelMetadataService: { get } }
+      );
+
+      expect(response.status).toBe(502);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'openrouter_model_metadata_failed',
+        message: 'OpenRouter Models API returned status 503',
+      });
+    });
+
     it('should handle CORS preflight for assistant routes', async () => {
       const response = await runRequest({
         headers: {
