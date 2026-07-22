@@ -14,6 +14,7 @@ import {
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   TOOL_DESCRIPTIONS,
+  ToolInputError,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract';
 import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
@@ -4677,13 +4678,14 @@ describe('assistant-tools multi-root read tools', () => {
           workspaceRootPath,
         } as RuntimeData);
 
-        await expect(
-          tools['brainstrike.lspInspect'].execute({
-            // Model quoted a line that isn't the real line 1 → must refuse with
-            // the actual line text, never inspect a wrong column.
-            context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
-          })
-        ).rejects.toThrow(/not found on line 1/i);
+        const inspection = tools['brainstrike.lspInspect'].execute({
+          // Model quoted a line that isn't the real line 1 → must refuse with
+          // the actual line text, never inspect a wrong column.
+          context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
+        });
+
+        await expect(inspection).rejects.toBeInstanceOf(ToolInputError);
+        await expect(inspection).rejects.toThrow(/not found on line 1/i);
       } finally {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }

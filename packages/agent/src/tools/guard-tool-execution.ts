@@ -1,4 +1,4 @@
-import type { GuardedToolError } from '@brainstrike/assistant-contract';
+import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
 import type { ToolLogger } from './types';
 
 export type { GuardedToolError } from '@brainstrike/assistant-contract';
@@ -64,6 +64,12 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       return await Promise.race([run, timeout]);
     } catch (error) {
       logger?.error('Tool execution failed', { error, toolName });
+      if (error instanceof ToolInputError) {
+        return {
+          error: { code: error.code, message: error.message, toolName },
+          ok: false,
+        };
+      }
       return {
         error: { code: 'tool_failed', message: GUARDED_TOOL_ERROR_MESSAGE, toolName },
         ok: false,

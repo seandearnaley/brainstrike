@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('AssistantWorkspaceRoots');
@@ -92,11 +93,11 @@ export function resolveWorkspaceRoot(
       return byName[0] as RuntimeWorkspaceRoot;
     }
     if (byName.length > 1) {
-      throw new Error(
+      throw new ToolInputError(
         `Multiple folders are named "${trimmed}". Use the root id instead: ${describeRootsWithIds(byName)}.`
       );
     }
-    throw new Error(
+    throw new ToolInputError(
       `No folder "${trimmed}" in the workspace. Open folders: ${describeRoots(roots)}.`
     );
   }
@@ -104,7 +105,7 @@ export function resolveWorkspaceRoot(
   if (roots.length === 1) {
     return roots[0] as RuntimeWorkspaceRoot;
   }
-  throw new Error(
+  throw new ToolInputError(
     `Multiple folders are open. Specify which with the "root" argument (folder name or id). Open folders: ${describeRoots(roots)}.`
   );
 }

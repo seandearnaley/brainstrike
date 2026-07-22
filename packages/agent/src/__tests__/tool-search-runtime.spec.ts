@@ -1,3 +1,4 @@
+import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import type { ProcessInputStepArgs } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY, RequestContext } from '@mastra/core/request-context';
@@ -8,6 +9,7 @@ import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { BrainstrikeToolSearchProcessor } from '../mastra/tool-search-runtime';
 
 const DEFERRED_TOOL_ID = 'brainstrike_listWorkspaceContext';
+const LSP_DEFERRED_TOOL_ID = 'brainstrike_lspInspect';
 const SECOND_DEFERRED_TOOL_ID = 'brainstrike_readWorkspaceFile';
 
 function createDeferredTool() {
@@ -90,6 +92,25 @@ function createPersistedSearchResultMessage(
 }
 
 describe('BrainstrikeToolSearchProcessor', () => {
+  it('loads lspInspect for the common LSP acronym query', async () => {
+    const lspTool = createTool({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
+      execute: async () => ({ available: true }),
+      id: LSP_DEFERRED_TOOL_ID,
+      inputSchema: z.object({}),
+    });
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: { [LSP_DEFERRED_TOOL_ID]: lspTool },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([[LSP_DEFERRED_TOOL_ID, NATIVE_TOOL_ID.lspInspect]]),
+    });
+    const first = await processor.processInputStep(createStepArgs({ threadId: 'lsp-thread' }));
+
+    await expect(first.tools.search_tools.execute?.({ query: 'lsp' })).resolves.toMatchObject({
+      results: [{ name: LSP_DEFERRED_TOOL_ID }],
+    });
+  });
+
   it('starts with search only, auto-loads top matches, then appends the deferred tool', async () => {
     const processor = createProcessor();
     const first = await processor.processInputStep(createStepArgs({ threadId: 'thread-1' }));

@@ -469,8 +469,19 @@ The file-read staleness tracker is updated only after cursor validation and
 page construction succeed inside the per-file lock; a rejected stale cursor
 must not mark externally changed bytes as fresh for a later write.
 
-Guarded failures (`tool_timeout`, `tool_failed`, `tool_blocked_by_hook`) bypass
-domain projectors and retain the bounded structured failure. For successful
+Guarded failures (`tool_timeout`, `tool_failed`, `tool_input_invalid`,
+`tool_blocked_by_hook`) bypass domain projectors and retain the bounded
+structured failure. Generic throws remain redacted as `tool_failed`; trusted
+application-owned `ToolInputError` validation failures preserve their safe,
+model-correctable message. Multi-root resolution uses that path when a
+root-qualified tool omits, misnames, or ambiguously names `root`: it never
+silently falls back to Main. The default multi-root instruction includes
+deferred `lspInspect`, so a newly activated semantic tool receives the same
+root-qualification rule as reads and searches.
+`lspInspect` also brands its cursor-marker, line-range, missing-fragment, and
+ambiguous-fragment rejections as trusted input errors; its catalog description
+spells out the `LSP` acronym so the common `search_tools("lsp")` query loads it.
+For successful
 hooked results, every original result shape and its control metadata travel in
 the explicitly discriminated internal `HOOK_RESULT_ENVELOPE_FIELD` protocol.
 The official Mastra display/transcript transforms unwrap that protocol for
