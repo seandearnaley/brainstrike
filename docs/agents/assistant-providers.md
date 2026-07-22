@@ -235,7 +235,10 @@
 - A newly readable OpenRouter configuration must be usable without visiting
   model settings. When the DB-backed OpenRouter catalog is untouched, app-shell
   enables the small `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` set (balanced
-  GPT-5.6 Terra, long-horizon Kimi K3, and Qwen3.7 Max) in one durable write.
+  GPT-5.6 Terra, long-horizon Kimi K3, Qwen3.7 Max, GLM 5.2, and MiniMax M3) in
+  one durable write. GLM 5.2 exposes only OpenRouter's documented `high` and
+  `xhigh` reasoning efforts. MiniMax M3 is multimodal, so its static and
+  persisted catalog declarations both enable image input.
   The database model registry remains the picker source of truth. Any existing
   enabled model, or any row whose `updated_at` is later than `created_at`, is an
   explicit prior choice—including an intentional all-disabled choice—and must
