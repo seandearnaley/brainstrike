@@ -12,6 +12,49 @@ const DEFERRED_TOOL_ID = 'brainstrike_listWorkspaceContext';
 const LSP_DEFERRED_TOOL_ID = 'brainstrike_lspInspect';
 const SECOND_DEFERRED_TOOL_ID = 'brainstrike_readWorkspaceFile';
 
+const RANKING_FIXTURES = [
+  {
+    expectedToolId: 'brainstrike_listWorkspaceContext',
+    query: 'workspace context listing focused root',
+  },
+  {
+    expectedToolId: 'brainstrike_readWorkspaceDirectory',
+    query: 'list files in a workspace directory',
+  },
+  { expectedToolId: 'brainstrike_readWorkspaceFile', query: 'read a workspace file' },
+  { expectedToolId: 'brainstrike_grepSearch', query: 'search exact text in files' },
+  { expectedToolId: 'brainstrike_globWorkspace', query: 'find files matching a glob pattern' },
+  {
+    expectedToolId: 'brainstrike_stringReplaceWorkspaceFile',
+    query: 'edit an existing workspace file',
+  },
+  { expectedToolId: 'brainstrike_executeCommand', query: 'run a shell command' },
+] as const;
+
+function createRankingProcessor(): BrainstrikeToolSearchProcessor {
+  const toolNameMap = new Map<string, string>();
+  const deferredTools = Object.fromEntries(
+    RANKING_FIXTURES.map(({ expectedToolId }) => {
+      const originalToolId = expectedToolId.replace('_', '.');
+      toolNameMap.set(expectedToolId, originalToolId);
+      return [
+        expectedToolId,
+        createTool({
+          description: TOOL_DESCRIPTIONS[originalToolId as keyof typeof TOOL_DESCRIPTIONS],
+          execute: async () => ({}),
+          id: expectedToolId,
+          inputSchema: z.object({}),
+        }),
+      ];
+    })
+  );
+  return new BrainstrikeToolSearchProcessor({
+    deferredTools,
+    model: 'openai/gpt-5.6-terra',
+    toolNameMap,
+  });
+}
+
 function createDeferredTool() {
   return createTool({
     description: 'List the files and metadata in the active workspace context.',
@@ -92,6 +135,55 @@ function createPersistedSearchResultMessage(
 }
 
 describe('BrainstrikeToolSearchProcessor', () => {
+  it.each(RANKING_FIXTURES)('ranks $expectedToolId first for "$query"', async ({
+    expectedToolId,
+    query,
+  }) => {
+    const processor = createRankingProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+
+    const result = (await step.tools.search_tools.execute?.({ query })) as {
+      results: { name: string }[];
+    };
+
+    expect(result.results[0]?.name).toBe(expectedToolId);
+  });
+
+  it('makes deferred workspace-root discovery explicit on the initial search surface', async () => {
+    const processor = createRankingProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+
+    expect(step.tools.search_tools.description).toContain(
+      'open workspace roots and focused context'
+    );
+  });
+
+  it('observes the exact query and original ranked ids without schemas', async () => {
+    const processor = createRankingProcessor();
+    const observations: unknown[] = [];
+    const unsubscribe = processor.subscribeSearchObservations((observation) => {
+      observations.push(observation);
+    });
+    const step = await processor.processInputStep(createStepArgs({ stepNumber: 4 }));
+
+    await step.tools.search_tools.execute?.({ query: 'workspace context listing focused root' });
+    unsubscribe();
+
+    expect(observations).toEqual([
+      {
+        query: 'workspace context listing focused root',
+        rankedResults: expect.arrayContaining([
+          {
+            score: expect.any(Number),
+            toolId: 'brainstrike.listWorkspaceContext',
+          },
+        ]),
+        stepNumber: 4,
+      },
+    ]);
+    expect(JSON.stringify(observations)).not.toContain('inputSchema');
+  });
+
   it('loads lspInspect for the common LSP acronym query', async () => {
     const lspTool = createTool({
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],

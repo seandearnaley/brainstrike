@@ -870,6 +870,31 @@ permission denial, and host unavailability. OpenAI's native `tool_search` is
 model-gated, not inferred from `provider === "openai"`. Anthropic native search
 likewise preserves provider search/tool-reference history. Live Mastra catalog
 search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
+Mastra's BM25 catalog ranks the sanitized tool id plus its canonical
+description. Brainstrike's initial `search_tools` description must therefore
+name the major deferred capability families explicitly, including open
+workspace roots and focused context; do not widen the eager registry to work
+around a model that skips discovery. Deterministic ranking fixtures cover the
+context/list/read/grep/glob/edit/command intents. The opt-in hosted matrix in
+`tool-discovery-live-eval.integration.spec.ts` exercises GPT-5.4 Mini and Claude
+Haiku against the real processor and fails visibly when either provider key is
+absent.
+
+Hosted default instructions add the discovery guidance only when the runtime
+actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
+`search_tools` for deferred capability families before substituting eager glob
+or shell tools. The live matrix passes that processor through Mastra
+`runEvals.targetOptions`: Brainstrike owns input processors at the per-call
+stream seam, so targeting the bare Agent without those options is not a valid
+discovery evaluation.
+
+Discovery observability is content-minimizing by default. Production logs may
+record query length plus the original ranked tool ids and finite scores, but
+never the raw query, tool schemas, or credentials. The exact query is available
+only to an explicit in-memory observer used by the opt-in live evaluation; it
+is neither logged nor persisted. The live evaluation also records the final
+tool choice and scorer verdict so a retrieval success cannot be mistaken for a
+successful model decision.
 Persisted `search_tools` results reconstruct loaded definitions after restart;
 approval and suspended-tool resume rehydrate those definitions from the durable
 Mastra thread before the paused call reaches execution. Anonymous calls never

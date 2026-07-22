@@ -388,6 +388,12 @@ export interface BuildDefaultInstructionsOptions {
    * {@link buildLocalDefaultInstructions}).
    */
   planMode?: boolean;
+  /**
+   * Mastra catalog search is installed for this hosted run. When enabled, the
+   * prompt teaches the model to discover deferred capabilities instead of
+   * substituting an eager shell or file-pattern tool.
+   */
+  toolDiscoveryEnabled?: boolean;
 }
 
 function buildDelegationInstruction(
@@ -407,6 +413,21 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
     return '';
   }
   return `When you need a decision or information only the user has (an ambiguous request, a choice between approaches), ask with ${names.askUser} instead of guessing — the run pauses for their answer.`;
+}
+
+function buildToolDiscoveryInstruction(
+  names: ModelFacingToolNames,
+  enabled: boolean | undefined
+): string {
+  if (!enabled) {
+    return '';
+  }
+  const eagerAlternatives = [names.globWorkspace, names.executeCommand].filter(
+    (name): name is string => Boolean(name)
+  );
+  const alternativesClause =
+    eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
+  return `Some capabilities are deferred behind search_tools. For open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, skills, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**
@@ -533,6 +554,10 @@ export function buildDefaultInstructions(
     .join(' ');
 
   const askUserInstruction = buildAskUserInstruction(names);
+  const toolDiscoveryInstruction = buildToolDiscoveryInstruction(
+    names,
+    options.toolDiscoveryEnabled
+  );
   const delegationInstruction = buildDelegationInstruction(options.personas);
   const projectWorkflowInstruction = [
     'For project work, use only registered tools.',
@@ -555,6 +580,7 @@ export function buildDefaultInstructions(
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
     'Project files, Context Explorer state, token estimates, and embedding spaces are not preloaded; use registered tools when needed for accuracy.',
+    toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
     taskListInstruction,

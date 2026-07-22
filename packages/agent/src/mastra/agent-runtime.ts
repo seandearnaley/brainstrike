@@ -505,6 +505,7 @@ function composeRuntimeInstructions(params: {
   planModeActive: boolean;
   provider: string;
   taskListNote: string | null;
+  toolDiscoveryEnabled: boolean;
   toolNameMap: ReadonlyMap<string, string>;
 }): { agentInstructions: CacheAwareInstructions; combinedText: string } {
   const resolvedInstructions =
@@ -513,6 +514,7 @@ function composeRuntimeInstructions(params: {
       ? buildLocalDefaultInstructions(params.toolNameMap)
       : buildDefaultInstructions(params.toolNameMap, {
           planMode: params.planModeActive,
+          toolDiscoveryEnabled: params.toolDiscoveryEnabled,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
         }));
   const stableText = [resolvedInstructions, params.budgetNote]
@@ -960,6 +962,7 @@ export async function createMastraAgentRuntime(
     planModeActive,
     provider: normalizedProvider,
     taskListNote,
+    toolDiscoveryEnabled: toolSearchProcessor !== undefined,
     toolNameMap: effectiveToolNameMap,
   });
 
