@@ -72,6 +72,20 @@ describe('guardToolExecution', () => {
     });
   });
 
+  it('bounds an oversized correctable input error before returning it to the model', async () => {
+    const tool = guardToolExecution(
+      makeTool(() => {
+        throw new ToolInputError(`Stale match. Current line: ${'x'.repeat(2_000_000)}`);
+      }),
+      { timeoutMs: 1000, toolName: 'brainstrike.lspInspect' }
+    );
+
+    const result = (await tool.execute({ context: {} })) as GuardedToolError;
+    expect(result.error.code).toBe('tool_input_invalid');
+    expect(result.error.message.length).toBeLessThanOrEqual(1000);
+    expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/);
+  });
+
   it('leaves a tool without an execute function untouched', () => {
     const noExec = { description: 'd', id: 'x' } as { id: string; description: string };
     expect(guardToolExecution(noExec, { timeoutMs: 1000, toolName: 'x' })).toBe(noExec);

@@ -51,6 +51,7 @@ describe('getWorkspaceRoots', () => {
 
 describe('resolveWorkspaceRoot', () => {
   it('throws a clear "no folder open" error when there are no roots', () => {
+    expect(() => resolveWorkspaceRoot(runtime())).toThrow(ToolInputError);
     expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/i);
   });
 

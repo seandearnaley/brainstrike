@@ -76,7 +76,7 @@ export function resolveWorkspaceRoot(
 ): RuntimeWorkspaceRoot {
   const roots = getWorkspaceRoots(runtimeData);
   if (roots.length === 0) {
-    throw new Error(
+    throw new ToolInputError(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }

@@ -7,6 +7,18 @@ export { isGuardedToolError } from '@brainstrike/assistant-contract';
 const GUARDED_TOOL_ERROR_MESSAGE = 'The tool did not complete successfully. Try another approach.';
 const GUARDED_TOOL_TIMEOUT_MESSAGE =
   'The tool timed out before returning a result. Try a smaller request or another approach.';
+const MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS = 1000;
+const TOOL_INPUT_ERROR_TRUNCATION_SUFFIX = '… [input error truncated]';
+
+function boundToolInputErrorMessage(message: string): string {
+  if (message.length <= MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS) {
+    return message;
+  }
+  return `${message.slice(
+    0,
+    MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS - TOOL_INPUT_ERROR_TRUNCATION_SUFFIX.length
+  )}${TOOL_INPUT_ERROR_TRUNCATION_SUFFIX}`;
+}
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;
@@ -66,7 +78,11 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       logger?.error('Tool execution failed', { error, toolName });
       if (error instanceof ToolInputError) {
         return {
-          error: { code: error.code, message: error.message, toolName },
+          error: {
+            code: error.code,
+            message: boundToolInputErrorMessage(error.message),
+            toolName,
+          },
           ok: false,
         };
       }
