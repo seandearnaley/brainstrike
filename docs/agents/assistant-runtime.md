@@ -137,6 +137,13 @@ projection callback receives the raw execute output. Brainstrike never
 shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
 object is valid domain evidence; a future direct AI SDK adapter belongs at a
 separately typed boundary.
+Mastra may replay a stored `providerMetadata.mastra.modelOutput` through the
+same tool projector while preparing a later same-run provider step. A
+purpose-built projector that emits a recognizable canonical envelope must
+therefore accept its own envelope idempotently, validate the same domain budget,
+and never reinterpret arbitrary lookalike domain objects. `grepSearch` pins this
+with the exact `{ type: 'text', value: 'grep …' }` replay that previously
+terminated a hosted Claude verification run.
 
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
