@@ -17,6 +17,7 @@ import {
   hasDotGitSegmentForTests,
   resetRipgrepAvailabilityForTests,
 } from '../../assistant-server/live-grep';
+import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 const queryMock = vi.fn();
 
@@ -101,6 +102,9 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     // lack rg) and both yield identical matches. The js-walk fallback is pinned
     // in its own dedicated test below; here we only assert the live pass ran.
     expect(result.liveEngine).not.toBe('skipped');
+    expect(projectGrepSearchModelOutput(result).value).toContain(
+      'read_args={"path":"src/fresh.ts"'
+    );
   });
 
   it('files mode: a fresh-only file is surveyed and labelled live', async () => {
@@ -114,6 +118,25 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     expect(result.files).toHaveLength(1);
     expect(result.files[0]?.path).toBe('a/only-on-disk.ts');
     expect(result.files[0]?.source).toBe('live');
+    expect(projectGrepSearchModelOutput(result).value).toContain('grep files | page=1-1/1');
+  });
+
+  it('projects the producer zero-match variant without inventing a fallback result', async () => {
+    const root = await makeWorkspace({ 'src/empty.ts': 'nothing relevant here\n' });
+    indexEmpty();
+
+    const result = await runGrepSearch({ pattern: 'ABSENT_TOKEN' }, singleRoot(root));
+
+    expect(result).toMatchObject({
+      files: [],
+      outputMode: 'files',
+      totalFiles: 0,
+      totalMatches: 0,
+      truncated: false,
+    });
+    expect(projectGrepSearchModelOutput(result).value).toContain(
+      'grep files | page=empty@offset=0/0'
+    );
   });
 });
 

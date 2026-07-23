@@ -108,6 +108,44 @@ describe('workspace search model projections', () => {
     );
   });
 
+  it('replays an already-projected grep result without treating it as malformed raw output', () => {
+    const raw = {
+      candidatesTruncated: false,
+      files: [
+        {
+          firstLine: 510,
+          matchCount: 1,
+          path: 'claude-haiku-proof.html',
+          rootId: 'root-a',
+          rootName: '12-bst757-hosted-create',
+          source: 'live',
+        },
+      ],
+      liveEngine: 'ripgrep',
+      offset: 0,
+      outputMode: 'files',
+      scanLimited: false,
+      totalFiles: 1,
+      totalMatches: 1,
+      truncated: false,
+    };
+    const storedModelOutput = projectGrepSearchModelOutput(raw);
+
+    expect(projectGrepSearchModelOutput(storedModelOutput)).toEqual(storedModelOutput);
+  });
+
+  it('does not accept an arbitrary lookalike object as a stored grep projection', () => {
+    expect(() =>
+      projectGrepSearchModelOutput({
+        candidatesTruncated: false,
+        type: 'text',
+        value: 'grep files | page=empty@offset=0/0',
+      })
+    ).toThrow(
+      'grepSearch model projection rejected liveEngine: expected "ripgrep", "js-walk", or "skipped", received undefined'
+    );
+  });
+
   it('collapses whitespace in unrooted path previews without inventing a root', () => {
     const projected = projectGrepSearchModelOutput({
       candidatesTruncated: false,
@@ -388,7 +426,9 @@ describe('workspace search model projections', () => {
         outputMode: 'files',
         totalFiles: 'unknown',
       })
-    ).toThrow('grepSearch model projection received a malformed result');
+    ).toThrow(
+      'grepSearch model projection rejected candidatesTruncated: expected boolean, received undefined'
+    );
 
     expect(() =>
       projectGlobWorkspaceModelOutput({
@@ -411,6 +451,8 @@ describe('workspace search model projections', () => {
         totalMatches: 1,
         truncated: true,
       })
-    ).toThrow('grepSearch model projection received a malformed result');
+    ).toThrow(
+      'grepSearch model projection rejected hint: expected string or absent, received number'
+    );
   });
 });

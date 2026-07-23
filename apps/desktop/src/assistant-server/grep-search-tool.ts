@@ -11,6 +11,16 @@ import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
+import {
+  type GrepContentToolResult,
+  type GrepFileSummary,
+  type GrepFilesToolResult,
+  type GrepMatchSource,
+  type GrepToolResult,
+  type LabeledGrepMatch,
+  type ModelFacingGrepMatch,
+  parseGrepToolResult,
+} from './grep-search-result-contract';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
@@ -25,22 +35,6 @@ export const GREP_SEARCH_TOOL_ID = NATIVE_TOOL_ID.grepSearch;
  *             as it is NOW, so just-edited / unindexed content shows up here.
  * - 'both'  — the same (path, line) was found by both passes (fresh + indexed).
  */
-export type GrepMatchSource = 'index' | 'live' | 'both';
-
-/** A grep match labelled with the engine(s) that produced it. */
-export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
-
-/**
- * The match shape returned to the MODEL. The chunk-locator fields
- * (`chunkId`/`chunkStartLine`/`chunkEndLine`) are inherited from the indexed
- * `GrepMatch` for internal merge/dedup, but the model never uses them — they are
- * stripped here so each match costs fewer tokens in the tool result.
- */
-export type ModelFacingGrepMatch = Omit<
-  LabeledGrepMatch,
-  'chunkId' | 'chunkStartLine' | 'chunkEndLine'
->;
-
 /** Drop the internal chunk-locator fields, keeping only model-facing data. */
 function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
   return {
@@ -63,58 +57,6 @@ const DEFAULT_CONTENT_MATCHES = 50;
  */
 const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
-
-export interface GrepFileSummary {
-  /** Line number of the first match in this file. */
-  firstLine: number;
-  /** Matches counted in this file (within the internal counting cap). */
-  matchCount: number;
-  path: string;
-  /** Owning workspace root id; null for legacy/unrooted files. */
-  rootId?: string | null;
-  /** Owning workspace root display name; null when unrooted. */
-  rootName?: string | null;
-  /**
-   * Which engine(s) contributed matches in this file: 'live' (fresh on disk),
-   * 'index' (from the possibly-stale index), or 'both'.
-   */
-  source: GrepMatchSource;
-}
-
-interface GrepToolResultBase {
-  /** Phase-1 candidate pool hit its limit — more files may contain matches. */
-  candidatesTruncated: boolean;
-  /** Actionable next step when the result was truncated. */
-  hint?: string;
-  /**
-   * The engine used for the LIVE (on-disk) pass: 'ripgrep', 'js-walk' (rg
-   * absent/failed), or 'skipped' (no live pass ran this call).
-   */
-  liveEngine: LiveGrepResult['engine'];
-  /** Non-silent note when the live pass degraded or hit a cap; omitted when clean. */
-  liveNote?: string;
-  offset: number;
-  /** Phase 1 ran without a trigram prefilter (regex had no extractable literal). */
-  scanLimited: boolean;
-  /** Unique (path, line) matches found (post-deduplication, pre-cap). */
-  totalMatches: number;
-  truncated: boolean;
-}
-
-export interface GrepFilesToolResult extends GrepToolResultBase {
-  files: GrepFileSummary[];
-  outputMode: 'files';
-  totalFiles: number;
-}
-
-export interface GrepContentToolResult extends GrepToolResultBase {
-  matches: ModelFacingGrepMatch[];
-  outputMode: 'content';
-  /** Chunks that matched but lack startLine metadata (cannot report path:line). */
-  skippedMissingLineMetadata: number;
-}
-
-export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
 /**
  * The merged (index + live) match set the result builders consume. Mirrors
@@ -540,9 +482,11 @@ export async function runGrepSearch(
 
     const merged = mergeGrepMatches(serviceResult, liveResult);
 
-    return outputMode === 'files'
-      ? buildFilesResult(merged, offset)
-      : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
+    return parseGrepToolResult(
+      outputMode === 'files'
+        ? buildFilesResult(merged, offset)
+        : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP)
+    );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
     const message = error instanceof Error ? error.message : String(error);
