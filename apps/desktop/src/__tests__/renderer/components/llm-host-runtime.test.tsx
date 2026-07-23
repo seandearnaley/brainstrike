@@ -344,6 +344,116 @@ describe('LlmHostRuntime', () => {
     ).not.toContain('engine was reset');
   });
 
+  it('releases the cancelled generation, reports idle, and accepts the next request', async () => {
+    let activeSignal: AbortSignal | undefined;
+    generateMock
+      .mockImplementationOnce(
+        (
+          _messages: unknown,
+          options: {
+            signal?: AbortSignal;
+          }
+        ) => {
+          activeSignal = options.signal;
+          return new Promise((_resolve, reject) => {
+            options.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+              { once: true }
+            );
+          });
+        }
+      )
+      .mockResolvedValueOnce({
+        finishReason: 'stop',
+        text: 'next request succeeded',
+        usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+      });
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        channel: 'llm',
+        payload: {
+          clientRequestId: 'client-cancel-release',
+          kind: 'generate',
+          messages: [{ content: 'stall', role: 'user' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        requestId: 'req-cancel-release',
+        runtimeId: 'test-runtime',
+        type: 'request',
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(generateMock).toHaveBeenCalledTimes(1);
+    });
+    expect(activeSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      requestListener({
+        channel: 'llm',
+        payload: { kind: 'cancel', requestId: 'req-cancel-release' },
+        requestId: 'cancel-release',
+        runtimeId: 'test-runtime',
+        type: 'request',
+      });
+      await Promise.resolve();
+    });
+
+    expect(activeSignal?.aborted).toBe(true);
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'req-cancel-release', type: 'error' })
+      );
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          active: false,
+          runtimeId: 'test-runtime',
+          state: 'running',
+        })
+      );
+    });
+
+    await act(async () => {
+      requestListener({
+        channel: 'llm',
+        payload: {
+          clientRequestId: 'client-after-cancel',
+          kind: 'generate',
+          messages: [{ content: 'retry', role: 'user' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        requestId: 'req-after-cancel',
+        runtimeId: 'test-runtime',
+        type: 'request',
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            result: expect.objectContaining({ text: 'next request succeeded' }),
+          }),
+          requestId: 'req-after-cancel',
+          type: 'result',
+        })
+      );
+    });
+    expect(generateMock).toHaveBeenCalledTimes(2);
+    expect(disposeMock).not.toHaveBeenCalled();
+  });
+
   it('does not reset the engine when an aborted generation surfaces a non-AbortError GPU fault', async () => {
     // Race: the user cancels mid-inference and the WebGPU teardown surfaces a
     // device-lost (engine-fault-SHAPED, NOT an AbortError) error. Recovery must

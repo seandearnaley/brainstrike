@@ -14,14 +14,21 @@ export class StreamStalledError extends Error {
  */
 export async function* withInactivityTimeout<T>(
   source: AsyncIterable<T>,
-  inactivityMs: number
+  inactivityMs: number,
+  onTimeout?: (error: StreamStalledError) => void
 ): AsyncIterableIterator<T> {
   const iterator = source[Symbol.asyncIterator]();
   try {
     while (true) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const watchdog = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new StreamStalledError(inactivityMs)), inactivityMs);
+        timer = setTimeout(() => {
+          const error = new StreamStalledError(inactivityMs);
+          // Settle the watchdog rejection first so aborting the source cannot
+          // win the Promise.race and disguise a real stall as normal EOF.
+          reject(error);
+          onTimeout?.(error);
+        }, inactivityMs);
         (timer as { unref?: () => void }).unref?.();
       });
       try {
