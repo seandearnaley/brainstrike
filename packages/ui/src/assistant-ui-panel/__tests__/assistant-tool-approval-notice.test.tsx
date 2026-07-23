@@ -224,3 +224,115 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(view.container.textContent).toContain(bigContent);
   });
 });
+
+describe('AssistantToolApprovalNotice execute command preview', () => {
+  it('renders the exact command with a visible default working directory', () => {
+    renderNotice({
+      ...baseRequest,
+      args: { command: 'pnpm test' },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    const preview = screen.getByTestId('approval-command-preview');
+    const code = screen.getByTestId('approval-command-code');
+
+    expect(preview.tagName).toBe('PRE');
+    expect(code.tagName).toBe('CODE');
+    expect(code.textContent).toBe('pnpm test');
+    expect(preview.className).toContain('select-text');
+    expect(preview.className).toContain('whitespace-pre-wrap');
+    expect(preview.className).toContain('[overflow-wrap:anywhere]');
+    expect(screen.getByText('Selected workspace root (default)')).toBeInTheDocument();
+    expect(screen.queryByTestId('approval-command-timeout')).toBeNull();
+  });
+
+  it('renders supplied cwd, root, and timeout without changing the command', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        command: 'pnpm --filter @brainstrike/ui test',
+        cwd: 'packages/ui',
+        root: 'brainstrike',
+        timeoutMs: 240_000,
+      },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-code').textContent).toBe(
+      'pnpm --filter @brainstrike/ui test'
+    );
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('packages/ui');
+    expect(screen.getByTestId('approval-command-root')).toHaveTextContent('brainstrike');
+    expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('240000 ms');
+    expect(screen.queryByText('Selected workspace root (default)')).toBeNull();
+  });
+
+  it('names the specified workspace root as the default cwd when root is supplied', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        command: 'pwd',
+        root: 'packages/web',
+      },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent(
+      'Specified workspace root (default)'
+    );
+    expect(screen.getByTestId('approval-command-root')).toHaveTextContent('packages/web');
+  });
+
+  it('preserves long multiline command whitespace in the wrapping preview', () => {
+    const command = `printf 'first line\\n'\n${'x'.repeat(2000)}\nprintf 'last line\\n'`;
+    renderNotice({
+      ...baseRequest,
+      args: { command },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-code').textContent).toBe(command);
+  });
+
+  it.each([
+    ['non-object args', 'pnpm test'],
+    ['a missing command', { cwd: 'packages/ui' }],
+    ['an empty command', { command: '' }],
+    ['an oversized command', { command: 'x'.repeat(10_001) }],
+    ['an invalid cwd', { command: 'pnpm test', cwd: 42 }],
+    ['an invalid root', { command: 'pnpm test', root: false }],
+    ['an invalid timeout', { command: 'pnpm test', timeoutMs: 0 }],
+    ['an unknown field', { command: 'pnpm test', shell: 'bash' }],
+  ])('keeps %s on the visible raw-arguments error path', (_caseName, args) => {
+    renderNotice({
+      ...baseRequest,
+      args,
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.queryByTestId('approval-command-preview')).toBeNull();
+    expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /expand tool approval details/i })
+    ).toBeInTheDocument();
+  });
+
+  it('renders the same command data for a rediscovered approval', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        command: 'pnpm build',
+        cwd: '/workspace',
+        timeoutMs: 600_000,
+      },
+      stale: true,
+      suspendedAt: '2026-07-22T00:00:00.000Z',
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-code').textContent).toBe('pnpm build');
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('/workspace');
+    expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('600000 ms');
+    expect(screen.getByText(/This approval has been pending a while/i)).toBeInTheDocument();
+  });
+});
