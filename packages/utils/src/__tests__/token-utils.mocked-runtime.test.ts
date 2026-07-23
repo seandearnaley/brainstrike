@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type MutableGlobals = Record<string, unknown>;
 interface MockFetchResponse {
   arrayBuffer: () => Promise<ArrayBuffer>;
+  json: () => Promise<unknown>;
   ok: boolean;
+  status: number;
 }
 
 const getGlobals = (): MutableGlobals => globalThis as MutableGlobals;
@@ -26,7 +28,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doUnmock('tiktoken');
     vi.doUnmock('tiktoken/lite/init');
     vi.doUnmock('tiktoken/lite/tiktoken_bg.wasm?url');
-    vi.doUnmock('tiktoken/encoders/o200k_base.json');
+    vi.doUnmock('tiktoken/encoders/o200k_base.json?url');
     vi.resetModules();
     vi.restoreAllMocks();
 
@@ -61,7 +63,13 @@ describe('Token Utilities mocked runtime coverage', () => {
     const fetchSpy = vi.fn(
       async (): Promise<MockFetchResponse> => ({
         arrayBuffer: async () => new ArrayBuffer(8),
+        json: async () => ({
+          bpe_ranks: 'mock-ranks',
+          pat_str: 'mock-pattern',
+          special_tokens: {},
+        }),
         ok: true,
+        status: 200,
       })
     );
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -83,12 +91,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
       default: './tiktoken_bg.wasm?url',
     }));
-    vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
-      default: {
-        bpe_ranks: 'mock-ranks',
-        pat_str: 'mock-pattern',
-        special_tokens: {},
-      },
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: './o200k_base.json?url',
     }));
 
     const { countTokensAccurate, supportsAccurateTokenCounting } = await import('../token-utils');
@@ -96,6 +100,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     await expect(supportsAccurateTokenCounting()).resolves.toBe(true);
     await expect(countTokensAccurate('mock')).resolves.toBe(4);
     expect(fetchSpy).toHaveBeenCalledWith('https://example.com/assets/tiktoken_bg.wasm');
+    expect(fetchSpy).toHaveBeenCalledWith('https://example.com/assets/o200k_base.json');
     expect(initSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -127,7 +132,13 @@ describe('Token Utilities mocked runtime coverage', () => {
     globalThis.fetch = vi.fn(
       async (): Promise<MockFetchResponse> => ({
         arrayBuffer: async () => new ArrayBuffer(8),
+        json: async () => ({
+          bpe_ranks: 'mock-ranks',
+          pat_str: 'mock-pattern',
+          special_tokens: {},
+        }),
         ok: true,
+        status: 200,
       })
     ) as unknown as typeof fetch;
 
@@ -137,12 +148,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
       default: './tiktoken_bg.wasm?url',
     }));
-    vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
-      default: {
-        bpe_ranks: 'mock-ranks',
-        pat_str: 'mock-pattern',
-        special_tokens: {},
-      },
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: './o200k_base.json?url',
     }));
 
     const { countTokensAccurate, countTokensHeuristic, supportsAccurateTokenCounting } =
@@ -162,7 +169,13 @@ describe('Token Utilities mocked runtime coverage', () => {
     globalThis.fetch = vi.fn(
       async (): Promise<MockFetchResponse> => ({
         arrayBuffer: async () => new ArrayBuffer(8),
+        json: async () => ({
+          bpe_ranks: 'mock-ranks',
+          pat_str: 'mock-pattern',
+          special_tokens: {},
+        }),
         ok: true,
+        status: 200,
       })
     ) as unknown as typeof fetch;
 
@@ -177,12 +190,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
       default: 42,
     }));
-    vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
-      default: {
-        bpe_ranks: 'mock-ranks',
-        pat_str: 'mock-pattern',
-        special_tokens: {},
-      },
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: './o200k_base.json?url',
     }));
 
     const { countTokensAccurate, countTokensHeuristic, supportsAccurateTokenCounting } =

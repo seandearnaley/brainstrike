@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 const BROWSER_INIT_SPECIFIER = 'tiktoken/lite/init';
 const BROWSER_WASM_SPECIFIER = 'tiktoken/lite/tiktoken_bg.wasm?url';
-const BROWSER_ENCODER_SPECIFIER = 'tiktoken/encoders/o200k_base.json';
+const BROWSER_ENCODER_SPECIFIER = 'tiktoken/encoders/o200k_base.json?url';
 
 const importModule = async () => import('../token-utils-accurate-lite');
 
@@ -91,7 +91,13 @@ describe('token-utils-accurate-lite', () => {
     const init = vi.fn(async () => {});
     const fetchMock = vi.fn(async (url: string) => ({
       arrayBuffer: async () => new TextEncoder().encode(url).buffer,
+      json: async () => ({
+        bpe_ranks: 'ranks',
+        pat_str: 'pattern',
+        special_tokens: { '<|endoftext|>': 1 },
+      }),
       ok: true,
+      status: 200,
     }));
 
     mockBrowserGlobals();
@@ -115,11 +121,7 @@ describe('token-utils-accurate-lite', () => {
       default: './assets/tiktoken_bg.wasm?url',
     }));
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
-      default: {
-        bpe_ranks: 'ranks',
-        pat_str: 'pattern',
-        special_tokens: { '<|endoftext|>': 1 },
-      },
+      default: './assets/o200k_base.json?url',
     }));
 
     const module = await importModule();
@@ -127,6 +129,7 @@ describe('token-utils-accurate-lite', () => {
     await expect(module.supportsAccurateTokenCounting()).resolves.toBe(true);
     await expect(module.countTokensAccurate('browser-runtime')).resolves.toBe(8);
     expect(fetchMock).toHaveBeenCalledWith('https://example.com/app/assets/tiktoken_bg.wasm');
+    expect(fetchMock).toHaveBeenCalledWith('https://example.com/app/assets/o200k_base.json');
     expect(init).toHaveBeenCalledTimes(1);
 
     module.disposeAccurateTokenCountingRuntime();
@@ -136,15 +139,27 @@ describe('token-utils-accurate-lite', () => {
     });
   });
 
-  it('decodes browser data URLs without fetch', async () => {
+  it('decodes browser wasm data URLs without fetching the wasm asset', async () => {
     const atobMock = vi.fn(() => '\u0000\u0001\u0002');
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url !== 'https://example.com/app/assets/o200k_base.json') {
+        throw new Error(`unexpected fetch: ${url}`);
+      }
+
+      return {
+        json: async () => ({
+          bpe_ranks: 'ranks',
+          pat_str: 'pattern',
+          special_tokens: { '<|endoftext|>': 1 },
+        }),
+        ok: true,
+        status: 200,
+      };
+    });
 
     mockBrowserGlobals();
     vi.stubGlobal('atob', atobMock);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => Promise.reject(new Error('should not fetch')))
-    );
+    vi.stubGlobal('fetch', fetchMock);
 
     vi.doMock(BROWSER_INIT_SPECIFIER, () => ({
       init: async () => {},
@@ -162,17 +177,16 @@ describe('token-utils-accurate-lite', () => {
       default: 'data:application/wasm;base64,AAEC',
     }));
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
-      default: {
-        bpe_ranks: 'ranks',
-        pat_str: 'pattern',
-        special_tokens: { '<|endoftext|>': 1 },
-      },
+      default: './assets/o200k_base.json?url',
     }));
 
     const module = await importModule();
 
     await expect(module.countTokensAccurate('data-url')).resolves.toBe(8);
     expect(atobMock).toHaveBeenCalledWith('AAEC');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/app/assets/o200k_base.json'
+    );
   });
 
   it('reports browser initialization failures when fetch is unavailable', async () => {
@@ -197,11 +211,7 @@ describe('token-utils-accurate-lite', () => {
       default: './assets/tiktoken_bg.wasm?url',
     }));
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
-      default: {
-        bpe_ranks: 'ranks',
-        pat_str: 'pattern',
-        special_tokens: { '<|endoftext|>': 1 },
-      },
+      default: './assets/o200k_base.json?url',
     }));
 
     const module = await importModule();

@@ -31,6 +31,12 @@ const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
 
 describe('desktop vite config alias contract', () => {
+  it('keeps the documented production chunk warning ceiling', () => {
+    const config = readDesktopViteConfig();
+
+    expect(config).toContain('chunkSizeWarningLimit: 1300');
+  });
+
   it('spreads the shared workspace-src-alias registry', () => {
     const config = readDesktopViteConfig();
 

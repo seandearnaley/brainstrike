@@ -31,6 +31,12 @@ function readFileExplorerTsupConfig(): string {
 const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
 
 describe('web vite config alias contract', () => {
+  it('keeps the documented production chunk warning ceiling', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toContain('chunkSizeWarningLimit: 1300');
+  });
+
   it('delegates assistant API requests to the bounded Node middleware', () => {
     const config = readWebViteConfig();
 
