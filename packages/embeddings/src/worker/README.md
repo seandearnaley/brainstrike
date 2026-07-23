@@ -2,7 +2,7 @@
 
 ## Ownership
 
-Owns renderer-only embedding queue processing. The worker lifecycle module starts and stops queue polling, coordinates leases, loads chunks, writes vectors, and delegates focused responsibilities to worker-local modules.
+Owns renderer-only embedding queue processing. The worker lifecycle module starts and stops queue polling, enforces one in-flight claim budget across every runtime loop, coordinates leases, loads chunks, writes vectors, and delegates focused responsibilities to worker-local modules.
 
 Current owned modules:
 - `embedding-worker.ts` - lifecycle and queue processing composition.

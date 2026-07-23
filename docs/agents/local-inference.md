@@ -40,6 +40,11 @@ Flow:
    - File: packages/db/src/queue/job-queue.ts
    - Backed by job_queue table.
    - Lease-based locking, retries, dedupe, failure tracking.
+   - `startEmbeddingWorker` applies one runtime-wide in-flight budget across all
+     polling loops before `claimMany`. The default ceiling is `claimBatchSize`;
+     `maxInFlightJobs` may override it with another positive value. Slots are
+     released only after the corresponding completion/failure write, or during
+     explicit cleanup after a lost lease or interrupted batch.
 
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
@@ -216,5 +221,4 @@ Constraints:
 - If you change the local host lifecycle, preload bridge, or availability gating, update this section and the relevant tests.
 
 ---
-
 

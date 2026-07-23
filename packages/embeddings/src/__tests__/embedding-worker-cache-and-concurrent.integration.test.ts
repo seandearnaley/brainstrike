@@ -525,15 +525,21 @@ describe('embedding-worker: concurrent access patterns', () => {
     await controller.stop();
   });
 
-  it('caps the number of running jobs to the configured claim batch size', async () => {
+  it('caps running jobs to one runtime-wide budget across concurrent loops', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'claim-cap-set';
     const modelId = 'jinaai/jina-embeddings-v2-base-code';
     const modelKey = `local::${modelId}`;
+    const claimPermitBarrier = deferred<void>();
+    const inferenceRelease = deferred<void>();
+    let waitingClaimLoops = 0;
 
-    class SlowBatchService extends FakeEmbeddingService {
+    class BlockedBatchService extends FakeEmbeddingService {
+      startedCount = 0;
+
       override async generateEmbedding(text: string): Promise<EmbeddingResult> {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        this.startedCount += 1;
+        await inferenceRelease.promise;
         return await super.generateEmbedding(text);
       }
     }
@@ -586,45 +592,52 @@ describe('embedding-worker: concurrent access patterns', () => {
       );
     }
 
+    const service = new BlockedBatchService();
     const controller = await startEmbeddingWorker({
       claimBatchSize: 2,
-      concurrency: 1,
+      concurrency: 3,
       db: db as unknown as IDatabase,
       leaseMs: 5000,
       log: () => {},
       modelKey,
-      service: new SlowBatchService(),
+      service,
+      waitForBackgroundPermit: async () => {
+        waitingClaimLoops += 1;
+        if (waitingClaimLoops === 3) {
+          claimPermitBarrier.resolve();
+        }
+        await claimPermitBarrier.promise;
+      },
     });
 
-    await waitFor(async () => {
-      const res = await db.query(
+    try {
+      await waitFor(async () => service.startedCount >= 2, 10_000);
+
+      const runningRes = await db.query(
         `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'running'`
       );
-      const row = res.rows[0] as { count: number } | undefined;
-      return Number(row?.count ?? 0) === 2;
-    }, 10_000);
-
-    const runningRes = await db.query(
-      `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'running'`
-    );
-    const queuedRes = await db.query(
-      `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'queued'`
-    );
-    const runningRow = runningRes.rows[0] as { count: number } | undefined;
-    const queuedRow = queuedRes.rows[0] as { count: number } | undefined;
-
-    expect(Number(runningRow?.count ?? 0)).toBe(2);
-    expect(Number(queuedRow?.count ?? 0)).toBeGreaterThan(0);
-
-    await waitFor(async () => {
-      const res = await db.query(
-        `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'succeeded'`
+      const queuedRes = await db.query(
+        `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'queued'`
       );
-      const row = res.rows[0] as { count: number } | undefined;
-      return Number(row?.count ?? 0) === 6;
-    }, 15_000);
+      const runningRow = runningRes.rows[0] as { count: number } | undefined;
+      const queuedRow = queuedRes.rows[0] as { count: number } | undefined;
 
-    await controller.stop();
+      expect(Number(runningRow?.count ?? 0)).toBe(2);
+      expect(Number(queuedRow?.count ?? 0)).toBe(4);
+
+      inferenceRelease.resolve();
+
+      await waitFor(async () => {
+        const res = await db.query(
+          `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'succeeded'`
+        );
+        const row = res.rows[0] as { count: number } | undefined;
+        return Number(row?.count ?? 0) === 6;
+      }, 15_000);
+    } finally {
+      inferenceRelease.resolve();
+      await controller.stop();
+    }
   });
 
   it('handles multiple workers claiming different jobs (lease contention)', async () => {

@@ -103,6 +103,11 @@ export interface EmbeddingWorkerOptions {
   interBatchDelayMs?: number;
   leaseMs?: number;
   log?: (msg: string, meta?: unknown) => void;
+  /**
+   * Runtime-wide ceiling for claimed jobs awaiting a completion or failure write.
+   * Raise this with `concurrency` when additional loops should increase in-flight work.
+   */
+  maxInFlightJobs?: number;
   maxPendingCompletionBatches?: number;
   maxPendingCompletionBytes?: number;
   maxPendingCompletionChunks?: number;
@@ -320,6 +325,11 @@ export async function startEmbeddingWorker(
     DEFAULT_CLAIM_BATCH_SIZE,
     'claimBatchSize'
   );
+  const maxInFlightJobs = resolvePositiveIntegerOption(
+    options.maxInFlightJobs,
+    claimBatchSize,
+    'maxInFlightJobs'
+  );
   const maxPendingCompletionBatches = resolvePositiveIntegerOption(
     options.maxPendingCompletionBatches,
     2,
@@ -421,6 +431,44 @@ export async function startEmbeddingWorker(
 
   const jq = new JobQueue(options.db);
   let running = true;
+  let inFlightJobs = 0;
+  const inFlightBudgetWaiters = new Set<() => void>();
+
+  function notifyInFlightBudgetWaiters(): void {
+    for (const resolve of inFlightBudgetWaiters) {
+      resolve();
+    }
+    inFlightBudgetWaiters.clear();
+  }
+
+  function reserveInFlightJobs(requested: number): number {
+    const available = Math.max(0, maxInFlightJobs - inFlightJobs);
+    const reserved = Math.min(requested, available);
+    inFlightJobs += reserved;
+    return reserved;
+  }
+
+  function releaseInFlightJobs(count: number): void {
+    if (count === 0) {
+      return;
+    }
+    if (count < 0 || count > inFlightJobs) {
+      throw new Error(
+        `Invalid embedding in-flight budget release: ${count} with ${inFlightJobs} reserved.`
+      );
+    }
+    inFlightJobs -= count;
+    notifyInFlightBudgetWaiters();
+  }
+
+  async function waitForInFlightBudget(): Promise<void> {
+    if (!running || inFlightJobs < maxInFlightJobs) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      inFlightBudgetWaiters.add(resolve);
+    });
+  }
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
     await options.waitForBackgroundPermit?.({ label });
@@ -513,6 +561,7 @@ export async function startEmbeddingWorker(
     }
     fatalWorkerError = error;
     running = false;
+    notifyInFlightBudgetWaiters();
     reportWorkerActivity(false);
     workerLogger.error('Stopping embedding worker after fatal local model error', {
       error: error.message,
@@ -902,7 +951,11 @@ export async function startEmbeddingWorker(
     return setDimension;
   }
 
-  async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+  async function handleBatchFailure(
+    jobs: ClaimedJob[],
+    error: unknown,
+    onJobsFailed?: (jobIds: Set<string>) => void
+  ) {
     // LOG THE ERROR so we can see what's happening
     workerLogger.error('handleBatchFailure: Job(s) failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -920,6 +973,7 @@ export async function startEmbeddingWorker(
       terminal: isTerminal,
       ...(backoffMs === undefined ? {} : { backoffMs }),
     });
+    onJobsFailed?.(new Set(jobs.map((job) => job.id)));
 
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
@@ -1489,12 +1543,13 @@ export async function startEmbeddingWorker(
     jobs: ClaimedJob[],
     jobModel: EmbeddingJobModel,
     checkLease: () => boolean,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => void
   ) {
     const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, jobModel, {
       db: options.db,
       failOrphanJobs: async (orphanJobs, error) => {
         await jq.failBatch({ error, jobs: orphanJobs, terminal: true });
+        onJobsSettled?.(new Set(orphanJobs.map((job) => job.id)));
       },
       fileChunkIdType,
       hashExpectedEmbedding: sha256Hex,
@@ -1508,7 +1563,7 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
 
-      await markAlreadyCompleted(completed, completedJobIds, onJobsCompleted);
+      await markAlreadyCompleted(completed, completedJobIds, onJobsSettled);
 
       if (toProcess.length === 0) {
         return;
@@ -1527,7 +1582,7 @@ export async function startEmbeddingWorker(
           expectedDimension,
           completedJobIds,
           checkLease,
-          onJobsCompleted
+          onJobsSettled
         );
       } else {
         const embeddings = await runWithWorkerActivity(async () =>
@@ -1538,7 +1593,7 @@ export async function startEmbeddingWorker(
           throw new Error('Lease lost during processing');
         }
 
-        await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
+        await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsSettled);
         await maybeReinitialize();
       }
     } catch (err) {
@@ -1597,7 +1652,10 @@ export async function startEmbeddingWorker(
     }
   }
 
-  async function resolveGroupJobModelOrFail(jobs: ClaimedJob[]): Promise<EmbeddingJobModel | null> {
+  async function resolveGroupJobModelOrFail(
+    jobs: ClaimedJob[],
+    onJobsSettled?: (jobIds: Set<string>) => void
+  ): Promise<EmbeddingJobModel | null> {
     const firstJob = jobs[0];
     if (!firstJob) {
       return null;
@@ -1606,7 +1664,7 @@ export async function startEmbeddingWorker(
       const payload = assertEmbedChunkJob(firstJob);
       return resolveJobModel(payload);
     } catch (err) {
-      await handleBatchFailure(jobs, err);
+      await handleBatchFailure(jobs, err, onJobsSettled);
       return null;
     }
   }
@@ -1643,29 +1701,30 @@ export async function startEmbeddingWorker(
   async function handleGroupError(
     error: unknown,
     jobs: ClaimedJob[],
-    checkLease: () => boolean
+    checkLease: () => boolean,
+    onJobsSettled?: (jobIds: Set<string>) => void
   ): Promise<void> {
     if (checkLease()) {
       workerLogger.warn('Aborting batch processing due to lost lease');
       return;
     }
     if (error instanceof JobProcessingError) {
-      await handleBatchFailure(error.remainingJobs, error.originalError ?? error);
+      await handleBatchFailure(error.remainingJobs, error.originalError ?? error, onJobsSettled);
       return;
     }
-    await handleBatchFailure(jobs, error);
+    await handleBatchFailure(jobs, error, onJobsSettled);
   }
 
   async function processGroup(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => void
   ): Promise<void> {
     if (jobs.length === 0) {
       return;
     }
 
-    const jobModel = await resolveGroupJobModelOrFail(jobs);
+    const jobModel = await resolveGroupJobModelOrFail(jobs, onJobsSettled);
     if (!jobModel) {
       return;
     }
@@ -1673,20 +1732,27 @@ export async function startEmbeddingWorker(
     const lease = createLeaseTracker(jobs, checkLeaseOverride);
     const markJobsCompleted = (jobIds: Set<string>) => {
       lease.markCompleted(jobIds);
-      onJobsCompleted?.(jobIds);
+      onJobsSettled?.(jobIds);
     };
 
     try {
       await processJobGroup(jobs, jobModel, lease.checkLease, markJobsCompleted);
     } catch (error) {
-      await handleGroupError(error, jobs, lease.checkLease);
+      await handleGroupError(error, jobs, lease.checkLease, onJobsSettled);
     } finally {
       lease.dispose();
     }
   }
 
-  function groupJobs(jobs: ClaimedJob[]): Map<string, ClaimedJob[]> {
+  function groupJobs(
+    jobs: ClaimedJob[],
+    onJobsSettled?: (jobIds: Set<string>) => void
+  ): {
+    failureWrites: Promise<void>[];
+    groups: Map<string, ClaimedJob[]>;
+  } {
     const groups = new Map<string, ClaimedJob[]>();
+    const failureWrites: Promise<void>[] = [];
     for (const job of jobs) {
       try {
         const payload = assertEmbedChunkJob(job);
@@ -1698,25 +1764,41 @@ export async function startEmbeddingWorker(
         groups.get(key)?.push(job);
       } catch (err) {
         // If we can't parse job/model, fail it immediately
-        jq.fail({
-          error: err instanceof Error ? err.message : String(err),
-          id: job.id,
-          leaseToken: job.lease_token,
-        }).catch((e: unknown) => workerLogger.error('Failed to fail job', { error: e }));
+        failureWrites.push(
+          jq
+            .fail({
+              error: err instanceof Error ? err.message : String(err),
+              id: job.id,
+              leaseToken: job.lease_token,
+            })
+            .then(() => {
+              onJobsSettled?.(new Set([job.id]));
+            })
+            .catch((error: unknown) => {
+              workerLogger.error('Failed to fail job', { error });
+            })
+        );
         metrics.jobsFailed += 1;
       }
     }
-    return groups;
+    return { failureWrites, groups };
   }
 
-  async function processClaimedJobs(jobs: ClaimedJob[]) {
+  async function processClaimedJobs(
+    jobs: ClaimedJob[],
+    onJobsSettled?: (jobIds: Set<string>) => void
+  ) {
     const leaseLost = new Set<string>();
     const batchHeartbeat = startHeartbeat(jobs, (job) => {
       leaseLost.add(job.id);
     });
+    const markJobsSettled = (jobIds: Set<string>) => {
+      batchHeartbeat.markCompleted(jobIds);
+      onJobsSettled?.(jobIds);
+    };
 
     try {
-      const groups = groupJobs(jobs);
+      const { failureWrites, groups } = groupJobs(jobs, markJobsSettled);
       for (const group of groups.values()) {
         const checkLease = () => group.some((job) => leaseLost.has(job.id));
         if (checkLease()) {
@@ -1725,10 +1807,9 @@ export async function startEmbeddingWorker(
           });
           continue;
         }
-        await processGroup(group, checkLease, (jobIds) => {
-          batchHeartbeat.markCompleted(jobIds);
-        });
+        await processGroup(group, checkLease, markJobsSettled);
       }
+      await Promise.all(failureWrites);
     } finally {
       batchHeartbeat.stop();
     }
@@ -1780,20 +1861,39 @@ export async function startEmbeddingWorker(
 
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
+    let heldInFlightSlots = 0;
     try {
+      await waitForInFlightBudget();
+      if (!running) {
+        return;
+      }
       await waitForBackgroundPermit('embedding claim');
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
       if (effectiveClaimBatchSize === null) {
         await sleep(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS);
         return;
       }
+      heldInFlightSlots = reserveInFlightJobs(effectiveClaimBatchSize);
+      if (heldInFlightSlots === 0) {
+        await waitForInFlightBudget();
+        return;
+      }
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         leaseMs,
-        limit: effectiveClaimBatchSize,
+        limit: heldInFlightSlots,
         queue: queueName,
         workerId,
       })) as ClaimedJob[];
+      if (jobs.length > heldInFlightSlots) {
+        throw new Error(
+          `Embedding queue claimed ${jobs.length} jobs for ${heldInFlightSlots} reserved in-flight slots.`
+        );
+      }
+
+      const unusedSlots = heldInFlightSlots - jobs.length;
+      releaseInFlightJobs(unusedSlots);
+      heldInFlightSlots -= unusedSlots;
 
       if (jobs.length === 0) {
         await handleIdleBatch();
@@ -1801,7 +1901,17 @@ export async function startEmbeddingWorker(
       }
 
       resetIdleBackoff();
-      await processClaimedJobs(jobs);
+      const unsettledJobIds = new Set(jobs.map((job) => job.id));
+      await processClaimedJobs(jobs, (jobIds) => {
+        let releasedCount = 0;
+        for (const jobId of jobIds) {
+          if (unsettledJobIds.delete(jobId)) {
+            releasedCount += 1;
+          }
+        }
+        releaseInFlightJobs(releasedCount);
+        heldInFlightSlots -= releasedCount;
+      });
 
       // Yield between batches to let V8/GC and the foreground renderer breathe
       // under sustained background embedding load.
@@ -1816,6 +1926,7 @@ export async function startEmbeddingWorker(
       workerLogger.error('Critical worker error in processBatch', { error: err });
       await sleep(1000);
     } finally {
+      releaseInFlightJobs(heldInFlightSlots);
       metrics.totalDurationMs += performance.now() - batchStart;
     }
   }
@@ -1846,7 +1957,9 @@ export async function startEmbeddingWorker(
         effectiveClaimBatchSize: lastClaimBatchSize,
         effectiveClaimBatchSizeError: lastClaimBatchSizeError,
         failed: metrics.jobsFailed,
+        inFlightJobs,
         interBatchDelayMs,
+        maxInFlightJobs,
         modelKey: activeCompositeKey,
         processed: metrics.jobsProcessed,
         queue: queueName,
@@ -1859,6 +1972,7 @@ export async function startEmbeddingWorker(
   return {
     stop: async () => {
       running = false;
+      notifyInFlightBudgetWaiters();
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
       try {
