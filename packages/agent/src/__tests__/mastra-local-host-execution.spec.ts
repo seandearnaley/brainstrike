@@ -19,7 +19,7 @@
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { streamMastraAgent } from '../mastra/agent-runtime';
+import { streamMastraAgent } from '../mastra/agent-streaming';
 import type {
   LocalLlmHostClient,
   LocalLlmHostGenerateRequest,

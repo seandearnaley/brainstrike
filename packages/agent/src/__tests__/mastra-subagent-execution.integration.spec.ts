@@ -40,7 +40,8 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+const { streamMastraAgent } = await import('../mastra/agent-streaming');
+const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 
 const OM_DISABLED_MEMORY_SETTINGS = {

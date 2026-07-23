@@ -47,7 +47,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { streamMastraAgent } = await import('../mastra/agent-runtime');
+const { streamMastraAgent } = await import('../mastra/agent-streaming');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 

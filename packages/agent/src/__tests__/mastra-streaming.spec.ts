@@ -2,12 +2,12 @@ import { ReadableStream } from 'node:stream/web';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import {
-  createMastraAgentRuntime,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
-} from '../mastra/agent-runtime';
+} from '../mastra/agent-streaming';
 import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 

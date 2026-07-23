@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { assertAssistantMessageGraphWithinLimits } from './assistant-message-boundary';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
-import { streamMastraAgent } from './mastra/agent-runtime';
+import { streamMastraAgent } from './mastra/agent-streaming';
 import { createRandomId } from './stream/data-stream';
 import type {
   AgentMessage,

@@ -20,9 +20,10 @@ const { streamMastraAgentMock } = vi.hoisted(() => ({
   streamMastraAgentMock: vi.fn(),
 }));
 
-vi.mock('../mastra/agent-runtime', async () => {
-  const actual =
-    await vi.importActual<typeof import('../mastra/agent-runtime')>('../mastra/agent-runtime');
+vi.mock('../mastra/agent-streaming', async () => {
+  const actual = await vi.importActual<typeof import('../mastra/agent-streaming')>(
+    '../mastra/agent-streaming'
+  );
   return {
     ...actual,
     streamMastraAgent: streamMastraAgentMock,

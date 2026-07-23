@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { streamMastraAgent } from '../mastra/agent-runtime';
+import { streamMastraAgent } from '../mastra/agent-streaming';
 import type { StreamChunk } from '../types';
 
 /**

@@ -58,7 +58,7 @@ vi.mock('../mastra/subagent-delegation', async (importActual) => {
 });
 
 const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
-  await import('../mastra/agent-runtime');
+  await import('../mastra/agent-streaming');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
