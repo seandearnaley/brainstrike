@@ -522,8 +522,16 @@ Flow (desktop assistant server → agent runtime):
 4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
-   prompts the user; approve→execute, decline→skip. Alongside Approve/Decline
-   the notice offers GRANT actions when (a) a `ToolApprovalGrantProvider`
+   prompts the user; approve→execute, decline→skip. Valid
+   `brainstrike.executeCommand` arguments render as a selectable,
+   whitespace-preserving command block plus the supplied working directory,
+   workspace root, and timeout (an omitted working directory is labeled as the
+   selected-workspace default). Its local guard mirrors the strict agent
+   schema, including unknown-key rejection; malformed arguments show the
+   existing visible preview error and unmodified raw arguments rather than a
+   guessed command. Live and rediscovered approvals share this component.
+   Alongside Approve/Decline the notice offers GRANT actions when (a) a
+   `ToolApprovalGrantProvider`
    is mounted above it (app-shell wraps the panel, same outside-in pattern as
    `EditCheckpointProvider`; no provider → no buttons, capability gating) and
    (b) the approval carries a valid `riskCategory` (policy-driven ask —

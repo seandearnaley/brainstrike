@@ -39,13 +39,15 @@ const logger = createLogger('AssistantToolApprovalNotice');
 export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
 
 /**
- * Registered ids of the two file-mutating tools whose approval cards render a
- * real code preview instead of raw JSON. These are the sanitized-name-resolved
- * ids the approval chunk carries (see `makeApprovalRequiredChunks` in the agent
- * runtime), NOT the model-facing names.
+ * Registered ids of tools whose approval cards render a structured preview
+ * instead of raw JSON. These are the sanitized-name-resolved ids the approval
+ * chunk carries (see `makeApprovalRequiredChunks` in the agent runtime), NOT
+ * the model-facing names.
  */
+const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
 const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
+const EXECUTE_COMMAND_ARG_KEYS = new Set(['command', 'cwd', 'root', 'timeoutMs']);
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -66,6 +68,54 @@ interface WriteFileApprovalArgs {
   content: string;
   path: string;
   root?: string;
+}
+
+interface ExecuteCommandApprovalArgs {
+  command: string;
+  cwd?: string;
+  root?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Structural guard mirroring the strict agent-package `ExecuteCommandInput`
+ * schema. The command preview is security-sensitive, so this validates every
+ * field and rejects unknown keys instead of guessing what will execute.
+ */
+function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (Object.keys(value).some((key) => !EXECUTE_COMMAND_ARG_KEYS.has(key))) {
+    return null;
+  }
+
+  const { command, cwd, root, timeoutMs } = value;
+  if (typeof command !== 'string' || command.length === 0 || command.length > 10_000) {
+    return null;
+  }
+  if (cwd !== undefined && typeof cwd !== 'string') {
+    return null;
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return null;
+  }
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 600_000)
+  ) {
+    return null;
+  }
+
+  return {
+    command,
+    ...(typeof cwd === 'string' ? { cwd } : {}),
+    ...(typeof root === 'string' ? { root } : {}),
+    ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+  };
 }
 
 /**
@@ -129,6 +179,55 @@ function PreviewParseError() {
   );
 }
 
+function ExecuteCommandPreview({ args }: { args: unknown }) {
+  const parsed = narrowExecuteCommandArgs(args);
+  if (!parsed) {
+    return <PreviewParseError />;
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="font-medium text-foreground/90 text-xs">Command</p>
+      <pre
+        className="mt-1.5 max-w-full select-text overflow-x-hidden whitespace-pre-wrap rounded-md border border-border bg-muted/60 p-3 font-mono text-xs leading-5 [overflow-wrap:anywhere]"
+        data-testid="approval-command-preview"
+      >
+        <code data-testid="approval-command-code">{parsed.command}</code>
+      </pre>
+      <dl className="mt-2 space-y-1 text-xs">
+        <div className="flex min-w-0 gap-2">
+          <dt className="shrink-0 text-muted-foreground">Working directory</dt>
+          <dd
+            className="min-w-0 break-words font-mono text-foreground/90 [overflow-wrap:anywhere]"
+            data-testid="approval-command-cwd"
+          >
+            {parsed.cwd ?? 'Selected workspace root (default)'}
+          </dd>
+        </div>
+        {parsed.root ? (
+          <div className="flex min-w-0 gap-2">
+            <dt className="shrink-0 text-muted-foreground">Workspace</dt>
+            <dd
+              className="min-w-0 break-words font-mono text-foreground/90 [overflow-wrap:anywhere]"
+              data-testid="approval-command-root"
+            >
+              {parsed.root}
+            </dd>
+          </div>
+        ) : null}
+        {parsed.timeoutMs === undefined ? null : (
+          <div className="flex min-w-0 gap-2">
+            <dt className="shrink-0 text-muted-foreground">Timeout</dt>
+            <dd className="font-mono text-foreground/90" data-testid="approval-command-timeout">
+              {parsed.timeoutMs} ms
+            </dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
+
 interface TruncatedPreviewText {
   readonly shownChars: number;
   readonly text: string;
@@ -183,12 +282,17 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
 }
 
 /**
- * File-mutating approvals render a real code preview: `stringReplace` → a
- * side-by-side/unified diff of `oldStr` → `newStr`; `write` → a
- * syntax-highlighted full-file preview. Every other tool (and any file-tool
- * whose args fail narrowing) renders `null` here and keeps the raw-JSON view.
+ * Mutating approvals render a structured preview: `executeCommand` → the exact
+ * command and execution context; `stringReplace` → a side-by-side/unified diff
+ * of `oldStr` → `newStr`; `write` → a syntax-highlighted full-file preview.
+ * Every other tool renders `null`. Known preview tools whose args fail strict
+ * narrowing show a visible parse error and keep the raw-JSON view.
  */
 function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }) {
+  if (toolName === EXECUTE_COMMAND_TOOL_ID) {
+    return <ExecuteCommandPreview args={args} />;
+  }
+
   if (toolName === STRING_REPLACE_TOOL_ID) {
     const parsed = narrowStringReplaceArgs(args);
     if (!parsed) {
