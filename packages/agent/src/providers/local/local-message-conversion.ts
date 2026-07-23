@@ -13,6 +13,7 @@ import type {
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import { generateUUID } from '@brainstrike/utils';
+import { normalizeLocalToolCalls } from './local-tool-call-validation';
 import type {
   LocalLlmGenerationResult,
   LocalLlmJsonSchema,
@@ -351,15 +352,13 @@ export function buildV2ContentFromResult(
     content.push({ text: result.text, type: 'text' });
   }
 
-  if (result.toolCalls) {
-    for (const toolCall of result.toolCalls) {
-      content.push({
-        input: toolCall.function.arguments,
-        toolCallId: toolCall.id,
-        toolName: toolCall.function.name,
-        type: 'tool-call',
-      });
-    }
+  for (const toolCall of normalizeLocalToolCalls(result.toolCalls)) {
+    content.push({
+      input: toolCall.function.arguments,
+      toolCallId: toolCall.id,
+      toolName: toolCall.function.name,
+      type: 'tool-call',
+    });
   }
 
   return content;

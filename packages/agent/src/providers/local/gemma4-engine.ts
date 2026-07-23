@@ -4,6 +4,7 @@ import {
   resolveLocalArtifactRemotePathTemplate,
 } from './local-artifact-store';
 import type { LocalLlmModelSpec } from './local-model-specs';
+import { normalizeLocalToolCallArguments } from './local-tool-call-validation';
 import type {
   LocalLlmGenerationOptions,
   LocalLlmMessage,
@@ -739,16 +740,7 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
       const normalizedArgumentsText = extractedArgumentsText.replace(/<\|"\|>/g, '"');
       const normalizedQuotedArgumentsText = quoteUnquotedJsonKeys(normalizedArgumentsText);
 
-      let argumentsText = normalizedQuotedArgumentsText;
-      try {
-        argumentsText = JSON.stringify(JSON.parse(normalizedQuotedArgumentsText) as unknown);
-      } catch (error) {
-        logger.warn('Gemma tool call arguments could not be normalized as JSON', {
-          error: error instanceof Error ? error.message : String(error),
-          functionName,
-          normalizedArgumentsText: normalizedQuotedArgumentsText,
-        });
-      }
+      const argumentsText = normalizeLocalToolCallArguments(normalizedQuotedArgumentsText);
 
       toolCalls.push({
         function: {

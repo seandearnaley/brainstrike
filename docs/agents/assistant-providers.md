@@ -47,6 +47,12 @@
     llm-host. The built-in local model is also selectable as the observational
     memory model and local embedders as the semantic recall embedder — all
     keyless. See LOCAL LLM ARCHITECTURE.
+  - Local tool-call arguments must parse as a root JSON object before a
+    provider tool-call part is emitted. Gemma normalization and the hidden-host
+    provider projection share the same validator. A malformed call terminates
+    generation with `local_tool_call_arguments_invalid`, bounded diagnostics,
+    and no approval snapshot; it is never repaired from raw text or coerced to
+    `{}`. Valid arguments are canonicalized before Mastra sees them.
   - The broad `@brainstrike/agent` entrypoint explicitly registers the
     browser-only in-process local language-model factory. Server-safe subpaths,
     especially `@brainstrike/agent/hosted-web`, must never import or register

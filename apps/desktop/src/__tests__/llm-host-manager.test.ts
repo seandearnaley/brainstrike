@@ -746,6 +746,44 @@ describe('LlmHostManager', () => {
     expect(resetSpy).not.toHaveBeenCalled();
   });
 
+  it('preserves a typed local generation error across the hidden-host boundary', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(803);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'malformed-tool-call',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.has('803:malformed-tool-call')).toBe(true);
+    });
+
+    manager.acceptResponseReport(71, {
+      channel: 'llm-error',
+      payload: {
+        code: 'local_tool_call_arguments_invalid',
+        errorDetails: { stage: 'generate-response' },
+        errorMessage:
+          'local_tool_call_arguments_invalid: The local model produced malformed JSON arguments for a tool call.',
+      },
+      requestId: '803:malformed-tool-call',
+      runtimeId: 'llm-host-runtime',
+      type: 'error',
+    });
+
+    await expect(observedRejection).resolves.toMatchObject({
+      code: 'local_tool_call_arguments_invalid',
+      message: expect.stringContaining('local_tool_call_arguments_invalid'),
+    });
+  });
+
   describe('main-process client API', () => {
     it('sends envelopes that pass the REAL host-side request validation', async () => {
       // The hidden host runtime rejects payloads without clientRequestId; a

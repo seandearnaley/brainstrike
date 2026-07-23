@@ -1090,6 +1090,39 @@ Because they make up everything!<turn|>`,
     });
   });
 
+  it('rejects malformed Gemma tool-call arguments before returning a callable result', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|tool_call>call:brainstrike_executeCommand{"command":"printf "BST-708 manual approval preview\\n""}<tool_call|>',
+    ]);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ content: 'Run the exact command', role: 'user' }], {
+        tools: [
+          {
+            function: {
+              description: 'Run a command',
+              name: 'brainstrike_executeCommand',
+              parameters: {
+                properties: {
+                  command: { type: 'string' },
+                },
+                required: ['command'],
+                type: 'object',
+              },
+            },
+            type: 'function',
+          },
+        ],
+      })
+    ).rejects.toThrow('local_tool_call_arguments_invalid');
+  });
+
   it('never publishes Gemma tool protocol while streaming a structured tool call', async () => {
     const rawOutput =
       '<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*<|"|>}<tool_call|><|tool_response>';

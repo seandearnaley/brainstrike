@@ -141,6 +141,20 @@ function assertOptionalString(value: unknown, message: string): string | undefin
   return assertNonEmptyString(value, message);
 }
 
+function assertOptionalErrorCode(value: unknown): string | undefined {
+  if (value === undefined) {
+    return;
+  }
+  const code = assertNonEmptyString(
+    value,
+    'Llm host error report.payload.code must be a non-empty string when provided.'
+  );
+  if (code.length > 128) {
+    throw new Error('Llm host error report.payload.code must not exceed 128 characters.');
+  }
+  return code;
+}
+
 function assertToolCall(value: unknown, index: number): LocalLlmToolCall {
   if (!(typeof value === 'object' && value !== null)) {
     throw new Error(
@@ -515,12 +529,14 @@ function createErrorReport(
     typeof payload['name'] === 'string' && payload['name'].trim().length > 0
       ? payload['name']
       : 'Error';
+  const errorCode = assertOptionalErrorCode(payload['code']);
 
   return {
     channel: 'llm-error',
     payload: {
       errorMessage,
       message: typeof payload['message'] === 'string' ? payload['message'] : errorMessage,
+      ...(errorCode ? { code: errorCode } : {}),
       ...(typeof payload['errorStack'] === 'string' ? { errorStack: payload['errorStack'] } : {}),
       ...(typeof payload['errorDetails'] === 'object' && payload['errorDetails'] !== null
         ? { errorDetails: payload['errorDetails'] as LlmHostErrorDetails }
