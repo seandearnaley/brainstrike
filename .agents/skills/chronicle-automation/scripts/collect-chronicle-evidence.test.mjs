@@ -52,16 +52,6 @@ if (args[0] === 'pr' && args[1] === 'list') {
 }
 if (args[0] === 'pr' && args[1] === 'view') {
   const number = args[2];
-  if (args.includes('commits')) {
-    const commits = number === '2'
-      ? [
-          { committedDate: '2026-07-21T11:30:00Z', oid: 'newest' },
-          { committedDate: '2026-07-21T08:05:00Z', oid: 'older' },
-        ]
-      : [{ committedDate: '2026-07-18T09:00:00Z', oid: 'only' }];
-    process.stdout.write(JSON.stringify({ commits }));
-    process.exit(0);
-  }
   const checks = number === '2'
     ? [
         { conclusion: 'SUCCESS', name: 'unit', status: 'COMPLETED' },
@@ -73,6 +63,7 @@ if (args[0] === 'pr' && args[1] === 'view') {
   process.exit(0);
 }
 if (args[0] === 'api' && args[1] === 'graphql') {
+  const number = args.find((argument) => argument.startsWith('number='))?.slice('number='.length);
   const cursor = args.find((argument) => argument.startsWith('cursor='));
   const reviewThreads = cursor
     ? {
@@ -86,8 +77,18 @@ if (args[0] === 'api' && args[1] === 'graphql') {
         ],
         pageInfo: { endCursor: 'page-2', hasNextPage: true },
       };
+  // commits(last: 1) — the head commit only, never a truncated first page.
+  const commits = {
+    nodes: [
+      {
+        commit: {
+          committedDate: number === '2' ? '2026-07-21T11:30:00Z' : '2026-07-18T09:00:00Z',
+        },
+      },
+    ],
+  };
   process.stdout.write(JSON.stringify({
-    data: { repository: { pullRequest: { reviewThreads } } },
+    data: { repository: { pullRequest: { commits, reviewThreads } } },
   }));
   process.exit(0);
 }
@@ -256,7 +257,7 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
   );
   assert.deepEqual(evidence.prs.open[0].checks, { failing: 1, pending: 1 });
   assert.equal(evidence.prs.open[0].unresolvedThreads, 2);
-  // Newest committedDate wins even when it is not the last commit listed.
+  // Head-commit committedDate via commits(last: 1) — exact for any commit count.
   assert.equal(evidence.prs.open[0].lastCommitAt, '2026-07-21T11:30:00.000Z');
   assert.deepEqual(evidence.prs.open[1].checks, { failing: 0, pending: 0 });
   assert.equal(evidence.prs.open[1].unresolvedThreads, 2);

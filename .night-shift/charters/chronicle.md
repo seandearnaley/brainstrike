@@ -55,9 +55,13 @@ Beat 2 — fleet health rules (each violation is an anomaly):
   $night-shift-checkpoint's validate-checkpoint.mjs; checkpoints
   predating the typed-watermark grammar are legacy and exempt).
 - STALLED STEWARDSHIP: a night-shift PR carrying an unresolved review
-  thread or a failing check whose collector `lastCommitAt` is >24h old.
-  The owning loop's steward wake should have caught it; the anomaly
-  means stewardship itself has stalled.
+  thread or a failing check whose collector `lastCommitAt` (head-commit
+  timestamp) is >24h old. The owning loop's steward wake should have
+  caught it; the anomaly means stewardship itself has stalled. Known
+  proxy limit: a rebase refreshes `lastCommitAt` without addressing
+  anything — before overwriting the digest, read yesterday's copy; the
+  same PR listed with an unchanged unresolved-thread count is the same
+  anomaly even when `lastCommitAt` is fresh.
 - STUCK LOOP: three or more consecutive checkpoints on one state issue
   with status INCOMPLETE or BLOCKED whose one-line messages state the
   same next action (normalize whitespace before comparing) — a loop
