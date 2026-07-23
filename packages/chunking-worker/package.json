@@ -35,7 +35,7 @@
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "tsup --config ./tsup.config.ts",
+    "build": "tsup --config ./tsup.config.ts && node ../../scripts/verify-tokenizer-asset-bundle.mjs dist",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint",

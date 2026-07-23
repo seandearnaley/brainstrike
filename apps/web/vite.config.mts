@@ -73,6 +73,11 @@ export default defineConfig({
   build: {
     assetsDir: 'assets', // Directory for static assets within the build output
     assetsInlineLimit: 0,
+    // The largest accepted JavaScript outputs are isolated local-first worker
+    // runtimes (browser bootstrap, PGlite, Transformers) plus the current
+    // workspace-sync entry graph. The 2.3 MB o200k table is a fetch-on-first-
+    // accurate-use asset and must never force this ceiling upward.
+    chunkSizeWarningLimit: 1300,
     minify: 'terser', // Use terser for better minification
     outDir: 'dist', // Output directory for the build - cache bust
     rolldownOptions: {

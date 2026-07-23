@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsup';
+import { tokenizerAssetPlugin } from '../../scripts/tiktoken-asset-plugin';
 
 const accurateTokenRuntimeSource = fileURLToPath(
   new URL('../utils/src/token-utils-accurate-lite.ts', import.meta.url)
@@ -18,6 +19,7 @@ export default defineConfig((options) => ({
     options.mainFields = ['browser', 'module', 'main'];
     options.conditions = ['browser', 'import', 'default'];
   },
+  esbuildPlugins: [tokenizerAssetPlugin],
   format: ['esm'],
   loader: {
     // Use dataurl to inline WASM as base64, avoiding file:// fetch issues in Electron

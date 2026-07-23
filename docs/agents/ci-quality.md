@@ -364,6 +364,28 @@ leave a stale-but-running JavaScript watcher. The build order, disabled tsup
 DTS worker, project-only declaration watch, and two-watcher topology are
 guarded by `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
 
+### App bundle chunk ceiling and tokenizer asset
+
+Both app Vite builds use a 1,300 kB JavaScript chunk warning ceiling. This
+accepts the measured local-first worker runtimes (browser bootstrap, PGlite,
+and Transformers) plus the current renderer/main, context-preview, and
+workspace-sync entry chunks while preserving a warning for growth beyond the
+largest reviewed output. Do not raise the ceiling to accommodate tokenizer
+data.
+
+The browser `o200k_base` table is resolved through Vite's `?url` asset contract
+and fetched only when an accurate-token-counting worker first initializes.
+Keep the table out of JavaScript chunks and out of both apps' initial HTML
+module-preload closure. Heuristic counting must not fetch the table. The
+runtime behavior and both app ceilings are pinned by the utils accurate-runtime
+tests and app Vite-config tests.
+
+The `chunking-worker` and `token-cache` tsup builds must install the shared
+`tokenizerAssetPlugin` so their published worker artifacts preserve that URL
+contract instead of parsing the table into JavaScript. Both package build
+scripts run `verify-tokenizer-asset-bundle.mjs`; do not remove that post-build
+guard when changing their bundle topology.
+
 ### Desktop development dependency freshness
 
 `apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every

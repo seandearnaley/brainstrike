@@ -14,7 +14,7 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doUnmock('tiktoken');
     vi.doUnmock('tiktoken/lite/init');
     vi.doUnmock('tiktoken/lite/tiktoken_bg.wasm?url');
-    vi.doUnmock('tiktoken/encoders/o200k_base.json');
+    vi.doUnmock('tiktoken/encoders/o200k_base.json?url');
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.resetModules();
@@ -122,7 +122,18 @@ describe('token-utils-accurate-lite runtime behavior', () => {
 
   it('initializes the browser encoder from a base64 data URL', async () => {
     vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { href: 'https://example.com/app/' });
     const initSpy = vi.fn(async () => {});
+    const fetchSpy = vi.fn(async () => ({
+      json: async () => ({
+        bpe_ranks: 'mock-ranks',
+        pat_str: 'mock-pattern',
+        special_tokens: { '<|endoftext|>': 199_999 },
+      }),
+      ok: true,
+      status: 200,
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
 
     vi.doMock('tiktoken/lite/init', () => ({
       init: initSpy,
@@ -135,22 +146,35 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
       default: 'data:application/wasm;base64,AAAA',
     }));
-    vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
-      default: {
-        bpe_ranks: 'mock-ranks',
-        pat_str: 'mock-pattern',
-        special_tokens: { '<|endoftext|>': 199_999 },
-      },
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: '/assets/o200k_base-test.json',
     }));
 
     const runtime = await importRuntime();
 
+    expect(fetchSpy).not.toHaveBeenCalled();
     await expect(runtime.countTokensAccurate('web')).resolves.toBe(5);
     expect(initSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/assets/o200k_base-test.json'
+    );
   });
 
   it('reports browser encoder failures for malformed encoder config', async () => {
     vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { href: 'https://example.com/app/' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        json: async () => ({
+          bpe_ranks: 'mock-ranks',
+          pat_str: 'mock-pattern',
+          special_tokens: { bad: 'not-a-number' },
+        }),
+        ok: true,
+        status: 200,
+      }))
+    );
 
     vi.doMock('tiktoken/lite/init', () => ({
       init: async () => {},
@@ -163,12 +187,8 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
       default: 'data:application/wasm,%00',
     }));
-    vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
-      default: {
-        bpe_ranks: 'mock-ranks',
-        pat_str: 'mock-pattern',
-        special_tokens: { bad: 'not-a-number' },
-      },
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: '/assets/o200k_base-malformed.json',
     }));
 
     const runtime = await importRuntime();

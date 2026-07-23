@@ -129,16 +129,18 @@ function createNodeEncoder(mod: Record<string, unknown>): ResolvedEncoder | null
 }
 
 async function instantiateBrowserEncoder(): Promise<ResolvedEncoder | null> {
-  const [initModuleRaw, wasmUrlModule, encoderModuleRaw] = await Promise.all([
+  const [initModuleRaw, wasmUrlModule, encoderUrlModule] = await Promise.all([
     import('tiktoken/lite/init') as Promise<Record<string, unknown>>,
     import('tiktoken/lite/tiktoken_bg.wasm?url') as Promise<Record<string, unknown>>,
-    import('tiktoken/encoders/o200k_base.json') as Promise<Record<string, unknown>>,
+    import('tiktoken/encoders/o200k_base.json?url') as Promise<Record<string, unknown>>,
   ]);
 
   const initFn = extractInitFunction(initModuleRaw);
   const encoderCtor = extractEncoderCtor(initModuleRaw);
-  const wasmBinary = await fetchWasmBinary(wasmUrlModule);
-  const encoderConfig = extractEncoderConfig(encoderModuleRaw);
+  const [wasmBinary, encoderConfig] = await Promise.all([
+    fetchWasmBinary(wasmUrlModule),
+    fetchEncoderConfig(encoderUrlModule),
+  ]);
 
   if (!(initFn && encoderCtor && encoderConfig)) {
     throw new Error('tiktoken lite modules missing expected exports');
@@ -175,7 +177,7 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
   }
 
   const strippedUrl = rawWasmUrl.replace(/\?url$/, '');
-  const wasmUrl = resolveWasmUrl(strippedUrl);
+  const wasmUrl = resolveRuntimeAssetUrl(strippedUrl);
 
   const fetchFn = globalThis.fetch;
   if (typeof fetchFn !== 'function') {
@@ -235,7 +237,7 @@ function decodeDataUrlToArrayBuffer(dataUrl: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function resolveWasmUrl(relativeUrl: string): string {
+function resolveRuntimeAssetUrl(relativeUrl: string): string {
   if (typeof location !== 'undefined' && typeof location.href === 'string') {
     return new URL(relativeUrl, location.href).href;
   }
@@ -247,19 +249,43 @@ function resolveWasmUrl(relativeUrl: string): string {
   return relativeUrl;
 }
 
-function extractEncoderConfig(module: Record<string, unknown>): {
+async function fetchEncoderConfig(
+  module: Record<string, unknown>
+): Promise<ReturnType<typeof extractEncoderConfig>> {
+  const rawConfigUrl = module['default'];
+  if (typeof rawConfigUrl !== 'string') {
+    throw new Error('tiktoken encoder config asset not resolved as URL');
+  }
+
+  const fetchFn = globalThis.fetch;
+  if (typeof fetchFn !== 'function') {
+    throw new Error('global fetch is not available in this environment');
+  }
+
+  const configUrl = resolveRuntimeAssetUrl(rawConfigUrl.replace(/\?url$/, ''));
+  const response = await fetchFn(configUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch tiktoken encoder config: ${response.status} from ${configUrl}`
+    );
+  }
+
+  return extractEncoderConfig(await response.json());
+}
+
+function extractEncoderConfig(payload: unknown): {
   bpeRanks: string;
   specialTokens: Record<string, number>;
   patStr: string;
 } | null {
-  const payload = module['default'] as Record<string, unknown> | undefined;
-  if (!payload) {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     return null;
   }
 
-  const bpeRanks = payload['bpe_ranks'];
-  const specialTokens = payload['special_tokens'];
-  const patStr = payload['pat_str'];
+  const config = payload as Record<string, unknown>;
+  const bpeRanks = config['bpe_ranks'];
+  const specialTokens = config['special_tokens'];
+  const patStr = config['pat_str'];
 
   if (typeof bpeRanks !== 'string' || typeof patStr !== 'string') {
     return null;
