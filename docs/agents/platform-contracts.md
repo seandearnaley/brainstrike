@@ -211,6 +211,11 @@ indexed state only.
   finishes after its renderer context was reaped. No leaked subscription after
   any of these — extend the shared-registration and reaper tests when touching
   this.
+- **Synthetic fixture boundary**: active dev inline-fixture roots are immutable
+  in-memory trees, so their decorated `watchDirectory` returns an inert
+  disposer instead of forwarding a fixture name to OS watcher IPC. The
+  decorator remains capability-gated and delegates every foreign/real root to
+  the wrapped watcher unchanged.
 - **Typed health**: engines emit `starting|healthy|degraded|failed|stopped`
   exactly once per state change; `fs:watch-health` pushes are scoped to the
   owning WebContents with no root-path field on the wire; retry is

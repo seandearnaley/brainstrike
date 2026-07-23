@@ -17,6 +17,7 @@ import type {
 interface AdapterOptions {
   includeRestoreLastFolder?: boolean;
   includeStreaming?: boolean;
+  includeWatchDirectory?: boolean;
 }
 
 const FIXTURE: FixtureDefinition = {
@@ -70,6 +71,10 @@ function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
 
   if (includeRestoreLastFolder) {
     adapter.restoreLastFolder = vi.fn(async () => restoredRoot);
+  }
+
+  if (options.includeWatchDirectory) {
+    adapter.watchDirectory = vi.fn(() => () => {});
   }
 
   return adapter;
@@ -447,6 +452,29 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       };
       await expect(adapter.readFile(realFile)).resolves.toBe('real-file');
       expect(baseReadFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps active fixture roots inert while delegating real directory watches', async () => {
+      const base = createBaseAdapter({ includeWatchDirectory: true });
+      const baseWatchDirectory = base.watchDirectory as ReturnType<typeof vi.fn>;
+      const baseStop = vi.fn();
+      baseWatchDirectory.mockReturnValue(baseStop);
+      const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+      const fixtureRoot = await adapter.loadInlineFixture(FIXTURE);
+      const onChanges = vi.fn();
+      const onSignal = vi.fn();
+
+      const stopFixtureWatch = adapter.watchDirectory?.(fixtureRoot, onChanges, onSignal);
+
+      expect(stopFixtureWatch).toBeTypeOf('function');
+      expect(baseWatchDirectory).not.toHaveBeenCalled();
+      stopFixtureWatch?.();
+      expect(baseStop).not.toHaveBeenCalled();
+
+      const stopRealWatch = adapter.watchDirectory?.(realDir, onChanges, onSignal);
+
+      expect(baseWatchDirectory).toHaveBeenCalledWith(realDir, onChanges, onSignal);
+      expect(stopRealWatch).toBe(baseStop);
     });
   });
 
