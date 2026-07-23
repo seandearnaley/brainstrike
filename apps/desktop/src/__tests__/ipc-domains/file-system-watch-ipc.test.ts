@@ -603,6 +603,21 @@ describe('file-system watch IPC domain', () => {
     expect(harness.stops[0]).toHaveBeenCalledOnce();
   });
 
+  it('caps logical same-root registrations per renderer', async () => {
+    const owner = new FakeWebContents(1);
+    const other = new FakeWebContents(2);
+    const dir = await makeDir();
+    const registrationLimit = MAX_FS_WATCHERS_PER_OWNER * 2;
+
+    for (let index = 0; index < registrationLimit; index += 1) {
+      await invokeWatch(owner, dir);
+    }
+
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/registration limit/i);
+    expect(harness.startedPaths).toEqual([dir]);
+    await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
+  });
+
   it('enforces the per-owner cap under concurrent watch requests (no TOCTOU bypass)', async () => {
     const owner = new FakeWebContents(1);
 

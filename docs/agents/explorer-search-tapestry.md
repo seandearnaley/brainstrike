@@ -286,7 +286,11 @@ fallback.
   cap `MAX_FS_WATCHERS_PER_OWNER` counts native subscriptions; after path
   resolution, the existing-subscription lookup, cap check, and insert are one
   synchronous section, so concurrent distinct-root starts cannot race past the
-  cap and a duplicate registration remains valid when the cap is full. The
+  cap and an in-budget duplicate registration remains valid when the cap is
+  full. `MAX_FS_WATCH_REGISTRATIONS_PER_OWNER` separately bounds the total
+  logical watchIds retained for one renderer to twice the native cap; the
+  synchronous post-resolution check prevents duplicate registrations from
+  creating unbounded MAIN-process state and per-event IPC fan-out. The
   owner reaper is attached BEFORE any async setup and covers all three teardown
   shapes — `destroyed`, `render-process-gone` (crash; WebContents survives),
   and `did-navigate` (reload); because `did-navigate` leaves the WebContents

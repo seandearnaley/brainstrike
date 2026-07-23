@@ -204,7 +204,9 @@ indexed state only.
   live logical registration; unwatch removes only its registration and stops
   the native watcher after the last one leaves. `duplicateRegistrations` makes
   sharing visible in the in-memory telemetry. The per-owner cap counts native
-  subscriptions, so sharing an existing root remains valid at the cap. The
+  subscriptions, so an in-budget registration may share an existing root at the
+  cap. A separate per-owner registration cap bounds retained watchIds and
+  per-event IPC fan-out to twice the native-subscription cap. The
   main-process ownership registry also reaps on
   renderer destruction, crash, reload, root removal, and app shutdown
   (registrar disposer). A lifecycle generation rejects path resolution that
