@@ -27,9 +27,11 @@ import { fileURLToPath } from 'node:url';
  *                    this way since #519. `-w` is also depth-independent,
  *                    unlike the retired `pnpm run --dir=../.. lint` form.)
  *
- * The contract governs SHAPE, not PRESENCE: a package that omits a script is not
- * required to add one (many packages legitimately have no clean/type-check), but
- * any script that IS present must match the canonical form unless the owning
+ * The contract governs clean COVERAGE as well as script shape: every package
+ * with a build script must declare clean so the root clean graph cannot leave a
+ * stale package artifact behind. Packages without a build may omit clean.
+ * Type-check remains shape-only because some packages legitimately omit it.
+ * Any script that is present must match the canonical form unless the owning
  * package is on the documented allowlist below.
  *
  * Allowlist discipline (the meta-tests at the bottom enforce it): every allowlist
@@ -83,6 +85,14 @@ const CLEAN_ALLOWLIST = new Map([
   [
     '@brainstrike/ui',
     'prepends `pnpm run clean:generated` to drop generated sources before the shared rimraf pass',
+  ],
+  [
+    '@brainstrike/secure-fs-native',
+    'native addon — removes node-gyp build output instead of TypeScript dist artifacts',
+  ],
+  [
+    '@brainstrike/windows-job-native',
+    'native addon — removes node-gyp build output instead of TypeScript dist artifacts',
   ],
 ]);
 
@@ -226,14 +236,24 @@ test('root clean routes every package clean script through an uncached Turbo tas
   );
 
   const dryRun = JSON.parse(
-    execFileSync('pnpm', ['exec', 'turbo', 'run', 'clean', '--dry=json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        TURBO_TELEMETRY_DISABLED: '1',
-      },
-    })
+    execFileSync(
+      path.join(
+        repoRoot,
+        'node_modules',
+        '.bin',
+        process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
+      ),
+      ['run', 'clean', '--dry=json'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NO_UPDATE_NOTIFIER: '1',
+          TURBO_TELEMETRY_DISABLED: '1',
+        },
+      }
+    )
   );
   const runnableTasks = dryRun.tasks.filter((task) => task.command !== '<NONEXISTENT>');
   const actualCleanPackages = runnableTasks.map((task) => task.package).sort();
@@ -247,7 +267,7 @@ test('root clean routes every package clean script through an uncached Turbo tas
     expectedCleanPackages,
     'Turbo must discover every workspace package that declares a clean script'
   );
-  for (const task of dryRun.tasks) {
+  for (const task of runnableTasks) {
     assert.deepEqual(
       task.resolvedTaskDefinition.dependsOn,
       [],
@@ -260,6 +280,21 @@ test('root clean routes every package clean script through an uncached Turbo tas
       `${task.taskId} must declare no outputs`
     );
   }
+});
+
+test('every build script has a clean script', () => {
+  const violations = packages
+    .filter((pkg) => pkg.scripts.build !== undefined && pkg.scripts.clean === undefined)
+    .map(
+      (pkg) =>
+        `${pkg.relDir} (${pkg.name}) declares build but no clean script, so root pnpm clean would leave its outputs behind.`
+    );
+
+  assert.deepEqual(
+    violations,
+    [],
+    `Build packages without clean scripts:\n${violations.join('\n')}`
+  );
 });
 
 test('every package clean script matches the canonical rimraf form', () => {

@@ -47,6 +47,7 @@
   "private": true,
   "scripts": {
     "build": "tsc --build && tsup",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --watch",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",

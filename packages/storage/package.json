@@ -35,6 +35,7 @@
   "scripts": {
     "build": "tsc -b . && tsup",
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",

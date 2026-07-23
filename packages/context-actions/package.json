@@ -24,6 +24,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

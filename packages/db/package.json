@@ -61,6 +61,7 @@
   "private": true,
   "scripts": {
     "build": "tsc --build",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "db:export": "tsx scripts/export-migrations.ts",
     "db:generate": "node scripts/forbid-db-generate.mjs",
     "db:generate:unsafe": "drizzle-kit generate",
