@@ -221,6 +221,12 @@ Rules:
   controller.setTarget, reset it with onContextMenuCapture on the container,
   wrap with ActionContextMenu. Surface-local actions (closures over surface
   stores) go through the localActions prop, not the global registry.
+- Tree-backed surfaces must make the right-clicked row the TreeTable focus
+  owner and pass `onCloseAutoFocus` to `ActionContextMenu`. Restore the exact
+  live origin row when it remains mounted; if virtualization or a rerender
+  removed it, focus the surface's deterministic treegrid fallback. The callback
+  prevents Radix's delayed trigger restoration, so it must never silently leave
+  focus on `body`.
 - Targets are immutable invocation snapshots, not live DOM/store lookups. Claim
   them synchronously during the `contextmenu` event. File viewer targets preserve
   exact text (including whitespace) plus the CodeMirror `{from,to}` range from

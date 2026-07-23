@@ -1,4 +1,5 @@
 import {
+  type ActionOutcome,
   type AnyContextAction,
   type CapabilityKey,
   createTestActionRegistry,
@@ -42,9 +43,11 @@ const revealAction = defineContextAction({
 
 function Harness({
   localActions = [],
+  onCloseAutoFocus,
   onOpenChange,
 }: {
   localActions?: readonly AnyContextAction[];
+  onCloseAutoFocus?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const controller = useContextMenuTarget();
@@ -52,6 +55,7 @@ function Harness({
     <ActionContextMenu
       controller={controller}
       localActions={localActions}
+      onCloseAutoFocus={onCloseAutoFocus}
       onOpenChange={onOpenChange}
     >
       <div onContextMenuCapture={() => controller.setTarget(null)} role="treegrid">
@@ -83,6 +87,7 @@ function renderHarness(
     actions?: readonly AnyContextAction[];
     capabilities?: readonly CapabilityKey[];
     localActions?: readonly AnyContextAction[];
+    onCloseAutoFocus?: () => void;
     onOpenChange?: (open: boolean) => void;
   } = {}
 ) {
@@ -94,6 +99,7 @@ function renderHarness(
     <ActionRegistryProvider registry={registry}>
       <Harness
         {...(options.localActions ? { localActions: options.localActions } : {})}
+        {...(options.onCloseAutoFocus ? { onCloseAutoFocus: options.onCloseAutoFocus } : {})}
         {...(options.onOpenChange ? { onOpenChange: options.onOpenChange } : {})}
       />
     </ActionRegistryProvider>
@@ -181,6 +187,33 @@ describe('ActionContextMenu', () => {
       expect(writtenTexts).toEqual(['notes.md']);
       expect(toastSpy).toHaveBeenCalledWith({ description: 'Name copied' });
     });
+  });
+
+  it('closes immediately and delegates focus restoration before an async action settles', async () => {
+    let resolveRun: ((outcome: ActionOutcome) => void) | undefined;
+    const pending = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.pending',
+      label: 'Pending copy',
+      run: () =>
+        new Promise<ActionOutcome>((resolve) => {
+          resolveRun = resolve;
+        }),
+    });
+    const onCloseAutoFocus = vi.fn();
+    renderHarness({ localActions: [pending], onCloseAutoFocus });
+
+    await openMenuOnRow();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pending copy' }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(onCloseAutoFocus).toHaveBeenCalledTimes(1));
+
+    if (!resolveRun) {
+      throw new Error('Pending context action did not start');
+    }
+    resolveRun({ ok: true });
   });
 
   it('does not open a menu when right-clicking outside any row', () => {

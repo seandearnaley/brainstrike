@@ -1858,9 +1858,12 @@ describe('TreeTable', () => {
       expect(handleDoubleClick).toHaveBeenCalledWith('1', expect.objectContaining({ id: '1' }));
     });
 
-    it('calls onRowContextMenu on right click', () => {
+    it('makes the right-clicked row the focus owner before calling onRowContextMenu', () => {
       const handleContextMenu = vi.fn();
-      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'File 1')];
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
 
       render(
         <TreeTable
@@ -1872,16 +1875,18 @@ describe('TreeTable', () => {
         />
       );
 
-      const row = screen.getByText('File 1').closest('tr');
+      const row = screen.getByText('File 2').closest('tr');
       if (row) {
         fireEvent.contextMenu(row);
       }
 
       expect(handleContextMenu).toHaveBeenCalledWith(
-        '1',
-        expect.objectContaining({ id: '1' }),
+        '2',
+        expect.objectContaining({ id: '2' }),
         expect.any(Object)
       );
+      expect(row).toHaveAttribute('data-focused', 'true');
+      expect(row).toHaveAttribute('tabindex', '0');
     });
   });
 
