@@ -514,6 +514,10 @@
   overflow: hidden;
 }
 
+.bs-expandable-message-content {
+  width: 100%;
+}
+
 .bs-expandable-message-fade {
   background: linear-gradient(to bottom, transparent, hsl(var(--muted)) 78%);
   bottom: 0;

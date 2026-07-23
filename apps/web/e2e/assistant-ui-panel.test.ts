@@ -505,9 +505,98 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       .getByTestId('assistant-user-message-content')
       .filter({ hasText: 'history collapse turn 1' })
       .first();
+    const messageBody = longUserMessage.locator('.bs-expandable-message-body');
+    const messageContent = longUserMessage.locator('.bs-expandable-message-content');
     await expect(longUserMessage.getByRole('button', { name: 'Show more' })).toBeVisible();
+    const collapsedGeometry = await messageBody.evaluate((body) => {
+      const inner = body.querySelector<HTMLElement>('.bs-expandable-message-content');
+      if (!inner) {
+        throw new Error('Expandable message is missing its inner content element.');
+      }
+      return {
+        bodyHeight: body.getBoundingClientRect().height,
+        contentHeight: inner.getBoundingClientRect().height,
+        maxHeight: getComputedStyle(body).maxHeight,
+      };
+    });
+    expect(collapsedGeometry.maxHeight).toBe('176px');
+    expect(collapsedGeometry.bodyHeight).toBeLessThan(collapsedGeometry.contentHeight);
+
     await longUserMessage.getByRole('button', { name: 'Show more' }).click();
     await expect(longUserMessage.getByRole('button', { name: 'Show less' })).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          await messageBody.evaluate((body) => {
+            const inner = body.querySelector<HTMLElement>('.bs-expandable-message-content');
+            if (!inner) {
+              throw new Error('Expandable message is missing its inner content element.');
+            }
+            const bodyRect = body.getBoundingClientRect();
+            const innerRect = inner.getBoundingClientRect();
+            return {
+              heightDelta: Math.abs(bodyRect.height - innerRect.height),
+              maxHeight: getComputedStyle(body).maxHeight,
+              widthDelta: Math.abs(bodyRect.width - innerRect.width),
+            };
+          })
+      )
+      .toEqual({ heightDelta: 0, maxHeight: 'none', widthDelta: 0 });
+
+    const rightPanelResizeHandle = elements.rightPanel.locator(
+      'xpath=preceding-sibling::*[@data-separator][1]'
+    );
+    const resizeHandleBox = await rightPanelResizeHandle.boundingBox();
+    if (!resizeHandleBox) {
+      throw new Error('Workspace panel resize handle has no geometry.');
+    }
+    const initialContentBox = await messageContent.boundingBox();
+    if (!initialContentBox) {
+      throw new Error('Expanded message content has no geometry.');
+    }
+    const resizeHandleCenterY = resizeHandleBox.y + resizeHandleBox.height / 2;
+    await page.mouse.move(resizeHandleBox.x + resizeHandleBox.width / 2, resizeHandleCenterY);
+    await page.mouse.down();
+    await page.mouse.move(resizeHandleBox.x - 120, resizeHandleCenterY, { steps: 12 });
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const resizedContentBox = await messageContent.boundingBox();
+        if (!resizedContentBox) {
+          return null;
+        }
+        return {
+          isNaturalHeight: await messageBody.evaluate((body) => {
+            const inner = body.querySelector<HTMLElement>('.bs-expandable-message-content');
+            if (!inner) {
+              return false;
+            }
+            return (
+              getComputedStyle(body).maxHeight === 'none' &&
+              Math.abs(
+                body.getBoundingClientRect().height - inner.getBoundingClientRect().height
+              ) <= 1
+            );
+          }),
+          widthChanged: Math.abs(resizedContentBox.width - initialContentBox.width) > 20,
+        };
+      })
+      .toEqual({ isNaturalHeight: true, widthChanged: true });
+
+    await longUserMessage.getByRole('button', { name: 'Show less' }).click();
+    await expect(messageBody).toHaveCSS('max-height', '176px');
+    const recollapsedGeometry = await messageBody.evaluate((body) => {
+      const inner = body.querySelector<HTMLElement>('.bs-expandable-message-content');
+      if (!inner) {
+        throw new Error('Expandable message is missing its inner content element.');
+      }
+      return {
+        bodyHeight: body.getBoundingClientRect().height,
+        contentHeight: inner.getBoundingClientRect().height,
+      };
+    });
+    expect(recollapsedGeometry.bodyHeight).toBeLessThan(recollapsedGeometry.contentHeight);
 
     for (let turn = 2; turn <= 5; turn += 1) {
       await input.fill(`history collapse turn ${turn}`);
