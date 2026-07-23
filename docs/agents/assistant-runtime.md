@@ -20,8 +20,9 @@ below are LIVE.
 
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
-   the combined Mastra tool map in `createMastraAgentRuntime` after local and MCP
-   tools are sanitized/discovered. Tool timeouts and throws resolve to structured
+   the combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline
+   (`packages/agent/src/mastra/runtime-assembly/tool-pipeline.ts`) after local
+   and MCP tools are sanitized/discovered. Tool timeouts and throws resolve to structured
    `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
    failed tool events, not successful completions. Generic exceptions retain a
    redacted `tool_failed` message because they may contain host paths or secrets.
@@ -97,7 +98,9 @@ the canonical type visibly, and persists only explicitly whitelisted diagnostic
 fields. Other provider errors retain the generic bounded path.
 
 **Raw/model tool-output split (LIVE):**
-`createMastraAgentRuntime` composes tools in this order:
+`createMastraAgentRuntime` composes tools in this order (the stage sequence
+lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
+extraction lives in `runtime-assembly/usage-metering.ts`):
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → artifact settlement → model-output projection →
 Agent`. The final
@@ -514,7 +517,8 @@ Flow (desktop assistant server → agent runtime):
    >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
    `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
    the run-wide `requireToolApproval` (it would suspend EVERY tool call, breaking
-   the read-only default). `createMastraAgentRuntime`'s `resolveAskToolsForRun`
+   the read-only default). `resolveAskToolsForRun` (in the tool pipeline,
+   `runtime-assembly/tool-pipeline.ts`)
    only decides whether ask tools may STAY: WITH Mastra workflow storage they stay
    (their per-tool flag suspends + the resume path can restore the run); WITHOUT
    storage (`streamMastraToolApprovalAction` throws) they are fail-safe OMITTED
@@ -826,7 +830,7 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
   composed OUTSIDE the guard, BEFORE the permission gate:
   `combinedTools → applyToolGuards → applyToolHooks → plan-mode → permission gate`
-  (`agent-runtime.ts`). Permission runs downstream of `execute`, so **hooks
+  (`runtime-assembly/tool-pipeline.ts`, called from `agent-runtime.ts`). Permission runs downstream of `execute`, so **hooks
   REFINE, never widen**: a PreToolUse hook can BLOCK a permitted tool but can
   never allow a denied/ask tool. A block returns a `HookBlockedToolError`
   (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
@@ -1117,7 +1121,7 @@ has no server/storage, so both suspend tools are omitted there (desktop-first, v
 toggle (`assistant-preferences-store.planModeEnabled`) sends `planMode:true` only
 when on (presence-means-on, gated to the desktop data-stream transport in the
 app-shell wrapper). `filterToolsForPlanMode` runs BEFORE the permission gate in
-`createMastraAgentRuntime`: it keeps read/mcp tools + the suspending tools and
+`createMastraAgentRuntime`'s tool pipeline (`runtime-assembly/tool-pipeline.ts`): it keeps read/mcp tools + the suspending tools and
 OMITS every edit/execute tool, so the model investigates read-only and proposes a
 plan before any changes. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY
 stays available in plan mode: it is thread bookkeeping (the assistant's own todo

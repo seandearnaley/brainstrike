@@ -2,16 +2,11 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
   getLlmModelDefinition,
   resolveOpenRouterCodingMaxOutputTokens,
-  resolveToolDiscoveryAdapter,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
-import {
-  buildNativeToolRiskMap,
-  denormalizeNativeToolName,
-} from '@brainstrike/assistant-contract/tool-metadata';
+import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import {
@@ -25,18 +20,13 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
-import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { IdGeneratorContext } from '@mastra/core/types';
-import {
-  type AssistantResilienceConfig,
-  resolveAssistantResilienceConfig,
-} from '../config/resilience-config';
+import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
-  applyProviderNativeWebSearch,
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
@@ -46,12 +36,9 @@ import type {
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
-import { createAssistantSkillTools } from '../skills/skill-tools';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
-import { applyToolGuards } from '../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../tools/hook-runner';
-import { applyToolHooks } from '../tools/hook-tool-wrap';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -81,28 +68,35 @@ import {
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
-  createMcpRuntimeClient,
   MCP_PROGRESS_STREAM_PART_TYPE,
   type McpRuntimeClient,
   mapMcpProgressStreamPart,
 } from './mcp-runtime-client';
-import { collectCombinedTools } from './mcp-tool-loader';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import {
-  filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
   resolveAskToolMetadata,
 } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
-import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
-import { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
+import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
 import {
   computeInstructionBreakdown,
   computePromptBreakdown,
   type InstructionBreakdown,
 } from './prompt-breakdown';
+import {
+  composeRuntimeToolMap,
+  createToolHistoryFilter,
+  prepareHostedToolDiscovery,
+} from './runtime-assembly/tool-pipeline';
+import {
+  accumulateSteppedUsage,
+  readCacheTokenCount,
+  readOpenRouterBilledCost,
+  type UsageLike,
+} from './runtime-assembly/usage-metering';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
@@ -114,7 +108,7 @@ import {
   type DelegationLifecycleTracker,
   shouldEnablePersonas,
 } from './subagent-delegation';
-import { createRunTokenDiagnostics, type RunTokenDiagnostics } from './token-measurement';
+import type { RunTokenDiagnostics } from './token-measurement';
 import {
   mapMastraToolEvent,
   readMastraStreamPartString,
@@ -122,17 +116,8 @@ import {
   readNestedToolOutputChunk,
 } from './tool-event-mapper';
 import { applyToolModelOutputProjections } from './tool-model-output';
-import {
-  applyToolOutputArtifactSettlement,
-  type ToolOutputArtifactSettlementStore,
-} from './tool-output-artifact-settlement';
-import { sanitizeToolName, sanitizeTools } from './tool-sanitizer';
-import {
-  BrainstrikeToolSearchProcessor,
-  resolveToolDiscoverySurface,
-  type ToolDiscoveryMetadata,
-  type ToolDiscoverySurface,
-} from './tool-search-runtime';
+import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
+import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
   /**
@@ -322,122 +307,6 @@ export function convertMessagesToMastra(
   return result;
 }
 
-interface ResolvedAskTools {
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
-  tools: ToolsInput;
-}
-
-/**
- * Reconcile the gate result with whether the run can suspend-then-resume for
- * approval (i.e. whether Mastra workflow storage is configured).
- *
- * The gate already marked each `'ask'` tool with the PER-TOOL `requireApproval`
- * flag (only the ask tool suspends; allowed tools run free). This function only
- * decides whether those ask tools may STAY:
- * - With storage: keep them (their per-tool flag suspends on call) and carry
- *   `askTools` for the approval-pause risk hint. Logged so the gate is observable.
- * - Without storage: the resume path (`streamMastraToolApprovalAction`) throws,
- *   so a suspend could never resume. We must NOT run an approval-required tool
- *   unprompted (no-silent-fallbacks), so we fall back to the conservative
- *   FAIL-SAFE — OMIT the `'ask'` tools from the map (logged) and return an empty
- *   `askTools`, exactly as the engine did before per-call approval landed.
- */
-function resolveAskToolsForRun(
-  gateResult: {
-    tools: ToolsInput;
-    askToolIds: ReadonlySet<string>;
-    askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
-  },
-  canSuspendForApproval: boolean
-): ResolvedAskTools {
-  if (gateResult.askToolIds.size === 0) {
-    return { askTools: gateResult.askTools, tools: gateResult.tools };
-  }
-
-  if (!canSuspendForApproval) {
-    const reducedTools: Record<string, unknown> = {};
-    for (const [sanitizedId, tool] of Object.entries(gateResult.tools)) {
-      if (gateResult.askToolIds.has(sanitizedId)) {
-        const meta = gateResult.askTools.get(sanitizedId);
-        logger.warn(
-          "Tool gated to 'ask' but no storage to suspend for approval; omitting (fail-safe)",
-          {
-            code: 'permission_tool_gate_ask_omitted_no_storage',
-            riskCategory: meta?.riskCategory,
-            sanitizedId,
-            tool: meta?.originalName ?? sanitizedId,
-          }
-        );
-        continue;
-      }
-      reducedTools[sanitizedId] = tool;
-    }
-    return { askTools: new Map(), tools: reducedTools as ToolsInput };
-  }
-
-  // Each ask tool carries the per-tool requireApproval flag and will suspend ONLY
-  // when actually called. Logged so the gated tools are observable.
-  logger.info('Permission policy requires per-call approval for ask tools', {
-    askToolCount: gateResult.askToolIds.size,
-    askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
-      riskCategory: meta.riskCategory,
-      tool: meta.originalName,
-    })),
-    code: 'permission_tool_gate_require_approval',
-  });
-  return { askTools: gateResult.askTools, tools: gateResult.tools };
-}
-
-interface GatedToolMapParams {
-  readonly hasStorage: boolean;
-  readonly hookedTools: ToolsInput;
-  readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
-  readonly planModeActive: boolean;
-  readonly toolNameMap: Map<string, string>;
-}
-
-/**
- * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
- * gate → suspend-storage gate. Extracted from `createMastraAgentRuntime` so the
- * plan/permission/suspend conditionals live in one cohesive place (and keep the
- * runtime builder under the cognitive-complexity ceiling). Each stage only omits
- * tools; see the inline invariants at the call site.
- */
-function resolveGatedToolMap(params: GatedToolMapParams): {
-  readonly gatedTools: ToolsInput;
-  readonly askTools: ResolvedAskTools['askTools'];
-} {
-  const planFilteredTools = params.planModeActive
-    ? filterToolsForPlanMode(
-        params.hookedTools,
-        params.toolNameMap,
-        params.permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
-        logger
-      )
-    : params.hookedTools;
-
-  const gateResult = filterToolsByPermissionWithMetadata(
-    planFilteredTools,
-    params.permissionSnapshot,
-    params.toolNameMap,
-    logger
-  );
-  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(
-    gateResult,
-    params.hasStorage
-  );
-  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
-  // storage, so omit the suspending tools when storage is absent (never run one
-  // that would wedge the run — no-silent-fallbacks).
-  const gatedTools = resolveSuspendToolsForRun(
-    askResolvedTools,
-    params.hasStorage,
-    params.toolNameMap,
-    logger
-  );
-  return { askTools, gatedTools };
-}
-
 interface PersonaRuntimeParts {
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
@@ -566,197 +435,6 @@ function registerAgentWithMastra(
   };
 }
 
-/**
- * Fold the skill tools into the local tool map (skills engine present) — a
- * caller-supplied tool with a colliding id wins, loudly. Returns the original
- * map untouched when no engine is attached.
- */
-function mergeSkillToolsIntoLocalTools(
-  localTools: MastraAgentRuntimeOptions['tools'],
-  workspaceSkills: WorkspaceSkills | undefined
-): MastraAgentRuntimeOptions['tools'] {
-  if (!workspaceSkills) {
-    return localTools;
-  }
-  const skillTools = createAssistantSkillTools(workspaceSkills);
-  for (const skillToolId of Object.keys(skillTools)) {
-    if (localTools && skillToolId in localTools) {
-      logger.error('Local tool id collides with a reserved skill tool id; keeping the local tool', {
-        toolId: skillToolId,
-      });
-    }
-  }
-  return { ...skillTools, ...localTools } as MastraAgentRuntimeOptions['tools'];
-}
-
-function applyRuntimeToolHooks(params: {
-  guardedTools: ToolsInput;
-  hookRunner: AgentHookRunner | undefined;
-  toolNameMap: ReadonlyMap<string, string>;
-}): ToolsInput {
-  if (!params.hookRunner) {
-    return params.guardedTools;
-  }
-  return applyToolHooks(params.guardedTools, {
-    hookRunner: params.hookRunner,
-    logger,
-    toolNameMap: params.toolNameMap,
-  });
-}
-
-function settleRuntimeToolOutputs(params: {
-  inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
-  store: ToolOutputArtifactSettlementStore | undefined;
-  toolNameMap: ReadonlyMap<string, string>;
-  tools: ToolsInput;
-}): ToolsInput {
-  if (!params.store) {
-    return params.tools;
-  }
-  return applyToolOutputArtifactSettlement(params.tools, {
-    ...(params.inlineMaxSerializedCharsByToolName
-      ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
-      : {}),
-    store: params.store,
-    toolNameMap: params.toolNameMap,
-  });
-}
-
-const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools']);
-
-function assertCatalogMetaToolNamesAvailable(params: {
-  eligibleTools: ToolsInput;
-  toolNameMap: ReadonlyMap<string, string>;
-}): void {
-  for (const registeredToolId of Object.keys(params.eligibleTools)) {
-    const originalToolId = params.toolNameMap.get(registeredToolId) ?? registeredToolId;
-    const sanitizedToolId = sanitizeToolName(originalToolId);
-    if (!MASTRA_CATALOG_META_TOOL_IDS.has(sanitizedToolId)) {
-      continue;
-    }
-    throw createMastraAgentError('mastra_agent_tool_name_collision', {
-      context: {
-        originalToolId,
-        reservedToolId: sanitizedToolId,
-        sanitizedToolId,
-      },
-      detail: `Tool ${originalToolId} sanitizes to reserved catalog meta-tool id ${sanitizedToolId}`,
-    });
-  }
-}
-
-async function prepareHostedToolDiscovery(params: {
-  eligibleTools: ToolsInput;
-  localToolIds: ReadonlySet<string>;
-  modelName: string;
-  persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
-  provider: ResolvedRuntimeConfiguration['provider'];
-  toolNameMap: ReadonlyMap<string, string>;
-}): Promise<{
-  discoverySurface?: ToolDiscoverySurface;
-  modelProjectedTools: ToolsInput;
-  tokenDiagnostics: RunTokenDiagnostics;
-  toolSearchProcessor?: BrainstrikeToolSearchProcessor;
-}> {
-  const isHosted = isHostedProviderRuntime(params.provider);
-  const discoveryResolution = isHosted
-    ? resolveToolDiscoveryAdapter({
-        modelId: params.modelName,
-        provider: params.provider,
-        requestedAdapter: 'mastra-catalog-search',
-      })
-    : undefined;
-  if (discoveryResolution?.status === 'unsupported') {
-    throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
-      context: {
-        phase: 'adapter-resolution',
-        provider: params.provider,
-        reason: discoveryResolution.reason,
-        requestedAdapter: 'mastra-catalog-search',
-      },
-      detail: `Mastra catalog discovery is unsupported for ${params.provider}/${params.modelName}: ${discoveryResolution.reason}`,
-    });
-  }
-
-  const discoverySurface = discoveryResolution
-    ? resolveToolDiscoverySurface({
-        adapter: discoveryResolution.adapter,
-        eligibleTools: params.eligibleTools,
-        localToolIds: params.localToolIds,
-        toolNameMap: params.toolNameMap,
-      })
-    : undefined;
-  const hasDeferredTools = Boolean(
-    discoverySurface && Object.keys(discoverySurface.deferredTools).length > 0
-  );
-  if (hasDeferredTools) {
-    assertCatalogMetaToolNamesAvailable(params);
-  }
-  const initialTools = discoverySurface?.coreTools ?? params.eligibleTools;
-  const tokenDiagnostics = await createRunTokenDiagnostics({
-    capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
-    tools: initialTools,
-  });
-  const recordModelOutput = (output: unknown): void => tokenDiagnostics.recordModelOutput(output);
-  const modelProjectedTools = applyToolModelOutputProjections(
-    initialTools,
-    params.toolNameMap,
-    recordModelOutput
-  );
-  const modelProjectedDeferredTools =
-    hasDeferredTools && discoverySurface
-      ? applyToolModelOutputProjections(
-          discoverySurface.deferredTools,
-          params.toolNameMap,
-          recordModelOutput
-        )
-      : undefined;
-  const toolSearchProcessor = modelProjectedDeferredTools
-    ? new BrainstrikeToolSearchProcessor({
-        deferredTools: modelProjectedDeferredTools,
-        ...(params.persistedDiscoveryMessages
-          ? { loadPersistedMessages: params.persistedDiscoveryMessages }
-          : {}),
-        // This field is required by ProcessInputStepArgs but is never consulted
-        // by Mastra's context-store parser. Use the existing fail-loud inert
-        // model so any future accidental invocation cannot perform inference.
-        model: createListingOnlyModel(),
-        toolNameMap: params.toolNameMap,
-      })
-    : undefined;
-
-  if (discoverySurface) {
-    logger.info('Mastra tool discovery surface selected', {
-      adapter: discoverySurface.metadata.adapter,
-      code: 'mastra_tool_discovery_surface',
-      coreToolIds: discoverySurface.metadata.coreToolIds,
-      deferredToolIds: discoverySurface.metadata.deferredToolIds,
-      eligibleToolIds: discoverySurface.metadata.eligibleToolIds,
-    });
-  }
-
-  return {
-    ...(discoverySurface ? { discoverySurface } : {}),
-    modelProjectedTools,
-    tokenDiagnostics,
-    ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
-  };
-}
-
-function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
-}
-
-function createToolHistoryFilter(
-  provider: ResolvedRuntimeConfiguration['provider'],
-  toolNameMap: ReadonlyMap<string, string>
-): ProjectionSafeToolCallFilter | undefined {
-  if (!isHostedProviderRuntime(provider)) {
-    return;
-  }
-  return new ProjectionSafeToolCallFilter({ toolNameMap });
-}
-
 function createPersistedDiscoveryMessageLoader(params: {
   enabled: boolean | undefined;
   memory: MastraMemory | undefined;
@@ -818,97 +496,40 @@ export async function createMastraAgentRuntime(
   const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
-  const mcpClient = createMcpRuntimeClient({
-    config: resolvedMcpConfig,
-  });
 
-  // Agent Skills (desktop-injected engine): fold Mastra's canonical
-  // skill/skill_read/skill_search tools into the LOCAL tool map BEFORE
-  // sanitize/guards/hooks/plan-mode/permission — never via the Agent-level
-  // `skills` option, whose auto-added tools would bypass that whole pipeline
-  // (the adoption blocker recorded in docs/agents/workspace-context.md).
-  // Excluded for the built-in local provider (mirrors the task-list/plan-mode
-  // local gating: the 2B on-device model's context budget cannot afford skill
-  // payloads).
-  const localToolsWithSkills = mergeSkillToolsIntoLocalTools(
-    localTools,
-    normalizedProvider === 'local' ? undefined : sanitizedRuntime.workspaceSkills
-  );
-
-  const toolNameMap = new Map<string, string>();
-  const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
-  const sanitizedLocalToolIds = new Set(Object.keys(sanitizedLocalTools ?? {}));
-  const combinedTools = await collectCombinedTools({
-    durableArtifactSettlement: Boolean(toolOutputArtifactStore),
-    mcpClient,
-    mcpConfig: resolvedMcpConfig,
-    sanitizedLocalTools,
-    timeoutOverrideMs: mcpTimeoutMs,
-    toolNameMap,
-  });
-  const resilienceConfig = resolveAssistantResilienceConfig();
-  // Intentional global guard: every native and MCP tool execution shares this
-  // ceiling so a single slow tool cannot freeze the assistant stream.
-  const guardedTools = applyToolGuards(combinedTools, {
-    logger,
-    timeoutMs: resilienceConfig.toolTimeoutMs,
-  });
-
-  // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the
-  // permission gate. A PreToolUse hook can BLOCK an already-permitted tool but
-  // can never widen access — permission runs downstream of `execute`, so a hook
-  // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
-  // An explicit `options.hookRunner` wins over one carried on the runtime data.
+  // Tool pipeline phase 1 (runtime-assembly/tool-pipeline.ts): skills-merge →
+  // sanitize → MCP discovery → timeout guard → lifecycle hooks →
+  // plan/permission/suspend gates → provider-native web search → artifact
+  // settlement. The stage order and per-stage invariants are documented in the
+  // pipeline module + docs/agents/assistant-runtime.md. An explicit
+  // `options.hookRunner`/`options.permissionPolicy` wins over one carried on
+  // the runtime data. Plan mode is NEVER active for the built-in local
+  // provider (mirrors the local gating on the task-list tool/note).
   const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
-  const hookedTools = applyRuntimeToolHooks({ guardedTools, hookRunner, toolNameMap });
-
-  // Permission gate: filter the tool map by the user's policy BEFORE the Agent
-  // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
-  // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
-  // Mastra's PER-TOOL `requireApproval: true` (and records its id in `askTools`)
-  // so Mastra suspends for approval ONLY when that tool is actually called —
-  // allowed read/mcp tools in the same run still run free. We do NOT force the
-  // run-wide requireToolApproval (see permission-tool-gate.ts + streamMastraAgent).
-  // When no policy is threaded the map is returned unchanged (production-default)
-  // with an empty askTools. An explicit `options.permissionPolicy` wins over one
-  // carried on the runtime data.
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
-
-  // Plan mode (opt-in, per-request; NEVER for the built-in local provider — it
-  // mirrors the local gating on the task-list tool/note): constrain the tool map
-  // to read/mcp + the suspending tools (submitPlan/askUser) and omit every
-  // edit/execute tool, BEFORE the permission gate (a dropped mutation tool is
-  // dropped regardless of allow/ask/deny). The risk map is the authoritative
-  // static registry classification (never client-supplied).
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
-  const { gatedTools, askTools } = resolveGatedToolMap({
+  const {
+    artifactSettledTools,
+    askTools,
+    guardedTools,
+    mcpClient,
+    resilienceConfig,
+    sanitizedLocalToolIds,
+    toolNameMap,
+  } = await composeRuntimeToolMap({
+    apiKey,
     hasStorage: Boolean(storage),
-    hookedTools,
+    hookRunner,
+    inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
+    localTools,
+    mcpConfig: resolvedMcpConfig,
+    mcpTimeoutMs,
     permissionSnapshot,
     planModeActive,
-    toolNameMap,
-  });
-
-  // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
-  // so it uses the gate's authoritative decision — swap the web-search entry to
-  // the provider-executed tool ONLY when it resolved to `allow`; on `ask`/`deny`
-  // the execute-backed Tavily tool stays (a provider-native tool has no execute
-  // and cannot be approval-gated). Guarded to supported providers, so every other
-  // caller/path is unchanged (see native-web-search.ts).
-  const finalTools = applyProviderNativeWebSearch({
-    apiKey,
-    askTools,
-    logger,
     preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
-    toolNameMap,
-    tools: gatedTools,
-  });
-  const artifactSettledTools = settleRuntimeToolOutputs({
-    inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
-    store: toolOutputArtifactStore,
-    toolNameMap,
-    tools: finalTools,
+    toolOutputArtifactStore,
+    workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
@@ -1086,25 +707,6 @@ function assertModernLanguageModel(
   });
 }
 
-interface UsageLike {
-  /** Mastra's flattened Anthropic cache-write token count. */
-  cacheCreationInputTokens?: number;
-  /** Mastra's flattened Anthropic cache-read token count. */
-  cachedInputTokens?: number;
-  completionTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  promptTokens?: number;
-}
-
-/** Read a non-negative finite count or drop the field entirely. */
-function readCacheTokenCount(value: number | undefined): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  return;
-}
-
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 interface MastraStreamPart {
   delta?: string;
@@ -1135,38 +737,6 @@ function asMastraStreamPart(part: unknown): MastraStreamPart {
     return part as MastraStreamPart;
   }
   return { type: 'unknown' };
-}
-
-function readOpenRouterBilledCost(part: MastraStreamPart): number | undefined {
-  const providerMetadata = part.payload?.metadata?.providerMetadata ?? part.providerMetadata;
-  if (providerMetadata === undefined) {
-    return;
-  }
-  if (!providerMetadata || typeof providerMetadata !== 'object') {
-    throw new Error('OpenRouter provider metadata must be an object.');
-  }
-  const openrouter = (providerMetadata as Record<string, unknown>)['openrouter'];
-  if (openrouter === undefined) {
-    return;
-  }
-  if (!openrouter || typeof openrouter !== 'object') {
-    throw new Error('OpenRouter provider metadata must be an object.');
-  }
-  const usage = (openrouter as Record<string, unknown>)['usage'];
-  if (usage === undefined) {
-    return;
-  }
-  if (!usage || typeof usage !== 'object') {
-    throw new Error('OpenRouter usage metadata must be an object.');
-  }
-  const cost = (usage as Record<string, unknown>)['cost'];
-  if (cost === undefined) {
-    return;
-  }
-  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
-    throw new Error('OpenRouter billed cost must be a finite, non-negative number.');
-  }
-  return cost;
 }
 
 function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
@@ -1287,22 +857,6 @@ function isRunEventMetadata(value: unknown): value is AssistantRunEventMetadata 
   }
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
-}
-
-/** Sum per-step usage (mirrors stepBilledCostUsd) for the steered finish. */
-function accumulateSteppedUsage(
-  lifecycleState: ToolLifecycleState,
-  usage: UsageLike | undefined
-): void {
-  const prompt = usage?.promptTokens ?? usage?.inputTokens;
-  const completion = usage?.completionTokens ?? usage?.outputTokens;
-  if (typeof prompt === 'number' && Number.isFinite(prompt)) {
-    lifecycleState.steppedPromptTokens += prompt;
-    lifecycleState.providerReportedPromptTokens = lifecycleState.steppedPromptTokens;
-  }
-  lifecycleState.steppedCompletionTokens += Number.isFinite(completion)
-    ? (completion as number)
-    : 0;
 }
 
 function makeRunEventChunk(
