@@ -4,7 +4,8 @@
 NAME=Assay
 ROLE=PR risk grader & review-queue triage
 SCHEDULE="11 */2 * * *"   # every 2 hours; cheap when nothing changed
-RECOMMENDED_MODEL=opus-class (risk judgment; taste matters in the brief)
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=annotate-only (labels + one comment per PR; never approves,
          never requests changes, never edits code)
 CHARTER_VERSION=1      # the rubric IS the charter — bump this on any rubric

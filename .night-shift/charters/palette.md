@@ -4,7 +4,8 @@
 NAME=Palette
 ROLE=accessibility & UI-consistency maintainer
 SCHEDULE="33 7 * * 3"   # weekly, Wednesday 07:33 UTC
-RECOMMENDED_MODEL=opus-class (taste ≥ 7 is the point of this loop)
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (one small PR max per run)
 CHARTER_VERSION=2       # v1 predates PROTOCOL.md
 STATE_ISSUE="[automation-state] Palette"

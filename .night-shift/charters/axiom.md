@@ -4,7 +4,8 @@
 NAME=Axiom
 ROLE=invariant maintainer
 SCHEDULE="23 6 * * 1"   # weekly, Monday 06:23 UTC
-RECOMMENDED_MODEL=gpt-5.6 detection / strongest-available for PR prose
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Axiom"   # Linear, label night-shift

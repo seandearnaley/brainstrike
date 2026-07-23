@@ -4,7 +4,8 @@
 NAME=Pruner
 ROLE=dead-code burndown
 SCHEDULE="19 5 * * 2"   # weekly, Tuesday 05:19 UTC
-RECOMMENDED_MODEL=gpt-5.6 detection + independent verify pass
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (one small PR max per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Pruner"
