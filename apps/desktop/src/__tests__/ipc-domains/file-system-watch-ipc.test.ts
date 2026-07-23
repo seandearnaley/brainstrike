@@ -45,6 +45,7 @@ import {
   type FileSystemWatchEventPayload,
   type FileSystemWatchRetryResult,
   liveFileSystemWatcherCountForTest,
+  MAX_FS_WATCH_REGISTRATIONS_PER_OWNER,
   MAX_FS_WATCHERS_PER_OWNER,
   registerFileSystemWatchIpcHandlers,
   type StartFileSystemWatch,
@@ -601,6 +602,19 @@ describe('file-system watch IPC domain', () => {
     expect(harness.stops[0]).not.toHaveBeenCalled();
     await invokeUnwatch(owner, shared.watchId);
     expect(harness.stops[0]).toHaveBeenCalledOnce();
+  });
+
+  it('caps logical same-root registrations per renderer', async () => {
+    const owner = new FakeWebContents(1);
+    const other = new FakeWebContents(2);
+    const dir = await makeDir();
+    for (let index = 0; index < MAX_FS_WATCH_REGISTRATIONS_PER_OWNER; index += 1) {
+      await invokeWatch(owner, dir);
+    }
+
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/registration limit/i);
+    expect(harness.startedPaths).toEqual([dir]);
+    await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
   });
 
   it('enforces the per-owner cap under concurrent watch requests (no TOCTOU bypass)', async () => {

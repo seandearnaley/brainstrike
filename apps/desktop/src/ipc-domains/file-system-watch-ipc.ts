@@ -66,6 +66,12 @@ export interface RegisterFileSystemWatchIpcHandlersOptions {
  * limit (real usage is one watcher per mounted workspace root).
  */
 export const MAX_FS_WATCHERS_PER_OWNER = 32;
+/**
+ * Bound logical fan-out separately from native subscriptions. Two renderer
+ * surfaces may legitimately share every mounted root, but repeated duplicate
+ * registrations must not grow MAIN-process state or event fan-out without limit.
+ */
+export const MAX_FS_WATCH_REGISTRATIONS_PER_OWNER = MAX_FS_WATCHERS_PER_OWNER * 2;
 
 interface LiveFileSystemWatcher {
   /** Consecutive failed transitions since the last healthy one. */
@@ -262,6 +268,21 @@ function liveWatcherCountForOwner(ownerId: number): number {
   return count;
 }
 
+function assertWatchRegistrationCapacity(ownerId: number): void {
+  let count = 0;
+  for (const entry of liveWatchersBySubscription.values()) {
+    if (entry.ownerId !== ownerId) {
+      continue;
+    }
+    count += entry.watchIds.size;
+    if (count >= MAX_FS_WATCH_REGISTRATIONS_PER_OWNER) {
+      throw new Error(
+        `fs:watch: per-renderer watcher registration limit reached (${MAX_FS_WATCH_REGISTRATIONS_PER_OWNER}).`
+      );
+    }
+  }
+}
+
 /**
  * Reap every watcher this renderer owns when its context goes away. Attached
  * BEFORE any async setup work so a mid-setup teardown can never miss it.
@@ -315,6 +336,7 @@ function registerMockFileSystemWatcher(
   requestedPath: string,
   watchId: string
 ): FileSystemWatchRegistration {
+  assertWatchRegistrationCapacity(owner.id);
   const key = subscriptionKey(owner.id, requestedPath);
   const existing = liveWatchersBySubscription.get(key);
   if (existing) {
@@ -440,8 +462,10 @@ export function registerFileSystemWatchIpcHandlers({
       }
 
       // The lookup, cap check, and insert below contain no await, so concurrent
-      // invokes serialize here without a reservation TOCTOU. Duplicate logical
-      // registrations share the existing native subscription even at the cap.
+      // invokes serialize here without a reservation TOCTOU. Logical fan-out is
+      // bounded independently; an in-budget duplicate may still share the
+      // existing native subscription when the native cap is full.
+      assertWatchRegistrationCapacity(owner.id);
       const key = subscriptionKey(owner.id, resolvedPath);
       const existing = liveWatchersBySubscription.get(key);
       if (existing) {
