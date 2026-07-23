@@ -43,8 +43,9 @@ You are an EXTERNAL-STATE loop. Watched set = open night-shift/* PR
 (number, head-sha) pairs + kill-switch states. Watermark = hash: of it.
 
 Beat 0 — kill switches, checked before anything:
-- `.night-shift/HOLD` committed on origin/main → checkpoint BLOCKED,
-  merge nothing.
+- `.night-shift/HOLD` committed on main (the collector reads it LIVE via
+  the GitHub contents API; a stale or absent local ref never answers a
+  kill-switch question) → checkpoint BLOCKED, merge nothing.
 - BREAKER OPEN: your newest checkpoint says breaker=open and no later
   human comment on your state issue says `porter: clear` → checkpoint
   BLOCKED, merge nothing. Only a human comment clears the breaker.

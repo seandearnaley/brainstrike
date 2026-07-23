@@ -45,7 +45,9 @@ comments, or labels). It:
   advisory checks, unresolved-thread count, newest Assay work_key head SHA,
   last-activity timestamp (commits, reviews, comments, thread replies),
   and dependent PRs targeting the head branch;
-- reports whether `.night-shift/HOLD` is committed at the checked revision.
+- reports whether `.night-shift/HOLD` is committed on main, read LIVE via
+  the GitHub contents API — a proven 404 means absent; any other error
+  fails the whole run rather than reporting the kill switch absent.
 
 Linear-side conditions (the owning loop's `status=READY` checkpoint for the
 exact head SHA) are verified directly, with complete pagination.

@@ -42,6 +42,18 @@ if (args[0] === 'repo' && args[1] === 'view') {
   process.stdout.write(JSON.stringify({ nameWithOwner: 'fixture/brainstrike' }));
   process.exit(0);
 }
+if (args[0] === 'api' && args[1].startsWith('repos/fixture/brainstrike/contents/.night-shift/HOLD')) {
+  if (process.env.FAKE_GH_HOLD === '1') {
+    process.stdout.write(JSON.stringify({ name: 'HOLD', path: '.night-shift/HOLD' }));
+    process.exit(0);
+  }
+  if (process.env.FAKE_GH_HOLD_ERROR === '1') {
+    process.stderr.write('gh: HTTP 500 upstream unavailable\\n');
+    process.exit(1);
+  }
+  process.stderr.write('gh: Not Found (HTTP 404)\\n');
+  process.exit(1);
+}
 if (args[0] === 'api' && args[1] === 'repos/fixture/brainstrike/rules/branches/main') {
   if (process.env.FAKE_GH_NO_RULES === '1') {
     process.stdout.write(JSON.stringify([]));
@@ -63,22 +75,23 @@ if (args[0] === 'api' && args[1] === 'repos/fixture/brainstrike/rules/branches/m
   process.exit(0);
 }
 if (args[0] === 'pr' && args[1] === 'list') {
-  const isNightShift = args.includes('--search');
-  const all = JSON.parse(process.env.FAKE_GH_PRS);
-  const prs = isNightShift
-    ? all.filter((pr) => pr.headRefName.startsWith('night-shift/'))
-    : all;
-  process.stdout.write(JSON.stringify(prs));
+  if (args.includes('--search')) {
+    process.stderr.write('unexpected --search: night-shift PRs derive from the full open list\\n');
+    process.exit(2);
+  }
+  process.stdout.write(process.env.FAKE_GH_PRS);
   process.exit(0);
 }
 if (args[0] === 'pr' && args[1] === 'view') {
   const number = args[2];
+  // Heterogeneous rollups: CheckRun entries carry name/status/conclusion,
+  // StatusContext entries carry context/state and NO name — both real.
   const rollups = {
     '10': [
       { name: 'Build', status: 'COMPLETED', conclusion: 'SUCCESS' },
-      { name: 'Static', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { context: 'Static', state: 'SUCCESS' },
       { name: 'Unit (db)', status: 'COMPLETED', conclusion: 'SUCCESS' },
-      { name: 'Vercel', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { context: 'Vercel', state: 'FAILURE' },
     ],
     // Unit (db) entirely ABSENT from the rollup: the skipped-check masking
     // shape. Rollup-level "no failures" must still read as not-green.
@@ -149,7 +162,7 @@ process.exit(2);
   return bin;
 }
 
-function createFixture({ hold = false } = {}) {
+function createFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-collector-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -157,9 +170,6 @@ function createFixture({ hold = false } = {}) {
   run('git', ['config', 'user.email', 'porter@example.test'], repo);
   run('git', ['config', 'user.name', 'Porter Test'], repo);
   write(repo, '.night-shift/PROTOCOL.md', '# Protocol\n');
-  if (hold) {
-    write(repo, '.night-shift/HOLD', 'freeze\n');
-  }
   commitAll(repo, 'fixture');
   const bin = createFakeGh(root);
   const prs = [
@@ -171,6 +181,7 @@ function createFixture({ hold = false } = {}) {
       number: 10,
       state: 'OPEN',
       title: 'Bolt: fast path',
+      updatedAt: '2026-07-23T02:45:00Z',
     },
     {
       baseRefName: 'main',
@@ -180,6 +191,7 @@ function createFixture({ hold = false } = {}) {
       number: 11,
       state: 'OPEN',
       title: 'Palette: aria fix',
+      updatedAt: '2026-07-23T04:10:00Z',
     },
     {
       baseRefName: 'main',
@@ -189,6 +201,7 @@ function createFixture({ hold = false } = {}) {
       number: 12,
       state: 'OPEN',
       title: 'Sentinel: harden',
+      updatedAt: '2026-07-23T07:00:00Z',
     },
     {
       baseRefName: 'night-shift/sentinel/harden',
@@ -198,13 +211,14 @@ function createFixture({ hold = false } = {}) {
       number: 13,
       state: 'OPEN',
       title: 'Stacked child',
+      updatedAt: '2026-07-23T07:05:00Z',
     },
   ];
   return { bin, prs, repo, root };
 }
 
 function collect(fixture, extraEnvironment = {}) {
-  return spawnSync(process.execPath, [SCRIPT_PATH, '--repo', fixture.repo, '--revision', 'HEAD'], {
+  return spawnSync(process.execPath, [SCRIPT_PATH, '--repo', fixture.repo], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -236,12 +250,16 @@ test('collects merge-eligibility evidence for open night-shift PRs', (context) =
   assert.equal(eligible.headSha, 'headsha10');
   assert.equal(eligible.riskLabel, 'review/risk-1-low');
   assert.equal(eligible.holdLabel, false);
+  // 'Static' reports as a StatusContext (context/state) and still satisfies
+  // its required slot; the CheckRun entries satisfy theirs.
   assert.equal(eligible.requiredGreen, true);
   assert.deepEqual(eligible.missingRequiredContexts, []);
+  // Vercel is a StatusContext failure — advisory, not a crash.
   assert.deepEqual(eligible.failingAdvisoryChecks, ['Vercel']);
   assert.equal(eligible.unresolvedThreads, 0);
   assert.equal(eligible.assayWorkKeyHeadSha, 'headsha10');
-  // Latest of comment 03:00, review 02:30, thread 02:15, commit 01:00.
+  // Latest of comment 03:00, review 02:30, thread 02:15, commit 01:00,
+  // updatedAt 02:45.
   assert.equal(eligible.lastActivityAt, '2026-07-23T03:00:00.000Z');
   assert.deepEqual(eligible.dependentPrs, []);
 
@@ -251,22 +269,35 @@ test('collects merge-eligibility evidence for open night-shift PRs', (context) =
   assert.deepEqual(masked.missingRequiredContexts, ['Unit (db)']);
   assert.equal(masked.holdLabel, true);
   assert.equal(masked.assayWorkKeyHeadSha, null);
+  // updatedAt (04:10) is newer than the head commit (04:00): a push or edit
+  // the commit date does not reflect still restarts the cooling clock.
+  assert.equal(masked.lastActivityAt, '2026-07-23T04:10:00.000Z');
 
   assert.equal(stacked.requiredGreen, false);
   assert.equal(stacked.riskLabel, 'review/risk-2-moderate');
   assert.equal(stacked.unresolvedThreads, 1);
   // Stale assay work_key: recorded verbatim so the agent sees the mismatch.
   assert.equal(stacked.assayWorkKeyHeadSha, 'stalesha');
+  assert.equal(stacked.lastActivityAt, '2026-07-23T07:00:00.000Z');
   assert.deepEqual(stacked.dependentPrs, [13]);
 });
 
-test('reports the HOLD kill-switch file when committed', (context) => {
-  const fixture = createFixture({ hold: true });
+test('reports the HOLD kill switch from the live contents API', (context) => {
+  const fixture = createFixture();
   context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
 
-  const result = collect(fixture);
+  const result = collect(fixture, { FAKE_GH_HOLD: '1' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).holdFile, true);
+});
+
+test('fails closed when the HOLD state is unreadable (non-404 error)', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
+
+  const result = collect(fixture, { FAKE_GH_HOLD_ERROR: '1' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /HOLD/u);
 });
 
 test('fails closed when the ruleset yields no required contexts', (context) => {

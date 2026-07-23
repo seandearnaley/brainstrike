@@ -19,20 +19,18 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { pretty: false, revision: 'origin/main' };
+  const options = { pretty: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--help') {
-      process.stdout.write(
-        'Usage: node collect-porter-evidence.mjs --repo <path> [--revision <revision>] [--pretty]\n'
-      );
+      process.stdout.write('Usage: node collect-porter-evidence.mjs --repo <path> [--pretty]\n');
       process.exit(0);
     }
     if (argument === '--pretty') {
       options.pretty = true;
       continue;
     }
-    if (!['--repo', '--revision'].includes(argument)) {
+    if (argument !== '--repo') {
       fail(`unsupported argument: ${argument}`);
     }
     const value = argv[index + 1];
@@ -115,15 +113,31 @@ function resolveRepository(repo) {
   return { name, nameWithOwner: payload.nameWithOwner, owner };
 }
 
-function holdFileCommitted(repo, revision) {
+function holdFileLive(repo, repository) {
+  // The kill switch is read LIVE from the API, never from a local
+  // remote-tracking ref that may be stale or absent. Only a proven 404
+  // means "not held"; every other failure is an unreadable switch state,
+  // and an unreadable kill switch must fail the whole run (fail closed).
   try {
-    execFileSync('git', ['-C', repo, 'cat-file', '-e', `${revision}:${HOLD_FILE}`], {
-      cwd: repo,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    execFileSync(
+      'gh',
+      ['api', `repos/${repository.nameWithOwner}/contents/${HOLD_FILE}?ref=main`],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: MAX_BUFFER_BYTES,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const stderr =
+      error && typeof error === 'object' && 'stderr' in error ? String(error.stderr) : '';
+    if (/\b404\b/u.test(stderr)) {
+      return false;
+    }
+    const detail = stderr.trim() || (error instanceof Error ? error.message : String(error));
+    fail(`HOLD kill-switch state is unreadable — refusing to report it absent: ${detail}`);
   }
 }
 
@@ -169,6 +183,8 @@ function normalizePr(pr, index) {
     typeof pr.isDraft !== 'boolean' ||
     typeof pr.headRefName !== 'string' ||
     typeof pr.baseRefName !== 'string' ||
+    typeof pr.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(pr.updatedAt)) ||
     !Array.isArray(pr.labels)
   ) {
     fail(`gh pr list returned malformed PR at index ${index}`);
@@ -186,10 +202,11 @@ function normalizePr(pr, index) {
     labels,
     number: pr.number,
     title: pr.title,
+    updatedAt: new Date(pr.updatedAt).toISOString(),
   };
 }
 
-const PR_LIST_FIELDS = 'number,title,isDraft,headRefName,baseRefName,labels';
+const PR_LIST_FIELDS = 'number,title,isDraft,headRefName,baseRefName,labels,updatedAt';
 
 function listPrs(repo, args) {
   const payload = runJson('gh', args, repo);
@@ -354,18 +371,33 @@ function summarizeRequiredChecks(repo, prNumber, requiredContexts) {
   const byName = new Map();
   const failingAdvisoryChecks = [];
   for (const check of payload.statusCheckRollup) {
-    if (!check || typeof check !== 'object' || typeof check.name !== 'string') {
+    if (!check || typeof check !== 'object') {
       fail(`PR #${prNumber} returned a malformed status check`);
     }
-    const completed = check.status === 'COMPLETED';
-    const success = completed && check.conclusion === 'SUCCESS';
-    byName.set(check.name, success);
-    if (
-      completed &&
-      !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.conclusion) &&
-      !requiredContexts.includes(check.name)
-    ) {
-      failingAdvisoryChecks.push(check.name);
+    // The rollup is heterogeneous: GitHub Actions jobs arrive as CheckRun
+    // (name/status/conclusion); commit statuses (e.g. Vercel) arrive as
+    // StatusContext (context/state) with no name field.
+    let name;
+    let success;
+    let failing;
+    if (typeof check.context === 'string' && check.context) {
+      if (typeof check.state !== 'string') {
+        fail(`PR #${prNumber} returned a StatusContext without a state`);
+      }
+      name = check.context;
+      success = check.state === 'SUCCESS';
+      failing = ['ERROR', 'FAILURE'].includes(check.state);
+    } else if (typeof check.name === 'string' && check.name) {
+      const completed = check.status === 'COMPLETED';
+      name = check.name;
+      success = completed && check.conclusion === 'SUCCESS';
+      failing = completed && !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(check.conclusion);
+    } else {
+      fail(`PR #${prNumber} returned a status check with neither name nor context`);
+    }
+    byName.set(name, success);
+    if (failing && !requiredContexts.includes(name)) {
+      failingAdvisoryChecks.push(name);
     }
   }
   // A required context ABSENT from the rollup reads as not green: a skipped
@@ -385,18 +417,8 @@ function collect(options) {
   const repo = validateRepo(options.repo);
   const repository = resolveRepository(repo);
   const requiredContexts = collectRequiredContexts(repo, repository);
-  const nightShiftPrs = listPrs(repo, [
-    'pr',
-    'list',
-    '--search',
-    'head:night-shift/',
-    '--state',
-    'open',
-    '--limit',
-    '500',
-    '--json',
-    PR_LIST_FIELDS,
-  ]).filter((pr) => pr.headRefName.startsWith('night-shift/'));
+  // One complete open-PR list; night-shift membership derives from an exact
+  // client-side prefix test, never from GitHub search-qualifier semantics.
   const allOpenPrs = listPrs(repo, [
     'pr',
     'list',
@@ -407,6 +429,7 @@ function collect(options) {
     '--json',
     PR_LIST_FIELDS,
   ]);
+  const nightShiftPrs = allOpenPrs.filter((pr) => pr.headRefName.startsWith('night-shift/'));
 
   const prs = nightShiftPrs
     .sort((left, right) => left.number - right.number)
@@ -414,6 +437,12 @@ function collect(options) {
       const graph = collectPrGraph(repo, repository, pr.number);
       const checks = summarizeRequiredChecks(repo, pr.number, requiredContexts);
       const riskLabels = pr.labels.filter((label) => /^review\/risk-/u.test(label));
+      // updatedAt joins the cooling clock: a force-push or cherry-pick can
+      // carry a committedDate older than the push itself.
+      const lastActivityAt =
+        Date.parse(pr.updatedAt) > Date.parse(graph.lastActivityAt)
+          ? pr.updatedAt
+          : graph.lastActivityAt;
       return {
         ...pr,
         ...graph,
@@ -423,13 +452,14 @@ function collect(options) {
           .map((candidate) => candidate.number)
           .sort((left, right) => left - right),
         holdLabel: pr.labels.includes('review/hold'),
+        lastActivityAt,
         riskLabel: riskLabels.length === 1 ? riskLabels[0] : null,
       };
     });
 
   return {
     generatedAt: new Date().toISOString(),
-    holdFile: holdFileCommitted(repo, options.revision),
+    holdFile: holdFileLive(repo, repository),
     prs,
     requiredContexts,
     schema: SCRIPT_NAME,
