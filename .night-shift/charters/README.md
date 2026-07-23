@@ -47,6 +47,8 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 | [forge](forge.md) | small-ticket implementer (label-gated) | `23 3 * * *` | propose-pr (one `agent-ready` ticket max) |
 | [vigil](vigil.md) | security-advisory watcher | `27 9 * * *` | tickets-only |
 | [gauntlet](gauntlet.md) | agent-behavior eval curator | `43 6 * * 4` | propose-pr (eval flows + fixtures only) |
+| [porter](porter.md) | low-risk merge executor (authority-ratcheted) | `53 */2 * * *` | merge (L1: night-shift risk-1 PRs only) |
+| [auditor](auditor.md) | outcome scoreboard & promotion proposer | `43 9 * * 1` | report-only (proposal tickets) |
 
 ## Deployment notes
 
@@ -98,6 +100,22 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 - Assay owns the `review/*` label namespace; magnify owns findings comments;
   neither may approve, block, or merge — a bot that gates merges rebuilds the
   CI planner this repo explicitly retired (docs/agents/ci-quality.md).
+- Wave 4 shipped: Porter (the fleet's ONLY merge authority — executes
+  merges already mechanically proven: risk-1 grade fresh for the exact
+  HEAD, zero unresolved threads, every required context individually green
+  on that HEAD, READY checkpoint, 2h cooling, no dependent PRs; one merge
+  per wake; kill switches = committed `.night-shift/HOLD` + `review/hold`
+  label + self-tripping breaker that only a human `porter: clear` comment
+  resets). Porter does not rebuild the retired CI planner: it gates
+  nothing and blocks no one — humans merge anything at any time; Porter
+  only executes merges whose conditions are already proven. Its authority
+  ladder (L0 shadow → L1 fleet risk-1 → L2 human opt-in → L3 risk-2)
+  lives in its charter; every lift is a human-merged charter PR, proposed
+  by Auditor with evidence, never self-applied. And Auditor (weekly
+  outcome scoreboard per loop keyed by CHARTER_VERSION — merge precision,
+  revert traces, finding acceptance, response latencies — plus
+  threshold-gated promotion/demotion proposal tickets; the evidence
+  engine that makes capability lifts measured instead of vibes).
 - Wave 2 shipped: the Librarian (consolidates pending-learnings + bulletin),
   Curator (model-catalog freshness — the only loop with propose-pr authority
   over catalog-data migrations, and even then additive-only), and Chronicle
@@ -118,19 +136,14 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 - Each loop has a matching helper skill in `.agents/skills/<name>-automation`
   with a deterministic read-only collector; collector tests run in the Static
   lane via the root `test:scripts` script. Declared exceptions with no
-  bundled collector: palette, quartermaster, sweep, forge (evidence surface
-  is Linear + gh directly).
+  bundled collector: palette, quartermaster, sweep, forge, auditor
+  (evidence surface is Linear + gh directly).
 - Remaining backlog: the perf-creep tracker (needs its bootstrap PR uploading
   metrics from successful performance.yml runs first), Recall Bench (needs a
   committed fixture corpus + baseline recall@k metrics first), Cartographer
   (drafts contract docs for undocumented subsystems; deferred until the
-  Librarian has accumulated a few weeks of fleet data), and the meta tier —
-  each deliberately deferred until ~2 weeks of fleet history exists to score:
-  - Auditor (outcome scoreboard): weekly, per loop keyed by CHARTER_VERSION —
-    PR acceptance rate, time-to-READY, human-edits-after-merge, finding
-    acceptance vs wontfix, NOOP ratio vs budget spent; low precision → a
-    charter-amendment proposal ticket with the evidence. Charters still only
-    change via human-merged PR.
+  Librarian has accumulated a few weeks of fleet data), and the remaining
+  meta tier:
   - Constitutional loop: monthly, reads all checkpoints/anomalies/bulletin
     and drafts ONE PROTOCOL.md amendment PR with fleet-history evidence.
     Kept separate from Chronicle so the monitor never grades its own
