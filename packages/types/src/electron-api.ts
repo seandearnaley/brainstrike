@@ -190,6 +190,7 @@ export interface ElectronFileSystemAPI {
     activeWatchers: number;
     batches: number;
     cleanups: number;
+    duplicateReplacements: number;
     events: number;
     failures: number;
     healthPushes: number;

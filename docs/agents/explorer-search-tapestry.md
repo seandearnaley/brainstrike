@@ -258,8 +258,13 @@ fallback.
   removed chokidar and the recursive-fs.watch path) with an explicit per-OS
   backend — `fs-events` on macOS, `inotify` on Linux, `windows` on Windows —
   selected in `parcel-backend.ts` (unsupported platform/binding throws typed
-  errors, never falls back). One native subscription per root; subscribe is
-  bounded by a 10s timeout with late-resolution cleanup; event paths are
+  errors, never falls back). One native subscription per owning renderer and
+  resolved root; a duplicate same-owner/root registration transfers the
+  existing native subscription to a fresh logical watchId instead of starting
+  Parcel again (newest registration wins, so a stale renderer disposer cannot
+  stop it), with replacements counted by `fs:watch-telemetry`. Subscribe is
+  bounded by a 10s timeout with
+  late-resolution cleanup; event paths are
   re-rooted from kernel realpaths onto the handle path; deletes and
   unstat-able paths normalize to the safe `directory`/`removed` invalidation
   shape; backend callback errors (e.g. FSEvents dropped-events) degrade to a
@@ -273,9 +278,10 @@ fallback.
   1s/5s/30s throttling and single-flight per watchId; terminal/non-retryable
   failures are retained by the MAIN registry, rejected by the retry API, and
   never render a retry action;
-  `fs:watch-telemetry` exposes compact counters. Watchers are keyed by `watchId`, owned by the
-  requesting `WebContents` (push to owner only, non-owner unwatch rejected
-  without an ownership oracle). The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
+  `fs:watch-telemetry` exposes compact counters. Watchers are keyed by
+  `watchId`, owned by the requesting `WebContents` (push to owner only,
+  non-owner unwatch rejected without an ownership oracle), and de-duplicated by
+  `(ownerId, resolvedPath)`. The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
   counts live PLUS reserved (in-flight) watchers — a slot is reserved before
   the `stat` await so concurrent `fs:watch` calls can't race past the cap. The
   owner reaper is attached BEFORE any async setup and covers all three teardown
