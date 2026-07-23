@@ -32,6 +32,7 @@ var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 vi.mock('../shell/file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     bulkSelectionControl,
+    compactActionsControl,
     filtersControl,
     onDirectorySelect,
     isLoading,
@@ -39,6 +40,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     treeActionsControl,
   }: {
     bulkSelectionControl?: ReactNode;
+    compactActionsControl?: ReactNode;
     filtersControl?: ReactNode;
     onDirectorySelect: () => void;
     isLoading: boolean;
@@ -55,6 +57,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
         {selectionStatusControl}
         {treeActionsControl}
         {filtersControl}
+        {compactActionsControl}
       </div>
     </div>
   ),
@@ -1774,7 +1777,23 @@ describe('FileExplorerPanel', () => {
       const toggle = await screen.findByRole('button', { name: /view filters/i });
       expect(screen.getByTestId('file-explorer-toolbar')).toContainElement(toggle);
       expect(toggle).toHaveAttribute('aria-controls', 'view-filters-content');
-      expect(toggle).toHaveClass('size-5', '@[236px]/explorer-toolbar:size-7');
+      expect(toggle).toHaveClass('size-6', '@[236px]/explorer-toolbar:size-7');
+    });
+
+    it('keeps refresh and view filters represented in the narrow-toolbar menu', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<FileExplorerPanel />);
+
+      const menuTrigger = await screen.findByRole('button', {
+        name: 'More Explorer actions',
+      });
+      expect(menuTrigger).toHaveClass('size-6', '@[236px]/explorer-toolbar:hidden');
+
+      await user.click(menuTrigger);
+      expect(
+        await screen.findByRole('menuitem', { name: 'Refresh file tree' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Hide view filters' })).toBeInTheDocument();
     });
 
     it('keeps the quick filter row inside the toggled view-filters block', async () => {

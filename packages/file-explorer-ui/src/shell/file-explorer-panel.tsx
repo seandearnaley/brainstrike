@@ -3,6 +3,10 @@ import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
   Button,
   cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   LoadingFallback,
   Tooltip,
   TooltipContent,
@@ -10,7 +14,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
+import { Eye, EyeOff, MoreHorizontal, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
@@ -133,7 +137,7 @@ function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            'relative @[236px]/explorer-toolbar:size-7 size-5 shrink-0 p-0',
+            'relative @[236px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"
@@ -155,6 +159,51 @@ function ViewFiltersToggleButton({
         <p>{label}</p>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function CompactToolbarActions({
+  hasRoot,
+  isFiltersExpanded,
+  isLoading,
+  isRefreshing,
+  onRefresh,
+  setFiltersExpanded,
+}: {
+  hasRoot: boolean;
+  isFiltersExpanded: boolean;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+  setFiltersExpanded: (expanded: boolean) => void;
+}) {
+  if (!hasRoot) {
+    return null;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label="More Explorer actions"
+          className="@[236px]/explorer-toolbar:hidden size-6"
+          size="icon"
+          variant="ghost"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={isLoading || isRefreshing} onClick={() => onRefresh()}>
+          <RefreshCw className={cn('size-4', isRefreshing && 'animate-spin')} />
+          Refresh file tree
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setFiltersExpanded(!isFiltersExpanded)}>
+          <SlidersHorizontal className="size-4" />
+          {isFiltersExpanded ? 'Hide view filters' : 'Show view filters'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1161,6 +1210,16 @@ const FileExplorerPanelInner = React.memo(() => {
                 selectedFiles={selectedFilesList}
                 setSelectedFiles={setSelectedFilesFromList}
                 visibleFilePaths={visibleFilePaths}
+              />
+            }
+            compactActionsControl={
+              <CompactToolbarActions
+                hasRoot={!!rootDirectoryHandle}
+                isFiltersExpanded={isFiltersExpanded}
+                isLoading={isLoading}
+                isRefreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                setFiltersExpanded={setFiltersExpanded}
               />
             }
             filtersControl={

@@ -174,7 +174,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="@[236px]/explorer-toolbar:size-7 size-5"
+              className="@[236px]/explorer-toolbar:size-7 size-6"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}

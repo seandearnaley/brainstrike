@@ -40,10 +40,10 @@ describe('TreeActionButtons', () => {
     expect(root?.className).not.toContain('absolute');
   });
 
-  it('uses the compact hit region until the toolbar can fit every right-side control', () => {
+  it('keeps a 24px minimum hit region until the toolbar can fit larger controls', () => {
     renderWithTooltips(<TreeActionButtons {...defaultProps} />);
     expect(screen.getByTestId('refresh-button-small')).toHaveClass(
-      'size-5',
+      'size-6',
       '@[236px]/explorer-toolbar:size-7'
     );
   });
