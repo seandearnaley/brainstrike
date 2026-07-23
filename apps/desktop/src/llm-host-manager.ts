@@ -147,8 +147,12 @@ interface PreCancelledRequestCleanup {
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
-function createRequestFailure(message: string): Error {
-  return new Error(message);
+function createRequestFailure(message: string, code?: string): Error {
+  const error = new Error(message);
+  if (code) {
+    (error as Error & { code: string }).code = code;
+  }
+  return error;
 }
 
 export class LlmHostManager {
@@ -364,7 +368,7 @@ export class LlmHostManager {
         report.payload.errorDetails?.stage && report.payload.errorDetails.stage.length > 0
           ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
           : report.payload.errorMessage;
-      pending.reject(createRequestFailure(enrichedMessage));
+      pending.reject(createRequestFailure(enrichedMessage, report.payload.code));
       // A persistent engine fault means the renderer already disposed the ORT
       // session but the WebGPU device stays wedged (GPU-memory exhaustion +
       // transformers.js#860 tensor leak). Escalate to a host-window reset so the

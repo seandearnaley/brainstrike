@@ -31,7 +31,8 @@ import {
   mapFinishReason,
 } from './local-message-conversion';
 import { GEMMA4_E2B_MODEL_ID } from './local-model-specs';
-import type { LocalLlmGenerationResult, LocalLlmMessage } from './types';
+import { normalizeLocalToolCalls } from './local-tool-call-validation';
+import type { LocalLlmGenerationResult, LocalLlmMessage, LocalLlmToolCall } from './types';
 
 const logger = createLogger('LlmHostChatModel');
 
@@ -299,6 +300,14 @@ export class LlmHostChatModel implements LanguageModelV2 {
           return;
         }
 
+        let toolCalls: LocalLlmToolCall[];
+        try {
+          toolCalls = normalizeLocalToolCalls(result.toolCalls);
+        } catch (error) {
+          controller.error(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
+
         try {
           reasoningChannel.finalize(result.reasoningText);
           textChannel.finalize(result.text);
@@ -307,15 +316,13 @@ export class LlmHostChatModel implements LanguageModelV2 {
           return;
         }
 
-        if (result.toolCalls) {
-          for (const toolCall of result.toolCalls) {
-            controller.enqueue({
-              input: toolCall.function.arguments,
-              toolCallId: toolCall.id,
-              toolName: toolCall.function.name,
-              type: 'tool-call',
-            });
-          }
+        for (const toolCall of toolCalls) {
+          controller.enqueue({
+            input: toolCall.function.arguments,
+            toolCallId: toolCall.id,
+            toolName: toolCall.function.name,
+            type: 'tool-call',
+          });
         }
 
         controller.enqueue({

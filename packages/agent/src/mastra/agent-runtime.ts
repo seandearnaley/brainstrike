@@ -34,6 +34,7 @@ import {
 } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createListingOnlyModel } from '../providers/listing-only-model';
+import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
   applyProviderNativeWebSearch,
   providerSupportsNativeWebSearch,
@@ -2223,14 +2224,39 @@ function resolveProviderError(
   runtimeData: RuntimeData | undefined
 ): ResolvedProviderError {
   const detail = extractErrorMessage(value) ?? 'agent_stream_error';
-  if (runtimeData?.provider?.trim().toLowerCase() !== 'openrouter') {
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  if (provider === 'local') {
+    const root = readObject(value);
+    const codeCandidates = [
+      root?.['code'],
+      readObject(root?.['error'])?.['code'],
+      readObject(root?.['cause'])?.['code'],
+      readObject(readObject(root?.['cause'])?.['cause'])?.['code'],
+    ];
+    const errorType = codeCandidates
+      .map((candidate) => readBoundedString(candidate, 80))
+      .find((candidate) => candidate === LOCAL_TOOL_CALL_ARGUMENTS_INVALID);
+    if (errorType) {
+      const model = runtimeData?.model?.trim() || getDefaultModel('local');
+      return {
+        detail,
+        metadata: {
+          errorType,
+          ...(model ? { model } : {}),
+          provider: 'local',
+        },
+      };
+    }
+    return { detail };
+  }
+  if (provider !== 'openrouter') {
     return { detail };
   }
   const typedMetadata = readOpenRouterTokenError(value);
   if (!typedMetadata) {
     return { detail };
   }
-  const model = runtimeData.model?.trim() || getDefaultModel('openrouter');
+  const model = runtimeData?.model?.trim() || getDefaultModel('openrouter');
   return {
     detail: `[${typedMetadata.errorType}] ${detail}`,
     metadata: {

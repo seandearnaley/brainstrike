@@ -173,7 +173,10 @@ Flow:
      'local' case resolves it to `LlmHostChatModel`
      (packages/agent/src/providers/local/llm-host-chat-model.ts) — a real
      LanguageModelV2 that converts cumulative host text/reasoning snapshots
-     into incremental deltas. NEVER serialized over IPC/HTTP.
+     into incremental deltas. Before it emits any structured tool-call part, it
+     revalidates the host result's arguments as a root JSON object. Malformed
+     arguments fail as `local_tool_call_arguments_invalid`; they never reach
+     Mastra approval or execution. NEVER serialized over IPC/HTTP.
    - The Mastra inactivity watchdog owns a run-scoped AbortController for every
      initial/resumed stream. On a stall it preserves the visible
      `stream_inactivity_timeout`, aborts the exact `generateForMain` signal,
@@ -237,6 +240,16 @@ Constraints:
   independently rejects known unprojected protocol markers in a host snapshot
   before emitting a text/reasoning delta; ordinary XML-like prose remains
   visible.
+- Complete local tool calls require arguments that parse as a root JSON object.
+  `gemma4-engine.ts` rejects malformed output during normalization, and the
+  shared provider projection revalidates hidden-host results before emitting a
+  callable part. Both paths use the bounded typed
+  `local_tool_call_arguments_invalid` failure without retaining or guessing
+  executable text. Desktop preserves that code across the hidden renderer/main
+  boundary; the Mastra stream surfaces it as visible text plus typed
+  `run.failed` metadata. Valid calls are canonicalized once so the provider
+  part, durable approval snapshot, resume, and execution observe the same
+  arguments.
 - Local Mastra generations inherit `maxOutputTokens` from the selected model's
   static provider-registry definition unless the run explicitly overrides it.
   A missing local output budget is an initialization error; never fall back to

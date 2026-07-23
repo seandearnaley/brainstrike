@@ -228,6 +228,7 @@ describe('llm-host-shared', () => {
     expect(
       assertLlmHostResponseReport(
         response('error', {
+          code: 'local_tool_call_arguments_invalid',
           errorDetails: { stage: 'generate' },
           errorMessage: 'failed',
           errorStack: 'stack',
@@ -238,6 +239,7 @@ describe('llm-host-shared', () => {
     ).toEqual({
       channel: 'llm-error',
       payload: {
+        code: 'local_tool_call_arguments_invalid',
         errorDetails: { stage: 'generate' },
         errorMessage: 'failed',
         errorStack: 'stack',
@@ -263,6 +265,14 @@ describe('llm-host-shared', () => {
     expect(() => assertLlmHostResponseReport(response('error', { errorMessage: '' }))).toThrow(
       'Llm host error report.payload.errorMessage must be a non-empty string.'
     );
+    expect(() =>
+      assertLlmHostResponseReport(
+        response('error', {
+          code: 'x'.repeat(129),
+          errorMessage: 'failed',
+        })
+      )
+    ).toThrow('Llm host error report.payload.code must not exceed 128 characters.');
   });
 
   it('creates stopped, result, progress, and error reports from typed requests', () => {
@@ -297,9 +307,12 @@ describe('llm-host-shared', () => {
       runtimeId: 'llm-host:runtime-1',
       type: 'progress',
     });
-    expect(createLlmHostErrorReport(request, new Error('boom'), { stage: 'generate' })).toEqual({
+    const typedError = new Error('boom') as Error & { code: string };
+    typedError.code = 'local_tool_call_arguments_invalid';
+    expect(createLlmHostErrorReport(request, typedError, { stage: 'generate' })).toEqual({
       channel: 'llm-error',
       payload: {
+        code: 'local_tool_call_arguments_invalid',
         errorDetails: { stage: 'generate' },
         errorMessage: 'boom',
         errorStack: expect.any(String),

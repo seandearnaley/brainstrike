@@ -54,6 +54,8 @@ const { listSuspendedMastraRuns, streamMastraAgent, streamMastraToolApprovalActi
   '../mastra/agent-runtime'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
+const { LlmHostChatModel } = await import('../providers/local/llm-host-chat-model');
+const { GEMMA4_E2B_MODEL_ID } = await import('../providers/local/local-model-specs');
 // The DESKTOP initial-turn path: maps runtime.mastraTools -> options.tools. The
 // regression test below uses it so the wiring matches production exactly.
 const { toAiSdkStyleStream } = await import('../message-utils');
@@ -387,6 +389,181 @@ function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): 
 describe("'ask' suspends for approval and resumes (real @mastra/core/agent + real PGlite)", () => {
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  it('rejects malformed local arguments before Mastra creates an approval snapshot', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-malformed-local-tool-call',
+      threadId: 'thread-malformed-local-tool-call',
+    } as const;
+
+    modelHolder.current = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, {
+      generate: vi.fn().mockResolvedValue({
+        finishReason: 'tool_calls',
+        text: '',
+        toolCalls: [
+          {
+            function: {
+              arguments: '{"command":"printf "BST-708 manual approval preview\\n""}',
+              name: 'shell_tool',
+            },
+            id: 'call-malformed-local-command',
+            type: 'function',
+          },
+        ],
+        usage: { completionTokens: 24, promptTokens: 48, totalTokens: 72 },
+      }),
+      warmup: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-malformed-local-1',
+          parts: [{ text: 'run exact command', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          model: GEMMA4_E2B_MODEL_ID,
+          permissionPolicy: ASK_POLICY,
+          provider: 'local',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const chunks = await drainYielding(iterator);
+
+    expect(findApprovalChunk(chunks)).toBeUndefined();
+    expect(askExecute).not.toHaveBeenCalled();
+    expect(
+      chunks.some(
+        (chunk) =>
+          chunk.type === 'text-delta' && chunk.value.includes('local_tool_call_arguments_invalid')
+      )
+    ).toBe(true);
+    expect(
+      chunks.some(
+        (chunk) =>
+          chunk.type === 'run-event' &&
+          chunk.event.kind === 'run.failed' &&
+          chunk.event.metadata?.['errorType'] === 'local_tool_call_arguments_invalid'
+      )
+    ).toBe(true);
+
+    const discovered = await listSuspendedMastraRuns(thread, {
+      runtime: { provider: 'ollama' },
+      storage,
+      tools: { shell_tool: askTool },
+    });
+    expect(discovered.approvals).toEqual([]);
+
+    await database.close();
+  });
+
+  it('preserves a valid local pwd call through approval and execution', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-valid-local-tool-call',
+      threadId: 'thread-valid-local-tool-call',
+    } as const;
+    let turn = 0;
+
+    modelHolder.current = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, {
+      generate: vi.fn().mockImplementation(() => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve({
+            finishReason: 'tool_calls',
+            text: '',
+            toolCalls: [
+              {
+                function: {
+                  arguments: '{"command":"pwd"}',
+                  name: 'shell_tool',
+                },
+                id: 'call-valid-local-pwd',
+                type: 'function',
+              },
+            ],
+            usage: { completionTokens: 8, promptTokens: 16, totalTokens: 24 },
+          });
+        }
+        return Promise.resolve({
+          finishReason: 'stop',
+          text: 'Command finished.',
+          usage: { completionTokens: 4, promptTokens: 20, totalTokens: 24 },
+        });
+      }),
+      warmup: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const runtime = {
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      model: GEMMA4_E2B_MODEL_ID,
+      permissionPolicy: ASK_POLICY,
+      provider: 'local',
+    } as const;
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-valid-local-1', parts: [{ text: 'run pwd', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        runtime,
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const approval = findApprovalChunk(await drainYielding(iterator));
+
+    expect(approval).toMatchObject({
+      args: { command: 'pwd' },
+      toolCallId: 'call-valid-local-pwd',
+      toolName: 'shell_tool',
+    });
+    expect(askExecute).not.toHaveBeenCalled();
+
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: approval?.runId ?? '',
+        toolCallId: approval?.toolCallId ?? '',
+        toolName: 'shell_tool',
+      },
+      {
+        memory,
+        requireToolApproval: true,
+        runtime,
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    expect(askExecute).toHaveBeenCalledOnce();
+    expect(askExecute).toHaveBeenCalledWith(
+      { command: 'pwd' },
+      expect.objectContaining({
+        agent: expect.objectContaining({ toolCallId: 'call-valid-local-pwd' }),
+      })
+    );
+    expect(resumeChunks.some((chunk) => chunk.type === 'message-finish')).toBe(true);
+
+    await database.close();
   });
 
   it('suspends (execute NOT called), then APPROVE executes the tool and the run continues', async () => {

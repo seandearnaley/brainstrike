@@ -4,6 +4,7 @@ import {
   resolveLocalArtifactRemotePathTemplate,
 } from './local-artifact-store';
 import type { LocalLlmModelSpec } from './local-model-specs';
+import { normalizeLocalToolCallArguments } from './local-tool-call-validation';
 import type {
   LocalLlmGenerationOptions,
   LocalLlmMessage,
@@ -739,16 +740,7 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
       const normalizedArgumentsText = extractedArgumentsText.replace(/<\|"\|>/g, '"');
       const normalizedQuotedArgumentsText = quoteUnquotedJsonKeys(normalizedArgumentsText);
 
-      let argumentsText = normalizedQuotedArgumentsText;
-      try {
-        argumentsText = JSON.stringify(JSON.parse(normalizedQuotedArgumentsText) as unknown);
-      } catch (error) {
-        logger.warn('Gemma tool call arguments could not be normalized as JSON', {
-          error: error instanceof Error ? error.message : String(error),
-          functionName,
-          normalizedArgumentsText: normalizedQuotedArgumentsText,
-        });
-      }
+      const argumentsText = normalizeLocalToolCallArguments(normalizedQuotedArgumentsText);
 
       toolCalls.push({
         function: {
@@ -1072,22 +1064,31 @@ function parseGenericToolCall(text: string): LocalLlmToolCall[] {
   }
 
   for (const candidate of candidates) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(candidate) as { name?: unknown; arguments?: unknown };
-      if (typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
-        return [
-          {
-            function: {
-              arguments: JSON.stringify(parsed.arguments ?? {}),
-              name: parsed.name,
-            },
-            id: crypto.randomUUID(),
-            type: 'function',
-          },
-        ];
-      }
+      parsed = JSON.parse(candidate) as unknown;
     } catch {
-      // ignored
+      continue;
+    }
+    if (!(parsed && typeof parsed === 'object' && !Array.isArray(parsed))) {
+      continue;
+    }
+    const parsedCall = parsed as Record<string, unknown>;
+    const name = parsedCall['name'];
+    if (typeof name === 'string' && name.trim().length > 0) {
+      const serializedArguments = Object.hasOwn(parsedCall, 'arguments')
+        ? (JSON.stringify(parsedCall['arguments']) ?? '')
+        : '';
+      return [
+        {
+          function: {
+            arguments: normalizeLocalToolCallArguments(serializedArguments),
+            name,
+          },
+          id: crypto.randomUUID(),
+          type: 'function',
+        },
+      ];
     }
   }
 

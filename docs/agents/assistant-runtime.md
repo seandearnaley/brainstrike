@@ -530,6 +530,14 @@ Flow (desktop assistant server → agent runtime):
    schema, including unknown-key rejection; malformed arguments show the
    existing visible preview error and unmodified raw arguments rather than a
    guessed command. Live and rediscovered approvals share this component.
+   The built-in local provider admits a call to this chain only after its
+   arguments parse as a root JSON object. A
+   `local_tool_call_arguments_invalid` generation ends visibly with typed
+   `run.failed` metadata before Mastra can create an approval snapshot; there
+   are therefore no enabled Approve/Decline controls and no resume action for
+   malformed Gemma output. Valid arguments are canonicalized before suspension,
+   so the approval notice, durable snapshot, resumed card, and execution share
+   one value.
    Alongside Approve/Decline the notice offers GRANT actions when (a) a
    `ToolApprovalGrantProvider`
    is mounted above it (app-shell wraps the panel, same outside-in pattern as

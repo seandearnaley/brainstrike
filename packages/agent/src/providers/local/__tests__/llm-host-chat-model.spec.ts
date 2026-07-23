@@ -160,6 +160,40 @@ describe('LlmHostChatModel', () => {
     expect(finish.finishReason).toBe('tool-calls');
   });
 
+  it('rejects malformed local tool-call arguments before emitting a callable part', async () => {
+    const client = makeClient(async () =>
+      makeResult({
+        finishReason: 'tool_calls',
+        text: '',
+        toolCalls: [
+          {
+            function: {
+              arguments: '{"command":"printf "BST-708 manual approval preview\\n""}',
+              name: 'brainstrike_executeCommand',
+            },
+            id: 'call-malformed-command',
+            type: 'function',
+          },
+        ],
+      })
+    );
+    const model = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, client);
+    const { stream } = await model.doStream({ prompt: USER_PROMPT });
+    const reader = stream.getReader();
+    const parts: LanguageModelV2StreamPart[] = [];
+
+    await expect(async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
+        }
+        parts.push(value);
+      }
+    }).rejects.toThrow('local_tool_call_arguments_invalid');
+    expect(parts.some((part) => part.type === 'tool-call')).toBe(false);
+  });
+
   it('keeps emitted text and ignores a diverging snapshot', async () => {
     const client = makeClient(async (_request, options) => {
       options.onProgress?.({ kind: 'text', text: 'hello wor' });
