@@ -120,6 +120,12 @@ function readRevisionFile(repo, revision, file) {
 // free-text column (name/tagline/best_for) contains a semicolon, silently
 // dropping every row after the split — the exact under-count this collector
 // exists to prevent.
+// Scope note: this is NOT a full SQL lexer — comments (`--`, `/* */`) and
+// dollar-quoting are intentionally unhandled, so an apostrophe inside a SQL
+// comment would desync the quote tracker. The zero-tuple fail-closed check
+// in extractMigrationPairs surfaces the resulting merge/drop loudly; keep
+// migration SQL free of apostrophe-bearing comments rather than extending
+// this splitter.
 function splitSqlStatements(text) {
   const statements = [];
   let current = '';
