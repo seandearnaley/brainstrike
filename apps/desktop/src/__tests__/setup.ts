@@ -81,7 +81,7 @@ const mockElectronAPI = {
       batches: 0,
       cleanups: 0,
       degradedTransitions: 0,
-      duplicateReplacements: 0,
+      duplicateRegistrations: 0,
       events: 0,
       failures: 0,
       healthPushes: 0,

@@ -194,15 +194,20 @@ indexed state only.
   fallback engine, never polling. `legacy` is a removed value that throws.
 - **Lifecycle invariants**: one native subscription per owning renderer and
   resolved root; 10s subscribe timeout with late-resolution unsubscribe;
-  disposers idempotent and safe at any time. A duplicate same-owner/root IPC
-  registration (renderer reload or StrictMode cleanup race) transfers the
-  existing native subscription to a fresh logical watchId instead of starting
-  Parcel again; a later unwatch for the stale watchId is harmless, and
-  `duplicateReplacements` makes this visible in the in-memory telemetry. The
+  disposers idempotent and safe at any time. Duplicate same-owner/root IPC
+  registrations (renderer reload, StrictMode cleanup races, or legacy roots
+  that resolve to the same realpath) receive distinct logical watchIds that
+  share the existing native subscription. Events and health fan out to every
+  live logical registration; unwatch removes only its registration and stops
+  the native watcher after the last one leaves. `duplicateRegistrations` makes
+  sharing visible in the in-memory telemetry. The per-owner cap counts native
+  subscriptions, so sharing an existing root remains valid at the cap. The
   main-process ownership registry also reaps on
   renderer destruction, crash, reload, root removal, and app shutdown
-  (registrar disposer). No leaked subscription after any of these — extend the
-  replacement and reaper tests when touching this.
+  (registrar disposer). A lifecycle generation rejects path resolution that
+  finishes after its renderer context was reaped. No leaked subscription after
+  any of these — extend the shared-registration and reaper tests when touching
+  this.
 - **Typed health**: engines emit `starting|healthy|degraded|failed|stopped`
   exactly once per state change; `fs:watch-health` pushes are scoped to the
   owning WebContents with no root-path field on the wire; retry is

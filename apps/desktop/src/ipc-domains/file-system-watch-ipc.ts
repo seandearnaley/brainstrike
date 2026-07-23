@@ -85,16 +85,17 @@ interface LiveFileSystemWatcher {
   /** The resolved directory path — retained for manual retry only. */
   readonly resolvedPath: string;
   retryInFlight: boolean;
-  /** Mutable logical route for the single native subscription. */
-  readonly route: FileSystemWatchRoute;
+  /** Timestamp for the current native setup-latency sample. */
+  setupStartedAt: number | undefined;
   stop: () => void;
+  /** Stable owner/path identity for the single native subscription. */
+  readonly subscriptionKey: string;
+  /** Logical renderer registrations sharing this native subscription. */
+  readonly watchIds: Set<string>;
 }
 
-interface FileSystemWatchRoute {
-  watchId: string;
-}
-
-const liveWatchers = new Map<string, LiveFileSystemWatcher>();
+const liveWatchersBySubscription = new Map<string, LiveFileSystemWatcher>();
+const liveWatchersById = new Map<string, LiveFileSystemWatcher>();
 
 /** In-memory telemetry counters (deliberately non-persistent, BST-568). */
 const telemetry = {
@@ -108,8 +109,8 @@ const telemetry = {
    * only renderer-observable via the refresh events themselves).
    */
   degradedTransitions: 0,
-  /** Same-owner, same-root registrations routed onto the existing native watcher. */
-  duplicateReplacements: 0,
+  /** Same-owner, same-root logical registrations sharing an existing native watcher. */
+  duplicateRegistrations: 0,
   /** Individual FileSystemChange entries across all batches. */
   events: 0,
   failures: 0,
@@ -121,175 +122,144 @@ const telemetry = {
   setupLatencySamples: 0,
 };
 
-/** starting-transition timestamps per watchId, for setup-latency sampling. */
-const setupStartedAt = new Map<string, number>();
 // WeakSet — never strongly retain a WebContents (matches notes-vault).
 const reaperAttachedOwners = new WeakSet<WebContents>();
-// Slots reserved across a watch's async setup so concurrent requests observe
-// the correct per-owner total BEFORE any entry lands in liveWatchers.
-const reservedWatchersByOwner = new Map<number, number>();
+// Invalidates async watch setup that belongs to a renderer context reaped
+// during path resolution. WeakMap preserves the no-strong-retention contract.
+const ownerLifecycleGenerations = new WeakMap<WebContents, number>();
 
-function stopWatcher(watchId: string, entry: LiveFileSystemWatcher): void {
+function ownerLifecycleGeneration(owner: WebContents): number {
+  return ownerLifecycleGenerations.get(owner) ?? 0;
+}
+
+function stopWatcher(entry: LiveFileSystemWatcher): void {
   telemetry.cleanups += 1;
-  setupStartedAt.delete(watchId);
   try {
     entry.stop();
   } catch (error) {
-    logger.warn('Failed to stop file system watcher', { error, watchId });
+    logger.warn('Failed to stop file system watcher', {
+      error,
+      path: entry.resolvedPath,
+    });
   }
 }
 
+function subscriptionKey(ownerId: number, resolvedPath: string): string {
+  return `${ownerId}\0${resolvedPath}`;
+}
+
+function forgetWatcher(entry: LiveFileSystemWatcher): void {
+  liveWatchersBySubscription.delete(entry.subscriptionKey);
+  for (const watchId of entry.watchIds) {
+    liveWatchersById.delete(watchId);
+  }
+  entry.watchIds.clear();
+  stopWatcher(entry);
+}
+
 /**
- * Health sink for one watchId. Updates retry/backoff bookkeeping on the live
- * entry (if it still exists) and pushes the wire event to the OWNING renderer
- * only. Wire events carry no root-path FIELD — the renderer resolves watchId
- * back to its own root. (failure.message may quote the owner's own path for
- * diagnostics; owner scoping means it never crosses renderer boundaries.)
+ * Health sink for one native subscription. Updates shared retry/backoff
+ * bookkeeping and fans the wire event out to every logical watchId owned by
+ * this renderer. Wire events carry no root-path FIELD — the renderer resolves
+ * watchId back to its own root. (failure.message may quote the owner's own path
+ * for diagnostics; owner scoping means it never crosses renderer boundaries.)
  */
 function makeHealthSink(
   owner: WebContents,
-  route: FileSystemWatchRoute
+  entry: LiveFileSystemWatcher
 ): (transition: WatcherHealthTransition) => void {
   return (transition) => {
-    const { watchId } = route;
     if (transition.state === 'starting') {
-      setupStartedAt.set(watchId, Date.now());
+      entry.setupStartedAt = Date.now();
     } else if (transition.state === 'healthy') {
-      const startedAt = setupStartedAt.get(watchId);
+      const startedAt = entry.setupStartedAt;
       if (startedAt !== undefined) {
-        setupStartedAt.delete(watchId);
+        entry.setupStartedAt = undefined;
         telemetry.lastSetupLatencyMs = Date.now() - startedAt;
         telemetry.setupLatencySamples += 1;
       }
     } else if (transition.state === 'degraded') {
       telemetry.degradedTransitions += 1;
     }
-    const entry = liveWatchers.get(watchId);
-    if (entry) {
-      entry.lastHealthTransition = transition;
-      if (transition.state === 'failed') {
-        entry.consecutiveFailures += 1;
-        entry.retryInFlight = false;
-        telemetry.failures += 1;
-        const stepIndex = Math.min(
-          entry.consecutiveFailures - 1,
-          WATCH_RETRY_BACKOFF_MS.length - 1
-        );
-        entry.nextRetryAllowedAt = Date.now() + (WATCH_RETRY_BACKOFF_MS[stepIndex] ?? 0);
-      } else if (transition.state === 'healthy') {
-        entry.consecutiveFailures = 0;
-        entry.nextRetryAllowedAt = 0;
-        entry.retryInFlight = false;
-      }
+    entry.lastHealthTransition = transition;
+    if (transition.state === 'failed') {
+      entry.consecutiveFailures += 1;
+      entry.retryInFlight = false;
+      telemetry.failures += 1;
+      const stepIndex = Math.min(entry.consecutiveFailures - 1, WATCH_RETRY_BACKOFF_MS.length - 1);
+      entry.nextRetryAllowedAt = Date.now() + (WATCH_RETRY_BACKOFF_MS[stepIndex] ?? 0);
+    } else if (transition.state === 'healthy') {
+      entry.consecutiveFailures = 0;
+      entry.nextRetryAllowedAt = 0;
+      entry.retryInFlight = false;
     }
     if (owner.isDestroyed()) {
       return;
     }
-    const payload: WatcherHealthEvent = { ...transition, watchId };
-    telemetry.healthPushes += 1;
-    owner.send(DESKTOP_IPC_CHANNELS.files.watchHealth, payload);
+    for (const watchId of entry.watchIds) {
+      const payload: WatcherHealthEvent = { ...transition, watchId };
+      telemetry.healthPushes += 1;
+      owner.send(DESKTOP_IPC_CHANNELS.files.watchHealth, payload);
+    }
   };
 }
 
-/** Change sink for one watchId — push to the OWNING renderer only. */
+/** Change sink for one native subscription — fan out within its owner only. */
 function makeChangeSink(
   owner: WebContents,
-  route: FileSystemWatchRoute
+  entry: LiveFileSystemWatcher
 ): (changes: FileSystemChange[]) => void {
   return (changes) => {
-    const { watchId } = route;
     if (owner.isDestroyed()) {
       return;
     }
     telemetry.batches += 1;
     telemetry.events += changes.length;
-    const payload: FileSystemWatchEventPayload = { changes, watchId };
-    owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
+    for (const watchId of entry.watchIds) {
+      const payload: FileSystemWatchEventPayload = { changes, watchId };
+      owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
+    }
   };
 }
 
 function disposeFileSystemWatchersForWebContents(ownerId: number): void {
-  for (const [watchId, entry] of liveWatchers) {
+  for (const entry of liveWatchersBySubscription.values()) {
     if (entry.ownerId === ownerId) {
-      liveWatchers.delete(watchId);
-      stopWatcher(watchId, entry);
+      forgetWatcher(entry);
     }
   }
 }
 
-/**
- * Re-route an existing native watcher to a replacement logical watchId.
- * Renderer reload/StrictMode cleanup can race a replacement registration;
- * newest wins without starting a second native subscription, and a later
- * fs:unwatch for the removed watchId is harmless.
- */
-function reuseExistingFileSystemWatcher(
-  ownerId: number,
-  resolvedPath: string,
-  replacementWatchId: string
-): LiveFileSystemWatcher | null {
-  for (const [watchId, entry] of liveWatchers) {
-    if (entry.ownerId !== ownerId || entry.resolvedPath !== resolvedPath) {
-      continue;
-    }
-    liveWatchers.delete(watchId);
-    const setupStart = setupStartedAt.get(watchId);
-    setupStartedAt.delete(watchId);
-    if (setupStart !== undefined) {
-      setupStartedAt.set(replacementWatchId, setupStart);
-    }
-    entry.route.watchId = replacementWatchId;
-    liveWatchers.set(replacementWatchId, entry);
-    telemetry.duplicateReplacements += 1;
-    logger.warn('Reused native watcher for duplicate file system registration', {
-      ownerId,
-      path: resolvedPath,
-      replacedWatchId: watchId,
-      replacementWatchId,
-    });
-    return entry;
-  }
-  return null;
+function registerSharedWatchId(entry: LiveFileSystemWatcher, watchId: string): void {
+  entry.watchIds.add(watchId);
+  liveWatchersById.set(watchId, entry);
+  telemetry.duplicateRegistrations += 1;
+  logger.warn('Shared native watcher for duplicate file system registration', {
+    ownerId: entry.ownerId,
+    path: entry.resolvedPath,
+    watchId,
+  });
 }
 
 /** Stop and forget every live watcher (registrar disposer + tests). */
 export function disposeAllFileSystemWatchers(): void {
-  for (const [watchId, entry] of liveWatchers) {
-    stopWatcher(watchId, entry);
+  for (const entry of liveWatchersBySubscription.values()) {
+    forgetWatcher(entry);
   }
-  liveWatchers.clear();
 }
 
 export function liveFileSystemWatcherCountForTest(): number {
-  return liveWatchers.size;
+  return liveWatchersBySubscription.size;
 }
 
 function liveWatcherCountForOwner(ownerId: number): number {
   let count = 0;
-  for (const entry of liveWatchers.values()) {
+  for (const entry of liveWatchersBySubscription.values()) {
     if (entry.ownerId === ownerId) {
       count += 1;
     }
   }
   return count;
-}
-
-/** Live + in-flight (reserved) watchers for an owner. */
-function committedWatcherCountForOwner(ownerId: number): number {
-  return liveWatcherCountForOwner(ownerId) + (reservedWatchersByOwner.get(ownerId) ?? 0);
-}
-
-function reserveWatcherSlot(ownerId: number): void {
-  reservedWatchersByOwner.set(ownerId, (reservedWatchersByOwner.get(ownerId) ?? 0) + 1);
-}
-
-function releaseWatcherSlot(ownerId: number): void {
-  const next = (reservedWatchersByOwner.get(ownerId) ?? 0) - 1;
-  if (next <= 0) {
-    reservedWatchersByOwner.delete(ownerId);
-  } else {
-    reservedWatchersByOwner.set(ownerId, next);
-  }
 }
 
 /**
@@ -311,6 +281,7 @@ function attachOwnerReaper(owner: WebContents): void {
   }
   reaperAttachedOwners.add(owner);
   const reap = (): void => {
+    ownerLifecycleGenerations.set(owner, ownerLifecycleGeneration(owner) + 1);
     reaperAttachedOwners.delete(owner);
     // Remove ALL teardown listeners — a fired 'did-navigate' leaves the
     // WebContents alive, so its siblings would otherwise linger and pile up.
@@ -344,20 +315,29 @@ function registerMockFileSystemWatcher(
   requestedPath: string,
   watchId: string
 ): FileSystemWatchRegistration {
-  const existing = reuseExistingFileSystemWatcher(owner.id, requestedPath, watchId);
+  const key = subscriptionKey(owner.id, requestedPath);
+  const existing = liveWatchersBySubscription.get(key);
   if (existing) {
+    registerSharedWatchId(existing, watchId);
     return watchRegistration(watchId, existing);
   }
-  liveWatchers.set(watchId, {
+  if (liveWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
+    throw new Error(`fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`);
+  }
+  const entry: LiveFileSystemWatcher = {
     consecutiveFailures: 0,
     lastHealthTransition: null,
     nextRetryAllowedAt: 0,
     ownerId: owner.id,
     resolvedPath: requestedPath,
     retryInFlight: false,
-    route: { watchId },
+    setupStartedAt: undefined,
     stop: () => {},
-  });
+    subscriptionKey: key,
+    watchIds: new Set([watchId]),
+  };
+  liveWatchersBySubscription.set(key, entry);
+  liveWatchersById.set(watchId, entry);
   return { watchId };
 }
 
@@ -369,7 +349,7 @@ function startNewFileSystemWatcher(
 ): FileSystemWatchRegistration {
   // Register BEFORE starting the engine. Engines can emit health synchronously
   // during setup, and retry bookkeeping must observe those transitions.
-  const route: FileSystemWatchRoute = { watchId };
+  const key = subscriptionKey(owner.id, resolvedPath);
   const entry: LiveFileSystemWatcher = {
     consecutiveFailures: 0,
     lastHealthTransition: null,
@@ -377,28 +357,30 @@ function startNewFileSystemWatcher(
     ownerId: owner.id,
     resolvedPath,
     retryInFlight: false,
-    route,
+    setupStartedAt: undefined,
     stop: () => {},
+    subscriptionKey: key,
+    watchIds: new Set([watchId]),
   };
-  liveWatchers.set(watchId, entry);
+  liveWatchersBySubscription.set(key, entry);
+  liveWatchersById.set(watchId, entry);
 
   try {
     entry.stop = startWatch(
       resolvedPath,
-      makeChangeSink(owner, route),
-      makeHealthSink(owner, route)
+      makeChangeSink(owner, entry),
+      makeHealthSink(owner, entry)
     );
   } catch (error) {
-    liveWatchers.delete(watchId);
+    liveWatchersBySubscription.delete(key);
+    liveWatchersById.delete(watchId);
     throw error;
   }
 
   // Path resolution raced renderer teardown: its reaper already ran, so stop
   // this just-created watcher immediately instead of leaking it.
   if (owner.isDestroyed()) {
-    liveWatchers.delete(watchId);
-    setupStartedAt.delete(watchId);
-    entry.stop();
+    forgetWatcher(entry);
     throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
   }
   logger.debug('Started file system watcher', { path: resolvedPath, watchId });
@@ -419,9 +401,8 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.lastSetupLatencyMs = 0;
   telemetry.retries = 0;
   telemetry.degradedTransitions = 0;
-  telemetry.duplicateReplacements = 0;
+  telemetry.duplicateRegistrations = 0;
   telemetry.setupLatencySamples = 0;
-  setupStartedAt.clear();
 
   registry.registerInvoke(
     'files',
@@ -435,16 +416,9 @@ export function registerFileSystemWatchIpcHandlers({
       if (owner.isDestroyed()) {
         throw new Error('fs:watch: the requesting renderer is already destroyed.');
       }
-      // Count live AND in-flight (reserved) watchers: without the reservation,
-      // N concurrent requests all pass this check before any inserts, blowing
-      // past the cap. The reserved slot below closes that TOCTOU window.
-      if (committedWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
-        throw new Error(
-          `fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`
-        );
-      }
       // Attach the teardown reaper BEFORE any await — a renderer destroyed
       // mid-setup must still be reaped.
+      const lifecycleGeneration = ownerLifecycleGeneration(owner);
       attachOwnerReaper(owner);
 
       const watchId = `fs-watch-${randomUUID()}`;
@@ -456,26 +430,30 @@ export function registerFileSystemWatchIpcHandlers({
         return registerMockFileSystemWatcher(owner, requestedPath, watchId);
       }
 
-      // Hold a slot across the async setup so concurrent requests see it.
-      reserveWatcherSlot(owner.id);
-      try {
-        const resolvedPath = await resolveFileSystemIpcPath(requestedPath, 'watch');
-        const stats = await fsPromises.stat(resolvedPath);
-        if (!stats.isDirectory()) {
-          throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
-        }
-
-        // HMR/reload and React StrictMode can register the same root before a
-        // stale renderer disposer reaches main. Transfer the existing native
-        // subscription to the new logical id instead of starting Parcel again.
-        const existing = reuseExistingFileSystemWatcher(owner.id, resolvedPath, watchId);
-        if (existing) {
-          return watchRegistration(watchId, existing);
-        }
-        return startNewFileSystemWatcher(owner, resolvedPath, watchId, startWatch);
-      } finally {
-        releaseWatcherSlot(owner.id);
+      const resolvedPath = await resolveFileSystemIpcPath(requestedPath, 'watch');
+      const stats = await fsPromises.stat(resolvedPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`Cannot watch "${resolvedPath}": not a directory.`);
       }
+      if (ownerLifecycleGeneration(owner) !== lifecycleGeneration) {
+        throw new Error('fs:watch: renderer context changed during setup.');
+      }
+
+      // The lookup, cap check, and insert below contain no await, so concurrent
+      // invokes serialize here without a reservation TOCTOU. Duplicate logical
+      // registrations share the existing native subscription even at the cap.
+      const key = subscriptionKey(owner.id, resolvedPath);
+      const existing = liveWatchersBySubscription.get(key);
+      if (existing) {
+        registerSharedWatchId(existing, watchId);
+        return watchRegistration(watchId, existing);
+      }
+      if (liveWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
+        throw new Error(
+          `fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`
+        );
+      }
+      return startNewFileSystemWatcher(owner, resolvedPath, watchId, startWatch);
     }
   );
 
@@ -484,7 +462,7 @@ export function registerFileSystemWatchIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.watchRetry,
     (event, rawWatchId: unknown): FileSystemWatchRetryResult => {
       const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
-      const entry = liveWatchers.get(watchId);
+      const entry = liveWatchersById.get(watchId);
       // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
       if (!entry || entry.ownerId !== event.sender.id) {
         if (entry) {
@@ -520,11 +498,11 @@ export function registerFileSystemWatchIpcHandlers({
       const owner = event.sender;
       // Release whatever the failed engine still holds before re-subscribing —
       // at most one active subscription-or-retry per root.
-      stopWatcher(watchId, entry);
+      stopWatcher(entry);
       entry.stop = startWatch(
         entry.resolvedPath,
-        makeChangeSink(owner, entry.route),
-        makeHealthSink(owner, entry.route)
+        makeChangeSink(owner, entry),
+        makeHealthSink(owner, entry)
       );
       logger.info('Retrying file system watcher after deliberate request', {
         consecutiveFailures: entry.consecutiveFailures,
@@ -535,7 +513,7 @@ export function registerFileSystemWatchIpcHandlers({
   );
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.watchTelemetry, () => ({
-    activeWatchers: liveWatchers.size,
+    activeWatchers: liveWatchersBySubscription.size,
     ...telemetry,
   }));
 
@@ -544,7 +522,7 @@ export function registerFileSystemWatchIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.unwatch,
     (event, rawWatchId: unknown): void => {
       const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
-      const entry = liveWatchers.get(watchId);
+      const entry = liveWatchersById.get(watchId);
       if (!entry) {
         // Disposal races with the destroyed-owner reaper are normal; log only.
         logger.debug('fs:unwatch for unknown watchId — already reaped?', { watchId });
@@ -559,8 +537,12 @@ export function registerFileSystemWatchIpcHandlers({
         });
         return;
       }
-      liveWatchers.delete(watchId);
-      stopWatcher(watchId, entry);
+      liveWatchersById.delete(watchId);
+      entry.watchIds.delete(watchId);
+      if (entry.watchIds.size === 0) {
+        liveWatchersBySubscription.delete(entry.subscriptionKey);
+        stopWatcher(entry);
+      }
     }
   );
 

@@ -259,10 +259,11 @@ fallback.
   backend — `fs-events` on macOS, `inotify` on Linux, `windows` on Windows —
   selected in `parcel-backend.ts` (unsupported platform/binding throws typed
   errors, never falls back). One native subscription per owning renderer and
-  resolved root; a duplicate same-owner/root registration transfers the
-  existing native subscription to a fresh logical watchId instead of starting
-  Parcel again (newest registration wins, so a stale renderer disposer cannot
-  stop it), with replacements counted by `fs:watch-telemetry`. Subscribe is
+  resolved root; duplicate same-owner/root registrations receive distinct
+  logical watchIds sharing the existing native subscription instead of
+  starting Parcel again. Events and health fan out to the live logical IDs, and
+  a stale disposer removes only its own ID, with sharing counted by
+  `fs:watch-telemetry`. Subscribe is
   bounded by a 10s timeout with
   late-resolution cleanup; event paths are
   re-rooted from kernel realpaths onto the handle path; deletes and
@@ -280,16 +281,20 @@ fallback.
   never render a retry action;
   `fs:watch-telemetry` exposes compact counters. Watchers are keyed by
   `watchId`, owned by the requesting `WebContents` (push to owner only,
-  non-owner unwatch rejected without an ownership oracle), and de-duplicated by
-  `(ownerId, resolvedPath)`. The per-owner cap `MAX_FS_WATCHERS_PER_OWNER`
-  counts live PLUS reserved (in-flight) watchers — a slot is reserved before
-  the `stat` await so concurrent `fs:watch` calls can't race past the cap. The
+  non-owner unwatch rejected without an ownership oracle), while native
+  subscriptions are de-duplicated by `(ownerId, resolvedPath)`. The per-owner
+  cap `MAX_FS_WATCHERS_PER_OWNER` counts native subscriptions; after path
+  resolution, the existing-subscription lookup, cap check, and insert are one
+  synchronous section, so concurrent distinct-root starts cannot race past the
+  cap and a duplicate registration remains valid when the cap is full. The
   owner reaper is attached BEFORE any async setup and covers all three teardown
   shapes — `destroyed`, `render-process-gone` (crash; WebContents survives),
   and `did-navigate` (reload); because `did-navigate` leaves the WebContents
   alive, the reap removes ALL three listeners when any one fires (else they
-  pile up across reloads → MaxListenersExceededWarning). A post-setup
-  `isDestroyed` re-check stops a watcher whose renderer died mid-setup.
+  pile up across reloads → MaxListenersExceededWarning). A lifecycle generation
+  rejects an in-flight watch whose path resolution finishes after the reaper
+  ran; a post-setup `isDestroyed` re-check stops a watcher whose renderer dies
+  during the synchronous native start.
   On the RENDERER side, every `watchDirectory` funnels through ONE shared
   `onWatchEvent` subscription that fans out by `watchId` — a per-watch listener
   would put O(roots) listeners on the single channel. The matching shared
