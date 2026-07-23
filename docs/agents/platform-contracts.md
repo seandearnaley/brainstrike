@@ -25,6 +25,9 @@ Structured logs:
 - Prefer objects:
 
   logger.info('User authenticated', { userId: '123', method: 'oauth' });
+- Brainstrike's public logger is message-first; its Pino boundary reorders the
+  declared `(message, metadata)` overload to Pino's object-first form. Tests
+  must prove metadata reaches the transport, not only `addLogListener`.
 
 Scoped loggers:
 - createLogger('FileImporter')

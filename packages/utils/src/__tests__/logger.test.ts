@@ -158,6 +158,23 @@ describe('logger', () => {
       expect(record?.message).toBe('initialising');
     });
 
+    it('normalizes message-first structured calls for Pino transports', () => {
+      const metadata = { error: new Error('boom'), toolIds: ['brainstrike.stale'] };
+
+      expect(__loggerTesting.normalizePinoLogArgs(['Failed to initialize', metadata])).toEqual([
+        metadata,
+        'Failed to initialize',
+      ]);
+
+      const transport = vi.fn();
+      __loggerTesting.writePinoLog(
+        transport,
+        {} as Parameters<typeof __loggerTesting.writePinoLog>[1],
+        __loggerTesting.normalizePinoLogArgs(['Failed to initialize', metadata])
+      );
+      expect(transport).toHaveBeenCalledWith(metadata, 'Failed to initialize');
+    });
+
     it('redacts nested secrets before notifying log listeners', () => {
       class ProviderConfig {
         apiKey = 'class-secret';

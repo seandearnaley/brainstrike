@@ -1,7 +1,8 @@
-import type { LanguageModelV2CallOptions } from '@ai-sdk/provider';
+import type { LanguageModelV2CallOptions, LanguageModelV2FunctionTool } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
 import {
   convertPromptToLocalMessages,
+  convertToolsFromArray,
   extractToolCallsFromParts,
   parseToolResultMessage,
 } from '../local-message-conversion';
@@ -160,5 +161,62 @@ describe('extractToolCallsFromParts', () => {
 
   it('ignores non tool-call parts', () => {
     expect(extractToolCallsFromParts([{ text: 'hi', type: 'text' }])).toEqual([]);
+  });
+});
+
+describe('convertToolsFromArray', () => {
+  it('normalizes nullable JSON Schema unions for the Gemma chat template', () => {
+    const tools = convertToolsFromArray([
+      {
+        description: 'Read a workspace file',
+        inputSchema: {
+          additionalProperties: false,
+          properties: {
+            path: {
+              anyOf: [{ minLength: 1, type: 'string' }, { type: 'null' }],
+              description: 'Workspace-relative path',
+            },
+          },
+          type: 'object',
+        },
+        name: 'brainstrike_readWorkspaceFile',
+        type: 'function',
+      } satisfies LanguageModelV2FunctionTool,
+    ]);
+
+    expect(tools?.[0]?.function.parameters).toEqual({
+      additionalProperties: false,
+      properties: {
+        path: {
+          description: 'Workspace-relative path',
+          minLength: 1,
+          nullable: true,
+          type: 'string',
+        },
+      },
+      type: 'object',
+    });
+  });
+
+  it('rejects non-nullable anyOf schemas instead of silently weakening a tool contract', () => {
+    expect(() =>
+      convertToolsFromArray([
+        {
+          description: 'Choose a value',
+          inputSchema: {
+            properties: {
+              value: {
+                anyOf: [{ type: 'string' }, { type: 'integer' }],
+              },
+            },
+            type: 'object',
+          },
+          name: 'choose_value',
+          type: 'function',
+        } satisfies LanguageModelV2FunctionTool,
+      ])
+    ).toThrow(
+      'Unsupported local tool schema at choose_value.properties.value: anyOf must contain one schema and one null branch.'
+    );
   });
 });

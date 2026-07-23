@@ -15,6 +15,7 @@ import type {
 import { generateUUID } from '@brainstrike/utils';
 import type {
   LocalLlmGenerationResult,
+  LocalLlmJsonSchema,
   LocalLlmMessage,
   LocalLlmToolCall,
   LocalLlmToolDefinition,
@@ -200,6 +201,90 @@ export function convertPromptToLocalMessages(
   return result;
 }
 
+function isSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeNullableAnyOf(
+  schema: Record<string, unknown>,
+  path: string
+): Record<string, unknown> {
+  const anyOf = schema['anyOf'];
+  if (anyOf === undefined) {
+    return schema;
+  }
+  if (!Array.isArray(anyOf)) {
+    throw new Error(`Unsupported local tool schema at ${path}: anyOf must be an array.`);
+  }
+  const nullBranches = anyOf.filter(
+    (branch) => isSchemaRecord(branch) && branch['type'] === 'null'
+  );
+  const valueBranches = anyOf.filter(
+    (branch) => !(isSchemaRecord(branch) && branch['type'] === 'null')
+  );
+  if (
+    nullBranches.length !== 1 ||
+    valueBranches.length !== 1 ||
+    !isSchemaRecord(valueBranches[0])
+  ) {
+    throw new Error(
+      `Unsupported local tool schema at ${path}: anyOf must contain one schema and one null branch.`
+    );
+  }
+  const { anyOf: _ignoredAnyOf, ...outerSchema } = schema;
+  return {
+    ...valueBranches[0],
+    ...outerSchema,
+    nullable: true,
+  };
+}
+
+function normalizeSchemaType(rawType: unknown, path: string): { nullable: boolean; type: string } {
+  if (typeof rawType === 'string' && rawType !== 'null') {
+    return { nullable: false, type: rawType };
+  }
+  if (Array.isArray(rawType)) {
+    const valueTypes = rawType.filter((candidate) => candidate !== 'null');
+    const nullable = rawType.includes('null');
+    if (nullable && valueTypes.length === 1 && typeof valueTypes[0] === 'string') {
+      return { nullable: true, type: valueTypes[0] };
+    }
+  }
+  throw new Error(`Unsupported local tool schema at ${path}: type must be a concrete JSON type.`);
+}
+
+function normalizeLocalToolSchema(value: unknown, path: string): LocalLlmJsonSchema {
+  if (!isSchemaRecord(value)) {
+    throw new Error(`Unsupported local tool schema at ${path}: schema must be an object.`);
+  }
+  const nullableSchema = normalizeNullableAnyOf(value, path);
+  const normalizedType = normalizeSchemaType(nullableSchema['type'], path);
+  const normalized: Record<string, unknown> = {
+    ...nullableSchema,
+    type: normalizedType.type,
+    ...(normalizedType.nullable ? { nullable: true } : {}),
+  };
+
+  const properties = nullableSchema['properties'];
+  if (properties !== undefined) {
+    if (!isSchemaRecord(properties)) {
+      throw new Error(`Unsupported local tool schema at ${path}: properties must be an object.`);
+    }
+    normalized['properties'] = Object.fromEntries(
+      Object.entries(properties).map(([key, propertySchema]) => [
+        key,
+        normalizeLocalToolSchema(propertySchema, `${path}.properties.${key}`),
+      ])
+    );
+  }
+
+  if (nullableSchema['items'] !== undefined) {
+    normalized['items'] = normalizeLocalToolSchema(nullableSchema['items'], `${path}.items`);
+  }
+
+  return normalized as LocalLlmJsonSchema;
+}
+
 /**
  * Convert AI SDK v2 tool array to LocalLlmToolDefinition format
  */
@@ -216,7 +301,10 @@ export function convertToolsFromArray(
       function: {
         description: tool.description ?? '',
         name: tool.name,
-        parameters: tool.inputSchema as LocalLlmToolDefinition['function']['parameters'],
+        parameters: normalizeLocalToolSchema(
+          tool.inputSchema,
+          tool.name
+        ) as LocalLlmToolDefinition['function']['parameters'],
       },
       type: 'function' as const,
     }));

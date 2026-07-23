@@ -23,6 +23,7 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract';
 import type {
   AgentConfig,
   AgentExecutionOptionsBase,
@@ -398,7 +399,7 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
 
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
-      { runtime: { provider: 'local' } }
+      { runtime: { model: GEMMA4_E2B_MODEL_ID, provider: 'local' } }
     );
     await drain(iterator);
 

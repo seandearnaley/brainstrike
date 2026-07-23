@@ -15,9 +15,11 @@ export interface LocalLlmJsonSchema {
   description?: string;
   enum?: string[];
   items?: LocalLlmJsonSchema;
+  nullable?: boolean;
   properties?: Record<string, LocalLlmJsonSchema>;
   required?: string[];
   type: string;
+  [key: string]: unknown;
 }
 
 export interface LocalLlmToolResponse {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import { homedir } from 'node:os';
 import type {
@@ -49,7 +49,11 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { ASSISTANT_AUTH_HEADER_NAME, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_AUTH_HEADER_NAME,
+  DESKTOP_NATIVE_TOOL_IDS,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
@@ -100,10 +104,32 @@ interface AgentStreamSuccess {
 }
 interface AgentStreamFailure {
   ok: false;
-  payload: { error: string; message: string };
+  payload: {
+    correlationId?: string;
+    error: string;
+    message: string;
+    stage?: AgentStreamInitializationStage;
+  };
   status: number;
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
+type AgentStreamInitializationStage =
+  | 'native_tool_preferences'
+  | 'provider_model_bootstrap'
+  | 'stream_construction';
+
+const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
+const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
+
+class InvalidEnabledNativeToolIdsError extends Error {
+  readonly invalidValues: readonly unknown[];
+
+  constructor(invalidValues: readonly unknown[]) {
+    super('Assistant request contains unknown enabled native tool IDs.');
+    this.name = 'InvalidEnabledNativeToolIdsError';
+    this.invalidValues = invalidValues;
+  }
+}
 
 import type { DesktopAssistantToolDependencies } from './assistant-server/assistant-tools';
 import {
@@ -942,26 +968,10 @@ async function prepareAssistantPostRequest(
     toolResumeAction = payload.toolResumeAction;
     toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
-    if (
-      error instanceof AssistantInvalidJsonError ||
-      error instanceof AssistantMessageValidationError ||
-      error instanceof AssistantRequestEnvelopeValidationError
-    ) {
-      respondJson(res, 400, {
-        error: error.code,
-        message: error.message,
-      });
-      return;
+    if (!respondToAssistantPayloadError(res, error)) {
+      throw error;
     }
-    if (error instanceof AssistantRequestBodyTooLargeError) {
-      res.setHeader('Connection', 'close');
-      respondJson(res, 413, {
-        error: error.code,
-        message: error.message,
-      });
-      return;
-    }
-    throw error;
+    return;
   }
 
   const conversion = convertAssistantMessagesOrRespond(rawMessages, res);
@@ -1038,6 +1048,80 @@ async function prepareAssistantPostRequest(
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
     ...(toolResumeAction ? { toolResumeAction } : {}),
   };
+}
+
+function validateEnabledNativeToolIds(runtimeData: RuntimeData | undefined): void {
+  const rawToolIds = runtimeData?.enabledNativeToolIds;
+  if (rawToolIds === undefined) {
+    return;
+  }
+  if (!Array.isArray(rawToolIds)) {
+    throw new InvalidEnabledNativeToolIdsError([rawToolIds]);
+  }
+  const invalidValues = rawToolIds.filter(
+    (toolId): boolean => typeof toolId !== 'string' || !DESKTOP_NATIVE_TOOL_ID_SET.has(toolId)
+  );
+  if (invalidValues.length > 0) {
+    throw new InvalidEnabledNativeToolIdsError(invalidValues);
+  }
+}
+
+function respondToInvalidEnabledNativeToolIds(
+  res: http.ServerResponse,
+  invalidValues: readonly unknown[]
+): void {
+  const correlationId = randomUUID();
+  const identifiers = Array.from(
+    new Set(
+      invalidValues.map((value) => {
+        if (typeof value === 'string' && SAFE_NATIVE_TOOL_ID_PATTERN.test(value)) {
+          return value;
+        }
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+        return `sha256:${createHash('sha256')
+          .update(serialized ?? String(value))
+          .digest('hex')
+          .slice(0, 12)}`;
+      })
+    )
+  );
+  logger.warn('Rejected unknown enabled native tool ids', {
+    correlationId,
+    toolIdentifiers: identifiers,
+  });
+  respondJson(res, 400, {
+    correlationId,
+    error: 'invalid_enabled_native_tool_ids',
+    message: 'Assistant request contains unknown enabled native tool IDs.',
+    stage: 'native_tool_preferences',
+  });
+}
+
+function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown): boolean {
+  if (error instanceof InvalidEnabledNativeToolIdsError) {
+    respondToInvalidEnabledNativeToolIds(res, error.invalidValues);
+    return true;
+  }
+  if (
+    error instanceof AssistantInvalidJsonError ||
+    error instanceof AssistantMessageValidationError ||
+    error instanceof AssistantRequestEnvelopeValidationError
+  ) {
+    respondJson(res, 400, {
+      error: error.code,
+      message: error.message,
+    });
+    return true;
+  }
+  if (error instanceof AssistantRequestBodyTooLargeError) {
+    res.setHeader('Connection', 'close');
+    respondJson(res, 413, {
+      error: error.code,
+      message: error.message,
+    });
+    return true;
+  }
+  return false;
 }
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
@@ -1530,10 +1614,12 @@ function respondJson(
   status: number,
   payload: {
     code?: string;
+    correlationId?: string;
     error: string;
     message: string;
     provider?: string;
     reason?: string;
+    stage?: AgentStreamInitializationStage;
   }
 ): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -1603,6 +1689,7 @@ async function parseAssistantRequestPayload(
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
   const parsedPayload: AssistantRequestPayload = { ...payload };
+  validateEnabledNativeToolIds(parsedPayload.data);
 
   if (toolApprovalActionResult) {
     if ('invalid' in toolApprovalActionResult) {
@@ -1955,7 +2042,10 @@ function buildHookRunVerdictRecorder(runId: string | undefined): {
   };
 }
 
-function buildAgentStreamInitializationFailure(error: unknown): AgentStreamFailure {
+function buildAgentStreamInitializationFailure(
+  error: unknown,
+  stage: AgentStreamInitializationStage
+): AgentStreamFailure {
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
     return {
@@ -1964,12 +2054,15 @@ function buildAgentStreamInitializationFailure(error: unknown): AgentStreamFailu
       status: 400,
     };
   }
-  logger.error('Failed to initialize assistant stream', { error });
+  const correlationId = randomUUID();
+  logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
   return {
     ok: false,
     payload: {
+      correlationId,
       error: 'agent_stream_init_failed',
       message: 'Assistant stream initialization failed.',
+      stage,
     },
     status: 502,
   };
@@ -2068,6 +2161,7 @@ async function initializeAgentStream(
     subagentPersonasRequest
   );
 
+  let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
     // Tool-lifecycle hooks (desktop): build the per-request manager over the
@@ -2091,19 +2185,19 @@ async function initializeAgentStream(
     // Undefined when skills are off or the provider is the built-in local model.
     const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData);
     const artifactCapabilities = buildToolOutputArtifactCapabilities(runtimeData, runId);
+    initializationStage = 'native_tool_preferences';
+    const mastraTools = buildDesktopAssistantTools(
+      runtimeData,
+      withToolOutputArtifactReader(toolDependencies, artifactCapabilities.toolOutputArtifactReader)
+    );
+    initializationStage = 'provider_model_bootstrap';
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       // The execute-risk shell tool is registered like every other native tool;
       // the permission gate (enforce-on-by-default → execute:ask) suspends the
       // run for per-call approval before it executes, so it is no longer gated at
       // registration time.
-      mastraTools: buildDesktopAssistantTools(
-        runtimeData,
-        withToolOutputArtifactReader(
-          toolDependencies,
-          artifactCapabilities.toolOutputArtifactReader
-        )
-      ),
+      mastraTools,
       mcpEnabled: true,
       signal, // ← AbortSignal passed here, used by stream iterator
       // Always set: an empty list yields no <current-task-list> block (the note
@@ -2197,6 +2291,7 @@ async function initializeAgentStream(
       };
     }
 
+    initializationStage = 'stream_construction';
     const stream = await resolveInitialAgentStream({
       memoryOptions,
       messages: upsGate.messages,
@@ -2224,7 +2319,7 @@ async function initializeAgentStream(
       }),
     };
   } catch (error) {
-    return buildAgentStreamInitializationFailure(error);
+    return buildAgentStreamInitializationFailure(error, initializationStage);
   }
 }
 

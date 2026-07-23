@@ -89,6 +89,39 @@ describe('native-tool-preferences-store', () => {
     });
   });
 
+  it('self-heals unknown tool states persisted at the current version', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const storage = options.storage as unknown as {
+      setItem: (
+        name: string,
+        value: {
+          state: {
+            toolStates: Record<string, boolean>;
+          };
+          version: number;
+        }
+      ) => void;
+    };
+    storage.setItem(options.name, {
+      state: {
+        toolStates: {
+          'brainstrike.readWorkspaceFile': false,
+          'brainstrike.removedNativeTool': false,
+        },
+      },
+      version: 1,
+    });
+    await storeWithPersist.persist.rehydrate();
+
+    expect(useNativeToolPreferencesStore.getState().toolStates).toEqual({
+      'brainstrike.readWorkspaceFile': false,
+    });
+  });
+
   it('clears malformed persisted JSON before hydration', () => {
     const options = storeWithPersist.persist?.getOptions?.();
     if (!(options?.storage && options.name)) {

@@ -33,7 +33,10 @@ export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
 
 export const DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {
-    enabled: true,
+    // Observational memory may target a provider independent of the chat
+    // provider. Keep it opt-in so a fresh local-only profile never acquires an
+    // undeclared hosted API-key requirement before its first assistant turn.
+    enabled: false,
     messageTokens: 30_000,
     // Background observation/reflection runs frequently, so default to a
     // fast, low-cost model. Must be a currently-supported model ID (see

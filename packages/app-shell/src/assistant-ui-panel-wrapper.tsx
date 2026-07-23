@@ -4,11 +4,7 @@ import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  DESKTOP_NATIVE_TOOL_IDS,
-  NATIVE_TOOL_DEFAULTS,
-  WEB_NATIVE_TOOL_IDS,
-} from '@brainstrike/assistant-contract/tool-metadata';
+import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -105,6 +101,7 @@ import {
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
   pickCacheTokenFields,
+  resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
@@ -686,7 +683,10 @@ export function AssistantUiPanelWrapper({
     };
   }, [handleTapestryUpdate]);
 
-  const nativeToolIds = hasDesktopRuntimeBridge() ? DESKTOP_NATIVE_TOOL_IDS : WEB_NATIVE_TOOL_IDS;
+  const nativeToolIds = resolveAdvertisedNativeToolIds({
+    desktopBridgeAvailable: hasDesktopRuntimeBridge(),
+    selectedProvider,
+  });
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>
       nativeToolIds.map((toolId) => {

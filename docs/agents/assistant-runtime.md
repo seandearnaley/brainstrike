@@ -739,9 +739,9 @@ untouched. Flow:
   (`brainstrike-assistant`) is provider-independent, so listing constructs a
   keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
   Desktop constructs the paired PGlite memory/storage with observational memory
-  and semantic recall disabled for this discovery request. The normal Desktop
-  defaults would otherwise resolve the configured observational-memory provider
-  key before the inert listing model is reached, violating the keyless contract.
+  and semantic recall disabled for this discovery request. An explicitly enabled
+  observational-memory configuration could otherwise resolve its provider key
+  before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
   (`apps/desktop/src/assistant-server.ts`): recomputes `riskCategory` from
   `buildNativeToolRiskMap()` and stamps `stale` against
@@ -766,6 +766,17 @@ runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
 `resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
+
+Desktop request initialization validates `enabledNativeToolIds` against the
+shared desktop catalog before constructing a stream. A stale/unknown id returns
+`invalid_enabled_native_tool_ids` at stage `native_tool_preferences` and logs a
+safe id or fingerprint with a correlation id; it is never silently dropped.
+Catalogued tools that are intentionally unavailable for the active provider
+(for example suspend/task/session tools under the built-in local model) are a
+capability omission, debug-logged separately, and are not mislabeled unknown.
+Other initialization failures return only a safe stage
+(`provider_model_bootstrap` or `stream_construction`) plus a correlation id;
+the structured main-process log retains the same pair and the redacted error.
 
 ---
 

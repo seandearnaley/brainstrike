@@ -54,6 +54,29 @@ export type WebNativeToolId = Exclude<
   DesktopNativeToolId,
   typeof NATIVE_TOOL_ID.inspectCommandSessions | typeof NATIVE_TOOL_ID.manageCommandSession
 >;
+export type LocalDesktopNativeToolId = Extract<
+  DesktopNativeToolId,
+  | typeof NATIVE_TOOL_ID.executeCommand
+  | typeof NATIVE_TOOL_ID.globWorkspace
+  | typeof NATIVE_TOOL_ID.grepSearch
+  | typeof NATIVE_TOOL_ID.readWorkspaceFile
+  | typeof NATIVE_TOOL_ID.stringReplaceWorkspaceFile
+>;
+
+const LOCAL_DESKTOP_NATIVE_TOOL_ID = {
+  executeCommand: NATIVE_TOOL_ID.executeCommand,
+  globWorkspace: NATIVE_TOOL_ID.globWorkspace,
+  grepSearch: NATIVE_TOOL_ID.grepSearch,
+  readWorkspaceFile: NATIVE_TOOL_ID.readWorkspaceFile,
+  stringReplaceWorkspaceFile: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+} as const satisfies Record<
+  | 'executeCommand'
+  | 'globWorkspace'
+  | 'grepSearch'
+  | 'readWorkspaceFile'
+  | 'stringReplaceWorkspaceFile',
+  LocalDesktopNativeToolId
+>;
 
 export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] = Object.freeze(
   Object.values(DESKTOP_NATIVE_TOOL_ID)
@@ -64,6 +87,16 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
     (id): id is WebNativeToolId =>
       id !== NATIVE_TOOL_ID.inspectCommandSessions && id !== NATIVE_TOOL_ID.manageCommandSession
   )
+);
+
+/**
+ * Eager-core-only tools advertised to the built-in local model.
+ *
+ * `askUser` and `submitPlan` are the other critical tools, but the local
+ * provider deliberately does not register their suspend/resume implementations.
+ */
+export const LOCAL_DESKTOP_NATIVE_TOOL_IDS: readonly LocalDesktopNativeToolId[] = Object.freeze(
+  Object.values(LOCAL_DESKTOP_NATIVE_TOOL_ID)
 );
 
 /** Native tool results that must never be retained by durable artifact settlement. */

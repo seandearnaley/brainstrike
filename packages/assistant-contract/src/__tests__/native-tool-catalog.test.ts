@@ -56,6 +56,7 @@ describe('native tool catalog', () => {
     const desktopIds = readCanonicalIds('DESKTOP_NATIVE_TOOL_IDS');
     const skillIds = readCanonicalIds('SKILL_NATIVE_TOOL_IDS');
     const nativeIds = readCanonicalIds('NATIVE_TOOL_IDS');
+    const localDesktopIds = readCanonicalIds('LOCAL_DESKTOP_NATIVE_TOOL_IDS');
     const nonDurableOutputIds = readCanonicalIds('NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS');
     const webIds = readCanonicalIds('WEB_NATIVE_TOOL_IDS');
 
@@ -78,6 +79,16 @@ describe('native tool catalog', () => {
       )
     );
     expect(webIds).toHaveLength(24);
+    expect(localDesktopIds).toEqual(
+      desktopIds.filter(
+        (id) =>
+          NATIVE_TOOL_DEFAULTS[id as keyof typeof NATIVE_TOOL_DEFAULTS].loadingTier ===
+            'critical' &&
+          id !== 'brainstrike.askUser' &&
+          id !== 'brainstrike.submitPlan'
+      )
+    );
+    expect(localDesktopIds).toHaveLength(5);
   });
 
   it('keeps every browser-safe registry in exact parity with the canonical ids', () => {

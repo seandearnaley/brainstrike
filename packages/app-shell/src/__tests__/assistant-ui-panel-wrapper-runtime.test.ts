@@ -20,6 +20,7 @@ import {
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
   reconcileProviderSettingsForModel,
+  resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
@@ -100,6 +101,21 @@ describe('buildAssistantTapestryRange color', () => {
 });
 
 describe('assistant runtime helpers', () => {
+  it('advertises only runtime-available eager-core tools for local desktop chat', () => {
+    const localToolIds = resolveAdvertisedNativeToolIds({
+      desktopBridgeAvailable: true,
+      selectedProvider: 'local',
+    });
+
+    expect(localToolIds).toEqual([
+      'brainstrike.executeCommand',
+      'brainstrike.globWorkspace',
+      'brainstrike.grepSearch',
+      'brainstrike.readWorkspaceFile',
+      'brainstrike.stringReplaceWorkspaceFile',
+    ]);
+  });
+
   it('resolves model names from provider composites and formats tool labels', () => {
     expect(resolveModelNameFromComposite(undefined)).toBeUndefined();
     expect(resolveModelNameFromComposite('openai::gpt-5.2')).toBe('gpt-5.2');
@@ -160,6 +176,7 @@ describe('assistant runtime helpers', () => {
           ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
           observationalMemory: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
             retrievalMode: 'vector',
           },
           semanticRecall: {
@@ -181,6 +198,7 @@ describe('assistant runtime helpers', () => {
           ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
           observationalMemory: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
             retrievalMode: 'vector',
           },
           semanticRecall: {

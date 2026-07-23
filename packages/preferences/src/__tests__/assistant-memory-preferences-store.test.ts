@@ -102,12 +102,12 @@ describe('assistant-memory-preferences-store', () => {
     );
   });
 
-  it('uses explicit defaults for Mastra observational memory and disables semantic recall', () => {
+  it('requires an explicit observational-memory opt-in and disables semantic recall', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
     expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe('assistant-memory-preferences.v1');
     expect(state.observationalMemory).toEqual({
-      enabled: true,
+      enabled: false,
       messageTokens: 30_000,
       modelTarget: 'openai/gpt-5.4-mini',
       observationTokens: 40_000,
@@ -133,7 +133,7 @@ describe('assistant-memory-preferences-store', () => {
     store.setObservationalRetrievalMode('messages');
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory).toEqual({
-      enabled: true,
+      enabled: false,
       messageTokens: 16_500,
       modelTarget: 'anthropic/claude-haiku-4-5',
       observationTokens: 25_250,
@@ -169,7 +169,7 @@ describe('assistant-memory-preferences-store', () => {
 
     expect(useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()).toEqual({
       observationalMemory: {
-        enabled: true,
+        enabled: false,
         messageTokens: 30_000,
         modelTarget: 'openai/gpt-5.4-mini',
         observationTokens: 40_000,

@@ -240,6 +240,10 @@ data-stream-runtime.test.ts `boundResentImageHistory` (wire history bound).
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
 run events, and reload hydration behave exactly like hosted providers.
+Observational memory is opt-in on a fresh profile. Its model target is
+independent of the selected chat provider, so enabling a hosted target without
+that provider's key fails visibly; a fresh local-only profile must never
+inherit an undeclared hosted-key requirement from the default settings.
 Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
 history adapter) and remain session-only.
 

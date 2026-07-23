@@ -1,9 +1,12 @@
 import {
   type AnthropicProviderOptions,
+  DESKTOP_NATIVE_TOOL_IDS,
+  type DesktopNativeToolId,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
   type HookTrustRequest,
+  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
   type OpenRouterModelMetadataLookup,
@@ -11,6 +14,7 @@ import {
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
   resolveOpenRouterCodingMaxOutputTokens,
+  WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
@@ -59,6 +63,19 @@ import type {
 } from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
+
+export function resolveAdvertisedNativeToolIds(args: {
+  desktopBridgeAvailable: boolean;
+  selectedProvider: SupportedProvider | null;
+}): readonly DesktopNativeToolId[] {
+  if (!args.desktopBridgeAvailable) {
+    return WEB_NATIVE_TOOL_IDS;
+  }
+  if (args.selectedProvider === 'local') {
+    return LOCAL_DESKTOP_NATIVE_TOOL_IDS;
+  }
+  return DESKTOP_NATIVE_TOOL_IDS;
+}
 
 export function resolveModelNameFromComposite(
   composite: string | null | undefined
