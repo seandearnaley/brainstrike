@@ -59,6 +59,7 @@ function observeToolCallInputPart(
 
   if (part.type === 'tool-call-input-streaming-end') {
     activeInputs.delete(toolCallId);
+    completedCalls.add(toolCallId);
     return;
   }
 
@@ -105,6 +106,11 @@ export async function* withToolCallInputTimeout<T>(
     while (true) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const earliest = findEarliestInput(activeInputs);
+      if (earliest && earliest.startedAt + timeoutMs <= Date.now()) {
+        const error = new ToolCallInputStreamingTimeoutError(timeoutMs, earliest.toolCallId);
+        onTimeout?.(error);
+        throw error;
+      }
       const nextResult = iterator.next();
       let result: IteratorResult<T>;
       try {

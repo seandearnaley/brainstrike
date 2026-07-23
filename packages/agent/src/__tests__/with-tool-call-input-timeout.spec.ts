@@ -116,4 +116,45 @@ describe('withToolCallInputTimeout', () => {
 
     expect(parts).toHaveLength(3);
   });
+
+  it('does not reopen an ended input when late progress markers arrive', async () => {
+    async function* endedBeforeProgress(): AsyncIterableIterator<TestPart> {
+      yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-start' };
+      yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-end' };
+      yield { argsTextDelta: 'late', toolCallId: 'call-ended', type: 'tool-call-delta' };
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      yield { argsTextDelta: 'later', toolCallId: 'call-ended', type: 'tool-call-delta' };
+    }
+
+    const parts: TestPart[] = [];
+    for await (const part of withToolCallInputTimeout(endedBeforeProgress(), 30)) {
+      parts.push(part);
+    }
+
+    expect(parts).toHaveLength(4);
+  });
+
+  it('rejects an expired deadline before consuming an already-buffered delta', async () => {
+    async function* bufferedToolInput(): AsyncIterableIterator<TestPart> {
+      yield { toolCallId: 'call-buffered', type: 'tool-call-input-streaming-start' };
+      yield {
+        argsTextDelta: 'already buffered',
+        toolCallId: 'call-buffered',
+        type: 'tool-call-delta',
+      };
+    }
+
+    const iterator = withToolCallInputTimeout(bufferedToolInput(), 30);
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'tool-call-input-streaming-start' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 35));
+
+    await expect(iterator.next()).rejects.toMatchObject({
+      code: 'tool_call_input_streaming_timeout',
+      timeoutMs: 30,
+      toolCallId: 'call-buffered',
+    });
+  });
 });
