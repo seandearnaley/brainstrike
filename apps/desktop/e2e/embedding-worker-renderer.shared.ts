@@ -484,13 +484,45 @@ export async function waitForBackfillButtonEnabled(
   backfillButton: ReturnType<Page['locator']>,
   timeoutMs = 15_000
 ): Promise<void> {
+  await waitForBackfillReadiness(
+    page,
+    backfillButton,
+    async () => await getEmbeddingQueueStats(page),
+    'global embedding queue',
+    timeoutMs
+  );
+}
+
+export async function waitForEmbeddingSetBackfillButtonEnabled(
+  page: Page,
+  backfillButton: ReturnType<Page['locator']>,
+  embeddingSetId: string,
+  timeoutMs = 15_000
+): Promise<void> {
+  await waitForBackfillReadiness(
+    page,
+    backfillButton,
+    async () => await getEmbeddingSetQueueStats(page, embeddingSetId),
+    `embedding set ${embeddingSetId}`,
+    timeoutMs
+  );
+}
+
+async function waitForBackfillReadiness(
+  page: Page,
+  backfillButton: ReturnType<Page['locator']>,
+  getQueueStats: () => Promise<QueueStatsRow>,
+  queueScope: string,
+  timeoutMs: number
+): Promise<void> {
   const startedAt = Date.now();
+  let lastButtonEnabled = false;
+  let lastQueueStats: QueueStatsRow | null = null;
 
   while (Date.now() - startedAt < timeoutMs) {
-    const [enabled, queueStats] = await Promise.all([
-      backfillButton.isEnabled(),
-      getEmbeddingQueueStats(page),
-    ]);
+    const [enabled, queueStats] = await Promise.all([backfillButton.isEnabled(), getQueueStats()]);
+    lastButtonEnabled = enabled;
+    lastQueueStats = queueStats;
 
     if (enabled && queueStats.queued === 0 && queueStats.running === 0) {
       return;
@@ -499,7 +531,10 @@ export async function waitForBackfillButtonEnabled(
     await page.waitForTimeout(250);
   }
 
-  throw new Error('Timed out waiting for the backfill button to become enabled');
+  throw new Error(
+    `Timed out waiting for the backfill button to become enabled for ${queueScope}: ` +
+      `buttonEnabled=${lastButtonEnabled}, queueStats=${JSON.stringify(lastQueueStats)}`
+  );
 }
 
 export async function waitForBoundedBackfillEnqueueOrFatalError(
