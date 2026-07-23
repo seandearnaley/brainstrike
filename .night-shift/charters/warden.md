@@ -4,7 +4,8 @@
 NAME=Warden
 ROLE=guard-script meta-health monitor
 SCHEDULE="17 7 * * 1"   # weekly, Monday 07:17 UTC
-RECOMMENDED_MODEL=gpt-5.6
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (re-wiring only)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Warden"

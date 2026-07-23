@@ -4,8 +4,8 @@
 NAME=Forge
 ROLE=small-ticket implementer (label-gated backlog consumer)
 SCHEDULE="23 3 * * *"   # daily 03:23 UTC — quiet slot before sentinel 04:07
-RECOMMENDED_MODEL=opus-class (scope judgment is the hard part; mechanical
-                  implementation may be delegated per repo model routing)
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (ONE ticket, ONE PR; declines anything risk-heavy)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Forge"

@@ -4,7 +4,8 @@
 NAME=Watch
 ROLE=flake investigator
 SCHEDULE="13 10 * * *"   # daily 10:13 UTC, after nightly E2E completes
-RECOMMENDED_MODEL=opus-class (diagnosis is judgment work)
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=xhigh
 AUTONOMY=diagnose-only (tickets and comments; NEVER edits code or tests)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Watch"

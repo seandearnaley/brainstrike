@@ -4,7 +4,8 @@
 NAME=Vigil
 ROLE=security-advisory watcher (lockfile vs known-vulnerable versions)
 SCHEDULE="27 9 * * *"   # daily 09:27 UTC
-RECOMMENDED_MODEL=cheapest capable tier (routing judgment only)
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=tickets-only (never edits code, never bumps a dependency)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Vigil"

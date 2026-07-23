@@ -4,7 +4,8 @@
 NAME=Quartermaster
 ROLE=dependency triage
 SCHEDULE="43 5 * * 2"   # weekly, Tuesday 05:43 UTC
-RECOMMENDED_MODEL=gpt-5.6 (mechanical; changelog reading)
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (max 3 family PRs per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Quartermaster"

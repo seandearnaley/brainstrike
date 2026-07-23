@@ -4,7 +4,8 @@
 NAME=Ledger
 ROLE=migration-runner parity clerk
 SCHEDULE="51 6 * * 1"   # weekly, Monday 06:51 UTC
-RECOMMENDED_MODEL=gpt-5.6 (mechanical, high-precision)
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (registration lines ONLY)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Ledger"

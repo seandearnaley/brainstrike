@@ -4,7 +4,8 @@
 NAME=Scribe
 ROLE=docs-as-contracts auditor
 SCHEDULE="37 6 * * 1"   # weekly, Monday 06:37 UTC
-RECOMMENDED_MODEL=opus-class (semantic drift needs judgment)
+MODEL=gpt-5.6-terra
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max per run)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Scribe"

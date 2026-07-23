@@ -4,7 +4,8 @@
 NAME=Bolt
 ROLE=performance maintainer
 SCHEDULE="29 8 * * *"   # daily 08:29 UTC, after the nightly perf run settles
-RECOMMENDED_MODEL=strongest available (evidence judgment + mechanism analysis)
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max, ever; never merges)
 CHARTER_VERSION=3       # v2 predates PROTOCOL.md; state/learnings rules moved there
 STATE_ISSUE="[automation-state] Bolt"

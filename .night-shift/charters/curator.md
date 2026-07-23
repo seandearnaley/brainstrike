@@ -4,7 +4,8 @@
 NAME=Curator
 ROLE=model-catalog freshness scout
 SCHEDULE="19 6 * * 2,5"   # Tuesday + Friday 06:19 UTC
-RECOMMENDED_MODEL=opus-class (relevance judgment on which models matter)
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr (additive catalog-data migrations only; everything
          else is a ticket)
 CHARTER_VERSION=1

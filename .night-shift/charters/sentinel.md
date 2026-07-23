@@ -4,7 +4,8 @@
 NAME=Sentinel
 ROLE=security maintainer
 SCHEDULE="07 4 * * *"   # daily 04:07 UTC, before the workday
-RECOMMENDED_MODEL=strongest available
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=propose-pr for hardening; PRIVATE escalation for live exposure
 CHARTER_VERSION=2       # v1 predates PROTOCOL.md
 STATE_ISSUE="[automation-state] Sentinel"

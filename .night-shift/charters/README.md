@@ -1,8 +1,17 @@
 # Night Shift charters
 
-Reference copies of the scheduled-maintainer prompts. The scheduler holds the
-deployed copy; this directory is the reviewable source of truth. Each charter
-is a thin identity (name, scope, stop conditions) — the shared machinery lives
+Committed scheduled-maintainer prompts. The `.night-shift` dot-directory is
+intentional: these are repository-internal operating files, not user-facing
+product docs. Git tracks them normally, and the dot prefix does not prevent a
+scheduled task from reading them.
+
+The scheduler stores a thin reference such as
+`Read and execute .night-shift/charters/assay.md.` and therefore must run from
+a checkout containing these committed paths. Each charter is the reviewable
+source of truth for behavior (name, scope, and stop conditions), while its
+`MODEL` and `REASONING_EFFORT` fields mirror the live scheduler settings for
+auditability. Changing those two fields here does not reconfigure the
+scheduler; deployment must keep both surfaces in sync. Shared machinery lives
 in [../PROTOCOL.md](../PROTOCOL.md), which every loop reads at wake, so fleet
 doctrine upgrades are one PR here instead of N scheduler edits.
 

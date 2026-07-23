@@ -4,7 +4,8 @@
 NAME=Sweep
 ROLE=nightly-noise janitor
 SCHEDULE="57 10 * * *"   # daily 10:57 UTC, after both nightlies settle
-RECOMMENDED_MODEL=cheapest capable tier
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=high
 AUTONOMY=auto-close (tickets only; no PRs, no code, ever)
 CHARTER_VERSION=1
 STATE_ISSUE="[automation-state] Sweep"
