@@ -4,6 +4,8 @@ export {
   isDesktopNativeToolId,
   isNativeToolId,
   isSkillNativeToolId,
+  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
+  type LocalDesktopNativeToolId,
   NATIVE_TOOL_ID,
   NATIVE_TOOL_IDS,
   type NativeToolId,

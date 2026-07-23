@@ -1493,6 +1493,86 @@ describe('assistant-server', () => {
       );
     });
 
+    it('starts a fresh local-provider stream without requiring a hosted observational-memory key', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { content: 'LOCAL_SMOKE_OK', type: 'text' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+      mockSecretsService.getKey.mockResolvedValueOnce(null);
+
+      const llmHostManager = {
+        generateForMain: vi.fn(),
+        warmupForMain: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const response = await runRequest(
+        {
+          body: JSON.stringify({
+            data: {
+              enabledNativeToolIds: [
+                'brainstrike.readWorkspaceFile',
+                'brainstrike.manageTaskList',
+                'brainstrike.submitPlan',
+              ],
+              memory: {
+                memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+                resourceId: 'fresh-local-workspace',
+                threadId: 'fresh-local-thread',
+              },
+              model: 'onnx-community/gemma-4-E2B-it-ONNX',
+              provider: 'local',
+            },
+            messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/',
+        },
+        { llmHostManager }
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockSecretsService.getKey).not.toHaveBeenCalled();
+      expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an unknown enabled native tool id before stream construction', async () => {
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            enabledNativeToolIds: [
+              'brainstrike.readWorkspaceFile',
+              'brainstrike.removedNativeTool',
+            ],
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'invalid_enabled_native_tool_ids',
+        message: 'Assistant request contains unknown enabled native tool IDs.',
+        stage: 'native_tool_preferences',
+      });
+    });
+
     it('fails provider "local" with a structured error when no llm-host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
@@ -1510,8 +1590,16 @@ describe('assistant-server', () => {
       });
 
       expect(response.status).toBe(502);
-      const payload = JSON.parse(response.body) as { error: string };
+      const payload = JSON.parse(response.body) as {
+        correlationId: string;
+        error: string;
+        stage: string;
+      };
       expect(payload.error).toBe('agent_stream_init_failed');
+      expect(payload.stage).toBe('provider_model_bootstrap');
+      expect(payload.correlationId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      );
     });
 
     it('does not prepend selected-file context as a hidden system message', async () => {
@@ -3500,10 +3588,19 @@ describe('assistant-server', () => {
       });
 
       expect(response.status).toBe(502);
-      const data = JSON.parse(response.body) as { error: string; message: string };
+      const data = JSON.parse(response.body) as {
+        correlationId: string;
+        error: string;
+        message: string;
+        stage: string;
+      };
       expect(data).toEqual({
+        correlationId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        ),
         error: 'agent_stream_init_failed',
         message: 'Assistant stream initialization failed.',
+        stage: 'stream_construction',
       });
       expect(response.body).not.toContain('Stream initialization failed');
     }, 10_000);

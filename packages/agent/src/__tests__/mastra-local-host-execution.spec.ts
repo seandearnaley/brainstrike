@@ -147,6 +147,10 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     expect(systemMessage?.content).not.toContain('Context Explorer alongside this chat');
     // ...with thinking options threaded through from providerOptions.local...
     expect(hostClient.requests[0]?.options?.thinking).toEqual({ enabled: false });
+    // ...and with the selected local model's registry output budget. Falling
+    // back to the proxy's generic 512-token default can consume the entire
+    // response inside Gemma reasoning before it reaches a tool call or answer.
+    expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(2048);
     expect(hostClient.requests[0]?.options?.tools?.[0]?.function.name).toBe('get_weather');
 
     // ...and the second prompt carried the full tool round in the local
@@ -194,5 +198,49 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     // loop has no matching tool — what matters here is the run terminates and
     // the provider resolved without an apiKey.
     expect(hostClient.requests.length).toBeGreaterThan(0);
+  });
+
+  it('preserves an explicit local output-token override', async () => {
+    const hostClient = createScriptedHostClient();
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u3', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          localLlmHostClient: hostClient,
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          modelSettings: { maxOutputTokens: 768 },
+          provider: 'local',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // Drain the real Mastra stream.
+    }
+
+    expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(768);
+  });
+
+  it('uses the default local model budget for a blank model id', async () => {
+    const hostClient = createScriptedHostClient();
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u4', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          localLlmHostClient: hostClient,
+          model: '   ',
+          provider: 'local',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // Drain the real Mastra stream.
+    }
+
+    expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(2048);
+    expect(hostClient.requests[0]?.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
   });
 });

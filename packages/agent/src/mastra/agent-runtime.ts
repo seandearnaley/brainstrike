@@ -1,5 +1,6 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
+  getLlmModelDefinition,
   resolveOpenRouterCodingMaxOutputTokens,
   resolveToolDiscoveryAdapter,
 } from '@brainstrike/assistant-contract';
@@ -2473,13 +2474,26 @@ interface BrainstrikeAgentStreamOptions {
 function buildModelSettingsOption(
   runtimeData: RuntimeData | undefined
 ): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
-  const modelSettings =
-    runtimeData?.provider === 'openrouter'
-      ? {
-          maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(),
-          ...runtimeData.modelSettings,
-        }
-      : runtimeData?.modelSettings;
+  let modelSettings = runtimeData?.modelSettings;
+  if (runtimeData?.provider === 'openrouter') {
+    modelSettings = {
+      maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(),
+      ...modelSettings,
+    };
+  } else if (runtimeData?.provider === 'local') {
+    const modelId = runtimeData.model?.trim() || getDefaultModel('local');
+    const definition = getLlmModelDefinition('local', modelId);
+    if (definition.maxOutputTokens === undefined) {
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        context: { model: modelId, provider: 'local' },
+        detail: `Local model ${modelId} has no maxOutputTokens registry budget`,
+      });
+    }
+    modelSettings = {
+      maxOutputTokens: definition.maxOutputTokens,
+      ...modelSettings,
+    };
+  }
   return modelSettings ? { modelSettings } : {};
 }
 

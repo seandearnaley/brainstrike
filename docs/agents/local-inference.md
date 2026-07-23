@@ -208,7 +208,8 @@ Flow:
      - packages/agent/src/providers/local/local-artifact-store.ts
      - packages/agent/src/providers/local/local-message-conversion.ts (shared
        AI-SDK v2 ↔ local dialect: preserves assistant tool calls, parses V2
-       tool-result `output` envelopes)
+       tool-result `output` envelopes, and normalizes JSON Schema nullable
+       unions into the Gemma template's `type` + `nullable` dialect)
    - `local-llm.ts` is the browser-safe entrypoint for renderer usage.
    - `LocalLlmBackend` is a thin orchestrator over the Gemma engine/spec/artifact layers.
    - On web, tool calls are executed through the UI/runtime tool bridge; on
@@ -218,7 +219,15 @@ Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.
 - Thinking/reasoning output must be kept separate from the final visible answer.
 - Control tokens (`<turn|>`, EOS markers, tool-call wrappers, etc.) must be stripped from visible output.
+- Local Mastra generations inherit `maxOutputTokens` from the selected model's
+  static provider-registry definition unless the run explicitly overrides it.
+  A missing local output budget is an initialization error; never fall back to
+  the proxy model's generic token cap.
+- Gemma tool schemas are validated before templating. The converter accepts a
+  no-argument empty schema as an object, or a single schema plus `null`
+  expressed through `anyOf` or a type array and rewrites it explicitly;
+  unsupported unions throw with the tool/property path instead of reaching the
+  template or silently weakening the contract.
 - If you change the local host lifecycle, preload bridge, or availability gating, update this section and the relevant tests.
 
 ---
-

@@ -369,6 +369,7 @@ const OM_TINY_THRESHOLD_SETTINGS: RuntimeAssistantMemorySettings = {
   ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   observationalMemory: {
     ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+    enabled: true,
     messageTokens: 10,
     observationTokens: 50,
   },

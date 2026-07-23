@@ -695,6 +695,38 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
 type PinoLogMethod = (first: unknown, ...rest: unknown[]) => void;
 
+function normalizePinoLogArgs(args: readonly unknown[]): readonly unknown[] {
+  if (args.length !== 2) {
+    return args;
+  }
+  const [message, metadata] = args;
+  if (
+    typeof message !== 'string' ||
+    typeof metadata !== 'object' ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    return args;
+  }
+  // Public Brainstrike logging is message-first, while Pino's structured form
+  // is object-first. Reorder only the declared `(message, metadata)` overload;
+  // other variadic calls retain Pino's interpolation semantics.
+  return [metadata, message];
+}
+
+function writePinoLog(
+  logMethod: PinoLogMethod,
+  target: PinoLogger,
+  args: readonly unknown[]
+): void {
+  if (args.length === 0) {
+    logMethod.call(target, '');
+    return;
+  }
+  const [first, ...rest] = args;
+  logMethod.call(target, first, ...rest);
+}
+
 function logInternal(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (!isLevelEnabled(level)) {
     return;
@@ -708,14 +740,10 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
   const target = getLoggerForScope(scope);
   const logMethod = target[methodName] as unknown as PinoLogMethod;
   const safeArgs = args.map((arg) => redactSensitiveLogValue(arg));
+  const pinoArgs = normalizePinoLogArgs(safeArgs);
 
   try {
-    if (safeArgs.length === 0) {
-      logMethod.call(target, '');
-    } else {
-      const [first, ...rest] = safeArgs;
-      logMethod.call(target, first, ...rest);
-    }
+    writePinoLog(logMethod, target, pinoArgs);
   } catch (logError) {
     // Some tooling (React DevTools) patches console methods and can throw runtime
     // exceptions when inspecting complex payloads. Logging must never break app flow.
@@ -873,7 +901,9 @@ export function addLogListener(listener: LogListener): () => void {
 export const __loggerTesting = {
   createBrowserWrite,
   formatBrowserConsoleMessage,
+  normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
+  writePinoLog,
 };
 
 export const log = debug;

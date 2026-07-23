@@ -47,7 +47,12 @@ import {
   withFileLock,
   writeShellOutputChunk,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  isDesktopNativeToolId,
+  NATIVE_TOOL_ID,
+  TOOL_DESCRIPTIONS,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import {
   EmbeddingSetsRepository,
   type EmbeddingSpaceListing,
@@ -3879,9 +3884,15 @@ export function buildDesktopAssistantTools(
   const enabledSet = new Set(
     enabledNativeToolIds.filter((toolId): toolId is string => typeof toolId === 'string')
   );
-  const unknownToolIds = Array.from(enabledSet).filter((toolId) => tools[toolId] === undefined);
+  const unknownToolIds = Array.from(enabledSet).filter((toolId) => !isDesktopNativeToolId(toolId));
   if (unknownToolIds.length > 0) {
-    logger.warn('Ignoring unknown enabled native tool ids', { toolIds: unknownToolIds });
+    throw new Error('Enabled native tool preferences contain unknown tool IDs.');
+  }
+  const unavailableToolIds = Array.from(enabledSet).filter((toolId) => tools[toolId] === undefined);
+  if (unavailableToolIds.length > 0) {
+    logger.debug('Enabled native tool ids unavailable in the current runtime', {
+      toolIds: unavailableToolIds,
+    });
   }
   if (enabledSet.size === 0) {
     logger.warn('Runtime preferences disabled all desktop assistant native tools', {

@@ -4640,6 +4640,15 @@ describe('assistant-tools multi-root read tools', () => {
       expect(tools['brainstrike.askUser']).toBeDefined();
       expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
     });
+
+    it('rejects unknown enabled tool ids instead of silently filtering them', () => {
+      expect(() =>
+        buildDesktopAssistantTools({
+          enabledNativeToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.removedNativeTool'],
+          provider: 'local',
+        } as RuntimeData)
+      ).toThrow('Enabled native tool preferences contain unknown tool IDs.');
+    });
   });
 
   describe('post-edit LSP diagnostics (report R2)', () => {

@@ -161,6 +161,20 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
         } satisfies Partial<NativeToolPreferencesStore>;
       },
       name: STORE_NAME,
+      onRehydrateStorage: () => (state) => {
+        if (!state) {
+          return;
+        }
+        const toolStates = sanitizeToolStates(state.toolStates);
+        if (
+          Object.keys(toolStates).length !== Object.keys(state.toolStates).length ||
+          Object.entries(toolStates).some(
+            ([toolId, enabled]) => state.toolStates[toolId] !== enabled
+          )
+        ) {
+          useNativeToolPreferencesStore.setState({ toolStates });
+        }
+      },
       partialize: (store) => ({
         toolStates: store.toolStates,
       }),
