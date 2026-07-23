@@ -1347,8 +1347,38 @@ Because they make up everything!<turn|>`,
     expect(result.text).toBe(output);
   });
 
-  it('parses wrapped JSON tool calls with omitted arguments as empty objects', async () => {
+  it('rejects wrapped JSON tool calls with omitted arguments', async () => {
     mockBatchDecode.mockReturnValue(['<tool_call>{"name":"refresh_index"}</tool_call>']);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ content: 'Refresh the index', role: 'user' }], {
+        tools: [
+          {
+            function: {
+              description: 'Refresh the current index',
+              name: 'refresh_index',
+              parameters: {
+                properties: {},
+                type: 'object',
+              },
+            },
+            type: 'function',
+          },
+        ],
+      })
+    ).rejects.toThrow('local_tool_call_arguments_invalid');
+  });
+
+  it('preserves valid wrapped JSON tool-call arguments', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<tool_call>{"name":"refresh_index","arguments":{}}</tool_call>',
+    ]);
 
     const backend = new LocalLlmBackend();
 

@@ -1064,22 +1064,31 @@ function parseGenericToolCall(text: string): LocalLlmToolCall[] {
   }
 
   for (const candidate of candidates) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(candidate) as { name?: unknown; arguments?: unknown };
-      if (typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
-        return [
-          {
-            function: {
-              arguments: JSON.stringify(parsed.arguments ?? {}),
-              name: parsed.name,
-            },
-            id: crypto.randomUUID(),
-            type: 'function',
-          },
-        ];
-      }
+      parsed = JSON.parse(candidate) as unknown;
     } catch {
-      // ignored
+      continue;
+    }
+    if (!(parsed && typeof parsed === 'object' && !Array.isArray(parsed))) {
+      continue;
+    }
+    const parsedCall = parsed as Record<string, unknown>;
+    const name = parsedCall['name'];
+    if (typeof name === 'string' && name.trim().length > 0) {
+      const serializedArguments = Object.hasOwn(parsedCall, 'arguments')
+        ? (JSON.stringify(parsedCall['arguments']) ?? '')
+        : '';
+      return [
+        {
+          function: {
+            arguments: normalizeLocalToolCallArguments(serializedArguments),
+            name,
+          },
+          id: crypto.randomUUID(),
+          type: 'function',
+        },
+      ];
     }
   }
 

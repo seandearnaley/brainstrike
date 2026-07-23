@@ -3,15 +3,13 @@ import type { LocalLlmToolCall } from './types';
 export const LOCAL_TOOL_CALL_ARGUMENTS_INVALID = 'local_tool_call_arguments_invalid';
 
 export class LocalToolCallArgumentsError extends Error {
-  readonly argumentCharacters: number;
   readonly code = LOCAL_TOOL_CALL_ARGUMENTS_INVALID;
 
-  constructor(argumentCharacters: number) {
+  constructor() {
     super(
       `${LOCAL_TOOL_CALL_ARGUMENTS_INVALID}: The local model produced malformed JSON arguments for a tool call. The call was rejected before approval or execution.`
     );
     this.name = 'LocalToolCallArgumentsError';
-    this.argumentCharacters = argumentCharacters;
   }
 }
 
@@ -30,10 +28,10 @@ export function normalizeLocalToolCallArguments(argumentsText: string): string {
   try {
     parsed = JSON.parse(argumentsText) as unknown;
   } catch {
-    throw new LocalToolCallArgumentsError(argumentsText.length);
+    throw new LocalToolCallArgumentsError();
   }
   if (!isJsonObject(parsed)) {
-    throw new LocalToolCallArgumentsError(argumentsText.length);
+    throw new LocalToolCallArgumentsError();
   }
   return JSON.stringify(parsed);
 }
