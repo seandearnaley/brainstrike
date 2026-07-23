@@ -152,6 +152,7 @@ import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
 } from './workspace-search-model-projections';
+import { MAX_READ_WORKSPACE_FILE_BYTES, readWorkspaceTextFile } from './workspace-text-file-reader';
 
 // The audited write path moved to `../secure-file-write` so other IPC domains
 // (e.g. the notes vault) can share it; re-exported here so existing importers
@@ -187,7 +188,6 @@ const WORKSPACE_CONTEXT_SELECTION_EVENT =
 const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
-const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
 const READ_WORKSPACE_FILE_CHUNK_BYTES = 64 * 1024;
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
@@ -725,45 +725,6 @@ async function readWorkspaceFilePageSource(args: {
   } finally {
     await handle.close();
   }
-}
-
-export async function readWorkspaceTextFile(args: {
-  requestedPath: string;
-  rootPath: string;
-}): Promise<{
-  absolutePath: string;
-  content: string;
-  mtimeMs: number;
-  path: string;
-  size: number;
-}> {
-  const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, args.requestedPath);
-
-  const stat = await fsPromises.stat(resolved.absolutePath);
-  if (!stat.isFile()) {
-    throw new Error(`Path "${args.requestedPath}" is not a file.`);
-  }
-  if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
-    throw new Error(
-      `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
-    );
-  }
-
-  const fileBuffer = await fsPromises.readFile(resolved.absolutePath);
-  const binaryProbeLength = Math.min(fileBuffer.length, 4096);
-  for (let index = 0; index < binaryProbeLength; index += 1) {
-    if (fileBuffer[index] === 0) {
-      throw new Error(`Path "${args.requestedPath}" is a binary file and cannot be read as text.`);
-    }
-  }
-
-  return {
-    absolutePath: resolved.absolutePath,
-    content: fileBuffer.toString('utf8'),
-    mtimeMs: stat.mtimeMs,
-    path: resolved.workspacePath,
-    size: Number(stat.size),
-  };
 }
 
 /**

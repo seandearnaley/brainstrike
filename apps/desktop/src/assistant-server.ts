@@ -132,10 +132,7 @@ class InvalidEnabledNativeToolIdsError extends Error {
 }
 
 import type { DesktopAssistantToolDependencies } from './assistant-server/assistant-tools';
-import {
-  buildDesktopAssistantTools,
-  readWorkspaceTextFile,
-} from './assistant-server/assistant-tools';
+import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
@@ -162,6 +159,7 @@ import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
+import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
