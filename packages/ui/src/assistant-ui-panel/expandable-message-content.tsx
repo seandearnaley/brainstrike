@@ -1,4 +1,3 @@
-import * as m from 'motion/react-m';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 
@@ -18,25 +17,19 @@ export const ExpandableMessageContent = ({
   collapsedHeight?: number;
   testId?: string;
 }) => {
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  const innerContentRef = useRef<HTMLDivElement | null>(null);
   const contentId = useId();
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
-  // null until measured. Render uses `measuredHeight ?? collapsedHeight` so the
-  // initial collapsed height is in place on first paint (no flash) without
-  // copying the prop into state (no stale-on-prop-change path).
-  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
-  const contentHeight = measuredHeight ?? collapsedHeight;
 
   useEffect(() => {
-    const node = contentRef.current;
+    const node = innerContentRef.current;
     if (!node) {
       return;
     }
 
     const measure = (): void => {
       const nextContentHeight = node.scrollHeight;
-      setMeasuredHeight(nextContentHeight);
       setHasOverflow(nextContentHeight > collapsedHeight + 1);
     };
 
@@ -56,16 +49,15 @@ export const ExpandableMessageContent = ({
 
   return (
     <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
-      <m.div
-        animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
+      <div
         className="bs-expandable-message-body"
         id={contentId}
-        initial={false}
-        ref={contentRef}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
+        style={{ maxHeight: expanded ? undefined : collapsedHeight }}
       >
-        {children}
-      </m.div>
+        <div className="bs-expandable-message-content" ref={innerContentRef}>
+          {children}
+        </div>
+      </div>
       {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
       {hasOverflow ? (
         <button
