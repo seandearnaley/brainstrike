@@ -11,6 +11,7 @@ import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/comman
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
   markRootDisconnectedByPath,
+  markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import {
@@ -520,9 +521,42 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
+  /**
+   * Converge DB roots status on the just-restored mount set. rootsList is the
+   * authoritative record of which folders the Explorer shows, so any 'live' row
+   * outside it is a leak (see markRootsDisconnectedExcept for how they arise).
+   *
+   * Deliberately NOT fail-closed, unlike the fs:removeRoot transition: this runs
+   * on the boot path, and rejecting the restore because the DB is briefly
+   * unavailable would leave the app with no roots at all — strictly worse than a
+   * stale row. The failure is logged at ERROR (never silent) and the next boot
+   * retries. fs:removeRoot remains the fail-closed primary; this is convergence.
+   */
+  const convergeRootStatuses = async (mountedPaths: readonly string[]): Promise<void> => {
+    try {
+      const rootsDatabase = await getRootsDatabase();
+      const demoted = await markRootsDisconnectedExcept(rootsDatabase, mountedPaths);
+      if (demoted.length > 0) {
+        logger.warn('restoreRoots: disconnected DB roots that are no longer mounted', {
+          paths: demoted.map((row) => row.path),
+        });
+      }
+    } catch (error) {
+      logger.error(
+        'restoreRoots: failed to converge DB root statuses; stale roots may remain live',
+        {
+          error,
+        }
+      );
+    }
+  };
+
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
     const entries = await readRootsList(storage);
     if (entries.length === 0) {
+      // Not an early return: zero mounted folders is exactly the state in which
+      // every remaining 'live' row is stale and must be demoted.
+      await convergeRootStatuses([]);
       return [];
     }
 
@@ -562,6 +596,10 @@ export function registerFileSystemIpcHandlers({
     if (survivors.length !== entries.length) {
       await writeRootsList(storage, survivors);
     }
+
+    // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
+    // the DB row, whereas a rootsList entry may hold the unresolved form.
+    await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
 
     return descriptors;
   });

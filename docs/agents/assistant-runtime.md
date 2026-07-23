@@ -1044,6 +1044,29 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   attestation scoping above remains as defense-in-depth: a renderer that skips
   scoping can at most re-run byte-identical already-approved hooks, never new
   content (same-process trust model + the server's authoritative disk re-hash).
+- CONVERGENCE (do not relitigate): because `reconcileRoots` only ever promotes
+  `disconnected → live`, `fs:removeRoot` was for a long time the SOLE demotion —
+  so every path that dropped a root without that IPC succeeding (boot-time
+  rootsList prune of a vanished path, the best-effort `forgetRootInAdapter`
+  swallowing an IPC failure, a 0-row path mismatch, storage rewritten out of
+  band) leaked a permanently `live` row. The Explorer showed one folder while
+  the server addressed three, `resolveWorkspaceRoot` threw "Multiple folders are
+  open", and NOTHING in the UI could clear it — `fs:removeRoot` early-returns for
+  a rootId absent from rootsList. `fs:restoreRoots` therefore closes the loop:
+  after pruning, it calls `markRootsDisconnectedExcept(db, mountedPaths)`, which
+  demotes every `live` PATH-BACKED row outside the just-restored mount set.
+  Rulings: (a) an EMPTY mount set is meaningful, not a no-op guard — zero folders
+  mounted means zero roots may be live, so the zero-entry case must NOT early-
+  return; (b) only path-backed rows are demoted — a null/empty-path (web FSA) row
+  is not comparable to a desktop mount set, so its state is not determinable and
+  is left alone rather than guessed at, the same boundary
+  `loadWorkspaceRootsFromDatabase` draws; (c) compare on the RESOLVED path, which
+  is what addRoot/reconcileRoots store, not the raw rootsList entry; (d) unlike
+  the `fs:removeRoot` transition this is deliberately NOT fail-closed — it runs on
+  the boot path, where rejecting the restore over a briefly unavailable DB would
+  leave the app with no roots at all, strictly worse than a stale row. The failure
+  is logged at ERROR (never silent) and the next boot retries; `fs:removeRoot`
+  remains the fail-closed primary.
 - The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
   (unremappable without DB access → re-approval is the safe direction; mirrors the
   permission-policy v2 security bump). Factory reset clears the store unchanged.

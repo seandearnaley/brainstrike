@@ -337,6 +337,81 @@ describe('fs:restoreRoots', () => {
     // Nothing was pruned, so the list is not rewritten.
     expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
   });
+
+  // Regression (stale-live-roots): reconcileRoots only ever promotes
+  // disconnected -> live, so a root that left rootsList without a successful
+  // fs:removeRoot kept status='live' FOREVER — the assistant server went on
+  // serving a folder the Explorer no longer showed, and resolveWorkspaceRoot
+  // threw "Multiple folders are open" with no in-app way to clear it.
+  describe('DB roots convergence', () => {
+    beforeEach(() => {
+      rootsDbQuery.mockClear();
+      getRootsDatabase.mockClear();
+    });
+
+    it('demotes live DB rows whose path is no longer mounted', async () => {
+      const goodPath = path.resolve('/users/test/good-project');
+      const entry = { addedAt: 1000, path: goodPath, rootId: 'root-id-1' };
+      fileSystem = createFileSystem();
+      storage = createStorage({ rootsList: JSON.stringify([entry]) });
+      registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+      await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+      expect(rootsDbQuery).toHaveBeenCalledTimes(1);
+      const [sql, params] = rootsDbQuery.mock.calls[0] ?? [];
+      expect(sql).toMatch(/UPDATE roots/i);
+      expect(sql).toMatch(/status = 'disconnected'/);
+      // The RESOLVED path is what the DB stores, so that is what we compare.
+      expect(params).toEqual([[goodPath]]);
+    });
+
+    it('converges the zero-mounted case instead of returning early', async () => {
+      fileSystem = createFileSystem();
+      storage = createStorage({ rootsList: JSON.stringify([]) });
+      registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+      await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).resolves.toEqual(
+        []
+      );
+
+      // No folders mounted => no root may remain live.
+      expect(rootsDbQuery).toHaveBeenCalledTimes(1);
+      expect(rootsDbQuery.mock.calls[0]?.[1]).toEqual([[]]);
+    });
+
+    it('logs and still restores when the convergence query fails (boot must not break)', async () => {
+      setLogLevel(LogLevel.ERROR);
+      const captured: LogRecord[] = [];
+      const removeListener = addLogListener((record) => {
+        captured.push(record);
+      });
+      try {
+        const goodPath = path.resolve('/users/test/good-project');
+        fileSystem = createFileSystem();
+        storage = createStorage({
+          rootsList: JSON.stringify([{ addedAt: 1000, path: goodPath, rootId: 'root-id-1' }]),
+        });
+        rootsDbQuery.mockRejectedValueOnce(new Error('db down'));
+        registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+        const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+        expect(result).toHaveLength(1);
+        expect(
+          captured.some(
+            (record) =>
+              record.level === LogLevel.ERROR &&
+              record.message ===
+                'restoreRoots: failed to converge DB root statuses; stale roots may remain live'
+          )
+        ).toBe(true);
+      } finally {
+        removeListener();
+        setLogLevel(LogLevel.WARN);
+      }
+    });
+  });
 });
 
 describe('fs:addRoot', () => {
