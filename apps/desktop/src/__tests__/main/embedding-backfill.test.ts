@@ -47,6 +47,14 @@ function isDirectEmbeddingSetPendingCountQuery(sql: string): boolean {
   );
 }
 
+function isEmbeddingSetCapacityQuery(sql: string): boolean {
+  return (
+    sql.includes('COUNT(*) FILTER') &&
+    sql.includes('embedding_set_id') &&
+    !sql.includes("state = 'failed'")
+  );
+}
+
 function isDimensionIndexMaintenanceQuery(sql: string): boolean {
   return (
     sql.includes('embedding_dimension_index_suspensions') ||
@@ -104,6 +112,18 @@ describe('embedding-backfill', () => {
         if (isBackfillCandidateCountQuery(sql)) {
           return { rows: [{ count: 1 }] };
         }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          statsCalls += 1;
+          if (statsCalls > 1) {
+            currentTime = 11;
+          }
+          return { rows: [{ queued: 1, running: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ failed: 0, queued: 1, running: 0, succeeded: 0 }],
+          };
+        }
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
@@ -111,18 +131,12 @@ describe('embedding-backfill', () => {
           return { rows: [] };
         }
 
-        throw new Error('Unexpected query: ');
+        throw new Error(`Unexpected query: ${sql}`);
       }),
     };
     const jobQueue = {
       enqueueBatch: vi.fn(),
-      getQueueStats: vi.fn(async () => {
-        statsCalls += 1;
-        if (statsCalls > 1) {
-          currentTime = 11;
-        }
-        return [{ failed: 0, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 }];
-      }),
+      getQueueStats: vi.fn(),
     };
 
     const backfill = expect(
@@ -159,7 +173,7 @@ describe('embedding-backfill', () => {
           if (pendingCountCalls > 1) {
             currentTime = 11;
           }
-          return { rows: [{ count: 1 }] };
+          return { rows: [{ count: pendingCountCalls > 2 ? 0 : 1 }] };
         }
         if (isBackfillCandidateCountQuery(sql)) {
           return { rows: [{ count: 0 }] };
@@ -388,7 +402,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
-          queryOrder.push('final-counts');
+          queryOrder.push(isEmbeddingSetCapacityQuery(sql) ? 'capacity-counts' : 'final-counts');
           return {
             rows: [{ failed: 0, queued: 0, running: 0, succeeded: 4 }],
           };
@@ -452,6 +466,7 @@ describe('embedding-backfill', () => {
       'pending',
       'final-counts',
       'candidate-count',
+      'capacity-counts',
       'candidate-batch',
       'pending',
       'final-counts',
@@ -511,7 +526,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
-          queryOrder.push('final-counts');
+          queryOrder.push(isEmbeddingSetCapacityQuery(sql) ? 'capacity-counts' : 'final-counts');
           return {
             rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }],
           };
@@ -569,6 +584,7 @@ describe('embedding-backfill', () => {
       'drop-index',
       'pending',
       'candidate-count',
+      'capacity-counts',
       'candidate-batch',
       'pending',
       'final-counts',
@@ -627,7 +643,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
-          queryOrder.push('final-counts');
+          queryOrder.push(isEmbeddingSetCapacityQuery(sql) ? 'capacity-counts' : 'final-counts');
           return {
             rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }],
           };
@@ -696,6 +712,7 @@ describe('embedding-backfill', () => {
       'drop-index',
       'pending',
       'candidate-count',
+      'capacity-counts',
       'candidate-batch',
       'pending',
       'final-counts',
@@ -868,8 +885,11 @@ describe('embedding-backfill', () => {
 
     pendingJobs = 0;
     await vi.waitFor(() => {
-      expect(queryOrder).toContain('rebuild-index');
+      expect(queryOrder).toContain('resume-index');
     });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queryOrder).toContain('rebuild-index');
     expect(queryOrder).toContain('resume-index');
     expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
@@ -1417,7 +1437,11 @@ describe('embedding-backfill', () => {
     });
 
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(2);
-    expect(jobQueue.getQueueStats).toHaveBeenCalledTimes(1);
+    const capacityQueries = vi
+      .mocked(db.query)
+      .mock.calls.filter(([sql]) => isEmbeddingSetCapacityQuery(sql));
+    expect(capacityQueries).toHaveLength(1);
+    expect(jobQueue.getQueueStats).not.toHaveBeenCalled();
   });
 
   it('aborts backfill when the embedding host can no longer accept queued work', async () => {
@@ -1426,6 +1450,11 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           return {
             rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          return {
+            rows: [{ queued: 0, running: 0 }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
@@ -1900,6 +1929,11 @@ describe('embedding-backfill', () => {
         ) {
           return { rows: [{ count: 0 }] };
         }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          return {
+            rows: [{ queued: 0, running: 0 }],
+          };
+        }
         if (sql.includes('COUNT(*) FILTER')) {
           expect(params?.[2]).toEqual(expect.any(String));
           return {
@@ -1953,6 +1987,11 @@ describe('embedding-backfill', () => {
         if (isBackfillCandidateCountQuery(sql)) {
           return { rows: [{ count: 1 }] };
         }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ failed: 0, queued: 64, running: 0, succeeded: 0 }],
+          };
+        }
         return { rows: [] };
       }),
     };
@@ -1988,6 +2027,228 @@ describe('embedding-backfill', () => {
     await rejection;
     expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('admits a scoped backfill while unrelated embedding sets fill the shared queue', async () => {
+    let pendingCountCalls = 0;
+    const queryOrder: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingCountCalls += 1;
+          queryOrder.push('pending');
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          queryOrder.push('candidate-batch');
+          return {
+            rows: [{ contentHash: 'hash-1', fileRecordId: '100', id: '1' }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          expect(params?.[1]).toBe('set-123');
+          const updatedAfter = params?.[2];
+          queryOrder.push(updatedAfter ? 'final-counts' : 'capacity-counts');
+          return {
+            rows: [
+              updatedAfter
+                ? { failed: 0, queued: 0, running: 0, succeeded: 1 }
+                : { failed: 0, queued: 0, running: 0, succeeded: 0 },
+            ],
+          };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { failed: 0, queue: 'embeddings', queued: 103, running: 2, succeeded: 22 },
+      ]),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        queueCapacityTimeoutMs: 10,
+      })
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
+
+    expect(pendingCountCalls).toBeGreaterThanOrEqual(2);
+    expect(jobQueue.getQueueStats).not.toHaveBeenCalled();
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        runAt: new Date(0).toISOString(),
+      }),
+    ]);
+    expect(queryOrder).toEqual(
+      expect.arrayContaining([
+        'metadata',
+        'candidate-count',
+        'capacity-counts',
+        'candidate-batch',
+        'final-counts',
+      ])
+    );
+  });
+
+  it('restores the dimension HNSW index before surfacing a post-suspension enqueue failure', async () => {
+    const queryOrder: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          queryOrder.push('candidate-batch');
+          return {
+            rows: [{ contentHash: 'hash-1', fileRecordId: '100', id: '1' }],
+          };
+        }
+        if (sql.includes('FROM file_chunks WHERE embedding IS NOT NULL')) {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async () => {
+        throw new Error('producer fault');
+      }),
+      getQueueStats: vi.fn(),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+      })
+    ).rejects.toThrow('producer fault');
+
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'candidate-count',
+      'candidate-batch',
+      'pending',
+      'rebuild-index',
+      'resume-index',
+    ]);
+  });
+
+  it('preserves the original backfill failure when dimension index recovery also fails', async () => {
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingCountCalls += 1;
+          if (pendingCountCalls > 1) {
+            throw new Error('recovery database fault');
+          }
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          return {
+            rows: [{ contentHash: 'hash-1', fileRecordId: '100', id: '1' }],
+          };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async () => {
+        throw new Error('producer fault');
+      }),
+      getQueueStats: vi.fn(),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+      })
+    ).rejects.toThrow('producer fault');
+
+    expect(pendingCountCalls).toBe(2);
   });
 
   it('fails fast when the embedding set never drains', async () => {
@@ -2077,6 +2338,11 @@ describe('embedding-backfill', () => {
             rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          return {
+            rows: [{ queued: 0, running: 0 }],
+          };
+        }
         if (sql.includes('COUNT(*) FILTER')) {
           const succeeded =
             drainSucceededCounts[Math.min(drainSucceededIndex, drainSucceededCounts.length - 1)];
@@ -2159,6 +2425,7 @@ describe('embedding-backfill', () => {
   });
 
   it('reports drain progress while waiting for queue capacity between enqueue passes', async () => {
+    let capacityCountCalls = 0;
     let pendingCountCalls = 0;
     let succeededCountCalls = 0;
 
@@ -2167,6 +2434,12 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           return {
             rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          capacityCountCalls += 1;
+          return {
+            rows: [{ queued: capacityCountCalls === 2 ? 1 : 0, running: 0 }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
