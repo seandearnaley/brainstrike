@@ -83,7 +83,8 @@ costs the human triage time and poisons trust in every other loop's PRs.
 - Repeat the reconcile after every push. The PR is stable only when, for
   one HEAD simultaneously: required checks green, every advisory failure
   acknowledged per the rule above, every thread replied AND resolved,
-  working tree clean. Then checkpoint `status=READY` and hand off. Cap of
+  working tree clean. Then checkpoint `status=READY` and hand off — the
+  human, or Porter within its authority level, executes the merge. Cap of
   six fix/push cycles per run; on hitting it, checkpoint
   `status=INCOMPLETE` with the exact next action.
 - `status=READY` is per-HEAD, not permanent: new review activity or a new
@@ -152,8 +153,11 @@ costs the human triage time and poisons trust in every other loop's PRs.
 
 ## Hard rules (all loops)
 
-- Never merge, enable auto-merge, deploy, migrate schemas, touch live data,
-  weaken an assertion/threshold/timeout, or add a retry to make CI pass.
+- Never merge or enable auto-merge — sole exception: Porter, executing
+  strictly within charters/porter.md's committed AUTHORITY_LEVEL; no other
+  loop, ever, and Porter never exceeds the level in its committed charter.
+  Never deploy, migrate schemas, touch live data, weaken an
+  assertion/threshold/timeout, or add a retry to make CI pass.
 - One open PR per loop, ever. Resume it or close it before starting another.
 - Branch naming: `night-shift/<name>/<fingerprint-slug>`.
 - Re-derive every command, path, and enumeration from the repo at wake.
