@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gauntlet Automation"
+  short_description: "Curate Brainstrike agent-behavior eval gates reliably"
+  default_prompt: "Use $gauntlet-automation to run the Brainstrike Gauntlet eval curator charter."
