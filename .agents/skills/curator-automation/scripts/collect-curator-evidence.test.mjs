@@ -176,6 +176,35 @@ test('computes exact provider/repo deltas and a stable watched-set hash', (conte
   assert.equal(repeated.watchedSetHash, evidence.watchedSetHash);
 });
 
+test('does not drop rows after a semicolon inside a SQL string literal', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
+  write(
+    fixture.repo,
+    'packages/db/src/migrations/059-semicolon-literal.ts',
+    `
+export const migration059 = \`
+  INSERT INTO models (id, provider_id, name)
+  VALUES
+    ('vendor/semi', 'openrouter', 'Fast; cheap'),
+    ('vendor/after-semi', 'openrouter', 'It''s here; still'),
+    ('vendor/tail', 'openrouter', 'Tail row');
+\`;
+`
+  );
+  commitAll(fixture.repo, 'semicolon literal migration');
+
+  const result = collect(fixture);
+  assert.equal(result.status, 0, result.stderr);
+  const surface = JSON.parse(result.stdout).repoSurface;
+  for (const modelId of ['vendor/semi', 'vendor/after-semi', 'vendor/tail']) {
+    assert.ok(
+      surface.some((entry) => entry.modelId === modelId && entry.providerId === 'openrouter'),
+      `expected ${modelId} to survive statement splitting`
+    );
+  }
+});
+
 test('fails closed when model migration extraction yields zero pairs', (context) => {
   const fixture = createFixture();
   context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
