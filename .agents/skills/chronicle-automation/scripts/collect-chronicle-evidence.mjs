@@ -202,19 +202,38 @@ function parseCronField(field, minimum, maximum, label, allowSundaySeven = false
       wildcard: false,
     };
   }
-  if (!/^\d+(?:,\d+)*$/u.test(field)) {
+  // Comma list of parts, each a value or an a-b range with optional /step.
+  if (!/^[\d,/-]+$/u.test(field)) {
     fail(`unsupported cron ${label} field: ${field}`);
   }
-  const values = new Set(
-    field.split(',').map((part) => {
-      const value = Number.parseInt(part, 10);
-      const valid = (value >= minimum && value <= maximum) || (allowSundaySeven && value === 7);
-      if (!valid) {
-        fail(`cron ${label} value out of range: ${value}`);
+  const values = new Set();
+  const normalize = (value) => (allowSundaySeven && value === 7 ? 0 : value);
+  const validate = (value) => {
+    const valid = (value >= minimum && value <= maximum) || (allowSundaySeven && value === 7);
+    if (!valid) {
+      fail(`cron ${label} value out of range: ${value}`);
+    }
+    return value;
+  };
+  for (const part of field.split(',')) {
+    const rangeMatch = /^(\d+)-(\d+)(?:\/(\d+))?$/u.exec(part);
+    if (rangeMatch) {
+      const start = validate(Number.parseInt(rangeMatch[1], 10));
+      const end = validate(Number.parseInt(rangeMatch[2], 10));
+      const step = rangeMatch[3] ? Number.parseInt(rangeMatch[3], 10) : 1;
+      if (start > end || !Number.isSafeInteger(step) || step < 1) {
+        fail(`unsupported cron ${label} field: ${field}`);
       }
-      return allowSundaySeven && value === 7 ? 0 : value;
-    })
-  );
+      for (let value = start; value <= end; value += step) {
+        values.add(normalize(value));
+      }
+      continue;
+    }
+    if (!/^\d+$/u.test(part)) {
+      fail(`unsupported cron ${label} field: ${field}`);
+    }
+    values.add(normalize(validate(Number.parseInt(part, 10))));
+  }
   return { matches: (value) => values.has(value), wildcard: false };
 }
 
@@ -275,13 +294,19 @@ function collectRoster(repo, revision, windowStart, windowEnd) {
   if (charterFiles.length === 0) {
     fail(`no charter files found at ${revision}`);
   }
+  // Wakes inside the trailing slack allowance are not late yet: count them
+  // separately so a missed-wake verdict never fires on a legitimately
+  // delayed loop that is still within scheduler slack.
+  const slackMs = SCHEDULE_SLACK_MINUTES * 60 * 1000;
+  const dueHorizon = new Date(Math.max(windowEnd.getTime() - slackMs, windowStart.getTime()));
   return charterFiles
     .map((file) => {
       const meta = parseCharterMeta(file, readRevisionFile(repo, revision, file));
       return {
         cron: meta.schedule,
-        expectedWakes: countExpectedWakes(meta.schedule, windowStart, windowEnd),
+        expectedWakes: countExpectedWakes(meta.schedule, windowStart, dueHorizon),
         name: meta.name,
+        pendingWakes: countExpectedWakes(meta.schedule, dueHorizon, windowEnd),
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -462,7 +487,9 @@ function collectPullRequests(repo, repository, windowStart, windowEnd) {
   if (payload.length >= 1000) {
     fail('gh pr list reached its 1000-item limit; pagination completeness is unproven');
   }
-  const prs = payload.map(normalizePr);
+  // Defense-in-depth: do not trust the search qualifier's matching semantics —
+  // keep only branches that literally live under night-shift/.
+  const prs = payload.map(normalizePr).filter((pr) => pr.headRefName.startsWith('night-shift/'));
   const inWindow = (iso) => {
     const timestamp = Date.parse(iso);
     return timestamp >= windowStart.getTime() && timestamp < windowEnd.getTime();
@@ -555,6 +582,10 @@ function listWorkflowRuns(repo, file, limit) {
       'list',
       '--workflow',
       file,
+      // Scheduled streams only: a newer workflow_dispatch/debug run must not
+      // stand in for (or mask) the nightly conclusion.
+      '--event',
+      'schedule',
       '--limit',
       String(limit),
       '--json',
