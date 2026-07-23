@@ -4,6 +4,7 @@ import {
   type GrepFileSummary,
   type GrepMatchSource,
   type GrepToolResult,
+  grepProjectionHeaderPrefix,
   type ModelFacingGrepMatch,
   parseGrepToolResult,
 } from './grep-search-result-contract';
@@ -192,7 +193,7 @@ function formatGrepItem(
 
 function buildGrepHeader(result: GrepToolResult, kept: number): string {
   const common =
-    `grep ${result.outputMode} | page=${pageRange(
+    `${grepProjectionHeaderPrefix(result.outputMode)}${pageRange(
       result.offset,
       kept,
       result.outputMode === 'files' ? result.totalFiles : result.totalMatches,
@@ -247,7 +248,8 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
     Object.keys(output).length === 2 &&
     output['type'] === 'text' &&
     typeof output['value'] === 'string' &&
-    /^(?:grep files|grep content) \| page=/u.test(output['value'])
+    (output['value'].startsWith(grepProjectionHeaderPrefix('files')) ||
+      output['value'].startsWith(grepProjectionHeaderPrefix('content')))
   ) {
     const replayed = { type: 'text' as const, value: output['value'] };
     if (serializedChars([replayed.value]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {

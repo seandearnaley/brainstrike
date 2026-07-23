@@ -43,6 +43,10 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
+export function grepProjectionHeaderPrefix(outputMode: GrepToolResult['outputMode']): string {
+  return `grep ${outputMode} | page=`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

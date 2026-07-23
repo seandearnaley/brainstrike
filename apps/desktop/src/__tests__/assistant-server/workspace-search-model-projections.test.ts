@@ -134,6 +134,23 @@ describe('workspace search model projections', () => {
     expect(projectGrepSearchModelOutput(storedModelOutput)).toEqual(storedModelOutput);
   });
 
+  it('replays the canonical content-mode grep projection idempotently', () => {
+    const storedModelOutput = projectGrepSearchModelOutput({
+      candidatesTruncated: false,
+      liveEngine: 'ripgrep',
+      matches: [],
+      offset: 0,
+      outputMode: 'content',
+      scanLimited: false,
+      skippedMissingLineMetadata: 0,
+      totalMatches: 0,
+      truncated: false,
+    });
+
+    expect(storedModelOutput.value).toContain('grep content | page=empty@offset=0/0');
+    expect(projectGrepSearchModelOutput(storedModelOutput)).toEqual(storedModelOutput);
+  });
+
   it('does not accept an arbitrary lookalike object as a stored grep projection', () => {
     expect(() =>
       projectGrepSearchModelOutput({
