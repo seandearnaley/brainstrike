@@ -353,12 +353,16 @@ separate compiler-options override. The canonical `tsconfig.json` owns the
 assistant-contract path mapping and emits every public entry declaration plus
 the internal declaration graph those entries reference.
 
-Development runs the TypeScript build watcher and tsup watcher as named sibling
-processes through the package's direct `concurrently` dependency. The watcher
-supervisor must terminate the sibling when either process exits, so a failed
-declaration watcher cannot leave a stale-but-running JavaScript watcher. The
-build order, disabled tsup DTS worker, and two-watcher topology are guarded by
-`scripts/__tests__/agent-declaration-build-contract.test.mjs`.
+Development runs a project-only TypeScript watcher and the tsup watcher as
+named sibling processes through the package's direct `concurrently`
+dependency. The declaration watcher must use `tsc --project`, not
+`tsc --build`: referenced packages own separate Turbo watchers, so build mode
+would create multiple processes that can concurrently emit into the same
+dependency `dist` directories. The watcher supervisor must terminate the
+sibling when either process exits, so a failed declaration watcher cannot
+leave a stale-but-running JavaScript watcher. The build order, disabled tsup
+DTS worker, project-only declaration watch, and two-watcher topology are
+guarded by `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
 
 ### Desktop development dependency freshness
 

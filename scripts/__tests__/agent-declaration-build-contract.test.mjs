@@ -34,7 +34,7 @@ test('agent declarations are emitted by tsc before the JavaScript bundle', () =>
 test('agent development watches declarations and JavaScript as sibling processes', () => {
   assert.equal(
     agentManifest.scripts.dev,
-    'concurrently --kill-others --names types,bundle "tsc --build --watch --preserveWatchOutput" "tsup --watch"'
+    'concurrently --kill-others --names types,bundle "tsc --project tsconfig.json --watch --preserveWatchOutput" "tsup --watch"'
   );
   assert.equal(
     agentManifest.devDependencies.concurrently,
