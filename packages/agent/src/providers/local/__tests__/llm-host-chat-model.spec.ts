@@ -6,6 +6,7 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '../llm-host-client';
+import { GEMMA4_E2B_MODEL_ID } from '../local-model-specs';
 import type { LocalLlmGenerationResult } from '../types';
 
 const USER_PROMPT = [
@@ -196,7 +197,7 @@ describe('LlmHostChatModel', () => {
         ],
       });
     });
-    const model = new LlmHostChatModel('test-model', client);
+    const model = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, client);
     const { stream } = await model.doStream({ prompt: USER_PROMPT });
     const reader = stream.getReader();
     const parts: LanguageModelV2StreamPart[] = [];
@@ -211,6 +212,23 @@ describe('LlmHostChatModel', () => {
       }
     }).rejects.toThrow('unprojected Gemma protocol');
     expect(parts.some((part) => part.type === 'text-delta')).toBe(false);
+  });
+
+  it('allows ordinary XML-like placeholders in Gemma host snapshots', async () => {
+    const text = 'Use <tool_name> and <root_id> as placeholders.';
+    const client = makeClient(async (_request, options) => {
+      options.onProgress?.({ kind: 'text', text });
+      return makeResult({ text });
+    });
+    const model = new LlmHostChatModel(GEMMA4_E2B_MODEL_ID, client);
+    const parts = await collectStream(model, { prompt: USER_PROMPT });
+
+    expect(
+      parts
+        .filter((part) => part.type === 'text-delta')
+        .map((part) => part.delta)
+        .join('')
+    ).toBe(text);
   });
 
   it('errors the stream when the host client rejects', async () => {

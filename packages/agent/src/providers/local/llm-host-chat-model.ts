@@ -30,12 +30,15 @@ import {
   generateStreamPartId,
   mapFinishReason,
 } from './local-message-conversion';
+import { GEMMA4_E2B_MODEL_ID } from './local-model-specs';
 import type { LocalLlmGenerationResult, LocalLlmMessage } from './types';
 
 const logger = createLogger('LlmHostChatModel');
 
 function containsUnprojectedGemmaProtocol(snapshot: string): boolean {
-  return /<\||<tool_|<[a-z_]+\|>|<\/?eos(?:\s*\/)?>|<\/s>/i.test(snapshot);
+  return /<\|(?:channel|eos|tool_call|tool_response|turn)|<(?:channel|tool_call|tool_response|turn)\|>|<\/?eos(?:\s*\/)?>|<\/s>|<\|"\|>/i.test(
+    snapshot
+  );
 }
 
 export interface LlmHostChatModelSettings {
@@ -63,11 +66,12 @@ class SnapshotChannel {
 
   constructor(
     private readonly kind: 'reasoning' | 'text',
-    private readonly controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>
+    private readonly controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>,
+    private readonly validateGemmaProtocol: boolean
   ) {}
 
   acceptSnapshot(snapshot: string): void {
-    if (containsUnprojectedGemmaProtocol(snapshot)) {
+    if (this.validateGemmaProtocol && containsUnprojectedGemmaProtocol(snapshot)) {
       this.failure ??= new Error(
         `Local llm host emitted unprojected Gemma protocol in a ${this.kind} snapshot.`
       );
@@ -255,8 +259,13 @@ export class LlmHostChatModel implements LanguageModelV2 {
 
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start: async (controller) => {
-        const textChannel = new SnapshotChannel('text', controller);
-        const reasoningChannel = new SnapshotChannel('reasoning', controller);
+        const validateGemmaProtocol = modelId === GEMMA4_E2B_MODEL_ID;
+        const textChannel = new SnapshotChannel('text', controller, validateGemmaProtocol);
+        const reasoningChannel = new SnapshotChannel(
+          'reasoning',
+          controller,
+          validateGemmaProtocol
+        );
 
         controller.enqueue({ type: 'stream-start', warnings: [] });
 

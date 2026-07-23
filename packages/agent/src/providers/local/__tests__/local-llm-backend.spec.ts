@@ -1232,6 +1232,50 @@ Because they make up everything!<turn|>`,
     ).rejects.toThrow('Unsupported Gemma protocol token');
   });
 
+  it('fails visibly when final Gemma output truncates inside a tool call', async () => {
+    const truncatedOutput =
+      'Inspecting.<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*';
+    mockBatchDecode.mockReturnValue([truncatedOutput]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.(truncatedOutput);
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ content: 'Inspect every root', role: 'user' }], {
+        tools: [
+          {
+            function: {
+              description: 'Find files in connected workspace roots',
+              name: 'brainstrike_globWorkspace',
+              parameters: {
+                properties: {
+                  pattern: { type: 'string' },
+                },
+                required: ['pattern'],
+                type: 'object',
+              },
+            },
+            type: 'function',
+          },
+        ],
+      })
+    ).rejects.toThrow('Incomplete Gemma tool-call protocol');
+  });
+
   it('preserves ordinary XML-like argument names in Gemma text', async () => {
     const output = 'Use <root_id> when qualifying the read.';
     mockBatchDecode.mockReturnValue([output]);

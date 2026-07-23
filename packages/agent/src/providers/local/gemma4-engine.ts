@@ -621,6 +621,9 @@ function withholdPartialGemmaProtocolSuffix(text: string): string {
  */
 function projectGemmaVisibleText(text: string, streaming: boolean): string {
   const toolProjection = stripCompleteGemmaToolCallBlocks(text);
+  if (toolProjection.withheldProtocol && !streaming) {
+    throw new Error('Incomplete Gemma tool-call protocol in final generated output.');
+  }
   let projected = removeKnownGemmaControlMarkers(toolProjection.projected);
   const unknownToken = findUnknownGemmaProtocolToken(projected);
   if (unknownToken) {
@@ -709,11 +712,6 @@ function splitRawAnswerFromReasoningBlock(text: string): {
   }
 
   return { text: normalized };
-}
-
-function splitAnswerFromReasoningBlock(text: string): { reasoningText?: string; text: string } {
-  const rawSplit = splitRawAnswerFromReasoningBlock(text);
-  return projectReasoningSplit(rawSplit.reasoningText ?? '', rawSplit.text);
 }
 
 function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
@@ -1035,14 +1033,19 @@ class Gemma4StreamAccumulator {
     return false;
   }
 
-  finalize(fullRawText: string): { reasoningText?: string; text: string } {
-    const parsed = splitAnswerFromReasoningBlock(fullRawText);
+  finalize(fullRawText: string): {
+    rawAnswerText: string;
+    reasoningText?: string;
+    text: string;
+  } {
+    const rawSplit = splitRawAnswerFromReasoningBlock(fullRawText);
+    const parsed = projectReasoningSplit(rawSplit.reasoningText ?? '', rawSplit.text);
     this.reasoning = parsed.reasoningText ?? '';
     this.answer = parsed.text;
     this.finalized = true;
     this.pending = '';
     this.mode = 'answer';
-    return this.snapshot();
+    return { ...this.snapshot(), rawAnswerText: rawSplit.text };
   }
 
   snapshot(): { reasoningText?: string; text: string } {
@@ -1097,7 +1100,11 @@ function countTokens(tokenizer: TokenizerLike, text: string): number {
 }
 
 interface GemmaStreamingState {
-  finalize: (rawText: string) => { reasoningText?: string; text: string };
+  finalize: (rawText: string) => {
+    rawAnswerText: string;
+    reasoningText?: string;
+    text: string;
+  };
   readonly rawParts: string[];
   readonly streamer: GemmaTextStreamer;
 }
@@ -1302,7 +1309,7 @@ export class Gemma4Engine {
       });
       const rawText = decoded[0] ?? streamingState.rawParts.join('');
       const parsedOutput = streamingState.finalize(rawText);
-      const toolCalls = parseGenericToolCall(splitRawAnswerFromReasoningBlock(rawText).text);
+      const toolCalls = parseGenericToolCall(parsedOutput.rawAnswerText);
       const visibleText = parsedOutput.text;
       stage = 'count-tokens';
       const promptTokens = countTokens(this.processor.tokenizer, promptText);
