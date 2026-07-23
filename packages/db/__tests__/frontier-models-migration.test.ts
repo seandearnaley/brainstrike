@@ -65,6 +65,15 @@ describe('frontier models migrations', () => {
       'qwen/qwen3-coder-next',
       'meta/muse-spark-1.1',
       'moonshotai/kimi-k3',
+      'poolside/laguna-s-2.1',
+      'poolside/laguna-xs-2.1',
+      'google/gemini-3.6-flash',
+      'google/gemini-3.5-flash-lite',
+      'meituan/longcat-2.0',
+      'thinkingmachines/inkling',
+      'kwaipilot/kat-coder-air-v2.5',
+      'kwaipilot/kat-coder-pro-v2.5',
+      'x-ai/grok-4.5',
       'moonshotai/kimi-k2.6',
       'moonshotai/kimi-k2.7-code',
       'openai/gpt-5.5',
@@ -284,7 +293,7 @@ describe('frontier models migrations', () => {
     await runner.up(migrations.filter((migration) => migration.version <= 59));
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'moonshotai/kimi-k2.6'");
 
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 70));
 
     const rows = await db.query<{ id: string; is_enabled: boolean; sort_order: number }>(`
       SELECT id, is_enabled, sort_order
@@ -297,6 +306,102 @@ describe('frontier models migrations', () => {
       { id: 'meta/muse-spark-1.1', is_enabled: false, sort_order: 1 },
       { id: 'moonshotai/kimi-k3', is_enabled: false, sort_order: 2 },
       { id: 'moonshotai/kimi-k2.6', is_enabled: true, sort_order: 16 },
+    ]);
+  });
+
+  it("adds Curator's July coding models disabled without changing existing toggles", {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 70));
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
+
+    await runner.up(migrations);
+
+    const rows = await db.query<{
+      capabilities: { vision?: boolean };
+      id: string;
+      is_enabled: boolean;
+      sort_order: number;
+    }>(`
+      SELECT id, capabilities, is_enabled, sort_order
+      FROM models
+      WHERE provider_id = 'openrouter'
+        AND id IN (
+          'poolside/laguna-s-2.1',
+          'poolside/laguna-xs-2.1',
+          'google/gemini-3.6-flash',
+          'google/gemini-3.5-flash-lite',
+          'meituan/longcat-2.0',
+          'thinkingmachines/inkling',
+          'kwaipilot/kat-coder-air-v2.5',
+          'kwaipilot/kat-coder-pro-v2.5',
+          'x-ai/grok-4.5',
+          'meta/muse-spark-1.1'
+        )
+      ORDER BY sort_order
+    `);
+    expect(rows.rows).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'poolside/laguna-s-2.1',
+        is_enabled: false,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'poolside/laguna-xs-2.1',
+        is_enabled: false,
+        sort_order: 2,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.6-flash',
+        is_enabled: false,
+        sort_order: 3,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.5-flash-lite',
+        is_enabled: false,
+        sort_order: 4,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'meituan/longcat-2.0',
+        is_enabled: false,
+        sort_order: 5,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'thinkingmachines/inkling',
+        is_enabled: false,
+        sort_order: 6,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'kwaipilot/kat-coder-air-v2.5',
+        is_enabled: false,
+        sort_order: 7,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'kwaipilot/kat-coder-pro-v2.5',
+        is_enabled: false,
+        sort_order: 8,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'x-ai/grok-4.5',
+        is_enabled: false,
+        sort_order: 9,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'meta/muse-spark-1.1',
+        is_enabled: true,
+        sort_order: 10,
+      },
     ]);
   });
 });

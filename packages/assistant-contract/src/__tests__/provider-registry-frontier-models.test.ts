@@ -122,6 +122,15 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3-coder-next',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
+          'poolside/laguna-s-2.1',
+          'poolside/laguna-xs-2.1',
+          'google/gemini-3.6-flash',
+          'google/gemini-3.5-flash-lite',
+          'meituan/longcat-2.0',
+          'thinkingmachines/inkling',
+          'kwaipilot/kat-coder-air-v2.5',
+          'kwaipilot/kat-coder-pro-v2.5',
+          'x-ai/grok-4.5',
           'moonshotai/kimi-k2.6',
           'moonshotai/kimi-k2.7-code',
           'openai/gpt-5.5',
@@ -162,6 +171,41 @@ describe('frontier model refresh (2026-07)', () => {
         defaultEffort: 'max',
         mandatory: true,
         supportedEfforts: ['max'],
+      });
+    });
+
+    it("declares Curator's July coding models with provider-published limits", () => {
+      const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.6-flash');
+      const inkling = getLlmModelDefinition('openrouter', 'thinkingmachines/inkling');
+      const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.5');
+
+      expect(gemini).toMatchObject({
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
+        reasoning: {
+          defaultEffort: 'medium',
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low', 'minimal'],
+        },
+        vision: 'supported',
+      });
+      expect(inkling).toMatchObject({
+        contextWindow: 1_048_576,
+        reasoning: {
+          defaultEffort: 'high',
+          mandatory: false,
+          supportedEfforts: ['max', 'high', 'medium', 'low', 'minimal', 'none'],
+        },
+        vision: 'supported',
+      });
+      expect(grok).toMatchObject({
+        contextWindow: 500_000,
+        reasoning: {
+          defaultEffort: 'high',
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low'],
+        },
+        vision: 'supported',
       });
     });
   });
