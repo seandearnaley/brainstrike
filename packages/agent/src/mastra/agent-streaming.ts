@@ -34,6 +34,10 @@ import type {
 } from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import {
+  ToolCallInputStreamingTimeoutError,
+  withToolCallInputTimeout,
+} from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -1282,6 +1286,58 @@ function makeStreamStalledTermination(
   ];
 }
 
+function makeToolCallInputTimeoutTermination(
+  error: ToolCallInputStreamingTimeoutError,
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
+): StreamChunk[] {
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const diagnosticContext = {
+    timeoutMs: error.timeoutMs,
+    toolCallId: error.toolCallId,
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    {
+      code: 'mastra_agent_tool_call_input_streaming_timeout',
+      ...diagnosticContext,
+    },
+    'mastra tool call input exceeded its streaming deadline'
+  );
+  return [
+    ...makeCancelledDelegationRunEventChunks(lifecycleState),
+    ...makePendingToolOutputRunEventChunks(lifecycleState),
+    {
+      type: 'text-delta',
+      value: `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`,
+    },
+    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
+      code: error.code,
+      ...diagnosticContext,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
+type StreamWatchdogError = StreamStalledError | ToolCallInputStreamingTimeoutError;
+
+function isStreamWatchdogError(error: unknown): error is StreamWatchdogError {
+  return error instanceof StreamStalledError || error instanceof ToolCallInputStreamingTimeoutError;
+}
+
+function makeStreamWatchdogTermination(
+  error: StreamWatchdogError,
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
+): StreamChunk[] {
+  if (error instanceof ToolCallInputStreamingTimeoutError) {
+    return makeToolCallInputTimeoutTermination(error, lifecycleState, runtimeData);
+  }
+  return makeStreamStalledTermination(error, lifecycleState, runtimeData);
+}
+
 function extractErrorMessage(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return;
@@ -1710,8 +1766,14 @@ async function* streamChunksFromMastra({
         type: 'tool-event',
       };
     }
+    const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
+    const toolInputBoundedSource = withToolCallInputTimeout(
+      rawSource,
+      runtime.resilienceConfig.streamInactivityMs,
+      (error) => streamAbortContext.abort(error)
+    );
     const source = withInactivityTimeout(
-      readableStreamIterator(stream, streamAbortContext.signal),
+      toolInputBoundedSource,
       runtime.resilienceConfig.streamInactivityMs,
       (error) => streamAbortContext.abort(error)
     );
@@ -1744,13 +1806,13 @@ async function* streamChunksFromMastra({
       yield chunk;
     }
   } catch (error) {
-    if (!(error instanceof StreamStalledError)) {
+    if (!isStreamWatchdogError(error)) {
       throw error;
     }
-    const stalledChunks = runtimeData?.signal?.aborted
+    const terminalChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeStreamStalledTermination(error, lifecycleState, runtimeData);
-    for (const chunk of stalledChunks) {
+      : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
+    for (const chunk of terminalChunks) {
       yield chunk;
     }
     return;
