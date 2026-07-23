@@ -68,7 +68,7 @@ const {
   stopEmbeddingHost,
   waitForActiveProcessingOrFatalError,
   waitForAppReadyInTest,
-  waitForBackfillButtonEnabled,
+  waitForEmbeddingSetBackfillButtonEnabled,
   waitForBackfillQueueMovementOrFatalError,
   waitForCollectionTreeRegionVisible,
   waitForTcpPortOpen,
@@ -312,7 +312,12 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         .locator('[data-testid="database-demo-panel"]')
         .getByRole('button', { name: /^Backfill(?:\s|$)/ });
       await expect(backfillButton).toBeVisible({ timeout: 30_000 });
-      await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
+      await waitForEmbeddingSetBackfillButtonEnabled(
+        activeWindow,
+        backfillButton,
+        embeddingSetId,
+        60_000
+      );
       await backfillButton.click({ timeout: 5000 });
 
       const backfillOutcome = await waitForBackfillQueueMovementOrFatalError(
