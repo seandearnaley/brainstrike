@@ -82,6 +82,29 @@ describe('withToolCallInputTimeout', () => {
     expect(toolCallIdReads).toBe(0);
   });
 
+  it('reads a relevant tool-call id accessor exactly once', async () => {
+    let toolCallIdReads = 0;
+    const toolPart = {
+      get toolCallId(): string | undefined {
+        toolCallIdReads += 1;
+        return toolCallIdReads === 1 ? 'call-accessor' : undefined;
+      },
+      type: 'tool-call',
+    };
+
+    async function* toolStream(): AsyncIterableIterator<TestPart> {
+      yield toolPart;
+    }
+
+    const parts: TestPart[] = [];
+    for await (const part of withToolCallInputTimeout(toolStream(), 1000)) {
+      parts.push(part);
+    }
+
+    expect(parts).toEqual([toolPart]);
+    expect(toolCallIdReads).toBe(1);
+  });
+
   it('does not let partial argument deltas extend the absolute deadline', async () => {
     const parts: TestPart[] = [];
 

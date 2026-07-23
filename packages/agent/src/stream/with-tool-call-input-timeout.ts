@@ -28,18 +28,22 @@ function readPart(value: unknown): ToolCallInputPart | undefined {
 }
 
 function readToolCallId(part: ToolCallInputPart): string | undefined {
-  if (typeof part.toolCallId === 'string' && part.toolCallId.length > 0) {
-    return part.toolCallId;
+  const toolCallId = part.toolCallId;
+  if (typeof toolCallId === 'string' && toolCallId.length > 0) {
+    return toolCallId;
   }
-  if (typeof part.id === 'string' && part.id.length > 0) {
-    return part.id;
+  const id = part.id;
+  if (typeof id === 'string' && id.length > 0) {
+    return id;
   }
   const payload = part.payload;
-  if (typeof payload?.toolCallId === 'string' && payload.toolCallId.length > 0) {
-    return payload.toolCallId;
+  const payloadToolCallId = payload?.toolCallId;
+  if (typeof payloadToolCallId === 'string' && payloadToolCallId.length > 0) {
+    return payloadToolCallId;
   }
-  if (typeof payload?.id === 'string' && payload.id.length > 0) {
-    return payload.id;
+  const payloadId = payload?.id;
+  if (typeof payloadId === 'string' && payloadId.length > 0) {
+    return payloadId;
   }
   return;
 }
