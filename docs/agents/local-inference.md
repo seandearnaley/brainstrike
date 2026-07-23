@@ -224,9 +224,10 @@ Constraints:
   A missing local output budget is an initialization error; never fall back to
   the proxy model's generic token cap.
 - Gemma tool schemas are validated before templating. The converter accepts a
-  single schema plus `null` expressed through `anyOf` or a type array and
-  rewrites it explicitly; unsupported unions throw with the tool/property path
-  instead of reaching the template or silently weakening the contract.
+  no-argument empty schema as an object, or a single schema plus `null`
+  expressed through `anyOf` or a type array and rewrites it explicitly;
+  unsupported unions throw with the tool/property path instead of reaching the
+  template or silently weakening the contract.
 - If you change the local host lifecycle, preload bridge, or availability gating, update this section and the relevant tests.
 
 ---

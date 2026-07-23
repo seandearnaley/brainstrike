@@ -165,6 +165,21 @@ describe('extractToolCallsFromParts', () => {
 });
 
 describe('convertToolsFromArray', () => {
+  it('normalizes an empty no-argument tool schema to an object schema', () => {
+    const tools = convertToolsFromArray([
+      {
+        description: 'Return server status',
+        inputSchema: {},
+        name: 'server_status',
+        type: 'function',
+      } satisfies LanguageModelV2FunctionTool,
+    ]);
+
+    expect(tools?.[0]?.function.parameters).toEqual({
+      type: 'object',
+    });
+  });
+
   it('normalizes nullable JSON Schema unions for the Gemma chat template', () => {
     const tools = convertToolsFromArray([
       {

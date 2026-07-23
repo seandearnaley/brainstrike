@@ -2481,7 +2481,7 @@ function buildModelSettingsOption(
       ...modelSettings,
     };
   } else if (runtimeData?.provider === 'local') {
-    const modelId = runtimeData.model ?? getDefaultModel('local');
+    const modelId = runtimeData.model?.trim() || getDefaultModel('local');
     const definition = getLlmModelDefinition('local', modelId);
     if (definition.maxOutputTokens === undefined) {
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {

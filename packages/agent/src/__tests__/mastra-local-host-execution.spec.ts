@@ -221,4 +221,26 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
 
     expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(768);
   });
+
+  it('uses the default local model budget for a blank model id', async () => {
+    const hostClient = createScriptedHostClient();
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u4', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          localLlmHostClient: hostClient,
+          model: '   ',
+          provider: 'local',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // Drain the real Mastra stream.
+    }
+
+    expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(2048);
+    expect(hostClient.requests[0]?.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
+  });
 });

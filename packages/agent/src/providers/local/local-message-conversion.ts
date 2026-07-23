@@ -257,6 +257,9 @@ function normalizeLocalToolSchema(value: unknown, path: string): LocalLlmJsonSch
   if (!isSchemaRecord(value)) {
     throw new Error(`Unsupported local tool schema at ${path}: schema must be an object.`);
   }
+  if (Object.keys(value).length === 0) {
+    return { type: 'object' };
+  }
   const nullableSchema = normalizeNullableAnyOf(value, path);
   const normalizedType = normalizeSchemaType(nullableSchema['type'], path);
   const normalized: Record<string, unknown> = {
