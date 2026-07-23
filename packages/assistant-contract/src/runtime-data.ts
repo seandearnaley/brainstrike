@@ -321,8 +321,10 @@ export interface RuntimeData {
   /**
    * Active workspace roots (multi-root). Resolved server-side from the DB
    * `roots` table so search-result root ids and read-tool root paths share one
-   * source of truth. Empty/absent => single-root or legacy: tools fall back to
-   * a single root synthesized from `workspaceRootPath`.
+   * source of truth. An empty array is the authoritative zero-root state.
+   * Absent means unresolved/legacy; desktop tools may then use the explicitly
+   * focused `workspaceRootPath` compatibility path, but the initial manifest
+   * reports the root inventory as unavailable rather than fabricating an id.
    */
   workspaceRoots?: readonly RuntimeWorkspaceRoot[];
 }

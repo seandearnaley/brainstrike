@@ -244,9 +244,9 @@ export function orderWorkspaceRoots(
  *
  * INVARIANT: a pre-supplied `runtimeData.workspaceRoots` is treated as
  * authoritative and skips DB resolution, so any such list MUST already carry DB
- * `roots.id`s — never client/adapter ids (which differ). Today nothing on the
- * client populates `workspaceRoots`, so the DB path always runs; this contract
- * keeps a future client from silently diverging the two id sources.
+ * `roots.id`s — never client/adapter ids (which differ). The desktop request
+ * boundary strips client-supplied `workspaceRoots` before calling this helper;
+ * pre-supplied roots are reserved for trusted in-process callers.
  *
  * On an empty result with a legacy `workspaceRootPath`, RuntimeData remains
  * unchanged so the resolver can use that single FOCUSED root. Without a legacy

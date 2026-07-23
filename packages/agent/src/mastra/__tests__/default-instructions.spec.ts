@@ -121,7 +121,7 @@ describe('lspInspect advertisement', () => {
 });
 
 describe('default assistant instructions', () => {
-  it('routes deferred workspace-root intent through discovery before eager shell or glob tools', () => {
+  it('routes detailed workspace-context refresh through discovery without rediscovering roots', () => {
     const toolNameMap = new Map<string, string>([
       ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
       ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
@@ -131,7 +131,8 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
-    expect(withDiscovery).toContain('open workspace roots and focused context');
+    expect(withDiscovery).toContain('detailed or refreshed workspace context');
+    expect(withDiscovery).not.toContain('open workspace roots and focused context');
     expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
       'before brainstrike_globWorkspace / brainstrike_executeCommand'
@@ -406,7 +407,8 @@ describe('multi-root guidance', () => {
   it('teaches the root-qualifier workflow when listWorkspaceContext and a root-qualified tool are registered', () => {
     const instructions = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(instructions).toMatch(/several roots/i);
-    expect(instructions).toContain('workspaceRoots');
+    expect(instructions).toContain('workspace-root manifest');
+    expect(instructions).toContain('refreshes the detailed inventory');
     expect(instructions).toMatch(/pass "root"/i);
     // Search handoffs expose the exact fields accepted by the read tool.
     expect(instructions).toContain('copyable read_args with root and path');
@@ -424,7 +426,7 @@ describe('multi-root guidance', () => {
     const instructions = buildDefaultInstructions(
       new Map<string, string>([['grepSearch', 'brainstrike.grepSearch']])
     );
-    expect(instructions).not.toContain('workspaceRoots');
+    expect(instructions).not.toContain('The initial workspace-root manifest reports');
   });
 
   it('qualifies deferred LSP inspection when it is the only path-based tool loaded', () => {
@@ -436,6 +438,7 @@ describe('multi-root guidance', () => {
     );
 
     expect(instructions).toContain('lspInspect');
+    expect(instructions).toContain('The initial workspace-root manifest reports');
     expect(instructions).toMatch(/several roots[^.]*pass "root"/i);
     expect(instructions).toContain('no implicit Main-root fallback');
   });

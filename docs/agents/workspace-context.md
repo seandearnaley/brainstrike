@@ -684,6 +684,29 @@ server — a preference, not a security boundary; the id is a durable identity
 (DB `roots.id` since storage v5), NEVER a path. `workspaceRootPath` stays the
 FOCUSED root (selection scope) — unchanged.
 
+**Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
+every fresh hosted-provider turn receives one `system` message before the
+model's first action. Existing leading system context stays ahead of it, so
+Desktop workspace instructions retain their documented frontmost precedence.
+The bounded JSON data block contains only the
+server-resolved root selector, display name, canonical path, and Main/Focused
+roles — never a tree, file list, selection list, or glob result. It is capped at
+3,000 serialized characters and five roots; Main and Focused are prioritized,
+and any remainder is reported with explicit `shown`/`omitted` counts. Exact
+root selectors are never truncated: an unexpectedly oversized selector is
+omitted and counted rather than becoming an unusable or misleading id. Root
+names/paths are clipped, JSON-escaped, and explicitly described as inert data.
+`listWorkspaceContext` remains the detailed, refreshable source for complete
+root inventory, selections, indexing, ranges, and budgets.
+
+The injection lives at the shared `toAiSdkStyleStream` boundary, after Desktop
+has enriched the runtime but before Mastra memory selects the current turn, so
+it covers OpenAI, Anthropic, OpenRouter, and Hosted Web consistently. Desktop
+with a successful empty DB query emits `state: available, count: 0`; Hosted Web
+or degraded/legacy Desktop state emits `state: unavailable` and never invents
+a client/path-derived selector. The compact built-in local model is excluded to
+preserve its 8,192-token context budget.
+
 **Server reorder** (`apps/desktop/src/assistant-server/workspace-roots.ts`):
 `enrichRuntimeDataWithWorkspaceRoots` loads live DB roots (`created_at ASC`)
 then calls the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)` —
@@ -699,6 +722,10 @@ When a successful DB query returns zero roots and there is no legacy focused
 path, enrichment records an explicit `workspaceRoots: []`. This is distinct
 from an unresolved/query-failed root inventory and lets `listWorkspaceContext`
 report the valid empty-workspace state without disguising a bridge failure.
+The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
+enrichment. Only the DB result may populate the trusted manifest/tool inventory;
+renderer fields can order or focus roots but can never substitute adapter ids
+for the durable selectors accepted by native tools.
 
 **Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
 chrome):
@@ -733,6 +760,11 @@ preservation),
 `file-explorer-sidebar.test.tsx` (badge/focused/tooltip + forest wiring),
 `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`
 (mainRootId/mainRootPath wire fields) + `workspace-root-status-item.test.tsx`,
+`packages/agent/src/__tests__/workspace-root-manifest.spec.ts` (bounds,
+zero/unavailable state, exact ids, Main/Focused priority) +
+`mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
+`apps/desktop/src/__tests__/assistant-server.integration.test.ts` (client root
+inventory replacement),
 `packages/ui/src/assistant-ui-panel/__tests__/operating-root-chip.test.tsx`,
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the

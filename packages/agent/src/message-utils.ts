@@ -20,6 +20,7 @@ import type {
   RuntimeData,
   StreamIterator,
 } from './types';
+import { injectWorkspaceRootManifestContext } from './workspace-root-manifest';
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
@@ -288,7 +289,10 @@ export async function toAiSdkStyleStream(
     options.personas = runtime.personas;
   }
 
-  const streamMessages = runtime?.memory ? selectCurrentTurnMessages(messages) : messages;
+  const messagesWithRootManifest = injectWorkspaceRootManifestContext(messages, runtime);
+  const streamMessages = runtime?.memory
+    ? selectCurrentTurnMessages(messagesWithRootManifest)
+    : messagesWithRootManifest;
   return streamMastraAgent(streamMessages, options);
 }
 

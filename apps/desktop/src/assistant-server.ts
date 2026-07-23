@@ -1975,6 +1975,18 @@ function buildAgentStreamInitializationFailure(error: unknown): AgentStreamFailu
   };
 }
 
+function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeData | undefined {
+  if (!runtimeData) {
+    return;
+  }
+  // `workspaceRoots` is a TRUSTED server-resolved capability inventory: its ids
+  // must be the DB `roots.id` values accepted by the native tools. The renderer
+  // supplies only Main/Focused ordering hints, never an authoritative root list.
+  const { workspaceRoots: _ignoredClientWorkspaceRoots, ...runtimeWithoutWorkspaceRoots } =
+    runtimeData;
+  return runtimeWithoutWorkspaceRoots;
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1996,7 +2008,10 @@ async function initializeAgentStream(
     logger.warn('Workspace roots DB unavailable; tools fall back to the focused root.', { error });
     return null;
   });
-  const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(incomingRuntimeData, rootsDatabase);
+  const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(
+    stripClientWorkspaceRoots(incomingRuntimeData),
+    rootsDatabase
+  );
 
   // Re-inject the current per-thread task list into the instructions this
   // turn (see readThreadTaskListForTurn for the local-provider skip).

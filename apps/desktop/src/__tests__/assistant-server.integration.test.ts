@@ -1562,6 +1562,55 @@ describe('assistant-server', () => {
       ).toBe(true);
     });
 
+    it('replaces client-supplied workspace roots with server-resolved DB identities', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      mockDesktopDatabase.query.mockResolvedValueOnce({
+        rows: [{ displayName: 'Server Root', id: 'db-root-id', path: '/work/server-root' }],
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Read the project', type: 'text' }], role: 'user' },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { content: 'Response', type: 'text' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            provider: 'openai',
+            workspaceRoots: [
+              {
+                displayName: 'Client Root',
+                path: '/work/client-root',
+                rootId: 'client-root-id',
+              },
+            ],
+          },
+          messages: [{ parts: [{ text: 'Read the project', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [unknown, RuntimeData];
+      expect(runtime.workspaceRoots).toEqual([
+        {
+          displayName: 'Server Root',
+          path: '/work/server-root',
+          rootId: 'db-root-id',
+        },
+      ]);
+    });
+
     it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
@@ -3598,6 +3647,13 @@ describe('assistant-server', () => {
         (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
           (res as { end?: () => void }).end?.();
         });
+        mockDesktopDatabase.query.mockImplementation(async (sql: unknown) =>
+          typeof sql === 'string' && sql.includes('FROM roots')
+            ? {
+                rows: [{ displayName: 'root', id: 'root-1', path: tmp }],
+              }
+            : { rows: [] }
+        );
 
         await runRequest({
           body: JSON.stringify({

@@ -229,10 +229,10 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
 }
 
 /**
- * Multi-root workflow guidance: the model learns the open folders (roots) from
- * listWorkspaceContext, then qualifies path-based read/search tools with a
- * `root` argument when several folders are open. Empty when listWorkspaceContext
- * or every root-qualified tool is absent.
+ * Multi-root workflow guidance: the initial per-turn workspace-root manifest
+ * supplies the operating topology, while listWorkspaceContext remains the
+ * detailed/refreshable context source. Empty when listWorkspaceContext or every
+ * root-qualified tool is absent.
  */
 function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
@@ -266,7 +266,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
       ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
       : '';
-  return `${names.listWorkspaceContext} reports the Main root (assistant run), Focused root (reported selection), and workspaceRoots names/ids. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results provide copyable read_args with root and path.${writeBackNote}`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results provide copyable read_args with root and path.${writeBackNote}`;
 }
 
 /**
@@ -427,7 +427,7 @@ function buildToolDiscoveryInstruction(
   );
   const alternativesClause =
     eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
-  return `Some capabilities are deferred behind search_tools. For open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
+  return `Some capabilities are deferred behind search_tools. For detailed or refreshed workspace context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**
@@ -579,7 +579,7 @@ export function buildDefaultInstructions(
   return [
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
-    'Project files, Context Explorer state, token estimates, and embedding spaces are not preloaded; use registered tools when needed for accuracy.',
+    'Project file contents, Context Explorer selections, token estimates, and embedding spaces are not preloaded; the compact workspace-root manifest contains topology only. Use registered tools when needed for accuracy.',
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
