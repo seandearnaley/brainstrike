@@ -133,7 +133,7 @@ function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            'relative @[96px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
+            'relative @[236px]/explorer-toolbar:size-7 size-5 shrink-0 p-0',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"

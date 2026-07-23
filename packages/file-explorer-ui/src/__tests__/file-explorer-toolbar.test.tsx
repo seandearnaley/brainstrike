@@ -56,6 +56,27 @@ describe('FileExplorerToolbar', () => {
     expect(rightSlot).toHaveClass('justify-end');
   });
 
+  it('keeps the edge action last and removes narrow-width gaps in the right cluster', () => {
+    renderWithProviders(
+      <FileExplorerToolbar
+        {...getProps({
+          filtersControl: <button type="button">View filters</button>,
+          treeActionsControl: <button type="button">Refresh</button>,
+        })}
+      />
+    );
+
+    const toolbar = screen.getByTestId('file-explorer-toolbar');
+    const rightCluster = toolbar.children.item(2)?.firstElementChild;
+    expect(rightCluster).not.toBeNull();
+    expect(Array.from(rightCluster?.children ?? [])).toEqual([
+      screen.getByRole('button', { name: 'Refresh' }),
+      screen.getByRole('button', { name: 'View filters' }),
+      screen.getByRole('button', { name: 'Select all files' }),
+    ]);
+    expect(rightCluster).toHaveClass('gap-0', '@[236px]/explorer-toolbar:gap-1');
+  });
+
   it('preserves the data-testid that desktop E2E depends on', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     expect(screen.getByTestId('select-root-button')).toBeInTheDocument();

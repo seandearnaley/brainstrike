@@ -64,10 +64,16 @@ const FileExplorerToolbar = React.memo(
             </span>
           </Button>
           <div className="@container/explorer-bulk flex min-w-0 items-center justify-end overflow-hidden">
-            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:gap-1 gap-0.5 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+            {/* At the 180px minimum panel width this track is exactly 76px:
+                20px Refresh + 20px Filters + 24px Select All + 12px edge
+                gutter. Keep gaps at zero until the 236px toolbar breakpoint,
+                where three 28px controls, two 4px gaps, and the 12px gutter
+                exactly fit the 104px track. Select All stays last so its edge
+                gutter remains symmetric with Selection settings. */}
+            <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
               {treeActionsControl}
-              {bulkSelectionControl}
               {filtersControl}
+              {bulkSelectionControl}
             </div>
           </div>
         </div>

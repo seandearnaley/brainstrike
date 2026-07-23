@@ -40,6 +40,14 @@ describe('TreeActionButtons', () => {
     expect(root?.className).not.toContain('absolute');
   });
 
+  it('uses the compact hit region until the toolbar can fit every right-side control', () => {
+    renderWithTooltips(<TreeActionButtons {...defaultProps} />);
+    expect(screen.getByTestId('refresh-button-small')).toHaveClass(
+      'size-5',
+      '@[236px]/explorer-toolbar:size-7'
+    );
+  });
+
   describe('inline scanning indicator', () => {
     const scanning = (overrides = {}) => ({
       cancellable: true,

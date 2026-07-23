@@ -1774,6 +1774,7 @@ describe('FileExplorerPanel', () => {
       const toggle = await screen.findByRole('button', { name: /view filters/i });
       expect(screen.getByTestId('file-explorer-toolbar')).toContainElement(toggle);
       expect(toggle).toHaveAttribute('aria-controls', 'view-filters-content');
+      expect(toggle).toHaveClass('size-5', '@[236px]/explorer-toolbar:size-7');
     });
 
     it('keeps the quick filter row inside the toggled view-filters block', async () => {
