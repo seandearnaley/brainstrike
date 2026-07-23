@@ -489,9 +489,7 @@ function collectPullRequests(repo, repository, windowStart, windowEnd) {
   }
   // Defense-in-depth: do not trust the search qualifier's matching semantics —
   // keep only branches that literally live under night-shift/.
-  const prs = payload
-    .map(normalizePr)
-    .filter((pr) => pr.headRefName.startsWith('night-shift/'));
+  const prs = payload.map(normalizePr).filter((pr) => pr.headRefName.startsWith('night-shift/'));
   const inWindow = (iso) => {
     const timestamp = Date.parse(iso);
     return timestamp >= windowStart.getTime() && timestamp < windowEnd.getTime();
