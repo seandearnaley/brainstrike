@@ -34,7 +34,7 @@ node .agents/skills/chronicle-automation/scripts/collect-chronicle-evidence.mjs 
 The collector performs no repository or external writes; all `gh` access is read-only. It:
 
 - validates repository identity and derives the rostered loops and cadences from the charters directory at `origin/main`;
-- enumerates `night-shift/*` PRs opened, merged, or still open in the window, with per-PR check rollup and unresolved-thread counts, paginated completely;
+- enumerates `night-shift/*` PRs opened, merged, or still open in the window, with per-PR check rollup, unresolved-thread counts, and the newest commit timestamp (`lastCommitAt`, the STALLED STEWARDSHIP input), paginated completely;
 - derives scheduled workflows from `.github/workflows/` and records each one's latest completed run conclusion;
 - computes expected-wake counts per loop from the roster cadence over the window (with the charter's scheduler-slack allowance) so missed-wake detection is arithmetic, not recollection;
 - fails visibly on `gh` errors, ambiguous cron expressions, or an unparseable roster — a meta-monitor that guesses is worse than none.
@@ -45,9 +45,9 @@ For a dry-run or audit request, stop after reporting the would-be digest and ano
 
 ## Detect anomalies and compose the digest
 
-1. Apply the charter's anomaly rules exactly (missed wake, no footprint, stale BLOCKED, malformed checkpoint, stalled handoff). Every anomaly must cite its evidence: the expected cron and the empty window, the resolved blocking ticket, the unparseable line. Confirm a STALE BLOCKED by reading the blocking ticket's actual state, not its title.
+1. Apply the charter's anomaly rules exactly (missed wake, no footprint, stale BLOCKED, malformed checkpoint, stalled stewardship, stuck loop, stalled handoff). Every anomaly must cite its evidence: the expected cron and the empty window, the resolved blocking ticket, the unparseable line, the `lastCommitAt` age beside the unresolved-thread or failing-check count, the repeated next-action text. Confirm a STALE BLOCKED by reading the blocking ticket's actual state, not its title.
 2. File anomaly tickets per the charter's fingerprint scheme, searching Linear first with complete pagination; update an open match rather than filing a twin. Stalled handoffs are digest lines only.
-3. Compose the digest per the charter's five sections and length cap, then fully overwrite the `[shift-report]` issue description, marked generated. Plain factual prose, ordered by importance; every line traceable to collected evidence.
+3. Compose the digest per the charter's six sections (including FORGE QUEUE) and length cap, then fully overwrite the `[shift-report]` issue description, marked generated. Plain factual prose, ordered by importance; every line traceable to collected evidence.
 
 ## Checkpoint and finish
 

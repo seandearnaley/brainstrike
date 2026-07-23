@@ -361,10 +361,16 @@ function normalizePr(pr, index) {
 }
 
 function collectReviewThreads(repo, repository, prNumber) {
+  // commits(last: 1) is the head commit — exact for any commit count, unlike
+  // `gh pr view --json commits`, which truncates to the oldest 100 and would
+  // make lastCommitAt read stale on long-lived PRs (cli/cli#5415).
   const query = `
     query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
       repository(owner:$owner, name:$repo) {
         pullRequest(number:$number) {
+          commits(last: 1) {
+            nodes { commit { committedDate } }
+          }
           reviewThreads(first:100, after:$cursor) {
             pageInfo { hasNextPage endCursor }
             nodes { id isResolved }
@@ -375,6 +381,7 @@ function collectReviewThreads(repo, repository, prNumber) {
   `;
   let cursor = null;
   let unresolvedThreads = 0;
+  let lastCommitAt = null;
   const seenCursors = new Set();
   do {
     const args = [
@@ -400,6 +407,17 @@ function collectReviewThreads(repo, repository, prNumber) {
     ) {
       fail(`PR #${prNumber} returned an unexpected reviewThreads response`);
     }
+    if (lastCommitAt === null) {
+      const headCommit = payload?.data?.repository?.pullRequest?.commits?.nodes?.[0]?.commit;
+      if (
+        !headCommit ||
+        typeof headCommit.committedDate !== 'string' ||
+        !Number.isFinite(Date.parse(headCommit.committedDate))
+      ) {
+        fail(`PR #${prNumber} did not report a head commit with a committedDate`);
+      }
+      lastCommitAt = new Date(headCommit.committedDate).toISOString();
+    }
     for (const thread of connection.nodes) {
       if (
         !thread ||
@@ -424,7 +442,7 @@ function collectReviewThreads(repo, repository, prNumber) {
       cursor = null;
     }
   } while (cursor !== null);
-  return unresolvedThreads;
+  return { lastCommitAt, unresolvedThreads };
 }
 
 function summarizeChecks(repo, prNumber) {
@@ -503,7 +521,7 @@ function collectPullRequests(repo, repository, windowStart, windowEnd) {
     .map((pr) => ({
       ...pr,
       checks: summarizeChecks(repo, pr.number),
-      unresolvedThreads: collectReviewThreads(repo, repository, pr.number),
+      ...collectReviewThreads(repo, repository, pr.number),
     }));
   return { merged, open, opened };
 }
