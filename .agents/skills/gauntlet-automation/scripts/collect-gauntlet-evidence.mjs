@@ -158,8 +158,60 @@ function isAssistantTerritory(path) {
   return ASSISTANT_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
+function resolveRepository(repo) {
+  const payload = parseJson(
+    execute('gh', ['repo', 'view', '--json', 'nameWithOwner'], repo),
+    'gh repo view'
+  );
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    typeof payload.nameWithOwner !== 'string' ||
+    !/^[^/\s]+\/[^/\s]+$/u.test(payload.nameWithOwner)
+  ) {
+    fail('gh repo view returned an invalid nameWithOwner');
+  }
+  return payload.nameWithOwner;
+}
+
+// gh's `files` JSON field is a single non-paginated GraphQL page (first 100):
+// a PR whose assistant edits sit past file #100 would silently classify as
+// non-assistant. `changedFiles` carries the true count, so truncation is
+// detectable — complete the listing via the paginated REST endpoint and fail
+// closed when even that cannot be proven complete.
+function completePrFiles(repo, repository, number, listedFiles, changedFiles) {
+  if (listedFiles.length === changedFiles) {
+    return listedFiles.map((file) => file.path);
+  }
+  const raw = execute(
+    'gh',
+    [
+      'api',
+      `repos/${repository}/pulls/${number}/files`,
+      '--paginate',
+      '--slurp',
+      '--jq',
+      '[.[][].filename]',
+    ],
+    repo
+  );
+  const paths = parseJson(raw, `gh api pulls/${number}/files`);
+  if (!(Array.isArray(paths) && paths.every((path) => typeof path === 'string'))) {
+    fail(`gh api pulls/${number}/files returned an invalid shape`);
+  }
+  if (paths.length !== changedFiles) {
+    fail(
+      `PR #${number} file listing is incomplete: ${paths.length} of ${changedFiles} — coverage cannot be proven`
+    );
+  }
+  return paths;
+}
+
 function collectMergedAssistantPrs(repo, watermark) {
   const since = git(repo, ['show', '-s', '--format=%cI', watermark]).trim();
+  const repository = resolveRepository(repo);
+  // One list call carries files (first page) + the true changedFiles count;
+  // the per-PR REST completion below runs only for >100-file PRs.
   const raw = execute(
     'gh',
     [
@@ -172,7 +224,7 @@ function collectMergedAssistantPrs(repo, watermark) {
       '--search',
       `merged:>=${since}`,
       '--json',
-      'number,title,mergedAt',
+      'number,title,mergedAt,changedFiles,files',
     ],
     repo
   );
@@ -191,26 +243,18 @@ function collectMergedAssistantPrs(repo, watermark) {
         typeof value === 'object' &&
         Number.isInteger(value.number) &&
         typeof value.title === 'string' &&
-        typeof value.mergedAt === 'string'
+        typeof value.mergedAt === 'string' &&
+        Number.isInteger(value.changedFiles) &&
+        Array.isArray(value.files) &&
+        value.files.every(
+          (file) => file && typeof file === 'object' && typeof file.path === 'string'
+        )
       )
     ) {
       fail(`gh pr list entry ${index} has an invalid shape`);
     }
-    const detail = parseJson(
-      execute('gh', ['pr', 'view', String(value.number), '--json', 'files'], repo),
-      `gh pr view ${value.number}`
-    );
-    if (
-      !detail ||
-      typeof detail !== 'object' ||
-      !Array.isArray(detail.files) ||
-      !detail.files.every(
-        (file) => file && typeof file === 'object' && typeof file.path === 'string'
-      )
-    ) {
-      fail(`gh pr view ${value.number} files has an invalid shape`);
-    }
-    if (detail.files.some((file) => isAssistantTerritory(file.path))) {
+    const paths = completePrFiles(repo, repository, value.number, value.files, value.changedFiles);
+    if (paths.some((path) => isAssistantTerritory(path))) {
       results.push({ mergedAt: value.mergedAt, number: value.number, title: value.title });
     }
   }

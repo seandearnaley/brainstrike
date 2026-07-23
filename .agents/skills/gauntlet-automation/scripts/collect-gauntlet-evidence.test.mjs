@@ -52,13 +52,18 @@ function createFixture(t) {
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (process.env.FAKE_GH_FAIL === '1') { process.stderr.write('GitHub unavailable'); process.exit(1); }
+if (args[0] === 'repo' && args[1] === 'view') {
+  process.stdout.write(JSON.stringify({ nameWithOwner: 'fixture/brainstrike' })); process.exit(0);
+}
 if (args[0] === 'pr' && args[1] === 'list') {
-  if (process.env.FAKE_GH_LIMIT === '1') { process.stdout.write(JSON.stringify(Array.from({ length: 200 }, (_, index) => ({ number: index + 1, title: 'PR', mergedAt: '2026-01-01T00:00:00Z' })))); process.exit(0); }
+  if (process.env.FAKE_GH_LIMIT === '1') { process.stdout.write(JSON.stringify(Array.from({ length: 200 }, (_, index) => ({ number: index + 1, title: 'PR', mergedAt: '2026-01-01T00:00:00Z', changedFiles: 0, files: [] })))); process.exit(0); }
   process.stdout.write(process.env.FAKE_GH_PRS || '[]'); process.exit(0);
 }
-if (args[0] === 'pr' && args[1] === 'view' && args[3] === '--json' && args[4] === 'files') {
-  const files = JSON.parse(process.env.FAKE_GH_FILES || '{}');
-  process.stdout.write(JSON.stringify({ files: files[args[2]] || [] })); process.exit(0);
+if (args[0] === 'api' && /^repos\\/fixture\\/brainstrike\\/pulls\\/\\d+\\/files$/.test(args[1])) {
+  const number = args[1].split('/')[4];
+  const rest = JSON.parse(process.env.FAKE_GH_REST_FILES || '{}');
+  if (!(number in rest)) { process.stderr.write('no REST fixture for PR ' + number); process.exit(93); }
+  process.stdout.write(JSON.stringify(rest[number])); process.exit(0);
 }
 process.stderr.write('unexpected gh arguments: ' + args.join(' ')); process.exit(92);
 `
@@ -79,17 +84,25 @@ function run(fixture, environment = {}, watermark = fixture.watermark, revision 
 }
 
 const pullRequests = JSON.stringify([
-  { mergedAt: '2026-01-02T00:00:00Z', number: 7, title: 'assistant fix' },
-  { mergedAt: '2026-01-03T00:00:00Z', number: 8, title: 'unrelated fix' },
+  {
+    changedFiles: 1,
+    files: [{ path: 'packages/agent/src/tool.ts' }],
+    mergedAt: '2026-01-02T00:00:00Z',
+    number: 7,
+    title: 'assistant fix',
+  },
+  {
+    changedFiles: 1,
+    files: [{ path: 'docs/readme.md' }],
+    mergedAt: '2026-01-03T00:00:00Z',
+    number: 8,
+    title: 'unrelated fix',
+  },
 ]);
-const pullRequestFiles = JSON.stringify({
-  7: [{ path: 'packages/agent/src/tool.ts' }],
-  8: [{ path: 'docs/readme.md' }],
-});
 
 test('collects the eval inventory, assistant delta, and matching merged PRs', (t) => {
   const fixture = createFixture(t);
-  const result = run(fixture, { FAKE_GH_FILES: pullRequestFiles, FAKE_GH_PRS: pullRequests });
+  const result = run(fixture, { FAKE_GH_PRS: pullRequests });
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.deepEqual(output.evalSuite.specTitles, ['first behavior', 'second behavior']);
@@ -107,9 +120,40 @@ test('collects the eval inventory, assistant delta, and matching merged PRs', (t
   ]);
 });
 
+test('completes truncated file listings via REST and fails closed on unprovable coverage', (t) => {
+  const fixture = createFixture(t);
+  // PR 9's list page shows only a docs file, but changedFiles says 2 — the
+  // REST completion reveals the assistant edit past the truncation point.
+  const truncated = JSON.stringify([
+    {
+      changedFiles: 2,
+      files: [{ path: 'docs/readme.md' }],
+      mergedAt: '2026-01-04T00:00:00Z',
+      number: 9,
+      title: 'large refactor',
+    },
+  ]);
+  const complete = run(fixture, {
+    FAKE_GH_PRS: truncated,
+    FAKE_GH_REST_FILES: JSON.stringify({ 9: ['docs/readme.md', 'packages/agent/src/big.ts'] }),
+  });
+  assert.equal(complete.status, 0, complete.stderr);
+  assert.deepEqual(
+    JSON.parse(complete.stdout).mergedAssistantPrs.map((pr) => pr.number),
+    [9]
+  );
+
+  const short = run(fixture, {
+    FAKE_GH_PRS: truncated,
+    FAKE_GH_REST_FILES: JSON.stringify({ 9: ['docs/readme.md'] }),
+  });
+  assert.equal(short.status, 1);
+  assert.match(short.stderr, /file listing is incomplete: 1 of 2/);
+});
+
 test('produces a stable suite hash for unchanged revision contents', (t) => {
   const fixture = createFixture(t);
-  const environment = { FAKE_GH_FILES: pullRequestFiles, FAKE_GH_PRS: pullRequests };
+  const environment = { FAKE_GH_PRS: pullRequests };
   const first = run(fixture, environment);
   const second = run(fixture, environment);
   assert.equal(first.status, 0, first.stderr);

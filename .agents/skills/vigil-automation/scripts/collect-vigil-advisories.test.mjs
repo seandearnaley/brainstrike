@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -37,6 +37,12 @@ const advisory = { github_advisory_id: 'GHSA-aaaa-bbbb-cccc', module_name: 'fixt
 if (process.argv[2] !== 'audit' || process.argv[3] !== '--json') process.exit(91);
 if (process.env.FAKE_PNPM_MODE === 'garbage') { process.stdout.write('not json'); process.stderr.write('audit failed'); process.exit(1); }
 if (process.env.FAKE_PNPM_MODE === 'clean') { process.stdout.write(JSON.stringify({ advisories: {} })); process.exit(0); }
+if (process.env.FAKE_PNPM_MODE === 'unpatched') {
+  const unpatched = { ...advisory, github_advisory_id: 'GHSA-gggg-hhhh-iiii', module_name: 'doomed-pkg', patched_versions: '<0.0.0' };
+  const rangeless = { ...advisory, github_advisory_id: 'GHSA-jjjj-kkkk-llll', module_name: 'rangeless-pkg' };
+  delete rangeless.patched_versions;
+  process.stdout.write(JSON.stringify({ advisories: { unpatched, rangeless } })); process.exit(1);
+}
 process.stdout.write(JSON.stringify({ advisories: { fixture: advisory } })); process.exit(1);
 `
   );
@@ -65,7 +71,7 @@ function alert(id = 'GHSA-aaaa-bbbb-cccc', name = 'fixture-pkg') {
 }
 
 function run(fixture, environment = {}) {
-  return spawnSync(process.execPath, [script, '--repo', fixture.repo, '--revision', 'HEAD'], {
+  return spawnSync(process.execPath, [script, '--repo', fixture.repo], {
     encoding: 'utf8',
     env: { ...process.env, ...environment, PATH: `${fixture.bin}:${process.env.PATH}` },
   });
@@ -82,6 +88,29 @@ test('merges pnpm and Dependabot advisories by GHSA and package', (t) => {
   assert.deepEqual(output.counts, { dependabot: 1, merged: 1, pnpmAudit: 1 });
   assert.deepEqual(output.advisories[0].sources, ['dependabot', 'pnpm-audit']);
   assert.equal(output.advisories[0].fingerprint, 'vigil:advisory:GHSA-aaaa-bbbb-cccc:fixture-pkg');
+  assert.match(output.auditedCommit, /^[0-9a-f]{40}$/u);
+});
+
+test('preserves advisories without patched ranges instead of blocking the run', (t) => {
+  const fixture = createFixture(t);
+  const result = run(fixture, { FAKE_GH_ALERTS: '[]', FAKE_PNPM_MODE: 'unpatched' });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(
+    output.advisories.map((advisory) => [advisory.package, advisory.patchedRange]),
+    [
+      ['doomed-pkg', null],
+      ['rangeless-pkg', null],
+    ]
+  );
+});
+
+test('refuses a dirty lockfile — the audited surface would be unprovable', (t) => {
+  const fixture = createFixture(t);
+  appendFileSync(join(fixture.repo, 'pnpm-lock.yaml'), '# local drift\n');
+  const result = run(fixture, { FAKE_GH_ALERTS: '[]', FAKE_PNPM_MODE: 'clean' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /uncommitted changes/);
 });
 
 test('retains pnpm-only and Dependabot-only advisories', (t) => {

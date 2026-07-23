@@ -14,20 +14,18 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { pretty: false, revision: 'origin/main' };
+  const options = { pretty: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--help') {
-      process.stdout.write(
-        'Usage: node collect-vigil-advisories.mjs --repo <path> [--revision <revision>] [--pretty]\n'
-      );
+      process.stdout.write('Usage: node collect-vigil-advisories.mjs --repo <path> [--pretty]\n');
       process.exit(0);
     }
     if (argument === '--pretty') {
       options.pretty = true;
       continue;
     }
-    if (argument !== '--repo' && argument !== '--revision') {
+    if (argument !== '--repo') {
       fail(`unsupported argument: ${argument}`);
     }
     const value = argv[index + 1];
@@ -160,10 +158,16 @@ function normalizePnpmAudit(raw) {
       id: advisoryId(advisory, `pnpm audit advisory ${key}`),
       installedVersions: [...new Set(installedVersions)].sort(),
       package: requireString(advisory.module_name, `pnpm audit advisory ${key}.module_name`),
-      patchedRange: requireString(
-        advisory.patched_versions,
-        `pnpm audit advisory ${key}.patched_versions`
-      ),
+      // An unpatched advisory legitimately has no patched range — those are
+      // the ones Vigil most needs to route, so absence must not block the
+      // run (Dependabot-only advisories already carry null here). A present
+      // non-string value is still malformed input.
+      patchedRange:
+        advisory.patched_versions === undefined ||
+        advisory.patched_versions === null ||
+        advisory.patched_versions === '<0.0.0'
+          ? null
+          : requireString(advisory.patched_versions, `pnpm audit advisory ${key}.patched_versions`),
       paths: [...new Set(paths)].sort(),
       severity: requireString(advisory.severity, `pnpm audit advisory ${key}.severity`),
       vulnerableRange: requireString(
@@ -304,30 +308,27 @@ function mergeAdvisories(pnpmAdvisories, dependabotAdvisories) {
 
 function collect(options) {
   const repo = validateRepo(options.repo);
-  git(repo, ['rev-parse', '--verify', `${options.revision}^{commit}`]);
-  const lockfiles = git(repo, [
-    'ls-tree',
-    '-r',
-    '--name-only',
-    options.revision,
-    '--',
-    'pnpm-lock.yaml',
-  ]).trim();
-  if (lockfiles !== 'pnpm-lock.yaml') {
-    fail(`pnpm-lock.yaml is missing at ${options.revision}`);
+  // pnpm audit reads the WORKING-TREE lockfile — so report the commit that
+  // working tree is actually at, and refuse a dirty lockfile. Claiming any
+  // other revision here would stamp the output with a lockfile it never
+  // audited (silent divergence; forbidden).
+  const lockfileStatus = git(repo, ['status', '--porcelain', '--', 'pnpm-lock.yaml']).trim();
+  if (lockfileStatus !== '') {
+    fail('pnpm-lock.yaml has uncommitted changes; the audited surface would be unprovable');
   }
+  const auditedCommit = git(repo, ['rev-parse', 'HEAD']).trim();
   const pnpmAdvisories = collectPnpmAudit(repo);
   const dependabotAdvisories = collectDependabot(repo);
   const advisories = mergeAdvisories(pnpmAdvisories, dependabotAdvisories);
   return {
     advisories,
+    auditedCommit,
     counts: {
       dependabot: dependabotAdvisories.length,
       merged: advisories.length,
       pnpmAudit: pnpmAdvisories.length,
     },
     generatedAt: new Date().toISOString(),
-    revision: options.revision,
     schema: 'collect-vigil-advisories/v1',
     watchedSetHash: hashWatchedSet(advisories),
   };
