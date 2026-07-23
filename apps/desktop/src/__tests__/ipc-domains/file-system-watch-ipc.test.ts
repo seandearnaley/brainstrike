@@ -45,6 +45,7 @@ import {
   type FileSystemWatchEventPayload,
   type FileSystemWatchRetryResult,
   liveFileSystemWatcherCountForTest,
+  MAX_FS_WATCH_REGISTRATIONS_PER_OWNER,
   MAX_FS_WATCHERS_PER_OWNER,
   registerFileSystemWatchIpcHandlers,
   type StartFileSystemWatch,
@@ -607,9 +608,7 @@ describe('file-system watch IPC domain', () => {
     const owner = new FakeWebContents(1);
     const other = new FakeWebContents(2);
     const dir = await makeDir();
-    const registrationLimit = MAX_FS_WATCHERS_PER_OWNER * 2;
-
-    for (let index = 0; index < registrationLimit; index += 1) {
+    for (let index = 0; index < MAX_FS_WATCH_REGISTRATIONS_PER_OWNER; index += 1) {
       await invokeWatch(owner, dir);
     }
 
