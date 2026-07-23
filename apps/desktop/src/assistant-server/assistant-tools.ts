@@ -99,6 +99,10 @@ import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
+  normalizeRuntimeWorkspaceIndex,
+  type WorkspaceIndexSummary,
+} from './runtime-workspace-index';
+import {
   logToolFailure,
   parseToolExecuteInput,
   REDACTED_PATH_LOG_VALUE,
@@ -1208,33 +1212,6 @@ function buildRuntimeTapestryRangesByPath(
     }
   }
   return rangesByPath;
-}
-
-interface WorkspaceIndexSummary {
-  embeddingSetId: string | null;
-  enabled: boolean;
-  mode: string | null;
-  paused: boolean;
-}
-
-function normalizeRuntimeWorkspaceIndex(
-  runtimeData: RuntimeData | undefined
-): WorkspaceIndexSummary {
-  const rawEmbeddingSetId = runtimeData?.workspaceIndexEmbeddingSetId;
-  const embeddingSetId =
-    typeof rawEmbeddingSetId === 'string' && rawEmbeddingSetId.trim().length > 0
-      ? rawEmbeddingSetId.trim()
-      : null;
-  return {
-    embeddingSetId,
-    enabled: runtimeData?.workspaceIndexingEnabled === true,
-    mode:
-      typeof runtimeData?.workspaceIndexingMode === 'string' &&
-      runtimeData.workspaceIndexingMode.trim().length > 0
-        ? runtimeData.workspaceIndexingMode.trim()
-        : null,
-    paused: runtimeData?.workspaceIndexingPaused === true,
-  };
 }
 
 interface CuratedContextSummary {
