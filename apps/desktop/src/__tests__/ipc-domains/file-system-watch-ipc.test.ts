@@ -307,7 +307,7 @@ describe('file-system watch IPC domain', () => {
     );
   });
 
-  it('starts a watcher for the handle path and returns a unique watchId', async () => {
+  it('shares one native watcher across logical registrations for the same root', async () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
 
@@ -317,8 +317,80 @@ describe('file-system watch IPC domain', () => {
     expect(first.watchId).toBeTruthy();
     expect(second.watchId).toBeTruthy();
     expect(first.watchId).not.toBe(second.watchId);
-    expect(harness.startedPaths).toEqual([dir, dir]);
-    expect(liveFileSystemWatcherCountForTest()).toBe(2);
+    expect(harness.startedPaths).toEqual([dir]);
+    expect(harness.stops[0]).not.toHaveBeenCalled();
+    expect(liveFileSystemWatcherCountForTest()).toBe(1);
+
+    harness.fireAllChanges(SAMPLE_CHANGES);
+    expect(owner.watchEvents).toEqual([
+      { changes: SAMPLE_CHANGES, watchId: first.watchId },
+      { changes: SAMPLE_CHANGES, watchId: second.watchId },
+    ]);
+
+    // A late disposer from an older renderer effect removes only that logical
+    // route. It cannot stop the native watcher still serving the newer route.
+    await invokeUnwatch(owner, first.watchId);
+    expect(harness.stops[0]).not.toHaveBeenCalled();
+    expect(liveFileSystemWatcherCountForTest()).toBe(1);
+
+    owner.watchEvents.length = 0;
+    harness.fireAllChanges(SAMPLE_CHANGES);
+    expect(owner.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: second.watchId }]);
+
+    await invokeUnwatch(owner, second.watchId);
+    expect(harness.stops[0]).toHaveBeenCalledOnce();
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+  });
+
+  it('keeps one live watcher when same-root registrations race', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+
+    await Promise.all(Array.from({ length: 6 }, () => invokeWatch(owner, dir)));
+
+    expect(harness.startedPaths).toEqual([dir]);
+    expect(harness.stops).toHaveLength(1);
+    expect(harness.stops[0]).not.toHaveBeenCalled();
+    expect(liveFileSystemWatcherCountForTest()).toBe(1);
+    await expect(invokeTelemetry(owner)).resolves.toMatchObject({
+      activeWatchers: 1,
+      duplicateRegistrations: 5,
+    });
+  });
+
+  it('keeps the newer route live when an older same-root start resolves last', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    const realStat = fsPromises.stat.bind(fsPromises);
+    let releaseOlderStat: (() => void) | undefined;
+    const olderStatGate = new Promise<void>((resolve) => {
+      releaseOlderStat = resolve;
+    });
+    const statSpy = vi
+      .spyOn(fsPromises, 'stat')
+      .mockImplementationOnce(async (target) => {
+        await olderStatGate;
+        return await realStat(target);
+      })
+      .mockImplementation(async (target) => await realStat(target));
+
+    try {
+      const olderPromise = invokeWatch(owner, dir);
+      await vi.waitFor(() => expect(statSpy).toHaveBeenCalledTimes(1));
+      const newer = await invokeWatch(owner, dir);
+      releaseOlderStat?.();
+      const older = await olderPromise;
+
+      expect(harness.startedPaths).toEqual([dir]);
+      await invokeUnwatch(owner, older.watchId);
+      expect(harness.stops[0]).not.toHaveBeenCalled();
+
+      harness.fireAllChanges(SAMPLE_CHANGES);
+      expect(owner.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: newer.watchId }]);
+    } finally {
+      releaseOlderStat?.();
+      statSpy.mockRestore();
+    }
   });
 
   it('pushes watcher changes to the owning renderer only, stamped with the watchId', async () => {
@@ -444,6 +516,34 @@ describe('file-system watch IPC domain', () => {
     expect(liveFileSystemWatcherCountForTest()).toBe(1);
   });
 
+  it('rejects an in-flight watch after its renderer context navigates', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    const realStat = fsPromises.stat.bind(fsPromises);
+    let releaseStat: (() => void) | undefined;
+    const statGate = new Promise<void>((resolve) => {
+      releaseStat = resolve;
+    });
+    const statSpy = vi.spyOn(fsPromises, 'stat').mockImplementationOnce(async (target) => {
+      await statGate;
+      return await realStat(target);
+    });
+
+    try {
+      const pending = invokeWatch(owner, dir);
+      await vi.waitFor(() => expect(statSpy).toHaveBeenCalledOnce());
+      owner.fireDidNavigate();
+      releaseStat?.();
+
+      await expect(pending).rejects.toThrow(/renderer context changed/i);
+      expect(harness.startedPaths).toEqual([]);
+      expect(liveFileSystemWatcherCountForTest()).toBe(0);
+    } finally {
+      releaseStat?.();
+      statSpy.mockRestore();
+    }
+  });
+
   it('does not accumulate teardown listeners across repeated reloads', async () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
@@ -471,27 +571,47 @@ describe('file-system watch IPC domain', () => {
   it('caps the number of live watchers per renderer', async () => {
     const owner = new FakeWebContents(1);
     const other = new FakeWebContents(2);
-    const dir = await makeDir();
+    const dirs = await Promise.all(
+      Array.from({ length: MAX_FS_WATCHERS_PER_OWNER + 1 }, () => makeDir())
+    );
 
     for (let index = 0; index < MAX_FS_WATCHERS_PER_OWNER; index += 1) {
-      await invokeWatch(owner, dir);
+      await invokeWatch(owner, dirs[index]!);
     }
-    await expect(invokeWatch(owner, dir)).rejects.toThrow(/limit/i);
+    await expect(invokeWatch(owner, dirs[MAX_FS_WATCHERS_PER_OWNER]!)).rejects.toThrow(/limit/i);
     // The cap is per-owner: another renderer can still watch.
-    await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
+    await expect(invokeWatch(other, dirs[0]!)).resolves.toBeTruthy();
+  });
+
+  it('allows a same-root registration when the native watcher cap is full', async () => {
+    const owner = new FakeWebContents(1);
+    const dirs = await Promise.all(
+      Array.from({ length: MAX_FS_WATCHERS_PER_OWNER }, () => makeDir())
+    );
+
+    const registrations = [];
+    for (const dir of dirs) {
+      registrations.push(await invokeWatch(owner, dir));
+    }
+    const shared = await invokeWatch(owner, dirs[0]!);
+
+    expect(liveFileSystemWatcherCountForTest()).toBe(MAX_FS_WATCHERS_PER_OWNER);
+    expect(harness.startedPaths).toHaveLength(MAX_FS_WATCHERS_PER_OWNER);
+    await invokeUnwatch(owner, registrations[0]!.watchId);
+    expect(harness.stops[0]).not.toHaveBeenCalled();
+    await invokeUnwatch(owner, shared.watchId);
+    expect(harness.stops[0]).toHaveBeenCalledOnce();
   });
 
   it('enforces the per-owner cap under concurrent watch requests (no TOCTOU bypass)', async () => {
     const owner = new FakeWebContents(1);
-    const dir = await makeDir();
 
-    // Fire MAX + 5 watches concurrently: they all pass the initial (pre-await)
-    // count check unless a slot is reserved BEFORE the stat await. Exactly MAX
-    // must survive.
+    // Fire MAX + 5 distinct-root watches concurrently. Path resolution can
+    // finish in any order, but the lookup/cap/insert section is synchronous,
+    // so exactly MAX native subscriptions must survive.
     const attempts = MAX_FS_WATCHERS_PER_OWNER + 5;
-    const results = await Promise.allSettled(
-      Array.from({ length: attempts }, () => invokeWatch(owner, dir))
-    );
+    const dirs = await Promise.all(Array.from({ length: attempts }, () => makeDir()));
+    const results = await Promise.allSettled(dirs.map((dir) => invokeWatch(owner, dir)));
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
     const rejected = results.filter(
