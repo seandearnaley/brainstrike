@@ -19,7 +19,6 @@ const broadEntries = [
   'src/pglite-mastra-memory/index.ts',
   'src/pglite-mastra-memory/schema.ts',
 ];
-const allEntries = [...broadEntries, ...hostedWebEntries];
 const sharedExternal = [
   modelContextProtocolSdkExternal,
   '@brainstrike/types',
@@ -32,6 +31,9 @@ const sharedConfig = {
   // may invoke @brainstrike/agent builds concurrently. tsup's clean step is not
   // concurrency-safe and can unlink sibling build outputs mid-run.
   clean: false,
+  // TypeScript owns declaration emit in build and watch modes. Starting tsup's
+  // separate declaration-bundler worker here causes severe startup contention.
+  dts: false,
   format: ['esm', 'cjs'] as const,
   outDir: 'dist',
   sourcemap: false,
@@ -41,22 +43,11 @@ const sharedConfig = {
 export default defineConfig((_options) => [
   {
     ...sharedConfig,
-    dts: {
-      compilerOptions: {
-        composite: false,
-        paths: {
-          '@brainstrike/assistant-contract': ['../../assistant-contract/dist/index.d.ts'],
-          '@brainstrike/assistant-contract/*': ['../../assistant-contract/dist/*'],
-        },
-      },
-      entry: allEntries,
-    },
     entry: broadEntries,
     external: [assistantContractExternal, ...sharedExternal],
   },
   {
     ...sharedConfig,
-    dts: false,
     entry: hostedWebEntries,
     external: sharedExternal,
     // Vercel builds these functions as CommonJS and disables require(ESM).

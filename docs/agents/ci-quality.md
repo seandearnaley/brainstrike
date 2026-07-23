@@ -344,6 +344,22 @@ addon packages remove their local node-gyp `build` directory. The command,
 complete build-package coverage, and resolved task graph are guarded by
 `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 
+### Agent declaration build split
+
+`@brainstrike/agent` declarations are emitted by the package's composite
+TypeScript project before tsup bundles JavaScript. Every agent tsup config
+inherits `dts: false`; do not restore tsup's declaration-bundler worker or its
+separate compiler-options override. The canonical `tsconfig.json` owns the
+assistant-contract path mapping and emits every public entry declaration plus
+the internal declaration graph those entries reference.
+
+Development runs the TypeScript build watcher and tsup watcher as named sibling
+processes through the package's direct `concurrently` dependency. The watcher
+supervisor must terminate the sibling when either process exits, so a failed
+declaration watcher cannot leave a stale-but-running JavaScript watcher. The
+build order, disabled tsup DTS worker, and two-watcher topology are guarded by
+`scripts/__tests__/agent-declaration-build-contract.test.mjs`.
+
 ### Desktop development dependency freshness
 
 `apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every

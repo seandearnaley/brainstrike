@@ -822,6 +822,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
+      concurrently:
+        specifier: ^10.0.3
+        version: 10.0.3
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(typescript@6.0.3)(yaml@2.9.0)
