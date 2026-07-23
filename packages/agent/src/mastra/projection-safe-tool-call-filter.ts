@@ -122,20 +122,33 @@ function readToolCallId(invocation: MutableToolInvocation): string | undefined {
   return typeof nestedId === 'string' && nestedId.length > 0 ? nestedId : undefined;
 }
 
-function readMessageInvocationParts(message: MastraDBMessage): ToolInvocationPart[] {
-  const parts = isRecord(message.content) ? message.content['parts'] : undefined;
-  if (!Array.isArray(parts)) {
-    return [];
-  }
-  return parts.flatMap((part) => {
-    const invocationPart = readToolInvocationPart(part);
-    return invocationPart ? [invocationPart] : [];
-  });
-}
-
 function readMessageParts(message: MastraDBMessage): unknown[] {
   const parts = isRecord(message.content) ? message.content['parts'] : undefined;
   return Array.isArray(parts) ? parts : [];
+}
+
+function collectPromptToolParts(
+  prompt: LanguageModelV2Prompt,
+  safeIds: ReadonlySet<string>
+): {
+  calls: Map<string, LanguageModelV2ToolCallPart>;
+  results: Map<string, LanguageModelV2ToolResultPart>;
+} {
+  const calls = new Map<string, LanguageModelV2ToolCallPart>();
+  const results = new Map<string, LanguageModelV2ToolResultPart>();
+  for (const message of prompt) {
+    if (!Array.isArray(message.content)) {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === 'tool-call' && safeIds.has(part.toolCallId)) {
+        calls.set(part.toolCallId, part);
+      } else if (part.type === 'tool-result' && safeIds.has(part.toolCallId)) {
+        results.set(part.toolCallId, part);
+      }
+    }
+  }
+  return { calls, results };
 }
 
 function* iterateHistoryPartsReverse(
@@ -316,8 +329,14 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     let toolSteps = 0;
 
     const finishPendingStep = (): boolean => {
-      const newIds = [...pendingStepIds].filter((id) => !recentIds.has(id));
-      if (newIds.length > 0) {
+      let hasNewId = false;
+      for (const id of pendingStepIds) {
+        if (!recentIds.has(id)) {
+          hasNewId = true;
+          break;
+        }
+      }
+      if (hasNewId) {
         for (const id of pendingStepIds) {
           recentIds.add(id);
         }
@@ -353,14 +372,21 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     const recentIds = this.collectRecentToolCallIds(messages);
     const groups = new Map<string, ToolCallGroup>();
     for (const message of messages) {
-      for (const part of readMessageInvocationParts(message)) {
-        this.updateToolCallGroup(groups, part);
+      for (const part of readMessageParts(message)) {
+        const invocationPart = readToolInvocationPart(part);
+        if (invocationPart) {
+          this.updateToolCallGroup(groups, invocationPart);
+        }
       }
     }
 
     const safeIds = new Set<string>();
     let ineligibleToolCallCount = 0;
+    let recentToolCallCount = 0;
     for (const [toolCallId, group] of groups) {
+      if (recentIds.has(toolCallId)) {
+        recentToolCallCount += 1;
+      }
       if (group.hasSafeResult && !group.unsafe && !recentIds.has(toolCallId)) {
         safeIds.add(toolCallId);
         continue;
@@ -369,7 +395,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     }
     return {
       ineligibleToolCallCount,
-      recentToolCallCount: [...groups.keys()].filter((id) => recentIds.has(id)).length,
+      recentToolCallCount,
       safeIds,
     };
   }
@@ -418,24 +444,13 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     prompt: LanguageModelV2Prompt,
     safeIds: ReadonlySet<string>
   ): { filteredToolCallCount: number; prompt: LanguageModelV2Prompt } {
-    const calls = new Map<string, LanguageModelV2ToolCallPart>();
-    const results = new Map<string, LanguageModelV2ToolResultPart>();
-    for (const message of prompt) {
-      if (!Array.isArray(message.content)) {
-        continue;
-      }
-      for (const part of message.content) {
-        if (part.type === 'tool-call' && safeIds.has(part.toolCallId)) {
-          calls.set(part.toolCallId, part);
-        } else if (part.type === 'tool-result' && safeIds.has(part.toolCallId)) {
-          results.set(part.toolCallId, part);
-        }
+    const { calls, results } = collectPromptToolParts(prompt, safeIds);
+    const filterableIds = new Set<string>();
+    for (const toolCallId of safeIds) {
+      if (calls.has(toolCallId) && results.has(toolCallId)) {
+        filterableIds.add(toolCallId);
       }
     }
-
-    const filterableIds = new Set(
-      [...safeIds].filter((toolCallId) => calls.has(toolCallId) && results.has(toolCallId))
-    );
     if (filterableIds.size === 0) {
       return { filteredToolCallCount: 0, prompt };
     }
@@ -458,19 +473,21 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     if (!Array.isArray(message.content)) {
       return message;
     }
-    const content = message.content.flatMap((part) => {
+    const content: unknown[] = [];
+    for (const part of message.content) {
       if (part.type === 'tool-call' && filterableIds.has(part.toolCallId)) {
         const result = results.get(part.toolCallId);
         const projection = result ? this.modelOutputToText(result.output) : undefined;
-        return projection
-          ? [{ text: `${part.toolName} result:\n${projection}`, type: 'text' as const }]
-          : [part];
+        content.push(
+          projection ? { text: `${part.toolName} result:\n${projection}`, type: 'text' } : part
+        );
+        continue;
       }
       if (part.type === 'tool-result' && filterableIds.has(part.toolCallId)) {
-        return [];
+        continue;
       }
-      return [part];
-    });
+      content.push(part);
+    }
     if (content.length === 0) {
       return;
     }
