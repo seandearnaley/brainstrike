@@ -103,7 +103,10 @@ export interface EmbeddingWorkerOptions {
   interBatchDelayMs?: number;
   leaseMs?: number;
   log?: (msg: string, meta?: unknown) => void;
-  /** Runtime-wide ceiling for claimed jobs awaiting a completion or failure write. */
+  /**
+   * Runtime-wide ceiling for claimed jobs awaiting a completion or failure write.
+   * Raise this with `concurrency` when additional loops should increase in-flight work.
+   */
   maxInFlightJobs?: number;
   maxPendingCompletionBatches?: number;
   maxPendingCompletionBytes?: number;
