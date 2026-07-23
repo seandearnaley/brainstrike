@@ -184,6 +184,9 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
   if (!parsed) {
     return <PreviewParseError />;
   }
+  const defaultWorkingDirectory = parsed.root
+    ? 'Specified workspace root (default)'
+    : 'Selected workspace root (default)';
 
   return (
     <div className="mt-3">
@@ -201,7 +204,7 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
             className="min-w-0 break-words font-mono text-foreground/90 [overflow-wrap:anywhere]"
             data-testid="approval-command-cwd"
           >
-            {parsed.cwd ?? 'Selected workspace root (default)'}
+            {parsed.cwd ?? defaultWorkingDirectory}
           </dd>
         </div>
         {parsed.root ? (

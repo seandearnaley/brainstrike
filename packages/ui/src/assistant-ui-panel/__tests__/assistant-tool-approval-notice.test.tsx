@@ -267,6 +267,22 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.queryByText('Selected workspace root (default)')).toBeNull();
   });
 
+  it('names the specified workspace root as the default cwd when root is supplied', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        command: 'pwd',
+        root: 'packages/web',
+      },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent(
+      'Specified workspace root (default)'
+    );
+    expect(screen.getByTestId('approval-command-root')).toHaveTextContent('packages/web');
+  });
+
   it('preserves long multiline command whitespace in the wrapping preview', () => {
     const command = `printf 'first line\\n'\n${'x'.repeat(2000)}\nprintf 'last line\\n'`;
     renderNotice({
