@@ -100,6 +100,94 @@ async function filterMessages(
 }
 
 describe('ProjectionSafeToolCallFilter', () => {
+  it('scans stored and provider message parts without materializing flatMap arrays', () => {
+    const logger = { info: vi.fn() };
+    const processor = new ProjectionSafeToolCallFilter({
+      filterAfterToolSteps: 0,
+      logger,
+      toolNameMap: TOOL_NAME_MAP,
+    });
+    const message = createToolMessage({
+      id: 'allocation-proof',
+      modelOutput: { type: 'text', value: 'compact allocation proof' },
+      rawResult: { body: 'raw allocation proof' },
+    });
+    const storedParts = message.content.parts ?? [];
+    const storedFlatMap = vi.fn(() => {
+      throw new Error('stored message parts must be scanned directly');
+    });
+    Object.defineProperty(storedParts, 'flatMap', { value: storedFlatMap });
+    const state: Record<string, unknown> = {};
+    const abort = (reason?: string): never => {
+      throw new Error(reason ?? 'processor aborted');
+    };
+    const model = {} as ProcessInputStepArgs['model'];
+
+    processor.processInputStep({
+      abort,
+      messageList: new MessageList(),
+      messages: [message],
+      model,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+      systemMessages: [],
+    });
+
+    const prompt = [
+      {
+        content: [
+          {
+            input: { path: 'allocation-proof.ts' },
+            toolCallId: 'call-allocation-proof',
+            toolName: READ_TOOL,
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value: 'compact allocation proof' },
+            toolCallId: 'call-allocation-proof',
+            toolName: READ_TOOL,
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+    ] as ProcessLLMRequestArgs['prompt'];
+    const promptFlatMaps = prompt.map((promptMessage) => {
+      if (!Array.isArray(promptMessage.content)) {
+        throw new Error('benchmark prompt content must be an array');
+      }
+      const flatMap = vi.fn(() => {
+        throw new Error('provider message parts must be scanned directly');
+      });
+      Object.defineProperty(promptMessage.content, 'flatMap', { value: flatMap });
+      return flatMap;
+    });
+
+    const result = processor.processLLMRequest({
+      abort,
+      model: model as ProcessLLMRequestArgs['model'],
+      prompt,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+    });
+
+    expect(storedFlatMap).not.toHaveBeenCalled();
+    for (const flatMap of promptFlatMaps) {
+      expect(flatMap).not.toHaveBeenCalled();
+    }
+    expect(serialize(result?.prompt)).toContain('compact allocation proof');
+    expect(logger.info).toHaveBeenCalledOnce();
+  });
+
   it('filters only stale completed reads and keeps two recent tool-producing steps', async () => {
     const processor = new ProjectionSafeToolCallFilter({ toolNameMap: TOOL_NAME_MAP });
     const messages = [
