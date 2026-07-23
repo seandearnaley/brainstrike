@@ -83,17 +83,12 @@ interface BackfillBatchResult {
   selected: number;
 }
 
-interface QueueBacklogSnapshot {
-  failed: number;
+interface QueueCapacitySnapshot {
   queued: number;
   running: number;
-  succeeded: number;
 }
 
-type EmbeddingBackfillJobQueue = Pick<
-  JobQueue,
-  'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued'
->;
+type EmbeddingBackfillJobQueue = Pick<JobQueue, 'enqueueBatch' | 'repairUnclaimableQueued'>;
 
 const logger = createLogger('DesktopEmbeddingBackfill');
 const EMBEDDINGS_QUEUE = 'embeddings';
@@ -129,28 +124,9 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-async function getEmbeddingQueueBacklogSnapshot(
-  jobQueue: Pick<EmbeddingBackfillJobQueue, 'getQueueStats'>
-): Promise<QueueBacklogSnapshot> {
-  const snapshot = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE))[0];
-  if (!snapshot) {
-    return {
-      failed: 0,
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-    };
-  }
-  return {
-    failed: Math.max(0, Number(snapshot.failed ?? 0)),
-    queued: Math.max(0, Number(snapshot.queued ?? 0)),
-    running: Math.max(0, Number(snapshot.running ?? 0)),
-    succeeded: Math.max(0, Number(snapshot.succeeded ?? 0)),
-  };
-}
-
 async function waitForQueueCapacity(
-  jobQueue: Pick<EmbeddingBackfillJobQueue, 'getQueueStats'>,
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string,
   maxQueueDepth: number,
   backlogPollMs: number,
   timeoutMs: number,
@@ -160,7 +136,8 @@ async function waitForQueueCapacity(
 ): Promise<number> {
   const startedAt = now();
   let pollCount = 0;
-  const throwTimeout = (backlog: QueueBacklogSnapshot): never => {
+  const throwTimeout = async (): Promise<never> => {
+    const backlog = await getEmbeddingSetQueueCounts(db, embeddingSetId);
     throw new Error(
       `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
         `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
@@ -168,7 +145,7 @@ async function waitForQueueCapacity(
   };
   while (true) {
     await assertCanContinue?.();
-    const backlog = await getEmbeddingQueueBacklogSnapshot(jobQueue);
+    const backlog = await getEmbeddingSetCapacitySnapshot(db, embeddingSetId);
     pollCount += 1;
     const capacity = maxQueueDepth - (backlog.queued + backlog.running);
     if (capacity > 0) {
@@ -176,22 +153,21 @@ async function waitForQueueCapacity(
         logger.info('Backfill queue capacity wait completed', {
           capacity,
           durationMs: now() - startedAt,
-          failed: backlog.failed,
+          embeddingSetId,
           maxQueueDepth,
           pollCount,
           queued: backlog.queued,
           running: backlog.running,
-          succeeded: backlog.succeeded,
         });
       }
       return capacity;
     }
     if (now() - startedAt >= timeoutMs) {
-      throwTimeout(backlog);
+      return throwTimeout();
     }
     await observeMaintenance?.();
     if (now() - startedAt >= timeoutMs) {
-      throwTimeout(backlog);
+      return throwTimeout();
     }
     await sleep(backlogPollMs);
   }
@@ -291,6 +267,30 @@ async function getEmbeddingSetQueueCounts(
   };
 }
 
+async function getEmbeddingSetCapacitySnapshot(
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string
+): Promise<QueueCapacitySnapshot> {
+  const result = await db.query<{
+    queued: number | string | null;
+    running: number | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
+       COUNT(*) FILTER (WHERE state = 'running')::int AS running
+     FROM job_queue
+     WHERE queue = $1
+       AND job_type = 'embed_chunk'
+       AND embedding_set_id = $2`,
+    [EMBEDDINGS_QUEUE, embeddingSetId]
+  );
+  const row = result.rows[0];
+  return {
+    queued: Number(row?.queued ?? 0),
+    running: Number(row?.running ?? 0),
+  };
+}
+
 function finalizeBackfillCounts(
   embeddingSetId: string,
   total: number,
@@ -308,24 +308,6 @@ function finalizeBackfillCounts(
 
 function isEmbeddingBackfillCancellationError(error: unknown): boolean {
   return error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE;
-}
-
-// A backfill that fails AFTER suspending the dimension index leaves the
-// suspension row in place; scheduled maintenance reconciles + rebuilds it on the
-// next idle tick. Distinguish an expected shutdown teardown (quiet) from a real
-// failure (warn) so a graceful quit does not surface a scary error.
-function logSuspendedDimensionIndexAfterBackfillError(
-  error: unknown,
-  payload: { dimension: number; embeddingSetId: string; error: string }
-): void {
-  if (isExpectedBackfillTeardown(error)) {
-    logger.debug(
-      'Embedding backfill stopped (benign teardown); dimension HNSW index will be rebuilt by scheduled maintenance',
-      payload
-    );
-    return;
-  }
-  logger.warn('Dimension HNSW index remains suspended after failed embedding backfill', payload);
 }
 
 async function countPendingEmbeddingSetJobs(
@@ -571,7 +553,7 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
           requestDimensionIndexMaintenance,
         })
       );
-      logger.info('Completed deferred dimension HNSW index rebuild after canceled backfill', {
+      logger.info('Completed deferred dimension HNSW index rebuild after interrupted backfill', {
         counts,
         dimension,
         dimensionIndexMaintenanceStrategy,
@@ -579,7 +561,7 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
-      logger.error('Deferred dimension HNSW index rebuild after canceled backfill failed', {
+      logger.error('Deferred dimension HNSW index rebuild after interrupted backfill failed', {
         dimension,
         embeddingSetId,
         error: error instanceof Error ? error.message : String(error),
@@ -590,7 +572,7 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
   })();
 }
 
-async function restoreCanceledBackfillDimensionIndex(
+async function restoreInterruptedBackfillDimensionIndex(
   db: EmbeddingBackfillDatabase,
   embeddingSetId: string,
   dimension: number,
@@ -608,7 +590,7 @@ async function restoreCanceledBackfillDimensionIndex(
 ): Promise<boolean> {
   const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
   if (pending > 0) {
-    logger.info('Deferred dimension HNSW index rebuild after canceled embedding backfill', {
+    logger.info('Deferred dimension HNSW index rebuild after interrupted embedding backfill', {
       dimension,
       embeddingSetId,
       pending,
@@ -637,12 +619,53 @@ async function restoreCanceledBackfillDimensionIndex(
       requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
     })
   );
-  logger.info('Restored dimension HNSW index after canceled embedding backfill', {
+  logger.info('Restored dimension HNSW index after interrupted embedding backfill', {
     dimension,
     embeddingSetId,
     rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
   });
   return !remainsSuspended;
+}
+
+async function recoverInterruptedBackfillDimensionIndex(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  error: unknown,
+  now: () => number,
+  options: {
+    backlogPollMs: number;
+    dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+    drainTimeoutMs: number;
+    rebuildDimensionIndexOnCompletion: boolean;
+    requestDimensionIndexMaintenance: (
+      db: EmbeddingBackfillDatabase,
+      request: RequestDimensionIndexMaintenanceInput
+    ) => Promise<void>;
+  }
+): Promise<boolean> {
+  const recoveryWasImmediate = await restoreInterruptedBackfillDimensionIndex(
+    db,
+    embeddingSetId,
+    dimension,
+    now,
+    options
+  );
+  const logPayload = {
+    dimension,
+    embeddingSetId,
+    error: error instanceof Error ? error.message : String(error),
+    recovery: recoveryWasImmediate ? 'completed' : 'scheduled-after-scoped-drain',
+  };
+  if (isEmbeddingBackfillCancellationError(error) || isExpectedBackfillTeardown(error)) {
+    logger.debug(
+      'Dimension HNSW index recovery handled interrupted embedding backfill',
+      logPayload
+    );
+    return recoveryWasImmediate;
+  }
+  logger.warn('Dimension HNSW index recovery handled failed embedding backfill', logPayload);
+  return recoveryWasImmediate;
 }
 
 async function vacuumBackfillTables(
@@ -1035,7 +1058,8 @@ async function enqueueBackfillCandidateBatches(
     // avoids unnecessary queue-stat polling while preserving the same backlog bound.
     if (availableCapacity <= 0) {
       availableCapacity = await waitForQueueCapacity(
-        jobQueue,
+        db,
+        embeddingSetId,
         maxQueueDepth,
         backlogPollMs,
         queueCapacityTimeoutMs,
@@ -1235,27 +1259,20 @@ export async function enqueueEmbeddingBackfill(
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
   } catch (error) {
     if (dimensionIndexSuspended) {
-      if (isEmbeddingBackfillCancellationError(error)) {
-        dimensionIndexSuspended = !(await restoreCanceledBackfillDimensionIndex(
-          db,
-          embeddingSetId,
-          metadata.expectedDimension,
-          now,
-          {
-            backlogPollMs,
-            dimensionIndexMaintenanceStrategy,
-            drainTimeoutMs,
-            rebuildDimensionIndexOnCompletion,
-            requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
-          }
-        ));
-        throw error;
-      }
-      logSuspendedDimensionIndexAfterBackfillError(error, {
-        dimension: metadata.expectedDimension,
+      dimensionIndexSuspended = !(await recoverInterruptedBackfillDimensionIndex(
+        db,
         embeddingSetId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+        metadata.expectedDimension,
+        error,
+        now,
+        {
+          backlogPollMs,
+          dimensionIndexMaintenanceStrategy,
+          drainTimeoutMs,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+        }
+      ));
     }
     throw error;
   }

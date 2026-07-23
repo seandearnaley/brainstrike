@@ -45,6 +45,18 @@ Flow:
      `maxInFlightJobs` may override it with another positive value. Slots are
      released only after the corresponding completion/failure write, or during
      explicit cleanup after a lost lease or interrupted batch.
+   - Desktop backfill admission bounds queued/running jobs for the target
+     `embedding_set_id`, not the entire embeddings queue. Workspace Index may
+     legitimately fill its separate QoS depth with other embedding sets; those
+     jobs must not starve a manual backfill. Same-set desktop backfills remain
+     single-flight at the IPC boundary, while the worker's runtime-wide
+     in-flight budget remains the global inference ceiling.
+   - A backfill suspends the dimension HNSW index before enqueueing. Every
+     interruption after that point, including producer faults and timeouts,
+     must either restore the index immediately when the scoped set has drained
+     or schedule the existing deferred recovery after that scoped drain.
+     Non-cancellation failures must never intentionally leave the index
+     suspended for an unrelated maintenance tick.
 
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
