@@ -25,6 +25,7 @@
     "@electric-sql/pglite": "0.5.3",
     "@electric-sql/pglite-pgvector": "0.0.4",
     "@types/node": "catalog:",
+    "concurrently": "^10.0.3",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
@@ -117,9 +118,9 @@
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "tsup && node scripts/verify-hosted-web-bundle.mjs",
+    "build": "tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup --watch",
+    "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
     "test": "vitest run --no-file-parallelism --exclude \"**/*.integration.spec.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
