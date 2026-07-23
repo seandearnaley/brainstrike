@@ -114,6 +114,39 @@ function readRevisionFile(repo, revision, file) {
   }
 }
 
+// Split SQL text on statement-terminating semicolons only: a `;` inside a
+// single-quoted literal (with `''` as the escape) is content, not a
+// terminator. A naive split(';') would sever an INSERT mid-VALUES the day a
+// free-text column (name/tagline/best_for) contains a semicolon, silently
+// dropping every row after the split — the exact under-count this collector
+// exists to prevent.
+function splitSqlStatements(text) {
+  const statements = [];
+  let current = '';
+  let inQuote = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "'") {
+      if (inQuote && text[index + 1] === "'") {
+        current += "''";
+        index += 1;
+        continue;
+      }
+      inQuote = !inQuote;
+      current += character;
+      continue;
+    }
+    if (character === ';' && !inQuote) {
+      statements.push(current);
+      current = '';
+      continue;
+    }
+    current += character;
+  }
+  statements.push(current);
+  return statements;
+}
+
 function extractMigrationPairs(repo, revision) {
   const migrationFiles = revisionPaths(repo, revision, MIGRATIONS_ROOT)
     .filter((file) => /^packages\/db\/src\/migrations\/[^/]+\.ts$/u.test(file))
@@ -123,12 +156,17 @@ function extractMigrationPairs(repo, revision) {
   }
   const pairs = [];
   for (const file of migrationFiles) {
-    const statements = readRevisionFile(repo, revision, file).split(';');
+    const text = readRevisionFile(repo, revision, file);
+    const statements = splitSqlStatements(text);
     for (const statement of statements) {
       if (!/\bINSERT\s+INTO\s+models\b/iu.test(statement)) {
         continue;
       }
-      for (const match of statement.matchAll(/\(\s*'([^']+)'\s*,\s*'([^']+)'/gu)) {
+      const statementPairs = [...statement.matchAll(/\(\s*'([^']+)'\s*,\s*'([^']+)'/gu)];
+      if (statementPairs.length === 0) {
+        fail(`${file} contains an INSERT INTO models statement with no extractable tuples`);
+      }
+      for (const match of statementPairs) {
         pairs.push({ file, modelId: match[1], providerId: match[2] });
       }
     }

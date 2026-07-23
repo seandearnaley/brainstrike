@@ -229,8 +229,8 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
     start: '2026-07-21T00:00:00.000Z',
   });
   assert.deepEqual(evidence.roster, [
-    { cron: '0 12 * * *', expectedWakes: 1, name: 'Daily' },
-    { cron: '0 12 * * 1', expectedWakes: 0, name: 'Weekly' },
+    { cron: '0 12 * * *', expectedWakes: 1, name: 'Daily', pendingWakes: 0 },
+    { cron: '0 12 * * 1', expectedWakes: 0, name: 'Weekly', pendingWakes: 0 },
   ]);
   assert.deepEqual(
     evidence.prs.merged.map((pr) => pr.number),
@@ -268,14 +268,20 @@ test('counts one weekly wake across the selected eight-day window and reports pe
   const fixture = createFixture();
   context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
 
+  // Evening's 2026-07-28T23:00Z wake falls inside the trailing 90-minute
+  // slack (due horizon 22:30) — pending, not yet missable.
+  write(fixture.repo, '.night-shift/charters/evening.md', charter('Evening', '0 23 * * *'));
+  commitAll(fixture.repo, 'add evening charter');
+
   const result = collect(fixture, '2026-07-21T00:00:00Z', '2026-07-29T00:00:00Z', {
     FAKE_GH_PENDING_ONLY: '1',
   });
   assert.equal(result.status, 0, result.stderr);
   const evidence = JSON.parse(result.stdout);
   assert.deepEqual(evidence.roster, [
-    { cron: '0 12 * * *', expectedWakes: 8, name: 'Daily' },
-    { cron: '0 12 * * 1', expectedWakes: 1, name: 'Weekly' },
+    { cron: '0 12 * * *', expectedWakes: 8, name: 'Daily', pendingWakes: 0 },
+    { cron: '0 23 * * *', expectedWakes: 7, name: 'Evening', pendingWakes: 1 },
+    { cron: '0 12 * * 1', expectedWakes: 1, name: 'Weekly', pendingWakes: 0 },
   ]);
   assert.equal(evidence.scheduledWorkflows[0].latestCompleted, null);
   assert.equal(evidence.scheduledWorkflows[0].pendingOnly, true);
@@ -295,13 +301,25 @@ test('fails closed with gh stderr detail when a GitHub call exits non-zero', (co
   );
 });
 
-test('fails closed on an unsupported cron range', (context) => {
+test('supports weekday cron ranges and fails closed on an inverted range', (context) => {
   const fixture = createFixture();
   context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
-  write(fixture.repo, '.night-shift/charters/weekly.md', charter('Weekly', '0 12 * * 1-5'));
-  commitAll(fixture.repo, 'bad cron');
+  write(fixture.repo, '.night-shift/charters/weekdays.md', charter('Weekdays', '0 12 * * 1-5'));
+  commitAll(fixture.repo, 'weekday range cron');
 
-  const result = collect(fixture, '2026-07-21T00:00:00Z', '2026-07-22T00:00:00Z');
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /unsupported cron day-of-week field: 1-5/u);
+  // 2026-07-21 is a Tuesday; weekday noons through the due horizon
+  // (2026-07-28T22:30Z) are Tue 21, Wed 22, Thu 23, Fri 24, Mon 27, Tue 28.
+  const ok = collect(fixture, '2026-07-21T00:00:00Z', '2026-07-29T00:00:00Z');
+  assert.equal(ok.status, 0, ok.stderr);
+  const roster = JSON.parse(ok.stdout).roster;
+  assert.deepEqual(
+    roster.find((entry) => entry.name === 'Weekdays'),
+    { cron: '0 12 * * 1-5', expectedWakes: 6, name: 'Weekdays', pendingWakes: 0 }
+  );
+
+  write(fixture.repo, '.night-shift/charters/weekdays.md', charter('Weekdays', '0 12 * * 5-1'));
+  commitAll(fixture.repo, 'inverted range cron');
+  const bad = collect(fixture, '2026-07-21T00:00:00Z', '2026-07-22T00:00:00Z');
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /unsupported cron day-of-week field: 5-1/u);
 });
