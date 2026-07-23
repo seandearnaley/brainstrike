@@ -1144,12 +1144,51 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // stable preserves TreeTable row memoization.
     const contextMenuController = useContextMenuTarget();
     const { setTarget: setContextMenuTarget } = contextMenuController;
+    const contextMenuOriginNodeIdRef = useRef<string | null>(null);
+    const fileTreeElementRef = useRef<HTMLDivElement>(null);
     const handleRowContextMenu = useCallback(
-      (_nodeId: string, node: TreeNode<FileTreeRowData>, _event: MouseEvent) => {
-        setContextMenuTarget(fileNodeToTarget(node.data.fileNode, contextMenuRootPath));
+      (nodeId: string, node: TreeNode<FileTreeRowData>, _event: MouseEvent) => {
+        const target = fileNodeToTarget(node.data.fileNode, contextMenuRootPath);
+        if (!target) {
+          contextMenuOriginNodeIdRef.current = null;
+          setContextMenuTarget(null);
+          return;
+        }
+        contextMenuOriginNodeIdRef.current = nodeId;
+        setContextMenuTarget(target);
       },
       [contextMenuRootPath, setContextMenuTarget]
     );
+    const restoreContextMenuFocus = useCallback(() => {
+      const fileTreeElement = fileTreeElementRef.current;
+      if (!fileTreeElement?.isConnected) {
+        return;
+      }
+
+      const originNodeId = contextMenuOriginNodeIdRef.current;
+      if (originNodeId) {
+        const rows = fileTreeElement.querySelectorAll<HTMLElement>('[data-node-id]');
+        for (const row of rows) {
+          if (row.dataset['nodeId'] === originNodeId) {
+            row.focus();
+            return;
+          }
+        }
+      }
+
+      const treegrid = fileTreeElement.querySelector<HTMLElement>('[role="treegrid"]');
+      if (!treegrid) {
+        logger.error('Context menu focus restore failed: file treegrid is unavailable', {
+          originNodeId,
+        });
+        return;
+      }
+      treegrid.focus();
+    }, []);
+    const resetContextMenuTarget = useCallback(() => {
+      contextMenuOriginNodeIdRef.current = null;
+      setContextMenuTarget(null);
+    }, [setContextMenuTarget]);
 
     // Columns are now STABLE across selection changes. Selection state is handled
     // inside FileTreeCellContent via context, not via column cell closures.
@@ -1229,7 +1268,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     return (
       <FileTreeSelectionContext.Provider value={selectionContextValue}>
-        <ActionContextMenu controller={contextMenuController}>
+        <ActionContextMenu
+          controller={contextMenuController}
+          onCloseAutoFocus={restoreContextMenuFocus}
+        >
           {/* Capture-phase reset: runs before any row's onContextMenu so every
               right-click starts with a clean target; rows then claim it via
               handleRowContextMenu. An unclaimed right-click leaves the target
@@ -1237,9 +1279,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           <div
             className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden"
             data-testid="file-tree-scroll-container"
-            onContextMenuCapture={() => setContextMenuTarget(null)}
+            onContextMenuCapture={resetContextMenuTarget}
           >
-            <div className="relative h-full min-h-0 min-w-0" data-testid="file-tree">
+            <div
+              className="relative h-full min-h-0 min-w-0"
+              data-testid="file-tree"
+              ref={fileTreeElementRef}
+            >
               {/*
               selectionMode="single" + selectedId={null} is intentional: we use the
               tree's keyboard-driven `onSelect` callback as a one-shot "activate this

@@ -49,6 +49,10 @@ test.describe('File tree context menu', { tag: '@web-smoke' }, () => {
     await expect(page.getByRole('menuitem', { name: /Reveal in/ })).toHaveCount(0);
 
     await copyRelative.click();
+    await expect(page.getByRole('menu')).toBeHidden();
+
+    const notesRow = fileRow.locator('xpath=ancestor::*[@data-node-id][1]');
+    await expect(notesRow).toBeFocused();
 
     // Success toast confirms the outcome surfaced to the user. Radix Toast
     // also mirrors the text into an aria-live announcement node, so the text
@@ -59,5 +63,15 @@ test.describe('File tree context menu', { tag: '@web-smoke' }, () => {
     await expect
       .poll(() => consoleMessages.some((text) => text.includes('docs/notes.ts')))
       .toBe(true);
+
+    // Focus ownership remains with the tree after Radix closes. Keyboard
+    // navigation and an immediate second context menu must both keep working.
+    await notesRow.press('ArrowDown');
+    const readmeRow = explorer.fileTree
+      .getByText('readme.ts', { exact: true })
+      .locator('xpath=ancestor::*[@data-node-id][1]');
+    await expect(readmeRow).toHaveAttribute('data-focused', 'true');
+    await readmeRow.click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Copy Relative Path' })).toBeVisible();
   });
 });

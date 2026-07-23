@@ -155,9 +155,11 @@ export function useTreeTableHandlers<T>({
 
   const handleRowContextMenu = useEventCallback((nodeId: string, event: React.MouseEvent) => {
     const node = nodeById.get(nodeId);
-    if (node) {
-      onRowContextMenu?.(nodeId, node, event);
+    if (!node) {
+      return;
     }
+    keyboard.actions.setFocus(nodeId);
+    onRowContextMenu?.(nodeId, node, event);
   });
 
   const handleSortClick = React.useCallback(

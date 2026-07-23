@@ -94,6 +94,12 @@ export interface ActionContextMenuProps {
   controller: ContextMenuTargetController;
   localActions?: readonly AnyContextAction[];
   onActionStart?: ((actionId: string, target: ContextTarget) => void) | undefined;
+  /**
+   * Called from Radix's close-autofocus boundary. When supplied, the default
+   * delayed trigger restoration is prevented so the owning surface can focus
+   * the exact invocation origin or a deterministic live fallback.
+   */
+  onCloseAutoFocus?: (() => void) | undefined;
   onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
@@ -101,6 +107,7 @@ export function ActionContextMenu({
   controller,
   localActions,
   onActionStart,
+  onCloseAutoFocus,
   onOpenChange,
   children,
 }: ActionContextMenuProps) {
@@ -171,6 +178,17 @@ export function ActionContextMenu({
     [targetRef, registry, localActions]
   );
 
+  const handleCloseAutoFocus = useCallback(
+    (event: Event) => {
+      if (!onCloseAutoFocus) {
+        return;
+      }
+      event.preventDefault();
+      onCloseAutoFocus();
+    },
+    [onCloseAutoFocus]
+  );
+
   // Known limitation (desktop-first): Radix opens context menus from
   // touch/pen long-press (~700ms) without a native `contextmenu` event, so the
   // capture-reset + row-claim protocol never runs on touch — the menu can open
@@ -188,7 +206,7 @@ export function ActionContextMenu({
           {children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-60">
+      <ContextMenuContent className="w-60" onCloseAutoFocus={handleCloseAutoFocus}>
         {target
           ? groups.map((group, groupIndex) => (
               <Fragment key={group.group}>
