@@ -68,7 +68,7 @@ export function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecut
 }
 
 /** A verbatim-chunk stream writer, in either shape Mastra exposes. */
-export type StreamWriterLike = (chunk: { type: string } & Record<string, unknown>) => unknown;
+type StreamWriterLike = (chunk: { type: string } & Record<string, unknown>) => unknown;
 
 /**
  * The subset of the Mastra tool-execution context executeCommand reads. Mastra
@@ -109,7 +109,7 @@ export function resolveShellOutputStreamer(
   };
 }
 
-export function redactToolInputForLog(input: object): { fields: string[]; redacted: true } {
+function redactToolInputForLog(input: object): { fields: string[]; redacted: true } {
   return { fields: Object.keys(input), redacted: true };
 }
 
