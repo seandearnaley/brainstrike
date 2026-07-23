@@ -162,22 +162,56 @@ function ViewFiltersToggleButton({
   );
 }
 
+type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
+type CompactViewFiltersState = 'collapsed' | 'expanded';
+type CompactToolbarActionsState =
+  | { availability: 'unavailable' }
+  | {
+      availability: 'available';
+      filters: CompactViewFiltersState;
+      refresh: CompactRefreshState;
+    };
+
+function resolveCompactToolbarActionsState(
+  hasRoot: boolean,
+  isFiltersExpanded: boolean,
+  isLoading: boolean,
+  isRefreshing: boolean
+): CompactToolbarActionsState {
+  if (!hasRoot) {
+    return { availability: 'unavailable' };
+  }
+  if (isRefreshing) {
+    return {
+      availability: 'available',
+      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+      refresh: 'refreshing',
+    };
+  }
+  if (isLoading) {
+    return {
+      availability: 'available',
+      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+      refresh: 'disabled',
+    };
+  }
+  return {
+    availability: 'available',
+    filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+    refresh: 'ready',
+  };
+}
+
 function CompactToolbarActions({
-  hasRoot,
-  isFiltersExpanded,
-  isLoading,
-  isRefreshing,
   onRefresh,
   setFiltersExpanded,
+  state,
 }: {
-  hasRoot: boolean;
-  isFiltersExpanded: boolean;
-  isLoading: boolean;
-  isRefreshing: boolean;
   onRefresh: () => void;
   setFiltersExpanded: (expanded: boolean) => void;
+  state: CompactToolbarActionsState;
 }) {
-  if (!hasRoot) {
+  if (state.availability === 'unavailable') {
     return null;
   }
 
@@ -194,13 +228,13 @@ function CompactToolbarActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem disabled={isLoading || isRefreshing} onClick={() => onRefresh()}>
-          <RefreshCw className={cn('size-4', isRefreshing && 'animate-spin')} />
+        <DropdownMenuItem disabled={state.refresh !== 'ready'} onClick={() => onRefresh()}>
+          <RefreshCw className={cn('size-4', state.refresh === 'refreshing' && 'animate-spin')} />
           Refresh file tree
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setFiltersExpanded(!isFiltersExpanded)}>
+        <DropdownMenuItem onClick={() => setFiltersExpanded(state.filters === 'collapsed')}>
           <SlidersHorizontal className="size-4" />
-          {isFiltersExpanded ? 'Hide view filters' : 'Show view filters'}
+          {state.filters === 'expanded' ? 'Hide view filters' : 'Show view filters'}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1214,12 +1248,14 @@ const FileExplorerPanelInner = React.memo(() => {
             }
             compactActionsControl={
               <CompactToolbarActions
-                hasRoot={!!rootDirectoryHandle}
-                isFiltersExpanded={isFiltersExpanded}
-                isLoading={isLoading}
-                isRefreshing={isRefreshing}
                 onRefresh={handleRefresh}
                 setFiltersExpanded={setFiltersExpanded}
+                state={resolveCompactToolbarActionsState(
+                  Boolean(rootDirectoryHandle),
+                  isFiltersExpanded,
+                  isLoading,
+                  isRefreshing
+                )}
               />
             }
             filtersControl={
