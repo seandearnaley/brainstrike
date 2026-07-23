@@ -3,6 +3,10 @@ import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
   Button,
   cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   LoadingFallback,
   Tooltip,
   TooltipContent,
@@ -10,7 +14,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
+import { Eye, EyeOff, MoreHorizontal, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
@@ -133,7 +137,7 @@ function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            'relative @[96px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
+            'relative @[236px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"
@@ -155,6 +159,85 @@ function ViewFiltersToggleButton({
         <p>{label}</p>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
+type CompactViewFiltersState = 'collapsed' | 'expanded';
+type CompactToolbarActionsState =
+  | { availability: 'unavailable' }
+  | {
+      availability: 'available';
+      filters: CompactViewFiltersState;
+      refresh: CompactRefreshState;
+    };
+
+function resolveCompactToolbarActionsState(
+  hasRoot: boolean,
+  isFiltersExpanded: boolean,
+  isLoading: boolean,
+  isRefreshing: boolean
+): CompactToolbarActionsState {
+  if (!hasRoot) {
+    return { availability: 'unavailable' };
+  }
+  if (isRefreshing) {
+    return {
+      availability: 'available',
+      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+      refresh: 'refreshing',
+    };
+  }
+  if (isLoading) {
+    return {
+      availability: 'available',
+      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+      refresh: 'disabled',
+    };
+  }
+  return {
+    availability: 'available',
+    filters: isFiltersExpanded ? 'expanded' : 'collapsed',
+    refresh: 'ready',
+  };
+}
+
+function CompactToolbarActions({
+  onRefresh,
+  setFiltersExpanded,
+  state,
+}: {
+  onRefresh: () => void;
+  setFiltersExpanded: (expanded: boolean) => void;
+  state: CompactToolbarActionsState;
+}) {
+  if (state.availability === 'unavailable') {
+    return null;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label="More Explorer actions"
+          className="@[236px]/explorer-toolbar:hidden size-6"
+          size="icon"
+          variant="ghost"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={state.refresh !== 'ready'} onClick={() => onRefresh()}>
+          <RefreshCw className={cn('size-4', state.refresh === 'refreshing' && 'animate-spin')} />
+          Refresh file tree
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setFiltersExpanded(state.filters === 'collapsed')}>
+          <SlidersHorizontal className="size-4" />
+          {state.filters === 'expanded' ? 'Hide view filters' : 'Show view filters'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1161,6 +1244,18 @@ const FileExplorerPanelInner = React.memo(() => {
                 selectedFiles={selectedFilesList}
                 setSelectedFiles={setSelectedFilesFromList}
                 visibleFilePaths={visibleFilePaths}
+              />
+            }
+            compactActionsControl={
+              <CompactToolbarActions
+                onRefresh={handleRefresh}
+                setFiltersExpanded={setFiltersExpanded}
+                state={resolveCompactToolbarActionsState(
+                  Boolean(rootDirectoryHandle),
+                  isFiltersExpanded,
+                  isLoading,
+                  isRefreshing
+                )}
               />
             }
             filtersControl={

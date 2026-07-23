@@ -97,8 +97,11 @@ export async function ensureAssistantShellVisible(page: Page): Promise<Locator> 
 export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
   await ensureExplorerVisible(page);
 
-  const filtersButton = page.getByRole('button', { name: /view filters/i });
-  if (await filtersButton.isVisible().catch(() => false)) {
+  const responsiveExplorerActions = page
+    .getByRole('button', { name: /view filters/i })
+    .or(page.getByRole('button', { name: /more explorer actions/i }))
+    .filter({ visible: true });
+  if (await responsiveExplorerActions.isVisible().catch(() => false)) {
     return;
   }
 
@@ -107,7 +110,7 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
     .first();
   await selectRootButton.waitFor({ state: 'visible', timeout: 10_000 });
   await selectRootButton.click();
-  await filtersButton.waitFor({ state: 'visible', timeout: 15_000 });
+  await responsiveExplorerActions.waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 /**

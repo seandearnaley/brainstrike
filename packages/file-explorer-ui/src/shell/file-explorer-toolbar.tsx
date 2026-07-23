@@ -5,7 +5,9 @@ import * as React from 'react';
 
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
-  /** Filter visibility toggle rendered at the toolbar's right edge, next to the bulk selection control. */
+  /** Narrow-width menu for actions that cannot coexist with 24px targets and the edge gutters. */
+  compactActionsControl?: React.ReactNode;
+  /** Filter visibility toggle rendered between the tree actions and the right-edge bulk selection control. */
   filtersControl?: React.ReactNode;
   isLoading: boolean;
   onDirectorySelect: () => Promise<void>;
@@ -21,6 +23,7 @@ interface FileExplorerToolbarProps {
 const FileExplorerToolbar = React.memo(
   ({
     bulkSelectionControl,
+    compactActionsControl,
     filtersControl,
     onDirectorySelect,
     isLoading,
@@ -64,10 +67,19 @@ const FileExplorerToolbar = React.memo(
             </span>
           </Button>
           <div className="@container/explorer-bulk flex min-w-0 items-center justify-end overflow-hidden">
-            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:gap-1 gap-0.5 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
-              {treeActionsControl}
+            {/* At the 180px minimum panel width this track is exactly 76px.
+                The compact menu and Select All preserve 24px targets plus the
+                symmetric 12px edge gutter. At 236px, the full Refresh and View
+                Filters actions replace the compact menu; three 28px controls,
+                two 4px gaps, and the 12px gutter exactly fit the 104px track.
+                Select All stays last so it remains the protected edge action. */}
+            <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+              <div className="@[236px]/explorer-toolbar:contents hidden">
+                {treeActionsControl}
+                {filtersControl}
+              </div>
+              {compactActionsControl}
               {bulkSelectionControl}
-              {filtersControl}
             </div>
           </div>
         </div>

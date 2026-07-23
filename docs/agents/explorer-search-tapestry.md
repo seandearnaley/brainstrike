@@ -369,6 +369,13 @@ fallback.
   registry), so it ignores the event it just caused; every nested forest
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
+- **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
+  a 76px right grid track. Below 236px, Refresh and View Filters move into one
+  24px compact-actions menu beside the 24px Select All control, preserving the
+  symmetric 12px edge gutters and WCAG-size hit regions. At 236px, the menu is
+  replaced by the full Refresh and View Filters controls; all three right-side
+  controls are 28px with 4px gaps. Select All remains the edge action at every
+  width, preventing any sibling from intercepting its pointer region.
 - **Paired tests:**
   `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`
   (tree consumer: incremental + overflow),

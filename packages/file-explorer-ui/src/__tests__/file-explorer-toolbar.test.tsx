@@ -56,6 +56,29 @@ describe('FileExplorerToolbar', () => {
     expect(rightSlot).toHaveClass('justify-end');
   });
 
+  it('keeps the edge action last and swaps full actions for a compact menu at narrow widths', () => {
+    renderWithProviders(
+      <FileExplorerToolbar
+        {...getProps({
+          compactActionsControl: <button type="button">More Explorer actions</button>,
+          filtersControl: <button type="button">View filters</button>,
+          treeActionsControl: <button type="button">Refresh</button>,
+        })}
+      />
+    );
+
+    const toolbar = screen.getByTestId('file-explorer-toolbar');
+    const rightCluster = toolbar.children.item(2)?.firstElementChild;
+    expect(rightCluster).not.toBeNull();
+    const [fullActions, compactActions, edgeAction] = Array.from(rightCluster?.children ?? []);
+    expect(fullActions).toContainElement(screen.getByRole('button', { name: 'Refresh' }));
+    expect(fullActions).toContainElement(screen.getByRole('button', { name: 'View filters' }));
+    expect(fullActions).toHaveClass('hidden', '@[236px]/explorer-toolbar:contents');
+    expect(compactActions).toBe(screen.getByRole('button', { name: 'More Explorer actions' }));
+    expect(edgeAction).toBe(screen.getByRole('button', { name: 'Select all files' }));
+    expect(rightCluster).toHaveClass('gap-0', '@[236px]/explorer-toolbar:gap-1');
+  });
+
   it('preserves the data-testid that desktop E2E depends on', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     expect(screen.getByTestId('select-root-button')).toBeInTheDocument();

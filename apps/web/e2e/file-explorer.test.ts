@@ -225,6 +225,16 @@ test.describe('File Explorer', () => {
       expect(toolbarControlCenters.selectionSettings).toBeLessThan(toolbarControlCenters.addFolder);
       expect(toolbarControlCenters.addFolder).toBeLessThan(toolbarControlCenters.bulkSelection);
 
+      const compactActions = toolbar.getByRole('button', { name: 'More Explorer actions' });
+      await expect(compactActions).toBeVisible();
+      await expect(toolbar.getByTestId('refresh-button-small')).not.toBeVisible();
+      await compactActions.click();
+      await page.getByRole('menuitem', { name: 'Hide view filters' }).click();
+      await expect(page.locator('#view-filters-content')).toHaveAttribute('inert', '');
+      await compactActions.click();
+      await page.getByRole('menuitem', { name: 'Show view filters' }).click();
+      await expect(page.locator('#view-filters-content')).not.toHaveAttribute('inert');
+
       await page.getByRole('button', { name: /^Selection settings/ }).press('Enter');
       await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
