@@ -51,7 +51,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 });
 
 const { listSuspendedMastraRuns, streamMastraAgent, streamMastraToolApprovalAction } = await import(
-  '../mastra/agent-runtime'
+  '../mastra/agent-streaming'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { LlmHostChatModel } = await import('../providers/local/llm-host-chat-model');

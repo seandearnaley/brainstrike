@@ -47,7 +47,8 @@ below are LIVE.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
-   `buildToolLoopOptions` in `agent-runtime.ts`. Adopts three `@mastra/core`
+   `buildToolLoopOptions` (`new Agent` in `agent-runtime.ts`; the tool-loop
+   options in `agent-streaming.ts`). Adopts three `@mastra/core`
    built-ins that recover on EMITTED provider/API errors — disjoint from the
    guard (tool-execute failures) and watchdog (silent stalls), so no
    double-wrapping:
@@ -598,7 +599,7 @@ Flow (desktop assistant server → agent runtime):
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
    `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (agent-runtime.ts) substitutes the FUNCTION form of
+   `resolveResumeApprovalGate` (agent-streaming.ts) substitutes the FUNCTION form of
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
@@ -759,7 +760,7 @@ stream data part — is gone on reload): on thread open the desktop history
 adapter rediscovers pending approvals and re-surfaces a working notice, REUSING
 the (already restart-safe) `streamMastraToolApprovalAction` resume seam
 untouched. Flow:
-- `listSuspendedMastraRuns(filter, options)` (`agent-runtime.ts`) wraps
+- `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
   returns approval-gated tool calls only (`requiresApproval === true`) with
   `toolName` mapped back to the ORIGINAL dotted form (see NAME-FORM CONTRACT
@@ -1090,7 +1091,7 @@ Contract types + guards live in `@brainstrike/assistant-contract/tool-suspend`
 (`readToolResumeRunConfigAction` returns `{invalid:true}` on a malformed action —
 surfaced as a 400, never coerced).
 
-**Stream path** (agent-runtime.ts): Mastra emits `tool-call-suspended` when a
+**Stream path** (agent-streaming.ts): Mastra emits `tool-call-suspended` when a
 suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
 a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
 pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).

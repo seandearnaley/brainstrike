@@ -160,15 +160,17 @@ export {
 export {
   convertMessagesToMastra,
   createMastraAgentRuntime,
+  type MastraAgentRuntime,
+  type MastraAgentRuntimeOptions,
+} from './mastra/agent-runtime';
+export {
   type DiscoveredSuspendedApproval,
   type ListSuspendedApprovalsResult,
   listSuspendedMastraRuns,
-  type MastraAgentRuntime,
-  type MastraAgentRuntimeOptions,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
-} from './mastra/agent-runtime';
+} from './mastra/agent-streaming';
 export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,

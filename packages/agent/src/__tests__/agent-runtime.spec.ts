@@ -570,7 +570,7 @@ describe('agent-runtime edge cases', () => {
 
   describe('streamMastraAgent with signals', () => {
     it('handles abort signal during streaming', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const controller = new AbortController();
 
       const messages: AgentMessage[] = [
@@ -596,7 +596,7 @@ describe('agent-runtime edge cases', () => {
 
   describe('stream part processing edge cases', () => {
     it('processes text-delta with empty delta', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -630,7 +630,7 @@ describe('agent-runtime edge cases', () => {
     });
 
     it('processes finish chunk with various usage formats', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -684,7 +684,7 @@ describe('agent-runtime edge cases', () => {
       // with a visible assistant message, a terminal `run.failed` run-event that
       // clears in-flight spinners, and an error finish. Throwing previously left
       // the thread hung on a forever-spinning "Generation step started".
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -740,7 +740,7 @@ describe('agent-runtime edge cases', () => {
       'max_tokens_exceeded',
       'token_limit_exceeded',
     ] as const)('preserves OpenRouter typed token error %s', async (errorType) => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -809,7 +809,7 @@ describe('agent-runtime edge cases', () => {
     });
 
     it('preserves a pre-stream OpenRouter token error from the AI SDK data envelope', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -870,7 +870,7 @@ describe('agent-runtime edge cases', () => {
     });
 
     it('terminates gracefully (visible reason + run.failed + finish) on a tripwire chunk', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -925,7 +925,7 @@ describe('agent-runtime edge cases', () => {
     });
 
     it('processes unknown stream part types gracefully', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -959,7 +959,7 @@ describe('agent-runtime edge cases', () => {
     });
 
     it('handles text delta from payload', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -1000,7 +1000,7 @@ describe('agent-runtime edge cases', () => {
 
   describe('run-start context breakdown emission', () => {
     it('yields a context-breakdown chunk FIRST with measured instruction + wire counts', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
@@ -1050,7 +1050,7 @@ describe('agent-runtime edge cases', () => {
 
   describe('dispose error handling', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
-      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
       const { ExplicitStdioMcpClient } = await import('../mcp/explicit-stdio-client');
 

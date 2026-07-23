@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { streamMastraAgent } from '../mastra/agent-runtime';
+import { streamMastraAgent } from '../mastra/agent-streaming';
 import type { RuntimeData } from '../types';
 
 interface CapturedRequest {

@@ -39,7 +39,8 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { convertMessagesToMastra, streamMastraAgent } = await import('../mastra/agent-runtime');
+const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+const { streamMastraAgent } = await import('../mastra/agent-streaming');
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;

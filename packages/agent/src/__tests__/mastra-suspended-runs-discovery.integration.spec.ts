@@ -17,7 +17,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { listSuspendedMastraRuns, streamMastraAgent } from '../mastra/agent-runtime';
+import { listSuspendedMastraRuns, streamMastraAgent } from '../mastra/agent-streaming';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
