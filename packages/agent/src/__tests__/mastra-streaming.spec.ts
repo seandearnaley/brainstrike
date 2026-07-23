@@ -27,6 +27,7 @@ let mcpToolsets: Record<string, Record<string, { description: string; id: string
     'remote tool': { description: 'remote', id: 'remote tool' },
   },
 };
+let streamPartDelayMs = 0;
 let streamParts: unknown[] = [];
 let suspendedRuns: Array<{
   runId: string;
@@ -160,12 +161,24 @@ vi.mock('@mastra/core/agent', () => ({
 }));
 
 function createMockMastraOutput() {
+  let cancelled = false;
   const stream = new ReadableStream({
-    start(controller) {
+    cancel() {
+      cancelled = true;
+    },
+    async start(controller) {
       for (const part of streamParts) {
+        if (streamPartDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, streamPartDelayMs));
+        }
+        if (cancelled) {
+          return;
+        }
         controller.enqueue(part);
       }
-      controller.close();
+      if (!cancelled) {
+        controller.close();
+      }
     },
   });
   return {
@@ -248,6 +261,7 @@ describe('mastra streaming integration', () => {
       },
     };
     setMockStreamParts([]);
+    streamPartDelayMs = 0;
     suspendedRuns = [
       {
         runId: 'run-approval-1',
@@ -1332,6 +1346,75 @@ describe('mastra streaming integration', () => {
 
     expect(progressEvents).toBe(3);
     expect(toolRunEvents).toBe(1);
+  });
+
+  it('terminates an incomplete streamed tool input even while argument deltas continue', async () => {
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '35';
+    streamPartDelayMs = 5;
+    setMockStreamParts([
+      {
+        payload: { toolCallId: 'call-stuck-input' },
+        type: 'tool-call-input-streaming-start',
+      },
+      ...Array.from({ length: 20 }, () => ({
+        payload: { argsTextDelta: 'x', toolCallId: 'call-stuck-input' },
+        type: 'tool-call-delta',
+      })),
+      {
+        payload: { toolCallId: 'call-stuck-input' },
+        type: 'tool-call-input-streaming-end',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-stuck-input', parts: [{ text: 'write a file', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(JSON.stringify(chunks)).toContain('tool_call_input_streaming_timeout');
+      expect(chunks).toContainEqual(
+        expect.objectContaining({
+          type: 'text-delta',
+          value: expect.stringMatching(/tool call.*arguments.*35ms/i),
+        })
+      );
+      expect(chunks).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({
+            kind: 'run.failed',
+            metadata: expect.objectContaining({
+              code: 'tool_call_input_streaming_timeout',
+              toolCallId: 'call-stuck-input',
+            }),
+          }),
+          type: 'run-event',
+        })
+      );
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
+    } finally {
+      streamPartDelayMs = 0;
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
   });
 
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {

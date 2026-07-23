@@ -35,6 +35,15 @@ below are LIVE.
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
+   The adjacent `withToolCallInputTimeout` wrapper applies the SAME configured
+   window as an absolute deadline from the first streamed tool-input marker to
+   its matching input end/complete call. `tool-call-delta` proves transport
+   activity and continues to render progress, but it never extends that
+   deadline: a provider cannot keep a run alive indefinitely by dribbling
+   incomplete JSON arguments. Expiry uses the distinct
+   `tool_call_input_streaming_timeout` terminal code and aborts before an
+   incomplete call can execute. A complete call leaves this layer and remains
+   governed by the ordinary per-tool execution guard.
    Every initial, approval-resume, and suspended-tool-resume stream owns an
    internal AbortController linked to the caller's signal. The watchdog rejects
    with `StreamStalledError` first, then aborts that exact controller so provider
@@ -256,6 +265,8 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- The same `BRAINSTRIKE_STREAM_INACTIVITY_MS` value is the maximum wall-clock
+  time for one incomplete streamed tool input; argument deltas do not reset it.
 - A local-runtime inactivity termination includes the normalized provider and
   selected model in both the structured error log and visible run failure. Do
   not include bearer tokens or silently restart/unload the external server. The
