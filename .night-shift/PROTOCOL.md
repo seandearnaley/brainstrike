@@ -91,13 +91,11 @@ costs the human triage time and poisons trust in every other loop's PRs.
   no run logs, no timestamps-as-content, no generic advice.
 - A learning lands in the same PR that established it. Loops without PR
   authority append learnings to their state issue under `## pending-learnings`;
-  the Librarian loop periodically moves those into `.night-shift/` via one PR.
-  INTERIM (until the Librarian ships — see charters/README.md Wave 2): the
-  diagnose-only loops (assay, watch, magnify) have no automated path from
-  `pending-learnings` into the tracked `.night-shift/*.md` files, so their
-  durable learnings live only on their Linear state issues meanwhile. This
-  is expected, not a bug; a human or any PR-authoring loop may hand-migrate
-  a high-value entry sooner.
+  the Librarian loop (charters/librarian.md) verifies and migrates those into
+  the tracked `.night-shift/*.md` files on its weekly sweep, marking migrated
+  entries with a reply on the state issue. Between sweeps, pending entries
+  living only on Linear is expected, not a bug; a human or any PR-authoring
+  loop may hand-migrate a high-value entry sooner.
 - Cross-loop observations go to `.night-shift/bulletin.md` as
   `- [from:<name> <date>] <one sentence> → <who should care>`.
   Cap 40 lines; when full, consolidate or delete stalest first.

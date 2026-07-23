@@ -104,7 +104,7 @@
     "test:e2e:perf": "cd apps/web && pnpm run test:e2e:perf",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
     "test:fast": "pnpm -r run test && pnpm -r run test:integration",
-    "test:scripts": "node --test scripts/__tests__/*.test.mjs",
+    "test:scripts": "node --test scripts/__tests__/*.test.mjs .agents/skills/*/scripts/*.test.mjs",
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
     "type-check": "node scripts/run-turbo-command.mjs -- run type-check --summarize --log-order=grouped",
     "vercel:build": "pnpm build:web",

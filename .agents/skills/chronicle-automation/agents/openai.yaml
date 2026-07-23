@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Automation"
+  short_description: "Write the Night Shift daily report reliably"
+  default_prompt: "Use $chronicle-automation to run the Brainstrike Chronicle shift-report charter."

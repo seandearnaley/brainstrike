@@ -30,6 +30,9 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 | [bolt](bolt.md) | performance maintainer (migrated, charter v3) | `29 8 * * *` | propose-pr |
 | [sentinel](sentinel.md) | security maintainer (migrated, charter v2) | `07 4 * * *` | propose-pr / private-escalate |
 | [palette](palette.md) | accessibility & UI-consistency maintainer (migrated, charter v2) | `33 7 * * 3` | propose-pr |
+| [librarian](librarian.md) | learnings consolidator & bulletin curator | `31 8 * * 1` | propose-pr |
+| [curator](curator.md) | model-catalog freshness scout | `19 6 * * 2,5` | propose-pr (additive catalog data only) |
+| [chronicle](chronicle.md) | shift-report writer & fleet meta-monitor | `47 11 * * *` | report-only |
 
 ## Deployment notes
 
@@ -51,7 +54,14 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 - Assay owns the `review/*` label namespace; magnify owns findings comments;
   neither may approve, block, or merge — a bot that gates merges rebuilds the
   CI planner this repo explicitly retired (docs/agents/ci-quality.md).
-- Wave 2 (once these are stable): bolt watermark/fingerprint retrofit, the
-  Librarian (consolidates pending-learnings + bulletin), the perf-creep
-  tracker (needs its bootstrap PR uploading metrics from successful
-  performance.yml runs first).
+- Wave 2 shipped: the Librarian (consolidates pending-learnings + bulletin),
+  Curator (model-catalog freshness — the only loop with propose-pr authority
+  over catalog-data migrations, and even then additive-only), and Chronicle
+  (daily shift report + fleet meta-monitor; detects missed wakes, missing
+  state issues, and stale BLOCKED loops). Chronicle runs last in the daily
+  sequence so the digest covers the whole shift.
+- Each loop has a matching helper skill in `.agents/skills/<name>-automation`
+  with a deterministic read-only collector; collector tests run in the Static
+  lane via the root `test:scripts` script.
+- Remaining backlog: the perf-creep tracker (needs its bootstrap PR uploading
+  metrics from successful performance.yml runs first).
