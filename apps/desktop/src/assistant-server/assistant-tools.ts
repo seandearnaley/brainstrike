@@ -45,12 +45,7 @@ import {
   NATIVE_TOOL_ID,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
-import {
-  EmbeddingSetsRepository,
-  type EmbeddingSpaceListing,
-  type EmbeddingSpaceStats,
-  invalidateManagedCacheEntriesByIdentity,
-} from '@brainstrike/db';
+import { invalidateManagedCacheEntriesByIdentity } from '@brainstrike/db';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
@@ -77,6 +72,7 @@ import { runExecuteCommand } from './execute-command-tool';
 import { runGlobWorkspace } from './glob-workspace-tool';
 import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
+import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
 import { runManageTaskList } from './manage-task-list-tool';
@@ -87,10 +83,6 @@ import {
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
-import {
-  normalizeRuntimeWorkspaceIndex,
-  type WorkspaceIndexSummary,
-} from './runtime-workspace-index';
 import {
   logToolFailure,
   parseToolExecuteInput,
@@ -178,14 +170,6 @@ const logger = createLogger('DesktopAssistantTools');
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
-
-type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
-  readonly coverage?: EmbeddingSpaceStats & {
-    readonly coveragePercent: number;
-  };
-  readonly isWorkspaceIndex: boolean;
-  readonly recommendedForWorkspaceSearch: boolean;
-};
 
 /**
  * Convert the normalized (leading-slash, forward-slash) workspace path the write
@@ -1115,65 +1099,6 @@ async function runReadWorkspaceDirectory(
     }
   );
   return result;
-}
-
-async function runListEmbeddingSpaces(
-  input: ListEmbeddingSetsInput,
-  runtimeData: RuntimeData | undefined
-): Promise<{
-  count: number;
-  workspaceIndex: WorkspaceIndexSummary;
-  spaces: AssistantEmbeddingSpaceListing[];
-}> {
-  const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
-  const db = await getDatabase();
-  const embeddingSetsRepository = new EmbeddingSetsRepository(db);
-  const listings = await embeddingSetsRepository.listEmbeddingSpaces({
-    includeStats: input.includeStats === true,
-  });
-  const mappedSpaces = listings.map((listing: EmbeddingSpaceListing) => {
-    const isWorkspaceIndex = listing.id === workspaceIndex.embeddingSetId;
-    const space = {
-      createdAt: listing.createdAt,
-      description: listing.description,
-      dimensions: listing.dimensions,
-      distance: listing.distance,
-      id: listing.id,
-      isWorkspaceIndex,
-      modelId: listing.modelId,
-      modelKey: listing.modelKey,
-      name: listing.name,
-      recommendedForWorkspaceSearch: isWorkspaceIndex,
-    };
-    if (input.includeStats !== true || !listing.stats) {
-      return space;
-    }
-    const {
-      embeddedChunks,
-      fileCount,
-      tokenizedChunkCount,
-      totalChunks,
-      totalTokens,
-      averageTokensPerChunk,
-    } = listing.stats;
-    return {
-      ...space,
-      coverage: {
-        averageTokensPerChunk,
-        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
-        embeddedChunks,
-        fileCount,
-        tokenizedChunkCount,
-        totalChunks,
-        totalTokens,
-      },
-    };
-  });
-  const spaces =
-    input.workspaceIndexOnly === true
-      ? mappedSpaces.filter((space) => space.isWorkspaceIndex)
-      : mappedSpaces;
-  return { count: spaces.length, spaces, workspaceIndex };
 }
 
 function resolveQueryEmbeddingSpaceInput(
