@@ -92,6 +92,7 @@ type EmbeddingBackfillJobQueue = Pick<JobQueue, 'enqueueBatch' | 'repairUnclaima
 
 const logger = createLogger('DesktopEmbeddingBackfill');
 const EMBEDDINGS_QUEUE = 'embeddings';
+const MANUAL_BACKFILL_PRIORITY_RUN_AT = new Date(0).toISOString();
 const EMBEDDING_BACKFILL_ENQUEUE_BATCH_SIZE = 32;
 const EMBEDDING_BACKFILL_MAX_QUEUE_DEPTH = 64;
 const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
@@ -668,6 +669,43 @@ async function recoverInterruptedBackfillDimensionIndex(
   return recoveryWasImmediate;
 }
 
+async function recoverInterruptedBackfillDimensionIndexSafely(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  error: unknown,
+  now: () => number,
+  options: {
+    backlogPollMs: number;
+    dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+    drainTimeoutMs: number;
+    rebuildDimensionIndexOnCompletion: boolean;
+    requestDimensionIndexMaintenance: (
+      db: EmbeddingBackfillDatabase,
+      request: RequestDimensionIndexMaintenanceInput
+    ) => Promise<void>;
+  }
+): Promise<boolean> {
+  try {
+    return await recoverInterruptedBackfillDimensionIndex(
+      db,
+      embeddingSetId,
+      dimension,
+      error,
+      now,
+      options
+    );
+  } catch (recoveryError) {
+    logger.error('Dimension HNSW index recovery threw while handling backfill failure', {
+      dimension,
+      embeddingSetId,
+      originalError: error instanceof Error ? error.message : String(error),
+      recoveryError: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+    });
+    return false;
+  }
+}
+
 async function vacuumBackfillTables(
   db: Pick<IDatabase, 'query'>,
   logState: VacuumLogState,
@@ -906,6 +944,10 @@ async function enqueueEmbeddingChunkJobsBatch(
         modelKey: metadata.modelKey,
       },
       queue: EMBEDDINGS_QUEUE,
+      // JobQueue claims the earliest runnable run_at first. Manual backfills are
+      // user-requested recovery work, so they must not wait behind an unrelated
+      // workspace-index backlog after target-scoped admission succeeds.
+      runAt: MANUAL_BACKFILL_PRIORITY_RUN_AT,
     }))
   );
 
@@ -1259,7 +1301,7 @@ export async function enqueueEmbeddingBackfill(
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
   } catch (error) {
     if (dimensionIndexSuspended) {
-      dimensionIndexSuspended = !(await recoverInterruptedBackfillDimensionIndex(
+      dimensionIndexSuspended = !(await recoverInterruptedBackfillDimensionIndexSafely(
         db,
         embeddingSetId,
         metadata.expectedDimension,

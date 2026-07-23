@@ -51,6 +51,9 @@ Flow:
      jobs must not starve a manual backfill. Same-set desktop backfills remain
      single-flight at the IPC boundary, while the worker's runtime-wide
      in-flight budget remains the global inference ceiling.
+   - Admitted manual backfill jobs use the queue's earliest runnable ordering,
+     so an older unrelated embedding-set backlog cannot strand them behind the
+     backfill drain timeout.
    - A backfill suspends the dimension HNSW index before enqueueing. Every
      interruption after that point, including producer faults and timeouts,
      must either restore the index immediately when the scoped set has drained

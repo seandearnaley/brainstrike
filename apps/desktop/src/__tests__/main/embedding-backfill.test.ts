@@ -2074,7 +2074,7 @@ describe('embedding-backfill', () => {
           return { rows: [] };
         }
 
-        throw new Error('Unexpected query: ');
+        throw new Error(`Unexpected query: ${sql}`);
       }),
     };
     const jobQueue = {
@@ -2100,6 +2100,11 @@ describe('embedding-backfill', () => {
     expect(pendingCountCalls).toBeGreaterThanOrEqual(2);
     expect(jobQueue.getQueueStats).not.toHaveBeenCalled();
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        runAt: new Date(0).toISOString(),
+      }),
+    ]);
     expect(queryOrder).toEqual(
       expect.arrayContaining([
         'metadata',
@@ -2191,6 +2196,59 @@ describe('embedding-backfill', () => {
       'rebuild-index',
       'resume-index',
     ]);
+  });
+
+  it('preserves the original backfill failure when dimension index recovery also fails', async () => {
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingCountCalls += 1;
+          if (pendingCountCalls > 1) {
+            throw new Error('recovery database fault');
+          }
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          return {
+            rows: [{ contentHash: 'hash-1', fileRecordId: '100', id: '1' }],
+          };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async () => {
+        throw new Error('producer fault');
+      }),
+      getQueueStats: vi.fn(),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+      })
+    ).rejects.toThrow('producer fault');
+
+    expect(pendingCountCalls).toBe(2);
   });
 
   it('fails fast when the embedding set never drains', async () => {
