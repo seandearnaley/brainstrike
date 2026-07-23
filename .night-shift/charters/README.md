@@ -33,6 +33,9 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 | [librarian](librarian.md) | learnings consolidator & bulletin curator | `31 8 * * 1` | propose-pr |
 | [curator](curator.md) | model-catalog freshness scout | `19 6 * * 2,5` | propose-pr (additive catalog data only) |
 | [chronicle](chronicle.md) | shift-report writer & fleet meta-monitor | `47 11 * * *` | report-only |
+| [forge](forge.md) | small-ticket implementer (label-gated) | `23 3 * * *` | propose-pr (one `agent-ready` ticket max) |
+| [vigil](vigil.md) | security-advisory watcher | `27 9 * * *` | tickets-only |
+| [gauntlet](gauntlet.md) | agent-behavior eval curator | `43 6 * * 4` | propose-pr (eval flows + fixtures only) |
 
 ## Deployment notes
 
@@ -60,8 +63,24 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
   (daily shift report + fleet meta-monitor; detects missed wakes, missing
   state issues, and stale BLOCKED loops). Chronicle runs last in the daily
   sequence so the digest covers the whole shift.
+- Wave 3 shipped: Forge (the backlog consumer — implements ONE Linear ticket
+  labeled `agent-ready` per run; the human applies the label, so throughput
+  is entirely human-throttled), Vigil (security-advisory watcher: pnpm audit
+  + the repo's Dependabot alerts feed vs the lockfile, tickets-only, routes
+  patchable→Quartermaster territory and exploitable-in-context→Sentinel's
+  private channel), and Gauntlet (observed assistant failures → permanent
+  deterministic eval gates with paired control flows). Forge is the first
+  loop with generic implementation authority — its eligibility gate (decline
+  anything in Assay risk-4 territory, escalate ambiguity) is the safety
+  boundary; do not loosen it in charter edits without re-reading the
+  risk-factor list in assay.md.
 - Each loop has a matching helper skill in `.agents/skills/<name>-automation`
   with a deterministic read-only collector; collector tests run in the Static
-  lane via the root `test:scripts` script.
+  lane via the root `test:scripts` script. Declared exceptions with no
+  bundled collector: palette, quartermaster, sweep, forge (evidence surface
+  is Linear + gh directly).
 - Remaining backlog: the perf-creep tracker (needs its bootstrap PR uploading
-  metrics from successful performance.yml runs first).
+  metrics from successful performance.yml runs first), Recall Bench (needs a
+  committed fixture corpus + baseline recall@k metrics first), Cartographer
+  (drafts contract docs for undocumented subsystems; deferred until the
+  Librarian has accumulated a few weeks of fleet data).
