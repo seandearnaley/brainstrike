@@ -11,7 +11,7 @@ const MIGRATION_DIRECTORY = 'packages/db/src/migrations';
 // from surrounding embedded SQL. A regex-based table parser could silently
 // miss a model upsert; a future non-model match must instead be reviewed
 // explicitly before this detector is narrowed.
-const FORBIDDEN_ASSIGNMENT = /\bis_enabled\s*=\s*EXCLUDED\.is_enabled\b/g;
+const FORBIDDEN_ASSIGNMENT = /\bis_enabled\s*=\s*EXCLUDED\.is_enabled\b/gi;
 
 // Shipped migrations cannot be edited safely after their checksums are recorded.
 // Entries here pin the exact amount of historical debt: fewer matches make the

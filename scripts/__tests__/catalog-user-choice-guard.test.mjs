@@ -35,6 +35,22 @@ test('flags the forbidden assignment without relying on surrounding SQL parsing'
   });
 });
 
+test('flags equivalent unquoted SQL identifier casing', async () => {
+  const root = await writeFixture(`
+    IS_ENABLED = EXCLUDED.IS_ENABLED;
+    is_enabled = excluded.is_enabled;
+  `);
+
+  const result = await auditCatalogUserChoiceUpdates({ allowedOccurrences: {}, root });
+  assert.deepEqual(result, {
+    staleAllowlist: [],
+    violations: [
+      { filePath: migrationPath, lineNumber: 2 },
+      { filePath: migrationPath, lineNumber: 3 },
+    ],
+  });
+});
+
 test('pins the exact number of historical occurrences', async () => {
   const root = await writeFixture(`
     is_enabled = EXCLUDED.is_enabled;
