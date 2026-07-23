@@ -228,6 +228,12 @@ Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.
 - Thinking/reasoning output must be kept separate from the final visible answer.
 - Control tokens (`<turn|>`, EOS markers, tool-call wrappers, etc.) must be stripped from visible output.
+- Cumulative Gemma snapshots and the authoritative decoded result use the same
+  protocol projection in `gemma4-engine.ts`: incomplete tool-call protocol is
+  withheld, complete tool-call blocks become structured calls only, and known
+  response/quoting markers are removed. A completed unknown protocol token
+  throws visibly. `LlmHostChatModel` independently rejects any unprojected
+  protocol-bearing host snapshot before emitting a text/reasoning delta.
 - Local Mastra generations inherit `maxOutputTokens` from the selected model's
   static provider-registry definition unless the run explicitly overrides it.
   A missing local output budget is an initialization error; never fall back to

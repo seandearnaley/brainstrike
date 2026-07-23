@@ -175,6 +175,44 @@ describe('LlmHostChatModel', () => {
     expect(deltas).toEqual(['hello wor', 'ld']);
   });
 
+  it('rejects unprojected Gemma protocol snapshots before emitting assistant text', async () => {
+    const client = makeClient(async (_request, options) => {
+      options.onProgress?.({
+        kind: 'text',
+        text: '<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*<|"|>}',
+      });
+      return makeResult({
+        finishReason: 'tool_calls',
+        text: '',
+        toolCalls: [
+          {
+            function: {
+              arguments: JSON.stringify({ pattern: '**/*' }),
+              name: 'brainstrike_globWorkspace',
+            },
+            id: 'call-glob',
+            type: 'function',
+          },
+        ],
+      });
+    });
+    const model = new LlmHostChatModel('test-model', client);
+    const { stream } = await model.doStream({ prompt: USER_PROMPT });
+    const reader = stream.getReader();
+    const parts: LanguageModelV2StreamPart[] = [];
+
+    await expect(async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
+        }
+        parts.push(value);
+      }
+    }).rejects.toThrow('unprojected Gemma protocol');
+    expect(parts.some((part) => part.type === 'text-delta')).toBe(false);
+  });
+
   it('errors the stream when the host client rejects', async () => {
     const client = makeClient(async () => {
       throw new Error('host exploded');

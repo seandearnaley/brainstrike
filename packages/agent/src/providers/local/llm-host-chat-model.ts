@@ -34,6 +34,10 @@ import type { LocalLlmGenerationResult, LocalLlmMessage } from './types';
 
 const logger = createLogger('LlmHostChatModel');
 
+function containsUnprojectedGemmaProtocol(snapshot: string): boolean {
+  return /<\||<tool_|<[a-z_]+\|>|<\/?eos(?:\s*\/)?>|<\/s>/i.test(snapshot);
+}
+
 export interface LlmHostChatModelSettings {
   maxNewTokens?: number;
   temperature?: number;
@@ -54,6 +58,7 @@ interface PreparedGenerateRequest {
  */
 class SnapshotChannel {
   private emitted = '';
+  private failure: Error | undefined;
   private id: string | null = null;
 
   constructor(
@@ -62,6 +67,12 @@ class SnapshotChannel {
   ) {}
 
   acceptSnapshot(snapshot: string): void {
+    if (containsUnprojectedGemmaProtocol(snapshot)) {
+      this.failure ??= new Error(
+        `Local llm host emitted unprojected Gemma protocol in a ${this.kind} snapshot.`
+      );
+      return;
+    }
     if (!snapshot || snapshot.length <= this.emitted.length) {
       return;
     }
@@ -82,6 +93,9 @@ class SnapshotChannel {
 
   /** Emit any remainder of the final authoritative text, then close the part. */
   finalize(finalText: string | undefined): void {
+    if (this.failure) {
+      throw this.failure;
+    }
     if (finalText && finalText.length > 0) {
       if (finalText.startsWith(this.emitted)) {
         const remainder = finalText.slice(this.emitted.length);
@@ -276,8 +290,13 @@ export class LlmHostChatModel implements LanguageModelV2 {
           return;
         }
 
-        reasoningChannel.finalize(result.reasoningText);
-        textChannel.finalize(result.text);
+        try {
+          reasoningChannel.finalize(result.reasoningText);
+          textChannel.finalize(result.text);
+        } catch (error) {
+          controller.error(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
 
         if (result.toolCalls) {
           for (const toolCall of result.toolCalls) {
