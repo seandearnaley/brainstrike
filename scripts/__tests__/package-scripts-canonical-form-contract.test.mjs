@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -26,9 +27,11 @@ import { fileURLToPath } from 'node:url';
  *                    this way since #519. `-w` is also depth-independent,
  *                    unlike the retired `pnpm run --dir=../.. lint` form.)
  *
- * The contract governs SHAPE, not PRESENCE: a package that omits a script is not
- * required to add one (many packages legitimately have no clean/type-check), but
- * any script that IS present must match the canonical form unless the owning
+ * The contract governs clean COVERAGE as well as script shape: every package
+ * with a build script must declare clean so the root clean graph cannot leave a
+ * stale package artifact behind. Packages without a build may omit clean.
+ * Type-check remains shape-only because some packages legitimately omit it.
+ * Any script that is present must match the canonical form unless the owning
  * package is on the documented allowlist below.
  *
  * Allowlist discipline (the meta-tests at the bottom enforce it): every allowlist
@@ -82,6 +85,14 @@ const CLEAN_ALLOWLIST = new Map([
   [
     '@brainstrike/ui',
     'prepends `pnpm run clean:generated` to drop generated sources before the shared rimraf pass',
+  ],
+  [
+    '@brainstrike/secure-fs-native',
+    'native addon — removes node-gyp build output instead of TypeScript dist artifacts',
+  ],
+  [
+    '@brainstrike/windows-job-native',
+    'native addon — removes node-gyp build output instead of TypeScript dist artifacts',
   ],
 ]);
 
@@ -216,6 +227,75 @@ const packages = workspacePackageDirs().map(({ dir, group }) => {
   };
 });
 const packagesByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
+
+test('root clean routes every package clean script through an uncached Turbo task', () => {
+  const rootManifest = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.equal(
+    rootManifest.scripts.clean,
+    'node scripts/run-turbo-command.mjs -- run clean --summarize --log-order=grouped'
+  );
+
+  const dryRun = JSON.parse(
+    execFileSync(
+      path.join(
+        repoRoot,
+        'node_modules',
+        '.bin',
+        process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
+      ),
+      ['run', 'clean', '--dry=json'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NO_UPDATE_NOTIFIER: '1',
+          TURBO_TELEMETRY_DISABLED: '1',
+        },
+      }
+    )
+  );
+  const runnableTasks = dryRun.tasks.filter((task) => task.command !== '<NONEXISTENT>');
+  const actualCleanPackages = runnableTasks.map((task) => task.package).sort();
+  const expectedCleanPackages = packages
+    .filter((pkg) => pkg.scripts.clean !== undefined)
+    .map((pkg) => pkg.name)
+    .sort();
+
+  assert.deepEqual(
+    actualCleanPackages,
+    expectedCleanPackages,
+    'Turbo must discover every workspace package that declares a clean script'
+  );
+  for (const task of runnableTasks) {
+    assert.deepEqual(
+      task.resolvedTaskDefinition.dependsOn,
+      [],
+      `${task.taskId} must stay independent`
+    );
+    assert.equal(task.resolvedTaskDefinition.cache, false, `${task.taskId} must never be cached`);
+    assert.deepEqual(
+      task.resolvedTaskDefinition.outputs,
+      [],
+      `${task.taskId} must declare no outputs`
+    );
+  }
+});
+
+test('every build script has a clean script', () => {
+  const violations = packages
+    .filter((pkg) => pkg.scripts.build !== undefined && pkg.scripts.clean === undefined)
+    .map(
+      (pkg) =>
+        `${pkg.relDir} (${pkg.name}) declares build but no clean script, so root pnpm clean would leave its outputs behind.`
+    );
+
+  assert.deepEqual(
+    violations,
+    [],
+    `Build packages without clean scripts:\n${violations.join('\n')}`
+  );
+});
 
 test('every package clean script matches the canonical rimraf form', () => {
   const violations = [];

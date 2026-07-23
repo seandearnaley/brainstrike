@@ -51,6 +51,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

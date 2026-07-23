@@ -103,6 +103,12 @@
         "^topo"
       ]
     },
+    // --- Clean Task --- //
+    "clean": {
+      // Cleaning mutates local build artifacts and must always execute.
+      "cache": false,
+      "outputs": []
+    },
     // --- Build Task --- //
     "build": {
       // Ensures that the 'build' task for dependencies runs before this package's build.

@@ -333,6 +333,17 @@ loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
 
+### Root clean orchestration
+
+The root `pnpm clean` command stays on the shared Turbo command wrapper so it
+retains the same grouped logs and run summary as the other root graph commands.
+The root `clean` task is uncached, declares no outputs, and has no dependency
+edges. Every workspace package with a `build` script must declare `clean`;
+TypeScript and app packages remove local `dist`/`.tsbuildinfo`, while native
+addon packages remove their local node-gyp `build` directory. The command,
+complete build-package coverage, and resolved task graph are guarded by
+`scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
+
 ### Desktop development dependency freshness
 
 `apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every

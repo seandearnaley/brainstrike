@@ -152,6 +152,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm build:renderer && pnpm build:main",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
