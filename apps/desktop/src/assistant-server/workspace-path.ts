@@ -11,7 +11,7 @@ const SLASH_CHAR_CODE = 47;
  * These helpers never touch the filesystem — they only normalise and reason
  * about the virtual path string. Real filesystem access is resolved and
  * containment-checked separately (see `resolveWorkspaceAbsolutePath` in
- * `assistant-tools.ts`, which also follows symlinks via `realpath`).
+ * `workspace-path-resolution.ts`, which also follows symlinks via `realpath`).
  *
  * Keeping this logic pure and centralised means it can be unit-tested without a
  * temp-dir harness and behaves identically on macOS, Linux, and Windows.

@@ -11,7 +11,6 @@ import { isRevertibleCaptureStatus, withFileLock } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   ensureContainedDirectory,
-  resolveWorkspaceLeafMutationPath,
   resolveWorkspaceWritePath,
   withTwoFileLocks,
   writeContainedFileBytes,
@@ -26,6 +25,7 @@ import {
   mapCheckpointRecordRow,
   sha256Hex,
 } from './edit-checkpoint-journal';
+import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';

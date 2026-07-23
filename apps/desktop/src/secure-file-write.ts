@@ -51,7 +51,7 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
  * Resolve a virtual workspace path to a containment-checked absolute path for a
  * WRITE, where the target file (and possibly some parent directories) may not yet
  * exist. Mirrors `resolveWorkspaceAbsolutePath`'s guarantees (see
- * `assistant-server/assistant-tools.ts`): ".." is clamped in
+ * `assistant-server/workspace-path-resolution.ts`): ".." is clamped in
  * `normalizeWorkspacePath`, and the canonical existing-ancestor path is
  * containment-checked against the canonical root so a symlinked directory
  * cannot redirect the write outside the workspace.
