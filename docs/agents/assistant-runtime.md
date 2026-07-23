@@ -34,6 +34,15 @@ below are LIVE.
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
+   Every initial, approval-resume, and suspended-tool-resume stream owns an
+   internal AbortController linked to the caller's signal. The watchdog rejects
+   with `StreamStalledError` first, then aborts that exact controller so provider
+   work cannot outlive the terminal stream without misclassifying the timeout as
+   a user cancellation. Stream teardown also aborts the controller before
+   disposal, preventing late provider progress/results from reaching a closed
+   consumer. For the built-in local provider this signal crosses
+   `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
+   pending request, and sends the hidden renderer's cancel command.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
@@ -245,7 +254,9 @@ defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - A local-runtime inactivity termination includes the normalized provider and
   selected model in both the structured error log and visible run failure. Do
-  not include bearer tokens or silently restart/unload the external server.
+  not include bearer tokens or silently restart/unload the external server. The
+  timeout aborts the exact active provider request; it never lengthens the
+  window or leaves generation running after the visible terminal failure.
 - Invariant: tool timeout < stream inactivity.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced

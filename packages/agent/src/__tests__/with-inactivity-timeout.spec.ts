@@ -30,4 +30,19 @@ describe('withInactivityTimeout', () => {
     }).rejects.toBeInstanceOf(StreamStalledError);
     expect(out).toEqual([1]); // the pre-stall item was delivered
   });
+
+  it('notifies the owner to cancel source work without changing the stall error', async () => {
+    let timeoutError: StreamStalledError | undefined;
+
+    await expect(async () => {
+      for await (const _value of withInactivityTimeout(stallAfterFirst(), 30, (error) => {
+        timeoutError = error;
+      })) {
+        // Drain until the source stalls.
+      }
+    }).rejects.toBeInstanceOf(StreamStalledError);
+
+    expect(timeoutError).toBeInstanceOf(StreamStalledError);
+    expect(timeoutError?.inactivityMs).toBe(30);
+  });
 });

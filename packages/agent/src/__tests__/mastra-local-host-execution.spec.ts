@@ -243,4 +243,121 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     expect(hostClient.requests[0]?.options?.maxNewTokens).toBe(2048);
     expect(hostClient.requests[0]?.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
   });
+
+  it('aborts the exact stalled host generation and permits the next local send', async () => {
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+
+    let activeGeneration = false;
+    let generationCount = 0;
+    let stalledSignal: AbortSignal | undefined;
+    const hostClient: LocalLlmHostClient = {
+      generate: (_request, options = {}) => {
+        generationCount += 1;
+        if (generationCount === 1) {
+          activeGeneration = true;
+          stalledSignal = options.signal;
+          return new Promise((_resolve, reject) => {
+            options.signal?.addEventListener(
+              'abort',
+              () => {
+                activeGeneration = false;
+                reject(new Error('Host generation aborted by stream watchdog.'));
+              },
+              { once: true }
+            );
+          });
+        }
+        if (activeGeneration) {
+          return Promise.reject(new Error('Previous host generation is still active.'));
+        }
+        options.onProgress?.({ kind: 'text', text: 'recovered' });
+        return Promise.resolve({
+          finishReason: 'stop',
+          text: 'recovered',
+          usage: USAGE,
+        });
+      },
+      warmup: vi.fn().mockResolvedValue(undefined),
+    };
+
+    try {
+      const stalledIterator = await streamMastraAgent(
+        [{ id: 'u-stalled-local', parts: [{ text: 'stall', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
+          },
+        }
+      );
+
+      const stalledChunks: StreamChunk[] = [];
+      for await (const chunk of stalledIterator) {
+        stalledChunks.push(chunk);
+      }
+
+      expect(stalledSignal).toBeDefined();
+      expect(stalledSignal?.aborted).toBe(true);
+      expect(activeGeneration).toBe(false);
+      expect(stalledChunks).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({
+            kind: 'run.failed',
+            metadata: expect.objectContaining({ code: 'stream_inactivity_timeout' }),
+          }),
+          type: 'run-event',
+        })
+      );
+      expect(stalledChunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
+
+      const recoveredIterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-recovered-local',
+            parts: [{ text: 'try again', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          runtime: {
+            localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
+          },
+        }
+      );
+      const recoveredChunks: StreamChunk[] = [];
+      for await (const chunk of recoveredIterator) {
+        recoveredChunks.push(chunk);
+      }
+
+      expect(
+        recoveredChunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+              chunk.type === 'text-delta'
+          )
+          .map((chunk) => chunk.value)
+          .join('')
+      ).toContain('recovered');
+      expect(generationCount).toBe(2);
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
+  });
 });

@@ -67,6 +67,16 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Restore the real stream/runtime surfaces replaced by the desktop-wide test
+// setup so this suite can prove the watchdog-to-manager cancellation chain.
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return { ...actual };
+});
+
+const { AssistantDataStreamSession, streamMastraAgent } = await import('@brainstrike/agent');
+
+import { createMainLlmHostClient } from '../assistant-server/local-llm-host-client';
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 
@@ -84,6 +94,22 @@ type TestableLlmHostManager = LlmHostManager & {
   pendingRequests: Map<string, unknown>;
   preCancelledRequestIds: Set<string>;
 };
+
+async function drainResponse(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Expected an assistant response body.');
+  }
+  const decoder = new TextDecoder();
+  let output = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return output;
+    }
+    output += decoder.decode(value, { stream: true });
+  }
+}
 
 describe('LlmHostManager', () => {
   function createRequester(id = 101): WebContents {
@@ -848,6 +874,138 @@ describe('LlmHostManager', () => {
           payload: expect.objectContaining({ kind: 'cancel', requestId }),
         })
       );
+    });
+
+    it('cancels the exact manager request when the real local stream watchdog fires', async () => {
+      const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+      const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+      process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+      process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '1000';
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      try {
+        const iterator = await streamMastraAgent(
+          [
+            {
+              id: 'watchdog-manager-user',
+              parts: [{ text: 'stall in the hidden host', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            runtime: {
+              localLlmHostClient: createMainLlmHostClient(manager),
+              model: 'onnx-community/gemma-4-E2B-it-ONNX',
+              provider: 'local',
+            },
+          }
+        );
+        const session = new AssistantDataStreamSession(iterator, () => {});
+        const bodyPromise = drainResponse(session.createResponse());
+
+        await vi.waitFor(() => {
+          expect(manager.pendingRequests.size).toBe(1);
+        });
+        const [stalledRequestId] = [...manager.pendingRequests.keys()];
+        expect(stalledRequestId).toMatch(/^main:/);
+
+        await vi.advanceTimersByTimeAsync(1001);
+
+        const body = await bodyPromise;
+        expect(body).toContain('The model stream stalled after 1000ms without output.');
+        expect(body).toContain('stream_inactivity_timeout');
+        expect(body).toContain('"finishReason":"error"');
+        expect(session.isClosed()).toBe(true);
+        expect(manager.getPlatformStatus()).toMatchObject({
+          active: false,
+          pendingRequestCount: 0,
+        });
+        expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              kind: 'cancel',
+              requestId: stalledRequestId,
+            }),
+          })
+        );
+
+        // A late host result for the terminal request has no pending owner and
+        // therefore cannot append to the already-closed UI stream.
+        manager.acceptResponseReport(71, {
+          channel: 'llm-result',
+          payload: {
+            result: {
+              finishReason: 'stop',
+              text: 'too late',
+              usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+            },
+          },
+          requestId: stalledRequestId ?? 'missing',
+          runtimeId: 'llm-host-runtime',
+          type: 'result',
+        });
+        expect(manager.pendingRequests.size).toBe(0);
+
+        const recoveredIterator = await streamMastraAgent(
+          [
+            {
+              id: 'watchdog-manager-retry',
+              parts: [{ text: 'retry', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            runtime: {
+              localLlmHostClient: createMainLlmHostClient(manager),
+              model: 'onnx-community/gemma-4-E2B-it-ONNX',
+              provider: 'local',
+            },
+          }
+        );
+        const recoveredSession = new AssistantDataStreamSession(recoveredIterator, () => {});
+        const recoveredBodyPromise = drainResponse(recoveredSession.createResponse());
+
+        await vi.waitFor(() => {
+          expect(manager.pendingRequests.size).toBe(1);
+        });
+        const [recoveredRequestId] = [...manager.pendingRequests.keys()];
+        expect(recoveredRequestId).not.toBe(stalledRequestId);
+        manager.acceptResponseReport(71, {
+          channel: 'llm-progress',
+          payload: { kind: 'text', text: 'recovered' },
+          requestId: recoveredRequestId ?? 'missing',
+          runtimeId: 'llm-host-runtime',
+          type: 'progress',
+        });
+        manager.acceptResponseReport(71, {
+          channel: 'llm-result',
+          payload: {
+            result: {
+              finishReason: 'stop',
+              text: 'recovered',
+              usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+            },
+          },
+          requestId: recoveredRequestId ?? 'missing',
+          runtimeId: 'llm-host-runtime',
+          type: 'result',
+        });
+
+        await expect(recoveredBodyPromise).resolves.toContain('recovered');
+        expect(manager.pendingRequests.size).toBe(0);
+      } finally {
+        if (previousToolTimeout === undefined) {
+          Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+        } else {
+          process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+        }
+        if (previousStreamInactivity === undefined) {
+          Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+        } else {
+          process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+        }
+      }
     });
 
     it('generateForMain throws immediately when the signal is already aborted', async () => {

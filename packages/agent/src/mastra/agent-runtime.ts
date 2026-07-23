@@ -2416,6 +2416,38 @@ interface StreamGeneratorParams {
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
   stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
+  streamAbortContext: StreamAbortContext;
+}
+
+interface StreamAbortContext {
+  abort: (reason: Error) => void;
+  dispose: () => void;
+  signal: AbortSignal;
+}
+
+function createStreamAbortContext(externalSignal: AbortSignal | undefined): StreamAbortContext {
+  const controller = new AbortController();
+  const forwardExternalAbort = (): void => {
+    controller.abort(externalSignal?.reason);
+  };
+
+  if (externalSignal?.aborted) {
+    forwardExternalAbort();
+  } else {
+    externalSignal?.addEventListener('abort', forwardExternalAbort, { once: true });
+  }
+
+  return {
+    abort: (reason) => {
+      if (!controller.signal.aborted) {
+        controller.abort(reason);
+      }
+    },
+    dispose: () => {
+      externalSignal?.removeEventListener('abort', forwardExternalAbort);
+    },
+    signal: controller.signal,
+  };
 }
 
 interface StreamResultLike {
@@ -2710,6 +2742,7 @@ async function* streamChunksFromMastra({
   runtime,
   runtimeData,
   stream,
+  streamAbortContext,
   sanitizedNameMap,
   resumedApprovalToolCall,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
@@ -2750,8 +2783,9 @@ async function* streamChunksFromMastra({
       };
     }
     const source = withInactivityTimeout(
-      readableStreamIterator(stream, runtimeData?.signal),
-      runtime.resilienceConfig.streamInactivityMs
+      readableStreamIterator(stream, streamAbortContext.signal),
+      runtime.resilienceConfig.streamInactivityMs,
+      (error) => streamAbortContext.abort(error)
     );
     for await (const part of source) {
       const { chunks, finished } = processMastraStreamPart(
@@ -2793,6 +2827,8 @@ async function* streamChunksFromMastra({
     }
     return;
   } finally {
+    streamAbortContext.abort(new Error('Mastra stream consumption ended.'));
+    streamAbortContext.dispose();
     logTokenDiagnostics(runtime, runtimeData, lifecycleState);
     logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
     await runtime.dispose();
@@ -2847,6 +2883,7 @@ async function createStreamIteratorFromRuntime({
   sanitizedNameMap,
 }: StreamIterationParams): Promise<StreamIterator> {
   const mastraMessages = convertMessagesToMastra(messages);
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
 
   try {
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
@@ -2854,7 +2891,7 @@ async function createStreamIteratorFromRuntime({
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
-      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      abortSignal: streamAbortContext.signal,
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
@@ -2904,10 +2941,13 @@ async function createStreamIteratorFromRuntime({
       promptBreakdown,
       runtime,
       stream: fullStream,
+      streamAbortContext,
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
   } catch (err) {
+    streamAbortContext.abort(new Error('Mastra stream construction failed.'));
+    streamAbortContext.dispose();
     return await handleStreamFailure(err, runtime);
   }
 }
@@ -3005,6 +3045,7 @@ async function createToolApprovalIteratorFromRuntime({
   requireToolApproval,
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<StreamIterator> {
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -3014,9 +3055,9 @@ async function createToolApprovalIteratorFromRuntime({
       toolCallId: string;
     } = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
+      abortSignal: streamAbortContext.signal,
       runId: action.runId,
       toolCallId: action.toolCallId,
-      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
@@ -3061,11 +3102,14 @@ async function createToolApprovalIteratorFromRuntime({
     return streamChunksFromMastra({
       runtime,
       stream: fullStream,
+      streamAbortContext,
       ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
   } catch (err) {
+    streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
+    streamAbortContext.dispose();
     return await handleStreamFailure(err, runtime);
   }
 }
@@ -3386,14 +3430,15 @@ async function createToolResumeIteratorFromRuntime({
   memory,
   sanitizedNameMap,
 }: ToolResumeIterationParams): Promise<StreamIterator> {
+  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
   try {
     validateToolResumeAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumeOptions = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
+      abortSignal: streamAbortContext.signal,
       runId: action.runId,
       toolCallId: action.toolCallId,
-      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
@@ -3428,10 +3473,13 @@ async function createToolResumeIteratorFromRuntime({
     return streamChunksFromMastra({
       runtime,
       stream: fullStream,
+      streamAbortContext,
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
   } catch (err) {
+    streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
+    streamAbortContext.dispose();
     return await handleStreamFailure(err, runtime);
   }
 }

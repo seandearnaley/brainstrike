@@ -174,6 +174,15 @@ Flow:
      (packages/agent/src/providers/local/llm-host-chat-model.ts) — a real
      LanguageModelV2 that converts cumulative host text/reasoning snapshots
      into incremental deltas. NEVER serialized over IPC/HTTP.
+   - The Mastra inactivity watchdog owns a run-scoped AbortController for every
+     initial/resumed stream. On a stall it preserves the visible
+     `stream_inactivity_timeout`, aborts the exact `generateForMain` signal,
+     removes that manager request, and sends the matching cancel id to the
+     hidden renderer. The renderer aborts only that generation, returns its
+     active status to idle when cleanup settles, and keeps the warmed host
+     reusable for the next send. Late progress/results have no pending manager
+     owner and are ignored; a watchdog timeout never requires a manual
+     `llmHost.stop()` or an engine reset.
    - Local memory models ride the same seam: 'local/<model>' observational
      memory targets resolve keyless to the proxy model; 'local/<model>'
      semantic-recall targets resolve to `createLocalHostEmbeddingModel`
