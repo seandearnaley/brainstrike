@@ -65,6 +65,7 @@ describe('frontier models migrations', () => {
       'qwen/qwen3-coder-next',
       'meta/muse-spark-1.1',
       'moonshotai/kimi-k3',
+      'inclusionai/ling-3.0-flash:free',
       'poolside/laguna-s-2.1',
       'poolside/laguna-xs-2.1',
       'google/gemini-3.6-flash',
@@ -127,6 +128,7 @@ describe('frontier models migrations', () => {
       'claude-sonnet-4-6',
       'gemini-3.5-flash',
       'gemini-embedding-2',
+      'inclusionai/ling-3.0-flash:free',
     ]) {
       expect(ids).not.toContain(id);
     }
@@ -316,7 +318,7 @@ describe('frontier models migrations', () => {
     await runner.up(migrations.filter((migration) => migration.version <= 70));
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
 
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 71));
 
     const rows = await db.query<{
       capabilities: { vision?: boolean };
@@ -401,6 +403,43 @@ describe('frontier models migrations', () => {
         id: 'meta/muse-spark-1.1',
         is_enabled: true,
         sort_order: 10,
+      },
+    ]);
+  });
+
+  it('adds Ling 3.0 Flash disabled without changing existing toggles', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 71));
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
+
+    await runner.up(migrations);
+
+    const rows = await db.query<{
+      capabilities: { vision?: boolean };
+      id: string;
+      is_enabled: boolean;
+      sort_order: number;
+    }>(`
+      SELECT id, capabilities, is_enabled, sort_order
+      FROM models
+      WHERE provider_id = 'openrouter'
+        AND id IN ('inclusionai/ling-3.0-flash:free', 'meta/muse-spark-1.1')
+      ORDER BY sort_order
+    `);
+    expect(rows.rows).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'inclusionai/ling-3.0-flash:free',
+        is_enabled: false,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'meta/muse-spark-1.1',
+        is_enabled: true,
+        sort_order: 11,
       },
     ]);
   });

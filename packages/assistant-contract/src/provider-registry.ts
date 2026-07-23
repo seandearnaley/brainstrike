@@ -610,6 +610,15 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        contextWindow: 262_144,
+        id: 'inclusionai/ling-3.0-flash:free',
+        label: 'Ling 3.0 Flash Free (OpenRouter)',
+        maxOutputTokens: 32_768,
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
         contextWindow: 1_048_576,
         id: 'poolside/laguna-s-2.1',
         label: 'Laguna S 2.1 (OpenRouter)',
