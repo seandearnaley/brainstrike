@@ -1431,7 +1431,9 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/200,000 context.*64,000 max output/)).toBeInTheDocument();
     expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
-    expect(screen.getByText(/Live metadata unavailable.*OpenRouter request failed/)).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /Live metadata unavailable.*OpenRouter request failed/
+    );
   });
 
   it('surfaces missing built-in OpenRouter limits instead of silently guessing', () => {

@@ -557,7 +557,11 @@ function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits |
       </p>
       <p>Source: {limits.sourceLabel}</p>
       {limits.outputWarning ? <p className="text-destructive">{limits.outputWarning}</p> : null}
-      {limits.statusMessage ? <p className="text-destructive">{limits.statusMessage}</p> : null}
+      {limits.statusMessage ? (
+        <p className="text-destructive" role="status">
+          {limits.statusMessage}
+        </p>
+      ) : null}
       {limits.warning ? (
         <p className="text-amber-700 dark:text-amber-300">
           Stale metadata warning: {limits.warning}
