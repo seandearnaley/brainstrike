@@ -60,6 +60,7 @@ import { migration067ThreadSearchIndex } from '../migrations/067-thread-search-i
 import { migration068ToolOutputArtifacts } from '../migrations/068-tool-output-artifacts.js';
 import { migration069RunUsageCacheTokens } from '../migrations/069-run-usage-cache-tokens.js';
 import { migration070MinimaxM3Vision } from '../migrations/070-minimax-m3-vision.js';
+import { migration071OpenRouterJulyCodingModels } from '../migrations/071-openrouter-july-coding-models.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -228,6 +229,10 @@ const customMigrations: Migration[] = [
   customMigration('custom-068-tool-output-artifacts', migration068ToolOutputArtifacts),
   customMigration('custom-069-run-usage-cache-tokens', migration069RunUsageCacheTokens),
   customMigration('custom-070-minimax-m3-vision', migration070MinimaxM3Vision),
+  customMigration(
+    'custom-071-openrouter-july-coding-models',
+    migration071OpenRouterJulyCodingModels
+  ),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
