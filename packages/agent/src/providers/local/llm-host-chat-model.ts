@@ -30,9 +30,16 @@ import {
   generateStreamPartId,
   mapFinishReason,
 } from './local-message-conversion';
+import { GEMMA4_E2B_MODEL_ID } from './local-model-specs';
 import type { LocalLlmGenerationResult, LocalLlmMessage } from './types';
 
 const logger = createLogger('LlmHostChatModel');
+
+function containsUnprojectedGemmaProtocol(snapshot: string): boolean {
+  return /<\|(?:channel|eos|tool_call|tool_response|turn)|<(?:channel|tool_call|tool_response|turn)\|>|<\/?eos(?:\s*\/)?>|<\/s>|<\|"\|>/i.test(
+    snapshot
+  );
+}
 
 export interface LlmHostChatModelSettings {
   maxNewTokens?: number;
@@ -54,14 +61,22 @@ interface PreparedGenerateRequest {
  */
 class SnapshotChannel {
   private emitted = '';
+  private failure: Error | undefined;
   private id: string | null = null;
 
   constructor(
     private readonly kind: 'reasoning' | 'text',
-    private readonly controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>
+    private readonly controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>,
+    private readonly validateGemmaProtocol: boolean
   ) {}
 
   acceptSnapshot(snapshot: string): void {
+    if (this.validateGemmaProtocol && containsUnprojectedGemmaProtocol(snapshot)) {
+      this.failure ??= new Error(
+        `Local llm host emitted unprojected Gemma protocol in a ${this.kind} snapshot.`
+      );
+      return;
+    }
     if (!snapshot || snapshot.length <= this.emitted.length) {
       return;
     }
@@ -82,6 +97,9 @@ class SnapshotChannel {
 
   /** Emit any remainder of the final authoritative text, then close the part. */
   finalize(finalText: string | undefined): void {
+    if (this.failure) {
+      throw this.failure;
+    }
     if (finalText && finalText.length > 0) {
       if (finalText.startsWith(this.emitted)) {
         const remainder = finalText.slice(this.emitted.length);
@@ -241,8 +259,13 @@ export class LlmHostChatModel implements LanguageModelV2 {
 
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start: async (controller) => {
-        const textChannel = new SnapshotChannel('text', controller);
-        const reasoningChannel = new SnapshotChannel('reasoning', controller);
+        const validateGemmaProtocol = modelId === GEMMA4_E2B_MODEL_ID;
+        const textChannel = new SnapshotChannel('text', controller, validateGemmaProtocol);
+        const reasoningChannel = new SnapshotChannel(
+          'reasoning',
+          controller,
+          validateGemmaProtocol
+        );
 
         controller.enqueue({ type: 'stream-start', warnings: [] });
 
@@ -276,8 +299,13 @@ export class LlmHostChatModel implements LanguageModelV2 {
           return;
         }
 
-        reasoningChannel.finalize(result.reasoningText);
-        textChannel.finalize(result.text);
+        try {
+          reasoningChannel.finalize(result.reasoningText);
+          textChannel.finalize(result.text);
+        } catch (error) {
+          controller.error(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
 
         if (result.toolCalls) {
           for (const toolCall of result.toolCalls) {

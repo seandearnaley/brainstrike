@@ -668,6 +668,39 @@ describe('LocalLlmBackend', () => {
     });
   });
 
+  it('does not promote tool protocol mentioned in Gemma reasoning into a tool call', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|channel|>thought\nI should use <|tool_call|>call:demo{x:1}<tool_call|> next.<channel|>Final answer',
+    ]);
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ content: 'Think before answering', role: 'user' }], {
+      thinking: { enabled: true },
+      tools: [
+        {
+          function: {
+            description: 'Demonstration tool',
+            name: 'demo',
+            parameters: {
+              properties: { x: { type: 'number' } },
+              required: ['x'],
+              type: 'object',
+            },
+          },
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(result.finishReason).toBe('stop');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.text).toBe('Final answer');
+  });
+
   it('streams official channel-delimited reasoning snapshots before the final answer', async () => {
     const backend = new LocalLlmBackend();
     const reasoningSnapshots: string[] = [];
@@ -1055,6 +1088,230 @@ Because they make up everything!<turn|>`,
       arguments: JSON.stringify({ topic: 'penguins' }),
       name: 'tell_joke',
     });
+  });
+
+  it('never publishes Gemma tool protocol while streaming a structured tool call', async () => {
+    const rawOutput =
+      '<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*<|"|>}<tool_call|><|tool_response>';
+    mockBatchDecode.mockReturnValue([rawOutput]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('<');
+      inputs.streamer?.callback_function?.('|tool_call>call:brainstrike_globWorkspace{pattern:');
+      inputs.streamer?.callback_function?.('<|"|>**/*<|"|>}<tool_call|>');
+      inputs.streamer?.callback_function?.('<|tool_response>');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+    const textSnapshots: string[] = [];
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ content: 'Inspect every root', role: 'user' }], {
+      stream: {
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      tools: [
+        {
+          function: {
+            description: 'Find files in connected workspace roots',
+            name: 'brainstrike_globWorkspace',
+            parameters: {
+              properties: {
+                pattern: { type: 'string' },
+              },
+              required: ['pattern'],
+              type: 'object',
+            },
+          },
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(textSnapshots).toEqual([]);
+    expect(result.text).toBe('');
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      arguments: JSON.stringify({ pattern: '**/*' }),
+      name: 'brainstrike_globWorkspace',
+    });
+  });
+
+  it('withholds a chunk-split tool marker after visible Gemma text', async () => {
+    const rawOutput =
+      'Inspecting.<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*<|"|>}<tool_call|>';
+    mockBatchDecode.mockReturnValue([rawOutput]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('Inspecting.');
+      inputs.streamer?.callback_function?.('<');
+      inputs.streamer?.callback_function?.(
+        '|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*<|"|>}<tool_call|>'
+      );
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+    const textSnapshots: string[] = [];
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ content: 'Inspect every root', role: 'user' }], {
+      stream: {
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      tools: [
+        {
+          function: {
+            description: 'Find files in connected workspace roots',
+            name: 'brainstrike_globWorkspace',
+            parameters: {
+              properties: {
+                pattern: { type: 'string' },
+              },
+              required: ['pattern'],
+              type: 'object',
+            },
+          },
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(textSnapshots).toEqual(['Inspecting.']);
+    expect(result.text).toBe('Inspecting.');
+    expect(result.toolCalls).toHaveLength(1);
+  });
+
+  it('fails visibly on unknown completed Gemma protocol tokens', async () => {
+    mockBatchDecode.mockReturnValue(['<|unknown_protocol>']);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('<|unknown_');
+      inputs.streamer?.callback_function?.('protocol>');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ content: 'Trigger malformed protocol', role: 'user' }])
+    ).rejects.toThrow('Unsupported Gemma protocol token');
+  });
+
+  it('fails visibly when final Gemma output truncates inside a tool call', async () => {
+    const truncatedOutput =
+      'Inspecting.<|tool_call>call:brainstrike_globWorkspace{pattern:<|"|>**/*';
+    mockBatchDecode.mockReturnValue([truncatedOutput]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.(truncatedOutput);
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ content: 'Inspect every root', role: 'user' }], {
+        tools: [
+          {
+            function: {
+              description: 'Find files in connected workspace roots',
+              name: 'brainstrike_globWorkspace',
+              parameters: {
+                properties: {
+                  pattern: { type: 'string' },
+                },
+                required: ['pattern'],
+                type: 'object',
+              },
+            },
+            type: 'function',
+          },
+        ],
+      })
+    ).rejects.toThrow('Incomplete Gemma tool-call protocol');
+  });
+
+  it('preserves ordinary XML-like argument names in Gemma text', async () => {
+    const output = 'Use <root_id> when qualifying the read.';
+    mockBatchDecode.mockReturnValue([output]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('Use <root_');
+      inputs.streamer?.callback_function?.('id> when qualifying the read.');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+    const textSnapshots: string[] = [];
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate(
+      [{ content: 'Explain how to qualify a workspace read', role: 'user' }],
+      {
+        stream: {
+          onTextSnapshot: (snapshot) => {
+            textSnapshots.push(snapshot);
+          },
+        },
+      }
+    );
+
+    expect(textSnapshots.at(-1)).toBe(output);
+    expect(result.text).toBe(output);
   });
 
   it('parses wrapped JSON tool calls with omitted arguments as empty objects', async () => {

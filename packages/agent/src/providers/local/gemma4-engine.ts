@@ -507,14 +507,14 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\r\n/g, '\n').trim();
 }
 
-function buildReasoningSplit(
+function projectReasoningSplit(
   reasoningText: string,
   text: string
 ): { reasoningText?: string; text: string } {
-  const normalizedReasoning = normalizeWhitespace(reasoningText);
+  const normalizedReasoning = normalizeWhitespace(projectGemmaVisibleText(reasoningText, false));
   return {
     ...(normalizedReasoning ? { reasoningText: normalizedReasoning } : {}),
-    text: normalizeWhitespace(stripGemmaControlTokens(text)),
+    text: normalizeWhitespace(projectGemmaVisibleText(text, false)),
   };
 }
 
@@ -529,31 +529,114 @@ const GEMMA_THOUGHT_CHANNEL_PREFIXES = [
 const GEMMA_THOUGHT_CHANNEL_SUFFIXES = ['<channel|>', '<|channel|>'] as const;
 const GEMMA_TURN_MARKERS = ['<turn|>', '<|turn|>'] as const;
 const GEMMA_EOS_MARKERS = ['</eos>', '<eos>', '<eos/>', '<eos />', '</s>', '<|eos|>'] as const;
+const GEMMA_TOOL_RESPONSE_MARKERS = [
+  '<|tool_response>',
+  '<|tool_response|>',
+  '<tool_response|>',
+] as const;
+const GEMMA_QUOTING_SENTINELS = ['<|"|>'] as const;
 const GEMMA_TOOL_CALL_BOUNDARIES = [
   { close: '<tool_call|>', open: '<|tool_call>' },
   { close: '<tool_call|>', open: '<|tool_call|>' },
   { close: '</tool_call>', open: '<tool_call>' },
 ] as const;
 
-function stripGemmaControlTokens(text: string): string {
-  const markers = [...GEMMA_TURN_MARKERS, ...GEMMA_EOS_MARKERS];
-  return markers.reduce((result, marker) => result.split(marker).join(''), text).trim();
+const GEMMA_STANDALONE_CONTROL_MARKERS = [
+  ...GEMMA_TURN_MARKERS,
+  ...GEMMA_EOS_MARKERS,
+  ...GEMMA_TOOL_RESPONSE_MARKERS,
+  ...GEMMA_QUOTING_SENTINELS,
+] as const;
+const GEMMA_STREAMING_PROTOCOL_PREFIXES = [
+  ...GEMMA_STANDALONE_CONTROL_MARKERS,
+  ...GEMMA_THOUGHT_CHANNEL_PREFIXES,
+  ...GEMMA_THOUGHT_CHANNEL_SUFFIXES,
+  ...GEMMA_TOOL_CALL_BOUNDARIES.flatMap(({ close, open }) => [open, close]),
+] as const;
+
+function findEarliestToolCallBoundary(
+  text: string,
+  fromIndex: number
+): { readonly close: string; readonly index: number; readonly open: string } | undefined {
+  let earliest:
+    | { readonly close: string; readonly index: number; readonly open: string }
+    | undefined;
+  for (const boundary of GEMMA_TOOL_CALL_BOUNDARIES) {
+    const index = text.indexOf(boundary.open, fromIndex);
+    if (index < 0 || (earliest && earliest.index <= index)) {
+      continue;
+    }
+    earliest = { ...boundary, index };
+  }
+  return earliest;
+}
+
+function stripCompleteGemmaToolCallBlocks(text: string): {
+  readonly projected: string;
+  readonly withheldProtocol: boolean;
+} {
+  let cursor = 0;
+  let projected = '';
+  for (;;) {
+    const boundary = findEarliestToolCallBoundary(text, cursor);
+    if (!boundary) {
+      projected += text.slice(cursor);
+      return { projected, withheldProtocol: false };
+    }
+    projected += text.slice(cursor, boundary.index);
+    const closeIndex = text.indexOf(boundary.close, boundary.index + boundary.open.length);
+    if (closeIndex < 0) {
+      return { projected, withheldProtocol: true };
+    }
+    cursor = closeIndex + boundary.close.length;
+  }
+}
+
+function removeKnownGemmaControlMarkers(text: string): string {
+  return GEMMA_STANDALONE_CONTROL_MARKERS.reduce(
+    (result, marker) => result.split(marker).join(''),
+    text
+  );
+}
+
+function findUnknownGemmaProtocolToken(text: string): string | undefined {
+  return text.match(/<\|[^>\r\n]+>|<[a-z_]+\|>/i)?.[0];
+}
+
+function withholdPartialGemmaProtocolSuffix(text: string): string {
+  const protocolStart = Math.max(text.lastIndexOf('<|'), text.lastIndexOf('<tool_'));
+  if (protocolStart >= 0 && text.indexOf('>', protocolStart) < 0) {
+    return text.slice(0, protocolStart);
+  }
+  const overlap = getBoundaryOverlap(text, GEMMA_STREAMING_PROTOCOL_PREFIXES);
+  return overlap > 0 ? text.slice(0, -overlap) : text;
+}
+
+/**
+ * One projection contract for cumulative snapshots and the authoritative
+ * decoded result. Complete tool calls are emitted separately as structured
+ * events; incomplete protocol is withheld until it can be classified. Known
+ * standalone markers are removed, while unknown completed protocol fails
+ * visibly instead of leaking into assistant text or being silently dropped.
+ */
+function projectGemmaVisibleText(text: string, streaming: boolean): string {
+  const toolProjection = stripCompleteGemmaToolCallBlocks(text);
+  if (toolProjection.withheldProtocol && !streaming) {
+    throw new Error('Incomplete Gemma tool-call protocol in final generated output.');
+  }
+  let projected = removeKnownGemmaControlMarkers(toolProjection.projected);
+  const unknownToken = findUnknownGemmaProtocolToken(projected);
+  if (unknownToken) {
+    throw new Error(`Unsupported Gemma protocol token in generated output: ${unknownToken}`);
+  }
+  if (streaming && !toolProjection.withheldProtocol) {
+    projected = withholdPartialGemmaProtocolSuffix(projected);
+  }
+  return projected.trim();
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function stripGemmaToolCallBlocks(text: string): string {
-  let result = text;
-  for (const boundary of GEMMA_TOOL_CALL_BOUNDARIES) {
-    const blockPattern = new RegExp(
-      `${escapeRegExp(boundary.open)}[\\s\\S]*?${escapeRegExp(boundary.close)}`,
-      'g'
-    );
-    result = result.replace(blockPattern, '');
-  }
-  return result.trim();
 }
 
 function findBoundaryAtStart(text: string, boundaries: readonly string[]): string | null {
@@ -601,7 +684,10 @@ function getBoundaryOverlap(text: string, boundaries: readonly string[]): number
   return maxOverlap;
 }
 
-function splitAnswerFromReasoningBlock(text: string): { reasoningText?: string; text: string } {
+function splitRawAnswerFromReasoningBlock(text: string): {
+  reasoningText?: string;
+  text: string;
+} {
   const normalized = normalizeWhitespace(text);
   if (!normalized) {
     return { text: '' };
@@ -619,13 +705,13 @@ function splitAnswerFromReasoningBlock(text: string): { reasoningText?: string; 
     }
     const answerPrefix = normalized.slice(0, prefixIndex);
     const answerSuffix = remainder.slice(suffixMatch.index + suffixMatch.boundary.length);
-    return buildReasoningSplit(
-      remainder.slice(0, suffixMatch.index),
-      `${answerPrefix}${answerSuffix}`
-    );
+    return {
+      reasoningText: remainder.slice(0, suffixMatch.index),
+      text: `${answerPrefix}${answerSuffix}`,
+    };
   }
 
-  return { text: stripGemmaControlTokens(normalized) };
+  return { text: normalized };
 }
 
 function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
@@ -871,21 +957,17 @@ function advanceJsonStringState(
 
 class Gemma4StreamAccumulator {
   private answer = '';
+  private finalized = false;
   private mode: 'answer' | 'detect' | 'reasoning' = 'detect';
   private pending = '';
   private reasoning = '';
-
-  constructor(thinkingEnabled: boolean) {
-    if (!thinkingEnabled) {
-      this.mode = 'answer';
-    }
-  }
 
   append(chunk: string): { reasoningText?: string; text: string } {
     if (!chunk) {
       return this.snapshot();
     }
 
+    this.finalized = false;
     this.pending += chunk;
 
     while (this.pending.length > 0) {
@@ -951,19 +1033,27 @@ class Gemma4StreamAccumulator {
     return false;
   }
 
-  finalize(fullRawText: string): { reasoningText?: string; text: string } {
-    const parsed = splitAnswerFromReasoningBlock(fullRawText);
+  finalize(fullRawText: string): {
+    rawAnswerText: string;
+    reasoningText?: string;
+    text: string;
+  } {
+    const rawSplit = splitRawAnswerFromReasoningBlock(fullRawText);
+    const parsed = projectReasoningSplit(rawSplit.reasoningText ?? '', rawSplit.text);
     this.reasoning = parsed.reasoningText ?? '';
     this.answer = parsed.text;
+    this.finalized = true;
     this.pending = '';
     this.mode = 'answer';
-    return this.snapshot();
+    return { ...this.snapshot(), rawAnswerText: rawSplit.text };
   }
 
   snapshot(): { reasoningText?: string; text: string } {
+    const streaming = !this.finalized;
+    const projectedReasoning = projectGemmaVisibleText(this.reasoning, streaming);
     return {
-      ...(this.reasoning ? { reasoningText: normalizeWhitespace(this.reasoning) } : {}),
-      text: stripGemmaControlTokens(this.answer),
+      ...(projectedReasoning ? { reasoningText: normalizeWhitespace(projectedReasoning) } : {}),
+      text: projectGemmaVisibleText(this.answer, streaming),
     };
   }
 }
@@ -1010,7 +1100,11 @@ function countTokens(tokenizer: TokenizerLike, text: string): number {
 }
 
 interface GemmaStreamingState {
-  finalize: (rawText: string) => { reasoningText?: string; text: string };
+  finalize: (rawText: string) => {
+    rawAnswerText: string;
+    reasoningText?: string;
+    text: string;
+  };
   readonly rawParts: string[];
   readonly streamer: GemmaTextStreamer;
 }
@@ -1024,11 +1118,10 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 function createGemmaStreamingState(
   transformers: TransformersModule,
   tokenizer: unknown,
-  thinkingEnabled: boolean,
   options: LocalLlmGenerationOptions
 ): GemmaStreamingState {
   const rawParts: string[] = [];
-  const streamAccumulator = new Gemma4StreamAccumulator(thinkingEnabled);
+  const streamAccumulator = new Gemma4StreamAccumulator();
   let lastReasoningSnapshot = '';
   let lastTextSnapshot = '';
 
@@ -1192,7 +1285,6 @@ export class Gemma4Engine {
       const streamingState = createGemmaStreamingState(
         this.transformers,
         this.processor.tokenizer.raw,
-        options.thinking?.enabled ?? true,
         options
       );
 
@@ -1217,9 +1309,8 @@ export class Gemma4Engine {
       });
       const rawText = decoded[0] ?? streamingState.rawParts.join('');
       const parsedOutput = streamingState.finalize(rawText);
-      const text = parsedOutput.text;
-      const toolCalls = parseGenericToolCall(text);
-      const visibleText = stripGemmaToolCallBlocks(text);
+      const toolCalls = parseGenericToolCall(parsedOutput.rawAnswerText);
+      const visibleText = parsedOutput.text;
       stage = 'count-tokens';
       const promptTokens = countTokens(this.processor.tokenizer, promptText);
       const completionTokens = countTokens(this.processor.tokenizer, visibleText);

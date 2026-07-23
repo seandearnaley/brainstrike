@@ -84,6 +84,66 @@ function createScriptedHostClient(
   };
 }
 
+function createGlobThenReadHostClient(): LocalLlmHostClient & {
+  requests: LocalLlmHostGenerateRequest[];
+} {
+  const requests: LocalLlmHostGenerateRequest[] = [];
+  return {
+    generate: (
+      request: LocalLlmHostGenerateRequest,
+      options: LocalLlmHostRequestOptions = {}
+    ): Promise<LocalLlmGenerationResult> => {
+      requests.push(request);
+      const completedToolNames = request.messages.flatMap(
+        (message) => message.toolResponses?.map((response) => response.name) ?? []
+      );
+      if (!completedToolNames.includes('brainstrike_globWorkspace')) {
+        return Promise.resolve({
+          finishReason: 'tool_calls',
+          text: '',
+          toolCalls: [
+            {
+              function: {
+                arguments: JSON.stringify({ pattern: '**/README.md' }),
+                name: 'brainstrike_globWorkspace',
+              },
+              id: 'call-glob-readme',
+              type: 'function',
+            },
+          ],
+          usage: USAGE,
+        });
+      }
+      if (!completedToolNames.includes('brainstrike_readWorkspaceFile')) {
+        return Promise.resolve({
+          finishReason: 'tool_calls',
+          text: '',
+          toolCalls: [
+            {
+              function: {
+                arguments: JSON.stringify({ path: 'README.md' }),
+                name: 'brainstrike_readWorkspaceFile',
+              },
+              id: 'call-read-readme',
+              type: 'function',
+            },
+          ],
+          usage: USAGE,
+        });
+      }
+      options.onProgress?.({ kind: 'text', text: 'Marker: ' });
+      options.onProgress?.({ kind: 'text', text: 'Marker: NORTHWIND-LIVE-LOOP' });
+      return Promise.resolve({
+        finishReason: 'stop',
+        text: 'Marker: NORTHWIND-LIVE-LOOP',
+        usage: USAGE,
+      });
+    },
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 async function createWorkspaceFixture(): Promise<string> {
   const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-glob-live-'));
   await fsPromises.mkdir(path.join(root, 'src', 'components'), { recursive: true });
@@ -116,6 +176,7 @@ async function createWorkspaceFixture(): Promise<string> {
   );
   await fsPromises.writeFile(path.join(root, 'dist', 'bundle.test.ts'), 'noop\n', 'utf8');
   await fsPromises.writeFile(path.join(root, '.git', 'config.test.ts'), 'noop\n', 'utf8');
+  await fsPromises.writeFile(path.join(root, 'README.md'), '# NORTHWIND-LIVE-LOOP\n', 'utf8');
   return root;
 }
 
@@ -175,6 +236,64 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
       // Non-matching source (main.ts, button.tsx) is excluded by the pattern.
       expect(serialized).not.toContain('/src/main.ts');
       expect(serialized).not.toContain('button.tsx');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('executes one structured glob then one structured README read before answering', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    try {
+      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const hostClient = createGlobThenReadHostClient();
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-glob-read',
+            parts: [{ text: 'Find and read the workspace README', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          runtime: {
+            localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
+            providerOptions: { local: { thinking: { enabled: false } } },
+          } as RuntimeData,
+          tools: {
+            'brainstrike.globWorkspace': tools['brainstrike.globWorkspace'],
+            'brainstrike.readWorkspaceFile': tools['brainstrike.readWorkspaceFile'],
+          },
+        }
+      );
+
+      let completedToolCount = 0;
+      let finalText = '';
+      const toolEvents: unknown[] = [];
+      for await (const chunk of iterator) {
+        if (chunk.type === 'run-event' && chunk.event.kind === 'tool.completed') {
+          completedToolCount += 1;
+        } else if (chunk.type === 'text-delta') {
+          finalText += chunk.value;
+        } else if (chunk.type === 'tool-event') {
+          toolEvents.push(chunk);
+        }
+      }
+
+      expect(hostClient.requests).toHaveLength(3);
+      expect(completedToolCount).toBe(2);
+      const completedToolNames = hostClient.requests.flatMap((request) =>
+        request.messages.flatMap(
+          (message) => message.toolResponses?.map((response) => response.name) ?? []
+        )
+      );
+      expect(new Set(completedToolNames)).toEqual(
+        new Set(['brainstrike_globWorkspace', 'brainstrike_readWorkspaceFile'])
+      );
+      expect(JSON.stringify(toolEvents)).toContain('NORTHWIND-LIVE-LOOP');
+      expect(finalText).toBe('Marker: NORTHWIND-LIVE-LOOP');
+      expect(finalText).not.toMatch(/<\||<tool_|<channel\|>/);
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
