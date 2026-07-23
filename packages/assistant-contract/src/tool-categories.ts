@@ -372,7 +372,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   [NATIVE_TOOL_ID.writeWorkspaceFile]: {
     category: 'action',
     estimatedTokens: 140,
-    loadingTier: 'deferred',
+    loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
   },

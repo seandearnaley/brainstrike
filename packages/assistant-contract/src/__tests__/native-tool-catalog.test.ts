@@ -34,6 +34,13 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
 ] as const;
 
 const EXPECTED_SKILL_NATIVE_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
+const EXPECTED_LOCAL_DESKTOP_NATIVE_TOOL_IDS = [
+  'brainstrike.executeCommand',
+  'brainstrike.globWorkspace',
+  'brainstrike.grepSearch',
+  'brainstrike.readWorkspaceFile',
+  'brainstrike.stringReplaceWorkspaceFile',
+] as const;
 
 function readCanonicalIds(exportName: string): readonly string[] {
   const value = Reflect.get(assistantContract, exportName);
@@ -79,15 +86,8 @@ describe('native tool catalog', () => {
       )
     );
     expect(webIds).toHaveLength(24);
-    expect(localDesktopIds).toEqual(
-      desktopIds.filter(
-        (id) =>
-          NATIVE_TOOL_DEFAULTS[id as keyof typeof NATIVE_TOOL_DEFAULTS].loadingTier ===
-            'critical' &&
-          id !== 'brainstrike.askUser' &&
-          id !== 'brainstrike.submitPlan'
-      )
-    );
+    expect(localDesktopIds).toEqual(EXPECTED_LOCAL_DESKTOP_NATIVE_TOOL_IDS);
+    expect(localDesktopIds).not.toContain('brainstrike.writeWorkspaceFile');
     expect(localDesktopIds).toHaveLength(5);
   });
 

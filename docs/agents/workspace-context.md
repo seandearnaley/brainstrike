@@ -557,6 +557,11 @@ Prompt compaction MUST preserve these semantics:
 - **Progressive reads:** use the cheapest discovery verb first, then read only
   the needed ranges. Continue bounded/truncated results with their advertised
   offset or range, and issue independent reads in parallel where safe.
+- **Create vs edit:** `writeWorkspaceFile` remains initially visible so a
+  direct create-new-file request never depends on the model discovering a
+  deferred primitive. It stays edit-risk and approval-gated. A replace attempt
+  against a missing file returns a trusted input error directing the model to
+  the write tool; replacement is never silently reinterpreted as creation.
 - **Command safety:** `executeCommand` is unsandboxed. Prefer read-only
   commands, and run destructive commands only when the user explicitly asks
   for that exact action.

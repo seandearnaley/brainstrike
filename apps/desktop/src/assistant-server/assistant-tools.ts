@@ -50,6 +50,7 @@ import {
   isDesktopNativeToolId,
   NATIVE_TOOL_ID,
   TOOL_DESCRIPTIONS,
+  ToolInputError,
 } from '@brainstrike/assistant-contract';
 import {
   EmbeddingSetsRepository,
@@ -1254,10 +1255,20 @@ async function runStringReplaceWorkspaceFile(
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
     // edit inherits PR-2.1's path-escape protection on the read side too.
-    const file = await readWorkspaceTextFile({
-      requestedPath: input.path,
-      rootPath: root.path,
-    });
+    let file: Awaited<ReturnType<typeof readWorkspaceTextFile>>;
+    try {
+      file = await readWorkspaceTextFile({
+        requestedPath: input.path,
+        rootPath: root.path,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new ToolInputError(
+          'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.'
+        );
+      }
+      throw error;
+    }
 
     // Staleness compare (report R8): oldStr/newStr were crafted from what this
     // scope last observed. If disk moved past that observation, applying the

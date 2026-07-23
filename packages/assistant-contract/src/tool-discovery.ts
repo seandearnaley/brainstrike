@@ -72,7 +72,6 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
       NATIVE_TOOL_ID.deleteWorkspaceFile,
       NATIVE_TOOL_ID.manageTaskList,
       NATIVE_TOOL_ID.renameWorkspaceFile,
-      NATIVE_TOOL_ID.writeWorkspaceFile,
     ],
   },
 } as const satisfies Record<NativeToolDiscoveryNamespace, NativeToolDiscoveryNamespaceDefinition>;
