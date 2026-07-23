@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -216,6 +217,50 @@ const packages = workspacePackageDirs().map(({ dir, group }) => {
   };
 });
 const packagesByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
+
+test('root clean routes every package clean script through an uncached Turbo task', () => {
+  const rootManifest = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.equal(
+    rootManifest.scripts.clean,
+    'node scripts/run-turbo-command.mjs -- run clean --summarize --log-order=grouped'
+  );
+
+  const dryRun = JSON.parse(
+    execFileSync('pnpm', ['exec', 'turbo', 'run', 'clean', '--dry=json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        TURBO_TELEMETRY_DISABLED: '1',
+      },
+    })
+  );
+  const runnableTasks = dryRun.tasks.filter((task) => task.command !== '<NONEXISTENT>');
+  const actualCleanPackages = runnableTasks.map((task) => task.package).sort();
+  const expectedCleanPackages = packages
+    .filter((pkg) => pkg.scripts.clean !== undefined)
+    .map((pkg) => pkg.name)
+    .sort();
+
+  assert.deepEqual(
+    actualCleanPackages,
+    expectedCleanPackages,
+    'Turbo must discover every workspace package that declares a clean script'
+  );
+  for (const task of dryRun.tasks) {
+    assert.deepEqual(
+      task.resolvedTaskDefinition.dependsOn,
+      [],
+      `${task.taskId} must stay independent`
+    );
+    assert.equal(task.resolvedTaskDefinition.cache, false, `${task.taskId} must never be cached`);
+    assert.deepEqual(
+      task.resolvedTaskDefinition.outputs,
+      [],
+      `${task.taskId} must declare no outputs`
+    );
+  }
+});
 
 test('every package clean script matches the canonical rimraf form', () => {
   const violations = [];
