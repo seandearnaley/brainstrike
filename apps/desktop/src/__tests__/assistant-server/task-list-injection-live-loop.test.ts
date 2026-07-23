@@ -55,6 +55,9 @@ vi.mock('../../secrets', () => ({
 
 vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
+}));
+
+vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
   readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
 }));
 
