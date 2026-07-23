@@ -20,7 +20,9 @@ Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
 Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 (deterministic evidence collectors + step ordering; see PROTOCOL.md
 "Execution skills" for the authority ordering). PR-authoring loops share
-`.agents/skills/brainstrike-pr-loop/` for stewardship mechanics.
+`.agents/skills/brainstrike-pr-loop/` for stewardship mechanics, and every
+loop shares `.agents/skills/night-shift-checkpoint/` (the executable
+checkpoint-grammar validator; run it before posting any checkpoint).
 
 ## Roster
 
@@ -54,9 +56,39 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
   and out-of-scope feedback becomes a linked Linear ticket. Bolt's charter
   adds its reviewer-subagent specifics on top of this baseline.
 
+- STEWARD WAKES (PROTOCOL.md "PR stewardship"). Discovery cadence and
+  stewardship cadence are decoupled: every PR-authoring loop also gets a
+  steward-only scheduled task so review comments and check failures that
+  land after a wake's opening burst are answered within hours, not at the
+  next weekly discovery wake. Scheduler prompt shape:
+  `STEWARD WAKE for <Name>: read .night-shift/PROTOCOL.md (PR stewardship,
+  steward-wake rules) and .night-shift/charters/<name>.md, then reconcile
+  your open PR only.` All run at hours 0,6,12,18 UTC with offset minutes;
+  the protocol's newest-checkpoint-vs-budget guard prevents overlap with a
+  still-running discovery wake:
+
+  | loop | steward cron (UTC) |
+  | --- | --- |
+  | axiom | `3 0,6,12,18 * * *` |
+  | curator | `5 0,6,12,18 * * *` |
+  | scribe | `9 0,6,12,18 * * *` |
+  | forge | `11 0,6,12,18 * * *` |
+  | ledger | `15 0,6,12,18 * * *` |
+  | gauntlet | `17 0,6,12,18 * * *` |
+  | warden | `21 0,6,12,18 * * *` |
+  | pruner | `27 0,6,12,18 * * *` |
+  | quartermaster | `33 0,6,12,18 * * *` |
+  | bolt | `39 0,6,12,18 * * *` |
+  | sentinel | `45 0,6,12,18 * * *` |
+  | palette | `51 0,6,12,18 * * *` |
+  | librarian | `57 0,6,12,18 * * *` |
+
 - Cadences are pre-staggered (offset-minute house style). Monday's chain
   composes: axiom → scribe → ledger → warden each benefit from the previous
-  one's output landing first.
+  one's output landing first. If the scheduler ever supports
+  trigger-on-completion, chain them on completion instead of clock offsets —
+  a loop that overruns its budget currently degrades the chain to
+  independent runs silently.
 - First run of each loop has an empty watermark — expect a bigger initial
   sweep; consider temporarily doubling budgets.
 - One-PR-per-loop plus distinct territories should prevent collisions; the
@@ -92,4 +124,25 @@ Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
   metrics from successful performance.yml runs first), Recall Bench (needs a
   committed fixture corpus + baseline recall@k metrics first), Cartographer
   (drafts contract docs for undocumented subsystems; deferred until the
-  Librarian has accumulated a few weeks of fleet data).
+  Librarian has accumulated a few weeks of fleet data), and the meta tier —
+  each deliberately deferred until ~2 weeks of fleet history exists to score:
+  - Auditor (outcome scoreboard): weekly, per loop keyed by CHARTER_VERSION —
+    PR acceptance rate, time-to-READY, human-edits-after-merge, finding
+    acceptance vs wontfix, NOOP ratio vs budget spent; low precision → a
+    charter-amendment proposal ticket with the evidence. Charters still only
+    change via human-merged PR.
+  - Constitutional loop: monthly, reads all checkpoints/anomalies/bulletin
+    and drafts ONE PROTOCOL.md amendment PR with fleet-history evidence.
+    Kept separate from Chronicle so the monitor never grades its own
+    homework.
+  - Two-phase wake economics: Assay (2h) and Magnify (4h) mostly NOOP on
+    opus-class models; a deterministic cheap probe (collector + watermark
+    compare) should gate whether the expensive model wakes at all.
+  - Event-driven steward triggers: a workflow on pull_request_review /
+    check_suite events for night-shift/* branches pinging the scheduler,
+    replacing polling steward wakes. Must never create a check run
+    (required-check masking, docs/agents/ci-quality.md) — trigger only.
+  - Shared evidence bakery: one nightly workflow publishing knip/doctor/
+    dependency-report artifacts that pruner/quartermaster/watch collectors
+    consume instead of re-running full scans per loop. Reconcile with the
+    ci-quality "no generated proof artifacts" ruling before building.

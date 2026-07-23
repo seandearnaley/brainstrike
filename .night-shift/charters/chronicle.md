@@ -51,23 +51,35 @@ Beat 2 — fleet health rules (each violation is an anomaly):
 - STALE BLOCKED: a BLOCKED checkpoint whose stated blocker is provably
   resolved (e.g. the blocking ticket closed) with no later checkpoint.
 - MALFORMED CHECKPOINT: newest checkpoint on any state issue that does
-  not parse against the protocol grammar.
-- STALLED HANDOFF: a READY PR unmerged >72h, or a needs-human ticket
+  not parse against the protocol grammar (the executable grammar is
+  $night-shift-checkpoint's validate-checkpoint.mjs; checkpoints
+  predating the typed-watermark grammar are legacy and exempt).
+- STALLED STEWARDSHIP: a night-shift PR carrying an unresolved review
+  thread or a failing check whose collector `lastCommitAt` is >24h old.
+  The owning loop's steward wake should have caught it; the anomaly
+  means stewardship itself has stalled.
+- STUCK LOOP: three or more consecutive checkpoints on one state issue
+  with status INCOMPLETE or BLOCKED whose one-line messages state the
+  same next action (normalize whitespace before comparing) — a loop
+  burning wakes against a wall.
+- STALLED HANDOFF: a READY PR unmerged >72h, a needs-human ticket that
+  a loop is BLOCKED on untouched >48h, or any other needs-human ticket
   untouched >7 days (report in the digest; see below for which get
   tickets).
 Anomalies are facts with evidence links, never blame.
 
 Beat 3 — file anomaly tickets, deduplicated by fingerprint
 `chronicle:fleet:<loop-or-surface>:<anomaly-class>`: MISSED WAKE,
-NO FOOTPRINT, STALE BLOCKED, and MALFORMED CHECKPOINT get tickets
-(label night-shift, loop:chronicle, plus needs-human when only the
-human can act — e.g. scheduler-side failures you cannot see into).
+NO FOOTPRINT, STALE BLOCKED, MALFORMED CHECKPOINT, STALLED
+STEWARDSHIP, and STUCK LOOP get tickets (label night-shift,
+loop:chronicle, plus needs-human when only the human can act — e.g.
+scheduler-side failures you cannot see into).
 STALLED HANDOFF items are digest lines only — the human already has a
 ticket or PR for the underlying work; a second ticket is noise.
 
 Beat 4 — write the digest: maintain ONE Linear issue
 "[shift-report] Chronicle digest" whose description you fully overwrite
-each run (marked generated), max ~40 lines:
+each run (marked generated), max ~50 lines:
 1. SHIPPED: night-shift PRs merged in the window, one line each.
 2. WAITING ON YOU: open needs-human tickets and READY PRs, oldest
    first, each with a one-line "what deciding unblocks".
@@ -77,11 +89,18 @@ each run (marked generated), max ~40 lines:
    open severity-high finding.
 5. NIGHTLIES: latest conclusion per scheduled stream (red streaks get
    their covering ticket linked, e.g. Sweep's consolidated ticket).
+6. FORGE QUEUE: count of open `agent-ready` tickets. When zero, up to
+   three nominated candidates — open night-shift findings that read as
+   Forge-eligible per charters/forge.md's gate (acceptance criteria
+   concrete enough for a failing test, outside Assay risk-4 territory)
+   — each with a one-line "label it and Forge implements it tonight".
+   You nominate; only the human applies the label, ever.
 Plain factual prose. No exhortations, no emoji, no editorializing
 beyond ordering by importance.
 
-Beat 5 — checkpoint. Watermark = window-end UTC timestamp plus the set
-of state-issue checkpoint timestamps observed at their newest. Your own
+Beat 5 — checkpoint. Watermark = `hash:` sha256 of the window-end UTC
+timestamp plus the sorted set of state-issue checkpoint timestamps
+observed at their newest (per the protocol's typed grammar). Your own
 durable observations (e.g. a recurring anomaly class worth a protocol
 change) go through pending-learnings, and a protocol-change suggestion
 is a ticket for the human — you never edit PROTOCOL.md.

@@ -427,6 +427,29 @@ function collectReviewThreads(repo, repository, prNumber) {
   return unresolvedThreads;
 }
 
+function latestCommitAt(repo, prNumber) {
+  const payload = runJson('gh', ['pr', 'view', String(prNumber), '--json', 'commits'], repo);
+  if (!(payload && Array.isArray(payload.commits)) || payload.commits.length === 0) {
+    fail(`PR #${prNumber} did not report commits`);
+  }
+  let latest = null;
+  for (const commit of payload.commits) {
+    if (
+      !commit ||
+      typeof commit !== 'object' ||
+      typeof commit.committedDate !== 'string' ||
+      !Number.isFinite(Date.parse(commit.committedDate))
+    ) {
+      fail(`PR #${prNumber} returned a malformed commit`);
+    }
+    const committedAt = new Date(commit.committedDate);
+    if (!latest || committedAt.getTime() > latest.getTime()) {
+      latest = committedAt;
+    }
+  }
+  return latest.toISOString();
+}
+
 function summarizeChecks(repo, prNumber) {
   const payload = runJson(
     'gh',
@@ -503,6 +526,7 @@ function collectPullRequests(repo, repository, windowStart, windowEnd) {
     .map((pr) => ({
       ...pr,
       checks: summarizeChecks(repo, pr.number),
+      lastCommitAt: latestCommitAt(repo, pr.number),
       unresolvedThreads: collectReviewThreads(repo, repository, pr.number),
     }));
   return { merged, open, opened };

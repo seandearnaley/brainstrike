@@ -14,7 +14,15 @@ protocol; their charters in charters/ are the deployed source of truth.
   open PRs under your name → repository HEAD → your Linear state issue
   (`[automation-state] <Name>`, label `night-shift`) → nothing.
 - State checkpoints are APPEND-ONLY comments on your state issue:
-  `<UTC-ISO> | watermark=<sha> | status=<NOOP|PR|READY|INCOMPLETE|BLOCKED> | <one line>`.
+  `<UTC-ISO> | watermark=<kind>:<value> | status=<NOOP|PR|READY|INCOMPLETE|BLOCKED> | <one line>`.
+  Timestamp is second-precision UTC (no milliseconds). Watermark kinds:
+  `sha:<40-hex>` (MAIN-DIFF loops), `hash:<64-hex>` (EXTERNAL-STATE loops:
+  sha256 of your sorted, serialized watched set), or `none` (first run
+  only) — never a bare untyped value, never multi-line, never JSON.
+  Before posting, validate the composed line with
+  `node .agents/skills/night-shift-checkpoint/scripts/validate-checkpoint.mjs "<line>"`
+  ($night-shift-checkpoint); a rejected line is never posted. Checkpoints
+  predating this grammar are legacy — read them, never rewrite them.
   Never edit the issue description or prior comments.
   PR = opened or still stewarding an open PR; READY = that PR is stable and
   ready to merge (see PR stewardship); INCOMPLETE = budget or cycle cap hit,
@@ -24,15 +32,19 @@ protocol; their charters in charters/ are the deployed source of truth.
   real work. The watermark's SHAPE depends on where your work comes from:
   - MAIN-DIFF loops (axiom, scribe, ledger, warden, pruner, quartermaster,
     bolt, sentinel, palette) watch the code on `main`. Watermark = last main
-    SHA fully swept. At wake, diff `<watermark>..origin/main`; empty range +
-    no open PR of yours + no reopened ticket of yours → NOOP checkpoint and
-    exit.
+    SHA fully swept, recorded as `sha:<sha>`. At wake, diff
+    `<watermark>..origin/main`; empty range + no open PR of yours + no
+    reopened ticket of yours → NOOP checkpoint and exit.
   - EXTERNAL-STATE loops watch something other than the main diff and must
     NOT exit just because `main` didn't advance — their inputs change on a
-    different clock. Assay/Magnify watch open-PR heads (watermark = set of
-    `<pr,head-sha>` already processed); Watch watches workflow-run IDs;
-    Sweep watches its open ticket set. Each exits NOOP only when ITS own
-    watched set is unchanged since last run, never on the main diff.
+    different clock. Assay/Magnify watch open-PR heads (watched set = the
+    `<pr,head-sha>` pairs already processed); Watch watches workflow-run
+    IDs; Sweep watches its open ticket set. The watermark is always
+    `hash:<sha256>` of the sorted, serialized watched set — per-item state
+    (which run, which ticket, which head) lives where the work lives (the
+    tickets, the PR comments), never inside the watermark. Each loop exits
+    NOOP only when ITS own watched-set hash is unchanged since last run,
+    never on the main diff.
   In all cases: an unchanged watched set means NOOP, and NOOP is success —
   but an open PR of yours is ALWAYS part of your watched set: while it has
   failing checks, unreplied review comments, or unresolved threads, you are
@@ -60,19 +72,36 @@ costs the human triage time and poisons trust in every other loop's PRs.
   fingerprinted Linear ticket (normal ticket rules), linked in your reply,
   then resolve the thread. Deferral must leave a trail, not a dangling
   thread.
-- Failing checks on your HEAD are yours: diagnose and fix, batching known
-  fixes into one push. Checks failing for external reasons (infra outage,
-  unrelated main breakage) → `needs-human` ticket + checkpoint BLOCKED;
-  do not churn retries against an external failure.
+- Failing checks on your HEAD are yours — but REQUIRED and ADVISORY are
+  handled differently. Required-check failures: diagnose and fix, batching
+  known fixes into one push. A failing non-required check (coverage deltas,
+  third-party deploy rate limits) gets exactly ONE evidence-bearing reply
+  comment on the PR — what failed, why it does not block, or the follow-up
+  ticket — never silence, never retry churn. Checks failing for external
+  reasons (infra outage, unrelated main breakage) → `needs-human` ticket +
+  checkpoint BLOCKED; do not churn retries against an external failure.
 - Repeat the reconcile after every push. The PR is stable only when, for
-  one HEAD simultaneously: required checks green, every thread replied AND
-  resolved, working tree clean. Then checkpoint `status=READY` and hand
-  off. Cap of six fix/push cycles per run; on hitting it, checkpoint
+  one HEAD simultaneously: required checks green, every advisory failure
+  acknowledged per the rule above, every thread replied AND resolved,
+  working tree clean. Then checkpoint `status=READY` and hand off. Cap of
+  six fix/push cycles per run; on hitting it, checkpoint
   `status=INCOMPLETE` with the exact next action.
 - `status=READY` is per-HEAD, not permanent: new review activity or a new
-  HEAD reopens stewardship at your next wake. The one-PR rule already
-  blocks new work while your PR is open; stewardship is what you do with
-  that time.
+  HEAD reopens stewardship at your next wake. If main has moved under a
+  READY PR and it no longer merges cleanly, rebase and re-run the gates —
+  READY means mergeable now, not mergeable when you last looked. The
+  one-PR rule already blocks new work while your PR is open; stewardship
+  is what you do with that time.
+- STEWARD WAKES. PR-authoring loops carry additional steward-only wakes
+  between discovery wakes (the scheduled prompt says "STEWARD WAKE").
+  On a steward wake you run THIS SECTION and nothing else: no discovery,
+  no new PRs, no ticket sweeps — even if your watermark shows new work;
+  discovery stays on your charter cadence. Guards: if you have no open
+  PR, exit silently (no checkpoint — steward wakes checkpoint only when
+  they act or find the PR unstable); if the newest checkpoint on your
+  state issue is younger than your charter's WALL_CLOCK_BUDGET, exit
+  silently — a discovery wake is likely still running and two hands on
+  one PR is worse than a late reply.
 
 ## Findings & tickets (Linear)
 
@@ -89,6 +118,10 @@ costs the human triage time and poisons trust in every other loop's PRs.
 - `.night-shift/<name>.md` is yours. Read ALL of `.night-shift/*.md` at wake; write only
   your own. Entries are durable, codebase-specific, and consolidated —
   no run logs, no timestamps-as-content, no generic advice.
+- Hard cap 120 lines per learnings file. At cap, consolidate before you
+  append — merge duplicates, delete entries invalidated by code changes
+  (the Librarian enforces this on its sweep). Every loop reads every
+  learnings file at every wake; an unbounded file taxes the whole fleet.
 - A learning lands in the same PR that established it. Loops without PR
   authority append learnings to their state issue under `## pending-learnings`;
   the Librarian loop (charters/librarian.md) verifies and migrates those into

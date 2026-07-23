@@ -52,6 +52,16 @@ if (args[0] === 'pr' && args[1] === 'list') {
 }
 if (args[0] === 'pr' && args[1] === 'view') {
   const number = args[2];
+  if (args.includes('commits')) {
+    const commits = number === '2'
+      ? [
+          { committedDate: '2026-07-21T11:30:00Z', oid: 'newest' },
+          { committedDate: '2026-07-21T08:05:00Z', oid: 'older' },
+        ]
+      : [{ committedDate: '2026-07-18T09:00:00Z', oid: 'only' }];
+    process.stdout.write(JSON.stringify({ commits }));
+    process.exit(0);
+  }
   const checks = number === '2'
     ? [
         { conclusion: 'SUCCESS', name: 'unit', status: 'COMPLETED' },
@@ -246,8 +256,11 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
   );
   assert.deepEqual(evidence.prs.open[0].checks, { failing: 1, pending: 1 });
   assert.equal(evidence.prs.open[0].unresolvedThreads, 2);
+  // Newest committedDate wins even when it is not the last commit listed.
+  assert.equal(evidence.prs.open[0].lastCommitAt, '2026-07-21T11:30:00.000Z');
   assert.deepEqual(evidence.prs.open[1].checks, { failing: 0, pending: 0 });
   assert.equal(evidence.prs.open[1].unresolvedThreads, 2);
+  assert.equal(evidence.prs.open[1].lastCommitAt, '2026-07-18T09:00:00.000Z');
   assert.deepEqual(evidence.scheduledWorkflows, [
     {
       file: '.github/workflows/scheduled.yml',
