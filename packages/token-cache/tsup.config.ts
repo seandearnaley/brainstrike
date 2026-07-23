@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import { tokenizerAssetPlugin } from '../../scripts/tiktoken-asset-plugin';
 
 export default defineConfig((options) => ({
   clean: !options.watch,
@@ -15,6 +16,7 @@ export default defineConfig((options) => ({
     options.mainFields = ['browser', 'module', 'main'];
     options.conditions = ['browser', 'import', 'default'];
   },
+  esbuildPlugins: [tokenizerAssetPlugin],
   external: ['worker_threads', 'os', 'child_process'],
   format: ['esm'],
   loader: {
@@ -23,9 +25,9 @@ export default defineConfig((options) => ({
     '.wasm': 'dataurl',
   },
   // Keep these browser-only dependencies bundled so tsup can emit shared split
-  // chunks (for example o200k_base/tiktoken_bg/token-utils-accurate-lite) once
-  // across the worker and runtime entrypoints instead of relying on external ESM
-  // resolution inside worker contexts.
+  // chunks (for example tiktoken_bg/token-utils-accurate-lite) once across the
+  // worker and runtime entrypoints instead of relying on external ESM resolution.
+  // The tokenizer table itself is emitted as a guarded JSON asset above.
   noExternal: ['@brainstrike/text-splitter', '@brainstrike/utils', 'xxhash-wasm', 'tiktoken'],
   outDir: 'dist',
   platform: 'browser',
