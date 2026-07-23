@@ -304,7 +304,11 @@ fallback.
   This ordering prevents synchronous `starting` or setup-failure transitions
   from disappearing in the invoke round trip. The temporary buffer and shared
   listener are cleared when no mapped or in-flight watches remain. E2E mock
-  paths get inert watchers. Web: `WebFileSystemAdapter.watchDirectory` uses
+  paths get inert watchers. The dev inline-fixture adapter likewise returns an
+  inert disposer for every ACTIVE fixture-owned synthetic root; it preserves
+  the wrapped adapter's capability and delegates foreign/real roots unchanged,
+  so fixture names never escape to native watcher IPC as disk paths. Web:
+  `WebFileSystemAdapter.watchDirectory` uses
   `FileSystemObserver` (Chrome 133+; absent → warn + no-op disposer). Chrome
   emits `changedHandle: null` for `disappeared` records — the adapter maps
   those to `kind:'directory'` removals (the safe invalidation shape); location-less

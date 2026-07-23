@@ -8,6 +8,8 @@ import type {
   DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
+  FileSystemChange,
+  FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
 } from './types';
 
@@ -320,6 +322,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   ).resolveFileForIndexing?.bind(adapter);
   const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
   const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
+  const originalWatchDirectory = adapter.watchDirectory?.bind(adapter);
 
   async function requestDirectoryAccess(): Promise<DirectoryHandle> {
     const primary = primaryFixtureState();
@@ -444,6 +447,24 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return null;
   }
 
+  function watchDirectory(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void,
+    onSignal?: (signal: FileSystemWatchSignal) => void
+  ): () => void {
+    if (isFixtureActive() && isFixtureOwnedPath(handle.path)) {
+      // Inline fixture trees are immutable for the lifetime of a load. Passing
+      // their synthetic paths to a native watcher turns them into bogus disk
+      // paths and surfaces an ENOENT watcher failure. An inert disposer keeps
+      // the adapter's watcher capability intact without inventing events.
+      return () => {};
+    }
+    if (!originalWatchDirectory) {
+      throw new Error('Directory watching is not supported by this adapter');
+    }
+    return originalWatchDirectory(handle, callback, onSignal);
+  }
+
   function buildStampedFixtureState(fixture: FixtureDefinition): FixtureState {
     // Identity precedence:
     //  1. A fixture-DECLARED rootId is durable across adapter instances (cold
@@ -543,6 +564,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
   if (adapter.restoreLastFolder) {
     decorated.restoreLastFolder = restoreLastFolder;
+  }
+  if (originalWatchDirectory) {
+    decorated.watchDirectory = watchDirectory;
   }
   decorated.loadInlineFixture = loadInlineFixture;
   decorated.addInlineFixtureRoot = addInlineFixtureRoot;
