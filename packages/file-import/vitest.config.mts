@@ -26,6 +26,6 @@ export default defineConfig({
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
-    setupFiles: ['../../packages/test-utils/src/vitest.setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 });
