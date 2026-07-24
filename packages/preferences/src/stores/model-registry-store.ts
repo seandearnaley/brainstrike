@@ -9,6 +9,7 @@ import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
+import { clearPersistedStorageForTests } from './persist-api';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -479,12 +480,7 @@ export function __resetModelRegistryStoreForTests() {
   try {
     registryLoadPromise = null;
     useModelRegistryStore.setState(initialState);
-    const persistApi = (
-      useModelRegistryStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
+    clearPersistedStorageForTests(useModelRegistryStore);
   } catch {
     // Intentionally silent in tests - if storage fails, state is still reset.
   }

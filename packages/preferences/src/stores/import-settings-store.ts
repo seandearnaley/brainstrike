@@ -7,6 +7,7 @@ import {
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 interface ImportSettingsData {
@@ -232,16 +233,7 @@ export const importSettingsSelectors = {
 
 // Test-only helper to avoid cross-test persistence
 export function __resetImportSettingsStoreForTests() {
-  try {
-    const persistApi = (
-      useImportSettingsStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Intentionally silent in tests - storage errors should not fail test resets.
-  }
+  clearPersistedStorageForTests(useImportSettingsStore);
   useTokenPreferencesStore.getState().setAccurateCounting(true);
   useImportSettingsStore.setState({
     chunkingPreset: DEFAULT_CHUNKING_PRESET.id,

@@ -1,6 +1,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 
 /**
  * Sort comparator for collections: descending by createdAt, then id.
@@ -308,16 +309,7 @@ export const vectorStatusUISelectors = {
 };
 
 export function __resetVectorStatusUIStoreForTests() {
-  try {
-    const persistApi = (
-      useVectorStatusUIStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Intentionally silent in tests - storage errors should not fail test resets.
-  }
+  clearPersistedStorageForTests(useVectorStatusUIStore);
   useVectorStatusUIStore.setState({
     activeBackfill: null,
     activeEmbeddingSetId: null,
