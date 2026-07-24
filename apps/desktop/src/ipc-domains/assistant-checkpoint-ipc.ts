@@ -1,10 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { ipcMain } from 'electron';
-import {
-  triggerEditedFileReindex,
-  triggerFileDeletionInvalidation,
-  triggerRenamedDestinationReindex,
-} from '../assistant-server/assistant-tools';
 import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
 import {
   type CheckpointReindexAction,
@@ -12,6 +7,11 @@ import {
   revertCheckpointEntry,
   revertCheckpointRun,
 } from '../assistant-server/edit-checkpoint-revert';
+import {
+  triggerEditedFileReindex,
+  triggerFileDeletionInvalidation,
+  triggerRenamedDestinationReindex,
+} from '../assistant-server/reindex-side-effects';
 import { getDatabase } from '../db-main';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';

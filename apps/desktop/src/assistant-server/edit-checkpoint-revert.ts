@@ -12,9 +12,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,
-  withTwoFileLocks,
   writeContainedFileBytes,
-} from './assistant-tools';
+} from '../secure-file-write';
 import {
   CheckpointConflictError,
   CheckpointNotFoundError,
@@ -25,6 +24,7 @@ import {
   mapCheckpointRecordRow,
   sha256Hex,
 } from './edit-checkpoint-journal';
+import { withTwoFileLocks } from './file-mutation-tools';
 import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 

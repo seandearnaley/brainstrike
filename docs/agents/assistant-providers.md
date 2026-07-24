@@ -788,7 +788,12 @@ advances; when search or candidate limits yield an empty page with no reachable
 next offset, it instead gives terminal query-refinement guidance. A truncated
 result without producer guidance throws instead of guessing. Oversized paths and
 match context are clipped with an explicit omitted-character marker, and
-malformed result shapes throw rather than falling back to generic JSON.
+malformed result shapes throw a content-free diagnostic naming the rejected
+field rather than falling back to generic JSON. The grep producer and projector
+share one runtime result contract. The projector also recognizes its own
+canonical bounded text envelope when Mastra replays a stored model projection
+while preparing a later same-run step; that replay is idempotent and does not
+reparse the text as a raw grep result.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output

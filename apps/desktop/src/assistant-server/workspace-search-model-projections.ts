@@ -1,13 +1,13 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
 import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool';
-import type {
-  GrepContentToolResult,
-  GrepFileSummary,
-  GrepFilesToolResult,
-  GrepMatchSource,
-  GrepToolResult,
-  ModelFacingGrepMatch,
-} from './grep-search-tool';
+import {
+  type GrepFileSummary,
+  type GrepMatchSource,
+  type GrepToolResult,
+  grepProjectionHeaderPrefix,
+  type ModelFacingGrepMatch,
+  parseGrepToolResult,
+} from './grep-search-result-contract';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -67,44 +67,6 @@ function isGrepMatch(value: unknown): value is ModelFacingGrepMatch {
     isOptionalString(value['rootName']) &&
     isGrepMatchSource(value['source'])
   );
-}
-
-function hasValidGrepBase(value: Record<string, unknown>): boolean {
-  return (
-    typeof value['candidatesTruncated'] === 'boolean' &&
-    (value['liveEngine'] === 'ripgrep' ||
-      value['liveEngine'] === 'js-walk' ||
-      value['liveEngine'] === 'skipped') &&
-    isOptionalString(value['hint']) &&
-    isOptionalString(value['liveNote']) &&
-    isNonNegativeInteger(value['offset']) &&
-    typeof value['scanLimited'] === 'boolean' &&
-    isNonNegativeInteger(value['totalMatches']) &&
-    typeof value['truncated'] === 'boolean'
-  );
-}
-
-function parseGrepToolResult(output: unknown): GrepToolResult {
-  if (!(isRecord(output) && hasValidGrepBase(output))) {
-    throw new TypeError('grepSearch model projection received a malformed result');
-  }
-  if (
-    output['outputMode'] === 'files' &&
-    Array.isArray(output['files']) &&
-    output['files'].every(isGrepFileSummary) &&
-    isNonNegativeInteger(output['totalFiles'])
-  ) {
-    return output as unknown as GrepFilesToolResult;
-  }
-  if (
-    output['outputMode'] === 'content' &&
-    Array.isArray(output['matches']) &&
-    output['matches'].every(isGrepMatch) &&
-    isNonNegativeInteger(output['skippedMissingLineMetadata'])
-  ) {
-    return output as unknown as GrepContentToolResult;
-  }
-  throw new TypeError('grepSearch model projection received a malformed result');
 }
 
 function isGlobMatch(value: unknown): value is GlobWorkspaceMatch {
@@ -231,7 +193,7 @@ function formatGrepItem(
 
 function buildGrepHeader(result: GrepToolResult, kept: number): string {
   const common =
-    `grep ${result.outputMode} | page=${pageRange(
+    `${grepProjectionHeaderPrefix(result.outputMode)}${pageRange(
       result.offset,
       kept,
       result.outputMode === 'files' ? result.totalFiles : result.totalMatches,
@@ -281,6 +243,22 @@ function grepContinuation(
 }
 
 export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTextModelOutput {
+  if (
+    isRecord(output) &&
+    Object.keys(output).length === 2 &&
+    output['type'] === 'text' &&
+    typeof output['value'] === 'string' &&
+    (output['value'].startsWith(grepProjectionHeaderPrefix('files')) ||
+      output['value'].startsWith(grepProjectionHeaderPrefix('content')))
+  ) {
+    const replayed = { type: 'text' as const, value: output['value'] };
+    if (serializedChars([replayed.value]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+      throw new RangeError(
+        `grepSearch stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+      );
+    }
+    return replayed;
+  }
   const result = parseGrepToolResult(output);
   const items = result.outputMode === 'files' ? result.files : result.matches;
   const note = result.liveNote
