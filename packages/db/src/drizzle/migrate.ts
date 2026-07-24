@@ -62,6 +62,7 @@ import { migration069RunUsageCacheTokens } from '../migrations/069-run-usage-cac
 import { migration070MinimaxM3Vision } from '../migrations/070-minimax-m3-vision.js';
 import { migration071OpenRouterJulyCodingModels } from '../migrations/071-openrouter-july-coding-models.js';
 import { migration072OpenRouterLing3Flash } from '../migrations/072-openrouter-ling-3-flash.js';
+import { migration073DiagnosticEvents } from '../migrations/073-diagnostic-events.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -235,6 +236,7 @@ const customMigrations: Migration[] = [
     migration071OpenRouterJulyCodingModels
   ),
   customMigration('custom-072-openrouter-ling-3-flash', migration072OpenRouterLing3Flash),
+  customMigration('custom-073-diagnostic-events', migration073DiagnosticEvents),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
