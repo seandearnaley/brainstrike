@@ -1198,17 +1198,27 @@ function assertOpenRouterReasoningEffortSupported(
 ): void {
   const model = getLlmModelDefinition('openrouter', modelName);
   const reasoning =
-    metadata?.id === modelName && metadata.reasoning?.supportedEfforts
-      ? metadata.reasoning
-      : model.reasoning;
-  const supportedEfforts = reasoning?.supportedEfforts;
-  if (!(reasoning && supportedEfforts)) {
+    metadata?.id === modelName && metadata.reasoning ? metadata.reasoning : model.reasoning;
+  if (!reasoning) {
     throw new Error(
       `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
     );
   }
-  const supportsDisabledReasoning = reasoningEffort === 'none' && !reasoning.mandatory;
-  if (!(supportsDisabledReasoning || supportedEfforts.includes(reasoningEffort))) {
+  if (reasoningEffort === 'none') {
+    if (!reasoning.mandatory) {
+      return;
+    }
+    throw new Error(
+      `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}".`
+    );
+  }
+  const supportedEfforts = reasoning.supportedEfforts;
+  if (!supportedEfforts) {
+    throw new Error(
+      `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+    );
+  }
+  if (!supportedEfforts.includes(reasoningEffort)) {
     throw new Error(
       `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${supportedEfforts.join(', ')}.`
     );
@@ -1344,6 +1354,24 @@ export function buildProviderOptions(
     default:
       return;
   }
+}
+
+export function buildProviderOptionsWhenReady(
+  disabledReason: string | undefined,
+  providerId: SupportedProvider | null,
+  modelName: string | undefined,
+  settings: AssistantProviderSettings | undefined,
+  openRouterLookup?: OpenRouterModelMetadataLookup
+): RuntimeData['providerOptions'] | undefined {
+  if (disabledReason) {
+    return;
+  }
+  return buildProviderOptions(
+    providerId,
+    modelName,
+    settings,
+    openRouterLookup?.state === 'resolved' ? openRouterLookup.snapshot.metadata : undefined
+  );
 }
 
 /**

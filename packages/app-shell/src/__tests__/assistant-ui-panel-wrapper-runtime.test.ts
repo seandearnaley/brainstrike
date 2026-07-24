@@ -11,6 +11,7 @@ import {
   buildEnabledModelIdSet,
   buildModelSettings,
   buildProviderOptions,
+  buildProviderOptionsWhenReady,
   createAssistantThreadRunPromise,
   extractPreparedRunId,
   formatToolLabel,
@@ -859,6 +860,35 @@ describe('assistant runtime helpers', () => {
       openrouter: { reasoning: { effort: 'low' } },
     });
     expect(
+      buildProviderOptionsWhenReady(
+        'OpenRouter Auto output limit cannot reserve a final answer.',
+        'openrouter',
+        'moonshotai/kimi-k3',
+        {},
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 32_768,
+              id: 'moonshotai/kimi-k3',
+              maxOutputTokens: 8192,
+              reasoning: {
+                defaultEffort: 'minimal',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['minimal'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBeUndefined();
+    expect(
       buildProviderOptions(
         'openrouter',
         'moonshotai/kimi-k3',
@@ -889,6 +919,34 @@ describe('assistant runtime helpers', () => {
         reasoningEffort: 'high',
       })
     ).toEqual({ openrouter: { reasoning: { effort: 'high' } } });
+    const partialKimiMetadata = {
+      checkedAt: 42,
+      contextWindow: 1_048_576,
+      id: 'moonshotai/kimi-k3',
+      reasoning: {
+        defaultEnabled: true,
+        mandatory: false,
+        supportsMaxTokens: false,
+      },
+      source: 'openrouter-models-api' as const,
+      supportedParameters: ['reasoning'],
+    };
+    expect(() =>
+      buildProviderOptions(
+        'openrouter',
+        'moonshotai/kimi-k3',
+        { reasoningEffort: 'high' },
+        partialKimiMetadata
+      )
+    ).toThrow(/does not declare support.*high/i);
+    expect(
+      buildProviderOptions(
+        'openrouter',
+        'moonshotai/kimi-k3',
+        { reasoningEffort: 'none' },
+        partialKimiMetadata
+      )
+    ).toEqual({ openrouter: { reasoning: { enabled: false } } });
     expect(() =>
       buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'none',

@@ -87,7 +87,7 @@ import {
   buildDraftRuntimeForProvider,
   buildEnabledModelIdSet,
   buildModelSettings,
-  buildProviderOptions,
+  buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
   findFirstProviderWithEnabledModels,
@@ -412,15 +412,15 @@ export function AssistantUiPanelWrapper({
   const providerOptions = useMemo(
     () =>
       selectedThreadDraftRuntime?.providerOptions ??
-      buildProviderOptions(
+      buildProviderOptionsWhenReady(
+        openRouterDisabledReason,
         selectedProvider,
         resolvedModelName,
         selectedProviderSettings,
-        openRouterMetadata.lookup?.state === 'resolved'
-          ? openRouterMetadata.lookup.snapshot.metadata
-          : undefined
+        openRouterMetadata.lookup
       ),
     [
+      openRouterDisabledReason,
       openRouterMetadata.lookup,
       selectedProvider,
       resolvedModelName,

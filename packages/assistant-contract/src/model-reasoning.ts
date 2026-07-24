@@ -147,6 +147,30 @@ function resolveOpenAiFamilyControls(
   };
 }
 
+function resolveOpenRouterControls(
+  modelId: string | undefined,
+  metadata: OpenRouterModelMetadata | undefined
+): ReasoningControlsAvailability {
+  const liveReasoning = metadata && metadata.id === modelId ? metadata.reasoning : undefined;
+  if (liveReasoning && !liveReasoning.supportedEfforts) {
+    return liveReasoning.mandatory
+      ? { available: false, reason: 'no-reasoning-controls' }
+      : { available: true, efforts: ['none'], family: 'openrouter' };
+  }
+  const declared = liveReasoning?.supportedEfforts
+    ? {
+        ...(liveReasoning.defaultEffort === undefined
+          ? {}
+          : { defaultEffort: liveReasoning.defaultEffort }),
+        mandatory: liveReasoning.mandatory,
+        supportedEfforts: liveReasoning.supportedEfforts,
+      }
+    : modelId === undefined
+      ? undefined
+      : findDeclaredLlmModel('openrouter', modelId)?.reasoning;
+  return resolveOpenAiFamilyControls('openrouter', declared);
+}
+
 /**
  * Which reasoning controls the composer may offer for a provider/model pair.
  * Absorbs the old `getOpenRouterReasoningCapabilities` model-constraint
@@ -164,24 +188,12 @@ export function resolveReasoningControlsAvailability(
 
   switch (provider) {
     case 'openai':
-    case 'openrouter': {
-      const liveReasoning =
-        provider === 'openrouter' && openRouterMetadata && openRouterMetadata.id === modelId
-          ? openRouterMetadata.reasoning
-          : undefined;
-      const declared = liveReasoning?.supportedEfforts
-        ? {
-            ...(liveReasoning.defaultEffort === undefined
-              ? {}
-              : { defaultEffort: liveReasoning.defaultEffort }),
-            mandatory: liveReasoning.mandatory,
-            supportedEfforts: liveReasoning.supportedEfforts,
-          }
-        : modelId === undefined
-          ? undefined
-          : findDeclaredLlmModel(provider, modelId)?.reasoning;
-      return resolveOpenAiFamilyControls(provider, declared);
-    }
+      return resolveOpenAiFamilyControls(
+        'openai',
+        modelId === undefined ? undefined : findDeclaredLlmModel('openai', modelId)?.reasoning
+      );
+    case 'openrouter':
+      return resolveOpenRouterControls(modelId, openRouterMetadata);
     case 'anthropic':
       return { available: true, efforts: ANTHROPIC_REASONING_EFFORTS, family: 'anthropic' };
     case 'google':

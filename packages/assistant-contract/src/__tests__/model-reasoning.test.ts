@@ -101,6 +101,27 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
+  it('does not invent static efforts when matching live reasoning metadata is partial', () => {
+    expect(
+      resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3', {
+        checkedAt: 42,
+        contextWindow: 1_048_576,
+        id: 'moonshotai/kimi-k3',
+        reasoning: {
+          defaultEnabled: true,
+          mandatory: false,
+          supportsMaxTokens: false,
+        },
+        source: 'openrouter-models-api',
+        supportedParameters: ['reasoning'],
+      })
+    ).toEqual({
+      available: true,
+      efforts: ['none'],
+      family: 'openrouter',
+    });
+  });
+
   it('keeps the full effort list for undeclared OpenRouter models', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'qwen/qwen3.7-max')).toEqual({
       available: true,
