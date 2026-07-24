@@ -8,6 +8,15 @@ export type {
 } from '@brainstrike/types';
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
+export {
+  DIAGNOSTIC_RETENTION_MAX_AGE_MS,
+  DIAGNOSTIC_RETENTION_MAX_ROWS,
+  type DiagnosticEventsDatabase,
+  type DiagnosticEventsOperation,
+  type DiagnosticEventsQueryFilter,
+  DiagnosticEventsRepository,
+  DiagnosticEventsStorageError,
+} from './diagnostic-events-repository.js';
 // Drizzle ORM implementations
 export {
   type BatchLookupRequest,

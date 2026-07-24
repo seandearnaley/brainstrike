@@ -1,3 +1,4 @@
+import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
@@ -320,6 +321,17 @@ declare global {
   }
 }
 
+// Desktop main → renderer durable-record push (Task 6): window.logging is a
+// static preload global, so this is computed once at module scope rather
+// than as an inline object literal inside App's render — an inline literal
+// is a new reference on every render, and DiagnosticSinkBridge's effect
+// depends on forwardedRecords by reference, so it would tear down and
+// rebuild the writer (dispose, re-purge, resubscribe) on every App re-render.
+const forwardedDiagnosticRecords =
+  typeof window.logging?.onDurableRecord === 'function'
+    ? { subscribe: window.logging.onDurableRecord }
+    : undefined;
+
 function App() {
   // With useElectronIPC below, the renderer routes all DB ops to the main-process
   // filesystem PGlite (engine-versioned via the pg-data-version guard). This idb
@@ -357,6 +369,10 @@ function App() {
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
+      <DiagnosticSinkBridge
+        forwardedRecords={forwardedDiagnosticRecords}
+        source="desktop-renderer"
+      />
       <DbSchemaVerifier>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <RootLayoutContent />

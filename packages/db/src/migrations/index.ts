@@ -71,6 +71,7 @@ import { migration069RunUsageCacheTokens } from './069-run-usage-cache-tokens.js
 import { migration070MinimaxM3Vision } from './070-minimax-m3-vision.js';
 import { migration071OpenRouterJulyCodingModels } from './071-openrouter-july-coding-models.js';
 import { migration072OpenRouterLing3Flash } from './072-openrouter-ling-3-flash.js';
+import { migration073DiagnosticEvents } from './073-diagnostic-events.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -148,6 +149,7 @@ export const migrations: Migration[] = [
   migration070MinimaxM3Vision,
   migration071OpenRouterJulyCodingModels,
   migration072OpenRouterLing3Flash,
+  migration073DiagnosticEvents,
 ];
 
 // Export base migrations (without chunks table) for test environments

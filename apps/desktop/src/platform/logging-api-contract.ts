@@ -2,6 +2,7 @@ import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 
 export const LOGGING_API_CHANNELS = {
+  durableRecord: 'logging:durable-record',
   getBufferedLogs: 'logging:get-buffered-logs',
   getPreferences: 'logging:get-preferences',
   ingestBufferedRecord: 'logging:ingest-buffered-record',

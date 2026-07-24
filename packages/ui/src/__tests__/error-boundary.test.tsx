@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { afterAll, beforeAll, describe, expect, vi } from 'vitest';
@@ -122,5 +123,25 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByTestId('custom-fallback')).toBeInTheDocument();
     expect(screen.queryByText('Reload Page')).not.toBeInTheDocument();
+  });
+
+  test('logs the caught error through the central logger', () => {
+    const records: unknown[] = [];
+    const unsubscribe = addLogListener((record) => records.push(record));
+
+    render(
+      <ErrorBoundary>
+        <ErrorThrowingComponent error={new Error('Test error')} />
+      </ErrorBoundary>
+    );
+
+    expect(
+      records.some(
+        (record) =>
+          (record as { level: LogLevel; scope?: string }).level === LogLevel.ERROR &&
+          (record as { scope?: string }).scope === 'ErrorBoundary'
+      )
+    ).toBe(true);
+    unsubscribe();
   });
 });

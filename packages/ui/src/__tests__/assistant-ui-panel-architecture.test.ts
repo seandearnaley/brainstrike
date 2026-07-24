@@ -95,7 +95,13 @@ describe('assistant UI panel architecture', () => {
     // plumbing through the shared ChatThreadProps + both runtime chats; the
     // Steer button + control cluster live in follow-up-queue.tsx
     // (ComposerRunControls keeps the panel's composition site one line).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1870);
+    // Bumped 1870 → 1880 for the "Copy debug bundle" button (Task 9, Flight
+    // Recorder capstone): AssistantMessage mounts <CopyDebugBundleButton />
+    // (its own module, copy-debug-bundle-button.tsx) after
+    // <AssistantMessageError />. The runId detection, phase machine, and
+    // clipboard/error handling all live in that module; this file only
+    // imports + renders it.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1880);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -156,6 +162,27 @@ describe('assistant UI panel architecture', () => {
 
     expect(readSource('assistant-ui-panel/run-verdict-control.tsx')).toContain(
       'export function RunVerdictControl'
+    );
+  });
+
+  it('mounts the copy-debug-bundle button as an owned module on assistant messages', () => {
+    // Flight Recorder capstone (Task 9): the runId/error-state detection,
+    // phase machine, and clipboard handling all live in
+    // copy-debug-bundle-button.tsx / debug-bundle-context.tsx; this file only
+    // imports + renders the control, immediately after AssistantMessageError.
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './copy-debug-bundle-button'");
+
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    expect(assistantMessageSource).toContain('<CopyDebugBundleButton />');
+    expect(assistantMessageSource.indexOf('<AssistantMessageError />')).toBeLessThan(
+      assistantMessageSource.indexOf('<CopyDebugBundleButton />')
+    );
+
+    expect(readSource('assistant-ui-panel/copy-debug-bundle-button.tsx')).toContain(
+      'export function CopyDebugBundleButton'
     );
   });
 

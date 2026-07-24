@@ -74,6 +74,7 @@ const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination' as const;
 const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
 const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
 const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
+const LOGGING_DURABLE_RECORD_EVENT = 'logging:durable-record' as const;
 const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
 const SHELL_OPEN_EXTERNAL_CHANNEL = 'shell:open-external' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
@@ -918,6 +919,13 @@ if (shouldExposeBridge('logging')) {
       ipcRenderer.invoke(LOGGING_GET_PREFERENCES_CHANNEL),
     ingestBufferedRecord: (record: LogRecord): void => {
       ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, record);
+    },
+    onDurableRecord: (listener: (record: LogRecord) => void) => {
+      const ipcListener = (_event: unknown, record: LogRecord) => listener(record);
+      ipcRenderer.on(LOGGING_DURABLE_RECORD_EVENT, ipcListener);
+      return () => {
+        ipcRenderer.removeListener(LOGGING_DURABLE_RECORD_EVENT, ipcListener);
+      };
     },
     onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
       const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);

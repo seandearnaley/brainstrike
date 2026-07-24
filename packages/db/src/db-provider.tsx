@@ -87,14 +87,21 @@ function isMissingNamedRelationError(error: unknown, tableName: string): boolean
 /**
  * Thread search index (migration 067): derived conversation text + sync
  * state must not survive a clear/reset; the singleton search profile is
- * configuration and intentionally survives, like the prompt profile. Only a
- * MISSING table (pre-067 store) is tolerated — any other failure rethrows so
- * a reset can never silently leave conversation text behind.
+ * configuration and intentionally survives, like the prompt profile. Also
+ * covers durable diagnostic events (migration 073, Flight Recorder P1): no
+ * FK, so nothing cascades it — the warn+ error log must not survive a "true
+ * fresh start" (FACTORY RESET CONTRACT). Only a MISSING table (pre-migration
+ * store) is tolerated — any other failure rethrows so a reset can never
+ * silently leave conversation text or error history behind.
  */
 async function clearThreadSearchIndexIfPresent(tx: {
   query: (sql: string) => Promise<unknown>;
 }): Promise<void> {
-  for (const table of ['brainstrike_thread_message_index', 'brainstrike_thread_search_state']) {
+  for (const table of [
+    'brainstrike_thread_message_index',
+    'brainstrike_thread_search_state',
+    'brainstrike_diagnostic_events',
+  ]) {
     try {
       await tx.query(`DELETE FROM ${table}`);
     } catch (error) {

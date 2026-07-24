@@ -17,6 +17,11 @@ export {
   useContextUsageStore,
 } from './context-usage-store';
 export {
+  type DebugBundleBinding,
+  DebugBundleProvider,
+  useDebugBundleContext,
+} from './debug-bundle-context';
+export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
   REVERTIBLE_MUTATION_TOOL_NAMES,
