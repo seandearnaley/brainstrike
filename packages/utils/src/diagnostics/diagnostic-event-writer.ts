@@ -70,6 +70,7 @@ export class DiagnosticEventWriter {
     return this.inFlight;
   }
 
+  // Drain loop ensures events enqueued during in-flight sink calls are flushed in small waves.
   private async drain(): Promise<void> {
     do {
       await this.flushInternal();
