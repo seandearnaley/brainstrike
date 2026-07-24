@@ -13,8 +13,8 @@ Execute the repository-owned Watch charter without duplicating its policy. Use t
 2. Read `.night-shift/PROTOCOL.md`, `.night-shift/charters/watch.md`, every top-level `.night-shift/*.md` file completely, and every document the live charter requires.
 3. Resolve automation memory when an Automation ID is present. Treat it as an execution aid, never as authority over repository, GitHub, or Linear state.
 4. Note the UTC start time and live wall-clock budget.
-5. Resolve the exact charter-named Linear state issue and select its newest comment matching the protocol checkpoint shape. Ignore newer discussion notes that are not checkpoints.
-6. Parse the prior external-state watermark as the exact set of completed workflow-run keys, each shaped `<runId>@<attempt>`. Never substitute a main SHA, date, remembered run list, or automation-memory value. One-time migration: a checkpoint written before the attempt-aware format holds plain run IDs — treat that wake as a first run (omit `--watermark`), rely on Linear fingerprint dedupe for the re-observed window, and checkpoint the new key format; do not invent `@1` suffixes for old IDs.
+5. Resolve the exact charter-named Linear state issue and select its newest comment matching the protocol checkpoint shape. Ignore newer discussion notes that are not checkpoints. Its external-state watermark must be `hash:<64-hex>`.
+6. Resolve the prior completed workflow-run keys from automation memory, each shaped `<runId>@<attempt>`. Pass those keys and the prior checkpoint hash to the collector together; it normalizes the keys with the same numeric-aware ordering used for output and fails unless their SHA-256 matches the checkpoint. The checkpoint hash is authority for the watched set; memory only preserves the per-run state needed for delta comparison. Never substitute a main SHA, date, remembered run list, or an unverified memory value. For the one-time migration from a legacy checkpoint that contains run IDs instead of a protocol-valid hash, treat that wake as a first run (omit both watermark arguments), rely on Linear fingerprint dedupe for the re-observed window, and write the new hash plus completed-run memory; do not invent `@1` suffixes for old IDs.
 7. Resolve conflicts in this order: repository instructions and subsystem contracts, protocol, Watch charter, this skill.
 
 Keep the live charter authoritative for the workflow lookback, fingerprint shape, investigation limit, ticket fields, quarantine recommendation, state title, labels, and schedule. Re-derive them every run.
@@ -29,19 +29,20 @@ Create a temporary output directory and run:
 watch_logs="$(mktemp -d)"
 node .agents/skills/watch-automation/scripts/collect-watch-evidence.mjs \
   --repo /absolute/path/to/brainstrike \
-  --watermark "$watermark" \
+  --watermark "$completed_run_keys" \
+  --checkpoint-watermark "$checkpoint_watermark" \
   --pretty > "$watch_logs/evidence.json"
 ```
 
-Omit `--watermark` only for a proven first run. When the prior checkpoint records an explicitly empty set, pass `--watermark none` instead of omitting the flag; the two are distinct states.
+Omit both watermark arguments only for a proven first run or the documented one-time migration. When prior memory records an explicitly empty set, pass `--watermark none` with its matching `--checkpoint-watermark` instead of omitting either flag; empty prior state and first run are distinct.
 
 The collector performs no repository or external writes. It:
 
 - validates the live Watch safety boundary and derives the lookback from the charter;
 - derives scheduled E2E and nightly workflows from local workflow definitions, then requires an exact path-and-name match with GitHub; every scheduled workflow is emitted in `scheduledWorkflows` with an `included` marker and exclusion reason so watch coverage can be vetted each run;
-- fetches every run of the watched workflows in the live window regardless of trigger event (scheduled and manually dispatched runs alike) with complete pagination, and compares attempt-aware `<runId>@<attempt>` keys with the supplied watermark;
+- verifies the prior completed-run keys reproduce the supplied checkpoint hash, then fetches every run of the watched workflows in the live window regardless of trigger event (scheduled and manually dispatched runs alike) with complete pagination and compares attempt-aware `<runId>@<attempt>` keys with that verified prior state;
 - stops before job/log collection only when the completed-run key set is unchanged and no run in the window is still pending; any pending run is listed in `watermark.pendingRuns` and forces collection;
-- emits `watermark.checkpointWatermark` containing only completed runs' keys — checkpoint that value, never the raw current set, so in-progress runs and later reruns are re-observed;
+- emits `watermark.completedRunKeys` for automation memory and delta comparison, containing completed runs only, plus a protocol-valid `watermark.checkpointWatermark` equal to `hash:<sha256(JSON.stringify(completedRunKeys))>` for Linear; pending runs are excluded from both so they and later reruns are re-observed;
 - collects all attempts, jobs, failed phases, bounded log excerpts, runner labels and image evidence, workflow rerun recoveries, and test retry signals for newly observed runs;
 - emits candidate fingerprints and visibly lists unparsed failures instead of inventing a test title or error class; log lines that cannot be attributed to a specific job are routed to `unattributedCandidates` and never count as coverage for a failed job;
 - records the current worktree state and optionally reports local listener ownership for reproduction ports.
@@ -81,14 +82,15 @@ For each new fingerprint, create one Linear ticket with the live protocol labels
 
 Route durable, codebase-specific insights through the charter's pending-learning process. Watch has no repository-edit authority: if a bulletin-file instruction conflicts with diagnose-only scope, make no file edit, surface the conflict, and use only the permitted state/ticket channel.
 
-Append exactly one protocol-shaped checkpoint using the fully observed workflow-run-ID set. Never edit the state issue description or prior comments. Checkpoint BLOCKED when authentication, pagination, log completeness, exact configuration, state identity, or the safety boundary cannot be proven.
+Append exactly one protocol-shaped checkpoint using the collector's `watermark.checkpointWatermark`. Persist `watermark.completedRunKeys` separately in automation memory for the next delta comparison. Never edit the state issue description or prior comments. Checkpoint BLOCKED when authentication, pagination, log completeness, exact configuration, state identity, memory/hash consistency, or the safety boundary cannot be proven.
 
 Finish by verifying:
 
 - every accepted occurrence maps to one exact fingerprint and Linear ticket;
 - every new-fingerprint investigation stayed within the live limit;
-- the checkpoint watermark equals the collector's `watermark.checkpointWatermark` — completed runs' `<runId>@<attempt>` keys only; pending runs are never checkpointed;
+- the Linear checkpoint watermark equals the collector's protocol-valid `watermark.checkpointWatermark`;
+- automation memory's completed-run set equals `watermark.completedRunKeys`, and hashing its sorted JSON serialization reproduces the checkpoint watermark; pending runs are never included;
 - no repository file, CI run, test, branch, or PR changed;
-- automation memory records UTC timing, watermark, ticket identifiers, classifications, reproduction status, blockers, and the exact next action.
+- automation memory records UTC timing, checkpoint hash, completed run keys, ticket identifiers, classifications, reproduction status, blockers, and the exact next action.
 
 Report NOOP as success. Never turn incomplete evidence into a confident flake claim.
