@@ -137,9 +137,26 @@ the main risk), lint, script tests, secret scan, and the 6 `cache: false`
 native-dependent work in the workflow) all genuinely ran and passed on
 arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 **not** faster here, only cheaper per minute; do not claim a speedup.
-`build`, `native-windows`, `native-electron`, `web-e2e`, and `desktop-e2e`
-stay on x64: P1 did not test them, and they are inherently
-Electron/Playwright/Windows-bound work.
+`native-windows` stays on GitHub's `windows-latest` runner.
+
+### Primary Linux x64 jobs run on Ubicloud (BST-765)
+
+`build`, `native-electron`, `web-e2e`, and `desktop-e2e` in `test.yml` run on
+`ubicloud-standard-4`. That runner preserves the 4-vCPU/16-GB class used for
+the x64 work while moving the four measured, dominant Linux x64 lanes to the
+connected Ubicloud runner fleet. The phase-one boundary is deliberate:
+
+- quiet-head admission remains on GitHub `ubuntu-slim`
+- Static, Unit shards, and the Unit fan-in remain on GitHub ARM
+- Native Windows remains on GitHub Windows
+- coverage, scheduled, review, and auxiliary workflows are unchanged
+
+Do not add a provider-selection layer or an automatic GitHub fallback. An
+Ubicloud provisioning failure must queue or fail visibly; rollback is an
+explicit revert of the runner-label change. Existing cache and setup actions
+stay unchanged because Ubicloud's transparent cache supports the standard
+GitHub cache actions. Contract coverage lives in
+`scripts/__tests__/ubicloud-runner-contract.test.mjs`.
 
 The Static job caps the monorepo type-check with Turbo's official
 `TURBO_CONCURRENCY=4` environment variable.
