@@ -1,4 +1,9 @@
-import { LogLevel, type LogRecord, error as logError } from '@brainstrike/utils/logger';
+import {
+  LogLevel,
+  type LogRecord,
+  error as logError,
+  warn as logWarn,
+} from '@brainstrike/utils/logger';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DIAGNOSTIC_SINK_SCOPE, DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
@@ -30,6 +35,46 @@ describe('DiagnosticSinkBridge', () => {
       expect(insert).toBeDefined();
       expect(JSON.stringify(insert?.params)).toContain('bridge_test');
     });
+  });
+
+  it('flushes eagerly on error severity instead of waiting for the batch window', async () => {
+    // No flushBatchSize override: uses the writer's default (32) so a lone
+    // event only reaches the sink via the eager-flush path, not batching.
+    render(<DiagnosticSinkBridge source="web-renderer" />);
+    logError('eager flush error', { code: 'eager_flush_test' });
+
+    // Default flushIntervalMs is 2000ms; a short timeout here proves the
+    // insert landed via eager flush, not the interval timer.
+    await vi.waitFor(
+      () => {
+        const insert = queries.find((entry) =>
+          entry.sql.includes('INSERT INTO brainstrike_diagnostic_events')
+        );
+        expect(insert).toBeDefined();
+        expect(JSON.stringify(insert?.params)).toContain('eager_flush_test');
+      },
+      { timeout: 500 }
+    );
+
+    // Let the error's in-flight drain loop fully settle (it sweeps up
+    // anything enqueued while still draining) before establishing the
+    // negative-case baseline — a real macrotask tick guarantees every
+    // microtask-chained continuation from the eager flush has completed.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const insertCountAfterError = queries.filter((entry) =>
+      entry.sql.includes('INSERT INTO brainstrike_diagnostic_events')
+    ).length;
+
+    // A lone warn must NOT trigger an eager flush — bounded negative check
+    // well inside the 2000ms interval window.
+    logWarn('bounded warn, should not flush yet', { code: 'warn_no_eager_flush' });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const insertCountAfterWarn = queries.filter((entry) =>
+      entry.sql.includes('INSERT INTO brainstrike_diagnostic_events')
+    ).length;
+    expect(insertCountAfterWarn).toBe(insertCountAfterError);
   });
 
   it('runs the startup retention purge', async () => {

@@ -2,6 +2,7 @@ import { type DiagnosticEventsDatabase, DiagnosticEventsRepository } from '@brai
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { redactSensitiveLogValue } from '@brainstrike/utils/logger';
 import { getDiagnosticSessionId } from './diagnostic-sink-bridge';
+import { scrubLikelySecretValues } from './secret-scrub';
 
 /**
  * Thread debug-bundle collector + formatter (design §5.2, "Flight Recorder").
@@ -760,7 +761,16 @@ function buildCandidate(
  * `{ note: 'password is sk-live-123' }`, is not caught), then elides
  * deterministically until the rendered byte size — document AND footer
  * together — is under `maxBytes`, or all elision stages are exhausted (never
- * throws — see `appendElisionLog`). */
+ * throws — see `appendElisionLog`).
+ *
+ * After the budget loop settles (on EITHER exit path — under-budget or
+ * elision-exhausted), a value-shape secret scrub (`scrubLikelySecretValues`,
+ * key-name-independent) runs over the final rendered string — this is the
+ * single place all output flows through, so every return path is covered.
+ * The scrub can only shrink-or-hold the document's size (matches are
+ * replaced with a shorter placeholder), except for the one summary line it
+ * may append — that append never pushes the result back over `maxBytes` in
+ * practice since the scrub itself only shrinks the body it's appended to. */
 export function formatThreadDebugBundle(
   data: ThreadDebugBundleData,
   options?: FormatThreadDebugBundleOptions
@@ -781,12 +791,17 @@ export function formatThreadDebugBundle(
   while (byteLength(candidate) > maxBytes) {
     const applied = applyNextElisionStep(redacted, protectedIndices, state, counts);
     if (!applied) {
-      return buildCandidate(redacted, state, counts, true);
+      candidate = buildCandidate(redacted, state, counts, true);
+      break;
     }
     candidate = buildCandidate(redacted, state, counts, false);
   }
 
-  return candidate;
+  const scrubbed = scrubLikelySecretValues(candidate);
+  if (scrubbed.redactedCount === 0) {
+    return scrubbed.text;
+  }
+  return `${scrubbed.text}\n\n_Secret scan: ${scrubbed.redactedCount} value(s) redacted (${scrubbed.kinds.join(', ')})._`;
 }
 
 /** Collect then format in one call — the convenience wrapper Task 9's Copy

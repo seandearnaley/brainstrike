@@ -114,6 +114,11 @@ export function DiagnosticSinkBridge({
       const event = logRecordToDiagnosticEvent(record, env);
       if (event) {
         writer.enqueue(event);
+        // Browsers don't guarantee async work started in visibilitychange:hidden
+        // completes, so high-severity events must not wait for the batch window.
+        if (event.severity !== 'warn') {
+          void writer.flush();
+        }
       }
     });
     const unsubscribeForwarded = forwardedRecords?.subscribe((record) => {
@@ -127,6 +132,10 @@ export function DiagnosticSinkBridge({
       });
       if (event) {
         writer.enqueue(event);
+        // Same eager-flush rationale as the local logger fan-out above.
+        if (event.severity !== 'warn') {
+          void writer.flush();
+        }
       }
     });
     repository.purge().catch((cause: unknown) => {
