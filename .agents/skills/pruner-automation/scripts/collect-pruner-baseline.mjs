@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
+import { parse as parseYaml } from 'yaml';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
@@ -211,20 +213,22 @@ function assertDependencyRuntimeCurrent(repoRoot) {
   let workspaceLockfile;
   let installedLockfile;
   try {
-    workspaceLockfile = readFileSync(workspaceLockfilePath);
+    workspaceLockfile = parseYaml(readFileSync(workspaceLockfilePath, 'utf8'));
   } catch (error) {
     fail(
       `could not read pnpm-lock.yaml: ${error instanceof Error ? error.message : String(error)}`
     );
   }
   try {
-    installedLockfile = readFileSync(installedLockfilePath);
-  } catch {
+    installedLockfile = parseYaml(readFileSync(installedLockfilePath, 'utf8'));
+  } catch (error) {
     fail(
-      'required dependency runtime is unavailable (missing node_modules/.pnpm/lock.yaml); run "pnpm install --frozen-lockfile" before collecting'
+      `required dependency runtime is unavailable (could not read node_modules/.pnpm/lock.yaml: ${
+        error instanceof Error ? error.message : String(error)
+      }); run "pnpm install --frozen-lockfile" before collecting`
     );
   }
-  if (workspaceLockfile.equals(installedLockfile)) {
+  if (isDeepStrictEqual(workspaceLockfile, installedLockfile)) {
     return;
   }
   fail(

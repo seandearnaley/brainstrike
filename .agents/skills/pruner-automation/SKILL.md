@@ -37,8 +37,9 @@ optional locks, fsmonitor, and the untracked cache so `status` never rewrites
 the index). Before starting either scan, it requires the checked-out
 dependency runtime at `node_modules/.bin/knip` and
 `node_modules/.bin/react-doctor`, then proves pnpm's installed dependency state
-is current by comparing `node_modules/.pnpm/lock.yaml` byte-for-byte with the
-checked-out `pnpm-lock.yaml`. If either binary is absent or the installed lock
+is current by parsing and semantically comparing `node_modules/.pnpm/lock.yaml`
+with the checked-out `pnpm-lock.yaml`, matching pnpm's current-vs-wanted
+lockfile check without invoking pnpm. If either binary is absent or the installed lock
 is missing or stale, it exits visibly before invoking pnpm or creating any
 baseline artifact. The collector owns
 `--output` creation after successful collection and parsing, so shell

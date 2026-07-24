@@ -36,7 +36,8 @@
     "ultracite": "7.9.2",
     "vercel": "^54.20.1",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yaml": "catalog:"
   },
   "engines": {
     "node": "24.x"
