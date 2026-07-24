@@ -40,6 +40,9 @@ export class DiagnosticEventWriter {
       maxPending: 256,
       ...options,
     };
+    if (!Number.isSafeInteger(this.options.maxPending) || this.options.maxPending < 0) {
+      throw new TypeError('DiagnosticEventWriter maxPending must be a non-negative integer');
+    }
     const schedule = this.options.setInterval ?? globalThis.setInterval.bind(globalThis);
     this.timer = schedule(() => {
       void this.flush();

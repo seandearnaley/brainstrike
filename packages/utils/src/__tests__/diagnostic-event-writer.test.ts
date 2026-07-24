@@ -29,6 +29,17 @@ describe('DiagnosticEventWriter', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([-1, 2.5, Number.POSITIVE_INFINITY])('rejects invalid maxPending %s', (maxPending) => {
+    expect(
+      () =>
+        new DiagnosticEventWriter({
+          makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+          maxPending,
+          sink: { insertBatch: async () => undefined },
+        })
+    ).toThrow('DiagnosticEventWriter maxPending must be a non-negative integer');
+  });
+
   it('flushes on the batch-size threshold', async () => {
     const inserted: DiagnosticEvent[][] = [];
     const writer = new DiagnosticEventWriter({
