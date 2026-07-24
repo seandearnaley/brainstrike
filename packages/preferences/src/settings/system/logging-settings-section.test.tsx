@@ -319,4 +319,123 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       )
     );
   });
+
+  it('skips the download and shows a non-destructive toast when there are no events to export', async () => {
+    const onExportDurableNdjson = vi.fn(async () => '');
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL');
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    try {
+      render(
+        <LoggingSettingsSection
+          durableLogSource={createLogSource([])}
+          logSource={createLogSource([])}
+          onExportDurableNdjson={onExportDurableNdjson}
+          runtime="browser"
+        />
+      );
+
+      const user = await selectPersistentSource();
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      await user.click(exportButton);
+
+      await waitFor(() => expect(onExportDurableNdjson).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(toastMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            description: 'There are no durable warn+ events to export.',
+            title: 'No diagnostics to export',
+          })
+        )
+      );
+      const [toastCall] = toastMock.mock.calls[0] ?? [];
+      expect(toastCall?.variant).not.toBe('destructive');
+      expect(createObjectUrlSpy).not.toHaveBeenCalled();
+      expect(anchorClickSpy).not.toHaveBeenCalled();
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
+  it('disables the export button while an export is in flight and re-enables it once it resolves', async () => {
+    let resolveExport: ((value: string) => void) | undefined;
+    const onExportDurableNdjson = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveExport = resolve;
+        })
+    );
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:in-flight');
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    try {
+      render(
+        <LoggingSettingsSection
+          durableLogSource={createLogSource([])}
+          logSource={createLogSource([])}
+          onExportDurableNdjson={onExportDurableNdjson}
+          runtime="browser"
+        />
+      );
+
+      const user = await selectPersistentSource();
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      expect(exportButton).not.toBeDisabled();
+
+      await user.click(exportButton);
+
+      await waitFor(() => expect(exportButton).toBeDisabled());
+      expect(onExportDurableNdjson).toHaveBeenCalledTimes(1);
+
+      resolveExport?.('{"id":"evt-1"}\n');
+
+      await waitFor(() => expect(exportButton).not.toBeDisabled());
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
+  it('re-enables the export button after a rejected export', async () => {
+    let rejectExport: ((reason: Error) => void) | undefined;
+    const onExportDurableNdjson = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectExport = reject;
+        })
+    );
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        onExportDurableNdjson={onExportDurableNdjson}
+        runtime="browser"
+      />
+    );
+
+    const user = await selectPersistentSource();
+    const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+    expect(exportButton).not.toBeDisabled();
+
+    await user.click(exportButton);
+
+    await waitFor(() => expect(exportButton).toBeDisabled());
+
+    rejectExport?.(new Error('database unavailable'));
+
+    await waitFor(() => expect(exportButton).not.toBeDisabled());
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Failed to export diagnostics' })
+      )
+    );
+  });
 });

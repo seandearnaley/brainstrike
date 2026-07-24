@@ -110,6 +110,7 @@ export function LoggingSettingsSection({
   const resetPreferences = useLoggingPreferencesStore((state) => state.resetPreferences);
   const [isSyncing, setIsSyncing] = useState(false);
   const [logSourceMode, setLogSourceMode] = useState<LogSourceMode>('session');
+  const [isExportingDurableNdjson, setIsExportingDurableNdjson] = useState(false);
   const { toast } = useToast();
   const updateTokenRef = useRef(0);
   const pending = busy || isSyncing;
@@ -272,13 +273,27 @@ export function LoggingSettingsSection({
   // export promise is awaited unwrapped (no try/catch inside
   // `onExportDurableNdjson` itself) so a query rejection surfaces here and
   // gets a visible toast rather than silently producing an empty download.
+  // Like `handleExportLogs`, an empty result skips the download — but
+  // (unlike that silent early-return) tells the user why via a
+  // non-destructive toast, since "nothing happened" is otherwise
+  // indistinguishable from a broken button. `isExportingDurableNdjson`
+  // guards against rapid double-clicks firing concurrent exports, each
+  // re-querying up to `DURABLE_LOG_SOURCE_MAX_ROWS` rows.
   const handleExportDurableNdjson = useCallback(async () => {
     if (!onExportDurableNdjson) {
       return;
     }
+    setIsExportingDurableNdjson(true);
     try {
       const ndjson = await onExportDurableNdjson();
       if (typeof window === 'undefined') {
+        return;
+      }
+      if (ndjson.length === 0) {
+        toast({
+          description: 'There are no durable warn+ events to export.',
+          title: 'No diagnostics to export',
+        });
         return;
       }
       const blob = new Blob([ndjson], { type: 'application/x-ndjson' });
@@ -295,6 +310,8 @@ export function LoggingSettingsSection({
         title: 'Failed to export diagnostics',
         variant: 'destructive',
       });
+    } finally {
+      setIsExportingDurableNdjson(false);
     }
   }, [onExportDurableNdjson, toast]);
 
@@ -347,7 +364,13 @@ export function LoggingSettingsSection({
               </SelectContent>
             </Select>
             {usingDurableLogSource && onExportDurableNdjson ? (
-              <Button onClick={handleExportDurableNdjson} size="sm" type="button" variant="outline">
+              <Button
+                disabled={isExportingDurableNdjson}
+                onClick={handleExportDurableNdjson}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 <Download aria-hidden="true" className="mr-2 h-4 w-4" />
                 Export NDJSON
               </Button>
