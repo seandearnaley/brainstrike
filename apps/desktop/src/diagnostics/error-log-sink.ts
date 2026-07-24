@@ -4,7 +4,30 @@ import {
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
 import type { LogRecord } from '@brainstrike/utils/logger';
-import { RotatingNdjsonSink } from './rotating-ndjson-sink';
+import { DEFAULT_MAX_FILES, RotatingNdjsonSink } from './rotating-ndjson-sink';
+
+/** Base filename for the durable NDJSON backstop, shared with factory reset
+ * (`desktop-factory-reset.ts`, via `listErrorLogFilePaths` below) so the
+ * writer and the purge logic can never drift onto different filenames. */
+export const ERROR_LOG_FILE_NAME = 'brainstrike-errors.ndjson';
+
+/**
+ * Every on-disk path `createErrorLogSink({filePath})` can occupy: the live
+ * file plus every rotated-sibling slot (`.1`…`.{maxFiles - 1}`), mirroring
+ * `RotatingNdjsonSink`'s rotation slot math (`rotatedPath`) exactly. Factory
+ * reset uses this to purge the durable backstop without depending on the
+ * sink's rotation internals directly.
+ */
+export function listErrorLogFilePaths(
+  filePath: string,
+  maxFiles: number = DEFAULT_MAX_FILES
+): string[] {
+  const paths = [filePath];
+  for (let index = 1; index < maxFiles; index += 1) {
+    paths.push(`${filePath}.${index}`);
+  }
+  return paths;
+}
 
 export interface ErrorLogSinkHandle {
   close(): void;

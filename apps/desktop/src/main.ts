@@ -45,7 +45,12 @@ import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
-import { createErrorLogSink, type ErrorLogSinkHandle } from './diagnostics/error-log-sink';
+import {
+  createErrorLogSink,
+  ERROR_LOG_FILE_NAME,
+  type ErrorLogSinkHandle,
+  listErrorLogFilePaths,
+} from './diagnostics/error-log-sink';
 import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
@@ -867,12 +872,30 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     // standing, so it must stay open through every earlier step — including
     // the aggregate failure log immediately above — in order to capture
     // their failures too.
-    recordFailure(
-      await runShutdownStep('error-log-sink', async () => {
-        errorLogSink?.close();
+    //
+    // Deliberately NOT routed through `recordFailure`/`failures`: the
+    // aggregate `if (failures.length > 0) logger.warn(...)` above is the
+    // ONLY consumer of that array and has already run, so a failure pushed
+    // into it now would never be read by anything — logging it here is the
+    // only way this failure reaches console/`brainstrike.log` at all (the
+    // NDJSON sink itself is exactly what just failed to close). The handle
+    // is nulled from a `finally` so a throwing `close()` still leaves
+    // `errorLogSink` cleared rather than a stale handle that later
+    // `recordDurableLog` calls would treat as still open.
+    const sinkToClose = errorLogSink;
+    const sinkCloseFailure = await runShutdownStep('error-log-sink', async () => {
+      try {
+        sinkToClose?.close();
+      } finally {
         errorLogSink = null;
-      })
-    );
+      }
+    });
+    if (sinkCloseFailure) {
+      logger.error('Failed to close the durable NDJSON error log', {
+        failure: sinkCloseFailure,
+        trigger,
+      });
+    }
   })().finally(() => {
     clearForcedProcessExitTimer();
   });
@@ -1004,6 +1027,11 @@ async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+  // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
+  // of `brainstrike_diagnostic_events`, which factory reset already wipes —
+  // without this, the mirror would survive inside the preserved `logs`
+  // folder while the DB rows it mirrors do not (see desktop-factory-reset.ts).
+  errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   resetLocalDatabase,
   runtimes: [
@@ -1292,7 +1320,7 @@ if (singleInstanceLockAcquired) {
       if (!disableFileLogs) {
         errorLogSink = createErrorLogSink({
           appVersion: app.getVersion(),
-          filePath: path.join(app.getPath('logs'), 'brainstrike-errors.ndjson'),
+          filePath: path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME),
           platform: `${process.platform}-${process.arch}`,
           sessionId: randomUUID(),
         });

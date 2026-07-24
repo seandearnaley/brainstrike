@@ -269,6 +269,77 @@ describe('resetDesktopApplicationData', () => {
     });
   });
 
+  it('purges the durable NDJSON error-log files (live + rotated siblings) even though logs/ is preserved', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const errorLogFilePaths = [
+      '/mock/userData/logs/brainstrike-errors.ndjson',
+      '/mock/userData/logs/brainstrike-errors.ndjson.1',
+      '/mock/userData/logs/brainstrike-errors.ndjson.2',
+    ];
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      errorLogFilePaths,
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    for (const errorLogFilePath of errorLogFilePaths) {
+      expect(fsMocks.rm).toHaveBeenCalledWith(errorLogFilePath, { force: true });
+    }
+    expect(result.deletedPaths).toEqual(
+      expect.arrayContaining(errorLogFilePaths as unknown as string[])
+    );
+    // The preserved `logs` directory itself is untouched — only the NDJSON
+    // files inside it are purged.
+    expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
+  });
+
+  it('reports (never swallows) a failure to purge a durable NDJSON error-log file, without failing the whole reset', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const errorLogFilePaths = ['/mock/userData/logs/brainstrike-errors.ndjson'];
+    const purgeError = Object.assign(new Error('EBUSY: file is locked'), { code: 'EBUSY' });
+    fsMocks.rm.mockImplementation(async (targetPath: string) => {
+      if (targetPath === errorLogFilePaths[0]) {
+        throw purgeError;
+      }
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      errorLogFilePaths,
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    // Not swallowed: surfaced in the result...
+    expect(result.pendingDeletionPaths).toContain(errorLogFilePaths[0]);
+    expect(result.deletedPaths).not.toContain(errorLogFilePaths[0]);
+    // ...and the rest of the reset still completed successfully.
+    expect(resetDatabaseProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not attempt to purge error-log files when errorLogFilePaths is omitted', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    await resetDesktopApplicationData({
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    expect(fsMocks.rm).not.toHaveBeenCalledWith(
+      expect.stringContaining('brainstrike-errors.ndjson'),
+      expect.anything()
+    );
+  });
+
   it('uses unique trash paths for same-millisecond reset calls', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);

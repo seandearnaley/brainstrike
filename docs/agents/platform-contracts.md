@@ -448,6 +448,66 @@ since the NDJSON backstop and the PGlite-backed DB sink are meant to be
 independent failure domains — but it means a line in the file and a row in
 `brainstrike_diagnostic_events` cannot be joined on `sessionId` alone.
 
+**Shutdown-step failure reporting**: the `error-log-sink` step's result is
+deliberately NOT routed through the aggregate `failures` array/warn — that
+array's one consumer (the `if (failures.length > 0) logger.warn(...)` above)
+has already run by the time this LAST step executes, so pushing into it here
+would never be read by anything. A `close()` failure is instead logged
+directly (`logger.error('Failed to close the durable NDJSON error log', ...)`
+) — otherwise a real close failure (`RotatingNdjsonSink.close()` deliberately
+leaves `fs.closeSync` outside a try/catch; see its comment) would produce
+zero output anywhere, a direct "no silent fallbacks" violation in the one
+module whose entire job is loud failure reporting. The `errorLogSink` handle
+is always nulled from a `finally`, even when `close()` throws, so a partial
+failure can never leave a stale handle that a later `recordDurableLog` call
+treats as still open.
+
+**Reopen-after-close is real in `RotatingNdjsonSink` but unreachable in
+production**: `close()`'s doc comment describes (and the class actually
+implements) a `writeLine` call after `close()` transparently reopening the
+file rather than dropping the write. The desktop wiring does not rely on
+that: `main.ts`'s `error-log-sink` shutdown step nulls its `errorLogSink`
+handle in the SAME step that calls `close()`, so `recordDurableLog` becomes a
+permanent no-op for the rest of the process's life once that step runs — a
+forced-shutdown timeout logged later by `scheduleForcedProcessExit` reaches
+console/`brainstrike.log` but never this NDJSON file. This is a deliberate
+choice, not a bug: nulling the handle keeps "the sink is torn down" simple
+and matches every other shutdown step's teardown-then-forget pattern. The
+reopen affordance stays real inside `RotatingNdjsonSink` itself (exercised
+directly by its own tests) for any future caller that holds onto the handle
+past `close()` — the current desktop wiring just isn't one.
+
+**Factory reset purges the NDJSON mirror, not only the DB rows**: factory
+reset (`desktop-factory-reset.ts`) already wipes
+`brainstrike_diagnostic_events`. Without an explicit purge the NDJSON
+backstop would survive that reset intact: the file lives at
+`${app.getPath('logs')}/brainstrike-errors.ndjson`, and `logs` is in
+`PRESERVED_USER_DATA_ENTRY_NAMES` — the very folder factory reset otherwise
+leaves alone (it can also sit entirely outside `userDataPath`, e.g. on
+macOS). `resetDesktopApplicationData` takes an optional `errorLogFilePaths`
+list; `main.ts` passes
+`listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME))`
+(`error-log-sink.ts`) and the reset function best-effort `rm`s each path
+(live file + rotated siblings) in its own pass, independent of the userData
+entry loop that skips `logs` entirely. A purge failure is logged and
+tracked in the result's `pendingDeletionPaths` — reported, never swallowed —
+but does not fail the overall reset (the database + userData wipe that
+already succeeded matters more than one diagnostics mirror file).
+`brainstrike.log` (the full INFO log) is untouched by this purge and stays
+preserved, same as before.
+
+**Deferred from the design doc's §7/§9, recorded honestly**: §7's
+"`brainstrike.log` (full INFO) keeps existing behavior but gains the same
+rotation" was NOT delivered in P2a — only the new `brainstrike-errors.ndjson`
+file rotates; `brainstrike.log` still grows unbounded. §9's Log Viewer bullet
+promised filters for severity/source/code/time range, a row → detail view
+with cause chain, and per-row "Copy as JSON"; P2a delivered the second
+`LogSourceAdapter` ("Persistent errors") and severity filtering (via the
+viewer's existing level filter) but NOT the dedicated source/code filters,
+the time-range filter, a row-detail view, or per-row "Copy as JSON" — the
+cause chain is currently visible only as serialized text inside the
+args/context column, not a dedicated detail view.
+
 **Persistent Log Viewer source** (`createDurableLogSource` +
 `useDurableLogSource`,
 `packages/app-shell/src/diagnostics/durable-log-source.ts` and

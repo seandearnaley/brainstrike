@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** "The live file + 4 rotated siblings" per the Flight Recorder P2a design. */
+/** "The live file + 4 rotated siblings" per the Flight Recorder P2a design.
+ * `DEFAULT_MAX_FILES` is exported so factory reset (`desktop-factory-reset.ts`,
+ * via `listErrorLogFilePaths` in `error-log-sink.ts`) can enumerate every
+ * rotated-sibling slot the sink can occupy on disk without duplicating this
+ * default. */
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
-const DEFAULT_MAX_FILES = 5;
+export const DEFAULT_MAX_FILES = 5;
 
 export interface RotatingNdjsonSinkOptions {
   readonly filePath: string;

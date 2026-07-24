@@ -83,6 +83,33 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(secondCleanupOrder).toBeLessThan(resetOrder);
   });
 
+  it('forwards errorLogFilePaths through to resetDesktopApplicationData unchanged', async () => {
+    const errorLogFilePaths = [
+      '/mock/logs/brainstrike-errors.ndjson',
+      '/mock/logs/brainstrike-errors.ndjson.1',
+    ];
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      errorLogFilePaths,
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
+        await work();
+      }),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    await expect(handleReset()).resolves.toEqual({ success: true });
+
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({ errorLogFilePaths })
+    );
+  });
+
   it('returns a failed reset result without hiding the runtime shutdown error', async () => {
     const error = new Error('llm host refused to stop');
     resetDesktopApplicationDataMock.mockRejectedValueOnce(error);
