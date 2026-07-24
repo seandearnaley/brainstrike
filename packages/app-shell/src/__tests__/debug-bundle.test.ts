@@ -305,6 +305,55 @@ describe('formatThreadDebugBundle', () => {
     expect(output).not.toContain('[elided message'); // stage 1 never fired
     expect(output).toContain('"format": 2'); // V2 wrapper preserved, not unwrapped
   });
+
+  it('scrubs value-shape secrets in message text and tool results that key-name redaction cannot catch', () => {
+    const jwt =
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const apiKey = 'sk-live-aaaaaaaaaaaaaaaaaaaa';
+    const fixture: ThreadDebugBundleData = {
+      diagnosticEvents: [],
+      environment: {
+        appVersion: '1.2.3',
+        generatedAt: '2026-07-23T12:05:00.000Z',
+        platform: 'darwin',
+        sessionId: 'session-fixed-1',
+      },
+      messages: [
+        {
+          content: [{ text: `here is my key ${apiKey}`, type: 'text' }],
+          createdAt: '2026-07-23T12:00:00.000Z',
+          id: 'msg-secret-1',
+          role: 'user',
+        },
+        {
+          content: [
+            {
+              args: { path: 'auth.ts' },
+              result: `decoded token: ${jwt}`,
+              toolName: 'read_file',
+              type: 'tool-result',
+            },
+          ],
+          createdAt: '2026-07-23T12:00:05.000Z',
+          id: 'msg-secret-2',
+          role: 'assistant',
+        },
+      ],
+      priorFailures: null,
+      run: null,
+      runEvents: [],
+      threadId: 'thread-secret-scrub',
+      usage: [],
+    };
+
+    const output = formatThreadDebugBundle(fixture);
+
+    expect(output).toContain('[redacted-secret:api-key]');
+    expect(output).toContain('[redacted-secret:jwt]');
+    expect(output).not.toContain(apiKey);
+    expect(output).not.toContain(jwt);
+    expect(output).toContain('_Secret scan: 2 value(s) redacted (api-key, jwt)._');
+  });
 });
 
 describe('collectThreadDebugBundleData', () => {
