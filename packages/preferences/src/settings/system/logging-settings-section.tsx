@@ -279,30 +279,41 @@ export function LoggingSettingsSection({
   // indistinguishable from a broken button. `isExportingDurableNdjson`
   // guards against rapid double-clicks firing concurrent exports, each
   // re-querying up to `DURABLE_LOG_SOURCE_MAX_ROWS` rows.
+  //
+  // The DOM guard runs BEFORE the query (matching `handleExportLogs`), not
+  // after: awaiting a full bounded query only to discard the result in a
+  // non-DOM environment would run real work for nothing. No `try/finally`
+  // here on purpose — a `TryStatement` with a `finally` clause blocks React
+  // Compiler's automatic memoization for this whole component (react-doctor
+  // `react-hooks-js/todo`, error severity). `setIsExportingDurableNdjson(false)`
+  // instead runs unconditionally right after the try/catch: the catch branch
+  // never rethrows, so that line is reached on both the success and failure
+  // paths exactly like a `finally` would, without the compiler-blocking
+  // construct.
   const handleExportDurableNdjson = useCallback(async () => {
     if (!onExportDurableNdjson) {
+      return;
+    }
+    if (typeof window === 'undefined') {
       return;
     }
     setIsExportingDurableNdjson(true);
     try {
       const ndjson = await onExportDurableNdjson();
-      if (typeof window === 'undefined') {
-        return;
-      }
       if (ndjson.length === 0) {
         toast({
           description: 'There are no durable warn+ events to export.',
           title: 'No diagnostics to export',
         });
-        return;
+      } else {
+        const blob = new Blob([ndjson], { type: 'application/x-ndjson' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `brainstrike-errors-${new Date().toISOString()}.ndjson`;
+        anchor.click();
+        URL.revokeObjectURL(url);
       }
-      const blob = new Blob([ndjson], { type: 'application/x-ndjson' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `brainstrike-errors-${new Date().toISOString()}.ndjson`;
-      anchor.click();
-      URL.revokeObjectURL(url);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
@@ -310,9 +321,8 @@ export function LoggingSettingsSection({
         title: 'Failed to export diagnostics',
         variant: 'destructive',
       });
-    } finally {
-      setIsExportingDurableNdjson(false);
     }
+    setIsExportingDurableNdjson(false);
   }, [onExportDurableNdjson, toast]);
 
   return (
