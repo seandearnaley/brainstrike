@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/types": "workspace:*",
-    "minimatch": "^10.2.5",
-    "pino": "^10.3.1",
-    "tiktoken": "^1.0.22"
+    "minimatch": "catalog:",
+    "pino": "catalog:",
+    "tiktoken": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/typescript-checker": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@swc/core": "^1.15.43",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/typescript-checker": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@swc/core": "catalog:",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

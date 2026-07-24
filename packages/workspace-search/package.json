@@ -9,7 +9,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "lucide-react": "^1.23.0",
+    "lucide-react": "catalog:",
     "zustand": "catalog:"
   },
   "devDependencies": {

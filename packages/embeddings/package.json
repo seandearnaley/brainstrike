@@ -13,12 +13,12 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^4.2.0",
-    "glob": "^13.0.6"
+    "@huggingface/transformers": "catalog:",
+    "glob": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@electric-sql/pglite": "0.5.3",
+    "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

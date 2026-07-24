@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "description": "Descriptor-relative filesystem capabilities for trusted desktop roots",
   "dependencies": {
-    "bindings": "1.5.0"
+    "bindings": "catalog:"
   },
   "devDependencies": {
-    "node-addon-api": "8.9.0",
-    "node-gyp": "13.0.1"
+    "node-addon-api": "catalog:",
+    "node-gyp": "catalog:"
   },
   "exports": {
     ".": {

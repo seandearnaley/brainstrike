@@ -8,10 +8,10 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "^9.6.1",
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/typescript-checker": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@stryker-mutator/api": "catalog:",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/typescript-checker": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

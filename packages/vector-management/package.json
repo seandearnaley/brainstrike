@@ -12,8 +12,8 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "0.5.3",
-    "lucide-react": "^1.23.0"
+    "@electric-sql/pglite": "catalog:",
+    "lucide-react": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
