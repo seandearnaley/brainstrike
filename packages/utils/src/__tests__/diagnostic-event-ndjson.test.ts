@@ -95,31 +95,22 @@ describe('serializeDiagnosticEventLine / parseDiagnosticEventLine', () => {
   });
 
   it('emits keys in a fixed order regardless of the input object property order', () => {
-    // Same values as FULL_EVENT, but the object literal declares keys in the
-    // reverse order — this must not affect the serialized key order.
-    const reordered: DiagnosticEvent = {
-      appVersion: FULL_EVENT.appVersion,
-      causeChain: FULL_EVENT.causeChain,
-      code: FULL_EVENT.code,
-      context: FULL_EVENT.context,
-      fingerprint: FULL_EVENT.fingerprint,
-      id: FULL_EVENT.id,
-      message: FULL_EVENT.message,
-      occurredAt: FULL_EVENT.occurredAt,
-      platform: FULL_EVENT.platform,
-      resourceId: FULL_EVENT.resourceId,
-      rootId: FULL_EVENT.rootId,
-      runId: FULL_EVENT.runId,
-      scope: FULL_EVENT.scope,
-      sessionId: FULL_EVENT.sessionId,
-      severity: FULL_EVENT.severity,
-      source: FULL_EVENT.source,
-      stack: FULL_EVENT.stack,
-      threadId: FULL_EVENT.threadId,
-    };
+    // Built via a loop with bracket-notation assignment — NOT an object
+    // literal — so `ultracite fix` / Biome's key-sort rule cannot silently
+    // re-sort this fixture back into alphabetical order (which is exactly
+    // what happened to an earlier, object-literal version of this fixture
+    // and made the test pass vacuously regardless of implementation).
+    const reversedKeys = [...EXPECTED_KEY_ORDER].reverse();
+    const reordered: Record<string, unknown> = {};
+    for (const key of reversedKeys) {
+      reordered[key] = FULL_EVENT[key as keyof DiagnosticEvent];
+    }
+    // Guards the guard: confirms the fixture itself really has reversed
+    // insertion order before trusting it to exercise the serializer.
+    expect(Object.keys(reordered)).toEqual(reversedKeys);
 
     const lineFromFull = serializeDiagnosticEventLine(FULL_EVENT);
-    const lineFromReordered = serializeDiagnosticEventLine(reordered);
+    const lineFromReordered = serializeDiagnosticEventLine(reordered as unknown as DiagnosticEvent);
 
     expect(lineFromReordered).toBe(lineFromFull);
     expect(Object.keys(JSON.parse(lineFromFull))).toEqual(EXPECTED_KEY_ORDER);
@@ -153,6 +144,13 @@ describe('serializeDiagnosticEventLine / parseDiagnosticEventLine', () => {
 
   it('returns null when causeChain is present but not an array', () => {
     const invalid = { ...FULL_EVENT, causeChain: 'not-an-array' };
+    expect(parseDiagnosticEventLine(JSON.stringify(invalid))).toBeNull();
+  });
+
+  it('returns null when a required string field has the wrong type', () => {
+    // Guards against a regression that loosens REQUIRED_STRING_FIELDS
+    // validation to a truthiness check (e.g. `!!value` would accept `123`).
+    const invalid = { ...FULL_EVENT, sessionId: 123 };
     expect(parseDiagnosticEventLine(JSON.stringify(invalid))).toBeNull();
   });
 
