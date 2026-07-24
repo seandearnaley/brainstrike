@@ -37,7 +37,8 @@
  * throw across IPC and never a silent success.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
@@ -49,6 +50,25 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('TerminalIpc');
+
+/** Non-reversible fingerprint for a resolved root cwd, for warn+/error logs:
+ * this branch (Flight Recorder P2a) makes every warn+ log durable — mirrored
+ * into a plaintext NDJSON file on disk (`error-log-sink.ts`) — so the raw
+ * path can no longer appear here (`docs/agents/platform-contracts.md`:
+ * "Never log or persist command text, cwd, environment, or retained
+ * output"). Segment depth + a short sha256 prefix is still enough to
+ * correlate repeated spawn failures against "the same root" without
+ * reconstructing the actual path. */
+function fingerprintCwd(cwd: string): { cwdDepth: number; cwdSha256Prefix: string } {
+  const segments = path
+    .normalize(cwd)
+    .split(path.sep)
+    .filter((segment) => segment.length > 0);
+  return {
+    cwdDepth: segments.length,
+    cwdSha256Prefix: createHash('sha256').update(cwd).digest('hex').slice(0, 12),
+  };
+}
 
 /** Default PTY viewport when the renderer does not supply one. */
 const DEFAULT_COLS = 80;
@@ -303,7 +323,11 @@ export function createTerminalIpcHandlers({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to spawn pty', { cwd: cwd.value, error: message, shell });
+      logger.error('Failed to spawn pty', {
+        ...fingerprintCwd(cwd.value),
+        error: message,
+        shell,
+      });
       return { error: `Failed to start terminal: ${message}`, ok: false };
     }
 
