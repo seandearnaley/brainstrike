@@ -295,7 +295,18 @@ calls `onDisabled`, which the bridge logs loudly via a plain (non-recursing)
 `bridgeLogger.error`. `flush()`/`drain()` loop while more events keep arriving
 mid-flight so nothing enqueued during an in-flight sink call is stranded. The
 bridge also flushes on `visibilitychange` → `hidden`, so events survive tab
-close/backgrounding. The design's DB-corruption-recovery generation
+close/backgrounding. **Eager flush for high severity**: `DiagnosticSinkBridge`
+calls `void writer.flush()` immediately after `enqueue()` whenever
+`event.severity !== 'warn'` (both the local `addLogListener` path and the
+`forwardedRecords` path) — `error`/`fatal` events do not wait for the batch
+window, since `flush()` is single-flight (a concurrent call reuses the
+in-flight promise) and browsers do not guarantee async work started inside a
+`visibilitychange:hidden` handler completes before teardown. `warn` events
+still batch normally on the 2s/32-event thresholds. Web close-durability
+remains best-effort even with this: a batch of `warn` events inside the 2s
+window can still be lost if the tab is killed (not merely hidden) mid-flush;
+desktop's NDJSON file backstop (§7 of the design doc, moved to P2) is the
+durable answer for that gap. The design's DB-corruption-recovery generation
 subscription (re-arming the writer after a runtime DB swap) is NOT
 implemented in P1 — this self-disable-after-repeated-flush-failures behavior,
 with its visible `onDisabled` log, is the deliberate P1 substitute; revisit
@@ -334,8 +345,19 @@ Redaction is key-name-based (`redactSensitiveLogValue`, matching
 `isSensitiveLogKey`) applied twice: once at capture time
 (`logRecordToDiagnosticEvent`'s context) and again over the whole bundle data
 object at format time as a belt-and-braces pass — a secret value under an
-innocuous key (e.g. `{ note: 'password is sk-live-123' }`) is a known gap in
-both passes since neither is value-based.
+innocuous key (e.g. `{ note: 'password is sk-live-123' }`) was a known gap in
+both passes since neither is value-based. That gap is now partly closed: after
+the key-name pass and the elision loop, `formatThreadDebugBundle` runs
+`scrubLikelySecretValues` (`packages/app-shell/src/diagnostics/secret-scrub.ts`)
+over the final rendered Markdown string — a value-SHAPE scan (API key/token
+prefixes, JWTs, Bearer headers, PEM private keys, DB connection-string
+credentials) independent of key names. This is the single choke point every
+`formatThreadDebugBundle` return path flows through (including the
+over-budget/elision-exhausted path), so it covers `buildThreadDebugBundle`
+too. Each match is replaced with `[redacted-secret:<kind>]`; when anything was
+redacted a final `_Secret scan: <N> value(s) redacted (<kinds>)._` line is
+appended. High-precision patterns only — this is a belt-and-braces net for a
+specific set of secret shapes, not a general-purpose scanner.
 
 **Paired tests**: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
 `packages/utils/src/__tests__/diagnostic-event-writer.test.ts`,
@@ -345,5 +367,6 @@ both passes since neither is value-based.
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (durable-record
 push channel), `packages/ui/src/__tests__/error-boundary.test.tsx`,
 `packages/app-shell/src/__tests__/debug-bundle.test.ts` (includes a golden
-snapshot), `packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
+snapshot), `packages/app-shell/src/__tests__/secret-scrub.test.ts`,
+`packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
 `packages/app-shell/src/__tests__/use-debug-bundle.test.ts`.
