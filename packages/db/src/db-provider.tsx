@@ -88,7 +88,7 @@ function isMissingNamedRelationError(error: unknown, tableName: string): boolean
  * Thread search index (migration 067): derived conversation text + sync
  * state must not survive a clear/reset; the singleton search profile is
  * configuration and intentionally survives, like the prompt profile. Also
- * covers durable diagnostic events (migration 072, Flight Recorder P1): no
+ * covers durable diagnostic events (migration 073, Flight Recorder P1): no
  * FK, so nothing cascades it — the warn+ error log must not survive a "true
  * fresh start" (FACTORY RESET CONTRACT). Only a MISSING table (pre-migration
  * store) is tolerated — any other failure rethrows so a reset can never

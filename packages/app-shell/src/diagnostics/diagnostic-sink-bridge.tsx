@@ -6,14 +6,7 @@ import {
 } from '@brainstrike/utils/diagnostics';
 import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import { useEffect } from 'react';
-
-export const DIAGNOSTIC_SINK_SCOPE = 'DiagnosticSink';
-
-let sessionId: string | null = null;
-export function getDiagnosticSessionId(): string {
-  sessionId ??= crypto.randomUUID();
-  return sessionId;
-}
+import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';
 
 const bridgeLogger = createLogger(DIAGNOSTIC_SINK_SCOPE);
 

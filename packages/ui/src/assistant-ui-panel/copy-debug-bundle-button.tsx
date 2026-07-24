@@ -13,8 +13,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `selectFinishedRunId` in run-verdict-control.tsx (same part-walk over
  * `ASSISTANT_RUN_EVENT_DATA_NAME` data parts), but matches `run.failed`
  * instead of `run.finished` — the debug bundle is a FAILURE artifact.
+ *
+ * Not exported: only used within this module (by `CopyDebugBundleButton`
+ * below); tests exercise it indirectly through the component's rendered
+ * behavior. Keeping this module component-only satisfies react-doctor's
+ * `only-export-components` (Fast Refresh boundary).
  */
-export function selectFailedRunId(parts: readonly unknown[]): string | null {
+function selectFailedRunId(parts: readonly unknown[]): string | null {
   for (const part of parts) {
     if (!isRecord(part) || part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
       continue;

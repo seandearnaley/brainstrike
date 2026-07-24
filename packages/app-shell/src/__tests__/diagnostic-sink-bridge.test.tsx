@@ -6,7 +6,8 @@ import {
 } from '@brainstrike/utils/logger';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DIAGNOSTIC_SINK_SCOPE, DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
+import { DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
+import { DIAGNOSTIC_SINK_SCOPE } from '../diagnostics/diagnostic-sink-session';
 
 // Mock the db context to hand the bridge an in-memory query recorder.
 const queries: { sql: string; params?: unknown[] | undefined }[] = [];
