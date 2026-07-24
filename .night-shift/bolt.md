@@ -1,3 +1,12 @@
+## 2026-02-28 - Pre-compile Intl.Collator for locale-aware sorting
+**Learning:** Calling `String.prototype.localeCompare` inside a tight `.sort()` loop is a major performance bottleneck because it implicitly instantiates a new `Intl.Collator` on every comparison. When options like `{ numeric: true, sensitivity: 'base' }` are added, the performance hit is even more severe. Additionally, when using `sensitivity: 'base'`, `toLowerCase()` is unnecessary as the collator handles case-insensitivity natively.
+**Action:** When performing locale-aware sorting of large arrays, always pre-compile an `Intl.Collator` instance at the module level and reuse its `.compare` method inside the `.sort()` callback. This yields ~40x speedups in this codebase. Furthermore, replace `.replace(/^\./, '')` with `charCodeAt(0)` and `slice(1)` in hot paths to avoid regex compilation and string allocation overhead.
+
+## 2026-03-06 - Avoid template string allocations in hot path tree traversal
+**Learning:** Checking for path descendants in hot loops (e.g., `targetPath.startsWith(`${node.path}/`)`) causes excessive string allocations and slows down tree traversal significantly when dealing with large trees.
+**Action:** Replace template string checks with length and character code checks (`targetPath.length > node.path.length && targetPath.charCodeAt(node.path.length) === 47 && targetPath.startsWith(node.path)`). This avoids allocating intermediate strings and provides a >2x performance improvement.
+
+## 2026-03-20 - Fast getPathDepth implementation
 ## Loop Unrolling in V8
 **Learning:** Manual loop unrolling (stride 4) provides significant speedup (~20%) for embedding math operations on vectors of size 384-768. However, combining multiple validation checks into a single boolean expression (e.g., `if (v1==u || v2==u ...)` was SLOWER than keeping them separate (`if (v1==u) throw; if (v2==u) throw;`).
 **Action:** When unrolling loops in TypeScript/V8, prefer keeping simple, separate validation checks inside the unrolled block rather than creating complex boolean expressions, as the engine likely optimizes separate branches better or handles the short-circuiting more efficiently in the hot path.
@@ -31,6 +40,12 @@
 ## Extract Path Segments without split
 **Learning:** Extracting path segments using `.split('/').filter(Boolean)` creates intermediate string arrays and allocates new strings that are immediately discarded if empty. In hot paths (like building paths or verifying traversal), this causes GC pressure and slows execution.
 **Action:** Replace `.split('/').filter(...)` with a native string loop using `indexOf('/')` and `.slice()` in a shared utility function (`extractPathSegments`). This avoids intermediate regex array allocations and executes 3-4x faster in V8.
+
+## 2026-05-04 - N+1 Query Optimization using PGlite ANY()
+**Learning:** Checking a condition sequentially via looping database `SELECT` queries (like in MigrationRunner) creates significant N+1 query overhead in PGlite which adds up and delays startup time, especially with larger lists.
+**Action:** Replace iterative looping queries with a single query using the `WHERE column = ANY($1)` syntax with an array parameter to fetch all necessary data in bulk, caching it in an in-memory `Map` for O(1) lookups during the local iteration.
+
+## 2026-05-15 - [Object.entries vs Object.keys for JSON stabilization sorting]
 ## Optimize Regex matching into loop and index scanning
 **Learning:** Using regex like `.match(/\.\./g)` implicitly creates intermediate array allocations. When executed inside a hot loop like file traversal or path validation, this leads to immense GC overhead and performance drops compared to a simple native scan in a while loop using `indexOf(target, offset)`.
 **Action:** Replace `match()` with native `indexOf()` loops using proper index jumps when checking strings or computing lengths of matched groups in performance-critical methods.
@@ -100,3 +115,7 @@
 ## Command-session output retention avoids full-buffer slices
 **Learning:** `apps/desktop/src/assistant-server/command-session-manager.ts` appended PTY chunks to one retained string and sliced that string after every append beyond the 2 Mi UTF-16 cap. On Node 24.16.0, three warmups plus seven measured trials of 5,000 x 1 KiB Latin-1 chunks took a 393.37ms median with one read per 100 appends; adaptive 16 Ki blocks took 9.82ms with identical output. With one read per 10 appends, medians were 409.75ms and 86.81ms. Real PTYs may emit tiny events: five measured trials of 2,102,152 one-character appends took 723.42ms with the flat string and 55.86ms with 129 retained blocks after two warmups. Twenty-five capped Latin-1 buffers required exactly 52,428,800 backing bytes; unconditionally using UTF-16LE would double common ASCII/ANSI retention.
 **Action:** Keep bounded command-session output in fixed-size, head-evicted adaptive blocks and materialize only the suffix requested by `read()`; preserve one-byte Latin-1 storage, upgrade only blocks containing wider code units, and never retain each PTY event separately or restore per-append full-buffer slicing.
+
+## Stream watchdog ignores unrelated parts before ID probing
+**Learning:** `withToolCallInputTimeout` observes every Mastra stream part, including text and reasoning deltas. Probing tool-call IDs before checking the part type caused 10,000 unnecessary property reads and candidate-array allocations for a 10,000-part non-tool fixture.
+**Action:** Keep the watchdog's part-type gate before tool-call ID extraction, and read supported ID locations directly without a temporary candidates array.

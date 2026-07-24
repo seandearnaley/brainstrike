@@ -28,11 +28,22 @@ function readPart(value: unknown): ToolCallInputPart | undefined {
 }
 
 function readToolCallId(part: ToolCallInputPart): string | undefined {
-  const candidates = [part.toolCallId, part.id, part.payload?.toolCallId, part.payload?.id];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.length > 0) {
-      return candidate;
-    }
+  const toolCallId = part.toolCallId;
+  if (typeof toolCallId === 'string' && toolCallId.length > 0) {
+    return toolCallId;
+  }
+  const id = part.id;
+  if (typeof id === 'string' && id.length > 0) {
+    return id;
+  }
+  const payload = part.payload;
+  const payloadToolCallId = payload?.toolCallId;
+  if (typeof payloadToolCallId === 'string' && payloadToolCallId.length > 0) {
+    return payloadToolCallId;
+  }
+  const payloadId = payload?.id;
+  if (typeof payloadId === 'string' && payloadId.length > 0) {
+    return payloadId;
   }
   return;
 }
@@ -46,25 +57,36 @@ function observeToolCallInputPart(
   if (!part || typeof part.type !== 'string') {
     return;
   }
+  const partType = part.type;
+  if (
+    partType !== 'tool-call' &&
+    partType !== 'tool-result' &&
+    partType !== 'tool-error' &&
+    partType !== 'tool-call-input-streaming-end' &&
+    partType !== 'tool-call-input-streaming-start' &&
+    partType !== 'tool-call-delta'
+  ) {
+    return;
+  }
   const toolCallId = readToolCallId(part);
   if (!toolCallId) {
     return;
   }
 
-  if (part.type === 'tool-call' || part.type === 'tool-result' || part.type === 'tool-error') {
+  if (partType === 'tool-call' || partType === 'tool-result' || partType === 'tool-error') {
     activeInputs.delete(toolCallId);
     completedCalls.add(toolCallId);
     return;
   }
 
-  if (part.type === 'tool-call-input-streaming-end') {
+  if (partType === 'tool-call-input-streaming-end') {
     activeInputs.delete(toolCallId);
     completedCalls.add(toolCallId);
     return;
   }
 
   if (
-    (part.type === 'tool-call-input-streaming-start' || part.type === 'tool-call-delta') &&
+    (partType === 'tool-call-input-streaming-start' || partType === 'tool-call-delta') &&
     !completedCalls.has(toolCallId) &&
     !activeInputs.has(toolCallId)
   ) {

@@ -40,7 +40,9 @@ below are LIVE.
    its matching input end/complete call. `tool-call-delta` proves transport
    activity and continues to render progress, but it never extends that
    deadline: a provider cannot keep a run alive indefinitely by dribbling
-   incomplete JSON arguments. Expiry uses the distinct
+   incomplete JSON arguments. The wrapper ignores non-tool stream parts before
+   probing tool-call IDs, so ordinary text and reasoning deltas do not allocate
+   identifier candidate arrays. Expiry uses the distinct
    `tool_call_input_streaming_timeout` terminal code and aborts before an
    incomplete call can execute. A complete call leaves this layer and remains
    governed by the ordinary per-tool execution guard.

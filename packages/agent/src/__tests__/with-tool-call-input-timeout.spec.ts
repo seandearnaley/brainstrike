@@ -56,6 +56,55 @@ describe('withToolCallInputTimeout', () => {
     ]);
   });
 
+  it('does not inspect tool-call ids on unrelated stream parts', async () => {
+    const textPartCount = 10_000;
+    let toolCallIdReads = 0;
+    const textPart = {
+      get toolCallId(): string {
+        toolCallIdReads += 1;
+        return 'not-a-tool-call';
+      },
+      type: 'text-delta',
+    };
+
+    async function* textStream(): AsyncIterableIterator<TestPart> {
+      for (let index = 0; index < textPartCount; index += 1) {
+        yield textPart;
+      }
+    }
+
+    let observedPartCount = 0;
+    for await (const _part of withToolCallInputTimeout(textStream(), 1000)) {
+      observedPartCount += 1;
+    }
+
+    expect(observedPartCount).toBe(textPartCount);
+    expect(toolCallIdReads).toBe(0);
+  });
+
+  it('reads a relevant tool-call id accessor exactly once', async () => {
+    let toolCallIdReads = 0;
+    const toolPart = {
+      get toolCallId(): string | undefined {
+        toolCallIdReads += 1;
+        return toolCallIdReads === 1 ? 'call-accessor' : undefined;
+      },
+      type: 'tool-call',
+    };
+
+    async function* toolStream(): AsyncIterableIterator<TestPart> {
+      yield toolPart;
+    }
+
+    const parts: TestPart[] = [];
+    for await (const part of withToolCallInputTimeout(toolStream(), 1000)) {
+      parts.push(part);
+    }
+
+    expect(parts).toEqual([toolPart]);
+    expect(toolCallIdReads).toBe(1);
+  });
+
   it('does not let partial argument deltas extend the absolute deadline', async () => {
     const parts: TestPart[] = [];
 
