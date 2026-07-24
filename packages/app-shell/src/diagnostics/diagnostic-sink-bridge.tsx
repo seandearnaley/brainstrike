@@ -4,7 +4,7 @@ import {
   DiagnosticEventWriter,
   logRecordToDiagnosticEvent,
 } from '@brainstrike/utils/diagnostics';
-import { addLogListener, createLogger } from '@brainstrike/utils/logger';
+import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import { useEffect } from 'react';
 
 export const DIAGNOSTIC_SINK_SCOPE = 'DiagnosticSink';
@@ -51,15 +51,36 @@ function readPlatform(): string {
   return typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : 'unknown';
 }
 
+export interface ForwardedRecordsSubscription {
+  subscribe(listener: (record: LogRecord) => void): () => void;
+}
+
 export interface DiagnosticSinkBridgeProps {
   readonly flushBatchSize?: number;
+  /** Desktop main → renderer durable-record push (Task 6): when present, the
+   * bridge also subscribes to main/hidden-host warn+ records pushed over
+   * `logging:durable-record` and enqueues them into the SAME writer. Omitted
+   * entirely by callers whose preload predates this bridge — capability by
+   * composition, no silent no-op prop. */
+  readonly forwardedRecords?: ForwardedRecordsSubscription;
   readonly source: string;
+}
+
+function deriveForwardedRecordSource(record: LogRecord): string {
+  if (record.bindings['runtime'] === 'electron-main') {
+    return 'electron-main';
+  }
+  return String(record.bindings['sourceWindowRole'] ?? 'hidden-host');
 }
 
 /** Render-nothing bridge: logger fan-out → batched writer → PGlite (design §4.3).
  * Mounted ONLY in the visible web + desktop renderers (capability by composition —
  * hidden hosts never mount it). */
-export function DiagnosticSinkBridge({ flushBatchSize, source }: DiagnosticSinkBridgeProps): null {
+export function DiagnosticSinkBridge({
+  flushBatchSize,
+  forwardedRecords,
+  source,
+}: DiagnosticSinkBridgeProps): null {
   const db = useOptionalPGliteDatabase();
 
   useEffect(() => {
@@ -95,6 +116,19 @@ export function DiagnosticSinkBridge({ flushBatchSize, source }: DiagnosticSinkB
         writer.enqueue(event);
       }
     });
+    const unsubscribeForwarded = forwardedRecords?.subscribe((record) => {
+      // Same loop guard as the local logger fan-out above.
+      if (record.scope === DIAGNOSTIC_SINK_SCOPE) {
+        return;
+      }
+      const event = logRecordToDiagnosticEvent(record, {
+        ...env,
+        source: deriveForwardedRecordSource(record),
+      });
+      if (event) {
+        writer.enqueue(event);
+      }
+    });
     repository.purge().catch((cause: unknown) => {
       bridgeLogger.error('Diagnostic retention purge failed', {
         cause: cause instanceof Error ? cause.message : String(cause),
@@ -109,9 +143,10 @@ export function DiagnosticSinkBridge({ flushBatchSize, source }: DiagnosticSinkB
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       unsubscribe();
+      unsubscribeForwarded?.();
       void writer.dispose();
     };
-  }, [db, flushBatchSize, source]);
+  }, [db, flushBatchSize, forwardedRecords, source]);
 
   return null;
 }

@@ -358,7 +358,12 @@ function App() {
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
-      <DiagnosticSinkBridge source="desktop-renderer" />
+      <DiagnosticSinkBridge
+        source="desktop-renderer"
+        {...(typeof window.logging?.onDurableRecord === 'function'
+          ? { forwardedRecords: { subscribe: window.logging.onDurableRecord } }
+          : {})}
+      />
       <DbSchemaVerifier>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <RootLayoutContent />

@@ -300,6 +300,7 @@ declare global {
       openDestination: (target: string | null) => Promise<boolean>;
       getBufferedLogs: () => Promise<LogRecord[]>;
       ingestBufferedRecord: (record: LogRecord) => void;
+      onDurableRecord: (listener: (record: LogRecord) => void) => () => void;
       onPreferencesUpdated: (
         callback: (preferences: LoggingPreferences) => void
       ) => (() => void) | undefined;
