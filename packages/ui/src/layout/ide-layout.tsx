@@ -63,6 +63,14 @@ function safePanelSize(value: number | undefined, fallback: number): number {
 // Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
 // This is a fundamental architectural requirement - conditional rendering breaks the layout.
 
+// Panels deliberately keep the default `groupResizeBehavior` ("preserve-relative-size").
+// "preserve-pixel-size" would hold a sidebar's pixel width when the window resizes, which
+// is the usual IDE feel, but it does so by CHANGING that panel's percentage — and the
+// library reports those changes as `isUserInteraction: false`, which persistence rightly
+// ignores. Storage would keep the pre-resize percentage, so a reload would restore the
+// sidebar at a different width than the user last saw. Percentage-based persistence and
+// pixel-preserving resize are mismatched; adopting it means storing pixel sizes instead.
+
 /** Persists a panel layout; `sizes` is `[left, right, console]` as percentages. */
 type SaveLayout = (
   sizes: number[],
@@ -1213,7 +1221,6 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsedSize="0%"
                 collapsible
                 defaultSize={`${DEFAULT_PANEL_SIZES[0]}%`}
-                groupResizeBehavior="preserve-pixel-size"
                 id={layoutIds.explorerPanel}
                 maxSize={resolvedPanelConstraints.leftPanelMaxSize}
                 minSize={resolvedPanelConstraints.leftPanelMinSize}
@@ -1360,7 +1367,6 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsedSize="0%"
                 collapsible
                 defaultSize={`${DEFAULT_PANEL_SIZES[1]}%`}
-                groupResizeBehavior="preserve-pixel-size"
                 id={layoutIds.toolsPanel}
                 maxSize={resolvedPanelConstraints.rightPanelMaxSize}
                 minSize={resolvedPanelConstraints.rightPanelMinSize}
