@@ -8,6 +8,7 @@ import {
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
+  resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
 } from '../../assistant-server/workspace-roots';
@@ -119,6 +120,20 @@ describe('resolveWorkspaceRoot', () => {
         'root-b'
       )
     ).toEqual(ROOT_B);
+  });
+
+  it('rejects an explicitly blank qualifier instead of treating it as an omission', () => {
+    const boundRuntime = runtime({
+      boundWorkspaceRootId: 'root-a',
+      workspaceRoots: [ROOT_A, ROOT_B],
+    });
+
+    expect(() => resolveWorkspaceRoot(boundRuntime, '   ')).toThrow(
+      /"root" argument must not be blank/i
+    );
+    expect(() => resolveOptionalWorkspaceRoot(boundRuntime, '')).toThrow(
+      /"root" argument must not be blank/i
+    );
   });
 
   it('fails visibly when the bound thread root is no longer live', () => {

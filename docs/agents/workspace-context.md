@@ -703,11 +703,13 @@ copy before the metadata-store rerender can land.
 Desktop validates that id against its server-loaded live DB roots and orders the
 bound root first for hooks and the initial manifest. An omitted native
 workspace-tool `root` resolves to the binding. An explicit selector for another
-currently mounted root remains an observable cross-root operation. A missing,
-stale, or disconnected bound id fails visibly; it never path-falls back or
-silently adopts the new global Main root. Disconnect transitions also revoke
-already-enriched in-flight runtime snapshots, while a later authoritative live
-root load clears that revocation after reconciliation/reconnect.
+currently mounted root remains an observable cross-root operation. An explicitly
+blank selector is invalid and never broadens an optional search to all roots or
+falls through to the thread binding. A missing, stale, or disconnected bound id
+fails visibly; it never path-falls back or silently adopts the new global Main
+root. Disconnect transitions also revoke already-enriched in-flight runtime
+snapshots, while a later authoritative live root load clears that revocation
+after reconciliation/reconnect.
 
 **Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
 every fresh hosted-provider turn receives one `system` message before the

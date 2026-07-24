@@ -112,6 +112,19 @@ function rootIdForLog(root: RuntimeWorkspaceRoot): string | typeof REDACTED_ROOT
   return path.isAbsolute(root.rootId) ? REDACTED_ROOT_ID_LOG_VALUE : root.rootId;
 }
 
+function normalizeExplicitRootQualifier(qualifier?: string | null): string | undefined {
+  if (qualifier === undefined || qualifier === null) {
+    return;
+  }
+  const trimmed = qualifier.trim();
+  if (!trimmed) {
+    throw new ToolInputError(
+      'The "root" argument must not be blank. Omit it to use the thread-bound root, or provide an open folder name or id.'
+    );
+  }
+  return trimmed;
+}
+
 /**
  * Resolve which root a tool call targets. `qualifier` is a root id or display
  * name (the model's "root" argument). Multi-root disambiguation:
@@ -134,7 +147,7 @@ export function resolveWorkspaceRoot(
     );
   }
 
-  const trimmed = qualifier?.trim();
+  const trimmed = normalizeExplicitRootQualifier(qualifier);
   if (trimmed) {
     const byId = roots.find((root) => root.rootId === trimmed);
     if (byId) {
@@ -212,7 +225,10 @@ export function resolveOptionalWorkspaceRoot(
   runtimeData: RuntimeData | undefined,
   qualifier?: string | null
 ): RuntimeWorkspaceRoot | undefined {
-  if (qualifier?.trim() || runtimeData?.boundWorkspaceRootId?.trim()) {
+  if (
+    (qualifier !== undefined && qualifier !== null) ||
+    runtimeData?.boundWorkspaceRootId?.trim()
+  ) {
     return resolveWorkspaceRoot(runtimeData, qualifier);
   }
   return;
