@@ -163,6 +163,19 @@ describe('assistant runtime helpers', () => {
     ).toBe('Assistant memory is loading from PGlite.');
   });
 
+  it.each([
+    'idle',
+    'loading',
+  ] as const)('keeps zero-root restored threads disabled while thread metadata is %s', (status) => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { status },
+        workspaceRootPath: null,
+      })
+    ).toBe('Assistant memory is loading from PGlite.');
+  });
+
   it('blocks unsupported semantic recall embedding providers', () => {
     expect(
       resolveAssistantMemoryDisabledReason({

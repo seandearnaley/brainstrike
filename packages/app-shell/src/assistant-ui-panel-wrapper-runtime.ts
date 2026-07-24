@@ -198,18 +198,16 @@ export function resolveAssistantMemoryDisabledReason(args: {
   selectedProvider: SupportedProvider | null;
   workspaceRootPath: string | null;
 }): string | undefined {
+  if (args.memoryLoadState?.status === 'idle' || args.memoryLoadState?.status === 'loading') {
+    return 'Assistant memory is loading from PGlite.';
+  }
   if (!args.workspaceRootPath) {
     return;
   }
   if (args.dbError) {
     return `Assistant memory database failed to initialize: ${args.dbError.message}`;
   }
-  if (
-    args.dbInitializing ||
-    !args.assistantThreadRepository ||
-    args.memoryLoadState?.status === 'idle' ||
-    args.memoryLoadState?.status === 'loading'
-  ) {
+  if (args.dbInitializing || !args.assistantThreadRepository) {
     return 'Assistant memory is loading from PGlite.';
   }
   if (args.memoryLoadState?.status === 'error') {

@@ -803,9 +803,10 @@ accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
 The persisted store contains tab/selection ids but not `mastra_threads` rows.
 After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
 `ensureResourceThreads` hydrates the selected row and its metadata. Composer
-sends stay disabled during both states, and root-binding resolution/persistence
-also rejects a selected id whose row is not loaded; that transient absence is
-never interpreted as an unbound thread eligible for the current Main root.
+sends stay disabled during both states even when no workspace root is focused,
+and root-binding resolution/persistence also rejects a selected id whose row is
+not loaded; that transient absence is never interpreted as an unbound thread
+eligible for the current Main root.
 
 Paired tests: `assistant-thread-store.test.ts`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
