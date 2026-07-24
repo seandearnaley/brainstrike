@@ -82,9 +82,8 @@ function buildScriptSrc(isDev: boolean, isElectron: boolean): string[] {
   //    renderer holds the secrets/terminal/git bridges, so a jsdelivr compromise
   //    must not become code execution (BST-573); jsdelivr stays a fetch origin
   //    (connect-src) only.
-  //  - Web has no such bridges: it keeps jsdelivr in script-src and uses full
-  //    'unsafe-eval' in production (transformers.js/ONNX), with no
-  //    'wasm-unsafe-eval' token.
+  //  - Web production follows the same fetch-only CDN and narrow WASM policy
+  //    (BST-594). Development keeps the Vite HMR sources below.
   if (isElectron) {
     return isDev
       ? [
@@ -106,7 +105,7 @@ function buildScriptSrc(isDev: boolean, isElectron: boolean): string[] {
         'https://cdn.jsdelivr.net',
         'blob:',
       ]
-    : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'blob:'];
+    : ["'self'", 'blob:', "'wasm-unsafe-eval'"];
 }
 
 function getContentSecurityPolicyDirectives(env: CspEnvironment, target: Platform): CspDirectives {

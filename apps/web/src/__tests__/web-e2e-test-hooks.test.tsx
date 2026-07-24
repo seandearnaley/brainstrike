@@ -3,14 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebE2ETestHooks } from '../web-e2e-test-hooks';
 
 const usePGliteDatabaseMock = vi.hoisted(() => vi.fn());
+const getEmbeddingQueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
 }));
 
+vi.mock('../create-embedding-queue', () => ({
+  getEmbeddingQueue: getEmbeddingQueueMock,
+}));
+
 interface TestDbHandle {
   readonly query: ReturnType<typeof vi.fn>;
   readonly syncToFs?: ReturnType<typeof vi.fn>;
+  readonly transaction?: ReturnType<typeof vi.fn>;
 }
 
 function setWebDriver(value: boolean): void {
@@ -33,6 +39,8 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(false);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      qualifyDatabaseExtensions: vi.fn(),
+      qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
@@ -53,6 +61,8 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(true);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      qualifyDatabaseExtensions: vi.fn(),
+      qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
@@ -82,11 +92,41 @@ describe('WebE2ETestHooks', () => {
       })
       .mockResolvedValueOnce({ rows: [{ is_enabled: 'true' }] })
       .mockResolvedValueOnce({ rows: [{ is_enabled: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ extname: 'pg_textsearch' }, { extname: 'pg_trgm' }, { extname: 'vector' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ distance: 0, full_text_match: true }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ bm25_score: 0.5 }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const syncToFs = vi.fn().mockResolvedValue(undefined);
+    const add = vi.fn().mockResolvedValue({
+      id: 'csp-embedding-qualification',
+      metadata: {
+        device: 'wasm',
+        dimensions: 384,
+        dtype: 'q4',
+        fallbackApplied: false,
+      },
+      type: 'result',
+      vectors: [new Float32Array(384).fill(0.25)],
+    });
+    getEmbeddingQueueMock.mockReturnValue({ add });
+    const transaction = vi.fn(
+      async (callback: (tx: TestDbHandle) => Promise<unknown>): Promise<unknown> =>
+        callback({ query })
+    );
     usePGliteDatabaseMock.mockReturnValue({
       query,
       syncToFs,
+      transaction,
     } satisfies TestDbHandle);
 
     const { unmount } = render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
@@ -112,12 +152,63 @@ describe('WebE2ETestHooks', () => {
     await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-3')).resolves.toBe(
       null
     );
+    await expect(
+      window.__brainstrikeWebE2ETestHooks__?.qualifyDatabaseExtensions()
+    ).resolves.toEqual({
+      bm25Score: 0.5,
+      extensions: ['pg_textsearch', 'pg_trgm', 'vector'],
+      fullTextMatch: true,
+      vectorDistance: 0,
+    });
+    await expect(window.__brainstrikeWebE2ETestHooks__?.qualifyLocalEmbedding()).resolves.toEqual({
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q4',
+      fallbackApplied: false,
+      finite: true,
+    });
     await window.__brainstrikeWebE2ETestHooks__?.syncDatabase();
 
     expect(query).toHaveBeenCalledWith(
       'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'
     );
     expect(query).toHaveBeenCalledWith('SELECT is_enabled FROM models WHERE id = $1', ['model-1']);
+    expect(query).toHaveBeenCalledWith(
+      "SELECT extname FROM pg_extension WHERE extname IN ('pg_textsearch', 'pg_trgm', 'vector') ORDER BY extname"
+    );
+    expect(query).toHaveBeenCalledWith(
+      "SELECT ('[1,0,0]'::vector(3) <=> '[1,0,0]'::vector(3))::float8 AS distance, to_tsvector('english', 'brainstrike csp qualification') @@ plainto_tsquery('english', 'brainstrike') AS full_text_match"
+    );
+    expect(query).toHaveBeenCalledWith(
+      "INSERT INTO file_records (id, name, path, size) VALUES ($1, 'csp-qualification.txt', $2, 29)",
+      [expect.any(String), expect.stringMatching(/^csp-qualification:\/\//)]
+    );
+    expect(query).toHaveBeenCalledWith(
+      "INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, 'brainstrike csp qualification')",
+      [expect.any(String), expect.any(String)]
+    );
+    expect(query).toHaveBeenCalledWith(
+      "SELECT -(content <@> to_bm25query('brainstrike', 'idx_file_chunks_content_bm25'))::float8 AS bm25_score FROM file_chunks WHERE id = $1",
+      [expect.any(String)]
+    );
+    expect(query).toHaveBeenCalledWith('DELETE FROM file_chunks WHERE id = $1', [
+      expect.any(String),
+    ]);
+    expect(query).toHaveBeenCalledWith('DELETE FROM file_records WHERE id = $1', [
+      expect.any(String),
+    ]);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledWith({
+      deviceHint: 'wasm',
+      dtype: 'q4',
+      id: expect.stringMatching(/^csp-embedding-/),
+      kind: 'embed',
+      maxBatchSize: 1,
+      model: 'Xenova/all-MiniLM-L6-v2',
+      targetDimension: 384,
+      texts: ['Brainstrike production CSP qualification'],
+      truncateDim: 384,
+    });
     expect(syncToFs).toHaveBeenCalledTimes(1);
 
     unmount();
