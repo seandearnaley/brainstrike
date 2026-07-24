@@ -12,7 +12,7 @@
 
 ## Scope
 
-This plan implements opportunity 1 from `docs/codebase-refinement-opportunities-2026-06-10.md`.
+This plan implements opportunity 1 from `docs/archive/codebase-refinement-opportunities-2026-06-10.md`.
 
 In scope:
 

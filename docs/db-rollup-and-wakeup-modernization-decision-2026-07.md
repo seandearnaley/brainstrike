@@ -83,7 +83,7 @@ invalidation.
 3. **Polling cannot be removed anyway → dual wakeup semantics.** Notification
    delivery is dispatched by leader-tab JavaScript, so it is subject to the
    same Chrome background-tab timer throttling documented in
-   `docs/bst-364-background-throttling-qos-research-2026-05.md`, and
+   `docs/archive/bst-364-background-throttling-qos-research-2026-05.md`, and
    notifications are lost across worker restart/suspend. The poll loop must
    stay as the source of truth; NOTIFY would only ever be an *additional*
    wakeup path — more states in exactly the layer that produced the #1247

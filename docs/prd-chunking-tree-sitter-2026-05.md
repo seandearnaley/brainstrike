@@ -244,7 +244,7 @@ fileName is undefined OR no match                ──► null
 
 - `packages/chunking-worker/bench/tree-sitter-cost.mjs` — wall-clock parse + extract per file on the same corpus
 - Headline: tree-sitter ms/file vs recursive ms/file (recursive is faster but produces unaligned chunks; the comparison is honesty, not a claim)
-- Report at: `docs/bench-chunking-tree-sitter-2026-05.md`
+- Report at: `docs/archive/bench-chunking-tree-sitter-2026-05.md`
 
 ## 11. Risks
 
