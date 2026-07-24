@@ -1,7 +1,7 @@
 import { type DiagnosticEventsDatabase, DiagnosticEventsRepository } from '@brainstrike/db';
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { redactSensitiveLogValue } from '@brainstrike/utils/logger';
-import { getDiagnosticSessionId } from './diagnostic-sink-bridge';
+import { getDiagnosticSessionId } from './diagnostic-sink-session';
 import { scrubLikelySecretValues } from './secret-scrub';
 
 /**
@@ -329,9 +329,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Real persisted parts (see `projectToolInvocationPartForTranscript` in
+ * `packages/agent/src/pglite-mastra-memory/memory-store.ts` and
+ * `docs/agents/assistant-persistence.md` §1) are shaped
+ * `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
+ * state, result } }` — the result lives NESTED under `toolInvocation`, not at
+ * the part's top level. */
+function isToolInvocationPart(
+  part: unknown
+): part is Record<string, unknown> & { toolInvocation: Record<string, unknown> } {
+  return isRecord(part) && part['type'] === 'tool-invocation' && isRecord(part['toolInvocation']);
+}
+
 function isToolResultPart(part: unknown): part is Record<string, unknown> {
   if (!isRecord(part)) {
     return false;
+  }
+  if (isToolInvocationPart(part) && 'result' in part['toolInvocation']) {
+    return true;
   }
   const type = part['type'];
   if (typeof type === 'string' && type.includes('tool-result')) {
@@ -381,6 +396,21 @@ function elideToolResultBodies(content: unknown): unknown {
   const elidedParts = parts.map((part) => {
     if (!isToolResultPart(part)) {
       return part;
+    }
+    if (isToolInvocationPart(part) && 'result' in part['toolInvocation']) {
+      const invocation = part['toolInvocation'];
+      const serialized = stringifyResultValue(invocation['result']);
+      const preview = serialized.slice(0, TOOL_RESULT_PREVIEW_CHARS);
+      const suffix = serialized.length > TOOL_RESULT_PREVIEW_CHARS ? '…' : '';
+      return {
+        ...part,
+        // toolCallId/toolName/args/state (and any other toolInvocation keys)
+        // are preserved verbatim — only `result` is replaced.
+        toolInvocation: {
+          ...invocation,
+          result: `${preview}${suffix} _[tool result elided — ${serialized.length} chars]_`,
+        },
+      };
     }
     const resultKey = 'result' in part ? 'result' : 'output' in part ? 'output' : null;
     if (!resultKey) {

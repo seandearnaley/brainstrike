@@ -4,7 +4,7 @@ import {
   DIAGNOSTIC_MESSAGE_MAX_CHARS,
   logRecordToDiagnosticEvent,
 } from '../diagnostics/diagnostic-events';
-import { LogLevel } from '../logger';
+import { addLogListener, LogLevel, type LogRecord, error as logError } from '../logger';
 
 const ENV = {
   appVersion: '1.0.0-test',
@@ -89,6 +89,44 @@ describe('logRecordToDiagnosticEvent', () => {
     expect(event?.stack).toContain('Error');
     expect(event?.causeChain?.[0]?.message).toBe('root cause');
     expect(event?.context?.['errorMessage']).toContain('…[truncated');
+  });
+
+  it('preserves stack + cause chain for a REAL logger call through the redaction pipeline', () => {
+    // Regression for the bug where `emitLogRecord` fans args out through
+    // `redactSensitiveLogValue` BEFORE listeners: since `Error.cause` is
+    // non-enumerable, the plain `{message, name, stack}` object the redactor
+    // produced used to silently drop the cause chain, so this never went
+    // through the `instanceof Error` branch in production. Goes through the
+    // REAL `error(...)` + `addLogListener` path end to end, not a
+    // hand-constructed LogRecord.
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      captured.push(record);
+    });
+    try {
+      logError(new Error('outer', { cause: new Error('root cause') }));
+    } finally {
+      unsubscribe();
+    }
+
+    expect(captured).toHaveLength(1);
+    const record = captured[0];
+    expect(record).toBeDefined();
+    if (!record) {
+      throw new Error('expected a captured log record');
+    }
+
+    const event = logRecordToDiagnosticEvent(record, ENV);
+    expect(event?.stack?.length ?? 0).toBeGreaterThan(0);
+    expect(event?.causeChain?.[0]?.message).toBe('root cause');
+
+    // The raw redacted error object must NOT be duplicated wholesale into
+    // context (that was the earlier, wrong fallback behavior).
+    expect(event?.context?.['stack']).toBeUndefined();
+    expect(event?.context?.['cause']).toBeUndefined();
+    expect(event?.context?.['message']).toBeUndefined();
+    expect(event?.context?.['errorName']).toBe('Error');
+    expect(event?.context?.['errorMessage']).toBe('outer');
   });
 
   it('redacts sensitive keys in context', () => {

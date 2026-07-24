@@ -654,6 +654,13 @@ export function redactSensitiveLogValue(
   const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
   if (value instanceof Error) {
     Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
+    // `Error.cause` is a non-enumerable own property, so the `Object.entries`
+    // walk below never visits it — without this, the cause chain silently
+    // disappears the moment an Error is redacted (see diagnostic-events.ts,
+    // which relies on `cause` surviving to walk it back out).
+    if (value.cause !== undefined) {
+      redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen);
+    }
   }
   seen.set(value, redacted);
   for (const [key, entry] of Object.entries(value)) {

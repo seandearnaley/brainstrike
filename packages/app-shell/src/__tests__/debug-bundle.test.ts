@@ -306,6 +306,91 @@ describe('formatThreadDebugBundle', () => {
     expect(output).toContain('"format": 2'); // V2 wrapper preserved, not unwrapped
   });
 
+  it('elides an oversized nested `tool-invocation` result (real persisted dialect)', () => {
+    // Real persisted tool calls are shaped
+    // `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName,
+    // args, state, result } }` (see
+    // packages/agent/src/pglite-mastra-memory/memory-store.ts and
+    // docs/agents/assistant-persistence.md §1) — the result is NESTED under
+    // `toolInvocation`, not at the part's top level like the flat
+    // `tool-result` fixtures above. This must elide the same way.
+    const bigResult = 'N'.repeat(30_000);
+    const fixture: ThreadDebugBundleData = {
+      diagnosticEvents: [],
+      environment: {
+        appVersion: '1.2.3',
+        generatedAt: '2026-07-23T12:05:00.000Z',
+        platform: 'darwin',
+        sessionId: 'session-fixed-1',
+      },
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [{ text: 'Read the config file.', type: 'text' }],
+          },
+          createdAt: '2026-07-23T12:00:00.000Z',
+          id: 'msg-a',
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                toolInvocation: {
+                  args: { path: 'config.json' },
+                  result: bigResult,
+                  state: 'result',
+                  toolCallId: 'call-1',
+                  toolName: 'read_file',
+                },
+                type: 'tool-invocation',
+              },
+            ],
+          },
+          createdAt: '2026-07-23T12:00:05.000Z',
+          id: 'msg-b',
+          role: 'assistant',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [{ text: 'Done.', type: 'text' }],
+          },
+          createdAt: '2026-07-23T12:00:10.000Z',
+          id: 'msg-c',
+          role: 'assistant',
+        },
+      ],
+      priorFailures: null,
+      run: null,
+      runEvents: [],
+      threadId: 'thread-stage2-tool-invocation',
+      usage: [],
+    };
+
+    // All 3 messages fall inside the protected window (newest assistant +- 2
+    // covers every index), so stage 1 has zero eligible candidates — only
+    // stage 2 (elide the nested `toolInvocation.result`, keep everything
+    // else) can free room under this tight budget.
+    const output = formatThreadDebugBundle(fixture, { maxBytes: 5000 });
+    const bytes = new TextEncoder().encode(output).length;
+
+    expect(bytes).toBeLessThanOrEqual(5000);
+    expect(output).not.toContain(bigResult);
+    expect(output).toContain('[tool result elided');
+    expect(output).toContain('"toolCallId": "call-1"'); // toolInvocation fields survive
+    expect(output).toContain('"toolName": "read_file"');
+    expect(output).toContain('"state": "result"');
+    expect(output).toContain('"path": "config.json"'); // args retained verbatim
+    expect(output).toContain('N'.repeat(200)); // first-200-chars preview retained
+    expect(output).not.toContain('N'.repeat(201));
+    expect(output).toContain('Elided tool-result bodies in 1 message');
+    expect(output).not.toContain('[elided message'); // stage 1 never fired
+    expect(output).toContain('"format": 2'); // V2 wrapper preserved, not unwrapped
+  });
+
   it('scrubs value-shape secrets in message text and tool results that key-name redaction cannot catch', () => {
     const jwt =
       'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';

@@ -85,18 +85,53 @@ function readString(source: Record<string, unknown>, key: string): string | null
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-function walkCauseChain(error: Error): DiagnosticCauseEntry[] {
+type ErrorShapedRecord = Record<string, unknown> & { message: string; name: string };
+
+/** After `redactSensitiveLogValue` runs (see logger.ts), a real `Error` arrives
+ * here as a plain object `{message, name, stack, cause?}` — `Object.assign`
+ * copies those three as enumerable own props, and `cause` (when present) is
+ * copied through recursively by the redactor too. Recognize that shape so the
+ * cause chain and stack survive redaction instead of being merged wholesale
+ * into `context`. */
+function isErrorShapedRecord(value: unknown): value is ErrorShapedRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const name = value['name'];
+  const message = value['message'];
+  if (typeof name !== 'string' || typeof message !== 'string') {
+    return false;
+  }
+  return typeof value['stack'] === 'string' || 'cause' in value;
+}
+
+function causeEntryFrom(current: Error | ErrorShapedRecord): DiagnosticCauseEntry {
+  const code =
+    isRecord(current) && typeof current['code'] === 'string' ? current['code'] : undefined;
+  return {
+    ...(code && { code }),
+    message: boundWithMarker(current.message, 500),
+    name: current.name,
+  };
+}
+
+/** Walks a `.cause` chain starting from `cause`, accepting either real `Error`
+ * instances (direct callers) or redaction-flattened error-shaped plain
+ * records (real logger callers — see `isErrorShapedRecord` above). Chains can
+ * legitimately mix both shapes since redaction is applied top-down. */
+function walkCauseChain(cause: unknown): DiagnosticCauseEntry[] {
   const chain: DiagnosticCauseEntry[] = [];
-  let current: unknown = error.cause;
-  while (current instanceof Error && chain.length < MAX_CAUSE_DEPTH) {
-    const code =
-      isRecord(current) && typeof current['code'] === 'string' ? current['code'] : undefined;
-    chain.push({
-      ...(code && { code }),
-      message: boundWithMarker(current.message, 500),
-      name: current.name,
-    });
-    current = current.cause;
+  let current: unknown = cause;
+  while (chain.length < MAX_CAUSE_DEPTH) {
+    if (current instanceof Error) {
+      chain.push(causeEntryFrom(current));
+      current = current.cause;
+    } else if (isErrorShapedRecord(current)) {
+      chain.push(causeEntryFrom(current));
+      current = current['cause'];
+    } else {
+      break;
+    }
   }
   return chain;
 }
@@ -107,6 +142,43 @@ export interface DiagnosticEventEnv {
   readonly platform: string;
   readonly sessionId: string;
   readonly source: string;
+}
+
+interface ErrorArgFields {
+  readonly cause: unknown;
+  readonly message: string;
+  readonly name: string;
+  readonly stack: string | null;
+}
+
+interface AppliedErrorArg {
+  readonly causeChain: DiagnosticCauseEntry[];
+  readonly stack: string | null;
+}
+
+/** Shared by both the `instanceof Error` and `isErrorShapedRecord` branches
+ * below: populates `context.errorName`/`errorMessage` (never the wholesale
+ * object) and walks the cause chain, given whichever shape the arg was. */
+function applyErrorArg(context: Record<string, unknown>, fields: ErrorArgFields): AppliedErrorArg {
+  context['errorName'] = fields.name;
+  context['errorMessage'] = boundWithMarker(fields.message, DIAGNOSTIC_MESSAGE_MAX_CHARS);
+  return {
+    causeChain: walkCauseChain(fields.cause),
+    stack: fields.stack ? boundWithMarker(fields.stack, DIAGNOSTIC_STACK_MAX_CHARS) : null,
+  };
+}
+
+function errorArgFieldsFrom(arg: Error | ErrorShapedRecord): ErrorArgFields {
+  if (arg instanceof Error) {
+    return { cause: arg.cause, message: arg.message, name: arg.name, stack: arg.stack ?? null };
+  }
+  const stackValue = arg['stack'];
+  return {
+    cause: arg['cause'],
+    message: arg['message'],
+    name: arg['name'],
+    stack: typeof stackValue === 'string' ? stackValue : null,
+  };
 }
 
 export function logRecordToDiagnosticEvent(
@@ -123,12 +195,14 @@ export function logRecordToDiagnosticEvent(
   const context: Record<string, unknown> = {};
 
   for (const arg of record.args) {
-    if (arg instanceof Error) {
-      stack ??= arg.stack ? boundWithMarker(arg.stack, DIAGNOSTIC_STACK_MAX_CHARS) : null;
-      const chain = walkCauseChain(arg);
-      causeChain ??= chain.length > 0 ? chain : null;
-      context['errorName'] = arg.name;
-      context['errorMessage'] = boundWithMarker(arg.message, DIAGNOSTIC_MESSAGE_MAX_CHARS);
+    if (arg instanceof Error || isErrorShapedRecord(arg)) {
+      // Redaction-flattened Errors (see isErrorShapedRecord) arrive as plain
+      // records — do NOT fall through to the wholesale
+      // `Object.assign(context, arg)` below: that would duplicate
+      // message/name/stack/cause into context verbatim.
+      const applied = applyErrorArg(context, errorArgFieldsFrom(arg));
+      stack ??= applied.stack;
+      causeChain ??= applied.causeChain.length > 0 ? applied.causeChain : null;
     } else if (isRecord(arg)) {
       Object.assign(context, arg);
     }
