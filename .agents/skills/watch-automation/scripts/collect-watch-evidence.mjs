@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -297,26 +298,30 @@ function runKey(runItem) {
 export function compareWatermark({ previousKeys, runs, supplied }) {
   const previous = uniqueSorted(previousKeys.map(String));
   const currentRunKeys = uniqueSorted(runs.map(runKey));
-  const checkpointWatermark = uniqueSorted(
+  const completedRunKeys = uniqueSorted(
     runs.filter((runItem) => runItem.status === 'completed').map(runKey)
   );
+  const checkpointWatermark = `hash:${createHash('sha256')
+    .update(JSON.stringify(completedRunKeys))
+    .digest('hex')}`;
   const pendingRuns = runs
     .filter((runItem) => runItem.status !== 'completed')
     .map((runItem) => ({ attempt: runItem.attempt, id: runItem.id, status: runItem.status }))
     .sort((left, right) => runKey(left).localeCompare(runKey(right), undefined, { numeric: true }));
   const previousSet = new Set(previous);
   const currentSet = new Set(currentRunKeys);
-  const completedSet = new Set(checkpointWatermark);
+  const completedSet = new Set(completedRunKeys);
   const newRunKeys = currentRunKeys.filter((key) => !previousSet.has(key));
   const expiredRunKeys = previous.filter((key) => !currentSet.has(key));
   const unchanged = supplied && newRunKeys.length === 0 && expiredRunKeys.length === 0;
   const noopEligible =
     supplied &&
     pendingRuns.length === 0 &&
-    checkpointWatermark.every((key) => previousSet.has(key)) &&
+    completedRunKeys.every((key) => previousSet.has(key)) &&
     previous.every((key) => completedSet.has(key));
   return {
     checkpointWatermark,
+    completedRunKeys,
     currentRunKeys,
     expiredRunKeys,
     newRunKeys,

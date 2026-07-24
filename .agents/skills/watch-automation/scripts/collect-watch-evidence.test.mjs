@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   assertStableRunSnapshots,
@@ -140,8 +143,12 @@ test('compareWatermark checkpoints completed runs only, attempt-aware', () => {
     { attempt: 1, id: '1', status: 'completed' },
     { attempt: 1, id: '2', status: 'in_progress' },
   ];
+  const checkpointWatermark = `hash:${createHash('sha256')
+    .update(JSON.stringify(['1@1']))
+    .digest('hex')}`;
   assert.deepEqual(compareWatermark({ previousKeys: ['1@1'], runs, supplied: true }), {
-    checkpointWatermark: ['1@1'],
+    checkpointWatermark,
+    completedRunKeys: ['1@1'],
     currentRunKeys: ['1@1', '2@1'],
     expiredRunKeys: [],
     newRunKeys: ['2@1'],
@@ -162,7 +169,8 @@ test('compareWatermark never NOOPs while a watched run is pending', () => {
   assert.equal(result.unchanged, true);
   assert.equal(result.noopEligible, false);
   assert.deepEqual(result.pendingRuns, [{ attempt: 1, id: '2', status: 'in_progress' }]);
-  assert.deepEqual(result.checkpointWatermark, ['1@1']);
+  assert.deepEqual(result.completedRunKeys, ['1@1']);
+  assert.match(result.checkpointWatermark, /^hash:[0-9a-f]{64}$/u);
 });
 
 test('compareWatermark surfaces reruns as new attempt-aware keys', () => {
@@ -173,8 +181,49 @@ test('compareWatermark surfaces reruns as new attempt-aware keys', () => {
   });
   assert.deepEqual(result.newRunKeys, ['1@2']);
   assert.deepEqual(result.expiredRunKeys, ['1@1']);
-  assert.deepEqual(result.checkpointWatermark, ['1@2']);
+  assert.deepEqual(result.completedRunKeys, ['1@2']);
+  assert.match(result.checkpointWatermark, /^hash:[0-9a-f]{64}$/u);
   assert.equal(result.noopEligible, false);
+});
+
+test('compareWatermark hashes a sorted serialized completed-run set deterministically', () => {
+  const first = compareWatermark({
+    previousKeys: [],
+    runs: [
+      { attempt: 2, id: '10', status: 'completed' },
+      { attempt: 1, id: '2', status: 'completed' },
+    ],
+    supplied: false,
+  });
+  const repeated = compareWatermark({
+    previousKeys: [],
+    runs: [
+      { attempt: 1, id: '2', status: 'completed' },
+      { attempt: 2, id: '10', status: 'completed' },
+    ],
+    supplied: false,
+  });
+  const expected = `hash:${createHash('sha256')
+    .update(JSON.stringify(['2@1', '10@2']))
+    .digest('hex')}`;
+
+  assert.deepEqual(first.completedRunKeys, ['2@1', '10@2']);
+  assert.equal(first.checkpointWatermark, expected);
+  assert.equal(repeated.checkpointWatermark, expected);
+
+  const validator = fileURLToPath(
+    new URL('../../night-shift-checkpoint/scripts/validate-checkpoint.mjs', import.meta.url)
+  );
+  const validation = spawnSync(
+    process.execPath,
+    [
+      validator,
+      `2026-07-24T12:00:00Z | watermark=${first.checkpointWatermark} | status=NOOP | Watch delta empty`,
+    ],
+    { encoding: 'utf8' }
+  );
+  assert.equal(validation.status, 0, validation.stderr);
+  assert.equal(validation.stdout, 'valid\n');
 });
 
 test('compareWatermark NOOPs only on an unchanged fully-completed set', () => {
