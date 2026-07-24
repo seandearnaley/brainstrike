@@ -700,10 +700,11 @@ Later global Main/Focused changes do not retarget that thread or its composer
 chip. Request preparation reuses the persisted id and emits
 `boundWorkspaceRootId`; approval/resume preparation is pinned by an in-memory
 copy before the metadata-store rerender can land.
-Desktop validates that id against its server-loaded live DB roots and orders the
-bound root first for hooks and the initial manifest. An omitted native
-workspace-tool `root` resolves to the binding. An explicit selector for another
-currently mounted root remains an observable cross-root operation. An explicitly
+Desktop validates that id against its server-loaded live DB roots before hooks
+or the initial manifest can use another mounted root, then orders the bound root
+first. An omitted native workspace-tool `root` resolves to the binding. An
+explicit selector for another currently mounted root remains an observable
+cross-root operation. An explicitly
 blank selector is invalid and never broadens an optional search to all roots or
 falls through to the thread binding. Bound-root resolution requires an
 authoritative `workspaceRoots` inventory; if DB enrichment is unavailable, the

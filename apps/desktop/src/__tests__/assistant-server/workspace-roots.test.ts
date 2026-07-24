@@ -425,6 +425,22 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     expect(enriched?.workspaceRoots).toEqual([ROOT_B, ROOT_A]);
   });
 
+  it('rejects a durable thread binding that is absent from the live DB roots', async () => {
+    await expect(
+      enrichRuntimeDataWithWorkspaceRoots(
+        runtime({
+          boundWorkspaceRootId: 'root-gone',
+          mainRootId: 'root-a',
+          workspaceRootPath: '/Users/me/ProjectA',
+        }),
+        mockDb([
+          { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+          { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+        ])
+      )
+    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
+  });
+
   it('reorders DB roots so the client-declared main root is first', async () => {
     const db = mockDb([
       { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },

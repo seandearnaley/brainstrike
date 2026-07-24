@@ -446,10 +446,9 @@ function orderWorkspaceRootsForRuntime(
       const boundRoot = roots[boundRootIndex] as RuntimeWorkspaceRoot;
       return [boundRoot, ...roots.filter((_root, index) => index !== boundRootIndex)];
     }
-    logger.warn('Bound thread root is not among live workspace roots.', {
-      boundWorkspaceRootId: boundRootId,
-    });
-    return [...roots];
+    throw new ToolInputError(
+      `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
+    );
   }
   return orderWorkspaceRoots(roots, runtimeData.mainRootId, runtimeData.mainRootPath);
 }
@@ -486,24 +485,25 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   if (!db) {
     return runtimeData;
   }
+  let roots: RuntimeWorkspaceRoot[];
   try {
-    const roots = await loadWorkspaceRootsFromDatabase(db);
-    if (roots.length === 0) {
-      return runtimeData.workspaceRootPath
-        ? runtimeData
-        : {
-            ...runtimeData,
-            workspaceRoots: [],
-          };
-    }
-    return {
-      ...runtimeData,
-      workspaceRoots: orderWorkspaceRootsForRuntime(roots, runtimeData),
-    };
+    roots = await loadWorkspaceRootsFromDatabase(db);
   } catch (error) {
     logger.error('Failed to load workspace roots; authoritative root inventory is unavailable.', {
       error,
     });
     return runtimeData;
   }
+  if (roots.length === 0) {
+    return runtimeData.workspaceRootPath
+      ? runtimeData
+      : {
+          ...runtimeData,
+          workspaceRoots: [],
+        };
+  }
+  return {
+    ...runtimeData,
+    workspaceRoots: orderWorkspaceRootsForRuntime(roots, runtimeData),
+  };
 }
