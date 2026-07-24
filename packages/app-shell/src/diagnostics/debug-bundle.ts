@@ -713,17 +713,33 @@ function appendElisionLog(text: string, counts: ElisionCounts, stillOverBudget: 
   return `${text}\n\n${lines.join('\n')}`;
 }
 
+/** Renders the document PLUS the elision-log footer as it would currently
+ * appear — the budget loop below measures THIS (not the bare document), since
+ * the footer's own bytes count against `maxBytes` too. */
+function buildCandidate(
+  data: ThreadDebugBundleData,
+  state: ElisionState,
+  counts: ElisionCounts,
+  stillOverBudget: boolean
+): string {
+  return appendElisionLog(renderDocument(data, state), counts, stillOverBudget);
+}
+
 /** Pure: no I/O, no `Date.now()` — `data.environment.generatedAt` is the only
  * source of "now" in the output. Runs a final `redactSensitiveLogValue` pass
  * over the whole data object before rendering (belt-and-braces; sources are
- * already redacted upstream), then elides deterministically until the
- * rendered byte size is under `maxBytes`, or all elision stages are
- * exhausted (never throws — see `appendElisionLog`). */
+ * already redacted upstream — this pass is KEY-NAME-based, matching
+ * `isSensitiveLogKey`: a secret value stored under an innocuous key, e.g.
+ * `{ note: 'password is sk-live-123' }`, is not caught), then elides
+ * deterministically until the rendered byte size — document AND footer
+ * together — is under `maxBytes`, or all elision stages are exhausted (never
+ * throws — see `appendElisionLog`). */
 export function formatThreadDebugBundle(
   data: ThreadDebugBundleData,
   options?: FormatThreadDebugBundleOptions
 ): string {
   const maxBytes = options?.maxBytes ?? DEBUG_BUNDLE_DEFAULT_MAX_BYTES;
+  // Key-name-based redaction (see isSensitiveLogKey) — a secret under an innocuous key slips through.
   const redacted = redactSensitiveLogValue(data) as ThreadDebugBundleData;
 
   const protectedIndices = computeProtectedIndices(redacted.messages);
@@ -734,16 +750,16 @@ export function formatThreadDebugBundle(
   };
   const counts: ElisionCounts = { messages: 0, runEventMetadata: 0, toolResults: 0 };
 
-  let rendered = renderDocument(redacted, state);
-  while (byteLength(rendered) > maxBytes) {
+  let candidate = buildCandidate(redacted, state, counts, false);
+  while (byteLength(candidate) > maxBytes) {
     const applied = applyNextElisionStep(redacted, protectedIndices, state, counts);
     if (!applied) {
-      break;
+      return buildCandidate(redacted, state, counts, true);
     }
-    rendered = renderDocument(redacted, state);
+    candidate = buildCandidate(redacted, state, counts, false);
   }
 
-  return appendElisionLog(rendered, counts, byteLength(rendered) > maxBytes);
+  return candidate;
 }
 
 /** Collect then format in one call — the convenience wrapper Task 9's Copy
