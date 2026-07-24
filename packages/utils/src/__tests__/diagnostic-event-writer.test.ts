@@ -92,4 +92,86 @@ describe('DiagnosticEventWriter', () => {
     writer.enqueue(makeEvent('b')); // no-op, must not throw
     await writer.dispose();
   });
+
+  it('dispose-during-in-flight: captures events enqueued while sink promise is pending', async () => {
+    let resolveSink: () => void;
+    const sinkPromise = new Promise<void>((resolve) => {
+      resolveSink = resolve;
+    });
+    const inserted: DiagnosticEvent[][] = [];
+    const writer = new DiagnosticEventWriter({
+      flushBatchSize: 2,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      sink: {
+        insertBatch: async (events) => {
+          inserted.push([...events]);
+          await sinkPromise;
+        },
+      },
+    });
+    writer.enqueue(makeEvent('a'));
+    writer.enqueue(makeEvent('b')); // triggers flush
+    await vi.runOnlyPendingTimersAsync();
+    // Flush is in-flight; sink call is pending
+    writer.enqueue(makeEvent('c'));
+    writer.enqueue(makeEvent('d')); // triggers another flush, but joins the drain
+    // Now resolve the sink
+    resolveSink!();
+    await writer.dispose();
+    // Both waves should be inserted
+    expect(inserted.flat().map((event) => event.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('marker survives retry: dropped counter not eaten by overflow during requeue', async () => {
+    let callCount = 0;
+    const inserted: DiagnosticEvent[] = [];
+    const writer = new DiagnosticEventWriter({
+      flushIntervalMs: 60_000,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      maxPending: 2,
+      sink: {
+        insertBatch: async (events) => {
+          callCount += 1;
+          if (callCount === 1) {
+            throw new Error('first attempt fails');
+          }
+          inserted.push(...events);
+        },
+      },
+    });
+    // Overflow by one to set droppedCount=1
+    writer.enqueue(makeEvent('a'));
+    writer.enqueue(makeEvent('b'));
+    writer.enqueue(makeEvent('c')); // drops 'a', droppedCount=1
+    await writer.flush(); // first attempt fails
+    // Now flush succeeds
+    await writer.flush();
+    // The successful insert should include the marker with count 1
+    expect(inserted.map((event) => event.id)).toEqual(['dropped-1', 'b', 'c']);
+  });
+
+  it('failed-flush requeue preserves order with later enqueues', async () => {
+    let callCount = 0;
+    const inserted: DiagnosticEvent[] = [];
+    const writer = new DiagnosticEventWriter({
+      flushBatchSize: 10,
+      flushIntervalMs: 60_000,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      sink: {
+        insertBatch: async (events) => {
+          callCount += 1;
+          if (callCount === 1) {
+            throw new Error('first attempt fails');
+          }
+          inserted.push(...events);
+        },
+      },
+    });
+    writer.enqueue(makeEvent('a'));
+    writer.enqueue(makeEvent('b'));
+    await writer.flush(); // first attempt fails, requeues [a, b]
+    writer.enqueue(makeEvent('c')); // added to requeue
+    await writer.flush(); // succeeds
+    expect(inserted.map((event) => event.id)).toEqual(['a', 'b', 'c']);
+  });
 });

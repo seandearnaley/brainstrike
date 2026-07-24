@@ -64,10 +64,20 @@ export class DiagnosticEventWriter {
   }
 
   flush(): Promise<void> {
-    this.inFlight ??= this.flushInternal().finally(() => {
+    this.inFlight ??= this.drain().finally(() => {
       this.inFlight = null;
     });
     return this.inFlight;
+  }
+
+  private async drain(): Promise<void> {
+    do {
+      await this.flushInternal();
+    } while (
+      this.consecutiveFailures === 0 &&
+      !this.isDisabled &&
+      (this.pending.length > 0 || this.droppedCount > 0)
+    );
   }
 
   private async flushInternal(): Promise<void> {
@@ -77,10 +87,10 @@ export class DiagnosticEventWriter {
     const batch = this.pending;
     this.pending = [];
     const dropped = this.droppedCount;
-    this.droppedCount = 0;
     const events = dropped > 0 ? [this.options.makeDroppedEvent(dropped), ...batch] : batch;
     try {
       await this.options.sink.insertBatch(events);
+      this.droppedCount -= dropped;
       this.consecutiveFailures = 0;
     } catch (cause) {
       this.consecutiveFailures += 1;
@@ -89,8 +99,9 @@ export class DiagnosticEventWriter {
         this.pending = [];
         this.options.onDisabled?.(cause);
       } else {
-        // Re-queue in front so order is preserved; the drop bound still applies.
-        this.pending = [...events, ...this.pending];
+        // Re-queue original batch only (not the materialized marker).
+        // The counter is preserved for next attempt.
+        this.pending = [...batch, ...this.pending];
         while (this.pending.length > this.options.maxPending) {
           this.pending.shift();
           this.droppedCount += 1;
