@@ -139,15 +139,16 @@ describe('DiagnosticEventWriter', () => {
         },
       },
     });
-    // Overflow by one to set droppedCount=1
+    // Overflow by two to set droppedCount=2 (discriminates old code's undercount)
     writer.enqueue(makeEvent('a'));
     writer.enqueue(makeEvent('b'));
     writer.enqueue(makeEvent('c')); // drops 'a', droppedCount=1
+    writer.enqueue(makeEvent('d')); // drops 'b', droppedCount=2
     await writer.flush(); // first attempt fails
     // Now flush succeeds
     await writer.flush();
-    // The successful insert should include the marker with count 1
-    expect(inserted.map((event) => event.id)).toEqual(['dropped-1', 'b', 'c']);
+    // The successful insert should include the marker with count 2 (not undercount to 1)
+    expect(inserted.map((event) => event.id)).toEqual(['dropped-2', 'c', 'd']);
   });
 
   it('failed-flush requeue preserves order with later enqueues', async () => {
