@@ -407,6 +407,56 @@ describe('fs:restoreRoots', () => {
       expect(mountedPaths).toContain(addedPath);
     });
 
+    // Regression (PR #1940 review, Codex P2): `readRootsList` coerces an
+    // unreadable store to [], which is harmless for the restore but would make
+    // convergence demote EVERY live root. A degraded read is "mount set
+    // unknown", not "authoritative zero" — AGENTS.md NO SILENT FALLBACKS.
+    it.each([
+      ['unparseable JSON', 'invalid json {]'],
+      ['a non-array value', JSON.stringify({ not: 'an array' })],
+      ['entries of the wrong shape', JSON.stringify([{ bogus: true }])],
+    ])('skips convergence when rootsList is %s', async (_label, storedValue) => {
+      setLogLevel(LogLevel.ERROR);
+      const captured: LogRecord[] = [];
+      const removeListener = addLogListener((record) => {
+        captured.push(record);
+      });
+      try {
+        fileSystem = createFileSystem();
+        storage = createStorage({ rootsList: storedValue });
+        registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+        await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+        // The destructive UPDATE must never have been issued.
+        expect(rootsDbQuery).not.toHaveBeenCalled();
+        expect(
+          captured.some(
+            (record) =>
+              record.level === LogLevel.ERROR &&
+              record.message ===
+                'restoreRoots: rootsList is unreadable; skipping root-status convergence rather than demoting every live root'
+          )
+        ).toBe(true);
+      } finally {
+        removeListener();
+        setLogLevel(LogLevel.WARN);
+      }
+    });
+
+    // The counterpart: a genuinely absent list is authoritative "no folders
+    // open" and MUST still converge, or the original leak returns.
+    it('still converges when rootsList is absent (authoritative zero, not corrupt)', async () => {
+      fileSystem = createFileSystem();
+      storage = createStorage();
+      registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+      await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+      expect(rootsDbQuery).toHaveBeenCalledTimes(1);
+      expect(rootsDbQuery.mock.calls[0]?.[1]).toEqual([[]]);
+    });
+
     it('logs and still restores when the convergence query fails (boot must not break)', async () => {
       setLogLevel(LogLevel.ERROR);
       const captured: LogRecord[] = [];

@@ -75,10 +75,25 @@ function isStoredRootEntry(value: unknown): value is StoredRootEntry {
   );
 }
 
-async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+interface RootsListReadResult {
+  readonly entries: StoredRootEntry[];
+  /**
+   * True when a stored value EXISTED but could not be fully understood
+   * (unparseable, wrong shape, or individual entries dropped) — i.e. `entries`
+   * is a degraded guess, not the user's real mount list.
+   *
+   * An ABSENT or legitimately empty list is NOT malformed: that is an
+   * authoritative "no folders open". The distinction matters because callers
+   * that treat the list as authoritative (root-status convergence) would
+   * otherwise turn a corrupt storage value into a destructive write.
+   */
+  readonly malformed: boolean;
+}
+
+async function readRootsListResult(storage: ElectronStorageAdapter): Promise<RootsListReadResult> {
   const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
   if (!raw) {
-    return [];
+    return { entries: [], malformed: false };
   }
 
   let parsed: unknown;
@@ -86,14 +101,14 @@ async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRoo
     parsed = JSON.parse(raw);
   } catch (error) {
     logger.warn('Failed to parse rootsList — treating as empty', { error });
-    return [];
+    return { entries: [], malformed: true };
   }
 
   if (!Array.isArray(parsed)) {
     logger.warn('rootsList storage value is not an array — treating as empty', {
       key: ROOTS_LIST_STORAGE_KEY,
     });
-    return [];
+    return { entries: [], malformed: true };
   }
   const valid = parsed.filter(isStoredRootEntry);
   if (valid.length !== parsed.length) {
@@ -101,8 +116,15 @@ async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRoo
       total: parsed.length,
       valid: valid.length,
     });
+    // A dropped entry means the surviving list is a SUBSET of the real mount
+    // set, which is just as unsafe to converge against as a total parse failure.
+    return { entries: valid, malformed: true };
   }
-  return valid;
+  return { entries: valid, malformed: false };
+}
+
+async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+  return (await readRootsListResult(storage)).entries;
 }
 
 async function writeRootsList(
@@ -546,9 +568,23 @@ export function registerFileSystemIpcHandlers({
       // that could own a live row. Over-inclusion is the safe direction: at
       // worst a genuinely stale row survives to the next boot, whereas
       // under-inclusion would silently drop a just-mounted root.
-      const currentEntries = await readRootsList(storage);
+      const current = await readRootsListResult(storage);
+      if (current.malformed) {
+        // NO SILENT FALLBACKS: `readRootsList` coerces an unreadable store to
+        // [], which is fine for the RESTORE (it just mounts nothing) but must
+        // never reach convergence — an empty mount set demotes every live root,
+        // so a corrupt storage value would silently disconnect the whole
+        // workspace. A degraded read is "mount set UNKNOWN", not "authoritative
+        // zero". Skip, surface at ERROR, and let the next boot converge once the
+        // store parses again.
+        logger.error(
+          'restoreRoots: rootsList is unreadable; skipping root-status convergence rather than demoting every live root',
+          { key: ROOTS_LIST_STORAGE_KEY }
+        );
+        return;
+      }
       const mountedPaths = [
-        ...new Set([...restoredPaths, ...currentEntries.map((entry) => entry.path)]),
+        ...new Set([...restoredPaths, ...current.entries.map((entry) => entry.path)]),
       ];
       const demoted = await markRootsDisconnectedExcept(rootsDatabase, mountedPaths);
       if (demoted.length > 0) {

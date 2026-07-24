@@ -1079,6 +1079,21 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   Over-inclusion is the SAFE direction (a genuinely stale row just survives to
   the next boot); under-inclusion would silently demote a just-mounted root,
   which is the failure mode this whole mechanism exists to prevent.
+- A DEGRADED rootsList read is "mount set unknown", never "authoritative zero".
+  `readRootsList` coerces an unparseable / wrong-shape / partially-invalid store
+  to `[]`; that is survivable for the restore itself (it mounts nothing) but must
+  NOT reach convergence, where an empty mount set demotes every live root — a
+  corrupt storage value would silently disconnect the whole workspace.
+  `readRootsListResult` therefore carries a `malformed` flag and convergence
+  skips on it, logging at ERROR. An ABSENT or genuinely empty list is NOT
+  malformed and MUST still converge, or the original leak returns.
+- Convergence raises the stakes on PATH MATCHING. It hinges on the DB's stored
+  `path` string-equalling the descriptor's resolved path — an exact, case-
+  sensitive comparison with no normalization. The same assumption already governs
+  `reconcileRoots`' `dbByPath` matching, so this is not new, but a future drift
+  (trailing slash, symlink or case normalization applied on only one side) would
+  now actively DEMOTE a genuinely-mounted root rather than merely miss a match.
+  Any change to path normalization must update both sides together.
 - The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
   (unremappable without DB access → re-approval is the safe direction; mirrors the
   permission-policy v2 security bump). Factory reset clears the store unchanged.
