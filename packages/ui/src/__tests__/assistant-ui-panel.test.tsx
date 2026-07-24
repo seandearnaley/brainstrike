@@ -1,13 +1,15 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
   HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
@@ -75,6 +77,7 @@ vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
+  AssistantStreamReplayUnavailableError: class AssistantStreamReplayUnavailableError extends Error {},
   useBrainstrikeDataStreamRuntime: (options: unknown) =>
     useBrainstrikeDataStreamRuntimeMock(options),
 }));
@@ -439,6 +442,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
   });
@@ -694,6 +698,83 @@ describe('AssistantUiPanel model picker', () => {
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
   });
 
+  it('persists the desktop replay cursor and supplies it after a renderer reload', async () => {
+    window.sessionStorage.clear();
+    Object.assign(window, {
+      assistant: {
+        getAuth: vi.fn(async () => ({
+          token: 'desktop-token',
+          url: 'http://127.0.0.1:9999',
+        })),
+      },
+    });
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+      },
+    }));
+
+    const firstRender = render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+        threadKey="thread-1"
+      />
+    );
+    await waitFor(() =>
+      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          api: 'http://127.0.0.1:9999/assistant',
+          resumeApi: 'http://127.0.0.1:9999/assistant/resume',
+        })
+      )
+    );
+    const firstOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onResponse?: (response: Response) => void;
+    };
+    await firstOptions.body?.();
+    firstOptions.onResponse?.(
+      new Response(null, {
+        headers: {
+          'X-Brainstrike-Assistant-Event-Id': 'session-1:-1',
+        },
+      })
+    );
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem('brainstrike.assistant.active-run:thread-1') ?? 'null'
+      )
+    ).toEqual({
+      eventId: 'session-1:-1',
+      runId: 'run-1',
+    });
+
+    firstRender.unmount();
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+        threadKey="thread-1"
+      />
+    );
+    await waitFor(() =>
+      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          activeRunSession: {
+            eventId: 'session-1:-1',
+            runId: 'run-1',
+          },
+          resumeApi: 'http://127.0.0.1:9999/assistant/resume',
+        })
+      )
+    );
+  });
+
   it('completes hosted prepared requests from data stream terminal callbacks', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
@@ -744,6 +825,67 @@ describe('AssistantUiPanel model picker', () => {
       'completed',
       undefined
     );
+  });
+
+  it('sends an explicit desktop cancel before marking a prepared run cancelled', async () => {
+    Object.assign(window, {
+      assistant: {
+        getAuth: vi.fn(async () => ({
+          token: 'desktop-token',
+          url: 'http://127.0.0.1:43123',
+        })),
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        resourceId: 'workspace-1',
+        runId: 'run-cancel-1',
+        threadId: 'thread-1',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    await waitFor(() =>
+      expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ api: 'http://127.0.0.1:43123/assistant' })
+      )
+    );
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onCancel?: () => void;
+    };
+    await options.body?.();
+    options.onCancel?.();
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        new URL('http://127.0.0.1:43123/assistant/cancel'),
+        expect.objectContaining({
+          body: JSON.stringify({ runId: 'run-cancel-1' }),
+          method: 'POST',
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        expect.any(Object),
+        'cancelled',
+        undefined
+      )
+    );
+    fetchMock.mockRestore();
   });
 
   it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
@@ -836,7 +978,9 @@ describe('AssistantUiPanel model picker', () => {
     options.onCancel?.();
 
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
-    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    });
     expect(completePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
@@ -1585,7 +1729,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     fireEvent.click(screen.getByRole('switch', { name: 'Limit agent steps' }));
-    expect(onSettingsChange).toHaveBeenCalledWith('openai', { agentMaxSteps: 20 });
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { agentMaxSteps: 100 });
 
     fireEvent.click(screen.getByRole('switch', { name: 'Limit input tokens' }));
     expect(onSettingsChange).toHaveBeenCalledWith('openai', {
@@ -1644,7 +1788,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText('OpenAI reasoning')).toBeInTheDocument();
+    expect(screen.getByText('Reasoning output')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Max agent steps' }), {
       target: { value: '999' },

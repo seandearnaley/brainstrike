@@ -88,6 +88,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
           headers: new Headers(),
           status: 200,
         })),
+        getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
+        id: 'session-test',
+        whenClosed: vi.fn(() => Promise.resolve()),
       })),
     },
     convertAssistantUiMessages,
@@ -1290,7 +1293,7 @@ describe('assistant-server', () => {
       expect(observedSignal?.aborted).toBe(false);
     });
 
-    it('aborts the assistant stream when the response connection closes prematurely', async () => {
+    it('detaches the response without aborting server-owned execution when the connection closes', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
       let observedSignal: AbortSignal | null | undefined;
@@ -1339,6 +1342,105 @@ describe('assistant-server', () => {
       releaseResponse?.();
       await requestPromise;
       await finished;
+    });
+
+    it('publishes a replay cursor on the initial desktop assistant response', async () => {
+      const { assistantDataStreamSessions } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      (streamResponse as Mock).mockImplementationOnce(async (res: http.ServerResponse) =>
+        res.end('streamed')
+      );
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant',
+      });
+
+      const session = (assistantDataStreamSessions.create as Mock).mock.results.at(-1)?.value;
+      expect(response.status).toBe(200);
+      expect(session.createResponse).toHaveBeenCalledWith({
+        headers: {
+          'X-Brainstrike-Assistant-Event-Id': 'session-test:-1',
+        },
+      });
+    });
+
+    it('reattaches to a server-owned stream through the dedicated resume route', async () => {
+      const { resolveDataStreamSession } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      const createResponse = vi.fn(() => ({
+        body: null,
+        headers: new Headers(),
+        status: 200,
+      }));
+      (resolveDataStreamSession as Mock).mockReturnValueOnce({ createResponse });
+      (streamResponse as Mock).mockImplementationOnce(async (res: http.ServerResponse) =>
+        res.end('replayed')
+      );
+
+      const response = await runRequest({
+        headers: { 'last-event-id': 'session-test:-1' },
+        method: 'GET',
+        url: '/assistant/resume',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toBe('replayed');
+      expect(createResponse).toHaveBeenCalledWith({
+        resumeFromEventId: 'session-test:-1',
+      });
+      expect(streamResponse).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    });
+
+    it('rejects a resume request without a replay cursor', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/resume',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'missing_assistant_event_id',
+      });
+    });
+
+    it('returns a typed missing-session response for an expired replay cursor', async () => {
+      const response = await runRequest({
+        headers: { 'last-event-id': 'expired:-1' },
+        method: 'GET',
+        url: '/assistant/resume',
+      });
+
+      expect(response.status).toBe(404);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'assistant_stream_unavailable',
+      });
+    });
+
+    it('POST /assistant/cancel explicitly aborts an active server-owned run', async () => {
+      const { registerSteerableRun, resetRunSteeringRegistry } = await import(
+        '../assistant-server/run-steering-registry'
+      );
+      resetRunSteeringRegistry();
+      const controller = new AbortController();
+      registerSteerableRun('run-cancel-1', controller);
+
+      const accepted = await runRequest({
+        body: JSON.stringify({ runId: 'run-cancel-1' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/assistant/cancel',
+      });
+
+      expect(accepted.status).toBe(200);
+      expect(controller.signal.aborted).toBe(true);
+      expect(JSON.parse(accepted.body)).toEqual({ accepted: true, runId: 'run-cancel-1' });
+      resetRunSteeringRegistry();
     });
 
     it('passes filesystem MCP config through to the Mastra runtime', async () => {
@@ -3124,6 +3226,63 @@ describe('assistant-server', () => {
       });
     });
 
+    it('persists a model output-limit terminal outcome as failed', async () => {
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      const terminalError =
+        'Assistant stopped because the model reached its output token limit before completing the response.';
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Finish the task', type: 'text' }], role: 'user' },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            finishReason: 'length',
+            path: [],
+            type: 'message-finish',
+            usage: { completionTokens: 32_000, promptTokens: 100 },
+          };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockReturnValueOnce({
+        createResponse: vi.fn(() => ({
+          body: null,
+          headers: new Headers(),
+          status: 200,
+        })),
+        getTerminalOutcome: vi.fn(() => ({ error: terminalError, status: 'failed' })),
+        whenClosed: vi.fn(() => Promise.resolve()),
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              resourceId: 'workspace-a',
+              runId: 'run-output-limit',
+              threadId: 'thread-1',
+            },
+            provider: 'openrouter',
+          },
+          messages: [{ parts: [{ text: 'Finish the task', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-output-limit', 'failed', terminalError])
+      );
+    });
+
     it('persists run-event chunks while desktop streams are consumed', async () => {
       const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
         await import('@brainstrike/agent');
@@ -3182,6 +3341,8 @@ describe('assistant-server', () => {
               headers: new Headers(),
               status: 200,
             })),
+            getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
+            whenClosed: vi.fn(() => Promise.resolve()),
           };
         }
       );
@@ -3276,6 +3437,8 @@ describe('assistant-server', () => {
               headers: new Headers(),
               status: 200,
             })),
+            getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
+            whenClosed: vi.fn(() => Promise.resolve()),
           };
         }
       );
@@ -3374,6 +3537,8 @@ describe('assistant-server', () => {
               headers: new Headers(),
               status: 200,
             })),
+            getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
+            whenClosed: vi.fn(() => Promise.resolve()),
           };
         }
       );
@@ -3459,6 +3624,8 @@ describe('assistant-server', () => {
               headers: new Headers(),
               status: 200,
             })),
+            getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
+            whenClosed: vi.fn(() => Promise.resolve()),
           };
         }
       );

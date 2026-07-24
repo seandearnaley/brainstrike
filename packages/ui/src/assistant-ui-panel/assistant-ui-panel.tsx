@@ -13,7 +13,6 @@ import {
   useAui,
   useAuiState,
   useLocalRuntime,
-  useMessagePartReasoning,
   // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
   // it as a hook. Its detection keys on the `use` prefix; an `unstable_use…` call
   // site is missed, so React's real hook count (this hook calls useMemo) exceeds the
@@ -42,7 +41,7 @@ import {
   PencilIcon,
   RefreshCwIcon,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
@@ -65,6 +64,7 @@ import {
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
+import { AssistantReasoningPart } from './assistant-reasoning-part';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import {
   AssistantThinkingIndicator,
@@ -111,6 +111,7 @@ import {
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
 import { TooltipIconButton } from './tooltip-icon-button';
+import { useAssistantServerRunSession } from './use-assistant-server-run-session';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
@@ -386,21 +387,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
 
 export type AssistantUiThreadHistoryAdapter = ThreadHistoryAdapter;
 
-const LocalReasoningPart = () => {
-  useMessagePartReasoning();
-
-  return (
-    <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
-      <p className="mb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-        Thinking
-      </p>
-      <div className="text-muted-foreground text-sm leading-6" data-testid="local-reasoning-part">
-        <AssistantMessageText />
-      </div>
-    </div>
-  );
-};
-
 function isRunningReasoningPart(part: unknown): boolean {
   if (!(part && typeof part === 'object')) {
     return false;
@@ -523,7 +509,7 @@ function activityPartKey(part: unknown, index: number): string {
   return `activity-${index}`;
 }
 
-const LocalChainOfThought = () => {
+export const LocalChainOfThought = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const messageParts = useAuiState((state) => state.message.parts);
@@ -595,7 +581,7 @@ const LocalChainOfThought = () => {
       <MessagePrimitive.PartByIndex
         components={{
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
-          Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
+          Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
           tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
         }}
         index={index}
@@ -972,23 +958,14 @@ const DataStreamRuntimeChat = ({
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
-  const preparedRequestRef = useRef<{ readonly data: Record<string, unknown> | undefined } | null>(
-    null
-  );
-  const completePreparedRequestRef = useRef(completePreparedRequest);
-  completePreparedRequestRef.current = completePreparedRequest;
-
-  const completeLatestPreparedRequest = useCallback(
-    async (status: 'cancelled' | 'completed' | 'failed', error?: string): Promise<void> => {
-      const preparedRequest = preparedRequestRef.current;
-      if (!preparedRequest) {
-        return;
-      }
-      preparedRequestRef.current = null;
-      await completePreparedRequestRef.current?.(preparedRequest.data, status, error);
-    },
-    []
-  );
+  const serverRunSession = useAssistantServerRunSession({
+    api,
+    authHeaders,
+    completePreparedRequest,
+    prepareLocalModel,
+    prepareRequestData,
+    threadKey,
+  });
 
   // Stable adapter instance: recreating it per render would reset composer
   // attachment state. Keyed on availability PRESENCE (not the enabled state,
@@ -1017,21 +994,15 @@ const DataStreamRuntimeChat = ({
         }
       : {};
   const runtime = useBrainstrikeDataStreamRuntime({
+    ...(serverRunSession.activeRunSession
+      ? { activeRunSession: serverRunSession.activeRunSession }
+      : {}),
     api,
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
     ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
     body: async () => {
-      if (preparedRequestRef.current) {
-        throw new Error('Cannot start a hosted assistant run while another run is in progress.');
-      }
-      // Warm the local model first so cold downloads surface progress in the
-      // renderer instead of stalling silently inside the server-side stream.
-      if (prepareLocalModel) {
-        await prepareLocalModel();
-      }
-      const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
-      preparedRequestRef.current = { data: preparedRequestData };
+      const preparedRequestData = await serverRunSession.prepareRequest();
       return {
         data: {
           ...(requestData ?? {}),
@@ -1042,15 +1013,11 @@ const DataStreamRuntimeChat = ({
       };
     },
     ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
-    onCancel: () => {
-      void completeLatestPreparedRequest('cancelled');
-    },
-    onError: (error: Error) => {
-      void completeLatestPreparedRequest('failed', error.message);
-    },
-    onFinish: () => {
-      void completeLatestPreparedRequest('completed');
-    },
+    onCancel: serverRunSession.onCancel,
+    onError: serverRunSession.onError,
+    onFinish: serverRunSession.onFinish,
+    onResponse: serverRunSession.onResponse,
+    ...(serverRunSession.resumeApi ? { resumeApi: serverRunSession.resumeApi } : {}),
     ...(onContextBreakdown ? { onContextBreakdown } : {}),
     ...(onUsage ? { onUsage } : {}),
   });

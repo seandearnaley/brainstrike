@@ -257,6 +257,61 @@ describe('selectTransportMessagesForMastraMemory', () => {
   });
 });
 
+describe('BrainstrikeDataStreamRuntimeAdapter active-run reattachment', () => {
+  it('replays a desktop stream without composing a second model request', async () => {
+    const body = vi.fn(async () => {
+      throw new Error('resume must not compose a fresh request body');
+    });
+    const onResponse = vi.fn();
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      capturedInit = init;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-resumed"}',
+          'g:"Still reasoning"',
+          '0:"Finished after reload"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":2,"outputTokens":3},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/assistant',
+      body,
+      headers: { 'X-Brainstrike-Assistant-Token': 'secret' },
+      onResponse,
+    });
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.resume(runOptions(), {
+      eventId: 'session-1:-1',
+      resumeApi: 'http://assistant.test/assistant/resume',
+    })) {
+      yielded.push(nextMessage);
+    }
+
+    expect(fetch).toHaveBeenCalledWith(
+      'http://assistant.test/assistant/resume',
+      expect.objectContaining({
+        headers: expect.any(Headers),
+        method: 'GET',
+      })
+    );
+    expect(capturedInit).not.toHaveProperty('body');
+    const headers = new Headers(capturedInit?.headers);
+    expect(headers.get('Last-Event-ID')).toBe('session-1:-1');
+    expect(headers.get('X-Brainstrike-Assistant-Token')).toBe('secret');
+    expect(body).not.toHaveBeenCalled();
+    expect(onResponse).not.toHaveBeenCalled();
+    expect(yielded.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({ text: 'Finished after reload', type: 'text' }),
+      ]),
+      status: { reason: 'stop', type: 'complete' },
+    });
+  });
+});
+
 describe('approval action echo exclusion (transport seam)', () => {
   const originalFetch = globalThis.fetch;
 

@@ -21,6 +21,21 @@ export interface AssistantEndpoint {
 
 const toApiUrl = (base: string): string => `${base.replace(/\/+$/, '')}/assistant`;
 
+export function resolveDesktopAssistantBaseUrl(api: string): string | undefined {
+  if (
+    typeof window === 'undefined' ||
+    !window.assistant ||
+    !(api.startsWith('http://') || api.startsWith('https://'))
+  ) {
+    return;
+  }
+  const endpoint = new URL(api);
+  if (endpoint.pathname !== '/assistant' || endpoint.search || endpoint.hash) {
+    throw new Error(`Desktop assistant endpoint has an unsupported URL: ${api}`);
+  }
+  return endpoint.origin;
+}
+
 /**
  * Resolves the assistant data-stream endpoint from the desktop bridge.
  * Prefers `getAuth` ({ url, token } — the token must accompany every request);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   registerSteerableRun,
+  requestRunCancel,
   requestRunSteer,
   resetRunSteeringRegistry,
   unregisterSteerableRun,
@@ -39,5 +40,14 @@ describe('run steering registry', () => {
     requestRunSteer('run-4');
     unregisterSteerableRun('run-4');
     expect(control.stopRequested()).toBe(true);
+  });
+
+  it('aborts only an explicitly canceled active run', () => {
+    const controller = new AbortController();
+    registerSteerableRun('run-cancel', controller);
+
+    expect(requestRunCancel('run-cancel')).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
+    expect(requestRunCancel('run-missing')).toBe(false);
   });
 });

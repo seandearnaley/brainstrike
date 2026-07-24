@@ -37,13 +37,9 @@ export interface ProviderMetadataStreamPart {
   providerMetadata?: unknown;
 }
 
-/**
- * Extract OpenRouter's provider-reported billed cost from a stream part.
- * Strict by contract: present-but-malformed metadata THROWS (a silently
- * dropped cost would undercount the provider bill — no-silent-fallbacks);
- * absent metadata simply returns undefined.
- */
-export function readOpenRouterBilledCost(part: ProviderMetadataStreamPart): number | undefined {
+function readOpenRouterMetadata(
+  part: ProviderMetadataStreamPart
+): Record<string, unknown> | undefined {
   const providerMetadata = part.payload?.metadata?.providerMetadata ?? part.providerMetadata;
   if (providerMetadata === undefined) {
     return;
@@ -58,7 +54,18 @@ export function readOpenRouterBilledCost(part: ProviderMetadataStreamPart): numb
   if (!openrouter || typeof openrouter !== 'object') {
     throw new Error('OpenRouter provider metadata must be an object.');
   }
-  const usage = (openrouter as Record<string, unknown>)['usage'];
+  return openrouter as Record<string, unknown>;
+}
+
+/**
+ * Extract OpenRouter's provider-reported billed cost from a stream part.
+ * Strict by contract: present-but-malformed metadata THROWS (a silently
+ * dropped cost would undercount the provider bill — no-silent-fallbacks);
+ * absent metadata simply returns undefined.
+ */
+export function readOpenRouterBilledCost(part: ProviderMetadataStreamPart): number | undefined {
+  const openrouter = readOpenRouterMetadata(part);
+  const usage = openrouter?.['usage'];
   if (usage === undefined) {
     return;
   }
@@ -73,6 +80,64 @@ export function readOpenRouterBilledCost(part: ProviderMetadataStreamPart): numb
     throw new Error('OpenRouter billed cost must be a finite, non-negative number.');
   }
   return cost;
+}
+
+export interface OpenRouterDiagnostics {
+  readonly provider?: string;
+  readonly reasoningTokens?: number;
+}
+
+/**
+ * Extract safe, bounded OpenRouter routing diagnostics for run-event metadata.
+ * Reasoning content is deliberately excluded; only provider identity and token
+ * counts are observable.
+ */
+export function readOpenRouterDiagnostics(
+  part: ProviderMetadataStreamPart
+): OpenRouterDiagnostics | undefined {
+  const openrouter = readOpenRouterMetadata(part);
+  if (!openrouter) {
+    return;
+  }
+  const providerValue = openrouter['provider'];
+  if (
+    providerValue !== undefined &&
+    (typeof providerValue !== 'string' || providerValue.trim().length === 0)
+  ) {
+    throw new Error('OpenRouter selected provider must be a non-empty string.');
+  }
+  const usageValue = openrouter['usage'];
+  if (usageValue !== undefined && (!usageValue || typeof usageValue !== 'object')) {
+    throw new Error('OpenRouter usage metadata must be an object.');
+  }
+  const completionDetails = (usageValue as Record<string, unknown> | undefined)?.[
+    'completionTokensDetails'
+  ];
+  if (
+    completionDetails !== undefined &&
+    (!completionDetails || typeof completionDetails !== 'object')
+  ) {
+    throw new Error('OpenRouter completion token details must be an object.');
+  }
+  const reasoningTokens = (completionDetails as Record<string, unknown> | undefined)?.[
+    'reasoningTokens'
+  ];
+  if (
+    reasoningTokens !== undefined &&
+    (typeof reasoningTokens !== 'number' ||
+      !Number.isFinite(reasoningTokens) ||
+      reasoningTokens < 0)
+  ) {
+    throw new Error('OpenRouter reasoning tokens must be a finite, non-negative number.');
+  }
+  const provider = typeof providerValue === 'string' ? providerValue.trim() : undefined;
+  if (provider === undefined && reasoningTokens === undefined) {
+    return;
+  }
+  return {
+    ...(provider === undefined ? {} : { provider }),
+    ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+  };
 }
 
 /**

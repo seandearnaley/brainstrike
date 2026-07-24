@@ -660,6 +660,7 @@ describe('mastra streaming integration', () => {
 
   it('aggregates provider-reported OpenRouter cost across model steps', async () => {
     setMockStreamParts([
+      { textDelta: 'Working answer', type: 'text-delta' },
       {
         payload: {
           metadata: {
@@ -672,7 +673,15 @@ describe('mastra streaming integration', () => {
       {
         payload: {
           metadata: {
-            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+            providerMetadata: {
+              openrouter: {
+                provider: 'Together',
+                usage: {
+                  completionTokensDetails: { reasoningTokens: 3 },
+                  cost: 0.003_75,
+                },
+              },
+            },
           },
         },
         type: 'step-finish',
@@ -714,6 +723,19 @@ describe('mastra streaming integration', () => {
         promptTokens: 30,
       },
     });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.step.finished',
+          metadata: expect.objectContaining({
+            firstTextLatencyMs: expect.any(Number),
+            openRouterProvider: 'Together',
+            reasoningTokens: 3,
+          }),
+        }),
+        type: 'run-event',
+      })
+    );
   });
 
   it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
@@ -1638,7 +1660,7 @@ describe('mastra streaming integration', () => {
     expect(options.experimental_generateMessageId?.()).not.toBe('assistant-client-id');
   });
 
-  it('uses Brainstrike default stream step cap for native tool loops', async () => {
+  it('uses the documented long-running default step cap for native tool loops', async () => {
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
@@ -1653,7 +1675,7 @@ describe('mastra streaming integration', () => {
     }
 
     expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
-      maxSteps: 20,
+      maxSteps: 100,
     });
   });
 
@@ -2072,7 +2094,7 @@ describe('mastra streaming integration', () => {
     expect(agent?.approveToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls).toHaveLength(0);
     expect(agent?.approveToolCallCalls[0]).toMatchObject({
-      maxSteps: 20,
+      maxSteps: 100,
       memory: {
         options: { lastMessages: 5 },
         resource: 'workspace-a',
@@ -2153,7 +2175,7 @@ describe('mastra streaming integration', () => {
 
     expect(agent?.resumeStreamCalls[0]).toMatchObject({
       options: {
-        maxSteps: 20,
+        maxSteps: 100,
         runId: 'run-suspended-1',
         toolCallId: 'tool-call-suspended-1',
       },
@@ -2194,7 +2216,7 @@ describe('mastra streaming integration', () => {
     expect(agent?.approveToolCallCalls).toHaveLength(0);
     expect(agent?.declineToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls[0]).toMatchObject({
-      maxSteps: 20,
+      maxSteps: 100,
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
     });
@@ -2528,7 +2550,7 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
-  it('preserves the Mastra finish reason in the assistant data stream', async () => {
+  it('reports output-token exhaustion as a failed run instead of completed', async () => {
     setMockStreamParts([
       {
         payload: {
@@ -2549,6 +2571,22 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          metadata: expect.objectContaining({ finishReason: 'length' }),
+          status: 'failed',
+        }),
+        type: 'run-event',
+      })
+    );
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({ kind: 'run.finished' }),
+        type: 'run-event',
+      })
+    );
     expect(chunks).toContainEqual({
       finishReason: 'length',
       path: [],

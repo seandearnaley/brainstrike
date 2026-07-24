@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveAssistantAuthHeaders, resolveAssistantEndpoint } from '../assistant-endpoint';
+import {
+  resolveAssistantAuthHeaders,
+  resolveAssistantEndpoint,
+  resolveDesktopAssistantBaseUrl,
+} from '../assistant-endpoint';
 
 type AssistantBridge = NonNullable<Window['assistant']>;
 
@@ -63,6 +67,29 @@ describe('resolveAssistantEndpoint', () => {
     setBridge(undefined);
 
     await expect(resolveAssistantEndpoint()).resolves.toBeUndefined();
+  });
+});
+
+describe('resolveDesktopAssistantBaseUrl', () => {
+  afterEach(() => {
+    setBridge(undefined);
+  });
+
+  it('derives the server root from the resolved getAuth endpoint without a legacy url field', () => {
+    setBridge({ getAuth: () => Promise.resolve(null) });
+
+    expect(resolveDesktopAssistantBaseUrl('http://127.0.0.1:5123/assistant')).toBe(
+      'http://127.0.0.1:5123'
+    );
+  });
+
+  it('waits for the asynchronous desktop endpoint and rejects malformed absolute endpoints', () => {
+    setBridge({ getAuth: () => Promise.resolve(null) });
+
+    expect(resolveDesktopAssistantBaseUrl('/api/assistant')).toBeUndefined();
+    expect(() => resolveDesktopAssistantBaseUrl('http://127.0.0.1:5123/api/assistant')).toThrow(
+      /unsupported URL/
+    );
   });
 });
 

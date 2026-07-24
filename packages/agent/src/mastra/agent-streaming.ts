@@ -67,6 +67,7 @@ import {
   accumulateSteppedUsage,
   readCacheTokenCount,
   readOpenRouterBilledCost,
+  readOpenRouterDiagnostics,
   type UsageLike,
 } from './runtime-assembly/usage-metering';
 import {
@@ -280,6 +281,13 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
       metadata['completionTokens'] = p.usage.completionTokens;
     }
   }
+  const openRouterDiagnostics = readOpenRouterDiagnostics(p);
+  if (openRouterDiagnostics?.provider) {
+    metadata['openRouterProvider'] = openRouterDiagnostics.provider;
+  }
+  if (openRouterDiagnostics?.reasoningTokens !== undefined) {
+    metadata['reasoningTokens'] = openRouterDiagnostics.reasoningTokens;
+  }
   return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
@@ -292,6 +300,7 @@ interface OutputOnlyToolEvent {
 
 interface ToolLifecycleState {
   delegationLifecycle: DelegationLifecycleTracker;
+  firstTextLatencyMs?: number;
   /**
    * Cache token classes are an Anthropic pricing contract (read 0.1×,
    * write 1.25×). Other providers report auto-discounted cached tokens whose
@@ -328,7 +337,49 @@ interface ToolLifecycleState {
    */
   steppedCompletionTokens: number;
   steppedPromptTokens: number;
+  streamStartedAtMs: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+}
+
+function makeLifecycleStepMetadata(
+  part: unknown,
+  lifecycleState: ToolLifecycleState
+): AssistantRunEventMetadata | undefined {
+  const metadata: AssistantRunEventMetadata = {
+    ...(makeStepMetadata(part) ?? {}),
+    ...(lifecycleState.firstTextLatencyMs === undefined
+      ? {}
+      : { firstTextLatencyMs: lifecycleState.firstTextLatencyMs }),
+  };
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecycleState): void {
+  if (delta.length === 0 || lifecycleState.firstTextLatencyMs !== undefined) {
+    return;
+  }
+  lifecycleState.firstTextLatencyMs = Math.max(0, Date.now() - lifecycleState.streamStartedAtMs);
+}
+
+function makeTerminalRunEvent(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
+  const finishReason = readFinishReason(part);
+  const terminalMetadata: AssistantRunEventMetadata = {
+    ...(makeLifecycleStepMetadata(part, lifecycleState) ?? {}),
+    finishReason,
+  };
+  if (finishReason === 'stop' || finishReason === 'tool-calls') {
+    return makeRunEventChunk(
+      'run.finished',
+      'completed',
+      'Assistant run completed',
+      terminalMetadata
+    );
+  }
+  const label =
+    finishReason === 'length'
+      ? 'Assistant run reached the model output token limit'
+      : `Assistant run ended abnormally (${finishReason})`;
+  return makeRunEventChunk('run.failed', 'failed', label, terminalMetadata);
 }
 
 /**
@@ -838,6 +889,7 @@ function processMastraStreamPart(
       };
     case 'text-delta': {
       const delta = getDeltaText(part);
+      recordFirstTextLatency(delta, lifecycleState);
       return delta.length > 0
         ? { chunks: [{ type: 'text-delta', value: delta }], finished: false }
         : { chunks: [], finished: false };
@@ -877,7 +929,7 @@ function processMastraStreamPart(
         'run.step.finished',
         'completed',
         'Generation step completed',
-        makeStepMetadata(part)
+        makeLifecycleStepMetadata(part, lifecycleState)
       );
       if (lifecycleState.steering?.stopRequested()) {
         // NOTE: an OpenRouter run whose boundary step omitted its billed cost
@@ -915,7 +967,7 @@ function processMastraStreamPart(
               'run.finished',
               'completed',
               'Assistant run completed',
-              makeStepMetadata(part)
+              makeLifecycleStepMetadata(part, lifecycleState)
             ),
             // A steer is a deliberate, successful stop: override the mapped
             // 'unknown' (a step part has no finishReason) and report the
@@ -947,12 +999,7 @@ function processMastraStreamPart(
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          makeRunEventChunk(
-            'run.finished',
-            'completed',
-            'Assistant run completed',
-            makeStepMetadata(part)
-          ),
+          makeTerminalRunEvent(part, lifecycleState),
           makeFinishChunk(part, lifecycleState),
         ],
         finished: true,
@@ -1596,7 +1643,12 @@ function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefine
   };
 }
 
-const DEFAULT_AGENT_MAX_STEPS = 20;
+/**
+ * Matches the maximum user-selectable loop limit. The settings UI labels an
+ * unset value as the default, so the runtime must not substitute a smaller
+ * hidden cap that ends real coding tasks after only a handful of tool calls.
+ */
+const DEFAULT_AGENT_MAX_STEPS = 100;
 const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
   'activeTools',
   'clientTools',
@@ -1750,6 +1802,7 @@ async function* streamChunksFromMastra({
     stepBilledCostUsd: 0,
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
+    streamStartedAtMs: Date.now(),
     terminalToolCallStates: new Map(),
   };
 

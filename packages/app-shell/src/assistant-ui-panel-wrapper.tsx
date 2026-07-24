@@ -1238,6 +1238,7 @@ export function AssistantUiPanelWrapper({
           ...currentDraft,
           ...buildDraftRuntimeForProvider({
             model: draftModel,
+            openRouterLookup: openRouterMetadata.lookup,
             provider: draftProvider,
             providerSettingsMap: nextProviderSettings,
           }),
@@ -1249,6 +1250,7 @@ export function AssistantUiPanelWrapper({
     [
       draftRuntimeByThreadId,
       memoryThreadId,
+      openRouterMetadata.lookup,
       providerSettings,
       resolvedModelName,
       selectedProvider,
@@ -1256,7 +1258,6 @@ export function AssistantUiPanelWrapper({
       setThreadDraftRuntime,
     ]
   );
-
   const { pickerModels, pickerProviders, providerGroups } = useAssistantModelPickerConfig({
     configuredProviders,
     getProviderLlmModels,

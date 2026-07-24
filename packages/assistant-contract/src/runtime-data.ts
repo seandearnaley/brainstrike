@@ -34,6 +34,10 @@ export interface OpenAiProviderOptions extends RuntimeJsonObject {
 }
 
 export interface OpenRouterProviderOptions extends RuntimeJsonObject {
+  provider: {
+    // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+    require_parameters: true;
+  };
   reasoning?: {
     enabled?: boolean;
     effort?: OpenAiReasoningEffort;

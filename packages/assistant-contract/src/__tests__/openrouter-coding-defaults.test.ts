@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   OPENROUTER_CODING_MAX_OUTPUT_TOKENS,
-  OPENROUTER_FINAL_ANSWER_RESERVE_TOKENS,
   OPENROUTER_RECOMMENDED_CODING_MODEL_IDS,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
@@ -70,7 +69,25 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
 });
 
 describe('resolveOpenRouterAutoRuntimeProfile', () => {
-  it('keeps Kimi K3 at the coding ceiling and selects the strongest effort with answer room', () => {
+  it('prefers low reasoning over disabling reasoning when both are supported', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'openai/gpt-5.6-terra',
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['max', 'xhigh', 'high', 'medium', 'low', 'none'],
+          supportsMaxTokens: false,
+        },
+      })
+    ).toEqual({
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'low',
+    });
+  });
+
+  it('keeps Kimi K3 at the coding ceiling and selects its lowest supported effort', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile({
         checkedAt: 42,
@@ -89,11 +106,10 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
     ).toEqual({
       maxOutputTokens: 32_000,
       reasoningEffort: 'low',
-      reservedFinalAnswerTokens: OPENROUTER_FINAL_ANSWER_RESERVE_TOKENS,
     });
   });
 
-  it('raises GLM 5.2 Auto output within its live maximum to preserve high reasoning', () => {
+  it('disables optional Auto reasoning when the lowest supported effort is high and unbounded', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile({
         checkedAt: 42,
@@ -111,14 +127,13 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
         supportedParameters: ['reasoning', 'max_tokens'],
       })
     ).toEqual({
-      maxOutputTokens: 40_960,
-      reasoningEffort: 'high',
-      reservedFinalAnswerTokens: OPENROUTER_FINAL_ANSWER_RESERVE_TOKENS,
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'none',
     });
   });
 
-  it('fails visibly when an explicit output limit leaves no documented answer reserve', () => {
-    expect(() =>
+  it('keeps an explicit valid output limit while disabling unbounded optional Auto reasoning', () => {
+    expect(
       resolveOpenRouterAutoRuntimeProfile(
         {
           checkedAt: 42,
@@ -137,6 +152,42 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
         },
         32_000
       )
-    ).toThrow(/32,000.*8,192.*final answer/i);
+    ).toEqual({
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'none',
+    });
+  });
+
+  it('disables optional default reasoning when no bounded effort is published', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'qwen/qwen3.7-max',
+        reasoning: {
+          defaultEnabled: true,
+          mandatory: false,
+          supportsMaxTokens: false,
+        },
+      })
+    ).toEqual({
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'none',
+    });
+  });
+
+  it('keeps the lowest effort for mandatory models that cannot disable reasoning', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'required-reasoning',
+        reasoning: {
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high'],
+          supportsMaxTokens: false,
+        },
+      })
+    ).toEqual({
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'high',
+    });
   });
 });

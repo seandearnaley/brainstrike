@@ -650,6 +650,11 @@ describe('AssistantDataStreamSession', () => {
       "I couldn't complete the assistant response: Assistant stopped because the model reached its output token limit before completing the response."
     );
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
+    expect(session.getTerminalOutcome()).toEqual({
+      error:
+        'Assistant stopped because the model reached its output token limit before completing the response.',
+      status: 'failed',
+    });
   });
 
   it('does not surface intermediate tool-call finishes as visible errors', async () => {
@@ -673,6 +678,7 @@ describe('AssistantDataStreamSession', () => {
 
     expect(error).toBeUndefined();
     expect(finishMessage?.value).toMatchObject({ finishReason: 'tool-calls' });
+    expect(session.getTerminalOutcome()).toEqual({ error: null, status: 'completed' });
   });
 
   it('surfaces abnormal other finishes as visible errors', async () => {
@@ -705,7 +711,7 @@ describe('AssistantDataStreamSession', () => {
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
 
-  it('stops consuming source when response stream is canceled', async () => {
+  it('keeps consuming the server-owned source when a response stream detaches', async () => {
     let consumedCount = 0;
     const maxChunks = 10;
 
@@ -742,13 +748,11 @@ describe('AssistantDataStreamSession', () => {
     // Give it time to process any in-flight chunks
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Should have stopped consuming well before maxChunks
-    expect(consumedCount).toBeLessThan(maxChunks);
-    // Should have consumed at least the chunks we read (abort is very responsive)
-    expect(consumedCount).toBeGreaterThanOrEqual(2);
+    expect(consumedCount).toBe(maxChunks);
+    expect(session.isClosed()).toBe(true);
   });
 
-  it('handles abort when response is canceled immediately', async () => {
+  it('keeps consuming when the first response detaches immediately', async () => {
     let consumedCount = 0;
 
     async function* longStream(): AsyncIterableIterator<StreamChunk> {
@@ -776,14 +780,11 @@ describe('AssistantDataStreamSession', () => {
     // Cancel immediately without reading
     await reader.cancel();
 
-    // Give it minimal time
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // Should have consumed very few chunks
-    expect(consumedCount).toBeLessThan(10);
+    await session.whenClosed();
+    expect(consumedCount).toBe(100);
   });
 
-  it('cancels all listeners when response stream is canceled', async () => {
+  it('detaches only the canceled listener while another listener keeps streaming', async () => {
     let consumedCount = 0;
     const maxChunks = 20;
 
@@ -818,13 +819,24 @@ describe('AssistantDataStreamSession', () => {
     await reader1.read();
     await reader2.read();
 
-    // Cancel first stream - should cancel all listeners
+    // Cancel the first response only.
     await reader1.cancel();
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const remainingLines: string[] = [];
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader2.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        remainingLines.push(decoder.decode(value, { stream: true }));
+      }
+    }
+    await session.whenClosed();
 
-    // Should have stopped consuming early
-    expect(consumedCount).toBeLessThan(maxChunks);
+    expect(consumedCount).toBe(maxChunks);
+    expect(remainingLines.join('')).toContain('chunk19');
   });
 
   it('supports multiple concurrent response streams from same session', async () => {
