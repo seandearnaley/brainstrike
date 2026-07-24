@@ -7,14 +7,45 @@ import { PanelLayoutProvider } from '../providers/panel-layout-provider';
 
 // Note: We mock usePanelPersistence below and rely on implicit fallback in IdeLayout.
 
-// react-resizable-panels v4: onLayoutChange receives Layout object {[id: string]: number}
+// react-resizable-panels v4 calls `onLayoutChanged(layout, meta)`. `meta.isUserInteraction`
+// is true only for a released pointer drag or a keyboard resize; mount, imperative
+// setLayout/collapse/expand/resize and container resizes all report false. The mock must
+// reproduce that arity faithfully — IdeLayout gates persistence on it.
+interface LayoutMeta {
+  isUserInteraction: boolean;
+}
+type LayoutChangedHandler = (layout: { [id: string]: number }, meta: LayoutMeta) => void;
+
 const handlers: {
-  horizontal: Array<(layout: { [id: string]: number }) => void>;
-  vertical: Array<(layout: { [id: string]: number }) => void>;
+  horizontal: LayoutChangedHandler[];
+  vertical: LayoutChangedHandler[];
 } = {
   horizontal: [],
   vertical: [],
 };
+
+/** Panel size as the library reports it to `onResize`. */
+interface MockPanelSize {
+  asPercentage: number;
+  inPixels: number;
+}
+const panelSize = (asPercentage: number): MockPanelSize => ({
+  asPercentage,
+  inPixels: Math.round(asPercentage * 10),
+});
+
+/**
+ * Invoke a Group's `onLayoutChanged` the way the library does. Defaults to a
+ * user-driven change (pointer release or keyboard), the only kind IdeLayout
+ * persists; pass false to simulate mount, imperative setLayout, or a container resize.
+ */
+function emitLayout(
+  orientation: 'horizontal' | 'vertical',
+  layout: { [id: string]: number },
+  isUserInteraction = true
+) {
+  handlers[orientation][0]?.(layout, { isUserInteraction });
+}
 
 // react-resizable-panels v4: isExpanded() removed, only isCollapsed() exists
 const panelHandles: Record<
@@ -28,9 +59,14 @@ const panelHandles: Record<
 > = {};
 const panelResizeHandlers: Record<
   string,
-  ((panelSize: { asPercentage: number }) => void) | undefined
+  | ((
+      size: MockPanelSize,
+      id: string | number | undefined,
+      prevSize: MockPanelSize | undefined
+    ) => void)
+  | undefined
 > = {};
-const groupHandles: Record<string, { setLayout: Mock }> = {};
+const groupHandles: Record<string, { getLayout: Mock; setLayout: Mock }> = {};
 
 // react-resizable-panels v4: onCollapse/onExpand props removed from Panel
 
@@ -42,13 +78,16 @@ vi.mock('react-resizable-panels', () => {
   // onLayoutChange fires on every pointer move and is NOT recommended for persistence
   interface GroupProps {
     children?: React.ReactNode;
-    groupRef?: React.RefObject<{ setLayout: Mock } | null>;
-    onLayoutChanged?: (layout: { [id: string]: number }) => void;
+    groupRef?: React.RefObject<{ getLayout: Mock; setLayout: Mock } | null>;
+    onLayoutChanged?: LayoutChangedHandler;
     orientation?: string;
   }
 
   const Group = ({ orientation, onLayoutChanged, groupRef, children }: GroupProps) => {
-    const handle = React.useMemo(() => ({ setLayout: vi.fn() as Mock }), []);
+    const handle = React.useMemo(
+      () => ({ getLayout: vi.fn() as Mock, setLayout: vi.fn() as Mock }),
+      []
+    );
     React.useEffect(() => {
       if (groupRef) {
         groupRef.current = handle;
@@ -89,6 +128,7 @@ vi.mock('react-resizable-panels', () => {
     collapsedSize?: number;
     collapsible?: boolean;
     defaultSize?: number;
+    groupResizeBehavior?: string;
     maxSize?: number;
     minSize?: number;
     onResize?: (panelSize: { asPercentage: number }) => void;
@@ -104,6 +144,7 @@ vi.mock('react-resizable-panels', () => {
     collapsible,
     collapsedSize,
     onResize,
+    groupResizeBehavior,
     ...props
   }: PanelProps) => {
     const handle = {
@@ -132,6 +173,7 @@ vi.mock('react-resizable-panels', () => {
         data-collapsed-size={String(collapsedSize ?? '')}
         data-collapsible={String(Boolean(collapsible))}
         data-default-size={String(defaultSize ?? '')}
+        data-group-resize-behavior={String(groupResizeBehavior ?? '')}
         data-max-size={String(maxSize ?? '')}
         data-min-size={String(minSize ?? '')}
         data-testid="panel"
@@ -146,7 +188,7 @@ vi.mock('react-resizable-panels', () => {
     children,
     ...rest
   }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
-    <div data-testid="resize-handle" {...rest}>
+    <div data-separator="inactive" data-testid="resize-handle" {...rest}>
       {children}
     </div>
   );
@@ -330,19 +372,15 @@ describe('IdeLayout', () => {
     });
     const { unmount } = renderDefaultLayout();
 
-    handlers.horizontal[0]?.({
-      'explorer-panel': 40,
-      'middle-panel': 40,
-      'tools-panel': 20,
-    });
-    handlers.vertical[0]?.({
-      'console-panel': 30,
-      'main-content-panel': 70,
-    });
-
-    act(() => {
-      vi.advanceTimersByTime(16);
-    });
+    // A callback fired this early (before the initial layout has even been
+    // applied) is not user-driven, so the library would report it with
+    // isUserInteraction: false.
+    emitLayout(
+      'horizontal',
+      { 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 },
+      false
+    );
+    emitLayout('vertical', { 'console-panel': 30, 'main-content-panel': 70 }, false);
 
     expect(mockState.saveLayout).not.toHaveBeenCalled();
 
@@ -391,14 +429,10 @@ describe('IdeLayout', () => {
     });
 
     // Horizontal layout change - v4 uses Layout object {[id: string]: number}
-    handlers.horizontal[0]?.({
+    emitLayout('horizontal', {
       'explorer-panel': 40,
       'middle-panel': 40,
       'tools-panel': 20,
-    });
-    // Flush RAF coalescing so commitLayouts runs
-    act(() => {
-      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [40, 20, 30],
@@ -408,13 +442,9 @@ describe('IdeLayout', () => {
     );
 
     // Vertical layout change within middle panel
-    handlers.vertical[0]?.({
+    emitLayout('vertical', {
       'console-panel': 40,
       'main-content': 60,
-    });
-    // Flush RAF coalescing so commitLayouts runs
-    act(() => {
-      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 20, 40],
@@ -445,13 +475,9 @@ describe('IdeLayout', () => {
     });
 
     // Horizontal layout change - v4 uses Layout object (no left panel)
-    handlers.horizontal[0]?.({
+    emitLayout('horizontal', {
       'middle-panel': 70,
       'tools-panel': 30,
-    });
-    // Flush RAF coalescing so commitLayouts runs
-    act(() => {
-      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 30, 30],
@@ -482,13 +508,9 @@ describe('IdeLayout', () => {
     });
 
     // v4 uses Layout object
-    handlers.horizontal[0]?.({
+    emitLayout('horizontal', {
       'middle-panel': 65,
       'tools-panel': 35,
-    });
-    // Flush RAF coalescing so commitLayouts runs
-    act(() => {
-      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 35, 30],
@@ -674,15 +696,11 @@ describe('IdeLayout', () => {
       vi.advanceTimersByTime(100);
     });
 
-    // Layout changes should trigger saveLayout (via RAF coalescing)
-    handlers.horizontal[0]?.({
+    // Layout changes should trigger saveLayout
+    emitLayout('horizontal', {
       'explorer-panel': 35,
       'middle-panel': 45,
       'tools-panel': 20,
-    });
-    // Flush RAF coalescing so commitLayouts runs
-    act(() => {
-      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalled();
 
@@ -729,14 +747,20 @@ describe('IdeLayout', () => {
     });
     mockState.saveLayout.mockClear();
 
+    // Mount emits onResize with no previous size; that must not be treated as an edge.
     act(() => {
-      panelResizeHandlers['explorer-panel']?.({ asPercentage: 0 });
+      panelResizeHandlers['explorer-panel']?.(panelSize(0), 'explorer-panel', undefined);
+    });
+    expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+    act(() => {
+      panelResizeHandlers['explorer-panel']?.(panelSize(0), 'explorer-panel', panelSize(25));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, false);
 
     mockState.saveLayout.mockClear();
     act(() => {
-      panelResizeHandlers['explorer-panel']?.({ asPercentage: 0 });
+      panelResizeHandlers['explorer-panel']?.(panelSize(0), 'explorer-panel', panelSize(0));
     });
     expect(mockState.saveLayout).not.toHaveBeenCalled();
 
@@ -752,7 +776,7 @@ describe('IdeLayout', () => {
     );
 
     act(() => {
-      panelResizeHandlers['explorer-panel']?.({ asPercentage: 25 });
+      panelResizeHandlers['explorer-panel']?.(panelSize(25), 'explorer-panel', panelSize(0));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, true, false);
 
@@ -771,7 +795,7 @@ describe('IdeLayout', () => {
     mockState.saveLayout.mockClear();
 
     act(() => {
-      panelResizeHandlers['tools-panel']?.({ asPercentage: 0 });
+      panelResizeHandlers['tools-panel']?.(panelSize(0), 'tools-panel', panelSize(20));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, false);
 
@@ -788,7 +812,7 @@ describe('IdeLayout', () => {
     );
 
     act(() => {
-      panelResizeHandlers['tools-panel']?.({ asPercentage: 20 });
+      panelResizeHandlers['tools-panel']?.(panelSize(20), 'tools-panel', panelSize(0));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, true);
 
@@ -807,7 +831,7 @@ describe('IdeLayout', () => {
     mockState.saveLayout.mockClear();
 
     act(() => {
-      panelResizeHandlers['console-panel']?.({ asPercentage: 0 });
+      panelResizeHandlers['console-panel']?.(panelSize(0), 'console-panel', panelSize(20));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 20], false, false, false);
 
@@ -824,7 +848,7 @@ describe('IdeLayout', () => {
     );
 
     act(() => {
-      panelResizeHandlers['console-panel']?.({ asPercentage: 20 });
+      panelResizeHandlers['console-panel']?.(panelSize(20), 'console-panel', panelSize(0));
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 20], true, false, false);
 
@@ -832,192 +856,115 @@ describe('IdeLayout', () => {
     vi.useRealTimers();
   });
 
-  // ─── Performance regression tests ───────────────────────────────────
-  // These tests guard against regressions in the resize performance optimizations:
-  // - RAF coalescing (multiple onLayoutChanged calls → one saveLayout per frame)
-  // - Drag-state deferral (saveLayout suppressed during drag, flushed on pointerup)
-  // - onResize ref-gating (collapse handler skipped when boolean unchanged)
-
-  describe('RAF coalescing', () => {
-    it('coalesces multiple rapid layout changes into a single saveLayout call per frame', () => {
+  // The library emits `onLayoutChanged` at most once per gesture — it suppresses the
+  // callback while a pointer drag is active and flushes on release. Measured against the
+  // running desktop app, a 26-move drag produced 26 `onLayoutChange` calls and exactly one
+  // `onLayoutChanged`. So there is nothing to coalesce, and the only thing worth pinning is
+  // WHICH emissions get persisted.
+  describe('layout persistence gating', () => {
+    it('persists a horizontal layout when the change came from the user', () => {
       vi.useFakeTimers();
       Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
       const { unmount } = renderDefaultLayout();
-
       act(() => {
         vi.advanceTimersByTime(100);
       });
       mockState.saveLayout.mockClear();
 
-      // Fire 5 rapid horizontal layout changes (simulating 5 pointermove events within one frame)
-      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
-      handlers.horizontal[0]?.({ 'explorer-panel': 32, 'middle-panel': 48, 'tools-panel': 20 });
-      handlers.horizontal[0]?.({ 'explorer-panel': 34, 'middle-panel': 46, 'tools-panel': 20 });
-      handlers.horizontal[0]?.({ 'explorer-panel': 36, 'middle-panel': 44, 'tools-panel': 20 });
-      handlers.horizontal[0]?.({ 'explorer-panel': 38, 'middle-panel': 42, 'tools-panel': 20 });
+      act(() => {
+        emitLayout('horizontal', { 'explorer-panel': 40, 'tools-panel': 20 });
+      });
 
-      // Before RAF fires, saveLayout should NOT have been called
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+      expect(mockState.saveLayout).toHaveBeenCalledWith([40, 20, 30], false, true, true);
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('persists a vertical layout when the change came from the user', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showConsole: true });
+      const { unmount } = renderDefaultLayout();
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      act(() => {
+        emitLayout('vertical', { 'console-panel': 35 });
+      });
+
+      expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 35], true, false, false);
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('ignores emissions that were not user-driven so a restore cannot overwrite itself', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+      const { unmount } = renderDefaultLayout();
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      // Mount, imperative setLayout/collapse/expand and container resizes all report false.
+      act(() => {
+        emitLayout('horizontal', { 'explorer-panel': 40, 'tools-panel': 20 }, false);
+        emitLayout('vertical', { 'console-panel': 35 }, false);
+      });
+
       expect(mockState.saveLayout).not.toHaveBeenCalled();
 
-      // Flush one RAF frame
-      act(() => {
-        vi.advanceTimersByTime(16);
-      });
-
-      // Exactly one saveLayout call with the LAST layout values
-      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
-      expect(mockState.saveLayout).toHaveBeenCalledWith(
-        [38, 20, expect.any(Number)],
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Boolean)
-      );
-
       unmount();
       vi.useRealTimers();
     });
 
-    it('coalesces vertical layout changes independently from horizontal', () => {
+    it('keeps the last good size when a collapsed panel reports 0', () => {
       vi.useFakeTimers();
-      Object.assign(mockState, {
-        showConsole: true,
-        showLeftPanel: true,
-        showRightPanel: true,
-      });
+      Object.assign(mockState, { showRightPanel: true, sizes: [25, 20, 30] });
       const { unmount } = renderDefaultLayout();
-
       act(() => {
         vi.advanceTimersByTime(100);
       });
       mockState.saveLayout.mockClear();
 
-      // Fire both horizontal and vertical changes within the same frame
-      handlers.horizontal[0]?.({ 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 });
-      handlers.vertical[0]?.({ 'console-panel': 30, 'main-content-panel': 70 });
-
-      // Flush one RAF frame — both are processed, but vertical overwrites the final args
       act(() => {
-        vi.advanceTimersByTime(16);
+        emitLayout('horizontal', { 'explorer-panel': 0, 'tools-panel': 20 });
       });
 
-      // saveLayout should have been called (at least once, possibly twice if both pending)
-      expect(mockState.saveLayout).toHaveBeenCalled();
+      // 0 must not be written through — visibility flags record "closed", not the size.
+      expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, true);
 
       unmount();
       vi.useRealTimers();
     });
-  });
 
-  describe('drag-state deferral', () => {
-    it('suppresses saveLayout during drag and flushes on pointerup', () => {
+    it('persists the reset layout when a separator is double-clicked', () => {
       vi.useFakeTimers();
       Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
       const { unmount } = renderDefaultLayout();
-
       act(() => {
         vi.advanceTimersByTime(100);
       });
       mockState.saveLayout.mockClear();
 
-      // Simulate pointerdown on a separator (starts drag)
-      const separators = screen.getAllByTestId('resize-handle');
-      fireEvent.pointerDown(separators[0]!);
-
-      // Fire layout changes during drag
-      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
-      act(() => {
-        vi.advanceTimersByTime(16);
+      // The library resets through the imperative panel API, which reports
+      // isUserInteraction: false — so IdeLayout has to persist this explicitly by
+      // reading the group's post-reset layout.
+      groupHandles['horizontal']?.getLayout.mockReturnValue({
+        'explorer-panel': 25,
+        'tools-panel': 20,
       });
-      handlers.horizontal[0]?.({ 'explorer-panel': 35, 'middle-panel': 45, 'tools-panel': 20 });
-      act(() => {
-        vi.advanceTimersByTime(16);
-      });
-      handlers.horizontal[0]?.({ 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 });
-      act(() => {
-        vi.advanceTimersByTime(16);
-      });
-
-      // saveLayout should NOT have been called during drag
-      expect(mockState.saveLayout).not.toHaveBeenCalled();
-
-      // Simulate pointerup (ends drag) — triggers flush of deferred layout
-      fireEvent.pointerUp(document);
-
-      // Now saveLayout should be called exactly once with the final layout
-      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
-      expect(mockState.saveLayout).toHaveBeenCalledWith(
-        [40, 20, expect.any(Number)],
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Boolean)
-      );
-
-      unmount();
-      vi.useRealTimers();
-    });
-
-    it('does not suppress saveLayout when no drag is active', () => {
-      vi.useFakeTimers();
-      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
-      const { unmount } = renderDefaultLayout();
-
-      act(() => {
-        vi.advanceTimersByTime(100);
-      });
-      mockState.saveLayout.mockClear();
-
-      // Fire layout change WITHOUT preceding pointerdown
-      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
-      act(() => {
-        vi.advanceTimersByTime(16);
-      });
-
-      // saveLayout should fire immediately (not deferred)
-      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
-
-      unmount();
-      vi.useRealTimers();
-    });
-
-    it('handles multiple drag cycles correctly', () => {
-      vi.useFakeTimers();
-      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
-      const { unmount } = renderDefaultLayout();
-
-      act(() => {
-        vi.advanceTimersByTime(100);
-      });
-      mockState.saveLayout.mockClear();
 
       const separators = screen.getAllByTestId('resize-handle');
-
-      // First drag cycle
-      fireEvent.pointerDown(separators[0]!);
-      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
       act(() => {
-        vi.advanceTimersByTime(16);
+        fireEvent.doubleClick(separators[0] as HTMLElement);
       });
-      expect(mockState.saveLayout).not.toHaveBeenCalled();
-      fireEvent.pointerUp(document);
-      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
 
-      mockState.saveLayout.mockClear();
-
-      // Second drag cycle — should work independently
-      fireEvent.pointerDown(separators[0]!);
-      handlers.horizontal[0]?.({ 'explorer-panel': 45, 'middle-panel': 35, 'tools-panel': 20 });
-      act(() => {
-        vi.advanceTimersByTime(16);
-      });
-      expect(mockState.saveLayout).not.toHaveBeenCalled();
-      fireEvent.pointerUp(document);
-      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
-      expect(mockState.saveLayout).toHaveBeenCalledWith(
-        [45, 20, expect.any(Number)],
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Boolean)
-      );
+      expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, true, true);
 
       unmount();
       vi.useRealTimers();
@@ -1068,14 +1015,14 @@ describe('IdeLayout', () => {
       expect(handles.length).toBeGreaterThanOrEqual(3);
       for (const handle of handles) {
         expect(handle.className).toContain('bg-transparent');
-        // The base bg-* color must be transparent (no panel-divider at rest or on hover —
-        // a hover flash on an invisible handle would surprise the user).
+        // The base bg-* color must be transparent, and no interaction state may light
+        // it up — a highlight flash on an invisible handle reads as a rendering glitch.
         expect(handle.className).not.toMatch(/(^|\s)bg-panel-divider(\s|$)/);
-        expect(handle.className).not.toContain('hover:bg-panel-divider');
+        expect(handle.className).not.toContain('data-[separator=');
       }
     });
 
-    it('expanded panels render their adjacent Separator with the panel-divider color and hover variant', () => {
+    it('expanded panels render their adjacent Separator with the panel-divider color and hit-region-driven highlight', () => {
       Object.assign(mockState, {
         showConsole: true,
         showLeftPanel: true,
@@ -1086,17 +1033,47 @@ describe('IdeLayout', () => {
       expect(handles.length).toBeGreaterThanOrEqual(3);
       for (const handle of handles) {
         expect(handle.className).toContain('bg-panel-divider');
-        expect(handle.className).toContain('hover:bg-panel-divider/80');
+        // Interaction state must come from the library's `data-separator` attribute, not
+        // CSS `:hover`. The rendered seam is 1px but the pointer hit region the library
+        // builds is ~10px, so a `:hover` rule would leave most of the hit target with no
+        // feedback. Verified in the running app: the highlight applies at ±4px, off the
+        // element but inside the band.
+        expect(handle.className).toContain('data-[separator=hover]:bg-primary');
+        expect(handle.className).toContain('data-[separator=active]:bg-primary');
+        // The library focuses a separator on pointerdown and focus outranks hover in its
+        // state machine, so focus has to highlight too or a just-dragged separator would
+        // stop responding to hover.
+        expect(handle.className).toContain('data-[separator=focus]:bg-primary');
+        expect(handle.className).not.toContain('hover:bg-panel-divider');
         expect(handle.className).not.toContain('bg-transparent');
         // And no stale reference to the old generic border token on any Separator.
         expect(handle.className).not.toMatch(/(^|\s)bg-border(\s|\/|$)/);
       }
     });
 
+    it('renders separators as 1px hairlines in both orientations', () => {
+      Object.assign(mockState, {
+        showConsole: true,
+        showLeftPanel: true,
+        showRightPanel: true,
+      });
+      renderDefaultLayout();
+      const handles = screen.getAllByTestId('resize-handle');
+      const vertical = handles.filter((h) => h.className.includes('w-px'));
+      const horizontal = handles.filter((h) => h.className.includes('h-px'));
+      // Explorer + tools seams are vertical; the console seam is horizontal.
+      expect(vertical).toHaveLength(2);
+      expect(horizontal).toHaveLength(1);
+      for (const handle of handles) {
+        // The old 4px bar must be gone; the library inflates the hit target on its own.
+        expect(handle.className).not.toMatch(/(^|\s)[wh]-1(\s|$)/);
+      }
+    });
+
     it('tools panel inner wrapper does not add border-l; the Separator alone provides the boundary', () => {
       // Assert via rendered DOM (more robust than regex-matching the source file):
       // the wrapper immediately inside the tools Panel must not stack a 1px border
-      // against the adjacent 4px Separator.
+      // against the adjacent 1px Separator.
       Object.assign(mockState, {
         showLeftPanel: true,
         showRightPanel: true,

@@ -5,8 +5,11 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   Group,
   type GroupImperativeHandle,
+  type Layout,
+  type LayoutChangedMeta,
   Panel,
   type PanelImperativeHandle,
+  type PanelSize,
   Separator,
 } from 'react-resizable-panels';
 import { Button } from '../button';
@@ -15,6 +18,7 @@ import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-constants';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
+import { separatorClassName } from './separator-styles';
 
 /** Options for {@link FileEditorContextValue.openFileInTab}. */
 export interface OpenFileInTabOptions {
@@ -59,39 +63,13 @@ function safePanelSize(value: number | undefined, fallback: number): number {
 // Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
 // This is a fundamental architectural requirement - conditional rendering breaks the layout.
 
-// Layout handler configuration
-interface LayoutHandlerConfig {
-  consoleContent?: React.ReactNode | undefined;
-  isInitialRenderRef?: React.RefObject<boolean> | undefined;
-  layoutIds: LayoutIds;
-  leftPanelContent?: React.ReactNode | undefined;
-  rightPanelContent?: React.ReactNode | undefined;
-  safeConsoleSize?: number | undefined;
-  safeLeftSize?: number | undefined;
-  safeRightSize?: number | undefined;
-  saveLayout?:
-    | ((
-        sizes: number[],
-        showConsole?: boolean,
-        showLeftPanel?: boolean,
-        showRightPanel?: boolean
-      ) => void)
-    | undefined;
-  showConsole?: boolean | undefined;
-  showLeftPanel?: boolean | undefined;
-  showRightPanel?: boolean | undefined;
-}
-
-function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
-  return { ...config };
-}
-
-type SaveLayoutArgs = [
+/** Persists a panel layout; `sizes` is `[left, right, console]` as percentages. */
+type SaveLayout = (
   sizes: number[],
-  showConsole: boolean,
-  showLeftPanel: boolean,
-  showRightPanel: boolean,
-];
+  showConsole?: boolean,
+  showLeftPanel?: boolean,
+  showRightPanel?: boolean
+) => void;
 
 interface LayoutIds {
   consolePanel: string;
@@ -101,224 +79,129 @@ interface LayoutIds {
   toolsPanel: string;
 }
 
+// Layout handler configuration
+interface LayoutHandlerConfig {
+  layoutIds: LayoutIds;
+  safeConsoleSize: number;
+  safeLeftSize: number;
+  safeRightSize: number;
+  saveLayout: SaveLayout;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+}
+
+type SaveLayoutArgs = [
+  sizes: number[],
+  showConsole: boolean,
+  showLeftPanel: boolean,
+  showRightPanel: boolean,
+];
+
+/**
+ * A collapsed panel reports size 0. Persisting that would discard the width the
+ * user chose, so fall back to the last known good value — the separate
+ * visibility flags are what record that the panel is closed.
+ */
+function sizeOrFallback(size: number | undefined, fallback: number): number {
+  return size !== undefined && size > 0 ? size : fallback;
+}
+
 /** Convert a horizontal layout object into saveLayout arguments. */
-function buildHorizontalSaveArgs(
-  layout: { [id: string]: number },
-  config: LayoutHandlerConfig
-): SaveLayoutArgs {
-  const rawExplorerSize = layout[config.layoutIds.explorerPanel];
-  const rawToolsSize = layout[config.layoutIds.toolsPanel];
-  const explorerSize =
-    rawExplorerSize !== null && rawExplorerSize !== undefined && rawExplorerSize > 0
-      ? rawExplorerSize
-      : (config.safeLeftSize ?? 25);
-  const toolsSize =
-    rawToolsSize !== null && rawToolsSize !== undefined && rawToolsSize > 0
-      ? rawToolsSize
-      : (config.safeRightSize ?? 20);
+function buildHorizontalSaveArgs(layout: Layout, config: LayoutHandlerConfig): SaveLayoutArgs {
   return [
-    [explorerSize, toolsSize, config.safeConsoleSize ?? 20],
-    !!config.showConsole,
-    !!config.showLeftPanel,
-    !!config.showRightPanel,
+    [
+      sizeOrFallback(layout[config.layoutIds.explorerPanel], config.safeLeftSize),
+      sizeOrFallback(layout[config.layoutIds.toolsPanel], config.safeRightSize),
+      config.safeConsoleSize,
+    ],
+    config.showConsole,
+    config.showLeftPanel,
+    config.showRightPanel,
   ];
 }
 
 /** Convert a vertical layout object into saveLayout arguments. */
-function buildVerticalSaveArgs(
-  layout: { [id: string]: number },
-  config: LayoutHandlerConfig
-): SaveLayoutArgs {
-  const rawConsoleSize = layout[config.layoutIds.consolePanel];
-  const consoleSize =
-    rawConsoleSize !== null && rawConsoleSize !== undefined && rawConsoleSize > 0
-      ? rawConsoleSize
-      : (config.safeConsoleSize ?? 20);
+function buildVerticalSaveArgs(layout: Layout, config: LayoutHandlerConfig): SaveLayoutArgs {
   return [
-    [config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize],
-    !!config.showConsole,
-    !!config.showLeftPanel,
-    !!config.showRightPanel,
+    [
+      config.safeLeftSize,
+      config.safeRightSize,
+      sizeOrFallback(layout[config.layoutIds.consolePanel], config.safeConsoleSize),
+    ],
+    config.showConsole,
+    config.showLeftPanel,
+    config.showRightPanel,
   ];
 }
 
-// Custom hook for managing layout change handlers
-// Uses RAF coalescing + drag-state deferral to minimize per-frame JS work during resize drag.
-// During drag, layouts are stored in a ref and only committed once per animation frame.
-// The final layout is flushed on pointerup via the isDraggingRef mechanism.
-function useLayoutHandlers(config: LayoutHandlerConfig) {
-  const {
-    leftPanelContent,
-    layoutIds,
-    rightPanelContent,
-    consoleContent,
-    showLeftPanel,
-    showRightPanel,
-    showConsole,
-    safeLeftSize,
-    safeRightSize,
-    safeConsoleSize,
-    saveLayout,
-    isInitialRenderRef,
-  } = config;
-
-  const stableConfig = useMemo<LayoutHandlerConfig>(
-    () =>
-      buildLayoutHandlerConfig({
-        consoleContent,
-        isInitialRenderRef,
-        layoutIds,
-        leftPanelContent,
-        rightPanelContent,
-        safeConsoleSize,
-        safeLeftSize,
-        safeRightSize,
-        saveLayout,
-        showConsole,
-        showLeftPanel,
-        showRightPanel,
-      }),
-    [
-      leftPanelContent,
-      layoutIds,
-      rightPanelContent,
-      consoleContent,
-      showLeftPanel,
-      showRightPanel,
-      showConsole,
-      safeLeftSize,
-      safeRightSize,
-      safeConsoleSize,
-      saveLayout,
-      isInitialRenderRef,
-    ]
-  );
-
-  // RAF coalescing: store pending layout, commit at most once per animation frame
-  const pendingHorizontalRef = useRef<{ [id: string]: number } | null>(null);
-  const pendingVerticalRef = useRef<{ [id: string]: number } | null>(null);
-  const rafIdRef = useRef<number | null>(null);
-
-  // Drag state tracking: when true, defer saveLayout until drag ends
-  const isDraggingRef = useRef(false);
-  // Store the latest computed save args so we can flush them on pointerup
-  const deferredSaveRef = useRef<SaveLayoutArgs | null>(null);
-
-  /** Dispatch a single set of save args: defer during drag, commit immediately otherwise. */
-  const dispatchSave = useCallback(
-    (args: SaveLayoutArgs) => {
-      if (isDraggingRef.current) {
-        deferredSaveRef.current = args;
-      } else {
-        stableConfig.saveLayout?.(...args);
-      }
-    },
-    [stableConfig]
-  );
-
-  const commitLayouts = useCallback(() => {
-    rafIdRef.current = null;
-    if (stableConfig.isInitialRenderRef?.current || !stableConfig.saveLayout) {
-      pendingHorizontalRef.current = null;
-      pendingVerticalRef.current = null;
+/**
+ * Build an `onResize` handler that fires only on a collapse/expand edge.
+ *
+ * `prevPanelSize` is undefined on mount and carries the previous size on every
+ * later call, so the edge is derived from the library's own data rather than a
+ * component-level "was collapsed" ref per panel. Panel `onResize` is stabilized
+ * internally by the library, so returning a fresh closure per render is free.
+ */
+function collapseEdge(onCollapsedChange: (collapsed: boolean) => void) {
+  return (
+    panelSize: PanelSize,
+    _id: string | number | undefined,
+    prevPanelSize: PanelSize | undefined
+  ) => {
+    if (!prevPanelSize) {
       return;
     }
-
-    if (pendingHorizontalRef.current) {
-      const layout = pendingHorizontalRef.current;
-      pendingHorizontalRef.current = null;
-      dispatchSave(buildHorizontalSaveArgs(layout, stableConfig));
+    const collapsed = panelSize.asPercentage === 0;
+    if (collapsed !== (prevPanelSize.asPercentage === 0)) {
+      onCollapsedChange(collapsed);
     }
+  };
+}
 
-    if (pendingVerticalRef.current) {
-      const layout = pendingVerticalRef.current;
-      pendingVerticalRef.current = null;
-      dispatchSave(buildVerticalSaveArgs(layout, stableConfig));
-    }
-  }, [stableConfig, dispatchSave]);
+/**
+ * Persist layout changes emitted by the two Groups.
+ *
+ * `onLayoutChanged` (past tense) is emitted at most once per gesture: the
+ * library suppresses it while a pointer drag is active and flushes on release.
+ * Measured against the running desktop app, a 26-move drag produced 26
+ * `onLayoutChange` calls and exactly one `onLayoutChanged` — so saves are
+ * already off the drag path and need no RAF coalescing or pointerup
+ * bookkeeping to keep them there.
+ *
+ * `meta.isUserInteraction` is true only for a released pointer drag or a
+ * keyboard resize. Mount, imperative `setLayout`/`collapse`/`expand`/`resize`,
+ * and container resizes all report false; persisting those would echo our own
+ * restore straight back into storage.
+ */
+function createLayoutHandlers(config: LayoutHandlerConfig) {
+  /**
+   * Persist a layout regardless of its origin. Used by the double-click reset,
+   * which resolves through the imperative panel API and so reports
+   * `isUserInteraction: false` even though the user did ask for it.
+   */
+  const persistHorizontalLayout = (layout: Layout) => {
+    config.saveLayout(...buildHorizontalSaveArgs(layout, config));
+  };
 
-  const scheduleCommit = useCallback(() => {
-    if (rafIdRef.current === null) {
-      rafIdRef.current = requestAnimationFrame(commitLayouts);
-    }
-  }, [commitLayouts]);
+  const persistVerticalLayout = (layout: Layout) => {
+    config.saveLayout(...buildVerticalSaveArgs(layout, config));
+  };
 
-  // Flush deferred layout on drag end
-  const flushDeferredSave = useCallback(() => {
-    isDraggingRef.current = false;
-    if (deferredSaveRef.current && stableConfig.saveLayout) {
-      stableConfig.saveLayout(...deferredSaveRef.current);
-      deferredSaveRef.current = null;
-    }
-  }, [stableConfig]);
-
-  // Global pointerup listener to detect drag end
-  useEffect(() => {
-    const handlePointerUp = () => {
-      if (isDraggingRef.current) {
-        // Cancel any pending RAF to avoid double-commit
-        if (rafIdRef.current !== null) {
-          cancelAnimationFrame(rafIdRef.current);
-          rafIdRef.current = null;
-        }
-        // Process any pending layouts into deferredSaveRef before flushing
-        if (pendingHorizontalRef.current && stableConfig.saveLayout) {
-          deferredSaveRef.current = buildHorizontalSaveArgs(
-            pendingHorizontalRef.current,
-            stableConfig
-          );
-        }
-        if (pendingVerticalRef.current && stableConfig.saveLayout) {
-          deferredSaveRef.current = buildVerticalSaveArgs(pendingVerticalRef.current, stableConfig);
-        }
-        pendingHorizontalRef.current = null;
-        pendingVerticalRef.current = null;
-        flushDeferredSave();
+  return {
+    handleHorizontalLayout: (layout: Layout, meta: LayoutChangedMeta) => {
+      if (meta.isUserInteraction) {
+        persistHorizontalLayout(layout);
       }
-    };
-    document.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      document.removeEventListener('pointerup', handlePointerUp);
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
-    };
-  }, [flushDeferredSave]);
-
-  const handleSeparatorPointerDown = useCallback(() => {
-    isDraggingRef.current = true;
-    deferredSaveRef.current = null;
-  }, []);
-
-  const handleHorizontalLayout = useCallback(
-    (layout: { [id: string]: number }) => {
-      if (stableConfig.isInitialRenderRef?.current) {
-        return;
-      }
-      if (!stableConfig.saveLayout) {
-        return;
-      }
-      pendingHorizontalRef.current = layout;
-      scheduleCommit();
     },
-    [stableConfig, scheduleCommit]
-  );
-
-  const handleVerticalLayout = useCallback(
-    (layout: { [id: string]: number }) => {
-      if (stableConfig.isInitialRenderRef?.current) {
-        return;
+    handleVerticalLayout: (layout: Layout, meta: LayoutChangedMeta) => {
+      if (meta.isUserInteraction) {
+        persistVerticalLayout(layout);
       }
-      if (!stableConfig.saveLayout) {
-        return;
-      }
-      pendingVerticalRef.current = layout;
-      scheduleCommit();
     },
-    [stableConfig, scheduleCommit]
-  );
-
-  return { handleHorizontalLayout, handleSeparatorPointerDown, handleVerticalLayout };
+    persistHorizontalLayout,
+    persistVerticalLayout,
+  };
 }
 
 // Configuration for initial layout application
@@ -1037,11 +920,6 @@ export const IdeLayout = React.memo(function IdeLayout({
   const isInitialRenderRef = useRef(true);
   const hasAppliedInitialLayout = useRef(false);
 
-  // Track last collapsed state to skip redundant onResize handler calls during drag
-  const leftCollapsedRef = useRef(false);
-  const rightCollapsedRef = useRef(false);
-  const consoleCollapsedRef = useRef(false);
-
   const fileEditorContextValue = useFileEditorContext();
 
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
@@ -1183,13 +1061,11 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleRightPanel,
   });
 
-  // Layout handlers
+  // Layout handlers. Note the panel *content* nodes are deliberately not part
+  // of this config: including them re-created the memoized handlers on every
+  // parent render, since children identity changes each time.
   const layoutConfig: LayoutHandlerConfig = {
-    consoleContent,
-    isInitialRenderRef,
     layoutIds,
-    leftPanelContent,
-    rightPanelContent,
     safeConsoleSize,
     safeLeftSize,
     safeRightSize,
@@ -1199,8 +1075,34 @@ export const IdeLayout = React.memo(function IdeLayout({
     showRightPanel,
   };
 
-  const { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown } =
-    useLayoutHandlers(layoutConfig);
+  const {
+    handleHorizontalLayout,
+    handleVerticalLayout,
+    persistHorizontalLayout,
+    persistVerticalLayout,
+  } = createLayoutHandlers(layoutConfig);
+
+  /**
+   * Double-clicking a separator resets its panel to `defaultSize`. The library
+   * performs that reset through the imperative panel API, which reports
+   * `isUserInteraction: false`, so `handleHorizontalLayout` deliberately
+   * ignores it — persist it here instead. The library's own `dblclick` listener
+   * is registered capture-phase on the ownerDocument, so by the time this
+   * bubble-phase handler runs the new layout is already committed.
+   */
+  const handleHorizontalSeparatorDoubleClick = () => {
+    const group = horizontalGroupRef.current;
+    if (group) {
+      persistHorizontalLayout(group.getLayout());
+    }
+  };
+
+  const handleVerticalSeparatorDoubleClick = () => {
+    const group = verticalGroupRef.current;
+    if (group) {
+      persistVerticalLayout(group.getLayout());
+    }
+  };
 
   // v4: Build defaultLayout object for the horizontal Group
   // IMPORTANT: All panels must ALWAYS be included in the layout
@@ -1298,16 +1200,12 @@ export const IdeLayout = React.memo(function IdeLayout({
                 className="overflow-hidden bg-background"
                 collapsedSize="0%"
                 collapsible
+                defaultSize={`${DEFAULT_PANEL_SIZES[0]}%`}
+                groupResizeBehavior="preserve-pixel-size"
                 id={layoutIds.explorerPanel}
                 maxSize={resolvedPanelConstraints.leftPanelMaxSize}
                 minSize={resolvedPanelConstraints.leftPanelMinSize}
-                onResize={(panelSize) => {
-                  const collapsed = panelSize.asPercentage === 0;
-                  if (collapsed !== leftCollapsedRef.current) {
-                    leftCollapsedRef.current = collapsed;
-                    handleLeftPanelCollapse(collapsed);
-                  }
-                }}
+                onResize={collapseEdge(handleLeftPanelCollapse)}
                 panelRef={leftPanelRef}
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
@@ -1338,11 +1236,11 @@ export const IdeLayout = React.memo(function IdeLayout({
               </Panel>
               <Separator
                 aria-label={`Resize ${resolvedLeftPanelChrome.title} panel`}
-                className={cn(
-                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  showLeftPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
-                )}
-                onPointerDown={handleSeparatorPointerDown}
+                className={separatorClassName({
+                  orientation: 'horizontal',
+                  visible: showLeftPanel,
+                })}
+                onDoubleClick={handleHorizontalSeparatorDoubleClick}
               />
             </>
           )}
@@ -1387,26 +1285,21 @@ export const IdeLayout = React.memo(function IdeLayout({
                 <>
                   <Separator
                     aria-label="Resize File Editor panel"
-                    className={cn(
-                      'z-10 h-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      showConsole ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
-                    )}
-                    onPointerDown={handleSeparatorPointerDown}
+                    className={separatorClassName({
+                      orientation: 'vertical',
+                      visible: showConsole,
+                    })}
+                    onDoubleClick={handleVerticalSeparatorDoubleClick}
                   />
                   <Panel
                     className="bg-background"
                     collapsedSize="0%"
                     collapsible
+                    defaultSize={`${DEFAULT_PANEL_SIZES[2]}%`}
                     id={layoutIds.consolePanel}
                     maxSize={resolvedPanelConstraints.consolePanelMaxSize}
                     minSize={resolvedPanelConstraints.consolePanelMinSize}
-                    onResize={(panelSize) => {
-                      const collapsed = panelSize.asPercentage === 0;
-                      if (collapsed !== consoleCollapsedRef.current) {
-                        consoleCollapsedRef.current = collapsed;
-                        handleConsolePanelCollapse(collapsed);
-                      }
-                    }}
+                    onResize={collapseEdge(handleConsolePanelCollapse)}
                     panelRef={consolePanelRef}
                   >
                     <div className="flex h-full flex-col [contain:layout_paint_style]">
@@ -1444,26 +1337,22 @@ export const IdeLayout = React.memo(function IdeLayout({
             <>
               <Separator
                 aria-label={`Resize ${resolvedRightPanelChrome.title} panel`}
-                className={cn(
-                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  showRightPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
-                )}
-                onPointerDown={handleSeparatorPointerDown}
+                className={separatorClassName({
+                  orientation: 'horizontal',
+                  visible: showRightPanel,
+                })}
+                onDoubleClick={handleHorizontalSeparatorDoubleClick}
               />
               <Panel
                 className="bg-background"
                 collapsedSize="0%"
                 collapsible
+                defaultSize={`${DEFAULT_PANEL_SIZES[1]}%`}
+                groupResizeBehavior="preserve-pixel-size"
                 id={layoutIds.toolsPanel}
                 maxSize={resolvedPanelConstraints.rightPanelMaxSize}
                 minSize={resolvedPanelConstraints.rightPanelMinSize}
-                onResize={(panelSize) => {
-                  const collapsed = panelSize.asPercentage === 0;
-                  if (collapsed !== rightCollapsedRef.current) {
-                    rightCollapsedRef.current = collapsed;
-                    handleRightPanelCollapse(collapsed);
-                  }
-                }}
+                onResize={collapseEdge(handleRightPanelCollapse)}
                 panelRef={rightPanelRef}
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
