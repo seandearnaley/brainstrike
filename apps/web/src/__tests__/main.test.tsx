@@ -21,6 +21,13 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: vi.fn(() => null),
 }));
 
+// The diagnostic sink bridge is exercised by its own dedicated test suite
+// (packages/app-shell/src/__tests__/diagnostic-sink-bridge.test.tsx); here it
+// is a render-nothing stub so main.tsx's own orchestration stays in focus.
+vi.mock('@brainstrike/app-shell/diagnostics', () => ({
+  DiagnosticSinkBridge: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
