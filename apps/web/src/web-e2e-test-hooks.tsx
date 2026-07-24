@@ -1,6 +1,5 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { useEffect } from 'react';
-import { getEmbeddingQueue } from './create-embedding-queue';
 
 interface ModelEnabledRow {
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
@@ -150,6 +149,7 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
       },
       qualifyLocalEmbedding: async (deviceHint = 'wasm'): Promise<WebE2EEmbeddingQualification> => {
         const dtype = deviceHint === 'webgpu' ? 'fp16' : 'q4';
+        const { getEmbeddingQueue } = await import('./create-embedding-queue');
         const queue = getEmbeddingQueue();
         const result = await queue.add({
           deviceHint,
