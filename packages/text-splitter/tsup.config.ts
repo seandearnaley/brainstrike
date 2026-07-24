@@ -5,6 +5,8 @@ import { defineConfig } from 'tsup';
 // external via workspace deps). Sourcemaps match utils so worker stacktraces
 // resolve through the shim layer.
 export default defineConfig({
+  clean: false, // tsc -b . outputs d.ts first; don't wipe it
+  dts: false, // Disable tsup dts; tsc -b . handles declarations (composite: true)
   entry: [
     'src/index.ts',
     'src/chunking-core.ts',

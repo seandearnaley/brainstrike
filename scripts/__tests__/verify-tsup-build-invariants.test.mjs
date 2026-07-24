@@ -7,8 +7,11 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  blankComments,
+  CLEAN_CLI_FLAGS,
   classifyDeclarationOwner,
   classifyFieldValue,
+  DECLARATION_CLI_FLAGS,
   discoverTsupPackages,
   findGuardedFieldOccurrences,
   findTsupInvariantViolations,
@@ -16,6 +19,8 @@ import {
   GUARDED_FIELDS,
   MIN_TSUP_CONFIGS,
   MIN_TYPESCRIPT_OWNED_PACKAGES,
+  OPTIONAL_FALSE_FIELDS,
+  REQUIRED_FALSE_FIELDS,
   readTsupCliFlags,
 } from '../verify-tsup-build-invariants.mjs';
 
@@ -32,7 +37,7 @@ const guardScript = path.join(repoRoot, 'scripts', 'verify-tsup-build-invariants
 const TSC_BUILD = 'pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts';
 const TSUP_ONLY_BUILD = 'tsup --config ./tsup.config.ts';
 
-/** A compliant TypeScript-owned config: both invariants held as literal false. */
+/** A compliant TypeScript-owned config: both invariants stated as literal false. */
 function compliantConfig() {
   return "import { defineConfig } from 'tsup';\n\nexport default defineConfig({\n  clean: false,\n  dts: false,\n  entry: ['src/index.ts'],\n});\n";
 }
@@ -105,7 +110,10 @@ test('the guard script itself exits 0 on the real tree and reports what it inspe
   // Proves main() is wired up, not just the exported checker — `pnpm lint` runs
   // the script, so an exported-only green would be a green nobody executes.
   const stdout = execFileSync(process.execPath, [guardScript], { encoding: 'utf8' });
-  assert.match(stdout, /tsup build invariants hold: \d+ tsup\.config\.ts file\(s\) inspected/);
+  assert.match(
+    stdout,
+    /tsup build invariants hold: \d+ TypeScript-owned tsup\.config\.ts file\(s\)/
+  );
 });
 
 test('MONEY TEST: `clean: true` in a tsc -b package FAILS the guard', () => {
@@ -144,6 +152,89 @@ test('MONEY TEST 2: `dts: true` in a tsc -b package FAILS the guard', () => {
   assert.doesNotMatch(report, /unlinks the whole outDir/);
 });
 
+test('MONEY TEST 3: `experimentalDts` is a real bypass and FAILS the guard', () => {
+  // Review round, P2 #1. Verified against installed tsup 8.5.1: `experimentalDts`
+  // is a config key of its own, NOT folded into `dts`, so before this it enabled
+  // tsup declaration emit while the guard reported green.
+  const violations = runFixture(
+    withFloorFiller({
+      drifted: {
+        build: TSC_BUILD,
+        config: compliantConfig().replace('dts: false,', 'dts: false,\n  experimentalDts: true,'),
+      },
+    })
+  );
+  assert.equal(violations.length, 1, 'experimentalDts must not be able to walk past the guard');
+  assert.equal(violations[0].field, 'experimentalDts');
+  assert.equal(violations[0].kind, 'config-true');
+});
+
+test('RULE: experimentalDts may be OMITTED but not enabled', () => {
+  // Asymmetric on purpose: `clean`/`dts` are the invariant and must be stated at
+  // each call site; `experimentalDts` is an alternate spelling that must merely
+  // never be switched on. Requiring 14 configs to write `experimentalDts: false`
+  // would be noise.
+  assert.deepEqual(
+    runFixture(withFloorFiller({ plain: { build: TSC_BUILD, config: compliantConfig() } })),
+    [],
+    'omitting experimentalDts must stay legal'
+  );
+  for (const field of OPTIONAL_FALSE_FIELDS) {
+    const violations = runFixture(
+      withFloorFiller({
+        drifted: {
+          build: TSC_BUILD,
+          config: compliantConfig().replace('dts: false,', `dts: false,\n  ${field}: true,`),
+        },
+      })
+    );
+    assert.equal(violations.length, 1, `${field} is on the optional list but is not enforced`);
+    assert.equal(violations[0].field, field);
+  }
+});
+
+test('MONEY TEST 4: an ABSENT clean/dts in a governed config FAILS the guard', () => {
+  // Review round, P2 #2. @brainstrike/text-splitter was the live instance: it ran
+  // `tsc -b . && tsup` while stating NEITHER field, yet the guard printed that
+  // every governed package was "pinned to clean:false/dts:false" — an assertion
+  // it had never verified.
+  const bare =
+    "import { defineConfig } from 'tsup';\n\nexport default defineConfig({\n  entry: ['src/index.ts'],\n});\n";
+  const violations = runFixture(withFloorFiller({ bare: { build: TSC_BUILD, config: bare } }));
+  assert.equal(violations.length, 2, 'both unstated invariants must be reported');
+  assert.deepEqual(violations.map((violation) => violation.field).sort(), ['clean', 'dts']);
+  for (const violation of violations) {
+    assert.equal(violation.kind, 'config-absent');
+  }
+  const report = formatTsupViolations(violations);
+  assert.match(report, /never states `clean`/);
+  assert.match(report, /would be a silent no-op instead of a visible failure/);
+  // Each required field must be independently enforced, not just as a pair.
+  for (const field of REQUIRED_FALSE_FIELDS) {
+    const partial = runFixture(
+      withFloorFiller({
+        partial: {
+          build: TSC_BUILD,
+          config: compliantConfig().replace(`  ${field}: false,\n`, ''),
+        },
+      })
+    );
+    assert.equal(partial.length, 1, `a missing ${field} was not detected`);
+    assert.equal(partial[0].field, field);
+    assert.equal(partial[0].kind, 'config-absent');
+  }
+});
+
+test('RULE: a config-LESS TypeScript-owned package is not forced to grow a config', () => {
+  // The explicit-statement rule applies to configs that exist. queue, types and
+  // worker-runtime build `tsc -b . && tsup src/index.ts …` with no config file:
+  // there is nothing to drift, and their CLI flags are checked instead.
+  assert.deepEqual(
+    runFixture(withFloorFiller({ configless: { build: 'tsc -b . && tsup src/index.ts' } })),
+    []
+  );
+});
+
 test('RULING: `clean: !options.watch` is fine in a tsup-owned package, a violation in a tsc -b one', () => {
   // The documented ruling on dynamic expressions, driven through the real
   // checker in BOTH directions. It is not a false positive today because every
@@ -173,8 +264,15 @@ test('RULING: `clean: !options.watch` is fine in a tsup-owned package, a violati
 
 test('BLIND SPOT: a dynamic value is rejected outright, not just literal `true`', () => {
   // "Not literally true" is not the same as "false". A ternary that evaluates
-  // true would otherwise walk straight through the check.
-  for (const expression of ['process.env.CI ? true : false', 'Boolean(process.env.CLEAN)']) {
+  // true would otherwise walk straight through the check. The non-boolean shapes
+  // tsup accepts are covered by the same rule: per its own types,
+  // `clean?: boolean | string[]` and `dts?: boolean | string | DtsConfig`, and
+  // every one of those non-false values ENABLES the behaviour.
+  for (const expression of [
+    'process.env.CI ? true : false',
+    'Boolean(process.env.CLEAN)',
+    "['dist']",
+  ]) {
     const violations = runFixture(
       withFloorFiller({
         drifted: {
@@ -190,57 +288,82 @@ test('BLIND SPOT: a dynamic value is rejected outright, not just literal `true`'
 
 test('BLIND SPOT: every guarded field is actually enforced (not just clean)', () => {
   for (const field of GUARDED_FIELDS) {
-    const violations = runFixture(
-      withFloorFiller({
-        drifted: {
-          build: TSC_BUILD,
-          config: compliantConfig().replace(`${field}: false`, `${field}: true`),
-        },
-      })
-    );
+    const config = OPTIONAL_FALSE_FIELDS.includes(field)
+      ? compliantConfig().replace('dts: false,', `dts: false,\n  ${field}: true,`)
+      : compliantConfig().replace(`${field}: false`, `${field}: true`);
+    const violations = runFixture(withFloorFiller({ drifted: { build: TSC_BUILD, config } }));
     assert.equal(violations.length, 1, `${field} drift was not detected`);
     assert.equal(violations[0].field, field);
   }
 });
 
-test('BLIND SPOT: a `--dts` CLI flag bypasses the config file and is still caught', () => {
-  // tsup reads these flags from the command line too, so a config-file-only
-  // guard would leave `tsc -b . && tsup src/index.ts --dts` wide open.
-  const violations = runFixture(
-    withFloorFiller({
-      drifted: { build: 'tsc -b . && tsup src/index.ts --dts', config: compliantConfig() },
-    })
-  );
-  assert.equal(violations.length, 1);
-  assert.equal(violations[0].kind, 'cli-flag');
-  assert.equal(violations[0].field, 'dts');
-  assert.match(formatTsupViolations(violations), /Drop the flag from the build script/);
+test('MONEY TEST 5: EVERY declaration CLI flag bypasses the config file and is caught', () => {
+  // Review round, P2 #1 — extended past what the review named. tsup 8.5.1
+  // normalises `if (flags.dts || flags.dtsResolve || flags.dtsOnly)`, so
+  // --dts-resolve and --dts-only each ENABLE emit on their own; they are not
+  // modifiers of --dts. All four are therefore independent bypasses.
+  assert.ok(DECLARATION_CLI_FLAGS.length >= 4, 'all four tsup declaration flags must be modelled');
+  for (const flag of DECLARATION_CLI_FLAGS) {
+    const violations = runFixture(
+      withFloorFiller({
+        drifted: { build: `tsc -b . && tsup src/index.ts ${flag}`, config: compliantConfig() },
+      })
+    );
+    assert.equal(violations.length, 1, `${flag} was not detected`);
+    assert.equal(violations[0].kind, 'cli-flag');
+    assert.equal(violations[0].field, 'dts');
+    assert.equal(violations[0].expression, flag);
+    assert.match(formatTsupViolations(violations), /Drop the flag from the build script/);
+  }
+  for (const flag of CLEAN_CLI_FLAGS) {
+    const violations = runFixture(
+      withFloorFiller({
+        drifted: { build: `tsc -b . && tsup src/index.ts ${flag}`, config: compliantConfig() },
+      })
+    );
+    assert.equal(violations.length, 1, `${flag} was not detected`);
+    assert.equal(violations[0].field, 'clean');
+  }
 });
 
-test('BLIND SPOT: a tsc -b package with NO tsup.config.ts is still CLI-checked', () => {
-  // @brainstrike/queue, @brainstrike/types and @brainstrike/worker-runtime build
-  // this way on the real tree — config-file discovery alone would skip them.
+test('BLIND SPOT: a PATH-PREFIXED tsup invocation is still CLI-checked', () => {
+  // Review round, claude[bot] note 5. `node_modules/.bin/tsup --dts` used to read
+  // as "does not invoke tsup", so a config-less package was skipped entirely and
+  // its flags went unchecked — the exact bypass class this guard is for.
   const violations = runFixture(
     withFloorFiller({
-      configless: { build: 'pnpm run clean && tsc -b . && tsup src/index.ts --clean' },
+      pathed: { build: 'tsc -b . && node_modules/.bin/tsup src/index.ts --dts' },
     })
   );
-  assert.equal(violations.length, 1);
+  assert.equal(violations.length, 1, 'a path-prefixed tsup invocation must not escape the check');
   assert.equal(violations[0].kind, 'cli-flag');
-  assert.equal(violations[0].field, 'clean');
+
+  const dir = makeFixture({ packages: { pathed: { build: './node_modules/.bin/tsup --dts' } } });
+  try {
+    assert.ok(
+      discoverTsupPackages(dir).some((pkg) => pkg.name === 'pathed'),
+      'a path-prefixed invocation must be discovered as a tsup package'
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 test('RULE: `pnpm run clean && tsc -b . && tsup` is NOT read as a tsup --clean', () => {
   // Only segments that invoke tsup may contribute flags; a sibling `clean`
   // script in the chain is an ordered, deliberate step outside tsup.
-  assert.deepEqual(readTsupCliFlags(TSC_BUILD), { clean: false, dts: false });
-  assert.deepEqual(readTsupCliFlags('pnpm run clean && tsc -b . && tsup'), {
-    clean: false,
-    dts: false,
-  });
+  assert.deepEqual(readTsupCliFlags(TSC_BUILD), { clean: [], dts: [] });
+  assert.deepEqual(readTsupCliFlags('pnpm run clean && tsc -b . && tsup'), { clean: [], dts: [] });
   assert.deepEqual(readTsupCliFlags('tsc -b . && tsup src/index.ts --dts --clean'), {
-    clean: true,
-    dts: true,
+    clean: ['--clean'],
+    dts: ['--dts'],
+  });
+  // `--dts-only` must report as itself, not as a loose `--dts` prefix match.
+  assert.deepEqual(readTsupCliFlags('tsup --dts-only'), { clean: [], dts: ['--dts-only'] });
+  // A flag belonging to a NON-tsup segment must not be attributed to tsup.
+  assert.deepEqual(readTsupCliFlags('some-other-tool --clean && tsup src/index.ts'), {
+    clean: [],
+    dts: [],
   });
 });
 
@@ -254,13 +377,22 @@ test('EXEMPTION IS LOAD-BEARING: a tsup-owned package that emits no declarations
   );
   assert.equal(violations.length, 1);
   assert.equal(violations[0].kind, 'tsup-owned-without-dts');
-  const report = formatTsupViolations(violations);
-  assert.match(report, /would publish no \.d\.ts at all/);
-  // …and a `--dts` on the build script satisfies the obligation without a config.
+  assert.match(formatTsupViolations(violations), /would publish no \.d\.ts at all/);
+  // Any declaration spelling satisfies the obligation: a CLI flag with no config
+  // setting, or experimentalDts instead of dts.
+  assert.deepEqual(
+    runFixture(
+      withFloorFiller({ worker: { build: 'tsup src/index.ts --dts', config: compliantConfig() } })
+    ),
+    []
+  );
   assert.deepEqual(
     runFixture(
       withFloorFiller({
-        worker: { build: 'tsup src/index.ts --dts', config: compliantConfig() },
+        worker: {
+          build: TSUP_ONLY_BUILD,
+          config: compliantConfig().replace('dts: false,', 'dts: false,\n  experimentalDts: true,'),
+        },
       })
     ),
     []
@@ -306,6 +438,41 @@ test('VACUOUS PASS: a collapsed classification THROWS even with every config fou
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
+});
+
+test('COMMENTS: prose that merely mentions `clean:` does NOT trip the cross-check', () => {
+  // Review round, claude[bot] note 4. The permissive counter used to scan raw
+  // source, so this valid config threw "an unmodelled shape is present" — an
+  // error whose stated remedy was misleading for what is only a comment.
+  const commented =
+    "import { defineConfig } from 'tsup';\n\n" +
+    '/**\n * Historical note: clean: true was removed here because tsc -b owns dist.\n */\n' +
+    'export default defineConfig({\n' +
+    '  // clean: kept false because tsc -b owns dist\n' +
+    '  clean: false,\n' +
+    '  dts: false, // dts: owned by tsc -b\n' +
+    "  entry: ['src/index.ts'],\n});\n";
+  const occurrences = findGuardedFieldOccurrences(commented, 'fixture.ts');
+  assert.deepEqual(
+    occurrences.map((entry) => entry.field),
+    ['clean', 'dts']
+  );
+  assert.deepEqual(
+    runFixture(withFloorFiller({ commented: { build: TSC_BUILD, config: commented } })),
+    []
+  );
+});
+
+test('COMMENTS: blanking preserves line numbers so the report points at the real line', () => {
+  // A block comment collapsed to one space (the sibling stripComments' behaviour)
+  // would shift every line number below it, and those numbers are printed in the
+  // violation report.
+  const withBlock =
+    "import { defineConfig } from 'tsup';\n\n/**\n * A\n * multi-line\n * banner.\n */\nexport default defineConfig({\n  clean: true,\n  dts: false,\n});\n";
+  assert.equal(blankComments(withBlock).split('\n').length, withBlock.split('\n').length);
+  const occurrences = findGuardedFieldOccurrences(withBlock, 'fixture.ts');
+  assert.equal(occurrences[0].field, 'clean');
+  assert.equal(occurrences[0].line, 9, 'line number must survive the block comment');
 });
 
 test('NO SILENT FALLBACK: a `clean:` written in an unmodelled shape THROWS', () => {
@@ -400,7 +567,7 @@ test('RULE: only the literal `false` counts as compliant', () => {
   assert.equal(classifyFieldValue('options.watch ? false : false'), 'dynamic');
 });
 
-test('the real tree clears both floors with headroom, and the tsup-owned set is pinned', () => {
+test('the real tree clears both floors, and the tsup-owned set is pinned', () => {
   const packages = discoverTsupPackages(repoRoot);
   const configs = packages.filter((pkg) => pkg.configSource !== null);
   const owned = packages.filter((pkg) => pkg.declarationOwner === 'typescript');
@@ -428,4 +595,23 @@ test('the real tree clears both floors with headroom, and the tsup-owned set is 
       '@brainstrike/token-cache',
     ]
   );
+});
+
+test('the real tree states both invariants EXPLICITLY in every governed config', () => {
+  // The positive form of RULING 2, asserted directly rather than inferred from
+  // "no violations": every governed config must literally contain both settings.
+  let checked = 0;
+  for (const pkg of discoverTsupPackages(repoRoot)) {
+    if (pkg.declarationOwner !== 'typescript' || pkg.configSource === null) {
+      continue;
+    }
+    const stated = findGuardedFieldOccurrences(pkg.configSource, pkg.configPath);
+    for (const field of REQUIRED_FALSE_FIELDS) {
+      const occurrence = stated.find((entry) => entry.field === field);
+      assert.ok(occurrence, `${pkg.configPath} must state \`${field}\` explicitly`);
+      assert.equal(occurrence.kind, 'false', `${pkg.configPath} must set \`${field}: false\``);
+    }
+    checked += 1;
+  }
+  assert.ok(checked >= MIN_TSUP_CONFIGS, `only ${checked} governed configs were actually asserted`);
 });
