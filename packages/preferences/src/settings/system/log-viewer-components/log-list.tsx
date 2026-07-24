@@ -16,11 +16,14 @@ import type { LogRecordRow } from './log-utils';
 interface LogListProps {
   autoScroll: boolean;
   autoScrollAnchor: 'start' | 'end';
+  emptyStateText?: string;
   logsLoading: boolean;
   rows: Row<LogRecordRow>[];
   table: ReactTableInstance<LogRecordRow>;
   wrapLines: boolean;
 }
+
+const DEFAULT_EMPTY_STATE_TEXT = 'No logs recorded for the current session.';
 
 export function LogList({
   table,
@@ -29,6 +32,7 @@ export function LogList({
   autoScroll,
   autoScrollAnchor,
   wrapLines,
+  emptyStateText = DEFAULT_EMPTY_STATE_TEXT,
 }: LogListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -99,7 +103,7 @@ export function LogList({
         </div>
       ) : rows.length === 0 ? (
         <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-          No logs recorded for the current session.
+          {emptyStateText}
         </div>
       ) : (
         <table className="w-full min-w-[800px] table-fixed border-collapse text-sm">

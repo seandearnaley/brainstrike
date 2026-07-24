@@ -14,6 +14,7 @@
  * - packages/app-shell/src/root-layout-content.tsx (RootLayoutContent)
  */
 
+import type { LogSourceAdapter } from '@brainstrike/preferences/settings/system/logging-settings-section';
 import type { LucideIcon } from 'lucide-react';
 import type React from 'react';
 
@@ -77,6 +78,11 @@ declare module '@brainstrike/app-shell/diagnostics' {
   export const DiagnosticSinkBridge: React.ComponentType<DiagnosticSinkBridgeProps>;
   export const DIAGNOSTIC_SINK_SCOPE: string;
   export function getDiagnosticSessionId(): string;
+
+  /**
+   * See: packages/app-shell/src/diagnostics/use-durable-log-source.ts
+   */
+  export function useDurableLogSource(): LogSourceAdapter | undefined;
 }
 
 declare module '@brainstrike/app-shell/settings-page-content' {

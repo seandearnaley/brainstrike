@@ -1,5 +1,6 @@
 import { LogLevel, type LogRecord } from '@brainstrike/utils';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection, type LogSourceAdapter } from './logging-settings-section';
@@ -33,6 +34,10 @@ beforeAll(() => {
     disconnect() {}
   }
   globalThis.ResizeObserver = ResizeObserver as unknown as typeof ResizeObserver;
+  // JSDOM implements neither of these Radix `Select` interaction APIs.
+  (Element.prototype as unknown as { hasPointerCapture: () => boolean }).hasPointerCapture = () =>
+    false;
+  (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
 });
 
 function createLogSource(records: readonly LogRecord[]): LogSourceAdapter {
@@ -43,6 +48,24 @@ function createLogSource(records: readonly LogRecord[]): LogSourceAdapter {
       return vi.fn();
     },
   };
+}
+
+/** Same shape as `createLogSource`, but counts `subscribe` calls so a test
+ * can observe which adapter the viewer actually subscribed to. */
+function createCountingLogSource(records: readonly LogRecord[]): {
+  callCount: { subscribe: number };
+  source: LogSourceAdapter;
+} {
+  const callCount = { subscribe: 0 };
+  const source: LogSourceAdapter = {
+    getInitialRecords: async () => records,
+    subscribe: (handler) => {
+      callCount.subscribe += 1;
+      handler(records);
+      return vi.fn();
+    },
+  };
+  return { callCount, source };
 }
 
 describe('LoggingSettingsSection log viewer', () => {
@@ -95,5 +118,62 @@ describe('LoggingSettingsSection log viewer', () => {
       },
       { timeout: 2000 }
     );
+  });
+});
+
+describe('LoggingSettingsSection log source switch', () => {
+  it('does not render a log source control without a durable source', () => {
+    render(<LoggingSettingsSection logSource={createLogSource([])} runtime="browser" />);
+
+    expect(screen.queryByRole('combobox', { name: /log source/i })).not.toBeInTheDocument();
+  });
+
+  it('subscribes to the session adapter by default and the durable adapter once Persistent errors is selected', async () => {
+    const user = userEvent.setup();
+    const session = createCountingLogSource([]);
+    const persistent = createCountingLogSource([]);
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={persistent.source}
+        logSource={session.source}
+        runtime="browser"
+      />
+    );
+
+    await waitFor(() => {
+      expect(session.callCount.subscribe).toBeGreaterThan(0);
+    });
+    expect(persistent.callCount.subscribe).toBe(0);
+
+    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByText('Persistent errors'));
+
+    await waitFor(() => {
+      expect(persistent.callCount.subscribe).toBeGreaterThan(0);
+    });
+  });
+
+  it('shows the durable empty-state copy once Persistent errors is selected', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        runtime="browser"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('No logs recorded for the current session.')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByText('Persistent errors'));
+
+    await waitFor(() => {
+      expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
+    });
   });
 });

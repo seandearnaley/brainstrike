@@ -1,3 +1,4 @@
+import { useDurableLogSource } from '@brainstrike/app-shell/diagnostics';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -79,6 +80,8 @@ export function DesktopLoggingSettings() {
       },
     };
   }, []);
+
+  const durableLogSource = useDurableLogSource();
 
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
@@ -223,6 +226,7 @@ export function DesktopLoggingSettings() {
   return (
     <LoggingSettingsSection
       busy={syncing}
+      durableLogSource={durableLogSource}
       fileCapabilities={fileCapabilities}
       logSource={logSource}
       onCommitPreferences={commitPreferences}

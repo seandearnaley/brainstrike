@@ -42,6 +42,7 @@ interface FileCapabilities {
 
 export interface LoggingSettingsSectionProps {
   busy?: boolean;
+  durableLogSource?: LogSourceAdapter;
   fileCapabilities?: FileCapabilities;
   logSource?: LogSourceAdapter;
   onCommitPreferences?: (
@@ -54,6 +55,10 @@ export interface LoggingSettingsSectionProps {
 }
 
 export type { LogSourceAdapter };
+
+type LogSourceMode = 'persistent' | 'session';
+
+const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
 
 function formatLogLevel(level: LogLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();
@@ -84,15 +89,20 @@ export function LoggingSettingsSection({
   onOpenLogDestination,
   onResetPreferences,
   logSource,
+  durableLogSource,
 }: LoggingSettingsSectionProps) {
   const preferences = useLoggingPreferencesStore((state) => state.preferences);
   const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
   const resetPreferences = useLoggingPreferencesStore((state) => state.resetPreferences);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [logSourceMode, setLogSourceMode] = useState<LogSourceMode>('session');
   const { toast } = useToast();
   const updateTokenRef = useRef(0);
   const pending = busy || isSyncing;
+  const usingDurableLogSource = Boolean(durableLogSource) && logSourceMode === 'persistent';
+  const activeLogSource = usingDurableLogSource ? durableLogSource : logSource;
+  const activeEmptyStateText = usingDurableLogSource ? DURABLE_EMPTY_STATE_TEXT : undefined;
 
   const commitPreferences = useCallback(
     async (nextPreferences: LoggingPreferences) => {
@@ -269,7 +279,34 @@ export function LoggingSettingsSection({
         pending={pending}
         preferences={preferences}
       />
-      <LogViewer logSource={logSource} toast={toast} />
+      {durableLogSource ? (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div>
+            <Label htmlFor="log-source-mode">Log Source</Label>
+            <p className="text-muted-foreground text-xs">
+              Session shows in-memory logs since launch. Persistent errors reads durable warn+
+              events stored in the database.
+            </p>
+          </div>
+          <Select
+            onValueChange={(value) => setLogSourceMode(value as LogSourceMode)}
+            value={logSourceMode}
+          >
+            <SelectTrigger className="w-[200px]" id="log-source-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="session">Session</SelectItem>
+              <SelectItem value="persistent">Persistent errors</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      <LogViewer
+        logSource={activeLogSource}
+        toast={toast}
+        {...(activeEmptyStateText === undefined ? {} : { emptyStateText: activeEmptyStateText })}
+      />
     </div>
   );
 }

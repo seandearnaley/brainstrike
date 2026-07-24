@@ -2,7 +2,10 @@ import '@testing-library/jest-dom/vitest';
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LoggingSettingsSection } from '../settings/system/logging-settings-section';
+import {
+  LoggingSettingsSection,
+  type LogSourceAdapter,
+} from '../settings/system/logging-settings-section';
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
@@ -271,5 +274,30 @@ describe('LoggingSettingsSection', () => {
     const state = useLoggingPreferencesStore.getState().preferences;
     expect(state.consoleEnabled).toBe(false);
     expect(state.includeTimestamp).toBe(true);
+  });
+
+  it('renders no log source control when durableLogSource is absent', () => {
+    render(<LoggingSettingsSection onCommitPreferences={vi.fn()} runtime="browser" />);
+
+    expect(screen.queryByText('Persistent errors')).not.toBeInTheDocument();
+    expect(screen.queryByText('Session')).not.toBeInTheDocument();
+  });
+
+  it('renders both Session and Persistent errors options when durableLogSource is present', () => {
+    const durableLogSource: LogSourceAdapter = {
+      getInitialRecords: async () => [],
+      subscribe: () => vi.fn(),
+    };
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={durableLogSource}
+        onCommitPreferences={vi.fn()}
+        runtime="browser"
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Session' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Persistent errors' })).toBeInTheDocument();
   });
 });
