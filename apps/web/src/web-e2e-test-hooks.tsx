@@ -1,5 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { useEffect } from 'react';
+import { getEmbeddingQueue } from './create-embedding-queue';
 
 interface ModelEnabledRow {
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
@@ -42,9 +43,20 @@ export interface WebE2EDatabaseQualification {
   readonly vectorDistance: number;
 }
 
+export interface WebE2EEmbeddingQualification {
+  readonly device: string;
+  readonly dimensions: number;
+  readonly dtype: string;
+  readonly fallbackApplied: boolean;
+  readonly finite: boolean;
+}
+
 export interface WebE2ETestHooks {
   readonly dbPath: string;
   readonly qualifyDatabaseExtensions: () => Promise<WebE2EDatabaseQualification>;
+  readonly qualifyLocalEmbedding: (
+    deviceHint?: 'wasm' | 'webgpu'
+  ) => Promise<WebE2EEmbeddingQualification>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
   readonly syncDatabase: () => Promise<void>;
@@ -134,6 +146,43 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           extensions,
           fullTextMatch,
           vectorDistance,
+        };
+      },
+      qualifyLocalEmbedding: async (deviceHint = 'wasm'): Promise<WebE2EEmbeddingQualification> => {
+        const dtype = deviceHint === 'webgpu' ? 'fp16' : 'q4';
+        const queue = getEmbeddingQueue();
+        const result = await queue.add({
+          deviceHint,
+          dtype,
+          id: `csp-embedding-${crypto.randomUUID()}`,
+          kind: 'embed',
+          maxBatchSize: 1,
+          model: 'Xenova/all-MiniLM-L6-v2',
+          targetDimension: 384,
+          texts: ['Brainstrike production CSP qualification'],
+          truncateDim: 384,
+        });
+        const vector = result.vectors[0];
+        const dimensions = result.metadata.dimensions ?? vector?.length ?? 0;
+        const finite =
+          vector !== undefined &&
+          vector.length === 384 &&
+          Array.from(vector).every((value) => Number.isFinite(value));
+        if (
+          result.metadata.device !== deviceHint ||
+          result.metadata.dtype !== dtype ||
+          result.metadata.fallbackApplied !== false ||
+          dimensions !== 384 ||
+          !finite
+        ) {
+          throw new Error('Web E2E local embedding qualification failed');
+        }
+        return {
+          device: result.metadata.device,
+          dimensions,
+          dtype: result.metadata.dtype,
+          fallbackApplied: result.metadata.fallbackApplied,
+          finite,
         };
       },
       readAssistantThreads: async (): Promise<readonly WebE2EAssistantThreadSnapshot[]> => {

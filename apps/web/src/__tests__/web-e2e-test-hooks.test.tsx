@@ -3,9 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebE2ETestHooks } from '../web-e2e-test-hooks';
 
 const usePGliteDatabaseMock = vi.hoisted(() => vi.fn());
+const getEmbeddingQueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
+}));
+
+vi.mock('../create-embedding-queue', () => ({
+  getEmbeddingQueue: getEmbeddingQueueMock,
 }));
 
 interface TestDbHandle {
@@ -35,6 +40,7 @@ describe('WebE2ETestHooks', () => {
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
       qualifyDatabaseExtensions: vi.fn(),
+      qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
@@ -56,6 +62,7 @@ describe('WebE2ETestHooks', () => {
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
       qualifyDatabaseExtensions: vi.fn(),
+      qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
@@ -100,6 +107,18 @@ describe('WebE2ETestHooks', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const syncToFs = vi.fn().mockResolvedValue(undefined);
+    const add = vi.fn().mockResolvedValue({
+      id: 'csp-embedding-qualification',
+      metadata: {
+        device: 'wasm',
+        dimensions: 384,
+        dtype: 'q4',
+        fallbackApplied: false,
+      },
+      type: 'result',
+      vectors: [new Float32Array(384).fill(0.25)],
+    });
+    getEmbeddingQueueMock.mockReturnValue({ add });
     const transaction = vi.fn(
       async (callback: (tx: TestDbHandle) => Promise<unknown>): Promise<unknown> =>
         callback({ query })
@@ -141,6 +160,13 @@ describe('WebE2ETestHooks', () => {
       fullTextMatch: true,
       vectorDistance: 0,
     });
+    await expect(window.__brainstrikeWebE2ETestHooks__?.qualifyLocalEmbedding()).resolves.toEqual({
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q4',
+      fallbackApplied: false,
+      finite: true,
+    });
     await window.__brainstrikeWebE2ETestHooks__?.syncDatabase();
 
     expect(query).toHaveBeenCalledWith(
@@ -172,6 +198,17 @@ describe('WebE2ETestHooks', () => {
       expect.any(String),
     ]);
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledWith({
+      deviceHint: 'wasm',
+      dtype: 'q4',
+      id: expect.stringMatching(/^csp-embedding-/),
+      kind: 'embed',
+      maxBatchSize: 1,
+      model: 'Xenova/all-MiniLM-L6-v2',
+      targetDimension: 384,
+      texts: ['Brainstrike production CSP qualification'],
+      truncateDim: 384,
+    });
     expect(syncToFs).toHaveBeenCalledTimes(1);
 
     unmount();
