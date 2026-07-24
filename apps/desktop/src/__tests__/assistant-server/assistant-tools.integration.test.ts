@@ -2204,6 +2204,31 @@ describe('assistant-tools', () => {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
+
+    it('keeps selected-context defaults in the focused root when the thread is bound elsewhere', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        const tools = buildDesktopAssistantTools({
+          ...twoRootRuntime(rootA, rootB),
+          boundWorkspaceRootId: 'id-a',
+          selectionFilePaths: ['/notes.md'],
+          workspaceRootPath: rootB,
+        } as RuntimeData);
+        const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
+
+        expect(result.rootId).toBe('id-b');
+        expect(result.rootName).toBe('ProjectB');
+        expect(result.files[0]?.content).toContain('beta root');
+
+        const explicitPaths = await tools['brainstrike.readWorkspaceContext'].execute({
+          context: { filePaths: ['/notes.md'] },
+        });
+        expect(explicitPaths.rootId).toBe('id-a');
+        expect(explicitPaths.files[0]?.content).toContain('alpha root');
+      } finally {
+        await cleanup();
+      }
+    });
   });
 
   it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
@@ -4377,6 +4402,53 @@ describe('assistant-tools multi-root read tools', () => {
       ],
     } as RuntimeData;
   }
+
+  it('keeps omitted read/write/replace/cursor calls inside the durable thread root', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      const runtime = {
+        ...twoRootRuntime(rootA, rootB),
+        boundWorkspaceRootId: 'id-b',
+      } as RuntimeData;
+      const tools = buildDesktopAssistantTools(runtime);
+
+      const first = await tools['brainstrike.readWorkspaceFile'].execute({
+        maxChars: 14,
+        path: '/README.md',
+      });
+      expect(first.rootName).toBe('ProjectB');
+      expect(first.content).toContain('Project B');
+
+      const continued = await tools['brainstrike.readWorkspaceFile'].execute({
+        cursor: first.nextCursor,
+        maxChars: 40,
+      });
+      expect(continued.rootName).toBe('ProjectB');
+
+      const replaced = await tools['brainstrike.stringReplaceWorkspaceFile'].execute({
+        newStr: '# Bound Project B',
+        oldStr: '# Project B',
+        path: '/README.md',
+      });
+      expect(replaced.rootName).toBe('ProjectB');
+
+      const written = await tools['brainstrike.writeWorkspaceFile'].execute({
+        content: 'bound',
+        path: '/bound.txt',
+      });
+      expect(written.rootName).toBe('ProjectB');
+      expect(await fsPromises.readFile(path.join(rootB, 'bound.txt'), 'utf8')).toBe('bound');
+      await expect(fsPromises.access(path.join(rootA, 'bound.txt'))).rejects.toThrow();
+
+      const explicitCrossRoot = await tools['brainstrike.readWorkspaceFile'].execute({
+        path: '/README.md',
+        root: 'id-a',
+      });
+      expect(explicitCrossRoot.rootName).toBe('ProjectA');
+    } finally {
+      await cleanup();
+    }
+  });
 
   it('reads the file from the root named by `root` and labels the result', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();

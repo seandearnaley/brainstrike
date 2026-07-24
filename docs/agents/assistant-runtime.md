@@ -823,6 +823,11 @@ Desktop request initialization validates `enabledNativeToolIds` against the
 shared desktop catalog before constructing a stream. A stale/unknown id returns
 `invalid_enabled_native_tool_ids` at stage `native_tool_preferences` and logs a
 safe id or fingerprint with a correlation id; it is never silently dropped.
+Workspace-root enrichment has its own `workspace_root_resolution` initialization
+stage. A persisted binding whose root is no longer live returns the trusted
+`bound_workspace_root_unavailable` message with HTTP 409 so the user can
+reconnect it; unrelated resolution faults retain the redacted correlation-id
+502 response.
 Catalogued tools that are intentionally unavailable for the active provider
 (for example suspend/task/session tools under the built-in local model) are a
 capability omission, debug-logged separately, and are not mislabeled unknown.

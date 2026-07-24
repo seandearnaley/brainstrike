@@ -22,6 +22,7 @@ import {
   reconcileProviderSettingsForModel,
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
+  resolveAssistantOperatingRootBinding,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
@@ -148,6 +149,44 @@ describe('assistant runtime helpers', () => {
         desktopAssistantBackendAvailable: false,
       })
     ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+  });
+
+  it.each([
+    'idle',
+    'loading',
+  ] as const)('keeps assistant memory disabled while restored thread metadata is %s', (status) => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { status },
+      })
+    ).toBe('Assistant memory is loading from PGlite.');
+  });
+
+  it.each([
+    'idle',
+    'loading',
+  ] as const)('keeps zero-root restored threads disabled while thread metadata is %s', (status) => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { status },
+        workspaceRootPath: null,
+      })
+    ).toBe('Assistant memory is loading from PGlite.');
+  });
+
+  it.each([
+    'idle',
+    'loading',
+  ] as const)('surfaces database failures while thread metadata is %s', (status) => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        dbError: new Error('open failed'),
+        memoryLoadState: { status },
+      })
+    ).toBe('Assistant memory database failed to initialize: open failed');
   });
 
   it('blocks unsupported semantic recall embedding providers', () => {
@@ -465,6 +504,70 @@ describe('assistant runtime helpers', () => {
     const idOnly = buildAssistantRequestData({ ...baseArgs, mainRootId: 'root-a' });
     expect(idOnly['mainRootId']).toBe('root-a');
     expect(idOnly).not.toHaveProperty('mainRootPath');
+  });
+
+  it('attaches the durable thread root binding only when provided', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('boundWorkspaceRootId');
+    expect(
+      buildAssistantRequestData({
+        ...baseArgs,
+        boundWorkspaceRootId: 'root-a',
+      })['boundWorkspaceRootId']
+    ).toBe('root-a');
+  });
+
+  it('keeps a persisted thread root when the workspace Main root later changes', () => {
+    expect(
+      resolveAssistantOperatingRootBinding({
+        currentMainRoot: {
+          displayName: 'ProjectB',
+          path: '/Users/me/ProjectB',
+          rootId: 'root-b',
+        },
+        threadMetadata: {
+          operatingRootDisplayName: 'ProjectA',
+          operatingRootId: 'root-a',
+          operatingRootPath: '/Users/me/ProjectA',
+        },
+      })
+    ).toEqual({
+      displayName: 'ProjectA',
+      path: '/Users/me/ProjectA',
+      persisted: true,
+      rootId: 'root-a',
+    });
+  });
+
+  it('rejects incomplete persisted thread-root metadata instead of retargeting to Main', () => {
+    expect(() =>
+      resolveAssistantOperatingRootBinding({
+        currentMainRoot: {
+          displayName: 'ProjectB',
+          path: '/Users/me/ProjectB',
+          rootId: 'root-b',
+        },
+        threadMetadata: {
+          operatingRootId: 'root-a',
+        },
+      })
+    ).toThrow('Assistant thread operating-root metadata is incomplete.');
   });
 
   it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {

@@ -9,6 +9,9 @@ import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 
+const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
+  'Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.';
+
 // ============================================================================
 // Hybrid Search Tool Schema
 // ============================================================================
@@ -39,13 +42,7 @@ export const HybridSearchInputSchema = z
       .describe('Weight for full-text search (default 1.0)'),
     limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
     query: z.string().min(1).max(2000).describe('Search query text'),
-    root: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        'Optional folder name or id to scope the search to one open folder (omit to search all)'
-      ),
+    root: z.string().min(1).optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
     vectorThreshold: z.number().min(0).max(1).optional().describe('Minimum similarity threshold'),
     vectorWeight: z
       .number()
@@ -485,10 +482,7 @@ export const RetrievalContextInputSchema = z
     limit: z.number().int().positive().max(100).optional(),
     maxChunks: z.number().int().positive().max(100).optional(),
     query: z.string().min(1).max(2000),
-    root: z
-      .string()
-      .optional()
-      .describe('Open-folder name/id; omit to search all. Results include their root.'),
+    root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
     selectionSnapshotId: z.string().min(1).optional(),
     threshold: z.number().min(0).max(1).optional(),
     tokenBudget: z.number().int().positive().max(200_000).optional(),
@@ -536,10 +530,7 @@ export const GrepSearchInputSchema = z
         "'files' (default): paths + match counts. 'content': line matches + context; narrow with filePaths."
       ),
     pattern: z.string().min(2).max(500).describe('Exact text (default) or JavaScript regex'),
-    root: z
-      .string()
-      .optional()
-      .describe('Open-folder name/id; omit to search all. Results include their root.'),
+    root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
   })
   .strict()
   // Fail-fast: when the caller asks for regex matching, reject an invalid pattern
@@ -578,10 +569,7 @@ export const GlobWorkspaceInputSchema = z
       .min(1)
       .max(500)
       .describe('Workspace-relative glob; bare patterns match at any depth'),
-    root: z
-      .string()
-      .optional()
-      .describe('Open-folder name/id; omit to enumerate all. Results include their root.'),
+    root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),
   })
   .strict();
 

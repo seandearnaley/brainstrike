@@ -120,6 +120,7 @@ import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useOpenRouterDefaults } from './hooks/use-openrouter-model-defaults';
@@ -435,32 +436,12 @@ export function AssistantUiPanelWrapper({
     selectedProvider,
     setThreadDraftRuntime,
   ]);
-
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
-  // MAIN root = activeRootIds[0] (client-declared; the assistant's operating
-  // root). Sent per request as an ORDERING HINT so the server's root
-  // enrichment puts it first — hooks cwd + the model-facing "main root path"
-  // follow it. Distinct from the FOCUSED root (currentFolderId) below.
+  // MAIN = request-start operating root; FOCUSED = currentFolderId.
   const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
   const activeRootCount = useFileExplorerStoreSelector((s) => s.activeRootIds?.length ?? 0);
-  // Composer operating-root chip: ONLY when 2+ roots are mounted (single-root
-  // workspaces need no disambiguation — zero extra chrome). The ui package
-  // stays store-free; it just renders what we pass.
-  const operatingRoot = useMemo(() => {
-    if (activeRootCount < 2 || !mainRootId) {
-      return;
-    }
-    const descriptor = rootDescriptors?.[mainRootId];
-    if (!descriptor) {
-      return;
-    }
-    return {
-      displayName: descriptor.displayName,
-      ...(descriptor.path ? { path: descriptor.path } : {}),
-    };
-  }, [activeRootCount, mainRootId, rootDescriptors]);
   // Multi-root write-back: map each open root's absolute path -> its client
   // RootId so an assistant update carrying a server rootPath can route to the
   // right folder (the two id spaces share only the path). Recomputed only when
@@ -775,10 +756,19 @@ export function AssistantUiPanelWrapper({
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
-  // Workspace-global assistant memory: a stable resource id (or an explicit
-  // override), never the focused root path. See assistant-memory-resource.ts.
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const { operatingRoot, persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
+    useAssistantThreadRootBinding({
+      activeRootCount,
+      assistantThreadRepository,
+      ...(mainRootId && rootDescriptors?.[mainRootId]
+        ? { currentMainRoot: rootDescriptors[mainRootId] }
+        : {}),
+      database: db,
+      memoryResourceId,
+      selectedMemoryThreadId,
+    });
   const composerDraftCommand = useAssistantComposerCommandStore((state) =>
     selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
   );
@@ -974,6 +964,9 @@ export function AssistantUiPanelWrapper({
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
+    ...(localChatTransport === 'data-stream' && threadRootBinding
+      ? { boundWorkspaceRootId: threadRootBinding.rootId }
+      : {}),
     enabledNativeToolIds,
     hookTrustRequest,
     hostedMemoryBackendAvailable,
@@ -1013,6 +1006,13 @@ export function AssistantUiPanelWrapper({
     // Only the desktop data-stream server runs the runtime permission gate;
     // mirrors the `permissionPolicyRequest` useMemo transport gate above.
     permissionEnforceable: localChatTransport === 'data-stream',
+    ...(localChatTransport === 'data-stream'
+      ? {
+          persistThreadRootBinding,
+          resolveThreadRootBinding,
+          threadRootBinding,
+        }
+      : {}),
     planModeAvailable,
     providerOptions,
     requestData,

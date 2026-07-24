@@ -4,6 +4,17 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('AssistantWorkspaceRoots');
+// Process-lifetime revocation tombstones protect in-flight runtime snapshots.
+// An id clears only after a verified live DB reload observes that exact root.
+const disconnectedRootIds = new Set<string>();
+const REDACTED_ROOT_ID_LOG_VALUE = { redacted: true } as const;
+
+export class BoundWorkspaceRootUnavailableError extends ToolInputError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BoundWorkspaceRootUnavailableError';
+  }
+}
 
 /** Minimal DB surface for loading roots — structural so it is trivially mockable. */
 export interface WorkspaceRootsQueryable {
@@ -62,13 +73,15 @@ function describeRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
 
 function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
   const maxChars = 800;
-  const fullDescription = roots.map((root) => `${root.displayName} (id ${root.rootId})`).join(', ');
+  const fullDescription = roots
+    .map((root) => `${root.displayName} (id ${rootIdForMessage(root.rootId)})`)
+    .join(', ');
   if (fullDescription.length <= maxChars) {
     return fullDescription;
   }
   const descriptions: string[] = [];
   for (const root of roots) {
-    const description = `${root.displayName} (id ${root.rootId})`;
+    const description = `${root.displayName} (id ${rootIdForMessage(root.rootId)})`;
     const candidateDescriptions = [...descriptions, description];
     const omitted = roots.length - candidateDescriptions.length;
     const overflow = `${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
@@ -89,6 +102,49 @@ function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
   return `${descriptions.join(', ')}; ${overflow}`;
 }
 
+function assertRootStillConnected(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot {
+  if (disconnectedRootIds.has(root.rootId)) {
+    throw new ToolInputError(
+      `Workspace root "${root.displayName}" (id ${rootIdForMessage(root.rootId)}) was disconnected during this run. Reconnect it before continuing.`
+    );
+  }
+  return root;
+}
+
+function rootIdForMessage(rootId: string): string {
+  return path.isAbsolute(rootId) ? 'path-backed id redacted' : rootId;
+}
+
+function rootIdForLog(root: RuntimeWorkspaceRoot): string | typeof REDACTED_ROOT_ID_LOG_VALUE {
+  return path.isAbsolute(root.rootId) ? REDACTED_ROOT_ID_LOG_VALUE : root.rootId;
+}
+
+function normalizeExplicitRootQualifier(qualifier?: string | null): string | undefined {
+  if (qualifier === undefined || qualifier === null) {
+    return;
+  }
+  const trimmed = qualifier.trim();
+  if (!trimmed) {
+    throw new ToolInputError(
+      'The "root" argument must not be blank. Omit it to use the thread-bound root, or provide an open folder name or id.'
+    );
+  }
+  return trimmed;
+}
+
+function getValidatedBoundRootId(
+  runtimeData: RuntimeData | undefined,
+  hasExplicitQualifier: boolean
+): string | undefined {
+  const boundRootId = runtimeData?.boundWorkspaceRootId?.trim();
+  if (!(boundRootId && !hasExplicitQualifier && runtimeData?.workspaceRoots === undefined)) {
+    return boundRootId;
+  }
+  throw new ToolInputError(
+    'The authoritative workspace root inventory is unavailable, so the bound thread root cannot be validated. Reload the workspace roots before continuing this thread.'
+  );
+}
+
 /**
  * Resolve which root a tool call targets. `qualifier` is a root id or display
  * name (the model's "root" argument). Multi-root disambiguation:
@@ -105,22 +161,40 @@ export function resolveWorkspaceRoot(
   qualifier?: string | null
 ): RuntimeWorkspaceRoot {
   const roots = getWorkspaceRoots(runtimeData);
+  const trimmed = normalizeExplicitRootQualifier(qualifier);
+  const boundRootId = getValidatedBoundRootId(runtimeData, trimmed !== undefined);
   if (roots.length === 0) {
     throw new ToolInputError(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
 
-  const trimmed = qualifier?.trim();
   if (trimmed) {
     const byId = roots.find((root) => root.rootId === trimmed);
     if (byId) {
-      return byId;
+      logger.info('Resolved native workspace tool root.', {
+        mode:
+          runtimeData?.boundWorkspaceRootId && runtimeData.boundWorkspaceRootId !== byId.rootId
+            ? 'explicit-cross-root'
+            : 'explicit',
+        rootId: rootIdForLog(byId),
+        rootName: byId.displayName,
+      });
+      return assertRootStillConnected(byId);
     }
     const lower = trimmed.toLowerCase();
     const byName = roots.filter((root) => root.displayName.toLowerCase() === lower);
     if (byName.length === 1) {
-      return byName[0] as RuntimeWorkspaceRoot;
+      const resolved = byName[0] as RuntimeWorkspaceRoot;
+      logger.info('Resolved native workspace tool root.', {
+        mode:
+          runtimeData?.boundWorkspaceRootId && runtimeData.boundWorkspaceRootId !== resolved.rootId
+            ? 'explicit-cross-root'
+            : 'explicit',
+        rootId: rootIdForLog(resolved),
+        rootName: resolved.displayName,
+      });
+      return assertRootStillConnected(resolved);
     }
     if (byName.length > 1) {
       throw new ToolInputError(
@@ -132,12 +206,94 @@ export function resolveWorkspaceRoot(
     );
   }
 
+  if (boundRootId) {
+    const boundRoot = roots.find((root) => root.rootId === boundRootId);
+    if (!boundRoot) {
+      throw new ToolInputError(
+        `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
+      );
+    }
+    logger.info('Resolved native workspace tool root.', {
+      mode: 'thread-bound',
+      rootId: rootIdForLog(boundRoot),
+      rootName: boundRoot.displayName,
+    });
+    return assertRootStillConnected(boundRoot);
+  }
+
   if (roots.length === 1) {
-    return roots[0] as RuntimeWorkspaceRoot;
+    const soleRoot = roots[0] as RuntimeWorkspaceRoot;
+    logger.info('Resolved native workspace tool root.', {
+      mode: 'sole-root',
+      rootId: rootIdForLog(soleRoot),
+      rootName: soleRoot.displayName,
+    });
+    return assertRootStillConnected(soleRoot);
   }
   throw new ToolInputError(
     `Multiple folders are open. Specify which with the "root" argument (folder name or id). Open folders: ${describeRoots(roots)}.`
   );
+}
+
+/**
+ * Resolve the FOCUSED root that owns renderer-selected context. A durable
+ * thread binding deliberately does not participate: selection paths and
+ * Tapestry ranges are relative to `workspaceRootPath`, not the thread root.
+ */
+export function resolveFocusedWorkspaceRoot(
+  runtimeData: RuntimeData | undefined
+): RuntimeWorkspaceRoot {
+  const focusedPath = runtimeData?.workspaceRootPath?.trim();
+  if (!(focusedPath && path.isAbsolute(focusedPath))) {
+    throw new ToolInputError(
+      'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
+    );
+  }
+
+  if (runtimeData?.workspaceRoots === undefined) {
+    const [focusedRoot] = getWorkspaceRoots(runtimeData);
+    if (!focusedRoot) {
+      throw new ToolInputError(
+        'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
+      );
+    }
+    return assertRootStillConnected(focusedRoot);
+  }
+
+  const resolvedFocusedPath = path.resolve(focusedPath);
+  const matches = getWorkspaceRoots(runtimeData).filter(
+    (root) => root.path === resolvedFocusedPath
+  );
+  if (matches.length === 0) {
+    throw new ToolInputError(
+      'The focused workspace root is not in the authoritative open-root inventory. Reload the workspace roots before reading selected workspace context.'
+    );
+  }
+  if (matches.length > 1) {
+    throw new ToolInputError(
+      'The authoritative open-root inventory contains multiple entries for the focused workspace path. Reconnect the folder before reading selected workspace context.'
+    );
+  }
+  return resolveWorkspaceRoot(runtimeData, (matches[0] as RuntimeWorkspaceRoot).rootId);
+}
+
+/**
+ * Resolve an optional root selector while honoring a durable thread binding.
+ * Callers whose historical omission semantics mean "all roots" use this
+ * helper: an explicit selector or thread binding narrows to one root; only a
+ * genuinely unbound omission remains undefined/all-roots.
+ */
+export function resolveOptionalWorkspaceRoot(
+  runtimeData: RuntimeData | undefined,
+  qualifier?: string | null
+): RuntimeWorkspaceRoot | undefined {
+  if (
+    (qualifier !== undefined && qualifier !== null) ||
+    runtimeData?.boundWorkspaceRootId?.trim()
+  ) {
+    return resolveWorkspaceRoot(runtimeData, qualifier);
+  }
+  return;
 }
 
 /**
@@ -156,7 +312,7 @@ export async function loadWorkspaceRootsFromDatabase(
       ORDER BY created_at ASC`,
     ['live']
   );
-  return result.rows
+  const roots = result.rows
     .map((row) =>
       normalizeRoot({
         displayName: row.displayName ?? '',
@@ -165,6 +321,10 @@ export async function loadWorkspaceRootsFromDatabase(
       })
     )
     .filter((root): root is RuntimeWorkspaceRoot => root !== null);
+  for (const root of roots) {
+    disconnectedRootIds.delete(root.rootId);
+  }
+  return roots;
 }
 
 /**
@@ -189,7 +349,11 @@ export async function markRootDisconnectedByPath(
     `UPDATE roots SET status = 'disconnected' WHERE path = $1 RETURNING id`,
     [rootPath]
   );
-  return result.rows.map((row) => row.id);
+  const rootIds = result.rows.map((row) => row.id);
+  for (const rootId of rootIds) {
+    disconnectedRootIds.add(rootId);
+  }
+  return rootIds;
 }
 
 /**
@@ -236,6 +400,9 @@ export async function markRootsDisconnectedExcept(
      RETURNING id, path`,
     [mountedPaths]
   );
+  for (const row of result.rows) {
+    disconnectedRootIds.add(row.id);
+  }
   return result.rows;
 }
 
@@ -281,6 +448,24 @@ export function orderWorkspaceRoots(
   return [main, ...roots.filter((_root, rootIndex) => rootIndex !== index)];
 }
 
+function orderWorkspaceRootsForRuntime(
+  roots: readonly RuntimeWorkspaceRoot[],
+  runtimeData: RuntimeData
+): RuntimeWorkspaceRoot[] {
+  const boundRootId = runtimeData.boundWorkspaceRootId?.trim();
+  if (boundRootId) {
+    const boundRootIndex = roots.findIndex((root) => root.rootId === boundRootId);
+    if (boundRootIndex >= 0) {
+      const boundRoot = roots[boundRootIndex] as RuntimeWorkspaceRoot;
+      return [boundRoot, ...roots.filter((_root, index) => index !== boundRootIndex)];
+    }
+    throw new BoundWorkspaceRootUnavailableError(
+      `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
+    );
+  }
+  return orderWorkspaceRoots(roots, runtimeData.mainRootId, runtimeData.mainRootPath);
+}
+
 /**
  * Enrich RuntimeData with the active workspace roots so the tools become
  * multi-root aware. We resolve roots server-side from the DB so each root id is
@@ -313,22 +498,26 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   if (!db) {
     return runtimeData;
   }
+  let roots: RuntimeWorkspaceRoot[];
   try {
-    const roots = await loadWorkspaceRootsFromDatabase(db);
-    if (roots.length === 0) {
-      return runtimeData.workspaceRootPath
-        ? runtimeData
-        : {
-            ...runtimeData,
-            workspaceRoots: [],
-          };
-    }
-    return {
-      ...runtimeData,
-      workspaceRoots: orderWorkspaceRoots(roots, runtimeData.mainRootId, runtimeData.mainRootPath),
-    };
+    roots = await loadWorkspaceRootsFromDatabase(db);
   } catch (error) {
-    logger.error('Failed to load workspace roots; tools fall back to the focused root.', { error });
+    logger.error('Failed to load workspace roots; authoritative root inventory is unavailable.', {
+      error,
+    });
     return runtimeData;
   }
+  const orderedRoots = orderWorkspaceRootsForRuntime(roots, runtimeData);
+  if (orderedRoots.length === 0) {
+    return runtimeData.workspaceRootPath
+      ? runtimeData
+      : {
+          ...runtimeData,
+          workspaceRoots: [],
+        };
+  }
+  return {
+    ...runtimeData,
+    workspaceRoots: orderedRoots,
+  };
 }

@@ -42,7 +42,11 @@ import {
   resolveWorkspaceAbsolutePath,
   resolveWorkspaceRootPath,
 } from './workspace-path-resolution';
-import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
+import {
+  getWorkspaceRoots,
+  resolveFocusedWorkspaceRoot,
+  resolveWorkspaceRoot,
+} from './workspace-roots';
 import { readWorkspaceTextFile } from './workspace-text-file-reader';
 
 const logger = createLogger('DesktopAssistantTools');
@@ -637,7 +641,10 @@ export async function runReadWorkspaceContext(
   files: WorkspaceContextFileResult[];
   skippedFiles: WorkspaceContextSkippedFile[];
 }> {
-  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const root =
+    input.root === undefined && input.filePaths === undefined
+      ? resolveFocusedWorkspaceRoot(runtimeData)
+      : resolveWorkspaceRoot(runtimeData, input.root);
   const workspaceRootPath = root.path;
   // The selected-context default (runtimeData.selectionFilePaths) is relative to
   // the FOCUSED root only, so it cannot be resolved against an explicitly chosen

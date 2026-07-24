@@ -2002,6 +2002,76 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('rejects an incomplete operating-root binding before persistence', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        operatingRootId: 'db-root-a',
+      })
+    ).rejects.toThrow('operating-root metadata is incomplete');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('rejects an incomplete operating-root binding while loading persisted metadata', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-07-23T09:00:00Z'),
+            id: 'thread-incomplete-root',
+            metadata: JSON.stringify({ operatingRootId: 'db-root-a' }),
+            resourceId: 'workspace-a',
+            title: 'Incomplete root',
+            updatedAt: new Date('2026-07-23T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'operating-root metadata is incomplete'
+    );
+  });
+
+  it.each([
+    123,
+    '   ',
+  ])('rejects malformed persisted operating-root ids instead of treating them as unbound (%j)', async (operatingRootId) => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-07-23T09:00:00Z'),
+            id: 'thread-malformed-root',
+            metadata: JSON.stringify({ operatingRootId }),
+            resourceId: 'workspace-a',
+            title: 'Malformed root',
+            updatedAt: new Date('2026-07-23T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'Invalid assistant thread metadata operating root id.'
+    );
+  });
+
   it('lists thread edit checkpoints across all runs and omits before_content', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
@@ -2665,6 +2735,27 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const threads = await repository.listThreads('workspace-a');
     expect(threads).toEqual([expect.objectContaining({ id: thread.id, title: 'Evidence review' })]);
     expect(threads[0]?.metadata).toEqual({ source: 'brainstrike' });
+  });
+
+  it('round-trips the durable operating-root binding through thread metadata', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-operating-root');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a', 'Bound thread');
+
+    await repository.updateThreadMetadata(thread.id, {
+      operatingRootDisplayName: 'ProjectA',
+      operatingRootId: 'root-a',
+      operatingRootPath: '/Users/me/ProjectA',
+    });
+
+    const [reloaded] = await repository.listThreads('workspace-a');
+    expect(reloaded?.metadata).toEqual({
+      operatingRootDisplayName: 'ProjectA',
+      operatingRootId: 'root-a',
+      operatingRootPath: '/Users/me/ProjectA',
+      source: 'brainstrike',
+    });
   });
 
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {

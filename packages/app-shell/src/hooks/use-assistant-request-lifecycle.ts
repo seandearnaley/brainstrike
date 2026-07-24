@@ -35,6 +35,9 @@ interface UseAssistantRequestLifecycleArgs {
    * grant-and-approve resume reaches THIS run instead of the next re-render.
    */
   readonly permissionEnforceable: boolean;
+  readonly persistThreadRootBinding?: (
+    binding: Omit<AssistantThreadRootBinding, 'persisted'>
+  ) => Promise<void>;
   /**
    * Whether plan mode is offered at all for the current transport/provider
    * (mirrors the caller's `planModeAvailable` gate — never offered for the
@@ -46,8 +49,86 @@ interface UseAssistantRequestLifecycleArgs {
   readonly providerOptions: Record<string, unknown> | undefined;
   readonly requestData: Record<string, unknown>;
   readonly resolvedModelName: string | undefined;
+  readonly resolveThreadRootBinding?: () => Promise<
+    PersistedAssistantThreadRootBinding | undefined
+  >;
   readonly selectedMemoryThreadId: string | undefined;
   readonly selectedProvider: SupportedProvider | null;
+  readonly threadRootBinding?: AssistantThreadRootBinding | undefined;
+}
+
+export interface AssistantThreadRootBinding {
+  readonly displayName: string;
+  readonly path?: string | undefined;
+  readonly persisted: boolean;
+  readonly rootId: string;
+}
+
+type PersistedAssistantThreadRootBinding = Omit<AssistantThreadRootBinding, 'persisted'>;
+
+interface ThreadRootBindingRefValue {
+  readonly binding: PersistedAssistantThreadRootBinding;
+  readonly threadId: string;
+}
+
+function toPersistedThreadRootBinding(
+  binding: AssistantThreadRootBinding
+): PersistedAssistantThreadRootBinding {
+  return {
+    displayName: binding.displayName,
+    ...(binding.path ? { path: binding.path } : {}),
+    rootId: binding.rootId,
+  };
+}
+
+async function resolvePreparedThreadRootBinding(args: {
+  readonly current: ThreadRootBindingRefValue | null;
+  readonly persist?: (binding: PersistedAssistantThreadRootBinding) => Promise<void> | undefined;
+  readonly proposed?: AssistantThreadRootBinding | undefined;
+  readonly resolve: (() => Promise<PersistedAssistantThreadRootBinding | undefined>) | undefined;
+  readonly threadId?: string | undefined;
+}): Promise<PersistedAssistantThreadRootBinding | undefined> {
+  if (args.proposed?.persisted) {
+    return toPersistedThreadRootBinding(args.proposed);
+  }
+  const current = args.current;
+  if (current && current.threadId === args.threadId) {
+    return current.binding;
+  }
+  const binding = args.proposed
+    ? toPersistedThreadRootBinding(args.proposed)
+    : await args.resolve?.();
+  if (!binding) {
+    return;
+  }
+  if (!(args.threadId && args.persist)) {
+    throw new Error('Assistant thread root binding cannot be persisted.');
+  }
+  await args.persist(binding);
+  return binding;
+}
+
+function requireRequestMemoryContext(
+  requestData: Record<string, unknown>
+): Record<string, unknown> {
+  const memoryContext = requestData['memory'];
+  if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
+    throw new Error('Assistant request preparation requires Mastra memory context.');
+  }
+  return memoryContext as Record<string, unknown>;
+}
+
+function buildBoundRootRequestData(
+  binding: PersistedAssistantThreadRootBinding | undefined
+): Record<string, unknown> {
+  if (!binding) {
+    return {};
+  }
+  return {
+    boundWorkspaceRootId: binding.rootId,
+    mainRootId: binding.rootId,
+    mainRootPath: binding.path,
+  };
 }
 
 /**
@@ -121,12 +202,15 @@ export function useAssistantRequestLifecycle({
   memoryResourceId,
   modelSettings,
   permissionEnforceable,
+  persistThreadRootBinding,
   planModeAvailable,
   providerOptions,
   requestData,
+  resolveThreadRootBinding,
   resolvedModelName,
   selectedMemoryThreadId,
   selectedProvider,
+  threadRootBinding,
 }: UseAssistantRequestLifecycleArgs): UseAssistantRequestLifecycleResult {
   const assistantForegroundActivityLeaseByRunIdRef = useRef(
     new Map<string, AssistantForegroundActivityLease>()
@@ -141,6 +225,7 @@ export function useAssistantRequestLifecycle({
    * the foreground lease's idle fuse (see getActiveSteerableRunId).
    */
   const activeSteerableRunIdRef = useRef<string | null>(null);
+  const threadRootBindingRef = useRef<ThreadRootBindingRefValue | null>(null);
   // Request-start {provider, model} snapshot per run id. The picker stays
   // interactive mid-run, so usage attribution must read this snapshot, not the
   // live selection at finish time.
@@ -180,21 +265,14 @@ export function useAssistantRequestLifecycle({
     assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.renew();
   }, []);
 
-  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
-    const runId = await createAssistantThreadRunPromise({
-      assistantThreadRepository,
-      memoryResourceId,
-      modelSettings,
-      providerOptions,
-      resolvedModelName,
-      selectedMemoryThreadId,
-      selectedProvider,
-    });
-    const memoryContext = requestData['memory'];
-    if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
-      throw new Error('Assistant request preparation requires Mastra memory context.');
-    }
-    if (runId) {
+  const activatePreparedRun = useCallback(
+    (
+      runId: string | undefined,
+      rootBinding: PersistedAssistantThreadRootBinding | undefined
+    ): void => {
+      if (!runId) {
+        return;
+      }
       assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
       assistantForegroundActivityLeaseByRunIdRef.current.set(
         runId,
@@ -208,23 +286,46 @@ export function useAssistantRequestLifecycle({
           },
         })
       );
-      // Snapshot the model/provider that will PRODUCE this run's tokens. create
-      // AssistantThreadRunPromise already throws unless both are set, so a run
-      // id implies both are present here.
       if (selectedProvider && resolvedModelName) {
         runUsageContextByRunIdRef.current.set(runId, {
           model: resolvedModelName,
           provider: selectedProvider,
-          // Snapshot the focused root too — focus can change mid-run, so
-          // durable usage must attribute to the root the run operated on.
-          // No focused root → null (honest "unattributed", never a fake root).
-          rootId: focusedRootId ?? null,
+          rootId: rootBinding?.rootId ?? focusedRootId ?? null,
           runId,
         });
       }
       activeAssistantForegroundRunIdRef.current = runId;
       activeSteerableRunIdRef.current = runId;
+    },
+    [focusedRootId, resolvedModelName, selectedProvider]
+  );
+
+  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
+    const memoryContext = requireRequestMemoryContext(requestData);
+    const activeThreadRootBinding = await resolvePreparedThreadRootBinding({
+      current: threadRootBindingRef.current,
+      ...(persistThreadRootBinding ? { persist: persistThreadRootBinding } : {}),
+      ...(threadRootBinding ? { proposed: threadRootBinding } : {}),
+      resolve: resolveThreadRootBinding,
+      ...(selectedMemoryThreadId ? { threadId: selectedMemoryThreadId } : {}),
+    });
+    if (activeThreadRootBinding && selectedMemoryThreadId) {
+      threadRootBindingRef.current = {
+        binding: activeThreadRootBinding,
+        threadId: selectedMemoryThreadId,
+      };
     }
+
+    const runId = await createAssistantThreadRunPromise({
+      assistantThreadRepository,
+      memoryResourceId,
+      modelSettings,
+      providerOptions,
+      resolvedModelName,
+      selectedMemoryThreadId,
+      selectedProvider,
+    });
+    activatePreparedRun(runId, activeThreadRootBinding);
 
     // Read the persisted plan-mode toggle FRESH here, at request-composition
     // time, instead of trusting `requestData.planMode` (a value computed at
@@ -263,6 +364,7 @@ export function useAssistantRequestLifecycle({
 
     return {
       ...requestData,
+      ...buildBoundRootRequestData(activeThreadRootBinding),
       memory: {
         ...memoryContext,
         ...(runId ? { runId } : {}),
@@ -273,16 +375,19 @@ export function useAssistantRequestLifecycle({
     };
   }, [
     assistantThreadRepository,
-    focusedRootId,
+    activatePreparedRun,
     memoryResourceId,
     modelSettings,
     permissionEnforceable,
+    persistThreadRootBinding,
     planModeAvailable,
     providerOptions,
     requestData,
+    resolveThreadRootBinding,
     resolvedModelName,
     selectedMemoryThreadId,
     selectedProvider,
+    threadRootBinding,
   ]);
 
   const completePreparedRequest = useCallback(

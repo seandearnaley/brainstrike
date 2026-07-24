@@ -204,6 +204,23 @@ describe('runGlobWorkspace — multi-root scoping', () => {
     expect(result.matches).toEqual([{ path: '/b.ts', rootId: 'id-b', rootName: 'beta' }]);
   });
 
+  it('scopes an omitted root to the durable thread binding', async () => {
+    const rootA = await makeWorkspace(['a.ts'], 'brainstrike-glob-rootA-');
+    const rootB = await makeWorkspace(['b.ts'], 'brainstrike-glob-rootB-');
+    const result = await runGlobWorkspace(
+      { pattern: '**/*.ts' },
+      {
+        ...multiRoot([
+          { displayName: 'alpha', path: rootA, rootId: 'id-a' },
+          { displayName: 'beta', path: rootB, rootId: 'id-b' },
+        ]),
+        boundWorkspaceRootId: 'id-b',
+      }
+    );
+
+    expect(result.matches).toEqual([{ path: '/b.ts', rootId: 'id-b', rootName: 'beta' }]);
+  });
+
   it('throws an actionable error for an unknown root qualifier', async () => {
     const rootA = await makeWorkspace(['a.ts'], 'brainstrike-glob-rootA-');
     await expect(

@@ -4,6 +4,21 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
+Desktop assistant threads also persist their operating-root capability in the
+existing `mastra_threads.metadata` JSON (no schema migration):
+`operatingRootId` is the durable DB `roots.id`; `operatingRootDisplayName` and
+`operatingRootPath` are display-only. The first data-stream request writes the
+binding before creating the run. Before that write, app-shell resolves the
+mounted adapter root's absolute path to exactly one live `roots` row; adapter
+root ids are never persisted as execution authority because reconnects may
+change them. Later requests/resumes reuse the durable id instead of reading the
+current global Main/Focused root. The app-shell metadata sanitizer and write
+boundary reject partial bindings and any present-but-invalid operating-root
+field: id and display name are required together, while path is optional.
+Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
+the thread. Server-side native tools validate only the id against the live root
+inventory; the stored path is never an authority or fallback.
+
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two
 contracts keep reloaded threads identical to live ones:
@@ -785,9 +800,20 @@ Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
 Right provides the non-drag alternative. Panels remain mounted while inactive
 so runtime state is not discarded, and a colored thread supplies the canonical
 accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
+The persisted store contains tab/selection ids but not `mastra_threads` rows.
+After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
+`ensureResourceThreads` hydrates the selected row and its metadata. Composer
+sends stay disabled during both states even when no workspace root is focused,
+and root-binding resolution/persistence also rejects a selected id whose row is
+not loaded; that transient absence is never interpreted as an unbound thread
+eligible for the current Main root. A terminal database initialization error
+always outranks the transient loading reason so a failed capability cannot
+remain disguised as pending hydration.
 
 Paired tests: `assistant-thread-store.test.ts`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
-and `assistant-thread-tabs-workspace.test.tsx`.
+`assistant-thread-tabs-workspace.test.tsx`,
+`assistant-ui-panel-wrapper-runtime.test.ts`, and
+`use-assistant-thread-root-binding.test.ts`.
 
 ---

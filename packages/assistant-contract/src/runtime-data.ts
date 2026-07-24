@@ -211,6 +211,13 @@ export interface RuntimeTransportImageElision {
 export interface RuntimeData {
   agentLoop?: RuntimeAgentLoopSettings;
   apiKey?: string;
+  /**
+   * Durable DB root identity bound to the selected assistant thread. Desktop
+   * validates it against the live server-resolved root inventory before tools
+   * use it. When present, native workspace calls that omit `root` resolve to
+   * this root; explicit mounted-root selectors remain valid cross-root calls.
+   */
+  boundWorkspaceRootId?: string;
   callTool?: (
     name: string,
     params?: Record<string, unknown>,

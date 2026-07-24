@@ -8,6 +8,8 @@ import {
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
+  resolveFocusedWorkspaceRoot,
+  resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
 } from '../../assistant-server/workspace-roots';
@@ -62,6 +64,26 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/i);
   });
 
+  it('redacts a path-backed legacy bound id from a missing-root error', () => {
+    const legacyRootId = '/Users/me/SecretProject';
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: legacyRootId,
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toThrow(/path-backed id redacted/i);
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: legacyRootId,
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).not.toThrow(legacyRootId);
+  });
+
   it('returns the sole root when there is exactly one and no qualifier', () => {
     expect(resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A] }))).toEqual(ROOT_A);
   });
@@ -76,6 +98,65 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
       /ProjectA \(id root-a\).*ProjectB \(id root-b\)/is
     );
+  });
+
+  it('binds an omitted qualifier to the request-start thread root', () => {
+    expect(
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toEqual(ROOT_B);
+  });
+
+  it('requires an authoritative root inventory before resolving a durable binding', () => {
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRootPath: '/Users/me/ProjectB',
+        })
+      )
+    ).toThrow(/authoritative workspace root inventory is unavailable/i);
+  });
+
+  it('preserves an explicit mounted-root override outside the bound thread root', () => {
+    expect(
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-a',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        }),
+        'root-b'
+      )
+    ).toEqual(ROOT_B);
+  });
+
+  it('rejects an explicitly blank qualifier instead of treating it as an omission', () => {
+    const boundRuntime = runtime({
+      boundWorkspaceRootId: 'root-a',
+      workspaceRoots: [ROOT_A, ROOT_B],
+    });
+
+    expect(() => resolveWorkspaceRoot(boundRuntime, '   ')).toThrow(
+      /"root" argument must not be blank/i
+    );
+    expect(() => resolveOptionalWorkspaceRoot(boundRuntime, '')).toThrow(
+      /"root" argument must not be blank/i
+    );
+  });
+
+  it('fails visibly when the bound thread root is no longer live', () => {
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-gone',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toThrow(/bound workspace root.*root-gone.*no longer open/i);
   });
 
   it('formats an oversized first root without a leading overflow delimiter', () => {
@@ -172,6 +253,23 @@ describe('resolveWorkspaceRoot', () => {
   });
 });
 
+describe('resolveFocusedWorkspaceRoot', () => {
+  it('uses the focused path fallback without consulting a durable thread binding', () => {
+    expect(
+      resolveFocusedWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRootPath: '/Users/me/ProjectA',
+        })
+      )
+    ).toEqual({
+      displayName: 'ProjectA',
+      path: '/Users/me/ProjectA',
+      rootId: '/Users/me/ProjectA',
+    });
+  });
+});
+
 describe('loadWorkspaceRootsFromDatabase', () => {
   it('queries only live, path-backed roots and maps them', async () => {
     const db = mockDb([
@@ -224,6 +322,29 @@ describe('markRootDisconnectedByPath', () => {
       }),
     };
     await expect(markRootDisconnectedByPath(db, '/Users/me/ProjectA')).rejects.toThrow('db down');
+  });
+
+  it('revokes an in-flight runtime snapshot as soon as its root disconnects', async () => {
+    const root = {
+      displayName: 'Revoked',
+      path: '/Users/me/Revoked',
+      rootId: 'root-revoked-during-run',
+    };
+    const runtimeSnapshot = runtime({
+      boundWorkspaceRootId: root.rootId,
+      workspaceRoots: [root, ROOT_B],
+    });
+
+    expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(root);
+    await markRootDisconnectedByPath(mockDb([{ id: root.rootId }]), root.path);
+    expect(() => resolveWorkspaceRoot(runtimeSnapshot)).toThrow(/disconnected during this run/i);
+
+    // A later authoritative live-root load represents reconnect/reconciliation
+    // and makes the same durable id usable again.
+    await loadWorkspaceRootsFromDatabase(
+      mockDb([{ displayName: root.displayName, id: root.rootId, path: root.path }])
+    );
+    expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(root);
   });
 });
 
@@ -306,6 +427,50 @@ describe('orderWorkspaceRoots (client-declared MAIN root reorder)', () => {
 });
 
 describe('enrichRuntimeDataWithWorkspaceRoots', () => {
+  it('orders the durable thread binding ahead of a later global Main root', async () => {
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(
+      runtime({
+        boundWorkspaceRootId: 'root-b',
+        mainRootId: 'root-a',
+        workspaceRootPath: '/Users/me/ProjectA',
+      }),
+      mockDb([
+        { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+        { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+      ])
+    );
+
+    expect(enriched?.workspaceRoots).toEqual([ROOT_B, ROOT_A]);
+  });
+
+  it('rejects a durable thread binding that is absent from the live DB roots', async () => {
+    await expect(
+      enrichRuntimeDataWithWorkspaceRoots(
+        runtime({
+          boundWorkspaceRootId: 'root-gone',
+          mainRootId: 'root-a',
+          workspaceRootPath: '/Users/me/ProjectA',
+        }),
+        mockDb([
+          { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+          { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+        ])
+      )
+    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
+  });
+
+  it('rejects a durable thread binding when the DB has no live roots', async () => {
+    await expect(
+      enrichRuntimeDataWithWorkspaceRoots(
+        runtime({
+          boundWorkspaceRootId: 'root-gone',
+          workspaceRootPath: '/Users/me/ProjectA',
+        }),
+        mockDb([])
+      )
+    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
+  });
+
   it('reorders DB roots so the client-declared main root is first', async () => {
     const db = mockDb([
       { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },

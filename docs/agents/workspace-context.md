@@ -683,11 +683,49 @@ one" comment):
   assistant's root.
 
 **Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
-wrapper attaches `mainRootId` (= `activeRootIds[0]`) and `mainRootPath` (the
-descriptor's absolute path) per request. They are an ORDERING HINT for the
-server — a preference, not a security boundary; the id is a durable identity
-(DB `roots.id` since storage v5), NEVER a path. `workspaceRootPath` stays the
-FOCUSED root (selection scope) — unchanged.
+wrapper attaches `mainRootId` (= adapter `activeRootIds[0]`) and `mainRootPath`
+(the descriptor's absolute path) per request. They are an ORDERING HINT for the
+server — a preference, not a security boundary. The server may use the path to
+match that ordering hint after reconnects; neither field is the durable
+thread-binding authority. `workspaceRootPath` stays the FOCUSED root (selection
+scope) — unchanged.
+
+**Thread/run binding:** Desktop data-stream threads persist their first
+request's explicit Main root in `mastra_threads.metadata` as
+`operatingRootId` plus display-only name/path fields. The durable id, not the
+path or label, is the execution authority. At first request preparation,
+app-shell resolves the mounted adapter root path to exactly one live DB
+`roots.id`; it fails visibly rather than persisting an adapter id or guessing.
+Later global Main/Focused changes do not retarget that thread or its composer
+chip. Request preparation reuses the persisted id and emits
+`boundWorkspaceRootId`; approval/resume preparation is pinned by an in-memory
+copy before the metadata-store rerender can land.
+Restored tab ids can become selected before their `mastra_threads` rows have
+loaded. That state keeps the composer disabled and causes root resolution or
+persistence to fail visibly; it must never be treated as missing metadata and
+rebound to the current Main root.
+Desktop validates that id against its server-loaded live DB roots before hooks
+or the initial manifest can use another mounted root, then orders the bound root
+first. An omitted native workspace-tool `root` resolves to the binding. An
+explicit selector for another currently mounted root remains an observable
+cross-root operation. An explicitly
+blank selector is invalid and never broadens an optional search to all roots or
+falls through to the thread binding. Bound-root resolution requires an
+authoritative `workspaceRoots` inventory; if DB enrichment is unavailable, the
+tool fails visibly instead of comparing the durable id with a synthesized
+path-backed root or silently clearing the binding. A missing, stale, or
+disconnected bound id fails visibly as `bound_workspace_root_unavailable` with
+HTTP 409; it never path-falls back or silently adopts the new global Main root.
+The one intentional omission exception is
+`readWorkspaceContext` with no explicit `filePaths`: renderer-selected paths and
+Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
+selection-default read resolves the focused path against the authoritative
+inventory instead of the thread binding. If the inventory is unavailable, the
+legacy focused-path fallback remains independent of the durable binding rather
+than attempting to validate or adopt it. Supplying `filePaths` restores the
+normal omitted-root binding rule. Disconnect transitions also revoke
+already-enriched in-flight runtime snapshots, while a later authoritative live
+root load clears that revocation after reconciliation/reconnect.
 
 **Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
 every fresh hosted-provider turn receives one `system` message before the
@@ -714,11 +752,13 @@ preserve its 8,192-token context budget.
 
 **Server reorder** (`apps/desktop/src/assistant-server/workspace-roots.ts`):
 `enrichRuntimeDataWithWorkspaceRoots` loads live DB roots (`created_at ASC`)
-then calls the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)` —
-match by rootId first, else by resolved absolute path (covers legacy client
-ids that diverged from DB ids; web enrichment never runs, FSA roots have null
-paths), unmatched/absent keeps `created_at` order (the legacy tiebreak) with
-a debug log. `roots[0]` is therefore GENUINELY the main root — no
+then prioritizes an exact `boundWorkspaceRootId` when present; otherwise it
+calls the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)` — match by
+rootId first, else by resolved absolute path (covers legacy client ids that
+diverged from DB ids; web enrichment never runs, FSA roots have null paths).
+An unmatched binding stays unmatched so tool execution can fail visibly;
+unmatched/absent Main keeps `created_at` order (the legacy tiebreak) with a
+debug log. `roots[0]` is therefore GENUINELY the thread-bound/Main root — no
 `buildHookManager` change was needed. Degraded mode is unchanged: a DB
 load/query failure leaves RuntimeData untouched, so tools fall back to the
 single FOCUSED `workspaceRootPath` synthesis (the main declaration cannot
@@ -743,9 +783,10 @@ chrome):
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
 - Composer chip (`packages/ui/src/assistant-ui-panel/operating-root-chip.tsx`):
-  "in {main root}" at the top of the composer stack — a SIBLING of
+  "in {thread root}" at the top of the composer stack — a SIBLING of
   ThreadContextMeter (never nest it there; the meter is being reworked), fed
-  by the wrapper's `operatingRoot` prop only at 2+ roots.
+  by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
+  request it previews the current Main root; after binding it remains stable.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.

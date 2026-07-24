@@ -1702,6 +1702,35 @@ describe('assistant-server', () => {
       ]);
     });
 
+    it('returns visible reconnect guidance when a thread binding points at a disconnected root', async () => {
+      const { toAiSdkStyleStream } = await import('@brainstrike/agent');
+      mockDesktopDatabase.query.mockResolvedValueOnce({
+        rows: [{ displayName: 'Live Root', id: 'live-root-id', path: '/work/live-root' }],
+      });
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            boundWorkspaceRootId: 'disconnected-root-id',
+            provider: 'openai',
+          },
+          messages: [{ parts: [{ text: 'Continue building', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'bound_workspace_root_unavailable',
+        message:
+          'The bound workspace root (id disconnected-root-id) is no longer open. Reconnect that folder before continuing this thread.',
+        stage: 'workspace_root_resolution',
+      });
+      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    });
+
     it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
