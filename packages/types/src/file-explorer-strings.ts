@@ -12,10 +12,6 @@ export const FileExplorerStrings = {
     fileLoadFailed: 'Failed to load file',
     noRootDirectory: 'No folder selected.',
     refreshFailed: 'Failed to refresh file tree',
-    /** @deprecated Use `contextCopyFailed`. */
-    reportCopyFailed: 'Failed to generate or copy context',
-    /** @deprecated Use `contextGenerationFailed`. */
-    reportGenerationFailed: 'Failed to generate context',
     rootDirectoryFailed: 'Failed to add folder',
     selectionLimitExceeded: 'Cannot select more files. Maximum selection limit reached.',
     title: 'Error',
@@ -24,8 +20,6 @@ export const FileExplorerStrings = {
   // File Names
   fileNames: {
     context: 'context.txt',
-    /** @deprecated Use `context`. */
-    report: 'context.txt',
   },
 
   inlineFixture: {
@@ -43,8 +37,6 @@ export const FileExplorerStrings = {
 
   loading: {
     generatingContext: 'Generating Context...',
-    /** @deprecated Use `generatingContext`. */
-    generatingReport: 'Generating Context...',
     refreshing: 'Refreshing file tree...',
     rootDirectory: 'Loading folder...',
     selectingRoot: 'Adding folder...',
@@ -53,12 +45,8 @@ export const FileExplorerStrings = {
 
   prompts: {
     chooseDirectory: 'Please choose a folder from the file picker',
-    /** @deprecated Use `waitForContext`. */
-    reportGenerating: 'Context is currently being generated...',
     waitForContext: 'Please wait while we prepare your context',
     waitForLoading: 'Please wait while we load the file tree',
-    /** @deprecated Use `waitForContext`. */
-    waitForReport: 'Please wait while we prepare your context',
   },
   refresh: 'Refresh',
 
@@ -82,11 +70,6 @@ export const FileExplorerStrings = {
     contextCopied: 'The context has been copied to your clipboard.',
     contextDownloaded: 'The context has been downloaded.',
     refreshSuccess: 'File tree refreshed successfully.',
-    // Deprecated report-named keys intentionally reuse context wording for UX consistency during migration.
-    /** @deprecated Use `contextCopied`. */
-    reportCopied: 'The context has been copied to your clipboard.',
-    /** @deprecated Use `contextDownloaded`. */
-    reportDownloaded: 'The context has been downloaded.',
     rootDirectorySelected: 'Folder added to the workspace.',
     title: 'Success',
   },

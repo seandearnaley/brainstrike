@@ -64,7 +64,6 @@
     "dev": "node scripts/run-turbo-command.mjs -- run dev",
     "eval:retrieval": "pnpm --filter @brainstrike/db run eval:retrieval",
     "format": "biome format . --write",
-    "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
     "arch:domain-boundaries": "node scripts/architecture-domain-boundaries.mjs",
     "arch:domain-contract": "node scripts/architecture-domain-contract.mjs",
