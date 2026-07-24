@@ -110,6 +110,17 @@ describe('resolveWorkspaceRoot', () => {
     ).toEqual(ROOT_B);
   });
 
+  it('requires an authoritative root inventory before resolving a durable binding', () => {
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRootPath: '/Users/me/ProjectB',
+        })
+      )
+    ).toThrow(/authoritative workspace root inventory is unavailable/i);
+  });
+
   it('preserves an explicit mounted-root override outside the bound thread root', () => {
     expect(
       resolveWorkspaceRoot(

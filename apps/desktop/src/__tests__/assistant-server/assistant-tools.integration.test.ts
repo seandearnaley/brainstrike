@@ -2204,6 +2204,31 @@ describe('assistant-tools', () => {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
+
+    it('keeps selected-context defaults in the focused root when the thread is bound elsewhere', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        const tools = buildDesktopAssistantTools({
+          ...twoRootRuntime(rootA, rootB),
+          boundWorkspaceRootId: 'id-a',
+          selectionFilePaths: ['/notes.md'],
+          workspaceRootPath: rootB,
+        } as RuntimeData);
+        const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
+
+        expect(result.rootId).toBe('id-b');
+        expect(result.rootName).toBe('ProjectB');
+        expect(result.files[0]?.content).toContain('beta root');
+
+        const explicitPaths = await tools['brainstrike.readWorkspaceContext'].execute({
+          context: { filePaths: ['/notes.md'] },
+        });
+        expect(explicitPaths.rootId).toBe('id-a');
+        expect(explicitPaths.files[0]?.content).toContain('alpha root');
+      } finally {
+        await cleanup();
+      }
+    });
   });
 
   it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {

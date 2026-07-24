@@ -705,11 +705,19 @@ bound root first for hooks and the initial manifest. An omitted native
 workspace-tool `root` resolves to the binding. An explicit selector for another
 currently mounted root remains an observable cross-root operation. An explicitly
 blank selector is invalid and never broadens an optional search to all roots or
-falls through to the thread binding. A missing, stale, or disconnected bound id
-fails visibly; it never path-falls back or silently adopts the new global Main
-root. Disconnect transitions also revoke already-enriched in-flight runtime
-snapshots, while a later authoritative live root load clears that revocation
-after reconciliation/reconnect.
+falls through to the thread binding. Bound-root resolution requires an
+authoritative `workspaceRoots` inventory; if DB enrichment is unavailable, the
+tool fails visibly instead of comparing the durable id with a synthesized
+path-backed root or silently clearing the binding. A missing, stale, or
+disconnected bound id fails visibly; it never path-falls back or silently adopts
+the new global Main root. The one intentional omission exception is
+`readWorkspaceContext` with no explicit `filePaths`: renderer-selected paths and
+Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
+selection-default read resolves the focused path against the authoritative
+inventory instead of the thread binding. Supplying `filePaths` restores the
+normal omitted-root binding rule. Disconnect transitions also revoke
+already-enriched in-flight runtime snapshots, while a later authoritative live
+root load clears that revocation after reconciliation/reconnect.
 
 **Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
 every fresh hosted-provider turn receives one `system` message before the

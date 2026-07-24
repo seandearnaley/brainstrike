@@ -125,6 +125,19 @@ function normalizeExplicitRootQualifier(qualifier?: string | null): string | und
   return trimmed;
 }
 
+function getValidatedBoundRootId(
+  runtimeData: RuntimeData | undefined,
+  hasExplicitQualifier: boolean
+): string | undefined {
+  const boundRootId = runtimeData?.boundWorkspaceRootId?.trim();
+  if (!(boundRootId && !hasExplicitQualifier && runtimeData?.workspaceRoots === undefined)) {
+    return boundRootId;
+  }
+  throw new ToolInputError(
+    'The authoritative workspace root inventory is unavailable, so the bound thread root cannot be validated. Reload the workspace roots before continuing this thread.'
+  );
+}
+
 /**
  * Resolve which root a tool call targets. `qualifier` is a root id or display
  * name (the model's "root" argument). Multi-root disambiguation:
@@ -141,13 +154,14 @@ export function resolveWorkspaceRoot(
   qualifier?: string | null
 ): RuntimeWorkspaceRoot {
   const roots = getWorkspaceRoots(runtimeData);
+  const trimmed = normalizeExplicitRootQualifier(qualifier);
+  const boundRootId = getValidatedBoundRootId(runtimeData, trimmed !== undefined);
   if (roots.length === 0) {
     throw new ToolInputError(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
 
-  const trimmed = normalizeExplicitRootQualifier(qualifier);
   if (trimmed) {
     const byId = roots.find((root) => root.rootId === trimmed);
     if (byId) {
@@ -185,7 +199,6 @@ export function resolveWorkspaceRoot(
     );
   }
 
-  const boundRootId = runtimeData?.boundWorkspaceRootId?.trim();
   if (boundRootId) {
     const boundRoot = roots.find((root) => root.rootId === boundRootId);
     if (!boundRoot) {
@@ -213,6 +226,42 @@ export function resolveWorkspaceRoot(
   throw new ToolInputError(
     `Multiple folders are open. Specify which with the "root" argument (folder name or id). Open folders: ${describeRoots(roots)}.`
   );
+}
+
+/**
+ * Resolve the FOCUSED root that owns renderer-selected context. A durable
+ * thread binding deliberately does not participate: selection paths and
+ * Tapestry ranges are relative to `workspaceRootPath`, not the thread root.
+ */
+export function resolveFocusedWorkspaceRoot(
+  runtimeData: RuntimeData | undefined
+): RuntimeWorkspaceRoot {
+  const focusedPath = runtimeData?.workspaceRootPath?.trim();
+  if (!(focusedPath && path.isAbsolute(focusedPath))) {
+    throw new ToolInputError(
+      'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
+    );
+  }
+
+  if (runtimeData?.workspaceRoots === undefined) {
+    return resolveWorkspaceRoot(runtimeData);
+  }
+
+  const resolvedFocusedPath = path.resolve(focusedPath);
+  const matches = getWorkspaceRoots(runtimeData).filter(
+    (root) => root.path === resolvedFocusedPath
+  );
+  if (matches.length === 0) {
+    throw new ToolInputError(
+      'The focused workspace root is not in the authoritative open-root inventory. Reload the workspace roots before reading selected workspace context.'
+    );
+  }
+  if (matches.length > 1) {
+    throw new ToolInputError(
+      'The authoritative open-root inventory contains multiple entries for the focused workspace path. Reconnect the folder before reading selected workspace context.'
+    );
+  }
+  return resolveWorkspaceRoot(runtimeData, (matches[0] as RuntimeWorkspaceRoot).rootId);
 }
 
 /**
@@ -452,7 +501,9 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
       workspaceRoots: orderWorkspaceRootsForRuntime(roots, runtimeData),
     };
   } catch (error) {
-    logger.error('Failed to load workspace roots; tools fall back to the focused root.', { error });
+    logger.error('Failed to load workspace roots; authoritative root inventory is unavailable.', {
+      error,
+    });
     return runtimeData;
   }
 }
