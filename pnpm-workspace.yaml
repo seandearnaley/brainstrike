@@ -142,9 +142,3 @@ allowBuilds:
 # floor is configured (none is configured today, so this is currently a no-op).
 minimumReleaseAgeExclude:
   - '@mastra/core@1.50.0'
-# assistant-ui 0.14.26/core 0.2.20 resumeRun always generates a new assistant
-# message. Durable desktop replay must target the already-persisted message ID
-# or reload creates a duplicate branch. Remove after upstream exposes this
-# resume identity input.
-patchedDependencies:
-  '@assistant-ui/core@0.2.20': patches/@assistant-ui__core@0.2.20.patch

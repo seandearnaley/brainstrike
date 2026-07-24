@@ -160,7 +160,14 @@ contracts keep reloaded threads identical to live ones:
    the same assistant message and persisted parent; it does not create a
    duplicate branch, another run row, or resend model input. Completion,
    failure, Stop, and a visible expired-session response remove the ephemeral
-   record.
+   record. The public assistant-ui runtime temporarily creates a generated
+   streaming leaf; the client removes the hydrated durable leaf before replay,
+   remaps the history append to the durable ID, and after `runEnd` remaps the
+   generated local ID through thread `export`/`import`. Waiting for `runEnd`
+   preserves assistant-ui's final error/incomplete state before identity
+   reconciliation. This keeps Mastra's durable content identity and
+   assistant-ui's parent graph aligned without a package patch. Missing leaves
+   and leaves with descendants fail visibly.
    While this graph is loading, `ChatThreadUI` disables every composer send
    path using assistant-ui's `state.thread.isLoading`. The installed runtime
    captures a new message's parent from the current in-memory tail before its

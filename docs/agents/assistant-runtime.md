@@ -326,7 +326,16 @@ stores only `{assistantMessageId, eventId, runId}` in thread-scoped
 `sessionStorage`. After history hydration on renderer reload, it reconnects with
 `GET /assistant/resume` plus `Last-Event-ID`; it never composes a second model
 request. Replay must reuse the durable assistant message ID and its persisted
-parent rather than append a duplicate hydrated message. Transient replay
+parent rather than append a duplicate hydrated message. The installed
+assistant-ui runtime creates a temporary streaming message for `resumeRun`;
+Brainstrike removes the hydrated durable leaf before replay, then reconciles
+the history append to the durable ID and maps the temporary local ID back
+through the public thread `export`/`import` API after assistant-ui's `runEnd`
+event. Waiting for `runEnd` is required because error and incomplete outcomes
+can update the local message after the replay iterator closes. Do not patch
+assistant-ui internals to add a message-ID input. A missing durable leaf or a
+leaf with descendants is a visible replay error, never a guessed parent.
+Transient replay
 failures receive at most two automatic retries; a missing/expired session is a
 visible 404 and clears the stale renderer record. Terminal completion, failure,
 or explicit Stop clears the record. The endpoint base must come from the

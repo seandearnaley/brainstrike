@@ -27,13 +27,17 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
 } from './approval-action-message';
-import { useAssistantRunReattachment } from './assistant-run-reattachment';
+import {
+  type AssistantReplayMessageIdentityRef,
+  remapAssistantReplayHistoryItem,
+  useAssistantRunReattachment,
+} from './assistant-run-reattachment';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
@@ -1178,15 +1182,34 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     () => new BrainstrikeDataStreamRuntimeAdapter(() => optionsRef.current),
     []
   );
+  const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
+    current: null,
+  }));
+  const replayAwareAdapters = useMemo(() => {
+    const history = adapters?.history;
+    if (!history) {
+      return adapters;
+    }
+    return {
+      ...adapters,
+      history: {
+        ...history,
+        append: async (item) => {
+          const identity = replayIdentity.current;
+          await history.append(remapAssistantReplayHistoryItem(item, identity));
+        },
+      },
+    };
+  }, [adapters, replayIdentity]);
 
   const runtime = useLocalRuntime(chatModelAdapter, {
-    ...(adapters ? { adapters } : {}),
+    ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
     ...(maxSteps ? { maxSteps } : {}),
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
   });
-  const replayStream = useMemo<NonNullable<CreateResumeRunConfig['stream']>>(
-    () => (runOptions) => {
+  const replayStream = useCallback<NonNullable<CreateResumeRunConfig['stream']>>(
+    (runOptions) => {
       if (!(activeRunSession && resumeApi)) {
         throw new Error('Assistant run replay requires an active session and resume endpoint.');
       }
@@ -1198,6 +1221,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     [activeRunSession, chatModelAdapter, resumeApi]
   );
   useAssistantRunReattachment({
+    identityRef: replayIdentity,
     record: activeRunSession,
     replayRetryToken,
     runtime,
