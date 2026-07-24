@@ -48,6 +48,29 @@ function makeRejectingDb(error: Error): { calls: QueryCall[]; db: DiagnosticEven
   };
 }
 
+/** Each call returns a promise that stays pending until its matching
+ * `resolvers[n]` is invoked — lets a test resolve overlapping queries in an
+ * arbitrary order to exercise the generation guard in `subscribe`. */
+function makeDeferredStubDb(): {
+  calls: QueryCall[];
+  db: DiagnosticEventsDatabase;
+  resolvers: ((rows: unknown[]) => void)[];
+} {
+  const calls: QueryCall[] = [];
+  const resolvers: ((rows: unknown[]) => void)[] = [];
+  return {
+    calls,
+    db: {
+      query: <T>(sql: string, params?: unknown[]) =>
+        new Promise<{ rows: T[] }>((resolve) => {
+          calls.push({ params, sql });
+          resolvers.push((rows: unknown[]) => resolve({ rows: rows as T[] }));
+        }),
+    },
+    resolvers,
+  };
+}
+
 function makeEvent(overrides: Partial<DiagnosticEvent> = {}): DiagnosticEvent {
   return {
     appVersion: '1.2.3',
@@ -327,5 +350,51 @@ describe('createDurableLogSource', () => {
     const [records] = handler.mock.calls[0] ?? [[]];
     expect(records[0]?.level).toBe(LogLevel.WARN);
     expect(records[0]?.scope).toBe('DurableLogSource');
+  });
+
+  it('drops a stale poll result when a newer overlapping poll resolves first', async () => {
+    const { db, resolvers } = makeDeferredStubDb();
+    const { scheduled, setIntervalStub, clearIntervalStub } = makeManualInterval();
+    const handler =
+      vi.fn<(records: readonly ReturnType<typeof diagnosticEventToLogRecord>[]) => void>();
+
+    const source = createDurableLogSource({
+      clearInterval: clearIntervalStub,
+      db,
+      setInterval: setIntervalStub,
+    });
+    source.subscribe?.(handler);
+
+    // The immediate emit() on subscribe() issues request #1 — still pending.
+    expect(resolvers).toHaveLength(1);
+
+    // A second, overlapping tick fires before #1 resolves — issues request #2.
+    scheduled[0]?.fn();
+    expect(resolvers).toHaveLength(2);
+
+    // Resolve the NEWER request (#2) first, with fresh rows.
+    resolvers[1]?.([makeRow('newer')]);
+    await flushMicrotasks();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0]?.[0]?.[0]?.bindings['fingerprint']).toBe('fp-newer');
+
+    // Resolve the STALE request (#1) after — it must never reach the handler,
+    // and must not clobber the already-delivered newer snapshot.
+    resolvers[0]?.([makeRow('older')]);
+    await flushMicrotasks();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0]?.[0]?.[0]?.bindings['fingerprint']).toBe('fp-newer');
+  });
+
+  it('returns one adapter object with stable getInitialRecords/subscribe references across accesses', () => {
+    const { db } = makeStubDb(() => []);
+
+    const source = createDurableLogSource({ db });
+    const { getInitialRecords, subscribe } = source;
+
+    expect(source.getInitialRecords).toBe(getInitialRecords);
+    expect(source.subscribe).toBe(subscribe);
+    expect(source.getInitialRecords).toBe(source.getInitialRecords);
+    expect(source.subscribe).toBe(source.subscribe);
   });
 });

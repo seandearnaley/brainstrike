@@ -134,16 +134,24 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
   // the gap between refreshes for this v1.
   function subscribe(handler: (records: readonly LogRecord[]) => void): () => void {
     let disposed = false;
+    // Monotonic request counter: polls can overlap (a slow tick N still
+    // in-flight when tick N+1 fires). Without this, whichever query
+    // resolves LAST wins the handler call regardless of which one was
+    // issued last, so a stale snapshot can silently clobber a newer one.
+    // Each emit() captures its own requestId; only the result whose
+    // requestId still matches the latest-issued one is delivered.
+    let latestRequestId = 0;
 
     const emit = () => {
+      const requestId = ++latestRequestId;
       loadRecordsAscending()
         .then((records) => {
-          if (!disposed) {
+          if (!disposed && requestId === latestRequestId) {
             handler(records);
           }
         })
         .catch((error) => {
-          if (!disposed) {
+          if (!disposed && requestId === latestRequestId) {
             handler([createFailureRecord(error)]);
           }
         });
