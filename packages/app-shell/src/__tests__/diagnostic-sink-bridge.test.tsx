@@ -1,7 +1,7 @@
 import { LogLevel, type LogRecord, error as logError } from '@brainstrike/utils/logger';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
+import { DIAGNOSTIC_SINK_SCOPE, DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
 
 // Mock the db context to hand the bridge an in-memory query recorder.
 const queries: { sql: string; params?: unknown[] | undefined }[] = [];
@@ -114,6 +114,61 @@ describe('DiagnosticSinkBridge', () => {
       expect(insert).toBeDefined();
       expect(JSON.stringify(insert?.params)).toContain('electron-main');
     });
+  });
+
+  it('respects the DiagnosticSink loop-guard for forwarded records', async () => {
+    const captured: { listener: ((record: LogRecord) => void) | null } = { listener: null };
+
+    render(
+      <DiagnosticSinkBridge
+        flushBatchSize={1}
+        forwardedRecords={{
+          subscribe: (listener) => {
+            captured.listener = listener;
+            return () => {};
+          },
+        }}
+        source="desktop-renderer"
+      />
+    );
+
+    await vi.waitFor(() => {
+      expect(captured.listener).not.toBeNull();
+    });
+
+    // Self-referential record from the sink's own scope must never recurse
+    // into an insert, forwarded or not.
+    captured.listener?.({
+      args: ['diagnostic sink self-loop'],
+      bindings: { runtime: 'electron-main' },
+      level: LogLevel.ERROR,
+      message: 'diagnostic sink self-loop',
+      scope: DIAGNOSTIC_SINK_SCOPE,
+      timestamp: Date.now(),
+    });
+
+    captured.listener?.({
+      args: ['forwarded normal failure'],
+      bindings: { runtime: 'electron-main' },
+      level: LogLevel.ERROR,
+      message: 'forwarded normal failure',
+      timestamp: Date.now(),
+    });
+
+    await vi.waitFor(() => {
+      const insert = queries.find((entry) =>
+        entry.sql.includes('INSERT INTO brainstrike_diagnostic_events')
+      );
+      expect(insert).toBeDefined();
+      expect(JSON.stringify(insert?.params)).toContain('forwarded normal failure');
+    });
+
+    const sinkScopedInserts = queries.filter(
+      (entry) =>
+        entry.sql.includes('INSERT INTO brainstrike_diagnostic_events') &&
+        JSON.stringify(entry.params).includes('diagnostic sink self-loop')
+    );
+    expect(sinkScopedInserts).toHaveLength(0);
   });
 
   it('unsubscribes from forwardedRecords on unmount', async () => {
