@@ -225,13 +225,33 @@ export function initializeWindowsJob(platform = process.platform, load = require
 export async function removeUserDataDir(userDataDir, options = {}) {
   const retries = options.retries ?? PROFILE_REMOVAL_RETRIES;
   const retryDelayMs = options.retryDelayMs ?? PROFILE_REMOVAL_RETRY_DELAY_MS;
-  const rm = options.rm ?? ((target) => fs.rm(target, { force: true, recursive: true }));
+  const rm =
+    options.rm ??
+    ((target) =>
+      fs.rm(target, {
+        force: true,
+        maxRetries: PROFILE_REMOVAL_RETRIES,
+        recursive: true,
+        retryDelay: PROFILE_REMOVAL_RETRY_DELAY_MS,
+      }));
   const exists = options.exists ?? pathExists;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    await rm(userDataDir);
-    if (!(await exists(userDataDir))) {
-      return;
+    try {
+      await rm(userDataDir);
+      if (!(await exists(userDataDir))) {
+        return;
+      }
+    } catch (error) {
+      // The same racing descendant shows up two ways: it can recreate the tree
+      // after a sweep succeeds, or recreate a subdirectory mid-walk so that
+      // rmdir of the now-non-empty parent throws ENOTEMPTY/EBUSY. `force` only
+      // suppresses ENOENT, so treat a throw as "still there" and give the
+      // descendant time to finish exiting. Rethrow on the last attempt so a
+      // genuine failure stays loud.
+      if (attempt === retries) {
+        throw error;
+      }
     }
     if (attempt < retries) {
       await sleep(retryDelayMs);

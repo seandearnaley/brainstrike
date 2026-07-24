@@ -409,3 +409,44 @@ test('removeUserDataDir throws rather than leaking a profile that will not go aw
   // Every attempt is used before giving up, and the failure is visible.
   assert.equal(attempts, 3);
 });
+
+test('removeUserDataDir retries when rm throws ENOTEMPTY from a mid-walk recreate', async () => {
+  // The same race lands two ways. `fs.rm` removes leaves before parents, so a
+  // descendant recreating a subdirectory mid-walk makes rmdir of the parent throw
+  // ENOTEMPTY. `force` only suppresses ENOENT, so this must not become a hard exit.
+  let attempts = 0;
+
+  await removeUserDataDir('/fake/racing-profile', {
+    exists: async () => false,
+    retryDelayMs: 0,
+    rm: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error('directory not empty'), { code: 'ENOTEMPTY' });
+      }
+    },
+  });
+
+  assert.equal(attempts, 2);
+});
+
+test('removeUserDataDir rethrows the underlying error when every attempt throws', async () => {
+  const busy = Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+  let attempts = 0;
+
+  await assert.rejects(
+    removeUserDataDir('/fake/busy-profile', {
+      exists: async () => true,
+      retries: 2,
+      retryDelayMs: 0,
+      rm: async () => {
+        attempts += 1;
+        throw busy;
+      },
+    }),
+    // The real cause survives rather than being masked by the generic message.
+    busy
+  );
+
+  assert.equal(attempts, 3);
+});
