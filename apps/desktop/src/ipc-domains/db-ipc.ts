@@ -82,6 +82,7 @@ type OptionalRelationTable =
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
   | 'brainstrike_assistant_tool_output_artifacts'
+  | 'brainstrike_diagnostic_events'
   | 'brainstrike_thread_message_index'
   | 'brainstrike_thread_search_state'
   | 'collection_indexing_stats'
@@ -755,6 +756,10 @@ export function registerDatabaseIpcHandlers(
             // pre-migration-068 database may omit this table; any other delete
             // failure remains visible through clearOptionalRelation.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
+            // Durable diagnostic events (Flight Recorder P1): warn+ error log.
+            // No FK, so nothing cascades it — clear explicitly per the FACTORY
+            // RESET CONTRACT so error history cannot survive a fresh start.
+            await clearOptionalRelation(tx, 'brainstrike_diagnostic_events');
             // Thread search index rows are derived from mastra messages, but a
             // factory reset must wipe extracted text + the sync watermark so
             // conversation content cannot survive a "true fresh start" (FACTORY

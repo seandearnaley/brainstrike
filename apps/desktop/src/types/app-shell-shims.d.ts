@@ -65,6 +65,18 @@ declare module '@brainstrike/app-shell/diagnostics' {
   }
 
   export function createSystemDiagnosticsSettingsCategory(): SettingsCategory;
+
+  /**
+   * See: packages/app-shell/src/diagnostics/diagnostic-sink-bridge.tsx
+   */
+  export interface DiagnosticSinkBridgeProps {
+    flushBatchSize?: number;
+    source: string;
+  }
+
+  export const DiagnosticSinkBridge: React.ComponentType<DiagnosticSinkBridgeProps>;
+  export const DIAGNOSTIC_SINK_SCOPE: string;
+  export function getDiagnosticSessionId(): string;
 }
 
 declare module '@brainstrike/app-shell/settings-page-content' {
