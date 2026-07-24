@@ -215,7 +215,7 @@ Action: Configure rotation (pino-roll or maxBytes/maxFiles, e.g. 50MB × 5), doc
 
 ## 4. Process gates (human decision required)
 
-- **[P8.4 OAuth — LEGAL GATE]** `docs/coding-agent-pr-plan-2026-06-19.md:128`; zero OAuth implementation; no `LEGAL.md`/sign-off file. **DO NOT START without explicit legal sign-off** (ToS review). Create `docs/OAUTH_LEGAL_REVIEW_GATE.md`, add a `legal-gate::oauth` blocking label, and only on sign-off proceed (safeStorage credential type, provider-factory `credentialResolver`, PKCE, anthropic-beta header-merge test, SECURITY.md update).
+- **[P8.4 OAuth — LEGAL GATE]** `docs/archive/coding-agent-pr-plan-2026-06-19.md:128`; zero OAuth implementation; no `LEGAL.md`/sign-off file. **DO NOT START without explicit legal sign-off** (ToS review). Create `docs/OAUTH_LEGAL_REVIEW_GATE.md`, add a `legal-gate::oauth` blocking label, and only on sign-off proceed (safeStorage credential type, provider-factory `credentialResolver`, PKCE, anthropic-beta header-merge test, SECURITY.md update).
 - **[P6 scope decision]** Decide whether `!shell` is in-scope for declaring P6 DONE (now-unblocked) or explicitly deferred — see the P6 blocker.
 - **[P2 scope decision]** Decide whether web FS-Access write is P2-DONE scope or moves to a later phase; correct AGENTS.md/phase status either way (it currently claims DONE while unimplemented).
 - **[P8.1/P8.2 not started]** Notifications and Hooks are unstarted (`run-events.ts` has no notification/hook kinds; no hook files). Not phase-1-8 blockers per the roadmap but require a go/no-go before P8 is declared.

@@ -1,7 +1,8 @@
 # Coding-Agent Port — Orchestrated PR Plan & Pipeline
 
 Execution backbone for porting mastra-code-ui patterns into brainstrike (see
-`mastra-code-port-breakdown-2026-06-19.md` + `mastra-code-port-synthesis-2026-06-19.md`).
+`docs/archive/mastra-code-port-breakdown-2026-06-19.md` +
+`docs/mastra-code-port-synthesis-2026-06-19.md`).
 
 ## Operating model (locked with the user)
 

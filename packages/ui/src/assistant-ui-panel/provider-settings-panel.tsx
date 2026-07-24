@@ -3,6 +3,7 @@ import {
   getProviderDefinition,
   type LlmModelDefinition,
   type OpenRouterModelMetadataLookup,
+  resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
 } from '@brainstrike/assistant-contract';
 import type {
@@ -128,7 +129,9 @@ function resolveOpenRouterModelLimits(
   const outputReservation =
     typeof settings.maxOutputTokens === 'number'
       ? Math.max(1, Math.floor(settings.maxOutputTokens))
-      : resolveOpenRouterCodingMaxOutputTokens(maxOutputTokens);
+      : liveMetadata
+        ? resolveOpenRouterAutoRuntimeProfile(liveMetadata).maxOutputTokens
+        : resolveOpenRouterCodingMaxOutputTokens(maxOutputTokens);
   const sourceLabel = resolveOpenRouterSourceLabel(lookup);
   let effectiveInputBudget: number | undefined;
   try {

@@ -26,6 +26,7 @@ import type {
   AssistantToolMenuItem,
   AssistantToolSource,
 } from './assistant-ui-panel';
+import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import { ProviderSettingsPanel } from './provider-settings-panel';
 
 interface ControlsMenuProps {
@@ -179,6 +180,7 @@ export const ControlsMenu = ({
   selectedProvider,
   modelName,
 }: ControlsMenuProps) => {
+  const openRouterMetadataLookup = useOpenRouterModelMetadataLookup();
   // Output & Limits renders for the hosted reasoning families. family:'local'
   // deliberately gets NO section here — its only reasoning control (the
   // Thinking toggle) lives in the composer model menu (pinned by the local
@@ -187,9 +189,15 @@ export const ControlsMenu = ({
     if (!selectedProvider) {
       return false;
     }
-    const availability = resolveReasoningControlsAvailability(selectedProvider, modelName);
+    const availability = resolveReasoningControlsAvailability(
+      selectedProvider,
+      modelName,
+      openRouterMetadataLookup?.state === 'resolved'
+        ? openRouterMetadataLookup.snapshot.metadata
+        : undefined
+    );
     return availability.available && availability.family !== 'local';
-  }, [modelName, selectedProvider]);
+  }, [modelName, openRouterMetadataLookup, selectedProvider]);
 
   const hasOutputControls = Boolean(supportsOutputControls && onProviderSettingsChange);
 

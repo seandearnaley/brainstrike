@@ -37,6 +37,7 @@ import {
   SearchConfigPanel,
   type SearchMode,
   SearchModeBar,
+  separatorClassName,
   TablePagination,
   useContextMenuTarget,
 } from '@brainstrike/ui';
@@ -1344,7 +1345,7 @@ export function CollectionBrowserView({
 
           {hasInspectableSelection && !isInspectorCollapsed && (
             <>
-              <Separator className="w-1 bg-border transition-colors hover:bg-primary/20" />
+              <Separator className={separatorClassName({ orientation: 'horizontal' })} />
 
               {/* Inspector panel */}
               <Panel

@@ -7,7 +7,10 @@
  * resolves a bare model id back to a provider (the old modelToProviderMap
  * silently mis-resolved duplicate bare ids across providers).
  */
-import { resolveReasoningControlsAvailability } from '@brainstrike/assistant-contract';
+import {
+  type OpenRouterModelMetadataLookup,
+  resolveReasoningControlsAvailability,
+} from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
   AssistantProviderSettingsMap,
@@ -40,6 +43,7 @@ import { formatContextWindow } from '../model-picker/utils/format-context-window
 import { getProviderColor } from '../model-picker/utils/provider-colors';
 import { Switch } from '../switch';
 import type { ProviderGroupConfig, ProviderRuntimeCategory } from './assistant-ui-panel';
+import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import {
   buildEffortControlModel,
   buildThinkingToggleModel,
@@ -300,6 +304,18 @@ const ThinkingToggleRow = ({
   </DropdownMenuPrimitive.Item>
 );
 
+function resolveSelectedReasoningAvailability(
+  providerId: string | undefined,
+  modelId: string | undefined,
+  lookup: OpenRouterModelMetadataLookup | undefined
+): ReturnType<typeof resolveReasoningControlsAvailability> | undefined {
+  if (!providerId) {
+    return;
+  }
+  const metadata = lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined;
+  return resolveReasoningControlsAvailability(providerId, modelId, metadata);
+}
+
 export const ComposerModelMenu = ({
   disabled,
   onModelChange,
@@ -387,9 +403,12 @@ export const ComposerModelMenu = ({
   const canUpdateSettings = Boolean(onProviderSettingsChange);
 
   const selectedModelId = modelIdFromCompositeKey(selectedModel);
-  const availability = selectedProvider
-    ? resolveReasoningControlsAvailability(selectedProvider, selectedModelId)
-    : undefined;
+  const openRouterMetadataLookup = useOpenRouterModelMetadataLookup();
+  const availability = resolveSelectedReasoningAvailability(
+    selectedProvider,
+    selectedModelId,
+    openRouterMetadataLookup
+  );
   const activeSettings: AssistantProviderSettings =
     (selectedProvider ? providerSettings?.[selectedProvider] : undefined) ?? {};
   const effortModel = availability

@@ -27,6 +27,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  separatorClassName,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -846,7 +847,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
         <Separator
           aria-label="Resize database panels"
-          className="h-1 bg-border transition-colors hover:bg-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          className={separatorClassName({ orientation: 'vertical' })}
         />
 
         <Panel className="min-h-0" defaultSize="62%" minSize="30%">

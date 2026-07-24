@@ -59,20 +59,65 @@ describe('resolveModelReasoningSupport', () => {
 });
 
 describe('resolveReasoningControlsAvailability', () => {
-  it('constrains declared OpenRouter models to their published efforts (kimi-k3 max-only)', () => {
+  it('constrains Kimi K3 to its published efforts and optional Off control', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3')).toEqual({
       available: true,
       defaultEffort: 'max',
-      efforts: ['max'],
+      efforts: ['max', 'high', 'low', 'none'],
       family: 'openrouter',
-      mandatory: true,
     });
   });
 
   it('constrains GLM 5.2 to its published efforts', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'z-ai/glm-5.2')).toEqual({
       available: true,
-      efforts: ['xhigh', 'high'],
+      defaultEffort: 'high',
+      efforts: ['xhigh', 'high', 'none'],
+      family: 'openrouter',
+    });
+  });
+
+  it('prefers matching live OpenRouter reasoning capabilities over the static registry', () => {
+    expect(
+      resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3', {
+        checkedAt: 42,
+        contextWindow: 1_048_576,
+        id: 'moonshotai/kimi-k3',
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high', 'low'],
+          supportsMaxTokens: false,
+        },
+        source: 'openrouter-models-api',
+        supportedParameters: ['reasoning'],
+      })
+    ).toEqual({
+      available: true,
+      defaultEffort: 'high',
+      efforts: ['high', 'low', 'none'],
+      family: 'openrouter',
+    });
+  });
+
+  it('does not invent static efforts when matching live reasoning metadata is partial', () => {
+    expect(
+      resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3', {
+        checkedAt: 42,
+        contextWindow: 1_048_576,
+        id: 'moonshotai/kimi-k3',
+        reasoning: {
+          defaultEnabled: true,
+          mandatory: false,
+          supportsMaxTokens: false,
+        },
+        source: 'openrouter-models-api',
+        supportedParameters: ['reasoning'],
+      })
+    ).toEqual({
+      available: true,
+      efforts: ['none'],
       family: 'openrouter',
     });
   });

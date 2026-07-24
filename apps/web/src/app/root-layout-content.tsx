@@ -1,4 +1,5 @@
 import { navigationItems } from '@brainstrike/app-shell/navigation';
+import NotesPageContent from '@brainstrike/app-shell/notes-page-content';
 import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
@@ -8,7 +9,7 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
-// notes-page-content.tsx.
+// `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
@@ -16,7 +17,6 @@ import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
-import NotesPageContent from './notes-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };

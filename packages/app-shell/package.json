@@ -77,6 +77,10 @@
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js"
     },
+    "./notes-page-content": {
+      "types": "./dist/notes-page-content.d.ts",
+      "import": "./dist/notes-page-content.js"
+    },
     "./roots/root-registry": {
       "types": "./dist/roots/root-registry.d.ts",
       "import": "./dist/roots/root-registry.js"

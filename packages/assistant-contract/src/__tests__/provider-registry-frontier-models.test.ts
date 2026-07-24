@@ -170,8 +170,9 @@ describe('frontier model refresh (2026-07)', () => {
       expect(kimi.maxOutputTokens).toBeUndefined();
       expect(kimi.reasoning).toEqual({
         defaultEffort: 'max',
-        mandatory: true,
-        supportedEfforts: ['max'],
+        defaultEnabled: true,
+        mandatory: false,
+        supportedEfforts: ['max', 'high', 'low'],
       });
     });
 
