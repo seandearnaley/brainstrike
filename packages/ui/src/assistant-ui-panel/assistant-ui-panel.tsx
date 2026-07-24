@@ -81,6 +81,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
@@ -1733,6 +1734,10 @@ const AssistantMessage = () => {
           }}
         />
         <AssistantMessageError />
+        {/* Flight Recorder capstone: copy a redacted Markdown debug bundle for
+            THIS failed run to the clipboard. Null without a provider binding
+            or a failure signal (run.failed event / assistant-ui error state). */}
+        <CopyDebugBundleButton />
         {/* Turn-level "Revert all edits" footer — renders only on desktop turns
             that made ≥1 still-revertible file edit; null everywhere else. */}
         <CheckpointTurnRevert />

@@ -46,6 +46,7 @@ import {
   type AssistantToolMenuItem,
   AssistantUiPanel,
   BudgetGuardrailProvider,
+  DebugBundleProvider,
   EditCheckpointProvider,
   hasDesktopLlmHost,
   RunVerdictProvider,
@@ -121,6 +122,7 @@ import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
+import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useOpenRouterDefaults } from './hooks/use-openrouter-model-defaults';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
@@ -1529,6 +1531,11 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId
   );
 
+  // Flight Recorder capstone: "Copy debug bundle" binding (Task 9). Gates on
+  // the renderer's own PGlite db handle + the active thread — see the hook's
+  // doc for why this differs from the repository-parameter pattern above.
+  const debugBundleBinding = useDebugBundleBinding(selectedMemoryThreadId);
+
   // Last-24h budget guardrail binding (composer burn-down + send gate). Null
   // when no cap is configured or the durable spend capability is absent (web);
   // the gate/notice logic lives in packages/ui, the spend derivation in
@@ -1574,67 +1581,69 @@ export function AssistantUiPanelWrapper({
     <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
       <EditCheckpointProvider value={editCheckpoints}>
         <RunVerdictProvider value={runVerdictBinding}>
-          <BudgetGuardrailProvider value={budgetGuardrailBinding}>
-            <AssistantUiPanel
-              {...(composerDraftCommand ? { composerDraftCommand } : {})}
-              {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-              {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
-              completePreparedRequest={completePreparedRequest}
-              contextWindow={openRouterModelDef?.contextWindow}
-              {...(cumulativeUsage ? { cumulativeUsage } : {})}
-              effectiveInputBudget={effectiveInputBudget}
-              omSegment={omSegment}
-              openRouterModelMetadataLookup={openRouterMetadata.lookup}
-              {...(selectedMemoryThreadId
-                ? {
-                    onComposerDraftCommandApplied: handleComposerCommandApplied,
-                    onComposerTextChange: handleComposerTextChange,
-                  }
-                : {})}
-              onContextBreakdown={handleContextBreakdown}
-              onProviderSettingsChange={handleProviderSettingsChange}
-              onProviderSettingsValidationChange={providerDraft.report}
-              onRunFailed={handleRunFailed}
-              onRunFinished={handleRunFinished}
-              onStreamActivity={renewActiveAssistantForegroundActivity}
-              onToolApprovalRequired={onToolApprovalRequired}
-              onUsage={handleUsage}
-              {...(operatingRoot ? { operatingRoot } : {})}
-              pickerModels={pickerModels}
-              pickerProviders={pickerProviders}
-              prepareRequestData={prepareRequestData}
-              providerGroups={providerGroups}
-              providerSettings={effectiveProviderSettings}
-              recentModels={validRecentModels}
-              {...webBodyLimitProps(desktopAssistantBackendAvailable)}
-              requestData={requestData}
-              slashCommands={slashCommands}
-              {...(desktopAssistantBackendAvailable
-                ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-                : {})}
-              toolMenu={toolMenu}
-              {...(historyAdapter ? { historyAdapter } : {})}
-              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-              localChatTransport={localChatTransport}
-              {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-              {...(selectedProvider ? { selectedProvider } : {})}
-              {...(currentModel ? { selectedModel: currentModel } : {})}
-              disabled={
-                !isProviderReady ||
-                Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
-              }
-              onModelChange={handleModelChange}
-              onModelToggle={handleModelToggle}
-              {...(disabledReason ? { disabledReason } : {})}
-              {...(planModeAvailable
-                ? {
-                    onExitPlanMode: exitPlanMode,
-                    onTogglePlanMode: togglePlanMode,
-                    planModeEnabled: planModeEnabledPref,
-                  }
-                : {})}
-            />
-          </BudgetGuardrailProvider>
+          <DebugBundleProvider value={debugBundleBinding}>
+            <BudgetGuardrailProvider value={budgetGuardrailBinding}>
+              <AssistantUiPanel
+                {...(composerDraftCommand ? { composerDraftCommand } : {})}
+                {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
+                completePreparedRequest={completePreparedRequest}
+                contextWindow={openRouterModelDef?.contextWindow}
+                {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                effectiveInputBudget={effectiveInputBudget}
+                omSegment={omSegment}
+                openRouterModelMetadataLookup={openRouterMetadata.lookup}
+                {...(selectedMemoryThreadId
+                  ? {
+                      onComposerDraftCommandApplied: handleComposerCommandApplied,
+                      onComposerTextChange: handleComposerTextChange,
+                    }
+                  : {})}
+                onContextBreakdown={handleContextBreakdown}
+                onProviderSettingsChange={handleProviderSettingsChange}
+                onProviderSettingsValidationChange={providerDraft.report}
+                onRunFailed={handleRunFailed}
+                onRunFinished={handleRunFinished}
+                onStreamActivity={renewActiveAssistantForegroundActivity}
+                onToolApprovalRequired={onToolApprovalRequired}
+                onUsage={handleUsage}
+                {...(operatingRoot ? { operatingRoot } : {})}
+                pickerModels={pickerModels}
+                pickerProviders={pickerProviders}
+                prepareRequestData={prepareRequestData}
+                providerGroups={providerGroups}
+                providerSettings={effectiveProviderSettings}
+                recentModels={validRecentModels}
+                {...webBodyLimitProps(desktopAssistantBackendAvailable)}
+                requestData={requestData}
+                slashCommands={slashCommands}
+                {...(desktopAssistantBackendAvailable
+                  ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+                  : {})}
+                toolMenu={toolMenu}
+                {...(historyAdapter ? { historyAdapter } : {})}
+                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                localChatTransport={localChatTransport}
+                {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+                {...(selectedProvider ? { selectedProvider } : {})}
+                {...(currentModel ? { selectedModel: currentModel } : {})}
+                disabled={
+                  !isProviderReady ||
+                  Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
+                }
+                onModelChange={handleModelChange}
+                onModelToggle={handleModelToggle}
+                {...(disabledReason ? { disabledReason } : {})}
+                {...(planModeAvailable
+                  ? {
+                      onExitPlanMode: exitPlanMode,
+                      onTogglePlanMode: togglePlanMode,
+                      planModeEnabled: planModeEnabledPref,
+                    }
+                  : {})}
+              />
+            </BudgetGuardrailProvider>
+          </DebugBundleProvider>
         </RunVerdictProvider>
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>

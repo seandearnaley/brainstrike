@@ -472,6 +472,8 @@ vi.mock('@brainstrike/db', () => ({
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
+  // Copy-debug-bundle binding (useDebugBundleBinding) reads this directly.
+  useOptionalPGliteDatabase: vi.fn(() => mockDb),
   usePGliteDatabase: vi.fn(() => mockDb),
   // The OM segment live query (useObservationalMemoryRow) and the "@" file
   // mention query (useFileMentions) — inert in these tests (no rows, not
@@ -986,6 +988,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   // Same passthrough rationale as EditCheckpointProvider below: the mocked
   // panel never renders the budget chip, so the guardrail context is never read.
   BudgetGuardrailProvider: ({ children }: { children: ReactNode }) => children,
+  // Same passthrough rationale as EditCheckpointProvider below: the mocked
+  // panel never renders the copy-debug-bundle button, so the debug-bundle
+  // context is never read.
+  DebugBundleProvider: ({ children }: { children: ReactNode }) => children,
   // Passthrough double for the real context provider — these tests render the
   // mocked AssistantUiPanel, so the checkpoint context is never read; the
   // provider just needs to mount its children without error.
