@@ -501,7 +501,8 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
     });
     return runtimeData;
   }
-  if (roots.length === 0) {
+  const orderedRoots = orderWorkspaceRootsForRuntime(roots, runtimeData);
+  if (orderedRoots.length === 0) {
     return runtimeData.workspaceRootPath
       ? runtimeData
       : {
@@ -511,6 +512,6 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   }
   return {
     ...runtimeData,
-    workspaceRoots: orderWorkspaceRootsForRuntime(roots, runtimeData),
+    workspaceRoots: orderedRoots,
   };
 }
