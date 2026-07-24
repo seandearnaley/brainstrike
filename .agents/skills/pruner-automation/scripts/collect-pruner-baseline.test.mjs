@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -122,7 +124,14 @@ function git(repo, args) {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 }
 
-function createCollectorFixture(t, { installBinaryShims = false } = {}) {
+function createCollectorFixture(
+  t,
+  {
+    installBinaryShims = false,
+    installedLockfile = 'importers: {}\nlockfileVersion: "9.0"\n',
+    manifestLockMismatch = false,
+  } = {}
+) {
   const root = mkdtempSync(join(tmpdir(), 'pruner-runtime-preflight-'));
   t.after(() => rmSync(root, { force: true, recursive: true }));
   const repo = join(root, 'repo');
@@ -145,6 +154,7 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
     })}\n`
   );
   writeFixtureFile(repo, 'pnpm-workspace.yaml', 'packages: []\n');
+  writeFixtureFile(repo, 'pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters: {}\n");
   writeFixtureFile(repo, '.night-shift/PROTOCOL.md', '# Protocol\n');
   writeFixtureFile(repo, '.night-shift/charters/pruner.md', '# Pruner\n');
   git(repo, ['add', '.']);
@@ -153,6 +163,7 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
   if (installBinaryShims) {
     writeFixtureFile(repo, 'node_modules/.bin/knip', '');
     writeFixtureFile(repo, 'node_modules/.bin/react-doctor', '');
+    writeFixtureFile(repo, 'node_modules/.pnpm/lock.yaml', installedLockfile);
   }
 
   const fakePnpm = join(binDir, 'pnpm');
@@ -161,6 +172,13 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
     `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 appendFileSync(process.env.PNPM_INVOCATION_LOG, \`\${process.argv.slice(2).join(' ')}\\n\`);
+if (process.argv[2] === 'install') {
+  if (${JSON.stringify(manifestLockMismatch)}) {
+    process.stderr.write('ERR_PNPM_OUTDATED_LOCKFILE Cannot install with frozen-lockfile\\n');
+    process.exit(1);
+  }
+  process.exit(0);
+}
 if (process.argv[2] === 'knip') {
   process.exit(0);
 }
@@ -172,11 +190,11 @@ process.stdout.write(${JSON.stringify(doctorReport())});
   return { binDir, invocationLog, logsDir, outputPath, repo, root };
 }
 
-function collectFixture(fixture) {
+function collectFixture(fixture, collectorPath = COLLECTOR_PATH) {
   return spawnSync(
     process.execPath,
     [
-      COLLECTOR_PATH,
+      collectorPath,
       '--repo',
       fixture.repo,
       '--logs-dir',
@@ -195,6 +213,25 @@ function collectFixture(fixture) {
   );
 }
 
+test('reports the install remedy when the lockfile parser is not installed', (t) => {
+  const fixture = createCollectorFixture(t, { installBinaryShims: true });
+  const copiedCollectorPath = join(fixture.root, 'collect-pruner-baseline.mjs');
+  copyFileSync(COLLECTOR_PATH, copiedCollectorPath);
+  const isolatedCollectorPath = realpathSync(copiedCollectorPath);
+  const result = collectFixture(fixture, isolatedCollectorPath);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is unavailable/u);
+  assert.match(result.stderr, /pnpm install --frozen-lockfile/u);
+  assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/u);
+  assert.equal(
+    existsSync(fixture.invocationLog),
+    false,
+    'pnpm must not be invoked when the lockfile parser is unavailable'
+  );
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
 test('fails before invoking pnpm when the required dependency binaries are unavailable', (t) => {
   const fixture = createCollectorFixture(t);
   const result = collectFixture(fixture);
@@ -209,12 +246,45 @@ test('fails before invoking pnpm when the required dependency binaries are unava
   assert.deepEqual(readdirSync(fixture.logsDir), []);
 });
 
+test('fails before invoking pnpm when the installed dependency lock is stale', (t) => {
+  const fixture = createCollectorFixture(t, {
+    installBinaryShims: true,
+    installedLockfile: 'importers: {}\nlockfileVersion: "9.0"\nsnapshots: {}\n',
+  });
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is stale/u);
+  assert.equal(
+    existsSync(fixture.invocationLog),
+    false,
+    'pnpm must not be invoked during freshness preflight'
+  );
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
+test('fails before scans when workspace manifests do not satisfy the lockfile', (t) => {
+  const fixture = createCollectorFixture(t, {
+    installBinaryShims: true,
+    manifestLockMismatch: true,
+  });
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is stale/u);
+  assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
+    'install --lockfile-only --frozen-lockfile --ignore-scripts --offline --trust-lockfile',
+  ]);
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
 test('collects only after both required dependency binaries are installed', (t) => {
   const fixture = createCollectorFixture(t, { installBinaryShims: true });
   const result = collectFixture(fixture);
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
+    'install --lockfile-only --frozen-lockfile --ignore-scripts --offline --trust-lockfile',
     'knip',
     'exec react-doctor . --json',
   ]);

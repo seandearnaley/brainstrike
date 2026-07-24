@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
@@ -205,7 +206,67 @@ function assertDependencyRuntimeAvailable(repoRoot) {
   );
 }
 
-function main() {
+async function assertDependencyRuntimeCurrent(repoRoot) {
+  const workspaceLockfilePath = join(repoRoot, 'pnpm-lock.yaml');
+  const installedLockfilePath = join(repoRoot, 'node_modules', '.pnpm', 'lock.yaml');
+  let parseYaml;
+  try {
+    ({ parse: parseYaml } = await import('yaml'));
+  } catch (error) {
+    fail(
+      `required dependency runtime is unavailable (could not load the lockfile parser: ${
+        error instanceof Error ? error.message : String(error)
+      }); run "pnpm install --frozen-lockfile" before collecting`
+    );
+  }
+  let workspaceLockfile;
+  let installedLockfile;
+  try {
+    workspaceLockfile = parseYaml(readFileSync(workspaceLockfilePath, 'utf8'));
+  } catch (error) {
+    fail(
+      `could not read pnpm-lock.yaml: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    installedLockfile = parseYaml(readFileSync(installedLockfilePath, 'utf8'));
+  } catch (error) {
+    fail(
+      `required dependency runtime is unavailable (could not read node_modules/.pnpm/lock.yaml: ${
+        error instanceof Error ? error.message : String(error)
+      }); run "pnpm install --frozen-lockfile" before collecting`
+    );
+  }
+  if (isDeepStrictEqual(workspaceLockfile, installedLockfile)) {
+    return;
+  }
+  fail(
+    'required dependency runtime is stale (node_modules/.pnpm/lock.yaml does not match pnpm-lock.yaml); run "pnpm install --frozen-lockfile" before collecting'
+  );
+}
+
+function assertWorkspaceManifestsCurrent(repoRoot) {
+  const args = [
+    'install',
+    '--lockfile-only',
+    '--frozen-lockfile',
+    '--ignore-scripts',
+    '--offline',
+    '--trust-lockfile',
+  ];
+  const validation = run('pnpm', args, repoRoot);
+  if (validation.exitCode === 0) {
+    return;
+  }
+  const detail = stripAnsi(validation.output).trim();
+  fail(
+    `required dependency runtime is stale or invalid (pnpm frozen lockfile validation failed with exit code ${
+      validation.exitCode
+    }${detail ? `: ${detail}` : ''}); run "pnpm install --frozen-lockfile" before collecting`
+  );
+}
+
+async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
     fail('--logs-dir must be an absolute path');
@@ -247,6 +308,7 @@ function main() {
   }
   for (const requiredPath of [
     'package.json',
+    'pnpm-lock.yaml',
     'pnpm-workspace.yaml',
     '.night-shift/PROTOCOL.md',
     '.night-shift/charters/pruner.md',
@@ -259,6 +321,8 @@ function main() {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
   assertDependencyRuntimeAvailable(repoRoot);
+  await assertDependencyRuntimeCurrent(repoRoot);
+  assertWorkspaceManifestsCurrent(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
@@ -304,7 +368,7 @@ function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    main();
+    await main();
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
