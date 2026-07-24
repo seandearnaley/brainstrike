@@ -266,3 +266,88 @@ describe('durable record push', () => {
     expect(sent).toHaveLength(1);
   });
 });
+
+// ── recordDurableLog (Flight Recorder P2a Task 3: wiring into the NDJSON
+// backstop sink) — same two choke points as the durable-record push above,
+// gated by the SAME `DURABLE_PUSH_LEVELS` check (no second level filter). ──
+describe('recordDurableLog handler', () => {
+  let cleanup: (() => void) | undefined;
+  let visibleContents: ReturnType<typeof createMockWebContents>;
+  let hiddenContents: ReturnType<typeof createMockWebContents>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIpcMainHandlers.clear();
+    mockIpcMainListeners.clear();
+    setLogLevel(LogLevel.TRACE);
+
+    visibleContents = createMockWebContents(9201);
+    hiddenContents = createMockWebContents(9202);
+    setMockWebContents([visibleContents, hiddenContents]);
+    assignWindowRole(createFakeWindow(visibleContents) as never, 'visible-ui');
+    assignWindowRole(createFakeWindow(hiddenContents) as never, 'chunking-host');
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    clearWindowRoleByWebContentsId(9201);
+    clearWindowRoleByWebContentsId(9202);
+    resetLogger();
+  });
+
+  it('is invoked for a warn+ main record observed via the addLogListener tap', () => {
+    const recordDurableLog = vi.fn();
+    const handlers = createMockHandlers({ recordDurableLog });
+    cleanup = registerLoggingIpcHandlers(handlers);
+
+    logInfo('main info record should not reach recordDurableLog');
+    logError('main error record should reach recordDurableLog');
+
+    expect(recordDurableLog).toHaveBeenCalledTimes(1);
+    expect(recordDurableLog).toHaveBeenCalledWith(
+      expect.objectContaining({ level: LogLevel.ERROR })
+    );
+  });
+
+  it('is invoked for a warn+ record ingested from a hidden host, with the sourceWindowRole binding merged in', () => {
+    const recordDurableLog = vi.fn();
+    const handlers = createMockHandlers({ recordDurableLog });
+    cleanup = registerLoggingIpcHandlers(handlers);
+    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const mockEvent = { sender: { id: 9202 } } as unknown as IpcMainEvent;
+
+    listener(mockEvent, createValidLogRecord({ level: LogLevel.ERROR }));
+
+    expect(recordDurableLog).toHaveBeenCalledTimes(1);
+    expect(recordDurableLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bindings: expect.objectContaining({ sourceWindowRole: 'chunking-host' }),
+        level: LogLevel.ERROR,
+      })
+    );
+  });
+
+  it('is not invoked for an INFO record ingested from a hidden host', () => {
+    const recordDurableLog = vi.fn();
+    const handlers = createMockHandlers({ recordDurableLog });
+    cleanup = registerLoggingIpcHandlers(handlers);
+    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const mockEvent = { sender: { id: 9202 } } as unknown as IpcMainEvent;
+
+    listener(mockEvent, createValidLogRecord({ level: LogLevel.INFO }));
+
+    expect(recordDurableLog).not.toHaveBeenCalled();
+  });
+
+  it('is not invoked once the returned cleanup function is called', () => {
+    const recordDurableLog = vi.fn();
+    const handlers = createMockHandlers({ recordDurableLog });
+    const registeredCleanup = registerLoggingIpcHandlers(handlers);
+    registeredCleanup();
+
+    logError('emitted after cleanup — must not reach recordDurableLog');
+
+    expect(recordDurableLog).not.toHaveBeenCalled();
+  });
+});

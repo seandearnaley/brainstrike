@@ -45,6 +45,7 @@ import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
+import { createErrorLogSink, type ErrorLogSinkHandle } from './diagnostics/error-log-sink';
 import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
@@ -681,6 +682,12 @@ let unregisterParserHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+// Flight Recorder P2a Task 3: the durable NDJSON backstop for warn+ records
+// from main AND from renderers/hidden hosts over IPC (see
+// registerLoggingIpcHandlers' recordDurableLog below). Constructed at
+// app-ready when file logging isn't disabled; closed as the last graceful-
+// shutdown step so it captures failures from every earlier step.
+let errorLogSink: ErrorLogSinkHandle | null = null;
 let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
 let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
@@ -768,76 +775,88 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
   gracefulShutdownPromise = (async () => {
     const failures: Record<string, string | undefined>[] = [];
-
-    if (stopAssistantServer) {
-      const failure = await runShutdownStep('assistant-server', async () => {
-        // Reap any shell command the assistant left running FIRST so no orphaned
-        // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
-        disposeLiveChildProcesses();
-        // Reap any live terminal pty so no interactive shell survives the app.
-        disposeAllTerminals();
-        // Reap workspace-owned persistent command sessions before the assistant
-        // host and database are torn down.
-        await disposeDesktopCommandSessions();
-        // Reap any pooled LSP language servers (report R2) so no orphaned
-        // server process survives the app quit.
-        await disposeLspServers();
-        if (stopAssistantServer) {
-          await stopAssistantServer();
-          stopAssistantServer = null;
-        }
-      });
+    // Adding a new step? Call `runShutdownStep` and pass its result through
+    // `recordFailure` like every step below, rather than a bespoke
+    // `const x = ...; if (x) { failures.push(x); }` — that pattern, repeated
+    // once per step, is what pushed this closure over the cognitive-
+    // complexity lint budget when the error-log-sink step (Flight Recorder
+    // P2a Task 3) was added.
+    const recordFailure = (failure: Record<string, string | undefined> | null): void => {
       if (failure) {
         failures.push(failure);
       }
+    };
+
+    if (stopAssistantServer) {
+      recordFailure(
+        await runShutdownStep('assistant-server', async () => {
+          // Reap any shell command the assistant left running FIRST so no orphaned
+          // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
+          disposeLiveChildProcesses();
+          // Reap any live terminal pty so no interactive shell survives the app.
+          disposeAllTerminals();
+          // Reap workspace-owned persistent command sessions before the assistant
+          // host and database are torn down.
+          await disposeDesktopCommandSessions();
+          // Reap any pooled LSP language servers (report R2) so no orphaned
+          // server process survives the app quit.
+          await disposeLspServers();
+          if (stopAssistantServer) {
+            await stopAssistantServer();
+            stopAssistantServer = null;
+          }
+        })
+      );
     }
 
-    const mcpFailure = await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown);
-    if (mcpFailure) {
-      failures.push(mcpFailure);
-    }
+    recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
 
-    const chunkingFailure = await runShutdownStep('chunking-host', async () => {
-      await chunkingHostManager.dispose();
-    });
-    if (chunkingFailure) {
-      failures.push(chunkingFailure);
-    }
+    recordFailure(
+      await runShutdownStep('chunking-host', async () => {
+        await chunkingHostManager.dispose();
+      })
+    );
 
-    const parserFailure = await runShutdownStep('parser-host', async () => {
-      await parserHostManager.stop();
-    });
-    if (parserFailure) {
-      failures.push(parserFailure);
-    }
+    recordFailure(
+      await runShutdownStep('parser-host', async () => {
+        await parserHostManager.stop();
+      })
+    );
 
-    const embeddingFailure = await runShutdownStep('embedding-host', async () => {
-      await embeddingHostManager.dispose();
-    });
-    if (embeddingFailure) {
-      failures.push(embeddingFailure);
-    }
+    recordFailure(
+      await runShutdownStep('embedding-host', async () => {
+        await embeddingHostManager.dispose();
+      })
+    );
 
-    const llmFailure = await runShutdownStep('llm-host', async () => {
-      await llmHostManager.dispose();
-    });
-    if (llmFailure) {
-      failures.push(llmFailure);
-    }
+    recordFailure(
+      await runShutdownStep('llm-host', async () => {
+        await llmHostManager.dispose();
+      })
+    );
 
-    const databaseFailure = await runShutdownStep('database', async () => {
-      desktopDimensionIndexMaintenanceScheduler?.stop();
-      desktopDimensionIndexMaintenanceScheduler = null;
-      desktopDatabaseMaintenanceScheduler?.stop();
-      desktopDatabaseMaintenanceScheduler = null;
-      await cleanupDesktopLiveSubscriptionsForShutdown();
-      await waitForDesktopDatabaseWorkSchedulerIdle();
-      await cleanupDesktopLiveSubscriptionsForShutdown();
-      await closeDatabase();
-    });
-    if (databaseFailure) {
-      failures.push(databaseFailure);
-    }
+    recordFailure(
+      await runShutdownStep('database', async () => {
+        desktopDimensionIndexMaintenanceScheduler?.stop();
+        desktopDimensionIndexMaintenanceScheduler = null;
+        desktopDatabaseMaintenanceScheduler?.stop();
+        desktopDatabaseMaintenanceScheduler = null;
+        await cleanupDesktopLiveSubscriptionsForShutdown();
+        await waitForDesktopDatabaseWorkSchedulerIdle();
+        await cleanupDesktopLiveSubscriptionsForShutdown();
+        await closeDatabase();
+      })
+    );
+
+    // Last shutdown step, deliberately: the durable NDJSON file is the last
+    // writer standing, so it must stay open through every earlier step in
+    // order to capture their failures too.
+    recordFailure(
+      await runShutdownStep('error-log-sink', async () => {
+        errorLogSink?.close();
+        errorLogSink = null;
+      })
+    );
 
     if (failures.length > 0) {
       logger.warn('Graceful shutdown completed with cleanup failures', {
@@ -1052,6 +1071,7 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
     });
   },
   openDestination: openLogDestination,
+  recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
   selectDestination: selectLogDestination,
   setPreferences: applyAndPersistLoggingPreferences,
 });
@@ -1245,6 +1265,20 @@ if (singleInstanceLockAcquired) {
         }
       }
       void verifyActiveLogFile('app-ready');
+
+      // Construct the durable NDJSON backstop now that app.getPath() is
+      // available (same app-ready gate as file logging above). Skipped
+      // entirely under BRAINSTRIKE_DISABLE_FILE_LOGS=1 — every desktop
+      // test:e2e* script sets it, and this must not start writing files
+      // during those Playwright lanes.
+      if (!disableFileLogs) {
+        errorLogSink = createErrorLogSink({
+          appVersion: app.getVersion(),
+          filePath: path.join(app.getPath('logs'), 'brainstrike-errors.ndjson'),
+          platform: `${process.platform}-${process.arch}`,
+          sessionId: randomUUID(),
+        });
+      }
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
