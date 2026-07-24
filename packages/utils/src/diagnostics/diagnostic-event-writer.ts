@@ -25,6 +25,7 @@ export class DiagnosticEventWriter {
   > &
     DiagnosticEventWriterOptions;
   private pending: DiagnosticEvent[] = [];
+  private pendingHead = 0;
   private droppedCount = 0;
   private consecutiveFailures = 0;
   private isDisabled = false;
@@ -39,6 +40,9 @@ export class DiagnosticEventWriter {
       maxPending: 256,
       ...options,
     };
+    if (!Number.isSafeInteger(this.options.maxPending) || this.options.maxPending < 0) {
+      throw new TypeError('DiagnosticEventWriter maxPending must be a non-negative integer');
+    }
     const schedule = this.options.setInterval ?? globalThis.setInterval.bind(globalThis);
     this.timer = schedule(() => {
       void this.flush();
@@ -53,9 +57,13 @@ export class DiagnosticEventWriter {
     if (this.isDisabled) {
       return;
     }
-    this.pending.push(event);
-    while (this.pending.length > this.options.maxPending) {
-      this.pending.shift();
+    if (this.options.maxPending === 0) {
+      this.droppedCount += 1;
+    } else if (this.pending.length < this.options.maxPending) {
+      this.pending.push(event);
+    } else {
+      this.pending[this.pendingHead] = event;
+      this.pendingHead = (this.pendingHead + 1) % this.options.maxPending;
       this.droppedCount += 1;
     }
     if (this.pending.length >= this.options.flushBatchSize) {
@@ -85,8 +93,7 @@ export class DiagnosticEventWriter {
     if (this.isDisabled || (this.pending.length === 0 && this.droppedCount === 0)) {
       return;
     }
-    const batch = this.pending;
-    this.pending = [];
+    const batch = this.takePending();
     const dropped = this.droppedCount;
     const events = dropped > 0 ? [this.options.makeDroppedEvent(dropped), ...batch] : batch;
     try {
@@ -102,13 +109,24 @@ export class DiagnosticEventWriter {
       } else {
         // Re-queue original batch only (not the materialized marker).
         // The counter is preserved for next attempt.
-        this.pending = [...batch, ...this.pending];
-        while (this.pending.length > this.options.maxPending) {
-          this.pending.shift();
-          this.droppedCount += 1;
+        const requeued = [...batch, ...this.takePending()];
+        const overflow = Math.max(0, requeued.length - this.options.maxPending);
+        this.pending = overflow > 0 ? requeued.slice(overflow) : requeued;
+        if (overflow > 0) {
+          this.droppedCount += overflow;
         }
       }
     }
+  }
+
+  private takePending(): DiagnosticEvent[] {
+    const batch =
+      this.pendingHead === 0
+        ? this.pending
+        : [...this.pending.slice(this.pendingHead), ...this.pending.slice(0, this.pendingHead)];
+    this.pending = [];
+    this.pendingHead = 0;
+    return batch;
   }
 
   async dispose(): Promise<void> {

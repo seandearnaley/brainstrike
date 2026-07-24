@@ -29,6 +29,17 @@ describe('DiagnosticEventWriter', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([-1, 2.5, Number.POSITIVE_INFINITY])('rejects invalid maxPending %s', (maxPending) => {
+    expect(
+      () =>
+        new DiagnosticEventWriter({
+          makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+          maxPending,
+          sink: { insertBatch: async () => undefined },
+        })
+    ).toThrow('DiagnosticEventWriter maxPending must be a non-negative integer');
+  });
+
   it('flushes on the batch-size threshold', async () => {
     const inserted: DiagnosticEvent[][] = [];
     const writer = new DiagnosticEventWriter({
@@ -68,6 +79,49 @@ describe('DiagnosticEventWriter', () => {
     writer.enqueue(makeEvent('c')); // drops 'a'
     await writer.flush();
     expect(inserted.map((event) => event.id)).toEqual(['dropped-1', 'b', 'c']);
+    await writer.dispose();
+  });
+
+  it('preserves retained order across repeated ring-buffer wraps', async () => {
+    const inserted: DiagnosticEvent[] = [];
+    const writer = new DiagnosticEventWriter({
+      flushIntervalMs: 60_000,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      maxPending: 3,
+      sink: { insertBatch: async (events) => void inserted.push(...events) },
+    });
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+      writer.enqueue(makeEvent(id));
+    }
+
+    await writer.flush();
+
+    expect(inserted.map((event) => event.id)).toEqual(['dropped-5', 'f', 'g', 'h']);
+    await writer.dispose();
+  });
+
+  it('does not shift the pending array when overwriting saturated entries', async () => {
+    const writer = new DiagnosticEventWriter({
+      flushIntervalMs: 60_000,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      maxPending: 2,
+      sink: { insertBatch: async () => undefined },
+    });
+    const originalShift = Array.prototype.shift;
+    let shiftCalls = 0;
+    Array.prototype.shift = function shift<T>(this: T[]): T | undefined {
+      shiftCalls += 1;
+      return originalShift.call(this) as T | undefined;
+    };
+    try {
+      writer.enqueue(makeEvent('a'));
+      writer.enqueue(makeEvent('b'));
+      writer.enqueue(makeEvent('c'));
+    } finally {
+      Array.prototype.shift = originalShift;
+    }
+
+    expect(shiftCalls).toBe(0);
     await writer.dispose();
   });
 
@@ -149,6 +203,36 @@ describe('DiagnosticEventWriter', () => {
     await writer.flush();
     // The successful insert should include the marker with count 2 (not undercount to 1)
     expect(inserted.map((event) => event.id)).toEqual(['dropped-2', 'c', 'd']);
+  });
+
+  it('keeps wrapped batches chronological across a failed flush and later overflow', async () => {
+    let callCount = 0;
+    const inserted: DiagnosticEvent[] = [];
+    const writer = new DiagnosticEventWriter({
+      flushIntervalMs: 60_000,
+      makeDroppedEvent: (count) => makeEvent(`dropped-${count}`),
+      maxPending: 3,
+      sink: {
+        insertBatch: async (events) => {
+          callCount += 1;
+          if (callCount === 1) {
+            throw new Error('first attempt fails');
+          }
+          inserted.push(...events);
+        },
+      },
+    });
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      writer.enqueue(makeEvent(id));
+    }
+    await writer.flush();
+    writer.enqueue(makeEvent('f'));
+    writer.enqueue(makeEvent('g'));
+
+    await writer.flush();
+
+    expect(inserted.map((event) => event.id)).toEqual(['dropped-4', 'e', 'f', 'g']);
+    await writer.dispose();
   });
 
   it('failed-flush requeue preserves order with later enqueues', async () => {
