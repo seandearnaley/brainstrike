@@ -310,6 +310,32 @@ describe('BrainstrikeDataStreamRuntimeAdapter active-run reattachment', () => {
       status: { reason: 'stop', type: 'complete' },
     });
   });
+
+  it('reports replay-only transport failures to the bounded retry controller', async () => {
+    const replayFailure = new TypeError('loopback connection reset');
+    globalThis.fetch = vi.fn(async () => {
+      throw replayFailure;
+    }) as typeof fetch;
+    const onError = vi.fn();
+    const onReplayError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/assistant',
+      onError,
+      onReplayError,
+    });
+    const consumeReplay = async (): Promise<void> => {
+      for await (const _message of adapter.resume(runOptions(), {
+        eventId: 'session-1:-1',
+        resumeApi: 'http://assistant.test/assistant/resume',
+      })) {
+        // A failed replay must not yield a partial assistant message.
+      }
+    };
+
+    await expect(consumeReplay()).rejects.toBe(replayFailure);
+    expect(onReplayError).toHaveBeenCalledWith(replayFailure);
+    expect(onError).toHaveBeenCalledWith(replayFailure);
+  });
 });
 
 describe('approval action echo exclusion (transport seam)', () => {

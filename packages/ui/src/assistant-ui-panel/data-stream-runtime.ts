@@ -71,6 +71,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onCancel?: () => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
+  /** Reports replay-only failures so the active session can schedule a bounded retry. */
+  onReplayError?: (error: Error) => void;
   onResponse?: (response: Response) => Promise<void> | void;
   /**
    * Exact UTF-8 ceiling for the serialized request body. Hosted Web sets this
@@ -78,6 +80,7 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * renderer before fetch; desktop/local transports may omit it.
    */
   requestBodyLimitBytes?: number;
+  replayRetryToken?: number;
   resumeApi?: string;
   /**
    * Called with the RAW payload of each `brainstrike.context-breakdown` data
@@ -1012,6 +1015,8 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       }
       yield* this.consumeResponse(response, runOptions, false);
     } catch (error: unknown) {
+      const replayError = error instanceof Error ? error : new Error(String(error));
+      this.options.onReplayError?.(replayError);
       this.reportError(error);
       throw error;
     }
@@ -1102,6 +1107,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
+  readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
   readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
@@ -1118,6 +1124,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
       : { onContextBreakdown: input.onContextBreakdown }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
+    ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
     ...(input.requestBodyLimitBytes === undefined
       ? {}
@@ -1140,7 +1147,9 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onContextBreakdown,
     onError,
     onFinish,
+    onReplayError,
     onResponse,
+    replayRetryToken = 0,
     requestBodyLimitBytes,
     resumeApi,
     onUsage,
@@ -1156,6 +1165,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onContextBreakdown,
     onError,
     onFinish,
+    onReplayError,
     onResponse,
     onUsage,
     requestBodyLimitBytes,
@@ -1189,6 +1199,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
   );
   useAssistantRunReattachment({
     record: activeRunSession,
+    replayRetryToken,
     runtime,
     stream: replayStream,
   });

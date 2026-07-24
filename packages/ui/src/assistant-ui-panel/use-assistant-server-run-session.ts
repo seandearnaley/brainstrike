@@ -1,9 +1,10 @@
 import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
   ASSISTANT_STREAM_RESUME_PATH,
   type AssistantActiveRunSession,
 } from '@brainstrike/assistant-contract';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { assistantEndpointLogger, resolveDesktopAssistantBaseUrl } from './assistant-endpoint';
 import { readPreparedRunId, requestAssistantRunCancel } from './assistant-run-cancel';
 import {
@@ -35,10 +36,14 @@ interface AssistantServerRunSessionController {
   readonly onCancel: () => void;
   readonly onError: (error: Error) => void;
   readonly onFinish: () => void;
+  readonly onReplayError: (error: Error) => void;
   readonly onResponse: (response: Response) => void;
   readonly prepareRequest: () => Promise<Record<string, unknown> | undefined>;
+  readonly replayRetryToken: number;
   readonly resumeApi: string | undefined;
 }
+
+const MAX_ASSISTANT_REPLAY_RETRIES = 2;
 
 export function useAssistantServerRunSession({
   api,
@@ -61,6 +66,8 @@ export function useAssistantServerRunSession({
     null
   );
   const completePreparedRequestRef = useRef(completePreparedRequest);
+  const replayRetryCountRef = useRef(0);
+  const [replayRetryToken, setReplayRetryToken] = useState(0);
 
   useEffect(() => {
     activeRunSessionRef.current = activeRunSession;
@@ -111,6 +118,7 @@ export function useAssistantServerRunSession({
       void completeLatestPreparedRequest('cancelled');
       return;
     }
+    void completeLatestPreparedRequest('cancelled');
     void requestAssistantRunCancel({
       authHeaders,
       baseUrl: desktopAssistantBaseUrl,
@@ -118,12 +126,9 @@ export function useAssistantServerRunSession({
     })
       .then(() => {
         clearActiveRunSession();
-        return completeLatestPreparedRequest('cancelled');
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
         assistantEndpointLogger.error('Failed to cancel server-owned assistant run', { error });
-        return completeLatestPreparedRequest('failed', message);
       });
   }, [authHeaders, clearActiveRunSession, completeLatestPreparedRequest, desktopAssistantBaseUrl]);
 
@@ -142,19 +147,35 @@ export function useAssistantServerRunSession({
     void completeLatestPreparedRequest('completed');
   }, [clearActiveRunSession, completeLatestPreparedRequest]);
 
+  const onReplayError = useCallback((error: Error): void => {
+    if (error instanceof AssistantStreamReplayUnavailableError) {
+      return;
+    }
+    if (replayRetryCountRef.current >= MAX_ASSISTANT_REPLAY_RETRIES) {
+      assistantEndpointLogger.error('Assistant stream replay exhausted its retry budget', {
+        error,
+        retryCount: replayRetryCountRef.current,
+      });
+      return;
+    }
+    replayRetryCountRef.current += 1;
+    setReplayRetryToken((current) => current + 1);
+  }, []);
+
   const onResponse = useCallback(
     (response: Response): void => {
       if (!(threadKey && resumeApi)) {
         return;
       }
       const eventId = response.headers.get(ASSISTANT_STREAM_EVENT_ID_HEADER)?.trim();
+      const assistantMessageId = response.headers.get(ASSISTANT_STREAM_MESSAGE_ID_HEADER)?.trim();
       const runId = readPreparedRunId(preparedRequestRef.current?.data);
-      if (!(eventId && runId)) {
+      if (!(assistantMessageId && eventId && runId)) {
         throw new Error(
           'Desktop assistant response is missing the active-run replay cursor or run id.'
         );
       }
-      const record = { eventId, runId };
+      const record = { assistantMessageId, eventId, runId };
       writeAssistantActiveRunSession(threadKey, record);
       activeRunSessionRef.current = record;
     },
@@ -166,8 +187,10 @@ export function useAssistantServerRunSession({
     onCancel,
     onError,
     onFinish,
+    onReplayError,
     onResponse,
     prepareRequest,
+    replayRetryToken,
     resumeApi,
   };
 }

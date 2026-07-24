@@ -154,11 +154,13 @@ contracts keep reloaded threads identical to live ones:
    `POST /assistant/cancel` records `cancelled`.
    Renderer reload reattachment is deliberately ephemeral rather than a second
    durable run store: thread-scoped `sessionStorage` holds the server session's
-   opaque replay cursor and durable run id only while the main-process session
-   is active. Reload hydrates persisted history first, then replays that exact
-   session through `GET /assistant/resume`; it does not create another run row
-   or resend model input. Completion, failure, Stop, and a visible expired-
-   session response remove the ephemeral record.
+   opaque replay cursor, durable run id, and durable assistant message id only
+   while the main-process session is active. Reload hydrates persisted history
+   first, then replays that exact session through `GET /assistant/resume` into
+   the same assistant message and persisted parent; it does not create a
+   duplicate branch, another run row, or resend model input. Completion,
+   failure, Stop, and a visible expired-session response remove the ephemeral
+   record.
    While this graph is loading, `ChatThreadUI` disables every composer send
    path using assistant-ui's `state.thread.isLoading`. The installed runtime
    captures a new message's parent from the current in-memory tail before its

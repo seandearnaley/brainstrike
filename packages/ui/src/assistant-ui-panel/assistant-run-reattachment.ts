@@ -1,4 +1,8 @@
-import type { CreateResumeRunConfig, ThreadMessage } from '@assistant-ui/react';
+import type {
+  CreateResumeRunConfig,
+  ExportedMessageRepository,
+  ThreadMessage,
+} from '@assistant-ui/react';
 import {
   type AssistantActiveRunSession,
   isAssistantActiveRunSession,
@@ -60,7 +64,9 @@ interface ReattachableRuntime {
       readonly isRunning: boolean;
       readonly messages: readonly ThreadMessage[];
     };
+    export(): ExportedMessageRepository;
     resumeRun(config: {
+      assistantMessageId: string;
       parentId: string | null;
       runConfig: Record<string, unknown>;
       stream: NonNullable<CreateResumeRunConfig['stream']>;
@@ -71,28 +77,35 @@ interface ReattachableRuntime {
 
 export function useAssistantRunReattachment({
   record,
+  replayRetryToken,
   runtime,
   stream,
 }: {
   readonly record: AssistantActiveRunSession | undefined;
+  readonly replayRetryToken: number;
   readonly runtime: ReattachableRuntime;
   readonly stream: NonNullable<CreateResumeRunConfig['stream']>;
 }): void {
-  const attemptedEventIdRef = useRef<string | null>(null);
+  const attemptedReplayKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!record) {
-      attemptedEventIdRef.current = null;
+      attemptedReplayKeyRef.current = null;
       return;
     }
+    const replayKey = `${record.eventId}:${replayRetryToken}`;
     const attempt = (): void => {
       const state = runtime.thread.getState();
-      if (state.isLoading || state.isRunning || attemptedEventIdRef.current === record.eventId) {
+      if (state.isLoading || state.isRunning || attemptedReplayKeyRef.current === replayKey) {
         return;
       }
-      attemptedEventIdRef.current = record.eventId;
+      attemptedReplayKeyRef.current = replayKey;
+      const hydratedMessage = runtime.thread
+        .export()
+        .messages.find((item) => item.message.id === record.assistantMessageId);
       runtime.thread.resumeRun({
-        parentId: state.messages.at(-1)?.id ?? null,
+        assistantMessageId: record.assistantMessageId,
+        parentId: hydratedMessage?.parentId ?? state.messages.at(-1)?.id ?? null,
         runConfig: {},
         stream,
       });
@@ -100,5 +113,5 @@ export function useAssistantRunReattachment({
 
     attempt();
     return runtime.thread.subscribe(attempt);
-  }, [record, runtime, stream]);
+  }, [record, replayRetryToken, runtime, stream]);
 }

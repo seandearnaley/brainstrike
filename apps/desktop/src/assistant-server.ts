@@ -53,6 +53,7 @@ import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   ASSISTANT_AUTH_HEADER_NAME,
   ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
   ASSISTANT_STREAM_RESUME_PATH,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
@@ -668,6 +669,7 @@ async function streamAssistantPostResponse({
   const response = session.createResponse({
     headers: {
       [ASSISTANT_STREAM_EVENT_ID_HEADER]: `${session.id}:-1`,
+      [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: session.messageId,
     },
   });
   await streamResponse(res, response, requestSignal);
@@ -1409,7 +1411,10 @@ async function handleSuspendedRunsRequest(
 
 const ASSISTANT_CORS_ALLOWED_HEADERS =
   'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';
-const ASSISTANT_CORS_EXPOSED_HEADERS = ASSISTANT_STREAM_EVENT_ID_HEADER;
+const ASSISTANT_CORS_EXPOSED_HEADERS = [
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+].join(', ');
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
 const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
 const ASSISTANT_CORS_NULL_ORIGIN = 'null';

@@ -1016,8 +1016,10 @@ const DataStreamRuntimeChat = ({
     onCancel: serverRunSession.onCancel,
     onError: serverRunSession.onError,
     onFinish: serverRunSession.onFinish,
+    onReplayError: serverRunSession.onReplayError,
     onResponse: serverRunSession.onResponse,
     ...(serverRunSession.resumeApi ? { resumeApi: serverRunSession.resumeApi } : {}),
+    replayRetryToken: serverRunSession.replayRetryToken,
     ...(onContextBreakdown ? { onContextBreakdown } : {}),
     ...(onUsage ? { onUsage } : {}),
   });

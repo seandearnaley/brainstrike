@@ -90,6 +90,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
         })),
         getTerminalOutcome: vi.fn(() => ({ error: null, status: 'completed' })),
         id: 'session-test',
+        messageId: 'assistant-message-test',
         whenClosed: vi.fn(() => Promise.resolve()),
       })),
     },
@@ -1366,6 +1367,7 @@ describe('assistant-server', () => {
       expect(session.createResponse).toHaveBeenCalledWith({
         headers: {
           'X-Brainstrike-Assistant-Event-Id': 'session-test:-1',
+          'X-Brainstrike-Assistant-Message-Id': 'assistant-message-test',
         },
       });
     });

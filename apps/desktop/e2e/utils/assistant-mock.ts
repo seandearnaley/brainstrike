@@ -1,4 +1,7 @@
-import { ASSISTANT_STREAM_EVENT_ID_HEADER } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+} from '@brainstrike/assistant-contract';
 import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -18,10 +21,12 @@ export interface AssistantMockOptions {
 }
 
 interface AssistantMockInstallPayload {
+  readonly assistantMessageId: string;
   readonly models: Record<string, string>;
   readonly provider: string;
   readonly streamChunks: Array<{ delayMs: number; payload: string }>;
   readonly streamEventIdHeaderName: string;
+  readonly streamMessageIdHeaderName: string;
 }
 
 function installAssistantMockInPage(payload: AssistantMockInstallPayload): void {
@@ -136,6 +141,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
         'Cache-Control': 'no-store',
         'Content-Type': 'text/plain; charset=utf-8',
         [payload.streamEventIdHeaderName]: `e2e-session-${Date.now()}:-1`,
+        [payload.streamMessageIdHeaderName]: payload.assistantMessageId,
         'x-vercel-ai-data-stream': 'v1',
       },
       status: 200,
@@ -173,7 +179,10 @@ const defaultOptions: Required<AssistantMockOptions> = {
   variant: 'simple',
 };
 
-function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Array<{
+function buildAssistantStreamChunks(
+  options: Required<AssistantMockOptions>,
+  assistantMessageId: string
+): Array<{
   delayMs: number;
   payload: string;
 }> {
@@ -210,7 +219,7 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
     });
   };
 
-  enqueueChunk('f', { messageId: `msg-${Date.now()}`, path: [] });
+  enqueueChunk('f', { messageId: assistantMessageId, path: [] });
 
   switch (options.variant) {
     case 'stream-error':
@@ -274,6 +283,7 @@ export async function setupAssistantMock(
   options?: AssistantMockOptions
 ): Promise<void> {
   const merged = { ...defaultOptions, ...options };
+  const assistantMessageId = `msg-${Date.now()}`;
 
   await page.evaluate(
     async ({ provider, apiKey }) => {
@@ -286,10 +296,12 @@ export async function setupAssistantMock(
   );
 
   const installPayload: AssistantMockInstallPayload = {
+    assistantMessageId,
     models: merged.models,
     provider: merged.provider,
-    streamChunks: buildAssistantStreamChunks(merged),
+    streamChunks: buildAssistantStreamChunks(merged, assistantMessageId),
     streamEventIdHeaderName: ASSISTANT_STREAM_EVENT_ID_HEADER,
+    streamMessageIdHeaderName: ASSISTANT_STREAM_MESSAGE_ID_HEADER,
   };
 
   await page.evaluate(installAssistantMockInPage, installPayload);

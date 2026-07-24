@@ -1,0 +1,65 @@
+diff --git a/dist/runtime/api/thread-runtime.d.ts b/dist/runtime/api/thread-runtime.d.ts
+index 50d96942e1cca5dec6951c73989a1e90d5a16842..bb54d0655a75dfde0014eb6c26cf6696e1f18272 100644
+--- a/dist/runtime/api/thread-runtime.d.ts
++++ b/dist/runtime/api/thread-runtime.d.ts
+@@ -23,6 +23,7 @@ type CreateStartRunConfig = {
+   runConfig?: RunConfig | undefined;
+ };
+ type CreateResumeRunConfig = CreateStartRunConfig & {
++  assistantMessageId?: string | undefined;
+   stream?: (options: ChatModelRunOptions) => AsyncGenerator<ChatModelRunResult, void, unknown>;
+ };
+ type CreateAppendMessage = string | {
+diff --git a/dist/runtime/api/thread-runtime.js b/dist/runtime/api/thread-runtime.js
+index 5d37f2b6941af08fc8c91ce3fdeda968890bbb73..0e3d275009debdf05f7bb4d48f6e9c38767c1f87 100644
+--- a/dist/runtime/api/thread-runtime.js
++++ b/dist/runtime/api/thread-runtime.js
+@@ -8,6 +8,7 @@ const toResumeRunConfig = (message) => {
+ 		parentId: message.parentId ?? null,
+ 		sourceId: message.sourceId ?? null,
+ 		runConfig: message.runConfig ?? {},
++		...message.assistantMessageId ? { assistantMessageId: message.assistantMessageId } : {},
+ 		...message.stream ? { stream: message.stream } : {}
+ 	};
+ };
+diff --git a/dist/runtime/interfaces/thread-runtime-core.d.ts b/dist/runtime/interfaces/thread-runtime-core.d.ts
+index 1705d9b960c72830f207a996ce387a268971cecf..1df6647a6a45eb748907f0a36a965456177ce1a9 100644
+--- a/dist/runtime/interfaces/thread-runtime-core.d.ts
++++ b/dist/runtime/interfaces/thread-runtime-core.d.ts
+@@ -109,6 +109,7 @@ type StartRunConfig = {
+   runConfig: RunConfig;
+ };
+ type ResumeRunConfig = StartRunConfig & {
++  assistantMessageId?: string | undefined;
+   stream?: (options: ChatModelRunOptions) => AsyncGenerator<ChatModelRunResult, void, unknown>;
+ };
+ type ThreadRuntimeCore = Readonly<{
+diff --git a/dist/runtimes/local/local-thread-runtime-core.js b/dist/runtimes/local/local-thread-runtime-core.js
+index d491bf7c02c1a3ecb12a5724c40c497b67762457..7af8554da89449ad7d744d5242431d4b504ae5b2 100644
+--- a/dist/runtimes/local/local-thread-runtime-core.js
++++ b/dist/runtimes/local/local-thread-runtime-core.js
+@@ -196,9 +196,9 @@ var LocalThreadRuntimeCore = class extends BaseThreadRuntimeCore {
+ 		this.repository.deleteMessage(messageId);
+ 		this._notifySubscribers();
+ 	}
+-	resumeRun({ stream, ...startConfig }) {
++	resumeRun({ assistantMessageId, stream, ...startConfig }) {
+ 		if (!stream) throw new Error("You must pass a stream parameter to resume runs.");
+-		return this.startRun(startConfig, stream);
++		return this.startRun(startConfig, stream, assistantMessageId);
+ 	}
+ 	exportExternalState() {
+ 		throw new Error("Runtime does not support exporting external states.");
+@@ -206,10 +206,10 @@ var LocalThreadRuntimeCore = class extends BaseThreadRuntimeCore {
+ 	importExternalState() {
+ 		throw new Error("Runtime does not support importing external states.");
+ 	}
+-	async startRun({ parentId, runConfig }, runCallback) {
++	async startRun({ parentId, runConfig }, runCallback, assistantMessageId) {
+ 		this.ensureInitialized();
+ 		const message = {
+-			id: generateId(),
++			id: assistantMessageId ?? generateId(),
+ 			role: "assistant",
+ 			status: { type: "running" },
+ 			content: [],

@@ -320,15 +320,18 @@ the registered execution controller. Do not infer user intent from navigation,
 renderer reload, or a dropped socket.
 
 Each desktop response exposes an opaque absolute replay cursor in
-`X-Brainstrike-Assistant-Event-Id`. While the run is active, the renderer stores
-only `{eventId, runId}` in thread-scoped `sessionStorage`. After history
-hydration on renderer reload, it reconnects with
+`X-Brainstrike-Assistant-Event-Id` and the durable assistant message identity in
+`X-Brainstrike-Assistant-Message-Id`. While the run is active, the renderer
+stores only `{assistantMessageId, eventId, runId}` in thread-scoped
+`sessionStorage`. After history hydration on renderer reload, it reconnects with
 `GET /assistant/resume` plus `Last-Event-ID`; it never composes a second model
-request. A missing/expired session is a visible 404 and clears the stale
-renderer record. Terminal completion, failure, or explicit Stop clears the
-record. The endpoint base must come from the already-resolved assistant runtime
-API (`getAuth()`/`getUrl()`), never from the legacy optional `window.assistant.url`
-field alone.
+request. Replay must reuse the durable assistant message ID and its persisted
+parent rather than append a duplicate hydrated message. Transient replay
+failures receive at most two automatic retries; a missing/expired session is a
+visible 404 and clears the stale renderer record. Terminal completion, failure,
+or explicit Stop clears the record. The endpoint base must come from the
+already-resolved assistant runtime API (`getAuth()`/`getUrl()`), never from the
+legacy optional `window.assistant.url` field alone.
 
 The reasoning disclosure renders live reasoning text directly from
 `useMessagePartReasoning`. It must never nest the normal assistant text-part

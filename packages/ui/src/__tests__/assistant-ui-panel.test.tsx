@@ -741,6 +741,7 @@ describe('AssistantUiPanel model picker', () => {
       new Response(null, {
         headers: {
           'X-Brainstrike-Assistant-Event-Id': 'session-1:-1',
+          'X-Brainstrike-Assistant-Message-Id': 'assistant-1',
         },
       })
     );
@@ -749,6 +750,7 @@ describe('AssistantUiPanel model picker', () => {
         window.sessionStorage.getItem('brainstrike.assistant.active-run:thread-1') ?? 'null'
       )
     ).toEqual({
+      assistantMessageId: 'assistant-1',
       eventId: 'session-1:-1',
       runId: 'run-1',
     });
@@ -766,6 +768,7 @@ describe('AssistantUiPanel model picker', () => {
       expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
           activeRunSession: {
+            assistantMessageId: 'assistant-1',
             eventId: 'session-1:-1',
             runId: 'run-1',
           },
@@ -827,7 +830,7 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
-  it('sends an explicit desktop cancel before marking a prepared run cancelled', async () => {
+  it('marks desktop Stop cancelled before an abort error can race the cancel request', async () => {
     Object.assign(window, {
       assistant: {
         getAuth: vi.fn(async () => ({
@@ -865,10 +868,18 @@ describe('AssistantUiPanel model picker', () => {
     const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
+      onError?: (error: Error) => void;
     };
     await options.body?.();
     options.onCancel?.();
+    options.onError?.(new Error('Assistant request was aborted.'));
 
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      expect.any(Object),
+      'cancelled',
+      undefined
+    );
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         new URL('http://127.0.0.1:43123/assistant/cancel'),
@@ -876,13 +887,6 @@ describe('AssistantUiPanel model picker', () => {
           body: JSON.stringify({ runId: 'run-cancel-1' }),
           method: 'POST',
         })
-      )
-    );
-    await waitFor(() =>
-      expect(completePreparedRequest).toHaveBeenCalledWith(
-        expect.any(Object),
-        'cancelled',
-        undefined
       )
     );
     fetchMock.mockRestore();
