@@ -36,7 +36,7 @@ import {
   type RetrievalToolDependencies,
   resolveEmbeddingSet,
 } from './retrieval-tool';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantHybridSearchTool');
 
@@ -157,7 +157,7 @@ export async function runHybridSearch(
   const embeddingSetId = resolveHybridEmbeddingSetId(runtimeData, input.embeddingSetId);
   // Root resolution stays OUTSIDE the sanitizing catch: its errors are locally
   // constructed, user-actionable messages ("Open folders: ...") the model needs.
-  const root = input.root === undefined ? undefined : resolveWorkspaceRoot(runtimeData, input.root);
+  const root = resolveOptionalWorkspaceRoot(runtimeData, input.root);
 
   try {
     const db = await getDatabase();

@@ -22,7 +22,7 @@ import {
   parseGrepToolResult,
 } from './grep-search-result-contract';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
-import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
+import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
 
@@ -380,21 +380,16 @@ async function runLiveGrepSafely(args: {
 }
 
 /**
- * The roots the LIVE pass scopes to. An explicit `root` scopes to that one open
- * folder (same as the index path's `rootId` filter); omitting it covers every
- * open root (matching the index path searching all roots). A live pass that
- * cannot resolve any path-backed root yields an empty root list (live skipped).
+ * The roots the LIVE pass scopes to. An explicit `root` or durable thread
+ * binding scopes to that one open folder (same as the index path's `rootId`
+ * filter); only a genuinely unbound omission covers every open root. A live
+ * pass that cannot resolve any path-backed root yields an empty root list.
  */
 function resolveLiveRoots(
   runtimeData: RuntimeData | undefined,
-  rootInput: string | undefined
+  scopedRoot: RuntimeWorkspaceRoot | undefined
 ): RuntimeWorkspaceRoot[] {
-  if (rootInput === undefined) {
-    return getWorkspaceRoots(runtimeData);
-  }
-  // `root` was already validated by resolveWorkspaceRoot in the caller, so this
-  // re-resolution cannot throw a new error here; scope the live pass to it.
-  return [resolveWorkspaceRoot(runtimeData, rootInput)];
+  return scopedRoot ? [scopedRoot] : getWorkspaceRoots(runtimeData);
 }
 
 /** Run the INDEXED (PGlite trigram) search — unchanged behaviour, extracted for clarity. */
@@ -432,12 +427,12 @@ export async function runGrepSearch(
     resolveWorkspaceIndexEmbeddingSetId(runtimeData) ??
     undefined;
 
-  // An explicit `root` scopes the search to one open folder. Resolve it BEFORE
-  // the try/catch so an unknown/ambiguous folder surfaces its actionable
-  // "Open folders: ..." message to the model instead of the generic catch.
-  // Omitting `root` searches every root (results stay labelled either way).
-  const rootId =
-    input.root === undefined ? undefined : resolveWorkspaceRoot(runtimeData, input.root).rootId;
+  // An explicit `root` or durable thread binding scopes the search to one open
+  // folder. Resolve it BEFORE the try/catch so an unknown/ambiguous folder
+  // surfaces its actionable "Open folders: ..." message to the model instead
+  // of the generic catch. Only an unbound omission searches every root.
+  const scopedRoot = resolveOptionalWorkspaceRoot(runtimeData, input.root);
+  const rootId = scopedRoot?.rootId;
 
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
@@ -458,7 +453,7 @@ export async function runGrepSearch(
   // SAME matcher instance drives the live pass so live + indexed match
   // semantics can never diverge.
   const liveMatcher = createGrepLineMatcher(input.pattern, isRegex, caseSensitive);
-  const liveRoots = resolveLiveRoots(runtimeData, input.root);
+  const liveRoots = resolveLiveRoots(runtimeData, scopedRoot);
 
   try {
     const serviceResult = await runIndexSearch({

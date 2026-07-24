@@ -37,7 +37,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService, SecretReadError } from '../secrets';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
 
@@ -776,11 +776,10 @@ async function runRetrieval(
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
-  // An explicit `root` scopes retrieval to one open folder; resolving throws a
-  // clear "Open folders: ..." error for an unknown/ambiguous name. Omitting it
-  // searches every root (results stay labelled with their owning root).
-  const rootId =
-    input.root === undefined ? undefined : resolveWorkspaceRoot(runtimeData, input.root).rootId;
+  // An explicit `root` or durable thread binding scopes retrieval to one open
+  // folder; resolving throws a clear "Open folders: ..." error for an
+  // unknown/ambiguous name. Only an unbound omission searches every root.
+  const rootId = resolveOptionalWorkspaceRoot(runtimeData, input.root)?.rootId;
   const searchResults = await searchForChunks(
     db,
     embedding,

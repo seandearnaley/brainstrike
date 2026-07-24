@@ -67,6 +67,12 @@ export interface AssistantThreadMetadata {
   readonly icon?: AssistantThreadIconId;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
+  /** Human-readable label retained for a stable historical thread scope chip. */
+  readonly operatingRootDisplayName?: string;
+  /** Durable DB roots.id used as the authoritative native-tool binding. */
+  readonly operatingRootId?: string;
+  /** Absolute path retained for the scope chip tooltip; never used as authority. */
+  readonly operatingRootPath?: string;
   readonly provider?: string;
   readonly providerOptions?: Record<string, unknown>;
   readonly source?: string;
@@ -796,6 +802,9 @@ const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'icon',
   'model',
   'modelSettings',
+  'operatingRootDisplayName',
+  'operatingRootId',
+  'operatingRootPath',
   'provider',
   'providerOptions',
   'source',
@@ -979,6 +988,12 @@ function optionalThreadColorId(value: unknown): AssistantThreadColorId | undefin
     : undefined;
 }
 
+function assertOptionalThreadMetadataString(value: string | undefined, label: string): void {
+  if (value !== undefined && !optionalString(value)) {
+    throw new Error(`Invalid assistant thread metadata ${label}.`);
+  }
+}
+
 function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
     return;
@@ -989,6 +1004,9 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   const provider = optionalString(value['provider']);
   const model = optionalString(value['model']);
   const modelSettings = optionalRecord(value['modelSettings']);
+  const operatingRootDisplayName = optionalString(value['operatingRootDisplayName']);
+  const operatingRootId = optionalString(value['operatingRootId']);
+  const operatingRootPath = optionalString(value['operatingRootPath']);
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
 
@@ -1006,6 +1024,15 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (modelSettings) {
     metadata.modelSettings = modelSettings;
+  }
+  if (operatingRootDisplayName) {
+    metadata.operatingRootDisplayName = operatingRootDisplayName;
+  }
+  if (operatingRootId) {
+    metadata.operatingRootId = operatingRootId;
+  }
+  if (operatingRootPath) {
+    metadata.operatingRootPath = operatingRootPath;
   }
   if (providerOptions) {
     metadata.providerOptions = providerOptions;
@@ -1032,15 +1059,15 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
-  if (metadata.provider !== undefined && !optionalString(metadata.provider)) {
-    throw new Error('Invalid assistant thread metadata provider.');
-  }
-  if (metadata.model !== undefined && !optionalString(metadata.model)) {
-    throw new Error('Invalid assistant thread metadata model.');
-  }
-  if (metadata.source !== undefined && !optionalString(metadata.source)) {
-    throw new Error('Invalid assistant thread metadata source.');
-  }
+  assertOptionalThreadMetadataString(metadata.provider, 'provider');
+  assertOptionalThreadMetadataString(metadata.model, 'model');
+  assertOptionalThreadMetadataString(
+    metadata.operatingRootDisplayName,
+    'operating root display name'
+  );
+  assertOptionalThreadMetadataString(metadata.operatingRootId, 'operating root id');
+  assertOptionalThreadMetadataString(metadata.operatingRootPath, 'operating root path');
+  assertOptionalThreadMetadataString(metadata.source, 'source');
   if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
     throw new Error('Invalid assistant thread metadata model settings.');
   }

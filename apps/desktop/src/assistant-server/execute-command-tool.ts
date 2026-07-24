@@ -103,6 +103,8 @@ export interface ExecuteCommandToolResult {
   exitCode: number | null;
   /** Actionable next step when output was truncated to fit the model budget. */
   hint?: string;
+  /** Display name of the workspace root the command was resolved against. */
+  rootName: string;
   /** Terminating signal name when the process was killed (else null). */
   signal: string | null;
   /** Budget-fitted tail of captured stderr (most-recent lines win). */
@@ -202,11 +204,11 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<string> {
+): Promise<{ cwd: string; rootName: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return canonicalRootPath;
+    return { cwd: canonicalRootPath, rootName: root.displayName };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -234,7 +236,7 @@ async function resolveCommandCwd(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return canonicalCwd;
+  return { cwd: canonicalCwd, rootName: root.displayName };
 }
 
 interface SpawnOutcome {
@@ -499,8 +501,9 @@ function buildResult(args: {
   cwd: string;
   durationMs: number;
   outcome: SpawnOutcome;
+  rootName: string;
 }): ExecuteCommandToolResult {
-  const { command, cwd, durationMs, outcome } = args;
+  const { command, cwd, durationMs, outcome, rootName } = args;
   // Strip ANSI before line-splitting/budgeting so escape codes never reach the
   // model or consume the token budget.
   const stdoutLines = stripAnsi(outcome.stdout).split('\n');
@@ -553,6 +556,7 @@ function buildResult(args: {
     cwd,
     durationMs,
     exitCode: outcome.exitCode,
+    rootName,
     signal: outcome.signal,
     stderr: fittedStderr.text,
     stdout: fittedStdout.text,
@@ -582,7 +586,7 @@ export async function runExecuteCommand(
   runtimeData: RuntimeData | undefined,
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
-  const cwd = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const { cwd, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
@@ -611,5 +615,5 @@ export async function runExecuteCommand(
     });
   }
 
-  return buildResult({ command: input.command, cwd, durationMs, outcome });
+  return buildResult({ command: input.command, cwd, durationMs, outcome, rootName });
 }

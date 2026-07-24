@@ -2667,6 +2667,27 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     expect(threads[0]?.metadata).toEqual({ source: 'brainstrike' });
   });
 
+  it('round-trips the durable operating-root binding through thread metadata', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-operating-root');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a', 'Bound thread');
+
+    await repository.updateThreadMetadata(thread.id, {
+      operatingRootDisplayName: 'ProjectA',
+      operatingRootId: 'root-a',
+      operatingRootPath: '/Users/me/ProjectA',
+    });
+
+    const [reloaded] = await repository.listThreads('workspace-a');
+    expect(reloaded?.metadata).toEqual({
+      operatingRootDisplayName: 'ProjectA',
+      operatingRootId: 'root-a',
+      operatingRootPath: '/Users/me/ProjectA',
+      source: 'brainstrike',
+    });
+  });
+
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-message-carousel-topology');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

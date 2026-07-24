@@ -8,7 +8,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
 import { walkWorkspaceRoot } from './workspace-file-walk';
-import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
+import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 
@@ -154,11 +154,10 @@ export async function runGlobWorkspace(
 ): Promise<GlobWorkspaceToolResult> {
   // An explicit `root` scopes the walk to one open folder. Resolve it BEFORE the
   // walk so an unknown/ambiguous folder surfaces its actionable "Open folders:
-  // ..." message to the model. Omitting `root` enumerates every open root.
-  const roots =
-    input.root === undefined
-      ? getWorkspaceRoots(runtimeData)
-      : [resolveWorkspaceRoot(runtimeData, input.root)];
+  // ..." message to the model. Omitting `root` uses the durable thread binding
+  // when present; only an unbound historical request enumerates every root.
+  const scopedRoot = resolveOptionalWorkspaceRoot(runtimeData, input.root);
+  const roots = scopedRoot ? [scopedRoot] : getWorkspaceRoots(runtimeData);
   if (roots.length === 0) {
     throw new Error(
       'No folder is open in the workspace. Add a folder in the left file tree first.'

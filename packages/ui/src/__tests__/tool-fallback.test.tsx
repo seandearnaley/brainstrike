@@ -65,6 +65,21 @@ describe('ToolFallback', () => {
       expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
     });
 
+    it('surfaces the resolved workspace root from a native tool result', () => {
+      wrap(
+        <ToolFallback
+          {...mockBaseProps}
+          result={{ path: '/README.md', rootName: 'ProjectA' }}
+          status={{ type: 'complete' }}
+        />
+      );
+
+      expect(screen.getByText('in ProjectA')).toHaveAttribute(
+        'title',
+        'Resolved workspace root: ProjectA'
+      );
+    });
+
     it('keeps details hidden by default until expanded', async () => {
       const user = userEvent.setup();
       wrap(

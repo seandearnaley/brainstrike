@@ -4,6 +4,16 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
+Desktop assistant threads also persist their operating-root capability in the
+existing `mastra_threads.metadata` JSON (no schema migration):
+`operatingRootId` is the durable DB `roots.id`; `operatingRootDisplayName` and
+`operatingRootPath` are display-only. The first data-stream request writes the
+binding before creating the run, and later requests/resumes reuse it instead of
+reading the current global Main/Focused root. The app-shell metadata sanitizer
+and write allowlist must preserve all three fields. Server-side native tools
+validate only the id against the live root inventory; the stored path is never
+an authority or fallback.
+
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two
 contracts keep reloaded threads identical to live ones:

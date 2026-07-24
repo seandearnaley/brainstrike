@@ -574,8 +574,16 @@ Guarded failures (`tool_timeout`, `tool_failed`, `tool_input_invalid`,
 structured failure. Generic throws remain redacted as `tool_failed`; trusted
 application-owned `ToolInputError` validation failures preserve their safe,
 model-correctable message. Multi-root resolution uses that path when a
-root-qualified tool omits, misnames, or ambiguously names `root`: it never
-silently falls back to Main. The default multi-root instruction includes
+root-qualified tool misnames or ambiguously names `root`. An omitted selector
+uses `boundWorkspaceRootId` only when request preparation has durably bound the
+thread to a live DB root; without that binding, ordinary single-target tools
+retain the visible ambiguity error. Search tools whose legacy omission meant
+"all roots" narrow to the binding when one exists and retain all-root behavior
+only for genuinely unbound requests. An explicit selector for another live
+mounted root is an observable cross-root call. A stale/disconnected binding
+throws and never falls back to Main. Successful resolution logs the mode and
+safe root id/name, and native results surface `rootName` in the tool card. The
+default multi-root instruction includes
 deferred `lspInspect`, so a newly activated semantic tool receives the same
 root-qualification rule as reads and searches. Correctable multi-root errors
 list complete `displayName (id rootId)` choices within an 800-character budget;

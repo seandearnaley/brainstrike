@@ -243,6 +243,14 @@ export function summarizeResult(result: ToolResult): string | undefined {
   return;
 }
 
+export function extractResolvedRootName(result: ToolResult): string | undefined {
+  if (!(result && typeof result === 'object' && !Array.isArray(result))) {
+    return;
+  }
+  const rootName = (result as Record<string, unknown>)['rootName'];
+  return typeof rootName === 'string' && rootName.trim() ? rootName.trim() : undefined;
+}
+
 /**
  * ToolFallback renders a tool call as the most prominent element in the run:
  * a tinted card with a single-line header (status, tool name, primary
@@ -297,6 +305,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
     () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
     [isError, policy.showResultSummary, result]
   );
+  const resolvedRootName = useMemo(() => extractResolvedRootName(result), [result]);
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
@@ -357,6 +366,14 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         {resultSummary ? (
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
             {resultSummary}
+          </span>
+        ) : null}
+        {resolvedRootName ? (
+          <span
+            className="max-w-36 shrink-0 truncate text-[11px] text-muted-foreground"
+            title={`Resolved workspace root: ${resolvedRootName}`}
+          >
+            in {resolvedRootName}
           </span>
         ) : null}
         {isRunning || isError ? null : (

@@ -125,6 +125,99 @@ describe('useAssistantRequestLifecycle', () => {
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
   });
 
+  it('persists the first explicit thread root and pins the prepared run to it', async () => {
+    const persistThreadRootBinding = vi.fn(async () => {});
+    const repository = createRepositoryStub({
+      createThreadRun: vi.fn(async (input) => ({
+        ...input,
+        createdAt: 0,
+        id: 'run-root-bound',
+        status: 'running',
+      })),
+    });
+    const { result } = renderHook(() =>
+      useAssistantRequestLifecycle({
+        assistantThreadRepository: repository,
+        focusedRootId: 'root-b',
+        memoryResourceId: 'workspace-a',
+        modelSettings: undefined,
+        permissionEnforceable: false,
+        persistThreadRootBinding,
+        planModeAvailable: false,
+        providerOptions: undefined,
+        requestData: baseRequestData,
+        resolvedModelName: 'gpt-5.2',
+        selectedMemoryThreadId: 'thread-a',
+        selectedProvider: 'openai',
+        threadRootBinding: {
+          displayName: 'ProjectA',
+          path: '/workspace-a',
+          persisted: false,
+          rootId: 'root-a',
+        },
+      })
+    );
+
+    const prepared = await act(async () => result.current.prepareRequestData());
+
+    expect(persistThreadRootBinding).toHaveBeenCalledWith({
+      displayName: 'ProjectA',
+      path: '/workspace-a',
+      rootId: 'root-a',
+    });
+    expect(prepared).toMatchObject({
+      boundWorkspaceRootId: 'root-a',
+      mainRootId: 'root-a',
+      mainRootPath: '/workspace-a',
+    });
+  });
+
+  it('keeps the first run root across an approval-style second preparation', async () => {
+    const persistThreadRootBinding = vi.fn(async () => {});
+    interface RootBindingProps {
+      readonly rootId: string;
+    }
+    const { result, rerender } = renderHook(
+      ({ rootId }: RootBindingProps) =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: createRepositoryStub({
+            createThreadRun: vi.fn(async (input) => ({
+              ...input,
+              createdAt: 0,
+              id: `run-${rootId}`,
+              status: 'running',
+            })),
+          }),
+          focusedRootId: rootId,
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          persistThreadRootBinding,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+          threadRootBinding: {
+            displayName: rootId,
+            path: `/${rootId}`,
+            persisted: false,
+            rootId,
+          },
+        }),
+      { initialProps: { rootId: 'root-a' } }
+    );
+
+    const first = await act(async () => result.current.prepareRequestData());
+    rerender({ rootId: 'root-b' });
+    const resumed = await act(async () => result.current.prepareRequestData());
+
+    expect(first['boundWorkspaceRootId']).toBe('root-a');
+    expect(resumed['boundWorkspaceRootId']).toBe('root-a');
+    expect(persistThreadRootBinding).toHaveBeenCalledTimes(1);
+  });
+
   it('snapshots the request-start model/provider/root so usage is attributed to the run that produced the tokens, not a later picker/focus change', async () => {
     const repository = createRepositoryStub({
       createThreadRun: vi.fn(async (input) => ({

@@ -13,6 +13,7 @@ import {
 
 interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
+  readonly boundWorkspaceRootId?: string | undefined;
   readonly enabledNativeToolIds: readonly string[];
   /**
    * Opt-in hook-trust attestation; only set on the desktop data-stream
@@ -79,6 +80,7 @@ interface UseAssistantThreadRequestDataResult {
 
 export function useAssistantThreadRequestData({
   agentLoopSettings,
+  boundWorkspaceRootId,
   enabledNativeToolIds,
   hostedMemoryBackendAvailable,
   hookTrustRequest,
@@ -113,6 +115,7 @@ export function useAssistantThreadRequestData({
     () =>
       buildAssistantRequestData({
         agentLoopSettings,
+        ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         enabledNativeToolIds,
         hookTrustRequest,
         hostedMemoryBackendAvailable,
@@ -136,6 +139,7 @@ export function useAssistantThreadRequestData({
       }),
     [
       agentLoopSettings,
+      boundWorkspaceRootId,
       enabledNativeToolIds,
       hookTrustRequest,
       hostedMemoryBackendAvailable,

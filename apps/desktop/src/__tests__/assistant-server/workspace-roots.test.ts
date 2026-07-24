@@ -78,6 +78,40 @@ describe('resolveWorkspaceRoot', () => {
     );
   });
 
+  it('binds an omitted qualifier to the request-start thread root', () => {
+    expect(
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toEqual(ROOT_B);
+  });
+
+  it('preserves an explicit mounted-root override outside the bound thread root', () => {
+    expect(
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-a',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        }),
+        'root-b'
+      )
+    ).toEqual(ROOT_B);
+  });
+
+  it('fails visibly when the bound thread root is no longer live', () => {
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-gone',
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toThrow(/bound workspace root.*root-gone.*no longer open/i);
+  });
+
   it('formats an oversized first root without a leading overflow delimiter', () => {
     const oversized = {
       displayName: 'Project',
@@ -225,6 +259,29 @@ describe('markRootDisconnectedByPath', () => {
     };
     await expect(markRootDisconnectedByPath(db, '/Users/me/ProjectA')).rejects.toThrow('db down');
   });
+
+  it('revokes an in-flight runtime snapshot as soon as its root disconnects', async () => {
+    const root = {
+      displayName: 'Revoked',
+      path: '/Users/me/Revoked',
+      rootId: 'root-revoked-during-run',
+    };
+    const runtimeSnapshot = runtime({
+      boundWorkspaceRootId: root.rootId,
+      workspaceRoots: [root, ROOT_B],
+    });
+
+    expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(root);
+    await markRootDisconnectedByPath(mockDb([{ id: root.rootId }]), root.path);
+    expect(() => resolveWorkspaceRoot(runtimeSnapshot)).toThrow(/disconnected during this run/i);
+
+    // A later authoritative live-root load represents reconnect/reconciliation
+    // and makes the same durable id usable again.
+    await loadWorkspaceRootsFromDatabase(
+      mockDb([{ displayName: root.displayName, id: root.rootId, path: root.path }])
+    );
+    expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(root);
+  });
 });
 
 describe('markRootsDisconnectedExcept (boot convergence)', () => {
@@ -306,6 +363,22 @@ describe('orderWorkspaceRoots (client-declared MAIN root reorder)', () => {
 });
 
 describe('enrichRuntimeDataWithWorkspaceRoots', () => {
+  it('orders the durable thread binding ahead of a later global Main root', async () => {
+    const enriched = await enrichRuntimeDataWithWorkspaceRoots(
+      runtime({
+        boundWorkspaceRootId: 'root-b',
+        mainRootId: 'root-a',
+        workspaceRootPath: '/Users/me/ProjectA',
+      }),
+      mockDb([
+        { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+        { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+      ])
+    );
+
+    expect(enriched?.workspaceRoots).toEqual([ROOT_B, ROOT_A]);
+  });
+
   it('reorders DB roots so the client-declared main root is first', async () => {
     const db = mockDb([
       { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },

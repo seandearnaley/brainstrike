@@ -57,12 +57,45 @@ import type {
   ComposerAttachmentsAvailability,
 } from '@brainstrike/ui/assistant-ui-panel';
 import type {
+  AssistantThreadMetadata,
   AssistantThreadRepository,
   AssistantThreadRunRecord,
   AssistantThreadRuntimeKind,
 } from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
+
+export interface AssistantOperatingRootBinding {
+  readonly displayName: string;
+  readonly path?: string | undefined;
+  readonly persisted: boolean;
+  readonly rootId: string;
+}
+
+export function resolveAssistantOperatingRootBinding(args: {
+  readonly currentMainRoot?: Omit<AssistantOperatingRootBinding, 'persisted'> | undefined;
+  readonly threadMetadata?: AssistantThreadMetadata | undefined;
+}): AssistantOperatingRootBinding | undefined {
+  const metadata = args.threadMetadata;
+  const hasPersistedRootMetadata = Boolean(
+    metadata?.operatingRootId || metadata?.operatingRootDisplayName || metadata?.operatingRootPath
+  );
+  if (
+    hasPersistedRootMetadata &&
+    !(metadata?.operatingRootId && metadata.operatingRootDisplayName)
+  ) {
+    throw new Error('Assistant thread operating-root metadata is incomplete.');
+  }
+  if (metadata?.operatingRootId && metadata.operatingRootDisplayName) {
+    return {
+      displayName: metadata.operatingRootDisplayName,
+      ...(metadata.operatingRootPath ? { path: metadata.operatingRootPath } : {}),
+      persisted: true,
+      rootId: metadata.operatingRootId,
+    };
+  }
+  return args.currentMainRoot ? { ...args.currentMainRoot, persisted: false } : undefined;
+}
 
 export function resolveAdvertisedNativeToolIds(args: {
   desktopBridgeAvailable: boolean;
@@ -228,6 +261,8 @@ export function createAssistantThreadRunPromise(args: {
 
 export function buildAssistantRequestData(args: {
   agentLoopSettings: RuntimeData['agentLoop'] | undefined;
+  /** Durable thread-scoped operating root, validated by the desktop server. */
+  boundWorkspaceRootId?: string | undefined;
   enabledNativeToolIds: readonly string[];
   hookTrustRequest?: HookTrustRequest | undefined;
   hostedMemoryBackendAvailable: boolean;
@@ -296,6 +331,9 @@ export function buildAssistantRequestData(args: {
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {};
+  if (args.boundWorkspaceRootId) {
+    data['boundWorkspaceRootId'] = args.boundWorkspaceRootId;
+  }
   if (args.selectionData.filePaths.length > 0) {
     data['selectionFilePaths'] = args.selectionData.filePaths;
   }
