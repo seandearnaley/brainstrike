@@ -4,7 +4,10 @@ import {
   mapDiagnosticEventRow,
 } from '@brainstrike/db';
 import type { LogSourceAdapter } from '@brainstrike/preferences';
-import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
+import {
+  type DiagnosticEvent,
+  serializeDiagnosticEventsNdjson,
+} from '@brainstrike/utils/diagnostics';
 import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 
 /**
@@ -91,6 +94,16 @@ function createFailureRecord(error: unknown): LogRecord {
   };
 }
 
+/**
+ * `LogSourceAdapter` widened with the NDJSON export affordance (Flight
+ * Recorder P2a Task 6). Web has no filesystem, so this in-memory string is
+ * the honest web equivalent of the desktop rotating
+ * `brainstrike-errors.ndjson` file (design doc §7).
+ */
+export type DurableLogSource = LogSourceAdapter & {
+  exportNdjson(): Promise<string>;
+};
+
 export interface CreateDurableLogSourceOptions {
   readonly clearInterval?: typeof globalThis.clearInterval;
   readonly db: DiagnosticEventsDatabase;
@@ -99,7 +112,7 @@ export interface CreateDurableLogSourceOptions {
   readonly setInterval?: typeof globalThis.setInterval;
 }
 
-export function createDurableLogSource(options: CreateDurableLogSourceOptions): LogSourceAdapter {
+export function createDurableLogSource(options: CreateDurableLogSourceOptions): DurableLogSource {
   const { db } = options;
   const limit = options.limit ?? DURABLE_LOG_SOURCE_MAX_ROWS;
   const pollMs = options.pollMs ?? DURABLE_LOG_SOURCE_POLL_MS;
@@ -111,12 +124,33 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
   // (not a minimum), so it cannot serve a 2000-row warn-and-above view. The
   // row mapping is still reused from the repository (`mapDiagnosticEventRow`)
   // to avoid duplicating it here.
-  async function loadRecordsAscending(): Promise<LogRecord[]> {
+  //
+  // Single source of truth for both the viewer and the NDJSON export
+  // (Task 6): `loadEventsAscending` is the one bounded query, and both
+  // `loadRecordsAscending` (viewer) and `exportNdjson` (download) derive
+  // from it rather than issuing a second, potentially divergent query.
+  async function loadEventsAscending(): Promise<DiagnosticEvent[]> {
     const result = await db.query<DiagnosticEventRow>(
       `SELECT * FROM ${TABLE} WHERE severity IN ('warn', 'error', 'fatal') ORDER BY occurred_at DESC, id DESC LIMIT $1`,
       [limit]
     );
-    return result.rows.map(mapDiagnosticEventRow).map(diagnosticEventToLogRecord).toReversed();
+    return result.rows.map(mapDiagnosticEventRow).toReversed();
+  }
+
+  async function loadRecordsAscending(): Promise<LogRecord[]> {
+    const events = await loadEventsAscending();
+    return events.map(diagnosticEventToLogRecord);
+  }
+
+  // Deliberately no try/catch here, unlike `loadRecordsAscending` (which
+  // falls back to a synthetic WARN record so the viewer never throws): a
+  // rejected export must propagate so the caller (the settings section's
+  // export button handler) can surface it visibly via toast, per the "no
+  // silent fallbacks" rule. Swallowing it into an NDJSON line would make a
+  // failed export look like a successful-but-empty one.
+  async function exportNdjson(): Promise<string> {
+    const events = await loadEventsAscending();
+    return serializeDiagnosticEventsNdjson(events);
   }
 
   async function getInitialRecords(): Promise<readonly LogRecord[]> {
@@ -166,5 +200,5 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
     };
   }
 
-  return { getInitialRecords, subscribe };
+  return { exportNdjson, getInitialRecords, subscribe };
 }

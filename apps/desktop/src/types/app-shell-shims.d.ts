@@ -80,9 +80,16 @@ declare module '@brainstrike/app-shell/diagnostics' {
   export function getDiagnosticSessionId(): string;
 
   /**
+   * See: packages/app-shell/src/diagnostics/durable-log-source.ts
+   */
+  export type DurableLogSource = LogSourceAdapter & {
+    exportNdjson(): Promise<string>;
+  };
+
+  /**
    * See: packages/app-shell/src/diagnostics/use-durable-log-source.ts
    */
-  export function useDurableLogSource(): LogSourceAdapter | undefined;
+  export function useDurableLogSource(): DurableLogSource | undefined;
 }
 
 declare module '@brainstrike/app-shell/settings-page-content' {

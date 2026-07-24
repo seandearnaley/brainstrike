@@ -1,5 +1,9 @@
 import type { DiagnosticEventsDatabase } from '@brainstrike/db';
-import type { DiagnosticEvent, DiagnosticSeverity } from '@brainstrike/utils/diagnostics';
+import {
+  type DiagnosticEvent,
+  type DiagnosticSeverity,
+  parseDiagnosticEventLine,
+} from '@brainstrike/utils/diagnostics';
 import { LogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -396,5 +400,59 @@ describe('createDurableLogSource', () => {
     expect(source.subscribe).toBe(subscribe);
     expect(source.getInitialRecords).toBe(source.getInitialRecords);
     expect(source.subscribe).toBe(source.subscribe);
+  });
+});
+
+describe('createDurableLogSource exportNdjson', () => {
+  it('returns newline-delimited lines that each parse back via parseDiagnosticEventLine, ending with one trailing newline', async () => {
+    const rows = [
+      makeRow('evt-2', { occurred_at: '2026-07-23T12:00:02.000Z' }),
+      makeRow('evt-1', { occurred_at: '2026-07-23T12:00:01.000Z' }),
+    ];
+    const { db } = makeStubDb(() => rows);
+    const source = createDurableLogSource({ db });
+
+    const ndjson = await source.exportNdjson();
+
+    expect(ndjson.endsWith('\n')).toBe(true);
+    expect(ndjson.endsWith('\n\n')).toBe(false);
+    const lines = ndjson.split('\n').filter((line) => line.length > 0);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(parseDiagnosticEventLine(line)).not.toBeNull();
+    }
+    // Same ascending (oldest-first) order as getInitialRecords, since both
+    // reuse the same bounded query.
+    const parsedIds = lines.map((line) => parseDiagnosticEventLine(line)?.id);
+    expect(parsedIds).toEqual(['evt-1', 'evt-2']);
+  });
+
+  it('returns an empty string for an empty result set', async () => {
+    const { db } = makeStubDb(() => []);
+    const source = createDurableLogSource({ db });
+
+    const ndjson = await source.exportNdjson();
+
+    expect(ndjson).toBe('');
+  });
+
+  it('issues the same bounded query (severity filter + limit) as getInitialRecords', async () => {
+    const { calls, db } = makeStubDb(() => []);
+    const source = createDurableLogSource({ db, limit: 250 });
+
+    await source.exportNdjson();
+
+    expect(calls).toHaveLength(1);
+    const sql = calls[0]?.sql ?? '';
+    expect(sql).toContain('brainstrike_diagnostic_events');
+    expect(sql).toMatch(/severity IN \('warn', ?'error', ?'fatal'\)/);
+    expect(calls[0]?.params).toEqual([250]);
+  });
+
+  it('propagates a query rejection instead of swallowing it, so the caller can surface it visibly', async () => {
+    const { db } = makeRejectingDb(new Error('connection refused'));
+    const source = createDurableLogSource({ db });
+
+    await expect(source.exportNdjson()).rejects.toThrow('connection refused');
   });
 });

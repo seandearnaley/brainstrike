@@ -226,7 +226,6 @@ export function DesktopLoggingSettings() {
   return (
     <LoggingSettingsSection
       busy={syncing}
-      durableLogSource={durableLogSource}
       fileCapabilities={fileCapabilities}
       logSource={logSource}
       onCommitPreferences={commitPreferences}
@@ -234,6 +233,12 @@ export function DesktopLoggingSettings() {
       onResetPreferences={resetPreferences}
       onSelectLogDestination={selectDestination}
       runtime="electron-renderer"
+      {...(durableLogSource === undefined
+        ? {}
+        : {
+            durableLogSource,
+            onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+          })}
     />
   );
 }

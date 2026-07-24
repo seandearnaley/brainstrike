@@ -203,7 +203,12 @@ export default function SettingsPageContent() {
           <LoggingSettingsSection
             logSource={logSource}
             runtime="browser"
-            {...(durableLogSource === undefined ? {} : { durableLogSource })}
+            {...(durableLogSource === undefined
+              ? {}
+              : {
+                  durableLogSource,
+                  onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+                })}
           />
         ),
         description: 'Control browser log verbosity and redaction for debugging.',

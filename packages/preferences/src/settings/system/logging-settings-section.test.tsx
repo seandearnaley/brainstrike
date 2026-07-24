@@ -2,7 +2,7 @@ import { LogLevel, type LogRecord } from '@brainstrike/utils';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection, type LogSourceAdapter } from './logging-settings-section';
 
 // Mock virtualizer to render all items for testing
@@ -25,6 +25,20 @@ vi.mock('@tanstack/react-virtual', async () => {
       scrollToIndex: () => {},
     }),
   };
+});
+
+const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }));
+
+// Override only `useToast`; keep every other real export (the export-button
+// failure test needs to observe the toast call, and the real `use-toast.ts`
+// module doesn't render into the DOM without a mounted `<Toaster />`).
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useToast: () => ({ dismiss: vi.fn(), toast: toastMock, toasts: [] }),
+}));
+
+beforeEach(() => {
+  toastMock.mockReset();
 });
 
 beforeAll(() => {
@@ -175,5 +189,134 @@ describe('LoggingSettingsSection log source switch', () => {
     await waitFor(() => {
       expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
     });
+  });
+});
+
+describe('LoggingSettingsSection export NDJSON button', () => {
+  async function selectPersistentSource() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByText('Persistent errors'));
+    return user;
+  }
+
+  it('is absent for the session source', () => {
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        onExportDurableNdjson={vi.fn(async () => '')}
+        runtime="browser"
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
+  });
+
+  it('is present once the persistent source is selected', async () => {
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        onExportDurableNdjson={vi.fn(async () => '')}
+        runtime="browser"
+      />
+    );
+
+    await selectPersistentSource();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /export ndjson/i })).toBeInTheDocument();
+    });
+  });
+
+  it('stays absent in persistent mode when onExportDurableNdjson is not supplied', async () => {
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        runtime="browser"
+      />
+    );
+
+    await selectPersistentSource();
+
+    await waitFor(() => {
+      expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking it invokes the export and triggers a Blob-anchor download', async () => {
+    const ndjsonPayload = '{"id":"evt-1"}\n';
+    const onExportDurableNdjson = vi.fn(async () => ndjsonPayload);
+
+    let exportedBlob: Blob | null = null;
+    const createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockImplementation((blob: Blob | MediaSource) => {
+        exportedBlob = blob as Blob;
+        return 'blob:ndjson-export';
+      });
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    try {
+      render(
+        <LoggingSettingsSection
+          durableLogSource={createLogSource([])}
+          logSource={createLogSource([])}
+          onExportDurableNdjson={onExportDurableNdjson}
+          runtime="browser"
+        />
+      );
+
+      const user = await selectPersistentSource();
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      await user.click(exportButton);
+
+      await waitFor(() => expect(onExportDurableNdjson).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(createObjectUrlSpy).toHaveBeenCalledTimes(1));
+      expect(exportedBlob).not.toBeNull();
+      expect((exportedBlob as unknown as Blob).type).toBe('application/x-ndjson');
+      expect(await (exportedBlob as unknown as Blob).text()).toBe(ndjsonPayload);
+      expect(anchorClickSpy).toHaveBeenCalledTimes(1);
+      expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:ndjson-export');
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
+  it('surfaces a rejected export visibly via toast instead of failing silently', async () => {
+    const onExportDurableNdjson = vi.fn(async () => {
+      throw new Error('database unavailable');
+    });
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={createLogSource([])}
+        logSource={createLogSource([])}
+        onExportDurableNdjson={onExportDurableNdjson}
+        runtime="browser"
+      />
+    );
+
+    const user = await selectPersistentSource();
+    const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+    await user.click(exportButton);
+
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: 'database unavailable',
+          title: 'Failed to export diagnostics',
+          variant: 'destructive',
+        })
+      )
+    );
   });
 });

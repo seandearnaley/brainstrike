@@ -1,12 +1,12 @@
 import { useOptionalPGliteDatabase } from '@brainstrike/db';
-import type { LogSourceAdapter } from '@brainstrike/preferences';
 import { useMemo } from 'react';
-import { createDurableLogSource } from './durable-log-source';
+import { createDurableLogSource, type DurableLogSource } from './durable-log-source';
 
 /**
  * Renderer-side hook (Flight Recorder P2a) that exposes the durable
- * `brainstrike_diagnostic_events` table as a `LogSourceAdapter` for the
- * settings Log Viewer's "Persistent errors" source.
+ * `brainstrike_diagnostic_events` table as a `DurableLogSource` (a
+ * `LogSourceAdapter` widened with `exportNdjson()`, Task 6) for the settings
+ * Log Viewer's "Persistent errors" source.
  *
  * Capability by composition, not `isElectron()`: `useOptionalPGliteDatabase()`
  * returns `null` until a PGlite database handle is ready, in which case this
@@ -22,7 +22,7 @@ import { createDurableLogSource } from './durable-log-source';
  * unstable adapter would re-subscribe (and restart polling) on every
  * render, the same hazard the desktop `forwardedRecords` prop hit in P1.
  */
-export function useDurableLogSource(): LogSourceAdapter | undefined {
+export function useDurableLogSource(): DurableLogSource | undefined {
   const db = useOptionalPGliteDatabase();
   return useMemo(() => (db ? createDurableLogSource({ db }) : undefined), [db]);
 }

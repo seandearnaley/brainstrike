@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import { FolderOpen, RefreshCw } from 'lucide-react';
+import { Download, FolderOpen, RefreshCw } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../../stores/logging-preferences-store';
 import { type LogSourceAdapter, LogViewer } from './log-viewer-components/log-viewer';
@@ -48,6 +48,18 @@ export interface LoggingSettingsSectionProps {
   onCommitPreferences?: (
     preferences: LoggingPreferences
   ) => Promise<LoggingPreferences | undefined>;
+  /**
+   * Exports the durable source's bounded query as NDJSON text (Flight
+   * Recorder P2a Task 6) for the "Export NDJSON" button, rendered only when
+   * both this and `durableLogSource` are present and Persistent errors is
+   * selected. Threaded as a standalone callback rather than widening
+   * `durableLogSource` to `app-shell`'s `DurableLogSource` type: `app-shell`
+   * already depends on `preferences`, so importing app-shell's type here
+   * would be circular. Callers that build `durableLogSource` from
+   * `useDurableLogSource()` (which returns the widened adapter) pass
+   * `() => durableLogSource.exportNdjson()` for this prop.
+   */
+  onExportDurableNdjson?: () => Promise<string>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   onSelectLogDestination?: () => Promise<string | null>;
@@ -90,6 +102,7 @@ export function LoggingSettingsSection({
   onResetPreferences,
   logSource,
   durableLogSource,
+  onExportDurableNdjson,
 }: LoggingSettingsSectionProps) {
   const preferences = useLoggingPreferencesStore((state) => state.preferences);
   const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
@@ -253,6 +266,38 @@ export function LoggingSettingsSection({
     [fileCapabilities?.defaultDestination, preferences.file.destination]
   );
 
+  // Mirrors `handleExportLogs` in log-viewer.tsx: Blob -> object URL ->
+  // anchor click -> revoke. This is the honest web equivalent of the
+  // desktop rotating `brainstrike-errors.ndjson` file (design doc §7). The
+  // export promise is awaited unwrapped (no try/catch inside
+  // `onExportDurableNdjson` itself) so a query rejection surfaces here and
+  // gets a visible toast rather than silently producing an empty download.
+  const handleExportDurableNdjson = useCallback(async () => {
+    if (!onExportDurableNdjson) {
+      return;
+    }
+    try {
+      const ndjson = await onExportDurableNdjson();
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const blob = new Blob([ndjson], { type: 'application/x-ndjson' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `brainstrike-errors-${new Date().toISOString()}.ndjson`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        description: message,
+        title: 'Failed to export diagnostics',
+        variant: 'destructive',
+      });
+    }
+  }, [onExportDurableNdjson, toast]);
+
   return (
     <div className="space-y-6">
       <GeneralLoggingCard
@@ -288,18 +333,26 @@ export function LoggingSettingsSection({
               events stored in the database.
             </p>
           </div>
-          <Select
-            onValueChange={(value) => setLogSourceMode(value as LogSourceMode)}
-            value={logSourceMode}
-          >
-            <SelectTrigger className="w-[200px]" id="log-source-mode">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="session">Session</SelectItem>
-              <SelectItem value="persistent">Persistent errors</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select
+              onValueChange={(value) => setLogSourceMode(value as LogSourceMode)}
+              value={logSourceMode}
+            >
+              <SelectTrigger className="w-[200px]" id="log-source-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="session">Session</SelectItem>
+                <SelectItem value="persistent">Persistent errors</SelectItem>
+              </SelectContent>
+            </Select>
+            {usingDurableLogSource && onExportDurableNdjson ? (
+              <Button onClick={handleExportDurableNdjson} size="sm" type="button" variant="outline">
+                <Download aria-hidden="true" className="mr-2 h-4 w-4" />
+                Export NDJSON
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
       <LogViewer

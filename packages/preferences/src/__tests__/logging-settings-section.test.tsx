@@ -14,6 +14,7 @@ import {
 const toastSpy = vi.fn();
 
 vi.mock('lucide-react', () => ({
+  Download: () => <span>Download Icon</span>,
   FolderOpen: () => <span>Open destination</span>,
   RefreshCw: () => <span>Reset Icon</span>,
 }));
@@ -299,5 +300,23 @@ describe('LoggingSettingsSection', () => {
 
     expect(screen.getByRole('button', { name: 'Session' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Persistent errors' })).toBeInTheDocument();
+  });
+
+  it('does not render an export button while Session is selected', () => {
+    const durableLogSource: LogSourceAdapter = {
+      getInitialRecords: async () => [],
+      subscribe: () => vi.fn(),
+    };
+
+    render(
+      <LoggingSettingsSection
+        durableLogSource={durableLogSource}
+        onCommitPreferences={vi.fn()}
+        onExportDurableNdjson={vi.fn(async () => '')}
+        runtime="browser"
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
   });
 });
