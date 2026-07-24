@@ -84,7 +84,13 @@ describe('app-shell assistant contract boundary', () => {
     // disabled-reason composition boundary without adding runtime ownership.
     // BST-697 adds only the OpenRouter defaults hook call; policy and mutation
     // remain isolated in the hook and model-registry store action.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1645);
+    // Bumped 1645 → 1660 for the "Copy debug bundle" binding (Task 9, Flight
+    // Recorder capstone): the wrapper only calls useDebugBundleBinding and
+    // mounts <DebugBundleProvider>; the runId detection, phase machine, and
+    // collect/format logic all live in packages/ui
+    // (copy-debug-bundle-button.tsx / debug-bundle-context.tsx) and
+    // diagnostics/debug-bundle.ts.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1660);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
