@@ -9,7 +9,7 @@ import {
   assertLoggingPreferences,
   LOGGING_API_CHANNELS,
 } from './platform/logging-api-contract';
-import { getWindowRoleByWebContentsId } from './window-role';
+import { getWindowRoleByWebContentsId, resolveSourceWindowRole } from './window-role';
 
 const logger = createLogger('LoggingIPC');
 
@@ -139,7 +139,7 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
         ...record,
         bindings: {
           ...record.bindings,
-          sourceWindowRole: getWindowRoleByWebContentsId(event.sender.id) ?? 'hidden-host',
+          sourceWindowRole: resolveSourceWindowRole(event.sender.id),
         },
       };
       pushDurableRecordToVisibleWindow(enrichedRecord);

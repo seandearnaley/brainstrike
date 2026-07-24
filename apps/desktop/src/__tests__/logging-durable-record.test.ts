@@ -328,6 +328,35 @@ describe('recordDurableLog handler', () => {
     );
   });
 
+  // Regression for a sourceWindowRole fallback divergence: `logging-ipc.ts`'s
+  // durable-push enrichment (asserted here) and `main.ts`'s buffered-log
+  // ingest handler independently defaulted an UNTRACKED sender to different
+  // literals ('hidden-host' vs 'visible-ui'), so the same forwarded record
+  // disagreed with itself between the durable NDJSON/DB view and the
+  // session/buffered view. Both call sites now route through the single
+  // `resolveSourceWindowRole` (window-role.ts), pinned directly by
+  // window-role.test.ts's `resolveSourceWindowRole` suite — this test pins
+  // that THIS choke point produces the shared safe default ('hidden-host',
+  // never 'visible-ui') for a sender this process never assigned a role to.
+  it('defaults sourceWindowRole to the shared safe fallback for an UNTRACKED sender, never claiming visible-ui', () => {
+    const recordDurableLog = vi.fn();
+    const handlers = createMockHandlers({ recordDurableLog });
+    cleanup = registerLoggingIpcHandlers(handlers);
+    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const untrackedSenderId = 9_999_999;
+    const mockEvent = { sender: { id: untrackedSenderId } } as unknown as IpcMainEvent;
+
+    listener(mockEvent, createValidLogRecord({ level: LogLevel.ERROR }));
+
+    expect(recordDurableLog).toHaveBeenCalledTimes(1);
+    expect(recordDurableLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bindings: expect.objectContaining({ sourceWindowRole: 'hidden-host' }),
+        level: LogLevel.ERROR,
+      })
+    );
+  });
+
   it('is not invoked for an INFO record ingested from a hidden host', () => {
     const recordDurableLog = vi.fn();
     const handlers = createMockHandlers({ recordDurableLog });

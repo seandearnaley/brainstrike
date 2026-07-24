@@ -3,7 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LoggingSettingsSection, type LogSourceAdapter } from './logging-settings-section';
+import {
+  type DurableNdjsonExportResult,
+  LoggingSettingsSection,
+  type LogSourceAdapter,
+} from './logging-settings-section';
 
 // Mock virtualizer to render all items for testing
 vi.mock('@tanstack/react-virtual', async () => {
@@ -61,6 +65,25 @@ function createLogSource(records: readonly LogRecord[]): LogSourceAdapter {
       handler(records);
       return vi.fn();
     },
+  };
+}
+
+/** Builds an `onExportDurableNdjson` resolution. Defaults to an untruncated
+ * export whose `exportedCount`/`totalCount` are derived from the NDJSON
+ * payload's line count, matching what a real `exportNdjson()` call would
+ * report for a non-truncated result — override to pin the truncated case. */
+function makeExportResult(
+  ndjson: string,
+  overrides: Partial<Omit<DurableNdjsonExportResult, 'ndjson'>> = {}
+): DurableNdjsonExportResult {
+  const lineCount =
+    ndjson.length === 0 ? 0 : ndjson.split('\n').filter((line) => line.length > 0).length;
+  const exportedCount = overrides.exportedCount ?? lineCount;
+  return {
+    exportedCount,
+    ndjson,
+    totalCount: overrides.totalCount ?? exportedCount,
+    truncated: overrides.truncated ?? false,
   };
 }
 
@@ -205,7 +228,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       <LoggingSettingsSection
         durableLogSource={createLogSource([])}
         logSource={createLogSource([])}
-        onExportDurableNdjson={vi.fn(async () => '')}
+        onExportDurableNdjson={vi.fn(async () => makeExportResult(''))}
         runtime="browser"
       />
     );
@@ -218,7 +241,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       <LoggingSettingsSection
         durableLogSource={createLogSource([])}
         logSource={createLogSource([])}
-        onExportDurableNdjson={vi.fn(async () => '')}
+        onExportDurableNdjson={vi.fn(async () => makeExportResult(''))}
         runtime="browser"
       />
     );
@@ -249,7 +272,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
 
   it('clicking it invokes the export and triggers a Blob-anchor download', async () => {
     const ndjsonPayload = '{"id":"evt-1"}\n';
-    const onExportDurableNdjson = vi.fn(async () => ndjsonPayload);
+    const onExportDurableNdjson = vi.fn(async () => makeExportResult(ndjsonPayload));
 
     let exportedBlob: Blob | null = null;
     const createObjectUrlSpy = vi
@@ -291,6 +314,65 @@ describe('LoggingSettingsSection export NDJSON button', () => {
     }
   });
 
+  // Pins FIX 4 (no silent caps): a truncated export must say so in BOTH the
+  // downloaded filename and a visible toast, per docs/agents/platform-
+  // contracts.md's P2a section and AGENTS.md's "no silent caps" rule.
+  it('suffixes the filename and shows a truncation toast with the N of M counts when the export was truncated', async () => {
+    const ndjsonPayload = '{"id":"evt-1"}\n';
+    const onExportDurableNdjson = vi.fn(async () =>
+      makeExportResult(ndjsonPayload, { exportedCount: 2000, totalCount: 5000, truncated: true })
+    );
+
+    // Same pattern as packages/app-shell/src/__tests__/use-export-handlers.test.ts:
+    // a real anchor element stands in for every `document.createElement('a')`
+    // call so `anchor.download` can be inspected directly, without fighting
+    // `createElement`'s overloaded DOM typings.
+    const originalCreateElement = document.createElement.bind(document);
+    const mockAnchor = originalCreateElement('a');
+    const anchorClickSpy = vi.spyOn(mockAnchor, 'click').mockImplementation(() => {});
+    const createElementSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tagName: string) =>
+        tagName === 'a'
+          ? mockAnchor
+          : originalCreateElement(tagName)) as typeof document.createElement);
+    const createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:truncated-export');
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    try {
+      render(
+        <LoggingSettingsSection
+          durableLogSource={createLogSource([])}
+          logSource={createLogSource([])}
+          onExportDurableNdjson={onExportDurableNdjson}
+          runtime="browser"
+        />
+      );
+
+      const user = await selectPersistentSource();
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      await user.click(exportButton);
+
+      await waitFor(() =>
+        expect(toastMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            description:
+              'Exported the most recent 2000 of 5000 warn+ events. Older events were not included.',
+            title: 'Export truncated',
+          })
+        )
+      );
+      expect(mockAnchor.download).toMatch(/-recent2000\.ndjson$/);
+    } finally {
+      createElementSpy.mockRestore();
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
   it('surfaces a rejected export visibly via toast instead of failing silently', async () => {
     const onExportDurableNdjson = vi.fn(async () => {
       throw new Error('database unavailable');
@@ -321,7 +403,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
   });
 
   it('skips the download and shows a non-destructive toast when there are no events to export', async () => {
-    const onExportDurableNdjson = vi.fn(async () => '');
+    const onExportDurableNdjson = vi.fn(async () => makeExportResult(''));
     const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL');
     const anchorClickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
@@ -361,10 +443,10 @@ describe('LoggingSettingsSection export NDJSON button', () => {
   });
 
   it('disables the export button while an export is in flight and re-enables it once it resolves', async () => {
-    let resolveExport: ((value: string) => void) | undefined;
+    let resolveExport: ((value: DurableNdjsonExportResult) => void) | undefined;
     const onExportDurableNdjson = vi.fn(
       () =>
-        new Promise<string>((resolve) => {
+        new Promise<DurableNdjsonExportResult>((resolve) => {
           resolveExport = resolve;
         })
     );
@@ -393,7 +475,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       await waitFor(() => expect(exportButton).toBeDisabled());
       expect(onExportDurableNdjson).toHaveBeenCalledTimes(1);
 
-      resolveExport?.('{"id":"evt-1"}\n');
+      resolveExport?.(makeExportResult('{"id":"evt-1"}\n'));
 
       await waitFor(() => expect(exportButton).not.toBeDisabled());
     } finally {
@@ -407,7 +489,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
     let rejectExport: ((reason: Error) => void) | undefined;
     const onExportDurableNdjson = vi.fn(
       () =>
-        new Promise<string>((_resolve, reject) => {
+        new Promise<DurableNdjsonExportResult>((_resolve, reject) => {
           rejectExport = reject;
         })
     );

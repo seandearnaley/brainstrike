@@ -82,8 +82,15 @@ declare module '@brainstrike/app-shell/diagnostics' {
   /**
    * See: packages/app-shell/src/diagnostics/durable-log-source.ts
    */
+  export interface DurableLogExportResult {
+    exportedCount: number;
+    ndjson: string;
+    totalCount: number;
+    truncated: boolean;
+  }
+
   export type DurableLogSource = LogSourceAdapter & {
-    exportNdjson(): Promise<string>;
+    exportNdjson(): Promise<DurableLogExportResult>;
   };
 
   /**

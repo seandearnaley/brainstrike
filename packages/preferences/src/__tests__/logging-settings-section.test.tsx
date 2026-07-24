@@ -312,7 +312,12 @@ describe('LoggingSettingsSection', () => {
       <LoggingSettingsSection
         durableLogSource={durableLogSource}
         onCommitPreferences={vi.fn()}
-        onExportDurableNdjson={vi.fn(async () => '')}
+        onExportDurableNdjson={vi.fn(async () => ({
+          exportedCount: 0,
+          ndjson: '',
+          totalCount: 0,
+          truncated: false,
+        }))}
         runtime="browser"
       />
     );

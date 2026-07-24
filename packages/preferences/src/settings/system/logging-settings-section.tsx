@@ -40,6 +40,21 @@ interface FileCapabilities {
   reason?: string | null;
 }
 
+/**
+ * Structural mirror of `@brainstrike/app-shell`'s `DurableLogExportResult`
+ * (`packages/app-shell/src/diagnostics/durable-log-source.ts`) — declared
+ * locally rather than imported, same reason as `onExportDurableNdjson`'s doc
+ * comment below: `app-shell` already depends on `preferences`, so importing
+ * its type here would be circular. TypeScript's structural typing makes the
+ * duplication safe as long as the shapes stay in sync.
+ */
+export interface DurableNdjsonExportResult {
+  readonly exportedCount: number;
+  readonly ndjson: string;
+  readonly totalCount: number;
+  readonly truncated: boolean;
+}
+
 export interface LoggingSettingsSectionProps {
   busy?: boolean;
   durableLogSource?: LogSourceAdapter;
@@ -59,7 +74,7 @@ export interface LoggingSettingsSectionProps {
    * `useDurableLogSource()` (which returns the widened adapter) pass
    * `() => durableLogSource.exportNdjson()` for this prop.
    */
-  onExportDurableNdjson?: () => Promise<string>;
+  onExportDurableNdjson?: () => Promise<DurableNdjsonExportResult>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   onSelectLogDestination?: () => Promise<string | null>;
@@ -299,7 +314,7 @@ export function LoggingSettingsSection({
     }
     setIsExportingDurableNdjson(true);
     try {
-      const ndjson = await onExportDurableNdjson();
+      const { exportedCount, ndjson, totalCount, truncated } = await onExportDurableNdjson();
       if (ndjson.length === 0) {
         toast({
           description: 'There are no durable warn+ events to export.',
@@ -310,9 +325,22 @@ export function LoggingSettingsSection({
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `brainstrike-errors-${new Date().toISOString()}.ndjson`;
+        // Truncation is visible in two places, never silently: the filename
+        // itself (so it survives outside this session, e.g. in a Downloads
+        // folder) and the toast below (with the exact N of M counts). The
+        // NDJSON body stays pure NDJSON — no metadata line — so "every line
+        // is a diagnostic event" still holds for the file contents.
+        anchor.download = truncated
+          ? `brainstrike-errors-${new Date().toISOString()}-recent${exportedCount}.ndjson`
+          : `brainstrike-errors-${new Date().toISOString()}.ndjson`;
         anchor.click();
         URL.revokeObjectURL(url);
+        if (truncated) {
+          toast({
+            description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,
+            title: 'Export truncated',
+          });
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

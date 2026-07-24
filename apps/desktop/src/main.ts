@@ -111,7 +111,7 @@ import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
-import { getWindowRoleByWebContentsId } from './window-role';
+import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
@@ -1123,7 +1123,7 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
         ...record.bindings,
         forwardedFrom: 'renderer',
         sourceWebContentsId: senderId,
-        sourceWindowRole: getWindowRoleByWebContentsId(senderId) ?? 'visible-ui',
+        sourceWindowRole: resolveSourceWindowRole(senderId),
       },
     });
   },

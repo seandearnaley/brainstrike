@@ -403,20 +403,27 @@ describe('createDurableLogSource', () => {
   });
 });
 
+/** Distinguishes `exportNdjson`'s two parallel queries by SQL text: the
+ * bounded events SELECT (used by `loadEventsAscending`, shared with the
+ * viewer) versus the unbounded COUNT used to detect and size truncation. */
+function respondByQueryKind(events: unknown[], count: number): (call: QueryCall) => unknown[] {
+  return (call) => (call.sql.includes('COUNT') ? [{ count }] : events);
+}
+
 describe('createDurableLogSource exportNdjson', () => {
   it('returns newline-delimited lines that each parse back via parseDiagnosticEventLine, ending with one trailing newline', async () => {
     const rows = [
       makeRow('evt-2', { occurred_at: '2026-07-23T12:00:02.000Z' }),
       makeRow('evt-1', { occurred_at: '2026-07-23T12:00:01.000Z' }),
     ];
-    const { db } = makeStubDb(() => rows);
+    const { db } = makeStubDb(respondByQueryKind(rows, rows.length));
     const source = createDurableLogSource({ db });
 
-    const ndjson = await source.exportNdjson();
+    const result = await source.exportNdjson();
 
-    expect(ndjson.endsWith('\n')).toBe(true);
-    expect(ndjson.endsWith('\n\n')).toBe(false);
-    const lines = ndjson.split('\n').filter((line) => line.length > 0);
+    expect(result.ndjson.endsWith('\n')).toBe(true);
+    expect(result.ndjson.endsWith('\n\n')).toBe(false);
+    const lines = result.ndjson.split('\n').filter((line) => line.length > 0);
     expect(lines).toHaveLength(2);
     for (const line of lines) {
       expect(parseDiagnosticEventLine(line)).not.toBeNull();
@@ -425,28 +432,37 @@ describe('createDurableLogSource exportNdjson', () => {
     // reuse the same bounded query.
     const parsedIds = lines.map((line) => parseDiagnosticEventLine(line)?.id);
     expect(parsedIds).toEqual(['evt-1', 'evt-2']);
+    expect(result.exportedCount).toBe(2);
+    expect(result.totalCount).toBe(2);
+    expect(result.truncated).toBe(false);
   });
 
-  it('returns an empty string for an empty result set', async () => {
-    const { db } = makeStubDb(() => []);
+  it('returns an empty ndjson string with zero counts and truncated: false for an empty result set', async () => {
+    const { db } = makeStubDb(respondByQueryKind([], 0));
     const source = createDurableLogSource({ db });
 
-    const ndjson = await source.exportNdjson();
+    const result = await source.exportNdjson();
 
-    expect(ndjson).toBe('');
+    expect(result.ndjson).toBe('');
+    expect(result.exportedCount).toBe(0);
+    expect(result.totalCount).toBe(0);
+    expect(result.truncated).toBe(false);
   });
 
-  it('issues the same bounded query (severity filter + limit) as getInitialRecords', async () => {
-    const { calls, db } = makeStubDb(() => []);
+  it('issues the same bounded query (severity filter + limit) as getInitialRecords, plus a matching COUNT query', async () => {
+    const { calls, db } = makeStubDb(respondByQueryKind([], 0));
     const source = createDurableLogSource({ db, limit: 250 });
 
     await source.exportNdjson();
 
-    expect(calls).toHaveLength(1);
-    const sql = calls[0]?.sql ?? '';
-    expect(sql).toContain('brainstrike_diagnostic_events');
-    expect(sql).toMatch(/severity IN \('warn', ?'error', ?'fatal'\)/);
-    expect(calls[0]?.params).toEqual([250]);
+    expect(calls).toHaveLength(2);
+    const eventsCall = calls.find((call) => !call.sql.includes('COUNT'));
+    const countCall = calls.find((call) => call.sql.includes('COUNT'));
+    expect(eventsCall?.sql).toContain('brainstrike_diagnostic_events');
+    expect(eventsCall?.sql).toMatch(/severity IN \('warn', ?'error', ?'fatal'\)/);
+    expect(eventsCall?.params).toEqual([250]);
+    expect(countCall?.sql).toContain('brainstrike_diagnostic_events');
+    expect(countCall?.sql).toMatch(/severity IN \('warn', ?'error', ?'fatal'\)/);
   });
 
   it('propagates a query rejection instead of swallowing it, so the caller can surface it visibly', async () => {
@@ -454,5 +470,20 @@ describe('createDurableLogSource exportNdjson', () => {
     const source = createDurableLogSource({ db });
 
     await expect(source.exportNdjson()).rejects.toThrow('connection refused');
+  });
+
+  // Pins the "no silent caps" behavior (FIX 4): when more warn+ events exist
+  // than the export cap, exportNdjson must report the gap rather than let a
+  // capped file read as complete.
+  it('reports truncated: true with the total eligible count when more events exist than the export cap', async () => {
+    const rows = [makeRow('evt-1'), makeRow('evt-2')];
+    const { db } = makeStubDb(respondByQueryKind(rows, 5));
+    const source = createDurableLogSource({ db, limit: 2 });
+
+    const result = await source.exportNdjson();
+
+    expect(result.exportedCount).toBe(2);
+    expect(result.totalCount).toBe(5);
+    expect(result.truncated).toBe(true);
   });
 });

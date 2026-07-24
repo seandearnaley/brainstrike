@@ -95,13 +95,39 @@ function createFailureRecord(error: unknown): LogRecord {
 }
 
 /**
+ * Result of `DurableLogSource.exportNdjson()`. The desktop NDJSON backstop
+ * retains far more history (10 MB x 5 rotated files) than this bounded
+ * `DURABLE_LOG_SOURCE_MAX_ROWS`-row query, so a web/renderer export CAN be a
+ * strict subset of everything that ever happened — per "no silent caps"
+ * (AGENTS.md), that must be visible, not just the honest-equivalent framing
+ * in isolation. `truncated`/`totalCount` let the caller (the settings
+ * section's export button handler) tell the user the export is the most
+ * recent `exportedCount` of `totalCount` events, rather than presenting a
+ * capped file as if it were complete.
+ */
+export interface DurableLogExportResult {
+  /** Number of events actually included in `ndjson` — bounded by `limit`
+   * (`DURABLE_LOG_SOURCE_MAX_ROWS` by default), the same cap
+   * `loadEventsAscending` applies to the Log Viewer itself. */
+  readonly exportedCount: number;
+  readonly ndjson: string;
+  /** Total warn+ events currently eligible (severity IN warn/error/fatal),
+   * independent of the export cap. Equal to `exportedCount` when the export
+   * was not truncated. */
+  readonly totalCount: number;
+  /** `true` when `totalCount > exportedCount` — older events beyond the cap
+   * exist but are NOT included in `ndjson`. */
+  readonly truncated: boolean;
+}
+
+/**
  * `LogSourceAdapter` widened with the NDJSON export affordance (Flight
  * Recorder P2a Task 6). Web has no filesystem, so this in-memory string is
  * the honest web equivalent of the desktop rotating
  * `brainstrike-errors.ndjson` file (design doc §7).
  */
 export type DurableLogSource = LogSourceAdapter & {
-  exportNdjson(): Promise<string>;
+  exportNdjson(): Promise<DurableLogExportResult>;
 };
 
 export interface CreateDurableLogSourceOptions {
@@ -142,15 +168,34 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
     return events.map(diagnosticEventToLogRecord);
   }
 
+  // A separate COUNT query (same severity filter, no LIMIT) rather than
+  // querying `limit + 1` rows: this needs the exact total for the "most
+  // recent N of M" toast message, not just a yes/no truncation flag, and a
+  // COUNT scan is no more expensive than the row query it runs alongside.
+  async function countEligibleEvents(): Promise<number> {
+    const result = await db.query<{ count: number | string }>(
+      `SELECT COUNT(*)::int AS count FROM ${TABLE} WHERE severity IN ('warn', 'error', 'fatal')`
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
   // Deliberately no try/catch here, unlike `loadRecordsAscending` (which
   // falls back to a synthetic WARN record so the viewer never throws): a
   // rejected export must propagate so the caller (the settings section's
   // export button handler) can surface it visibly via toast, per the "no
   // silent fallbacks" rule. Swallowing it into an NDJSON line would make a
-  // failed export look like a successful-but-empty one.
-  async function exportNdjson(): Promise<string> {
-    const events = await loadEventsAscending();
-    return serializeDiagnosticEventsNdjson(events);
+  // failed export look like a successful-but-empty one. Same rule applies to
+  // `countEligibleEvents` above — a rejection from either query in the
+  // `Promise.all` below propagates unchanged.
+  async function exportNdjson(): Promise<DurableLogExportResult> {
+    const [events, totalCount] = await Promise.all([loadEventsAscending(), countEligibleEvents()]);
+    const exportedCount = events.length;
+    return {
+      exportedCount,
+      ndjson: serializeDiagnosticEventsNdjson(events),
+      totalCount,
+      truncated: totalCount > exportedCount,
+    };
   }
 
   async function getInitialRecords(): Promise<readonly LogRecord[]> {
