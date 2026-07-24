@@ -52,6 +52,9 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   ASSISTANT_AUTH_HEADER_NAME,
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+  ASSISTANT_STREAM_RESUME_PATH,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
@@ -66,6 +69,7 @@ import {
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import {
   registerSteerableRun,
+  requestRunCancel,
   requestRunSteer,
   unregisterSteerableRun,
 } from './assistant-server/run-steering-registry';
@@ -77,7 +81,9 @@ type AssistantUiMessage = AssistantUiMessageStrict;
 type AssistantRoute =
   | 'status'
   | 'assistant'
+  | 'cancel'
   | 'openrouter-model'
+  | 'resume'
   | 'steer'
   | 'suspended-runs'
   | 'not-found';
@@ -369,6 +375,16 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'cancel') {
+    await handleCancelRequest(req, res);
+    return;
+  }
+
+  if (route === 'resume') {
+    await handleAssistantResumeRequest(req, res);
+    return;
+  }
+
   if (route === 'not-found') {
     respondNotFound(res);
     return;
@@ -440,6 +456,62 @@ async function handleSteerRequest(
   res.end(JSON.stringify({ accepted: true, runId }));
 }
 
+/**
+ * Explicit hard-stop endpoint. Connection loss is only a subscriber detach;
+ * cancellation must arrive through this route so long-running execution
+ * survives renderer reloads and transient transport failures.
+ */
+async function handleCancelRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  let parsed: unknown;
+  try {
+    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
+    parsed = JSON.parse(body) as unknown;
+  } catch {
+    respondJson(res, 400, {
+      error: 'invalid_cancel_action',
+      message: 'Cancel request body must be a small JSON object.',
+    });
+    return;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    Object.keys(parsed).length !== 1
+  ) {
+    respondJson(res, 400, {
+      error: 'invalid_cancel_action',
+      message: 'Cancel request accepts exactly one field: runId.',
+    });
+    return;
+  }
+  const runId = (parsed as Record<string, unknown>)['runId'];
+  if (
+    typeof runId !== 'string' ||
+    runId.trim().length === 0 ||
+    runId.length > STEER_RUN_ID_MAX_CHARS
+  ) {
+    respondJson(res, 400, {
+      error: 'invalid_cancel_action',
+      message: `Cancel runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
+    });
+    return;
+  }
+  if (!requestRunCancel(runId)) {
+    respondJson(res, 404, {
+      error: 'no_active_run',
+      message: 'No active cancellable run with that id; it may have already finished.',
+    });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.statusCode = 200;
+  res.end(JSON.stringify({ accepted: true, runId }));
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -462,7 +534,8 @@ async function handleAssistantPost(
   if (await resumeStreamIfAvailable(res, lastEventId)) {
     return;
   }
-  const { signal, cleanup } = registerRequestAbort(req, res);
+  const { signal: requestSignal, cleanup } = registerRequestAbort(req, res);
+  const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
   // Only THIS leg's registration may be torn down below: on the defensive
   // duplicate-runId throw the entry belongs to the ORIGINAL still-streaming
@@ -476,17 +549,18 @@ async function handleAssistantPost(
     // the try so a defensive duplicate-runId throw still runs cleanup() and
     // answers the request (review P3).
     if (runId) {
-      runtimeData.steering = registerSteerableRun(runId);
+      runtimeData.steering = registerSteerableRun(runId, executionAbortController);
       registeredSteerableRun = true;
     }
     await streamAssistantPostResponse({
       apiKey,
       assistantMessageId,
+      executionSignal: executionAbortController.signal,
       messages,
+      requestSignal,
       res,
       runId,
       runtimeData,
-      signal,
       toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
@@ -495,7 +569,12 @@ async function handleAssistantPost(
       toolResumeAction,
     });
   } catch (error) {
-    await handleAssistantPostStreamError({ error, res, runId, signal });
+    await handleAssistantPostStreamError({
+      error,
+      res,
+      runId,
+      signal: executionAbortController.signal,
+    });
   } finally {
     if (runId && registeredSteerableRun) {
       unregisterSteerableRun(runId);
@@ -542,7 +621,8 @@ async function streamAssistantPostResponse({
   runtimeData,
   apiKey,
   assistantMessageId,
-  signal,
+  executionSignal,
+  requestSignal,
   runId,
   toolApprovalAction,
   toolResumeAction,
@@ -553,7 +633,8 @@ async function streamAssistantPostResponse({
   readonly runtimeData: RuntimeData;
   readonly apiKey: string | undefined;
   readonly assistantMessageId: string | undefined;
-  readonly signal: AbortSignal;
+  readonly executionSignal: AbortSignal;
+  readonly requestSignal: AbortSignal;
   readonly runId: string | undefined;
   readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
   readonly toolResumeAction?: AssistantToolResumeAction | undefined;
@@ -568,7 +649,7 @@ async function streamAssistantPostResponse({
     runtimeData,
     apiKey,
     mcpConfig,
-    signal,
+    executionSignal,
     runId,
     toolApprovalAction,
     toolResumeAction,
@@ -585,13 +666,24 @@ async function streamAssistantPostResponse({
   const session = assistantDataStreamSessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
   });
-  const response = session.createResponse();
-  await streamResponse(res, response, signal);
+  const response = session.createResponse({
+    headers: {
+      [ASSISTANT_STREAM_EVENT_ID_HEADER]: `${session.id}:-1`,
+      [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: session.messageId,
+    },
+  });
+  await streamResponse(res, response, requestSignal);
+  await session.whenClosed();
   if (runId) {
+    const sessionOutcome = session.getTerminalOutcome();
     await recordDesktopAssistantThreadRunStatus(
       runId,
-      streamResult.terminalStatus ?? 'completed',
-      streamResult.terminalError ?? null
+      executionSignal.aborted
+        ? 'cancelled'
+        : (streamResult.terminalStatus ?? sessionOutcome.status),
+      executionSignal.aborted
+        ? 'Assistant run canceled by user.'
+        : (streamResult.terminalError ?? sessionOutcome.error)
     );
   }
 }
@@ -1319,6 +1411,10 @@ async function handleSuspendedRunsRequest(
 
 const ASSISTANT_CORS_ALLOWED_HEADERS =
   'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';
+const ASSISTANT_CORS_EXPOSED_HEADERS = [
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+].join(', ');
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
 const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
 const ASSISTANT_CORS_NULL_ORIGIN = 'null';
@@ -1374,6 +1470,7 @@ function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerRe
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
   res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
+  res.setHeader('Access-Control-Expose-Headers', ASSISTANT_CORS_EXPOSED_HEADERS);
   if (origin !== ASSISTANT_CORS_NULL_ORIGIN) {
     res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
   }
@@ -1587,6 +1684,12 @@ function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
   if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
     return 'steer';
   }
+  if (req.method === 'POST' && (requestPath === '/assistant/cancel' || requestPath === '/cancel')) {
+    return 'cancel';
+  }
+  if (req.method === 'GET' && requestPath === ASSISTANT_STREAM_RESUME_PATH) {
+    return 'resume';
+  }
   if (
     req.method === 'GET' &&
     (requestPath === '/assistant/suspended-runs' || requestPath === '/suspended-runs')
@@ -1728,6 +1831,27 @@ async function resumeStreamIfAvailable(
   );
   await streamResponse(res, response, undefined);
   return true;
+}
+
+async function handleAssistantResumeRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  const lastEventId = readLastEventId(req);
+  if (!lastEventId) {
+    respondJson(res, 400, {
+      error: 'missing_assistant_event_id',
+      message: 'Assistant stream resume requires a Last-Event-ID header.',
+    });
+    return;
+  }
+  if (await resumeStreamIfAvailable(res, lastEventId)) {
+    return;
+  }
+  respondJson(res, 404, {
+    error: 'assistant_stream_unavailable',
+    message: 'The assistant stream is no longer available for replay.',
+  });
 }
 
 function isLocalChatProvider(runtimeData: RuntimeData | undefined): boolean {

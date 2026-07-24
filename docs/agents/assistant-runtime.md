@@ -109,6 +109,13 @@ the existing bounded visible message and terminal `run.failed` behavior, adds
 the canonical type visibly, and persists only explicitly whitelisted diagnostic
 fields. Other provider errors retain the generic bounded path.
 
+Hosted agent loops default to 100 model steps when the user has not configured
+an explicit lower limit. The Output & Limits UI must describe that finite
+default truthfully; an unset override is not an unbounded or "Open" run.
+Output-limit finishes are terminal failures, not successful completions:
+`finishReason: length` emits `run.failed`, an error finish, and a failed durable
+run outcome.
+
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
 lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
@@ -303,12 +310,45 @@ decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
-subscriptions detach on cancel without double-closing their stream controller.
-Desktop HTTP cancellation follows the response lifetime: a completed request's
-`close` event is normal and must not abort the run. A request close aborts only
-when `IncomingMessage.complete` is false, while a `ServerResponse.close` aborts
-only before `writableEnded`; this preserves genuine disconnect cleanup during a
-long response without cancelling approved tools after their POST body is read.
+subscriptions detach without double-closing their stream controller. Desktop
+assistant execution is owned by the main-process data-stream session, not by one
+renderer HTTP response. A response close detaches only that subscription; the
+source continues to terminal state and remains replayable for the session
+retention window. User Stop is the distinct authoritative cancel path: the
+renderer posts the validated run id to `POST /assistant/cancel`, which aborts
+the registered execution controller. Do not infer user intent from navigation,
+renderer reload, or a dropped socket.
+
+Each desktop response exposes an opaque absolute replay cursor in
+`X-Brainstrike-Assistant-Event-Id` and the durable assistant message identity in
+`X-Brainstrike-Assistant-Message-Id`. While the run is active, the renderer
+stores only `{assistantMessageId, eventId, runId}` in thread-scoped
+`sessionStorage`. After history hydration on renderer reload, it reconnects with
+`GET /assistant/resume` plus `Last-Event-ID`; it never composes a second model
+request. Replay must reuse the durable assistant message ID and its persisted
+parent rather than append a duplicate hydrated message. The installed
+assistant-ui runtime creates a temporary streaming message for `resumeRun`;
+Brainstrike removes the hydrated durable leaf before replay, then reconciles
+the history append to the durable ID and maps the temporary local ID back
+through the public thread `export`/`import` API after assistant-ui's `runEnd`
+event. Waiting for `runEnd` is required because error and incomplete outcomes
+can update the local message after the replay iterator closes. Do not patch
+assistant-ui internals to add a message-ID input. A missing durable leaf or a
+leaf with descendants is a visible replay error, never a guessed parent.
+Transient replay
+failures receive at most two automatic retries; a missing/expired session is a
+visible 404 and clears the stale renderer record. Terminal completion, failure,
+or explicit Stop clears the record. The endpoint base must come from the
+already-resolved assistant runtime API (`getAuth()`/`getUrl()`), never from the
+legacy optional `window.assistant.url` field alone.
+
+The reasoning disclosure renders live reasoning text directly from
+`useMessagePartReasoning`. It must never nest the normal assistant text-part
+renderer, because that renderer reads a different part hook and produces an
+expanded-but-empty disclosure. Reasoning may remain auto-collapsed by the
+activity UI, but user expansion must show accumulated text before, during, and
+after intervening tool calls; the active icon clears only on a real terminal
+part.
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.25's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,

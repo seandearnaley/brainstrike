@@ -35,7 +35,7 @@ const MAX_OUTPUT_MIN = 128;
 const MAX_OUTPUT_MAX = 8192;
 const MAX_OUTPUT_STEP = 64;
 
-const AGENT_MAX_STEPS_DEFAULT = 20;
+const AGENT_MAX_STEPS_DEFAULT = 100;
 const AGENT_MAX_STEPS_MIN = 1;
 const AGENT_MAX_STEPS_MAX = 100;
 const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
@@ -212,7 +212,7 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
                 agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
               });
             }}
-            placeholder="Open"
+            placeholder="100 default"
             type="number"
             value={maxStepsEnabled ? maxStepsValue : ''}
           />
@@ -457,11 +457,11 @@ const MaxOutputSection = ({
 };
 
 // Reasoning EFFORT moved to the composer model menu (Effort submenu); this
-// section keeps only the OpenAI reasoning-summary control.
+// section keeps only the provider-supported reasoning-summary control.
 const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
   <div className="space-y-2 rounded-md bg-muted/30 p-2">
     <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      OpenAI reasoning
+      Reasoning output
     </Label>
     <div className="grid gap-2">
       <div className="space-y-1">

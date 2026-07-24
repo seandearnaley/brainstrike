@@ -146,6 +146,28 @@ contracts keep reloaded threads identical to live ones:
    of one response.
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
+   Desktop generation continues in the main-process data-stream session when a
+   renderer response detaches. The durable run row is updated only after that
+   session closes. Its mapper-owned terminal outcome is authoritative for
+   abnormal model finishes: an output-limit or missing-finish terminal state is
+   stored as `failed` with the bounded visible error, while only explicit
+   `POST /assistant/cancel` records `cancelled`.
+   Renderer reload reattachment is deliberately ephemeral rather than a second
+   durable run store: thread-scoped `sessionStorage` holds the server session's
+   opaque replay cursor, durable run id, and durable assistant message id only
+   while the main-process session is active. Reload hydrates persisted history
+   first, then replays that exact session through `GET /assistant/resume` into
+   the same assistant message and persisted parent; it does not create a
+   duplicate branch, another run row, or resend model input. Completion,
+   failure, Stop, and a visible expired-session response remove the ephemeral
+   record. The public assistant-ui runtime temporarily creates a generated
+   streaming leaf; the client removes the hydrated durable leaf before replay,
+   remaps the history append to the durable ID, and after `runEnd` remaps the
+   generated local ID through thread `export`/`import`. Waiting for `runEnd`
+   preserves assistant-ui's final error/incomplete state before identity
+   reconciliation. This keeps Mastra's durable content identity and
+   assistant-ui's parent graph aligned without a package patch. Missing leaves
+   and leaves with descendants fail visibly.
    While this graph is loading, `ChatThreadUI` disables every composer send
    path using assistant-ui's `state.thread.isLoading`. The installed runtime
    captures a new message's parent from the current in-memory tail before its

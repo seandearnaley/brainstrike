@@ -7,6 +7,7 @@ import {
   buildAssistantMemoryOptions,
   buildAssistantRequestData,
   buildAssistantTapestryRange,
+  buildDraftRuntimeForProvider,
   buildEffectiveModelSettings,
   buildEnabledModelIdSet,
   buildModelSettings,
@@ -849,15 +850,32 @@ describe('assistant runtime helpers', () => {
         reasoningSummary: 'detailed',
       })
     ).toEqual({
-      openrouter: { reasoning: { effort: 'high', summary: 'detailed' } },
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high', summary: 'detailed' },
+      },
     });
     expect(
       buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
         reasoningEffort: 'max',
       })
-    ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'max' },
+      },
+    });
     expect(buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {})).toEqual({
-      openrouter: { reasoning: { effort: 'low' } },
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'low' },
+      },
+    });
+    expect(buildProviderOptions('openrouter', 'z-ai/glm-5.2', {})).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { enabled: false },
+      },
     });
     expect(
       buildProviderOptionsWhenReady(
@@ -908,17 +926,32 @@ describe('assistant runtime helpers', () => {
           supportedParameters: ['reasoning', 'max_tokens'],
         }
       )
-    ).toEqual({ openrouter: { reasoning: { effort: 'low' } } });
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'low' },
+      },
+    });
     expect(
       buildProviderOptions('openrouter', 'z-ai/glm-5.2', {
         reasoningEffort: 'none',
       })
-    ).toEqual({ openrouter: { reasoning: { enabled: false } } });
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { enabled: false },
+      },
+    });
     expect(
       buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
         reasoningEffort: 'high',
       })
-    ).toEqual({ openrouter: { reasoning: { effort: 'high' } } });
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high' },
+      },
+    });
     const partialKimiMetadata = {
       checkedAt: 42,
       contextWindow: 1_048_576,
@@ -946,7 +979,12 @@ describe('assistant runtime helpers', () => {
         { reasoningEffort: 'none' },
         partialKimiMetadata
       )
-    ).toEqual({ openrouter: { reasoning: { enabled: false } } });
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { enabled: false },
+      },
+    });
     expect(() =>
       buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'none',
@@ -994,6 +1032,46 @@ describe('assistant runtime helpers', () => {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
       })
     ).toEqual({ ollama: { baseUrl: 'http://127.0.0.1:11434' } });
+  });
+
+  it('builds an OpenRouter thread draft from the same live metadata used by its settings UI', () => {
+    expect(
+      buildDraftRuntimeForProvider({
+        model: 'openai/gpt-5.6-terra',
+        openRouterLookup: {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_050_000,
+              id: 'openai/gpt-5.6-terra',
+              maxOutputTokens: 128_000,
+              reasoning: {
+                defaultEffort: 'medium',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['max', 'xhigh', 'high', 'medium', 'low', 'none'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        },
+        provider: 'openrouter',
+        providerSettingsMap: {
+          openrouter: { reasoningEffort: 'medium' },
+        },
+      })
+    ).toMatchObject({
+      providerOptions: {
+        openrouter: {
+          provider: { require_parameters: true },
+          reasoning: { effort: 'medium' },
+        },
+      },
+    });
   });
 
   it('reports provider disabled reasons for unavailable provider states', () => {
@@ -1137,7 +1215,7 @@ describe('buildEffectiveModelSettings', () => {
     });
   });
 
-  it('uses live reasoning metadata to reserve final-answer output on Auto', () => {
+  it('uses the coding output default without claiming a reasoning/final split', () => {
     expect(
       buildEffectiveModelSettings(
         'openrouter',
@@ -1159,10 +1237,10 @@ describe('buildEffectiveModelSettings', () => {
           supportedParameters: ['reasoning', 'max_tokens'],
         }
       )
-    ).toEqual({ maxOutputTokens: 40_960 });
+    ).toEqual({ maxOutputTokens: 32_000 });
   });
 
-  it('uses reviewed static reasoning metadata while the live lookup is pending', () => {
+  it('uses the same coding output default while live metadata is pending', () => {
     expect(
       buildEffectiveModelSettings(
         'openrouter',
@@ -1171,7 +1249,7 @@ describe('buildEffectiveModelSettings', () => {
         undefined,
         'z-ai/glm-5.2'
       )
-    ).toEqual({ maxOutputTokens: 40_960 });
+    ).toEqual({ maxOutputTokens: 32_000 });
   });
 
   it('does not inject OpenRouter defaults into other providers', () => {
@@ -1212,7 +1290,7 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
     ).toBeUndefined();
   });
 
-  it('blocks an explicit Auto output limit that leaves no final-answer reserve', () => {
+  it('does not invent a final-answer reserve for effort-only models', () => {
     expect(
       resolveOpenRouterMetadataDisabledReason(
         'openrouter',
@@ -1239,7 +1317,7 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
           state: 'resolved',
         }
       )
-    ).toMatch(/32,000.*8,192.*final answer/i);
+    ).toBeUndefined();
   });
 
   it('blocks an explicitly configured input limit above the live effective budget', () => {

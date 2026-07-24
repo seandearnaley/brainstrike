@@ -21,7 +21,7 @@ describe('useOpenRouterModelMetadata', () => {
     vi.mocked(fetchOpenRouterModelMetadata).mockReset();
   });
 
-  it('renders the visible Auto-profile blocker when live output is too small', async () => {
+  it('uses the live output ceiling without inventing a final-answer reserve', async () => {
     vi.mocked(fetchOpenRouterModelMetadata).mockResolvedValue({
       freshness: 'live',
       metadata: {
@@ -55,9 +55,10 @@ describe('useOpenRouterModelMetadata', () => {
     );
 
     await waitFor(() => {
-      expect(result.current.reason).toMatch(/8,192.*final answer/i);
+      expect(result.current.lookup?.state).toBe('resolved');
     });
-    expect(result.current.agentLoopSettings).toBeUndefined();
-    expect(result.current.modelSettings).toBeUndefined();
+    expect(result.current.reason).toBeUndefined();
+    expect(result.current.agentLoopSettings).toEqual({ inputTokenLimit: 22_937 });
+    expect(result.current.modelSettings).toEqual({ maxOutputTokens: 8192 });
   });
 });

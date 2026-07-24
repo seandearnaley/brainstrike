@@ -3,6 +3,7 @@ import {
   accumulateSteppedUsage,
   readCacheTokenCount,
   readOpenRouterBilledCost,
+  readOpenRouterDiagnostics,
   type UsageMeteringState,
 } from '../mastra/runtime-assembly/usage-metering';
 
@@ -71,6 +72,43 @@ describe('readOpenRouterBilledCost', () => {
     expect(
       readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost: 0 } } } })
     ).toBe(0);
+  });
+});
+
+describe('readOpenRouterDiagnostics', () => {
+  it('reads the selected upstream provider and reasoning-token count', () => {
+    expect(
+      readOpenRouterDiagnostics({
+        providerMetadata: {
+          openrouter: {
+            provider: 'Together',
+            usage: { completionTokensDetails: { reasoningTokens: 4096 } },
+          },
+        },
+      })
+    ).toEqual({ provider: 'Together', reasoningTokens: 4096 });
+  });
+
+  it('returns undefined when OpenRouter diagnostics are absent', () => {
+    expect(readOpenRouterDiagnostics({})).toBeUndefined();
+    expect(
+      readOpenRouterDiagnostics({ providerMetadata: { openrouter: { usage: {} } } })
+    ).toBeUndefined();
+  });
+
+  it('throws when present OpenRouter diagnostics are malformed', () => {
+    expect(() =>
+      readOpenRouterDiagnostics({ providerMetadata: { openrouter: { provider: 7 } } })
+    ).toThrow('OpenRouter selected provider must be a non-empty string.');
+    expect(() =>
+      readOpenRouterDiagnostics({
+        providerMetadata: {
+          openrouter: {
+            usage: { completionTokensDetails: { reasoningTokens: -1 } },
+          },
+        },
+      })
+    ).toThrow('OpenRouter reasoning tokens must be a finite, non-negative number.');
   });
 });
 

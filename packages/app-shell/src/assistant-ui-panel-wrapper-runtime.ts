@@ -1241,12 +1241,21 @@ function buildOpenRouterOptions(
           settings.maxOutputTokens
         ).reasoningEffort
       : undefined;
+  const resolvedReasoningEffort = reasoningEffort ?? autoEffort;
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
-    ['enabled', reasoningEffort === 'none' ? false : undefined],
-    ['effort', reasoningEffort === 'none' ? undefined : (reasoningEffort ?? autoEffort)],
+    ['enabled', resolvedReasoningEffort === 'none' ? false : undefined],
+    ['effort', resolvedReasoningEffort === 'none' ? undefined : resolvedReasoningEffort],
     ['summary', settings.reasoningSummary || undefined],
   ]);
-  return reasoning ? { reasoning } : undefined;
+  return {
+    provider: {
+      // OpenRouter otherwise permits routing to an endpoint that silently
+      // ignores requested reasoning/tool parameters.
+      // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+      require_parameters: true,
+    },
+    ...(reasoning ? { reasoning } : {}),
+  };
 }
 
 function buildAnthropicOptions(
@@ -1450,16 +1459,25 @@ export function extractPreparedRunId(
 
 export function buildDraftRuntimeForProvider({
   model,
+  openRouterLookup,
   provider,
   providerSettingsMap,
 }: {
   readonly model: string | undefined;
+  readonly openRouterLookup?: OpenRouterModelMetadataLookup | undefined;
   readonly provider: SupportedProvider;
   readonly providerSettingsMap: Record<string, AssistantProviderSettings>;
 }) {
   const settings = providerSettingsMap[provider];
   const modelSettings = buildModelSettings(settings);
-  const providerOptions = model ? buildProviderOptions(provider, model, settings) : undefined;
+  const providerOptions = model
+    ? buildProviderOptions(
+        provider,
+        model,
+        settings,
+        openRouterLookup?.state === 'resolved' ? openRouterLookup.snapshot.metadata : undefined
+      )
+    : undefined;
   const hasProviderSettings = Object.keys(providerSettingsMap).length > 0;
   return {
     provider,

@@ -94,6 +94,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
           headers: new Headers(),
           status: 200,
         })),
+        getTerminalOutcome: vi.fn(() => ({
+          error: null,
+          status: 'completed',
+        })),
+        whenClosed: vi.fn(() => Promise.resolve()),
       })),
     },
     convertAssistantUiMessages: vi.fn((messages) => messages),

@@ -55,6 +55,11 @@ interface DataStreamUsage {
   outputTokens: number;
 }
 
+export interface DataStreamTerminalOutcome {
+  readonly error: string | null;
+  readonly status: 'completed' | 'failed';
+}
+
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
@@ -255,6 +260,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private pendingRunErrorText: string | null = null;
+  private terminalFailureText: string | null = null;
   private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
   /**
@@ -316,6 +322,7 @@ export class DataStreamMapper {
 
   *handleError(error: unknown): Generator<EncodedChunk> {
     const errorText = error instanceof Error ? error.message : String(error);
+    this.terminalFailureText = errorText;
     this.markCurrentStepAsError();
     yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
     yield* this.flushPendingRunEvents();
@@ -340,6 +347,7 @@ export class DataStreamMapper {
     }
     const chunks: EncodedChunk[] = [];
     this.pendingRunErrorText = MISSING_FINISH_ERROR_TEXT;
+    this.terminalFailureText = MISSING_FINISH_ERROR_TEXT;
     this.markCurrentStepAsError();
     chunks.push({
       code: DataStreamCode.error,
@@ -365,6 +373,12 @@ export class DataStreamMapper {
 
   didEmitFinish(): boolean {
     return this.finishEmitted;
+  }
+
+  getTerminalOutcome(): DataStreamTerminalOutcome {
+    return this.terminalFailureText
+      ? { error: this.terminalFailureText, status: 'failed' }
+      : { error: null, status: 'completed' };
   }
 
   private *handleTextDelta(chunk: StreamChunkText): Generator<EncodedChunk> {
@@ -755,6 +769,7 @@ export class DataStreamMapper {
     const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
     if (abnormalFinishMessage) {
       this.pendingRunErrorText = abnormalFinishMessage;
+      this.terminalFailureText = abnormalFinishMessage;
       this.markCurrentStepAsError();
       yield { code: DataStreamCode.error, value: abnormalFinishMessage } satisfies EncodedChunk;
     }

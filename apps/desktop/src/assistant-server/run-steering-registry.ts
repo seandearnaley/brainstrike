@@ -12,6 +12,7 @@ import type { AssistantRunSteeringControl } from '@brainstrike/assistant-contrac
  */
 
 interface RunSteeringEntry {
+  abortController?: AbortController;
   stopRequested: boolean;
 }
 
@@ -22,15 +23,35 @@ const steerableRuns = new Map<string, RunSteeringEntry>();
  * closes over the entry, so a steer requested before unregister stays visible
  * to the in-flight loop even after the registry forgets the run.
  */
-export function registerSteerableRun(runId: string): AssistantRunSteeringControl {
+export function registerSteerableRun(
+  runId: string,
+  abortController?: AbortController
+): AssistantRunSteeringControl {
   if (steerableRuns.has(runId)) {
     throw new Error(`Steerable run already registered: ${runId}`);
   }
-  const entry: RunSteeringEntry = { stopRequested: false };
+  const entry: RunSteeringEntry = {
+    ...(abortController ? { abortController } : {}),
+    stopRequested: false,
+  };
   steerableRuns.set(runId, entry);
   return {
     stopRequested: () => entry.stopRequested,
   };
+}
+
+/**
+ * Hard-cancel an active run. Transport disconnects never call this; only the
+ * explicit Stop endpoint does, so renderer reloads and transient connection
+ * loss cannot accidentally kill server-owned execution.
+ */
+export function requestRunCancel(runId: string): boolean {
+  const entry = steerableRuns.get(runId);
+  if (!entry?.abortController) {
+    return false;
+  }
+  entry.abortController.abort(new Error('Assistant run canceled by user.'));
+  return true;
 }
 
 export function unregisterSteerableRun(runId: string): void {

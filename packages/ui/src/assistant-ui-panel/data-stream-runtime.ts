@@ -1,12 +1,14 @@
 import type {
   ChatModelAdapter,
   ChatModelRunOptions,
+  CreateResumeRunConfig,
   LocalRuntimeOptionsBase,
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  type AssistantActiveRunSession,
   AssistantAttachmentValidationError,
   createAssistantRequestEnvelope,
   dataUrlByteLength,
@@ -25,12 +27,17 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
 } from './approval-action-message';
+import {
+  type AssistantReplayMessageIdentityRef,
+  remapAssistantReplayHistoryItem,
+  useAssistantRunReattachment,
+} from './assistant-run-reattachment';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
@@ -54,6 +61,7 @@ export interface AssistantUsage {
 }
 
 export type BrainstrikeDataStreamRuntimeOptions = {
+  activeRunSession?: AssistantActiveRunSession;
   api: string;
   body?: (() => Promise<Record<string, unknown> | undefined>) | Record<string, unknown>;
   credentials?: RequestCredentials;
@@ -67,6 +75,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onCancel?: () => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
+  /** Reports replay-only failures so the active session can schedule a bounded retry. */
+  onReplayError?: (error: Error) => void;
   onResponse?: (response: Response) => Promise<void> | void;
   /**
    * Exact UTF-8 ceiling for the serialized request body. Hosted Web sets this
@@ -74,6 +84,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * renderer before fetch; desktop/local transports may omit it.
    */
   requestBodyLimitBytes?: number;
+  replayRetryToken?: number;
+  resumeApi?: string;
   /**
    * Called with the RAW payload of each `brainstrike.context-breakdown` data
    * part (run-start prompt breakdown). The payload is deliberately `unknown`:
@@ -94,6 +106,10 @@ export type BrainstrikeDataStreamRuntimeOptions = {
 type BrainstrikeDataStreamRuntimeOptionsSource =
   | BrainstrikeDataStreamRuntimeOptions
   | (() => BrainstrikeDataStreamRuntimeOptions);
+
+export class AssistantStreamReplayUnavailableError extends Error {
+  override readonly name = 'AssistantStreamReplayUnavailableError';
+}
 
 function assertSerializedRequestBodyWithinLimit(body: string, limitBytes: number): void {
   if (!Number.isSafeInteger(limitBytes) || limitBytes <= 0) {
@@ -910,15 +926,56 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     };
   }
 
-  async *run({
-    messages,
-    runConfig,
-    abortSignal,
-    context,
-    unstable_assistantMessageId,
-    unstable_getMessage,
-  }: ChatModelRunOptions) {
+  private async *consumeResponse(
+    response: Response,
+    {
+      abortSignal,
+      context,
+      unstable_getMessage,
+    }: Pick<ChatModelRunOptions, 'abortSignal' | 'context' | 'unstable_getMessage'>,
+    notifyResponse: boolean
+  ) {
     let terminalFinishFlushed = false;
+    if (!response.ok) {
+      throw new Error(
+        `Status ${response.status}: ${await readBoundedHttpErrorResponseText(response)}`
+      );
+    }
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+    if (notifyResponse) {
+      await this.options.onResponse?.(response);
+    }
+
+    const stream = insulateAssistantStreamPipeline({
+      abortSignal,
+      body: response.body,
+      buildPipeline: (source) =>
+        buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
+          terminalFinishFlushed = true;
+        })
+          .pipeThrough(
+            unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
+              throw new Error('Tool interrupt is not supported in data stream runtime');
+            })
+          )
+          .pipeThrough(new AssistantMessageAccumulator()),
+    });
+
+    try {
+      for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
+        this.notifyActivity();
+        yield accumulatedMessage;
+      }
+    } finally {
+      await stream.cancel(abortSignal.reason).catch(() => undefined);
+    }
+    throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
+    this.options.onFinish?.(unstable_getMessage());
+  }
+
+  private registerCancelHandler(abortSignal: AbortSignal): void {
     abortSignal.addEventListener(
       'abort',
       () => {
@@ -928,6 +985,56 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       },
       { once: true }
     );
+  }
+
+  async *resume(
+    runOptions: ChatModelRunOptions,
+    {
+      eventId,
+      resumeApi,
+    }: {
+      readonly eventId: string;
+      readonly resumeApi: string;
+    }
+  ) {
+    const { abortSignal } = runOptions;
+    this.registerCancelHandler(abortSignal);
+    try {
+      const headersValue =
+        typeof this.options.headers === 'function'
+          ? await this.options.headers()
+          : this.options.headers;
+      const headers = new Headers(headersValue);
+      headers.set('Last-Event-ID', eventId);
+      const response = await fetch(resumeApi, {
+        credentials: this.options.credentials ?? 'same-origin',
+        headers,
+        method: 'GET',
+        signal: abortSignal,
+      });
+      if (response.status === 404) {
+        throw new AssistantStreamReplayUnavailableError(
+          `Status 404: ${await readBoundedHttpErrorResponseText(response)}`
+        );
+      }
+      yield* this.consumeResponse(response, runOptions, false);
+    } catch (error: unknown) {
+      const replayError = error instanceof Error ? error : new Error(String(error));
+      this.options.onReplayError?.(replayError);
+      this.reportError(error);
+      throw error;
+    }
+  }
+
+  async *run({
+    messages,
+    runConfig,
+    abortSignal,
+    context,
+    unstable_assistantMessageId,
+    unstable_getMessage,
+  }: ChatModelRunOptions) {
+    this.registerCancelHandler(abortSignal);
 
     try {
       const headersValue =
@@ -976,58 +1083,18 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         signal: abortSignal,
       });
 
-      if (!response.ok) {
-        throw new Error(
-          `Status ${response.status}: ${await readBoundedHttpErrorResponseText(response)}`
-        );
-      }
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-
-      await this.options.onResponse?.(response);
-
-      // BST-704: the decoded pipeline runs inside an insulation boundary —
-      // consumer cancellation and expected transport aborts are absorbed at
-      // the byte/consumer edges (see stream-insulation.ts), so assistant-stream's
-      // nested controllers always shut down through their normal close path
-      // and late tool/message settlements cannot reject unhandled.
-      const stream = insulateAssistantStreamPipeline({
-        abortSignal,
-        body: response.body,
-        buildPipeline: (source) =>
-          buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
-            terminalFinishFlushed = true;
-          })
-            .pipeThrough(
-              unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
-                throw new Error('Tool interrupt is not supported in data stream runtime');
-              })
-            )
-            .pipeThrough(new AssistantMessageAccumulator()),
-      });
-
-      try {
-        for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
-          this.notifyActivity();
-          yield accumulatedMessage;
-        }
-      } finally {
-        // Engage the insulation firewall even when the consumer stops early
-        // through an async-iterator path that only releases its reader lock
-        // (assistant-stream's polyfill for engines without native
-        // ReadableStream async iteration) instead of cancelling the stream.
-        // Cancel is a no-op after clean EOF or a native-iteration cancel, and
-        // it must never mask the loop's own outcome.
-        await stream.cancel(abortSignal.reason).catch(() => undefined);
-      }
-      // The insulated pipeline ends with a clean EOF on expected aborts; an
-      // aborted run must still surface its abort as the single terminal
-      // outcome, never a fabricated successful finish.
-      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
-      this.options.onFinish?.(unstable_getMessage());
+      yield* this.consumeResponse(
+        response,
+        {
+          abortSignal,
+          context,
+          // biome-ignore lint/style/useNamingConvention: assistant-ui runtime field.
+          unstable_getMessage,
+        },
+        true
+      );
     } catch (error: unknown) {
-      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
+      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
       throw error;
     }
@@ -1044,6 +1111,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
+  readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
   readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
@@ -1060,6 +1128,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
       : { onContextBreakdown: input.onContextBreakdown }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
+    ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
     ...(input.requestBodyLimitBytes === undefined
       ? {}
@@ -1070,6 +1139,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
 
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
+    activeRunSession,
     adapters,
     api,
     body,
@@ -1081,8 +1151,11 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onContextBreakdown,
     onError,
     onFinish,
+    onReplayError,
     onResponse,
+    replayRetryToken = 0,
     requestBodyLimitBytes,
+    resumeApi,
     onUsage,
     unstable_humanToolNames,
   } = options;
@@ -1096,6 +1169,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onContextBreakdown,
     onError,
     onFinish,
+    onReplayError,
     onResponse,
     onUsage,
     requestBodyLimitBytes,
@@ -1108,11 +1182,50 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     () => new BrainstrikeDataStreamRuntimeAdapter(() => optionsRef.current),
     []
   );
+  const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
+    current: null,
+  }));
+  const replayAwareAdapters = useMemo(() => {
+    const history = adapters?.history;
+    if (!history) {
+      return adapters;
+    }
+    return {
+      ...adapters,
+      history: {
+        ...history,
+        append: async (item) => {
+          const identity = replayIdentity.current;
+          await history.append(remapAssistantReplayHistoryItem(item, identity));
+        },
+      },
+    };
+  }, [adapters, replayIdentity]);
 
-  return useLocalRuntime(chatModelAdapter, {
-    ...(adapters ? { adapters } : {}),
+  const runtime = useLocalRuntime(chatModelAdapter, {
+    ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
     ...(maxSteps ? { maxSteps } : {}),
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
   });
+  const replayStream = useCallback<NonNullable<CreateResumeRunConfig['stream']>>(
+    (runOptions) => {
+      if (!(activeRunSession && resumeApi)) {
+        throw new Error('Assistant run replay requires an active session and resume endpoint.');
+      }
+      return chatModelAdapter.resume(runOptions, {
+        eventId: activeRunSession.eventId,
+        resumeApi,
+      });
+    },
+    [activeRunSession, chatModelAdapter, resumeApi]
+  );
+  useAssistantRunReattachment({
+    identityRef: replayIdentity,
+    record: activeRunSession,
+    replayRetryToken,
+    runtime,
+    stream: replayStream,
+  });
+  return runtime;
 }

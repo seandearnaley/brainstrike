@@ -1,7 +1,7 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
 import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
-import { DataStreamMapper } from './data-stream-mapper';
+import { DataStreamMapper, type DataStreamTerminalOutcome } from './data-stream-mapper';
 import { parseEventId } from './session-manager';
 import { SessionSubscription } from './session-subscription';
 
@@ -33,11 +33,10 @@ export class AssistantDataStreamSession {
   private readonly listeners = new Set<SessionSubscription>();
   private readonly mapper: DataStreamMapper;
   private readonly cleanupDelayMs: number;
+  private readonly closedPromise: Promise<void>;
+  private resolveClosed!: () => void;
   private sequence = 0;
   private closed = false;
-  // Abort flag set when Response.body stream is canceled (e.g., user clicks stop)
-  // Checked in consumeSource loop to stop consuming from Mastra iterator
-  private aborted = false;
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -49,6 +48,9 @@ export class AssistantDataStreamSession {
     this.id = resolved.sessionId ?? createRandomId('sess');
     this.messageId = resolved.messageId ?? createRandomId('msg');
     this.cleanupDelayMs = resolved.cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS;
+    this.closedPromise = new Promise<void>((resolve) => {
+      this.resolveClosed = resolve;
+    });
     this.mapper = new DataStreamMapper(this.messageId);
     for (const chunk of this.mapper.initialChunks()) {
       this.recordChunk(chunk);
@@ -77,20 +79,17 @@ export class AssistantDataStreamSession {
       }
     }
 
+    let subscription: SessionSubscription | undefined;
     const stream = new ReadableStream<Uint8Array>({
       cancel: () => {
-        // Called when client cancels response stream (e.g., user stops generation)
-        // Sets abort flag to stop source consumption in consumeSource() loop
-        // This prevents backend from continuing to process after client disconnects
-        this.aborted = true;
-        this.cancelAllListeners();
+        subscription?.cancel();
       },
       start: (controller) => {
-        const subscription = new SessionSubscription(this, controller, startIndex);
+        subscription = new SessionSubscription(this, controller, startIndex);
         this.listeners.add(subscription);
         subscription.flushExisting();
         if (this.closed) {
-          queueMicrotask(() => subscription.close());
+          queueMicrotask(() => subscription?.close());
         }
       },
     });
@@ -105,11 +104,12 @@ export class AssistantDataStreamSession {
     }
   }
 
-  private cancelAllListeners(): void {
-    for (const listener of Array.from(this.listeners)) {
-      listener.cancel();
-    }
-    this.listeners.clear();
+  whenClosed(): Promise<void> {
+    return this.closedPromise;
+  }
+
+  getTerminalOutcome(): DataStreamTerminalOutcome {
+    return this.mapper.getTerminalOutcome();
   }
 
   private resolveStartIndex(resumeFromEventId: string | null | undefined): number {
@@ -146,13 +146,9 @@ export class AssistantDataStreamSession {
   }
 
   private async consumeSource(): Promise<void> {
-    // Consume chunks from source (Mastra agent stream) and emit them to listeners
-    // Checks abort flag on each iteration to stop when client cancels
+    // The session owns source consumption. Individual HTTP responses are
+    // subscribers and may detach without terminating the agent run.
     for await (const chunk of this.source) {
-      // Abort check: stop consuming if response stream was canceled
-      if (this.aborted) {
-        break;
-      }
       this.emitParts(this.mapper.handleChunk(chunk));
       if (this.mapper.didEmitFinish()) {
         break;
@@ -165,6 +161,7 @@ export class AssistantDataStreamSession {
       this.emitParts(this.mapper.finalizeOnStreamEnd());
     }
     this.closed = true;
+    this.resolveClosed();
     for (const listener of this.listeners) {
       listener.close();
     }

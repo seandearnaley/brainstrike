@@ -227,7 +227,9 @@
   fails visibly rather than silently undercounting.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
-  `{openrouter:{reasoning:{effort,summary}}}`. Optional reasoning models map the
+  `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.
+  Strict parameter routing is mandatory so OpenRouter cannot silently select an
+  upstream route that ignores requested reasoning or tool parameters. Optional reasoning models map the
   explicit Off choice to `{openrouter:{reasoning:{enabled:false}}}`; `none` is
   never sent as a guessed effort. Never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
@@ -237,16 +239,22 @@
   as `min(model max completion, 32,000)` when live/static model metadata
   publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
   ceiling. When live reasoning metadata says reasoning is enabled by default,
-  Auto jointly selects the strongest published effort and output limit that
-  reserve at least 8,192 tokens for the final answer, using OpenRouter's
-  documented effort ratios. It may raise the coding ceiling only within a
-  published maximum (GLM 5.2 uses high reasoning with 40,960 total output);
-  without a published maximum it keeps 32,000 and selects a compatible effort
-  (Kimi K3 uses low). That resolved value drives both Mastra `modelSettings` and
-  the input-context reservation. An explicit output limit that cannot fit any
-  published Auto effort plus the reserve blocks visibly. Explicit reasoning
+  Auto prefers a supported completion-biased thinking effort (`minimal`, then
+  `low`) over disabling reasoning; `none` is selected only when neither is
+  available. An optional model whose available efforts are only
+  `medium`/`high`/`xhigh`/`max`, or which publishes no bounded effort, receives
+  `reasoning.enabled=false` in Auto; the user may still explicitly select every
+  supported effort. This prevents an unbounded
+  provider default from silently consuming the answer budget without claiming
+  an invented reasoning-to-answer token split. OpenRouter effort is a provider
+  hint, not a deterministic reservation. The resolved output value drives both
+  Mastra `modelSettings` and the input-context reservation. Explicit reasoning
   choices remain authoritative, and output values above a known model maximum
   are surfaced rather than silently clamped.
+  The model menu and the per-thread provider-options builder must use the same
+  resolved live metadata snapshot. It is invalid for the menu to offer an
+  effort from live OpenRouter metadata and then validate that selection against
+  a stale static catalog while composing the thread draft.
 - A newly readable OpenRouter configuration must be usable without visiting
   model settings. When the DB-backed OpenRouter catalog is untouched, app-shell
   enables the small `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` set (balanced
@@ -298,13 +306,17 @@
   composer-model-menu.tsx, backed by reasoning-effort-controls.tsx). The
   Controls menu's provider section is now "Output & Limits" (formerly
   "Reasoning & Output") and keeps only agent runtime limits, max output,
-  OpenAI reasoning summary, the Anthropic numeric thinking budget, and the
+  the shared "Reasoning output" summary control, the Anthropic numeric thinking budget, and the
   Google include-thoughts debug toggle. Moved controls must emit
   byte-identical settings updates to the old panel sections (pinned by
   write-through tests in composer-model-menu.test.tsx).
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.
+  Run-step metadata may additionally retain the bounded selected upstream
+  provider name and reasoning-token count exposed by Mastra's official
+  `providerMetadata.openrouter` shape, plus the non-negative first-text latency.
+  Never log or persist reasoning content.
 - The OpenRouter `Auto` output profile is sent explicitly because Mastra's
   provider otherwise expands an omitted limit to the model's full output
   ceiling, which can make OpenRouter reject even a tiny prompt during credit
