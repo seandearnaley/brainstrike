@@ -122,7 +122,10 @@ function git(repo, args) {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 }
 
-function createCollectorFixture(t, { installBinaryShims = false } = {}) {
+function createCollectorFixture(
+  t,
+  { installBinaryShims = false, installedLockfile = 'lockfileVersion: 9.0\n' } = {}
+) {
   const root = mkdtempSync(join(tmpdir(), 'pruner-runtime-preflight-'));
   t.after(() => rmSync(root, { force: true, recursive: true }));
   const repo = join(root, 'repo');
@@ -145,6 +148,7 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
     })}\n`
   );
   writeFixtureFile(repo, 'pnpm-workspace.yaml', 'packages: []\n');
+  writeFixtureFile(repo, 'pnpm-lock.yaml', 'lockfileVersion: 9.0\n');
   writeFixtureFile(repo, '.night-shift/PROTOCOL.md', '# Protocol\n');
   writeFixtureFile(repo, '.night-shift/charters/pruner.md', '# Pruner\n');
   git(repo, ['add', '.']);
@@ -153,6 +157,7 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
   if (installBinaryShims) {
     writeFixtureFile(repo, 'node_modules/.bin/knip', '');
     writeFixtureFile(repo, 'node_modules/.bin/react-doctor', '');
+    writeFixtureFile(repo, 'node_modules/.pnpm/lock.yaml', installedLockfile);
   }
 
   const fakePnpm = join(binDir, 'pnpm');
@@ -205,6 +210,23 @@ test('fails before invoking pnpm when the required dependency binaries are unava
     existsSync(fixture.invocationLog),
     false,
     'pnpm must not be invoked during preflight'
+  );
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
+test('fails before invoking pnpm when the installed dependency lock is stale', (t) => {
+  const fixture = createCollectorFixture(t, {
+    installBinaryShims: true,
+    installedLockfile: 'lockfileVersion: 9.0\nsnapshots: {}\n',
+  });
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is stale/u);
+  assert.equal(
+    existsSync(fixture.invocationLog),
+    false,
+    'pnpm must not be invoked during freshness preflight'
   );
   assert.deepEqual(readdirSync(fixture.logsDir), []);
 });

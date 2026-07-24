@@ -36,8 +36,11 @@ The collector performs no repository or external writes (its Git reads disable
 optional locks, fsmonitor, and the untracked cache so `status` never rewrites
 the index). Before starting either scan, it requires the checked-out
 dependency runtime at `node_modules/.bin/knip` and
-`node_modules/.bin/react-doctor`. If either binary is absent, it exits visibly
-before invoking pnpm or creating any baseline artifact. The collector owns
+`node_modules/.bin/react-doctor`, then proves pnpm's installed dependency state
+is current by comparing `node_modules/.pnpm/lock.yaml` byte-for-byte with the
+checked-out `pnpm-lock.yaml`. If either binary is absent or the installed lock
+is missing or stale, it exits visibly before invoking pnpm or creating any
+baseline artifact. The collector owns
 `--output` creation after successful collection and parsing, so shell
 redirection cannot leave an empty baseline file on preflight failure. Install
 dependencies explicitly with `pnpm install --frozen-lockfile`, then rerun the

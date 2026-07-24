@@ -205,6 +205,33 @@ function assertDependencyRuntimeAvailable(repoRoot) {
   );
 }
 
+function assertDependencyRuntimeCurrent(repoRoot) {
+  const workspaceLockfilePath = join(repoRoot, 'pnpm-lock.yaml');
+  const installedLockfilePath = join(repoRoot, 'node_modules', '.pnpm', 'lock.yaml');
+  let workspaceLockfile;
+  let installedLockfile;
+  try {
+    workspaceLockfile = readFileSync(workspaceLockfilePath);
+  } catch (error) {
+    fail(
+      `could not read pnpm-lock.yaml: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    installedLockfile = readFileSync(installedLockfilePath);
+  } catch {
+    fail(
+      'required dependency runtime is unavailable (missing node_modules/.pnpm/lock.yaml); run "pnpm install --frozen-lockfile" before collecting'
+    );
+  }
+  if (workspaceLockfile.equals(installedLockfile)) {
+    return;
+  }
+  fail(
+    'required dependency runtime is stale (node_modules/.pnpm/lock.yaml does not match pnpm-lock.yaml); run "pnpm install --frozen-lockfile" before collecting'
+  );
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
@@ -247,6 +274,7 @@ function main() {
   }
   for (const requiredPath of [
     'package.json',
+    'pnpm-lock.yaml',
     'pnpm-workspace.yaml',
     '.night-shift/PROTOCOL.md',
     '.night-shift/charters/pruner.md',
@@ -259,6 +287,7 @@ function main() {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
   assertDependencyRuntimeAvailable(repoRoot);
+  assertDependencyRuntimeCurrent(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
