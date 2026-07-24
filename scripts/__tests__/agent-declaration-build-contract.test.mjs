@@ -36,9 +36,14 @@ test('agent development watches declarations and JavaScript as sibling processes
     agentManifest.scripts.dev,
     'concurrently --kill-others --names types,bundle "tsc --project tsconfig.json --watch --preserveWatchOutput" "tsup --watch"'
   );
+  // concurrently is governed by the pnpm catalog now (BST-748): a single
+  // source of truth in pnpm-workspace.yaml (^10.0.3), enforced everywhere by
+  // verify-catalog-references.mjs + catalogMode: strict. The build contract
+  // still requires agent to declare it DIRECTLY — now via the `catalog:`
+  // protocol rather than a hand-synced literal.
   assert.equal(
     agentManifest.devDependencies.concurrently,
-    '^10.0.3',
-    'the package that invokes concurrently must declare it directly'
+    'catalog:',
+    'the package that invokes concurrently must declare it directly (via the catalog)'
   );
 });

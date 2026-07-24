@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,8 +45,38 @@ async function readPackageManifest(relativePath: string): Promise<PackageManifes
   return JSON.parse(contents) as PackageManifest;
 }
 
+// The PGlite family moved into the pnpm catalog (BST-748), so consumers now
+// declare `catalog:`. Resolve that to the single pinned version in
+// pnpm-workspace.yaml so the peer-compatibility guarantee below (one exact
+// PGlite family version across every consumer) still holds — now enforced
+// centrally by the catalog + verify-catalog-references rather than a hand-synced
+// literal in each manifest.
+function readCatalogVersions(): Map<string, string> {
+  const workspace = readFileSync(resolve(REPOSITORY_ROOT, 'pnpm-workspace.yaml'), 'utf8');
+  const versions = new Map<string, string>();
+  const lines = workspace.split('\n');
+  const catalogStart = lines.findIndex((line) => /^catalog:/.test(line));
+  for (let index = catalogStart + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined || !/^\s+\S/.test(line)) {
+      break;
+    }
+    const match = line.match(/^\s+'?([^':]+)'?:\s*'?([^'\s]+)'?/);
+    const name = match?.[1];
+    const version = match?.[2];
+    if (name !== undefined && version !== undefined) {
+      versions.set(name, version);
+    }
+  }
+  return versions;
+}
+
+const CATALOG_VERSIONS = readCatalogVersions();
+
 function dependencyVersion(manifest: PackageManifest, dependencyName: string): string | undefined {
-  return manifest.dependencies?.[dependencyName] ?? manifest.devDependencies?.[dependencyName];
+  const declared =
+    manifest.dependencies?.[dependencyName] ?? manifest.devDependencies?.[dependencyName];
+  return declared === 'catalog:' ? CATALOG_VERSIONS.get(dependencyName) : declared;
 }
 
 function openDatabase(dataDir?: string): PGlite {
