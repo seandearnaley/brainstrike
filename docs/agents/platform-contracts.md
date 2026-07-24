@@ -295,7 +295,11 @@ calls `onDisabled`, which the bridge logs loudly via a plain (non-recursing)
 `bridgeLogger.error`. `flush()`/`drain()` loop while more events keep arriving
 mid-flight so nothing enqueued during an in-flight sink call is stranded. The
 bridge also flushes on `visibilitychange` → `hidden`, so events survive tab
-close/backgrounding.
+close/backgrounding. The design's DB-corruption-recovery generation
+subscription (re-arming the writer after a runtime DB swap) is NOT
+implemented in P1 — this self-disable-after-repeated-flush-failures behavior,
+with its visible `onDisabled` log, is the deliberate P1 substitute; revisit
+once P2 surfaces sink health.
 
 **Retention**: `DiagnosticEventsRepository.purge()`
 (`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,

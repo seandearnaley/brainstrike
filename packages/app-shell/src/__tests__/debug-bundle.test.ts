@@ -233,6 +233,78 @@ describe('formatThreadDebugBundle', () => {
     expect(output).toContain('Elided tool-result bodies in 1 message');
     expect(output).not.toContain('[elided message'); // stage 1 never fired
   });
+
+  it('elides an oversized tool-result body via stage 2 for Mastra V2 content shape', () => {
+    const bigResult = 'R'.repeat(30_000);
+    // Same shape as the bare-array stage-2 test above, except message
+    // content is the real persisted Mastra V2 dialect
+    // `{ format: 2, parts: [...] }` (see
+    // packages/agent/src/pglite-mastra-memory/memory-store.ts and
+    // docs/agents/assistant-persistence.md §1) instead of a bare array.
+    const fixture: ThreadDebugBundleData = {
+      diagnosticEvents: [],
+      environment: {
+        appVersion: '1.2.3',
+        generatedAt: '2026-07-23T12:05:00.000Z',
+        platform: 'darwin',
+        sessionId: 'session-fixed-1',
+      },
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [{ text: 'Read the config file.', type: 'text' }],
+          },
+          createdAt: '2026-07-23T12:00:00.000Z',
+          id: 'msg-a',
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                args: { path: 'config.json' },
+                result: bigResult,
+                toolName: 'read_file',
+                type: 'tool-result',
+              },
+            ],
+          },
+          createdAt: '2026-07-23T12:00:05.000Z',
+          id: 'msg-b',
+          role: 'assistant',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [{ text: 'Done.', type: 'text' }],
+          },
+          createdAt: '2026-07-23T12:00:10.000Z',
+          id: 'msg-c',
+          role: 'assistant',
+        },
+      ],
+      priorFailures: null,
+      run: null,
+      runEvents: [],
+      threadId: 'thread-stage2-v2',
+      usage: [],
+    };
+
+    const output = formatThreadDebugBundle(fixture, { maxBytes: 5000 });
+    const bytes = new TextEncoder().encode(output).length;
+
+    expect(bytes).toBeLessThanOrEqual(5000);
+    expect(output).not.toContain(bigResult);
+    expect(output).toContain('[tool result elided');
+    expect(output).toContain('"path": "config.json"'); // args retained verbatim
+    expect(output).toContain('R'.repeat(200)); // first-200-chars preview retained
+    expect(output).not.toContain('R'.repeat(201));
+    expect(output).toContain('Elided tool-result bodies in 1 message');
+    expect(output).not.toContain('[elided message'); // stage 1 never fired
+    expect(output).toContain('"format": 2'); // V2 wrapper preserved, not unwrapped
+  });
 });
 
 describe('collectThreadDebugBundleData', () => {
