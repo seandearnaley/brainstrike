@@ -462,20 +462,34 @@ is always nulled from a `finally`, even when `close()` throws, so a partial
 failure can never leave a stale handle that a later `recordDurableLog` call
 treats as still open.
 
-**Reopen-after-close is real in `RotatingNdjsonSink` but unreachable in
-production**: `close()`'s doc comment describes (and the class actually
-implements) a `writeLine` call after `close()` transparently reopening the
-file rather than dropping the write. The desktop wiring does not rely on
-that: `main.ts`'s `error-log-sink` shutdown step nulls its `errorLogSink`
-handle in the SAME step that calls `close()`, so `recordDurableLog` becomes a
-permanent no-op for the rest of the process's life once that step runs — a
-forced-shutdown timeout logged later by `scheduleForcedProcessExit` reaches
-console/`brainstrike.log` but never this NDJSON file. This is a deliberate
-choice, not a bug: nulling the handle keeps "the sink is torn down" simple
-and matches every other shutdown step's teardown-then-forget pattern. The
-reopen affordance stays real inside `RotatingNdjsonSink` itself (exercised
-directly by its own tests) for any future caller that holds onto the handle
-past `close()` — the current desktop wiring just isn't one.
+**Reopen-after-close is real in `RotatingNdjsonSink` and now reachable in
+production via the factory-reset path**: `close()`'s doc comment describes
+(and the class actually implements) a `writeLine` call after `close()`
+transparently reopening the file rather than dropping the write. Two desktop
+callers exercise `close()` with two different intents:
+
+- Graceful shutdown (`main.ts`'s `error-log-sink` shutdown step) nulls its
+  `errorLogSink` handle in the SAME step that calls `close()`, so
+  `recordDurableLog` becomes a permanent no-op for the rest of the process's
+  life once that step runs — a forced-shutdown timeout logged later by
+  `scheduleForcedProcessExit` reaches console/`brainstrike.log` but never
+  this NDJSON file. This is a deliberate choice, not a bug: nulling the
+  handle keeps "the sink is torn down" simple and matches every other
+  shutdown step's teardown-then-forget pattern.
+- Factory reset (`main.ts`'s `error-log-sink` reset-runtime disposer, part
+  of the `runtimes` list passed to `createDesktopFactoryResetHandler`) calls
+  `close()` WITHOUT nulling `errorLogSink`. This runs before the purge below
+  (`stopBackgroundRuntimes` completes before `resetDesktopApplicationData`
+  deletes the files), specifically to avoid deleting a still-open file:
+  on POSIX that would unlink the path while the live fd kept writing to the
+  orphaned inode (records silently stop landing on disk until rotation or
+  process exit); on Windows the delete would fail outright while the fd held
+  the file open, yet reset would still report success. Leaving the handle
+  non-null means the very next warn+ record after the purge reopens (really:
+  recreates, since the file is gone) `brainstrike-errors.ndjson` from
+  scratch — this is the first production path that actually exercises the
+  reopen behavior; it was previously reachable only from this class's own
+  tests.
 
 **Factory reset purges the NDJSON mirror, not only the DB rows**: factory
 reset (`desktop-factory-reset.ts`) already wipes
@@ -494,7 +508,10 @@ tracked in the result's `pendingDeletionPaths` — reported, never swallowed —
 but does not fail the overall reset (the database + userData wipe that
 already succeeded matters more than one diagnostics mirror file).
 `brainstrike.log` (the full INFO log) is untouched by this purge and stays
-preserved, same as before.
+preserved, same as before. The purge itself always runs AFTER
+`stopBackgroundRuntimes` (see `resetDesktopApplicationData`'s call order),
+which is what guarantees the `error-log-sink` disposer above has already
+closed the fd by the time these `rm` calls execute.
 
 **Deferred from the design doc's §7/§9, recorded honestly**: §7's
 "`brainstrike.log` (full INFO) keeps existing behavior but gains the same

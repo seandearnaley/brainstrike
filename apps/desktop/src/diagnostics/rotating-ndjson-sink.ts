@@ -120,17 +120,25 @@ export class RotatingNdjsonSink {
    * transparently reopens the file (re-seeding `currentSize` from disk) and
    * keeps writing — this class itself never drops a post-close write.
    *
-   * CHOSEN, NOT ACCIDENTAL — but currently UNREACHABLE via the desktop
-   * production wiring: `main.ts`'s `error-log-sink` shutdown step calls
-   * `close()` and then sets its `errorLogSink` handle to `null` in the same
-   * step (see the comment there), so `recordDurableLog` becomes a permanent
-   * no-op after that point rather than exercising this reopen path — e.g. a
-   * shutdown-timeout error logged later by `scheduleForcedProcessExit`
-   * reaches console/`brainstrike.log` but NOT this NDJSON file. That
-   * null-out is deliberate (see `docs/agents/platform-contracts.md`'s P2a
-   * section for the reasoning), not a bug in this class: this reopen
-   * affordance is kept here so a caller that DOES hold onto the handle past
-   * `close()` — a test, or a future different wiring — gets it for free.
+   * CHOSEN, NOT ACCIDENTAL, and reachable via two different desktop callers
+   * with two different intents:
+   *
+   * - Graceful shutdown (`main.ts`'s `error-log-sink` shutdown step) calls
+   *   `close()` and then sets its `errorLogSink` handle to `null` in the
+   *   SAME step (see the comment there), so `recordDurableLog` becomes a
+   *   permanent no-op after that point rather than exercising this reopen
+   *   path — e.g. a shutdown-timeout error logged later by
+   *   `scheduleForcedProcessExit` reaches console/`brainstrike.log` but NOT
+   *   this NDJSON file. That null-out is deliberate (see
+   *   `docs/agents/platform-contracts.md`'s P2a section).
+   * - Factory reset (`main.ts`'s `error-log-sink` reset-runtime disposer)
+   *   calls `close()` WITHOUT nulling `errorLogSink`, specifically so this
+   *   reopen affordance fires: the reset's purge step deletes the NDJSON
+   *   file right after every runtime disposer (including this one) has run,
+   *   and the next warn+ record after that transparently recreates the file
+   *   from scratch instead of the sink going permanently silent. This is the
+   *   first production path that actually exercises the reopen behavior —
+   *   it was previously reachable only from this class's own tests.
    */
   close(): void {
     if (this.fd === null) {

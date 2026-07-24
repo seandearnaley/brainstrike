@@ -1072,6 +1072,26 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
     },
+    // Close (never null) the durable NDJSON sink before the purge below runs
+    // (`errorLogFilePaths`, run inside `resetDesktopApplicationData` AFTER
+    // every runtime here has stopped): purging the file out from under a
+    // still-open fd would delete-while-open on POSIX (orphaning the fd —
+    // later warn+ records silently stop landing on disk until rotation or
+    // process exit) or fail the delete outright on Windows (while reset
+    // still reports success). Deliberately does NOT null `errorLogSink`,
+    // unlike the graceful-shutdown step below: `RotatingNdjsonSink.close()`
+    // documents (and its own tests exercise) a `writeLine` after `close()`
+    // transparently reopening the file, so the very next warn+ record
+    // recreates `brainstrike-errors.ndjson` from scratch post-reset instead
+    // of the sink going permanently silent. See its doc comment and
+    // docs/agents/platform-contracts.md's P2a section.
+    {
+      name: 'error-log-sink',
+      stop: () => {
+        errorLogSink?.close();
+        return Promise.resolve();
+      },
+    },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
   userDataPath: app.getPath('userData'),
