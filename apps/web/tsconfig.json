@@ -88,6 +88,9 @@
       "path": "../../packages/hooks"
     },
     {
+      "path": "../../packages/platform-utils"
+    },
+    {
       "path": "../../packages/queue"
     },
     {

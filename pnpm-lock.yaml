@@ -520,6 +520,9 @@ importers:
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../../packages/platform-utils
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
