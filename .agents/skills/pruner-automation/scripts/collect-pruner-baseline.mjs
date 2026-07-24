@@ -5,7 +5,6 @@ import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { parse as parseYaml } from 'yaml';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
@@ -207,9 +206,19 @@ function assertDependencyRuntimeAvailable(repoRoot) {
   );
 }
 
-function assertDependencyRuntimeCurrent(repoRoot) {
+async function assertDependencyRuntimeCurrent(repoRoot) {
   const workspaceLockfilePath = join(repoRoot, 'pnpm-lock.yaml');
   const installedLockfilePath = join(repoRoot, 'node_modules', '.pnpm', 'lock.yaml');
+  let parseYaml;
+  try {
+    ({ parse: parseYaml } = await import('yaml'));
+  } catch (error) {
+    fail(
+      `required dependency runtime is unavailable (could not load the lockfile parser: ${
+        error instanceof Error ? error.message : String(error)
+      }); run "pnpm install --frozen-lockfile" before collecting`
+    );
+  }
   let workspaceLockfile;
   let installedLockfile;
   try {
@@ -236,7 +245,7 @@ function assertDependencyRuntimeCurrent(repoRoot) {
   );
 }
 
-function main() {
+async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
     fail('--logs-dir must be an absolute path');
@@ -291,7 +300,7 @@ function main() {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
   assertDependencyRuntimeAvailable(repoRoot);
-  assertDependencyRuntimeCurrent(repoRoot);
+  await assertDependencyRuntimeCurrent(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
@@ -337,7 +346,7 @@ function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    main();
+    await main();
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }

@@ -39,9 +39,9 @@ dependency runtime at `node_modules/.bin/knip` and
 `node_modules/.bin/react-doctor`, then proves pnpm's installed dependency state
 is current by parsing and semantically comparing `node_modules/.pnpm/lock.yaml`
 with the checked-out `pnpm-lock.yaml`, matching pnpm's current-vs-wanted
-lockfile check without invoking pnpm. If either binary is absent or the installed lock
-is missing or stale, it exits visibly before invoking pnpm or creating any
-baseline artifact. The collector owns
+lockfile check without invoking pnpm. If either binary or the YAML parser is
+absent, or the installed lock is missing or stale, it exits visibly before
+invoking pnpm or creating any baseline artifact. The collector owns
 `--output` creation after successful collection and parsing, so shell
 redirection cannot leave an empty baseline file on preflight failure. Install
 dependencies explicitly with `pnpm install --frozen-lockfile`, then rerun the

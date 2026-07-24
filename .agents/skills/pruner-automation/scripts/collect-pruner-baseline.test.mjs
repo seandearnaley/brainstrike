@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -177,11 +179,11 @@ process.stdout.write(${JSON.stringify(doctorReport())});
   return { binDir, invocationLog, logsDir, outputPath, repo, root };
 }
 
-function collectFixture(fixture) {
+function collectFixture(fixture, collectorPath = COLLECTOR_PATH) {
   return spawnSync(
     process.execPath,
     [
-      COLLECTOR_PATH,
+      collectorPath,
       '--repo',
       fixture.repo,
       '--logs-dir',
@@ -199,6 +201,25 @@ function collectFixture(fixture) {
     }
   );
 }
+
+test('reports the install remedy when the lockfile parser is not installed', (t) => {
+  const fixture = createCollectorFixture(t, { installBinaryShims: true });
+  const copiedCollectorPath = join(fixture.root, 'collect-pruner-baseline.mjs');
+  copyFileSync(COLLECTOR_PATH, copiedCollectorPath);
+  const isolatedCollectorPath = realpathSync(copiedCollectorPath);
+  const result = collectFixture(fixture, isolatedCollectorPath);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is unavailable/u);
+  assert.match(result.stderr, /pnpm install --frozen-lockfile/u);
+  assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/u);
+  assert.equal(
+    existsSync(fixture.invocationLog),
+    false,
+    'pnpm must not be invoked when the lockfile parser is unavailable'
+  );
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
 
 test('fails before invoking pnpm when the required dependency binaries are unavailable', (t) => {
   const fixture = createCollectorFixture(t);
