@@ -376,6 +376,69 @@ test('extractLogEvidence yields one fingerprint for padded list-reporter headers
   );
 });
 
+test('extractLogEvidence preserves distinct long-title failures with the same error', () => {
+  const jobs = [
+    {
+      conclusion: 'failure',
+      name: 'Web Full Regression',
+      steps: [{ conclusion: 'failure', name: 'Run full regression' }],
+    },
+  ];
+  const line = (message) =>
+    `Web Full Regression\tRun full regression\t2026-07-21T00:00:00Z\t${message}`;
+  const firstTitle =
+    'tests/ide-layout-persistence.spec.ts › IDE Layout Persistence › Complex Layout State Persistence › should handle navigation between pages while preserving layout';
+  const secondTitle =
+    'tests/ide-layout-persistence.spec.ts › IDE Layout Persistence › Complex Layout State Persistence › should preserve hidden explorer state across page navigation';
+  const logText = [
+    line(`1) [chromium] › ${firstTitle}`),
+    line('Error: expect(locator).toBeVisible() failed'),
+    line(`2) [chromium] › ${secondTitle}`),
+    line('Error: expect(locator).toBeVisible() failed'),
+  ].join('\n');
+
+  const evidence = extractLogEvidence({
+    attempt: 1,
+    jobs,
+    logText,
+    workflowName: 'Web E2E',
+  });
+
+  assert.equal(evidence.failureCandidates.length, 2);
+  assert.deepEqual(
+    evidence.failureCandidates.map((candidate) => candidate.testTitle),
+    [firstTitle, secondTitle]
+  );
+  assert.equal(
+    new Set(evidence.failureCandidates.map((candidate) => candidate.fingerprintCandidate)).size,
+    2
+  );
+  assert.deepEqual(evidence.unparsedFailures, []);
+});
+
+test('extractLogEvidence fails closed when distinct titles share a fingerprint', () => {
+  const jobs = [
+    { conclusion: 'failure', name: 'Web', steps: [{ conclusion: 'failure', name: 'Run' }] },
+  ];
+  const line = (message) => `Web\tRun\t2026-07-21T00:00:00Z\t${message}`;
+  const logText = [
+    line('1) [chromium] › e2e/x.test.ts › Foo Bar'),
+    line('Error: expect(locator).toBeVisible() failed'),
+    line('2) [chromium] › e2e/x.test.ts › Foo-Bar'),
+    line('Error: expect(locator).toBeVisible() failed'),
+  ].join('\n');
+
+  const evidence = extractLogEvidence({ attempt: 1, jobs, logText, workflowName: 'Web E2E' });
+
+  assert.equal(evidence.failureCandidates.length, 2);
+  assert.equal(evidence.unparsedFailures.length, 1);
+  assert.equal(evidence.unparsedFailures[0].reason, 'fingerprint-collision');
+  assert.deepEqual(evidence.unparsedFailures[0].testTitles, [
+    'e2e/x.test.ts › Foo Bar',
+    'e2e/x.test.ts › Foo-Bar',
+  ]);
+});
+
 test('extractLogEvidence never lets unattributed lines cover a failed job', () => {
   const jobs = [
     {
