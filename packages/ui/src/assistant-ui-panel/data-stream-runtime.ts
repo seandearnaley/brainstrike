@@ -759,6 +759,16 @@ function readPositiveCount(value: unknown): number | undefined {
   return;
 }
 
+function throwIfRunAbortedBeforeTerminalCompletion(
+  abortSignal: AbortSignal,
+  terminalFinishFlushed: boolean
+): void {
+  if (!abortSignal.aborted || terminalFinishFlushed) {
+    return;
+  }
+  throw abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError');
+}
+
 /**
  * assistant-stream's decoder emits `message-finish` before it flushes the
  * active implicit text/reasoning part. The accumulator therefore exposes a
@@ -769,15 +779,15 @@ function readPositiveCount(value: unknown): number | undefined {
  * Buffer the one terminal message marker until decoder EOF so every part-finish
  * reaches the accumulator before the UI observes completion.
  */
-function deferMessageFinishUntilFlush(): TransformStream<
-  AssistantStreamChunk,
-  AssistantStreamChunk
-> {
+function deferMessageFinishUntilFlush(
+  onTerminalFinishFlushed?: () => void
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
   let pendingFinish: AssistantStreamChunk | undefined;
   return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
     flush(controller) {
       if (pendingFinish) {
         controller.enqueue(pendingFinish);
+        onTerminalFinishFlushed?.();
       }
     },
     transform(chunk, controller) {
@@ -801,11 +811,16 @@ function deferMessageFinishUntilFlush(): TransformStream<
  */
 function buildDecodedTapPipeline(
   body: ReadableStream<Uint8Array>,
-  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>
+  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>,
+  onTerminalFinishFlushed?: () => void
 ): ReadableStream<AssistantStreamChunk> {
   const decoded = body
     .pipeThrough(new DataStreamDecoder())
-    .pipeThrough(deferMessageFinishUntilFlush());
+    .pipeThrough(
+      onTerminalFinishFlushed
+        ? deferMessageFinishUntilFlush(onTerminalFinishFlushed)
+        : deferMessageFinishUntilFlush()
+    );
   const usageTapped = options.onUsage
     ? decoded.pipeThrough(buildUsageTap(options.onUsage))
     : decoded;
@@ -879,6 +894,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
+    let terminalFinishFlushed = false;
     abortSignal.addEventListener(
       'abort',
       () => {
@@ -956,7 +972,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         abortSignal,
         body: response.body,
         buildPipeline: (source) =>
-          buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal))
+          buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
+            terminalFinishFlushed = true;
+          })
             .pipeThrough(
               unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
                 throw new Error('Tool interrupt is not supported in data stream runtime');
@@ -982,18 +1000,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       // The insulated pipeline ends with a clean EOF on expected aborts; an
       // aborted run must still surface its abort as the single terminal
       // outcome, never a fabricated successful finish.
-      if (abortSignal.aborted) {
-        throw (
-          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
-        );
-      }
+      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
-      if (abortSignal.aborted) {
-        throw (
-          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
-        );
-      }
+      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
       this.reportError(error);
       throw error;
     }

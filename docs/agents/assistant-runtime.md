@@ -325,7 +325,10 @@ byte source is cancelled and the pipeline drains to its natural close in the
 background, so every in-flight settlement lands in an open stream. Because an
 insulated abort now ends in clean EOF, `run()` re-throws the authoritative
 abort reason after the loop (an aborted run must never fabricate a successful
-finish), and the usage/context-breakdown taps are abort-gated so a draining
+finish). Completion wins only after the buffered terminal `complete` message
+has already been yielded: because that marker is deferred until decoder EOF, a
+superseding abort in the yield-to-iterator-EOF gap must not rewrite the finished
+run as cancelled. The usage/context-breakdown taps are abort-gated so a draining
 stream cannot report late usage. Real faults stay loud: pre-cancellation
 pipeline/transport errors propagate to the consumer, post-cancellation
 non-abort drain failures log with diagnostic context. Do NOT re-route the

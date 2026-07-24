@@ -234,6 +234,47 @@ describe('BrainstrikeDataStreamRuntimeAdapter — cancellation lifecycle (BST-70
     expect(unhandledReasons).toEqual([]);
   });
 
+  it('keeps a terminal complete outcome when superseded before the iterator observes EOF', async () => {
+    const { bodies } = stubFetchWith((signal) => createScriptedBody(signal));
+    const abortController = new AbortController();
+    const onFinish = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      onFinish,
+    });
+    const iterator = adapter.run(makeRunOptions(abortController.signal));
+    let nextYieldPromise = iterator.next();
+    while (bodies.length === 0) {
+      await tick();
+    }
+    const body = bodies[0] as ScriptedBody;
+    await body.feed(TOOL_RUN_CHUNKS);
+    body.finish();
+
+    let terminalYield: Awaited<ReturnType<typeof iterator.next>> | undefined;
+    for (let yieldIndex = 0; yieldIndex < 32; yieldIndex += 1) {
+      const nextYield = await nextYieldPromise;
+      if (nextYield.done || nextYield.value.status?.type === 'complete') {
+        terminalYield = nextYield;
+        break;
+      }
+      nextYieldPromise = iterator.next();
+    }
+    expect(
+      terminalYield,
+      'the finite scripted response must yield a terminal message'
+    ).toBeDefined();
+    expect(terminalYield?.done).toBe(false);
+    expect(terminalYield?.value?.status).toEqual({ reason: 'stop', type: 'complete' });
+
+    abortController.abort(new DOMException('Superseded by the next turn.', 'AbortError'));
+
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(onFinish).toHaveBeenCalledOnce();
+    await settle();
+    expect(unhandledReasons).toEqual([]);
+  });
+
   it('yields no unhandled rejections when aborted at ANY interleaving of a tool-result run', async () => {
     for (let k = 0; k < 24; k += 1) {
       const result = await runScenario(TOOL_RUN_CHUNKS, k);
