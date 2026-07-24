@@ -1,5 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { useEffect } from 'react';
+import { qualifyLocalEmbedding } from './qualify-local-embedding';
 
 interface ModelEnabledRow {
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
@@ -147,44 +148,7 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           vectorDistance,
         };
       },
-      qualifyLocalEmbedding: async (deviceHint = 'wasm'): Promise<WebE2EEmbeddingQualification> => {
-        const dtype = deviceHint === 'webgpu' ? 'fp16' : 'q4';
-        const { getEmbeddingQueue } = await import('./create-embedding-queue');
-        const queue = getEmbeddingQueue();
-        const result = await queue.add({
-          deviceHint,
-          dtype,
-          id: `csp-embedding-${crypto.randomUUID()}`,
-          kind: 'embed',
-          maxBatchSize: 1,
-          model: 'Xenova/all-MiniLM-L6-v2',
-          targetDimension: 384,
-          texts: ['Brainstrike production CSP qualification'],
-          truncateDim: 384,
-        });
-        const vector = result.vectors[0];
-        const dimensions = result.metadata.dimensions ?? vector?.length ?? 0;
-        const finite =
-          vector !== undefined &&
-          vector.length === 384 &&
-          Array.from(vector).every((value) => Number.isFinite(value));
-        if (
-          result.metadata.device !== deviceHint ||
-          result.metadata.dtype !== dtype ||
-          result.metadata.fallbackApplied !== false ||
-          dimensions !== 384 ||
-          !finite
-        ) {
-          throw new Error('Web E2E local embedding qualification failed');
-        }
-        return {
-          device: result.metadata.device,
-          dimensions,
-          dtype: result.metadata.dtype,
-          fallbackApplied: result.metadata.fallbackApplied,
-          finite,
-        };
-      },
+      qualifyLocalEmbedding,
       readAssistantThreads: async (): Promise<readonly WebE2EAssistantThreadSnapshot[]> => {
         const result = await db.query<AssistantThreadRow>(
           'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'
