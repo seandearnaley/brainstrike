@@ -239,3 +239,107 @@ indexed state only.
 Full event-pipeline invariants (batching, ignore rules, normalization,
 consumers) live in `docs/agents/explorer-search-tapestry.md` ("EXPLORER TREE
 LIVE REFRESH").
+
+---
+
+## DIAGNOSTIC EVENTS (FLIGHT RECORDER P1)
+
+Design doc: `docs/error-observability-design-2026-07-23.md`. Cross-cutting,
+app-wide diagnostic capture — deliberately SEPARATE from the run-scoped
+`brainstrike_assistant_run_events` timeline (different scope, retention, and
+sanitization contract; do not relitigate).
+
+**Table**: `brainstrike_diagnostic_events` (migration 072, numbered runner
+`packages/db/src/migrations/072-diagnostic-events.ts` AND drizzle
+`customMigrations` in `packages/db/src/drizzle/migrate.ts` —
+`custom-072-diagnostic-events`). NO foreign keys (same precedent as
+`run_usage` 046 / `run_outcomes` 062): correlation ids (`run_id`, `thread_id`,
+`resource_id`, `root_id`) are nullable text and orphans are inert. `severity`
+is a CHECK-constrained `warn | error | fatal`. `fingerprint` is computed at
+write time (`computeDiagnosticFingerprint` in
+`packages/utils/src/diagnostics/diagnostic-events.ts`) — a dependency-free
+FNV-1a hash over `code|scope|normalized-message` with UUIDs/paths/hex/digits
+stripped, so recurring errors with different ids/paths collapse to the same
+fingerprint. `session_id` is a per-launch `crypto.randomUUID()`
+(`getDiagnosticSessionId` in `diagnostic-sink-bridge.tsx`) correlating events
+within one app run.
+
+**Capture**: the existing `addLogListener` seam
+(`packages/utils/src/logger.ts`) feeds `DiagnosticSinkBridge`
+(`packages/app-shell/src/diagnostics/diagnostic-sink-bridge.tsx`), a
+render-nothing component mounted ONLY in the two visible renderers
+(`apps/web/src/main.tsx`, `apps/desktop/src/renderer/main.tsx`). Desktop main
+and hidden renderer hosts have no PGlite handle of their own, so their warn+
+records are pushed to a visible renderer over `logging:durable-record`
+(desktop main → renderer) and consumed via the bridge's optional
+`forwardedRecords` prop (`ForwardedRecordsSubscription`); a second channel,
+`logging:ingest-buffered-record`, exists for pre-attach buffered records. The
+bridge's own scope, `DIAGNOSTIC_SINK_SCOPE = 'DiagnosticSink'`, is excluded
+from both the local listener and the forwarded-record consumer — the
+loop guard that stops sink failures from re-entering the sink. Records become
+`DiagnosticEvent`s via `logRecordToDiagnosticEvent`, which bounds
+message/stack/context (`DIAGNOSTIC_MESSAGE_MAX_CHARS`/`STACK`/`CONTEXT` =
+2000/8000/8000 chars, visibly marked via `boundWithMarker`, never silent) and
+runs `redactSensitiveLogValue` over context before it is queued.
+
+**Writer** (`DiagnosticEventWriter`,
+`packages/utils/src/diagnostics/diagnostic-event-writer.ts`): batched
+(`flushBatchSize` 32 events, `flushIntervalMs` 2000ms), never awaited on the
+logging call path. `maxPending` (256) is a drop-oldest ring buffer; each drop
+increments a counter that materializes into one loud
+`diagnostics_events_dropped` marker event (fingerprint
+`diagnostics_events_dropped`, severity `warn`) prepended to the next flush —
+loss is never silent. After `maxConsecutiveFailures` (5) consecutive flush
+failures the writer self-disables (`isDisabled`), drops its pending queue, and
+calls `onDisabled`, which the bridge logs loudly via a plain (non-recursing)
+`bridgeLogger.error`. `flush()`/`drain()` loop while more events keep arriving
+mid-flight so nothing enqueued during an in-flight sink call is stranded. The
+bridge also flushes on `visibilitychange` → `hidden`, so events survive tab
+close/backgrounding.
+
+**Retention**: `DiagnosticEventsRepository.purge()`
+(`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,
+oldest-first `DELETE ... WHERE id IN (SELECT ... ORDER BY occurred_at ASC
+LIMIT n)` past 30 days (`DIAGNOSTIC_RETENTION_MAX_AGE_MS`) OR past 20,000 rows
+(`DIAGNOSTIC_RETENTION_MAX_ROWS`), capped at 500 rows per purge call. It is
+invoked once on `DiagnosticSinkBridge` mount — never an unbounded `DELETE`,
+never a trigger.
+
+**Factory reset**: new persistence under this table must stay wired in BOTH
+paths — desktop `db-ipc.ts` `OptionalRelationTable` list
+(`clearOptionalRelation(tx, 'brainstrike_diagnostic_events')`) and web
+`db-provider.tsx`'s direct-PGlite reset table list. Both currently include
+`brainstrike_diagnostic_events`.
+
+**Debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
+(collector `collectThreadDebugBundleData` + pure formatter
+`formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
+consumed through the `DebugBundleProvider` seam
+(`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
+`packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
+`CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
+on failed assistant messages. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
+the rendered header (`bundle_format: 1`) so future format changes are
+detectable by consumers. Bounded to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES` (200,000
+bytes measured via `TextEncoder`, byte length not char length); when over
+budget the formatter elides deterministically in three stages (oldest
+non-protected transcript messages, then tool-result bodies down to a 200-char
+preview, then run-event metadata) and always appends a visible `## Elision
+log` footer naming what was cut — it never throws and never elides silently.
+Redaction is key-name-based (`redactSensitiveLogValue`, matching
+`isSensitiveLogKey`) applied twice: once at capture time
+(`logRecordToDiagnosticEvent`'s context) and again over the whole bundle data
+object at format time as a belt-and-braces pass — a secret value under an
+innocuous key (e.g. `{ note: 'password is sk-live-123' }`) is a known gap in
+both passes since neither is value-based.
+
+**Paired tests**: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
+`packages/utils/src/__tests__/diagnostic-event-writer.test.ts`,
+`packages/db/__tests__/migration-072-diagnostic-events.test.ts`,
+`packages/db/__tests__/diagnostic-events-repository.test.ts`,
+`packages/app-shell/src/__tests__/diagnostic-sink-bridge.test.tsx`,
+`apps/desktop/src/__tests__/logging-durable-record.test.ts` (durable-record
+push channel), `packages/ui/src/__tests__/error-boundary.test.tsx`,
+`packages/app-shell/src/__tests__/debug-bundle.test.ts` (includes a golden
+snapshot), `packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
+`packages/app-shell/src/__tests__/use-debug-bundle.test.ts`.
