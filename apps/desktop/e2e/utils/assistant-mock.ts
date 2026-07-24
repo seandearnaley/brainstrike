@@ -1,3 +1,4 @@
+import { ASSISTANT_STREAM_EVENT_ID_HEADER } from '@brainstrike/assistant-contract';
 import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -20,6 +21,7 @@ interface AssistantMockInstallPayload {
   readonly models: Record<string, string>;
   readonly provider: string;
   readonly streamChunks: Array<{ delayMs: number; payload: string }>;
+  readonly streamEventIdHeaderName: string;
 }
 
 function installAssistantMockInPage(payload: AssistantMockInstallPayload): void {
@@ -133,6 +135,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       headers: {
         'Cache-Control': 'no-store',
         'Content-Type': 'text/plain; charset=utf-8',
+        [payload.streamEventIdHeaderName]: `e2e-session-${Date.now()}:-1`,
         'x-vercel-ai-data-stream': 'v1',
       },
       status: 200,
@@ -286,6 +289,7 @@ export async function setupAssistantMock(
     models: merged.models,
     provider: merged.provider,
     streamChunks: buildAssistantStreamChunks(merged),
+    streamEventIdHeaderName: ASSISTANT_STREAM_EVENT_ID_HEADER,
   };
 
   await page.evaluate(installAssistantMockInPage, installPayload);
