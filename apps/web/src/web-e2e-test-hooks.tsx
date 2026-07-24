@@ -81,12 +81,14 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           throw new Error('Web E2E database handle does not expose transactions');
         }
 
-        const extensionResult = await db.query<ExtensionRow>(
-          "SELECT extname FROM pg_extension WHERE extname IN ('pg_textsearch', 'pg_trgm', 'vector') ORDER BY extname"
-        );
-        const searchResult = await db.query<SearchQualificationRow>(
-          "SELECT ('[1,0,0]'::vector(3) <=> '[1,0,0]'::vector(3))::float8 AS distance, to_tsvector('english', 'brainstrike csp qualification') @@ plainto_tsquery('english', 'brainstrike') AS full_text_match"
-        );
+        const [extensionResult, searchResult] = await Promise.all([
+          db.query<ExtensionRow>(
+            "SELECT extname FROM pg_extension WHERE extname IN ('pg_textsearch', 'pg_trgm', 'vector') ORDER BY extname"
+          ),
+          db.query<SearchQualificationRow>(
+            "SELECT ('[1,0,0]'::vector(3) <=> '[1,0,0]'::vector(3))::float8 AS distance, to_tsvector('english', 'brainstrike csp qualification') @@ plainto_tsquery('english', 'brainstrike') AS full_text_match"
+          ),
+        ]);
         const qualificationId = crypto.randomUUID();
         const fileRecordId = `csp-file-${qualificationId}`;
         const chunkId = `csp-chunk-${qualificationId}`;
