@@ -122,6 +122,7 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3-coder-next',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
+          'inclusionai/ling-3.0-flash:free',
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
           'google/gemini-3.6-flash',
@@ -175,10 +176,17 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     it("declares Curator's July coding models with provider-published limits", () => {
+      const ling = getLlmModelDefinition('openrouter', 'inclusionai/ling-3.0-flash:free');
       const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.6-flash');
       const inkling = getLlmModelDefinition('openrouter', 'thinkingmachines/inkling');
       const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.5');
 
+      expect(ling).toMatchObject({
+        contextWindow: 262_144,
+        maxOutputTokens: 32_768,
+        vision: 'unsupported',
+      });
+      expect(ling?.pricing).toBeUndefined();
       expect(gemini).toMatchObject({
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,

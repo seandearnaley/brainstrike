@@ -6,6 +6,7 @@ import {
   getWorkspaceRoots,
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
+  markRootsDisconnectedExcept,
   orderWorkspaceRoots,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
@@ -223,6 +224,51 @@ describe('markRootDisconnectedByPath', () => {
       }),
     };
     await expect(markRootDisconnectedByPath(db, '/Users/me/ProjectA')).rejects.toThrow('db down');
+  });
+});
+
+describe('markRootsDisconnectedExcept (boot convergence)', () => {
+  it('demotes live path-backed rows that are NOT mounted, keyed by the mounted path set', async () => {
+    const db = mockDb([{ id: 'stale-a', path: '/Users/me/Downloads' }]);
+    const demoted = await markRootsDisconnectedExcept(db, ['/Users/me/ProjectA']);
+
+    expect(demoted).toEqual([{ id: 'stale-a', path: '/Users/me/Downloads' }]);
+    const [sql, params] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    expect(sql).toMatch(/UPDATE roots/i);
+    expect(sql).toMatch(/status = 'disconnected'/);
+    expect(sql).toMatch(/WHERE status = 'live'/i);
+    // Only rows whose mount state is DETERMINABLE from a path may be demoted —
+    // a null/empty-path (FSA) row is not comparable, so it is left untouched.
+    expect(sql).toMatch(/path IS NOT NULL/i);
+    expect(sql).toMatch(/RETURNING id/i);
+    expect(sql).not.toMatch(/DELETE/i);
+    expect(params).toEqual([['/Users/me/ProjectA']]);
+  });
+
+  it('demotes every live path-backed row when nothing is mounted (empty rootsList)', async () => {
+    const db = mockDb([
+      { id: 'stale-a', path: '/Users/me/Downloads' },
+      { id: 'stale-b', path: '/Users/me/Old' },
+    ]);
+    const demoted = await markRootsDisconnectedExcept(db, []);
+
+    expect(demoted).toHaveLength(2);
+    const params = (db.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    expect(params).toEqual([[]]);
+  });
+
+  it('returns no ids when every live row is mounted (steady state)', async () => {
+    const db = mockDb([]);
+    expect(await markRootsDisconnectedExcept(db, ['/Users/me/ProjectA'])).toEqual([]);
+  });
+
+  it('propagates query failures so the caller decides how to degrade', async () => {
+    const db: WorkspaceRootsQueryable = {
+      query: vi.fn(async () => {
+        throw new Error('db down');
+      }),
+    };
+    await expect(markRootsDisconnectedExcept(db, [])).rejects.toThrow('db down');
   });
 });
 

@@ -11,6 +11,7 @@ import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/comman
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
   markRootDisconnectedByPath,
+  markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import {
@@ -74,10 +75,25 @@ function isStoredRootEntry(value: unknown): value is StoredRootEntry {
   );
 }
 
-async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+interface RootsListReadResult {
+  readonly entries: StoredRootEntry[];
+  /**
+   * True when a stored value EXISTED but could not be fully understood
+   * (unparseable, wrong shape, or individual entries dropped) — i.e. `entries`
+   * is a degraded guess, not the user's real mount list.
+   *
+   * An ABSENT or legitimately empty list is NOT malformed: that is an
+   * authoritative "no folders open". The distinction matters because callers
+   * that treat the list as authoritative (root-status convergence) would
+   * otherwise turn a corrupt storage value into a destructive write.
+   */
+  readonly malformed: boolean;
+}
+
+async function readRootsListResult(storage: ElectronStorageAdapter): Promise<RootsListReadResult> {
   const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
   if (!raw) {
-    return [];
+    return { entries: [], malformed: false };
   }
 
   let parsed: unknown;
@@ -85,14 +101,14 @@ async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRoo
     parsed = JSON.parse(raw);
   } catch (error) {
     logger.warn('Failed to parse rootsList — treating as empty', { error });
-    return [];
+    return { entries: [], malformed: true };
   }
 
   if (!Array.isArray(parsed)) {
     logger.warn('rootsList storage value is not an array — treating as empty', {
       key: ROOTS_LIST_STORAGE_KEY,
     });
-    return [];
+    return { entries: [], malformed: true };
   }
   const valid = parsed.filter(isStoredRootEntry);
   if (valid.length !== parsed.length) {
@@ -100,8 +116,15 @@ async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRoo
       total: parsed.length,
       valid: valid.length,
     });
+    // A dropped entry means the surviving list is a SUBSET of the real mount
+    // set, which is just as unsafe to converge against as a total parse failure.
+    return { entries: valid, malformed: true };
   }
-  return valid;
+  return { entries: valid, malformed: false };
+}
+
+async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+  return (await readRootsListResult(storage)).entries;
 }
 
 async function writeRootsList(
@@ -520,9 +543,71 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
+  /**
+   * Converge DB roots status on the just-restored mount set. rootsList is the
+   * authoritative record of which folders the Explorer shows, so any 'live' row
+   * outside it is a leak (see markRootsDisconnectedExcept for how they arise).
+   *
+   * Deliberately NOT fail-closed, unlike the fs:removeRoot transition: this runs
+   * on the boot path, and rejecting the restore because the DB is briefly
+   * unavailable would leave the app with no roots at all — strictly worse than a
+   * stale row. The failure is logged at ERROR (never silent) and the next boot
+   * retries. fs:removeRoot remains the fail-closed primary; this is convergence.
+   */
+  const convergeRootStatuses = async (restoredPaths: readonly string[]): Promise<void> => {
+    try {
+      const rootsDatabase = await getRootsDatabase();
+      // Re-read rootsList HERE rather than reusing the entries this handler
+      // opened with. restoreRoots awaits per-entry path resolution, so an
+      // fs:addRoot CAN interleave mid-restore (boot is not user-gesture-driven,
+      // unlike the handlers the addRoot no-mutex note covers). That add writes
+      // its rootsList entry BEFORE returning, and the renderer's reconcileRoots
+      // inserts the DB row only after the IPC resolves — so a live row can only
+      // exist for a path already in this list. Reading it immediately before the
+      // UPDATE therefore makes the mount set a strict SUPERSET of every path
+      // that could own a live row. Over-inclusion is the safe direction: at
+      // worst a genuinely stale row survives to the next boot, whereas
+      // under-inclusion would silently drop a just-mounted root.
+      const current = await readRootsListResult(storage);
+      if (current.malformed) {
+        // NO SILENT FALLBACKS: `readRootsList` coerces an unreadable store to
+        // [], which is fine for the RESTORE (it just mounts nothing) but must
+        // never reach convergence — an empty mount set demotes every live root,
+        // so a corrupt storage value would silently disconnect the whole
+        // workspace. A degraded read is "mount set UNKNOWN", not "authoritative
+        // zero". Skip, surface at ERROR, and let the next boot converge once the
+        // store parses again.
+        logger.error(
+          'restoreRoots: rootsList is unreadable; skipping root-status convergence rather than demoting every live root',
+          { key: ROOTS_LIST_STORAGE_KEY }
+        );
+        return;
+      }
+      const mountedPaths = [
+        ...new Set([...restoredPaths, ...current.entries.map((entry) => entry.path)]),
+      ];
+      const demoted = await markRootsDisconnectedExcept(rootsDatabase, mountedPaths);
+      if (demoted.length > 0) {
+        logger.warn('restoreRoots: disconnected DB roots that are no longer mounted', {
+          paths: demoted.map((row) => row.path),
+        });
+      }
+    } catch (error) {
+      logger.error(
+        'restoreRoots: failed to converge DB root statuses; stale roots may remain live',
+        {
+          error,
+        }
+      );
+    }
+  };
+
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
     const entries = await readRootsList(storage);
     if (entries.length === 0) {
+      // Not an early return: zero mounted folders is exactly the state in which
+      // every remaining 'live' row is stale and must be demoted.
+      await convergeRootStatuses([]);
       return [];
     }
 
@@ -562,6 +647,10 @@ export function registerFileSystemIpcHandlers({
     if (survivors.length !== entries.length) {
       await writeRootsList(storage, survivors);
     }
+
+    // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
+    // the DB row, whereas a rootsList entry may hold the unresolved form.
+    await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
 
     return descriptors;
   });

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
+  markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
 } from '../../assistant-server/workspace-roots';
 
@@ -107,5 +108,64 @@ describe('workspace roots disconnect lifecycle', () => {
 
     const roots = await loadWorkspaceRootsFromDatabase(rootsDb);
     expect(roots.map((root) => root.rootId)).toEqual(['adapter-b']);
+  });
+});
+
+/**
+ * The fs:restoreRoots convergence seam over the same REAL PGlite. Exercises the
+ * SQL itself (`NOT (path = ANY($1::text[]))`), which the mocked unit tests
+ * cannot: the empty-array case in particular must demote EVERYTHING rather than
+ * silently matching nothing.
+ */
+describe('boot convergence (markRootsDisconnectedExcept)', () => {
+  beforeEach(async () => {
+    await reconcileRoots({
+      adapterRoots: [
+        pathRoot('adapter-a', '/workspace/project-a'),
+        pathRoot('adapter-b', '/workspace/project-b'),
+        pathRoot('adapter-c', '/workspace/project-c'),
+      ],
+      platformKind: 'path',
+      query: registryQuery,
+    });
+  });
+
+  it('demotes exactly the live roots missing from the mounted set', async () => {
+    const demoted = await markRootsDisconnectedExcept(rootsDb, ['/workspace/project-b']);
+
+    expect(demoted.map((row) => row.id).sort()).toEqual(['adapter-a', 'adapter-c']);
+    const roots = await loadWorkspaceRootsFromDatabase(rootsDb);
+    expect(roots.map((root) => root.rootId)).toEqual(['adapter-b']);
+  });
+
+  it('demotes every live root when nothing is mounted', async () => {
+    const demoted = await markRootsDisconnectedExcept(rootsDb, []);
+
+    expect(demoted).toHaveLength(3);
+    expect(await loadWorkspaceRootsFromDatabase(rootsDb)).toEqual([]);
+  });
+
+  it('is a no-op when every live root is mounted, and is idempotent', async () => {
+    const mounted = ['/workspace/project-a', '/workspace/project-b', '/workspace/project-c'];
+
+    expect(await markRootsDisconnectedExcept(rootsDb, mounted)).toEqual([]);
+    // Second pass has nothing left to demote — convergence, not a toggle.
+    expect(await markRootsDisconnectedExcept(rootsDb, mounted)).toEqual([]);
+    const roots = await loadWorkspaceRootsFromDatabase(rootsDb);
+    expect(roots).toHaveLength(3);
+  });
+
+  it('never DELETEs: a demoted root remounts by path with the same id', async () => {
+    await markRootsDisconnectedExcept(rootsDb, []);
+
+    const remounted = await reconcileRoots({
+      adapterRoots: [pathRoot('adapter-new', '/workspace/project-a')],
+      platformKind: 'path',
+      query: registryQuery,
+    });
+
+    expect(remounted.dbRootIdByAdapterRootId.get('adapter-new')).toBe('adapter-a');
+    const roots = await loadWorkspaceRootsFromDatabase(rootsDb);
+    expect(roots.map((root) => root.rootId)).toEqual(['adapter-a']);
   });
 });

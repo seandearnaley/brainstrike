@@ -193,6 +193,53 @@ export async function markRootDisconnectedByPath(
 }
 
 /**
+ * Converge the DB roots table on the AUTHORITATIVE mounted set: every
+ * `status = 'live'` row whose `path` is not in `mountedPaths` is transitioned to
+ * 'disconnected'. Same semantics as {@link markRootDisconnectedByPath} (rows and
+ * their file_records are KEPT, so a re-add path-matches and resumes without
+ * re-indexing) — this is the SET-shaped form of that transition.
+ *
+ * Why this exists: `reconcileRoots` (app-shell) only ever promotes
+ * 'disconnected' → 'live'; the sole demotion was `fs:removeRoot`. Every path
+ * that drops a root WITHOUT that IPC succeeding — a boot-time rootsList prune of
+ * a vanished path, the best-effort `forgetRootInAdapter` swallowing an IPC
+ * failure, a 0-row path mismatch, storage rewritten out of band — therefore
+ * leaked a permanently 'live' row. Since every server-side consumer of
+ * {@link loadWorkspaceRootsFromDatabase} scopes on `status = 'live'`, that row
+ * kept the folder inside the assistant's addressable set (and made
+ * {@link resolveWorkspaceRoot} throw "Multiple folders are open") with NO in-app
+ * way to clear it: `fs:removeRoot` early-returns for a rootId absent from
+ * rootsList. Convergence closes that one-way divergence.
+ *
+ * ONLY path-backed rows are demoted. A null/empty-path row (web FSA) cannot be
+ * compared against a desktop mount set, so its state is not determinable here
+ * and it is left untouched rather than guessed at — the same boundary
+ * `loadWorkspaceRootsFromDatabase` draws for what the desktop tools may address.
+ *
+ * An empty `mountedPaths` is MEANINGFUL, not a no-op guard: no folders mounted
+ * means no root may remain live.
+ *
+ * Returns the demoted rows (via `RETURNING`, since the DB host protocol surfaces
+ * only `rows`, not `affectedRows`) so the caller can log what it converged.
+ */
+export async function markRootsDisconnectedExcept(
+  db: WorkspaceRootsQueryable,
+  mountedPaths: readonly string[]
+): Promise<readonly { id: string; path: string }[]> {
+  const result = await db.query<{ id: string; path: string }>(
+    `UPDATE roots
+        SET status = 'disconnected'
+      WHERE status = 'live'
+        AND path IS NOT NULL
+        AND path <> ''
+        AND NOT (path = ANY($1::text[]))
+     RETURNING id, path`,
+    [mountedPaths]
+  );
+  return result.rows;
+}
+
+/**
  * Reorder the enriched roots so the CLIENT-DECLARED MAIN root
  * (`runtimeData.mainRootId`, i.e. activeRootIds[0]) is FIRST. `roots[0]` is
  * the contract for "the assistant's operating root": hooks `primaryCwd` and

@@ -437,7 +437,7 @@ jobs:
     name: Build
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     timeout-minutes: 25
     steps:
       - name: Require successful admission
@@ -522,7 +522,7 @@ jobs:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true'
     needs: [admission]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -559,7 +559,7 @@ jobs:
         )
       )
     needs: [admission, build]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     # Run inside the official Playwright image: browsers and their system
     # dependencies are baked in, so there is NO `playwright install` step and
     # NO download from cdn.playwright.dev at job time. This removes the CDN
@@ -647,7 +647,7 @@ jobs:
         )
       )
     needs: [admission, build]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     timeout-minutes: 25
     env:
       NODE_ENV: test
