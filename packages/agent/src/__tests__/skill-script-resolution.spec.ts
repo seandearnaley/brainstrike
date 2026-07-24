@@ -217,4 +217,26 @@ describe('typed skill-script resolution', () => {
       })
     ).rejects.toThrow(/allowed-tools/i);
   });
+
+  it('preserves argv boundaries while matching allowed-tools arguments', async () => {
+    const { engine } = makeEngine({
+      allowedToolRule: 'Bash(node .claude/skills/site-design/scripts/palette.mjs --mode readonly)',
+    });
+    await expect(
+      engine.resolveScriptExecution({
+        args: ['--mode', 'readonly'],
+        runtime: 'node',
+        scriptPath: 'scripts/palette.mjs',
+        skillName: 'site-design',
+      })
+    ).resolves.toMatchObject({ policy: 'matched-allowed-tools' });
+    await expect(
+      engine.resolveScriptExecution({
+        args: ['--mode readonly'],
+        runtime: 'node',
+        scriptPath: 'scripts/palette.mjs',
+        skillName: 'site-design',
+      })
+    ).rejects.toThrow(/allowed-tools/i);
+  });
 });

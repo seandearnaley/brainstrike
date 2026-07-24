@@ -95,7 +95,7 @@ function resolveRuntime(runtime: RunSkillScriptInput['runtime']): {
   if (process.platform === 'win32') {
     throw new ToolInputError('The bash skill-script runtime is unavailable on Windows.');
   }
-  return { executable: '/bin/bash' };
+  return { executable: 'bash' };
 }
 
 function fitOutput(

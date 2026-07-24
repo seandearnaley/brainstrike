@@ -150,6 +150,13 @@ function globPatternMatches(pattern: string, value: string): boolean {
   return new RegExp(`^${escaped}$`).test(value);
 }
 
+function renderShellPolicyArgument(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function isAllowedByClaudePolicy(
   skill: ScannedSkill,
   runtime: SkillScriptRuntime,
@@ -159,7 +166,10 @@ function isAllowedByClaudePolicy(
   if (!skill.allowedTools) {
     return true;
   }
-  const argumentSuffix = args.length > 0 ? ` ${args.join(' ')}` : '';
+  // Claude Bash(...) rules describe a shell command string, while execution
+  // below uses literal argv. Preserve each argv boundary in the policy view so
+  // one argument containing whitespace cannot impersonate two allowed tokens.
+  const argumentSuffix = args.length > 0 ? ` ${args.map(renderShellPolicyArgument).join(' ')}` : '';
   const candidates = [
     `${runtime} .brainstrike/skills/${skill.name}/${scriptPath}${argumentSuffix}`,
     `${runtime} .claude/skills/${skill.name}/${scriptPath}${argumentSuffix}`,
