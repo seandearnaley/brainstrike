@@ -127,6 +127,7 @@ function createCollectorFixture(t, { installBinaryShims = false } = {}) {
   t.after(() => rmSync(root, { force: true, recursive: true }));
   const repo = join(root, 'repo');
   const logsDir = join(root, 'logs');
+  const outputPath = join(logsDir, 'baseline.json');
   const binDir = join(root, 'bin');
   const invocationLog = join(root, 'pnpm-invocations.log');
   mkdirSync(repo);
@@ -168,13 +169,21 @@ process.stdout.write(${JSON.stringify(doctorReport())});
   );
   chmodSync(fakePnpm, 0o755);
 
-  return { binDir, invocationLog, logsDir, repo, root };
+  return { binDir, invocationLog, logsDir, outputPath, repo, root };
 }
 
 function collectFixture(fixture) {
   return spawnSync(
     process.execPath,
-    [COLLECTOR_PATH, '--repo', fixture.repo, '--logs-dir', fixture.logsDir],
+    [
+      COLLECTOR_PATH,
+      '--repo',
+      fixture.repo,
+      '--logs-dir',
+      fixture.logsDir,
+      '--output',
+      fixture.outputPath,
+    ],
     {
       encoding: 'utf8',
       env: {
@@ -209,8 +218,13 @@ test('collects only after both required dependency binaries are installed', (t) 
     'knip',
     'exec react-doctor . --json',
   ]);
-  assert.deepEqual(readdirSync(fixture.logsDir).sort(), ['doctor.log', 'knip.log']);
-  const evidence = JSON.parse(result.stdout);
+  assert.deepEqual(readdirSync(fixture.logsDir).sort(), [
+    'baseline.json',
+    'doctor.log',
+    'knip.log',
+  ]);
+  assert.equal(result.stdout, '');
+  const evidence = JSON.parse(readFileSync(fixture.outputPath, 'utf8'));
   assert.equal(evidence.knip.outcome, 'clean');
   assert.equal(evidence.doctor.outcome, 'passed');
 });

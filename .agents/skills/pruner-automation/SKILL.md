@@ -28,7 +28,8 @@ pruner_logs="$(mktemp -d)"
 node .agents/skills/pruner-automation/scripts/collect-pruner-baseline.mjs \
   --repo /absolute/path/to/brainstrike \
   --logs-dir "$pruner_logs" \
-  --pretty > "$pruner_logs/baseline.json"
+  --output "$pruner_logs/baseline.json" \
+  --pretty
 ```
 
 The collector performs no repository or external writes (its Git reads disable
@@ -36,8 +37,11 @@ optional locks, fsmonitor, and the untracked cache so `status` never rewrites
 the index). Before starting either scan, it requires the checked-out
 dependency runtime at `node_modules/.bin/knip` and
 `node_modules/.bin/react-doctor`. If either binary is absent, it exits visibly
-before invoking pnpm or creating logs; install dependencies explicitly with
-`pnpm install --frozen-lockfile`, then rerun the collector. It:
+before invoking pnpm or creating any baseline artifact. The collector owns
+`--output` creation after successful collection and parsing, so shell
+redirection cannot leave an empty baseline file on preflight failure. Install
+dependencies explicitly with `pnpm install --frozen-lockfile`, then rerun the
+collector. It:
 
 - runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm exec react-doctor . --json` without shell pipelines (invoking the binary directly, because `pnpm run doctor -- --json` leaks a literal `--` that makes react-doctor ignore `--json`; it asserts the root `doctor` script is react-doctor first);
 - preserves each command's real exit code and distinguishes findings from operational failure for BOTH tools — Knip via exit-code + category counts, Doctor via its structured `--json` report (`ok`/`summary`), never scraped CLI copy;
