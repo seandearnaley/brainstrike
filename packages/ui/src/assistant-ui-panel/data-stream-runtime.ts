@@ -31,6 +31,7 @@ import {
   isActionRunConfig,
   isApprovalActionMessage,
 } from './approval-action-message';
+import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
 
@@ -758,6 +759,16 @@ function readPositiveCount(value: unknown): number | undefined {
   return;
 }
 
+function throwIfRunAbortedBeforeTerminalCompletion(
+  abortSignal: AbortSignal,
+  terminalFinishFlushed: boolean
+): void {
+  if (!abortSignal.aborted || terminalFinishFlushed) {
+    return;
+  }
+  throw abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError');
+}
+
 /**
  * assistant-stream's decoder emits `message-finish` before it flushes the
  * active implicit text/reasoning part. The accumulator therefore exposes a
@@ -768,15 +779,15 @@ function readPositiveCount(value: unknown): number | undefined {
  * Buffer the one terminal message marker until decoder EOF so every part-finish
  * reaches the accumulator before the UI observes completion.
  */
-function deferMessageFinishUntilFlush(): TransformStream<
-  AssistantStreamChunk,
-  AssistantStreamChunk
-> {
+function deferMessageFinishUntilFlush(
+  onTerminalFinishFlushed?: () => void
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
   let pendingFinish: AssistantStreamChunk | undefined;
   return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
     flush(controller) {
       if (pendingFinish) {
         controller.enqueue(pendingFinish);
+        onTerminalFinishFlushed?.();
       }
     },
     transform(chunk, controller) {
@@ -800,11 +811,16 @@ function deferMessageFinishUntilFlush(): TransformStream<
  */
 function buildDecodedTapPipeline(
   body: ReadableStream<Uint8Array>,
-  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>
+  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>,
+  onTerminalFinishFlushed?: () => void
 ): ReadableStream<AssistantStreamChunk> {
   const decoded = body
     .pipeThrough(new DataStreamDecoder())
-    .pipeThrough(deferMessageFinishUntilFlush());
+    .pipeThrough(
+      onTerminalFinishFlushed
+        ? deferMessageFinishUntilFlush(onTerminalFinishFlushed)
+        : deferMessageFinishUntilFlush()
+    );
   const usageTapped = options.onUsage
     ? decoded.pipeThrough(buildUsageTap(options.onUsage))
     : decoded;
@@ -838,6 +854,38 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   }
 
+  /**
+   * The insulated pipeline drains to a natural EOF after cancellation/abort
+   * (see stream-insulation.ts), so the usage/context-breakdown taps can now
+   * observe post-abort chunks. Gate them: an aborted run must not report late
+   * usage or breakdown data, matching the pre-insulation lifecycle.
+   */
+  private abortGatedTapOptions(
+    abortSignal: AbortSignal
+  ): Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'> {
+    const { onContextBreakdown, onUsage } = this.options;
+    return {
+      ...(onContextBreakdown
+        ? {
+            onContextBreakdown: (data: unknown) => {
+              if (!abortSignal.aborted) {
+                onContextBreakdown(data);
+              }
+            },
+          }
+        : {}),
+      ...(onUsage
+        ? {
+            onUsage: (usage: AssistantUsage) => {
+              if (!abortSignal.aborted) {
+                onUsage(usage);
+              }
+            },
+          }
+        : {}),
+    };
+  }
+
   async *run({
     messages,
     runConfig,
@@ -846,6 +894,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
+    let terminalFinishFlushed = false;
     abortSignal.addEventListener(
       'abort',
       () => {
@@ -914,25 +963,47 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
-      const stream = buildDecodedTapPipeline(response.body, this.options)
-        .pipeThrough(
-          unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
-            throw new Error('Tool interrupt is not supported in data stream runtime');
+      // BST-704: the decoded pipeline runs inside an insulation boundary —
+      // consumer cancellation and expected transport aborts are absorbed at
+      // the byte/consumer edges (see stream-insulation.ts), so assistant-stream's
+      // nested controllers always shut down through their normal close path
+      // and late tool/message settlements cannot reject unhandled.
+      const stream = insulateAssistantStreamPipeline({
+        abortSignal,
+        body: response.body,
+        buildPipeline: (source) =>
+          buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
+            terminalFinishFlushed = true;
           })
-        )
-        .pipeThrough(new AssistantMessageAccumulator());
+            .pipeThrough(
+              unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
+                throw new Error('Tool interrupt is not supported in data stream runtime');
+              })
+            )
+            .pipeThrough(new AssistantMessageAccumulator()),
+      });
 
-      for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
-        this.notifyActivity();
-        yield accumulatedMessage;
+      try {
+        for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
+          this.notifyActivity();
+          yield accumulatedMessage;
+        }
+      } finally {
+        // Engage the insulation firewall even when the consumer stops early
+        // through an async-iterator path that only releases its reader lock
+        // (assistant-stream's polyfill for engines without native
+        // ReadableStream async iteration) instead of cancelling the stream.
+        // Cancel is a no-op after clean EOF or a native-iteration cancel, and
+        // it must never mask the loop's own outcome.
+        await stream.cancel(abortSignal.reason).catch(() => undefined);
       }
+      // The insulated pipeline ends with a clean EOF on expected aborts; an
+      // aborted run must still surface its abort as the single terminal
+      // outcome, never a fabricated successful finish.
+      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
-      if (abortSignal.aborted) {
-        throw (
-          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
-        );
-      }
+      throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
       this.reportError(error);
       throw error;
     }

@@ -1,0 +1,94 @@
+{
+  "description": "Redacted excerpt of the BST-704 Desktop incident log (exported 2026-07-23T02:31:55.658Z). An approval-resumed OpenRouter run was aborted; 2ms before the producer logged mastra_agent_stream_aborted, the renderer surfaced an unhandled enqueue-after-close rejection from assistant-stream nested controllers.",
+  "records": [
+    {
+      "args": [
+        "Mastra tool discovery step prepared",
+        {
+          "activeDefinitionCount": 15,
+          "code": "mastra_tool_discovery_step",
+          "loadedToolIds": [],
+          "stepNumber": 14
+        }
+      ],
+      "level": "info",
+      "message": "Mastra tool discovery step prepared",
+      "runtime": "electron-main",
+      "scope": "MastraToolDiscovery",
+      "timestamp": 1784773671651
+    },
+    {
+      "args": [
+        {
+          "code": "mastra_agent_tool_history_filtered",
+          "filteredToolCallCount": 9,
+          "ineligibleToolCallCount": 0,
+          "preservedRecentToolCallCount": 0,
+          "preservedRecentToolStepLimit": 2
+        },
+        "filtered stale tool history from provider input"
+      ],
+      "level": "info",
+      "message": "filtered stale tool history from provider input",
+      "runtime": "electron-main",
+      "scope": "MastraToolHistoryFilter",
+      "timestamp": 1784773671656
+    },
+    {
+      "args": [
+        "Unhandled renderer promise rejection",
+        {
+          "message": "Failed to execute 'enqueue' on 'ReadableStreamDefaultController': Cannot enqueue a chunk into a read...",
+          "reason": "{Object}",
+          "stack": "TypeError: Cannot enqueue a chunk into a readable stream that is closed or has been requested to be ...",
+          "type": "unhandledrejection"
+        }
+      ],
+      "level": "error",
+      "message": "Unhandled renderer promise rejection",
+      "runtime": "electron-renderer",
+      "scope": "DesktopRenderer",
+      "timestamp": 1784773676596
+    },
+    {
+      "args": [
+        {
+          "code": "mastra_agent_token_measurement",
+          "measurementMode": "deterministic-serialized-character-backstop",
+          "measurementStatus": "measured",
+          "model": "meta/muse-spark-1.1",
+          "modelVisibleProjectionBackstopTokens": 1188,
+          "modelVisibleProjectionCount": 8,
+          "modelVisibleProjectionSerializedCharacters": 4740,
+          "modelVisibleProjectionTokens": 1188,
+          "provider": "openrouter",
+          "providerReportedPromptTokens": 373895,
+          "toolDefinitionBackstopTokens": 2548,
+          "toolDefinitionCount": 10,
+          "toolDefinitionSerializedCharacters": 10189,
+          "toolDefinitionTokens": 2548
+        },
+        "mastra run token measurement recorded"
+      ],
+      "level": "info",
+      "message": "mastra run token measurement recorded",
+      "runtime": "electron-main",
+      "scope": "MastraAgent",
+      "timestamp": 1784773676598
+    },
+    {
+      "args": [
+        "mastra stream aborted",
+        {
+          "code": "mastra_agent_stream_aborted"
+        }
+      ],
+      "level": "info",
+      "message": "mastra stream aborted",
+      "runtime": "electron-main",
+      "scope": "MastraAgent",
+      "timestamp": 1784773676598
+    }
+  ],
+  "source": "Linear BST-704 attachment \"Renderer enqueue-after-close incident log\" (attachment ccc1e677-fc7b-48f3-932e-1a1c382c2ec5); full log retained in Linear, not in the repo."
+}
