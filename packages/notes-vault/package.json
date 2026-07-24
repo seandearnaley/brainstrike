@@ -6,7 +6,7 @@
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "lucide-react": "^1.23.0",
+    "lucide-react": "catalog:",
     "zustand": "catalog:"
   },
   "devDependencies": {
@@ -16,7 +16,7 @@
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
-    "fake-indexeddb": "^6.2.5",
+    "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

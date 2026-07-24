@@ -5,7 +5,7 @@
   "dependencies": {
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "workerpool": "^10.0.3"
+    "workerpool": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

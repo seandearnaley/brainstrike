@@ -9,9 +9,9 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-table": "catalog:",
     "@tanstack/react-virtual": "catalog:",
-    "lucide-react": "^1.23.0"
+    "lucide-react": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

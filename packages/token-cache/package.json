@@ -7,9 +7,9 @@
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "0.5.3",
-    "tiktoken": "^1.0.22",
-    "xxhash-wasm": "^1.1.0"
+    "@electric-sql/pglite": "catalog:",
+    "tiktoken": "catalog:",
+    "xxhash-wasm": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

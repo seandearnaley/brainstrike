@@ -6,14 +6,14 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@huggingface/transformers": "^4.2.0",
-    "workerpool": "^10.0.3"
+    "@huggingface/transformers": "catalog:",
+    "workerpool": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
-    "esbuild": "^0.28.1",
+    "esbuild": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
