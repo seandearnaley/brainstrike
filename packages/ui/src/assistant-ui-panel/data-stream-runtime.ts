@@ -31,6 +31,7 @@ import {
   isActionRunConfig,
   isApprovalActionMessage,
 } from './approval-action-message';
+import { insulateAssistantStreamPipeline } from './stream-insulation';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
 
@@ -838,6 +839,38 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   }
 
+  /**
+   * The insulated pipeline drains to a natural EOF after cancellation/abort
+   * (see stream-insulation.ts), so the usage/context-breakdown taps can now
+   * observe post-abort chunks. Gate them: an aborted run must not report late
+   * usage or breakdown data, matching the pre-insulation lifecycle.
+   */
+  private abortGatedTapOptions(
+    abortSignal: AbortSignal
+  ): Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'> {
+    const { onContextBreakdown, onUsage } = this.options;
+    return {
+      ...(onContextBreakdown
+        ? {
+            onContextBreakdown: (data: unknown) => {
+              if (!abortSignal.aborted) {
+                onContextBreakdown(data);
+              }
+            },
+          }
+        : {}),
+      ...(onUsage
+        ? {
+            onUsage: (usage: AssistantUsage) => {
+              if (!abortSignal.aborted) {
+                onUsage(usage);
+              }
+            },
+          }
+        : {}),
+    };
+  }
+
   async *run({
     messages,
     runConfig,
@@ -914,17 +947,35 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
-      const stream = buildDecodedTapPipeline(response.body, this.options)
-        .pipeThrough(
-          unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
-            throw new Error('Tool interrupt is not supported in data stream runtime');
-          })
-        )
-        .pipeThrough(new AssistantMessageAccumulator());
+      // BST-704: the decoded pipeline runs inside an insulation boundary —
+      // consumer cancellation and expected transport aborts are absorbed at
+      // the byte/consumer edges (see stream-insulation.ts), so assistant-stream's
+      // nested controllers always shut down through their normal close path
+      // and late tool/message settlements cannot reject unhandled.
+      const stream = insulateAssistantStreamPipeline({
+        abortSignal,
+        body: response.body,
+        buildPipeline: (source) =>
+          buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal))
+            .pipeThrough(
+              unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
+                throw new Error('Tool interrupt is not supported in data stream runtime');
+              })
+            )
+            .pipeThrough(new AssistantMessageAccumulator()),
+      });
 
       for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
         this.notifyActivity();
         yield accumulatedMessage;
+      }
+      // The insulated pipeline ends with a clean EOF on expected aborts; an
+      // aborted run must still surface its abort as the single terminal
+      // outcome, never a fabricated successful finish.
+      if (abortSignal.aborted) {
+        throw (
+          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
+        );
       }
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
