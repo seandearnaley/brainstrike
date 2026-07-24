@@ -136,11 +136,17 @@ function discoverCoverageScriptPackages() {
       try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
         const name = typeof pkg.name === 'string' ? pkg.name : path.basename(pkgDir);
-        const hasCoverageScript =
+        const coverageScript =
           typeof pkg.scripts === 'object' &&
           pkg.scripts !== null &&
-          typeof pkg.scripts['test:coverage'] === 'string';
-        if (hasCoverageScript && !ALLOW_MISSING_COVERAGE_ARTIFACT.has(name)) {
+          typeof pkg.scripts['test:coverage'] === 'string'
+            ? pkg.scripts['test:coverage']
+            : null;
+        // Coverage-producing workspace scripts must opt in with the explicit
+        // Vitest CLI flag. A bare native-test alias is intentionally
+        // uninstrumented and cannot produce coverage-final.json.
+        const producesCoverageArtifact = coverageScript?.includes('--coverage');
+        if (producesCoverageArtifact && !ALLOW_MISSING_COVERAGE_ARTIFACT.has(name)) {
           packages.push({ dir: pkgDir, name });
         }
       } catch (error) {
@@ -249,7 +255,7 @@ const missingCoveragePackages = discoverCoverageScriptPackages().filter(
   ({ name }) => !coveredPackageNames.has(name)
 );
 if (missingCoveragePackages.length > 0) {
-  console.error('❌ Missing coverage artifacts for packages with test:coverage scripts:');
+  console.error('❌ Missing coverage artifacts for coverage-producing test:coverage scripts:');
   for (const { dir, name } of missingCoveragePackages) {
     console.error(`  - ${name} (${path.relative(process.cwd(), dir)})`);
   }
