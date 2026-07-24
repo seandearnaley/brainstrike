@@ -1396,7 +1396,6 @@ export function AssistantUiPanelWrapper({
         useContextUsageStore.getState().clearBreakdown(threadId);
       }
       useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
-
       // A turn just finished: re-list threads so an observer-generated title
       // (observational memory names threads as observations run) becomes
       // visible in the thread list. Lightweight, non-polling, and a no-op for

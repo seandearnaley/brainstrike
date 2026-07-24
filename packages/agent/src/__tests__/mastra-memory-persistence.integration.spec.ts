@@ -730,7 +730,7 @@ describe('mastra memory persistence through the live stream path', () => {
     });
 
     expect(reloadedProviderPrompt).not.toContain('call-stale-read-1');
-    expect(reloadedProviderPrompt).toContain('call-stale-read-2');
+    expect(reloadedProviderPrompt).not.toContain('call-stale-read-2');
     expect(reloadedProviderPrompt).toContain('call-stale-read-3');
 
     const persisted = JSON.stringify(await listThreadMessages(database, threadId));
@@ -765,7 +765,7 @@ describe('mastra memory persistence through the live stream path', () => {
     const finalProviderPrompt = providerPrompts.at(-1);
     expect(finalProviderPrompt).toBeDefined();
     expect(finalProviderPrompt).not.toContain(toolCallIds[0]);
-    expect(finalProviderPrompt).toContain(toolCallIds[1]);
+    expect(finalProviderPrompt).not.toContain(toolCallIds[1]);
     expect(finalProviderPrompt).toContain(toolCallIds[2]);
 
     const invocations = (await listThreadMessages(database, threadId))
