@@ -23,6 +23,6 @@ export default defineConfig({
         inline: ['react-shiki'],
       },
     },
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 });

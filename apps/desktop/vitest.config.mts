@@ -261,7 +261,7 @@ export default defineConfig({
         inline: ['electron'],
       },
     },
-    setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup.ts'],
     testTimeout: getAdjustedTimeout('uiComponent'),
   },
 });

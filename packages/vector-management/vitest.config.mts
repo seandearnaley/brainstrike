@@ -135,7 +135,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
-    setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
     ...poolConfig,
     coverage: {
