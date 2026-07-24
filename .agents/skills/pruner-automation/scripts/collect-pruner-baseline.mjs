@@ -246,7 +246,14 @@ async function assertDependencyRuntimeCurrent(repoRoot) {
 }
 
 function assertWorkspaceManifestsCurrent(repoRoot) {
-  const args = ['install', '--lockfile-only', '--frozen-lockfile', '--ignore-scripts'];
+  const args = [
+    'install',
+    '--lockfile-only',
+    '--frozen-lockfile',
+    '--ignore-scripts',
+    '--offline',
+    '--trust-lockfile',
+  ];
   const validation = run('pnpm', args, repoRoot);
   if (validation.exitCode === 0) {
     return;

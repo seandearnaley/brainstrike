@@ -273,7 +273,7 @@ test('fails before scans when workspace manifests do not satisfy the lockfile', 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /required dependency runtime is stale/u);
   assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
-    'install --lockfile-only --frozen-lockfile --ignore-scripts',
+    'install --lockfile-only --frozen-lockfile --ignore-scripts --offline --trust-lockfile',
   ]);
   assert.deepEqual(readdirSync(fixture.logsDir), []);
 });
@@ -284,7 +284,7 @@ test('collects only after both required dependency binaries are installed', (t) 
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
-    'install --lockfile-only --frozen-lockfile --ignore-scripts',
+    'install --lockfile-only --frozen-lockfile --ignore-scripts --offline --trust-lockfile',
     'knip',
     'exec react-doctor . --json',
   ]);
