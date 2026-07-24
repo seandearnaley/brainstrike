@@ -639,7 +639,7 @@ function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
   return configured || /apikey|authorization|cookie|password|secret|token$/.test(normalized);
 }
 
-function redactSensitiveLogValue(
+export function redactSensitiveLogValue(
   value: unknown,
   path: readonly string[] = [],
   seen = new WeakMap<object, unknown>()

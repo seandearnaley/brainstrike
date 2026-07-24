@@ -47,6 +47,11 @@
       "import": "./dist/token-utils-accurate-lite.mjs",
       "require": "./dist/token-utils-accurate-lite.js"
     },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "import": "./dist/diagnostics.mjs",
+      "require": "./dist/diagnostics.js"
+    },
     "./logger": {
       "types": "./dist/logger.d.ts",
       "import": "./dist/logger.mjs",
