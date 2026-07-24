@@ -516,6 +516,63 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     toolId: 'brainstrike.readToolOutputArtifact',
   },
 
+  'brainstrike.runSkillScript': {
+    description:
+      'Run one bundled script from an activated Agent Skill using trusted resolution, structured arguments, and an explicit mounted working root. Requires approval.',
+    parameters: [
+      {
+        description: 'Activated installed skill name',
+        name: 'skillName',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Canonical skill-root-relative scripts/... path',
+        name: 'scriptPath',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Interpreter required by the bundled script',
+        enumValues: ['bash', 'node', 'python3'],
+        name: 'runtime',
+        required: true,
+        type: 'enum',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'Structured arguments passed directly to the script',
+        max: 64,
+        name: 'args',
+        required: false,
+        type: 'array',
+      },
+      {
+        description: 'Explicit mounted folder name or durable id',
+        name: 'root',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Explicit root-relative working directory',
+        name: 'cwd',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Process-tree timeout ms (default 120000, max 600000)',
+        max: 600_000,
+        min: 1,
+        name: 'timeoutMs',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'Resolved skill identity/source tier, mounted root, exit status, bounded stdout/stderr tail, duration, timeout, and truncation state',
+    toolId: 'brainstrike.runSkillScript',
+  },
+
   [NATIVE_TOOL_ID.lspInspect]: {
     description:
       "Semantic code inspection at a cursor via a language server (TypeScript/JavaScript). Returns the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Read-only. Returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available.",

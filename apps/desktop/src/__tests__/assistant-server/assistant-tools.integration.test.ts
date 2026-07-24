@@ -4286,6 +4286,11 @@ describe('assistant-tools', () => {
 
   it('keeps the live desktop registry identical to the canonical catalog', () => {
     const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
+      skillScriptResolver: {
+        resolveScriptExecution: async () => {
+          throw new Error('not executed by registry parity test');
+        },
+      },
       toolOutputArtifactReader: {
         readRange: async () => ({ status: 'not_found' }),
       },

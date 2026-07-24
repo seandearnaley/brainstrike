@@ -588,6 +588,11 @@ Flow (desktop assistant server → agent runtime):
    schema, including unknown-key rejection; malformed arguments show the
    existing visible preview error and unmodified raw arguments rather than a
    guessed command. Live and rediscovered approvals share this component.
+   `brainstrike.runSkillScript` uses a separate semantic preview that names the
+   activated skill and skill-relative script while showing the explicit
+   mounted root, root-relative cwd, runtime, and structured argv. It never
+   presents or accepts a model-supplied absolute skill path; malformed typed
+   arguments stay on the same visible raw-arguments error path.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
    `local_tool_call_arguments_invalid` generation ends visibly with typed

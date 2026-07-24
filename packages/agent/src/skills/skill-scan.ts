@@ -95,6 +95,8 @@ export interface SkillScanInput {
 
 /** A fully parsed, valid skill in scan-priority order. */
 export interface ScannedSkill {
+  /** Claude-compatible execution allowlist, preserved for trusted resolution. */
+  readonly allowedTools?: readonly string[];
   readonly compatibility?: unknown;
   /** The containment root the skill's files must be read within. */
   readonly containmentRoot: string;
@@ -226,6 +228,9 @@ function parseSkillDirectory(
   }
   const name = frontmatter['name'] as string;
   const skill: ScannedSkill = {
+    ...(Array.isArray(frontmatter['allowed-tools'])
+      ? { allowedTools: frontmatter['allowed-tools'] as string[] }
+      : {}),
     ...(frontmatter['compatibility'] === undefined
       ? {}
       : { compatibility: frontmatter['compatibility'] }),

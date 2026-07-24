@@ -6,7 +6,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type RuntimeData,
   type ScannedSkill,
-  type WorkspaceSkills,
+  type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
@@ -62,7 +62,7 @@ interface MastraProviderTool {
   inputSchema: unknown;
 }
 
-function createPromptBudgetWorkspaceSkills(): WorkspaceSkills {
+function createPromptBudgetWorkspaceSkills(): ScannedWorkspaceSkills {
   return createScannedWorkspaceSkills({
     deps: {
       listDir: () => null,
@@ -76,8 +76,11 @@ function createPromptBudgetWorkspaceSkills(): WorkspaceSkills {
   });
 }
 
-function buildPromptBudgetDesktopTools(): NonNullable<RuntimeData['mastraTools']> {
+function buildPromptBudgetDesktopTools(
+  skillScriptResolver: ScannedWorkspaceSkills
+): NonNullable<RuntimeData['mastraTools']> {
   return buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData, {
+    skillScriptResolver,
     toolOutputArtifactReader: {
       readRange: async () => ({ status: 'not_found' }),
     },
@@ -307,9 +310,10 @@ function expectProviderSurfaceWithinBudget(args: {
 
 describe('desktop native tool provider prompt budget', () => {
   it('records the eager baseline and proposed critical-only definition footprint', () => {
-    const desktopTools = buildPromptBudgetDesktopTools();
+    const workspaceSkills = createPromptBudgetWorkspaceSkills();
+    const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
     const eagerTools = {
-      ...createAssistantSkillTools(createPromptBudgetWorkspaceSkills()),
+      ...createAssistantSkillTools(workspaceSkills),
       ...desktopTools,
     };
     const criticalTools = Object.fromEntries(
@@ -349,8 +353,8 @@ describe('desktop native tool provider prompt budget', () => {
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
-      eagerDefinitionTokens: 7131,
-      eagerToolCount: 29,
+      eagerDefinitionTokens: 7215,
+      eagerToolCount: 30,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
         brainstrike_manageCommandSession: 482,
@@ -361,7 +365,7 @@ describe('desktop native tool provider prompt budget', () => {
   it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
-    const desktopTools = buildPromptBudgetDesktopTools();
+    const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
     const authoredTools = {
       ...createAssistantSkillTools(workspaceSkills),
       ...desktopTools,
@@ -397,7 +401,7 @@ describe('desktop native tool provider prompt budget', () => {
   it('keeps the actual Mastra/OpenRouter initial core surface materially below the eager baseline', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
-    const desktopTools = buildPromptBudgetDesktopTools();
+    const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
     const runtime = await createMastraAgentRuntime({
       model: OPENROUTER_PROMPT_BUDGET_MODEL,
       runtime: {

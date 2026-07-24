@@ -302,8 +302,20 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   traverse the full pipeline like every native tool. They are registered in
   the contract registries under Mastra's canonical UNNAMESPACED ids with
   `riskCategory:'read'` (free under the default policy; kept in plan mode).
-  Skill *scripts* are never executed by the feature itself — the model runs
-  them through `brainstrike.executeCommand` and its `execute:ask` gate.
+  Bundled skill scripts execute only through the deferred desktop
+  `brainstrike.runSkillScript` tool. Its typed input requires the activated
+  winning skill name, canonical `scripts/...` path, `node|python3|bash`
+  runtime, structured argv, and an explicit mounted root plus root-relative
+  cwd. The trusted scan engine rejects absolute/traversal paths, disabled or
+  shadowed skills, missing/list-unregistered scripts, runtime-extension
+  mismatches, and unmatched Claude `allowed-tools: Bash(...)` rules. A
+  workspace-local skill is pinned to its owning durable root; a global skill
+  may target any explicitly selected mounted root. Execution uses direct argv
+  spawning (never a shell command string), the shared bounded-output/process
+  tree lifecycle, and the normal `execute:ask` approval gate. Activation
+  guidance sends project mutation through native workspace tools and forbids
+  shell heredocs; declining an optional script continues through those native
+  tools rather than retrying the approval.
   Live-loop proof: packages/agent/src/__tests__/mastra-skills.integration.spec.ts
   (real Agent: metadata injection, activation, gate-free read execution while
   an ask tool is present, plan-mode availability, no-skills no-advertisement).

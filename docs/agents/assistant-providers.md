@@ -872,7 +872,10 @@ boundary:
   provider schemas from the lossy display metadata.
 - Agent Skills (`skill`/`skill_read`/`skill_search`) remain canonical native ids
   for metadata parity, but their execution schemas are Mastra-owned and are not
-  entries in `NATIVE_TOOL_INPUT_SCHEMAS`.
+  entries in `NATIVE_TOOL_INPUT_SCHEMAS`. The separate desktop-only
+  `brainstrike.runSkillScript` is a Brainstrike-owned typed execution tool and
+  therefore is present in the desktop catalog/schema map, deferred `skills`
+  namespace, and execute-risk policy; web and the built-in local model omit it.
 
 Adding or renaming a native tool must update the canonical catalog first, then
 the exact metadata/schema maps, live desktop registry, exports, and conditional

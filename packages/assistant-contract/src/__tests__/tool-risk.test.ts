@@ -95,6 +95,7 @@ describe('resolveToolRiskCategory', () => {
       for (const id of [
         NATIVE_TOOL_ID.executeCommand,
         NATIVE_TOOL_ID.manageCommandSession,
+        NATIVE_TOOL_ID.runSkillScript,
       ] as const) {
         const metadata = NATIVE_TOOL_DEFAULTS[id];
         if (!metadata) {
@@ -115,6 +116,7 @@ describe('resolveToolRiskCategory', () => {
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
+        'brainstrike.runSkillScript',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyNonRead.has(id));
 
@@ -163,11 +165,13 @@ describe('buildNativeToolRiskMap', () => {
     }
     expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
     expect(riskByTool['brainstrike.manageCommandSession']).toBe('execute');
+    expect(riskByTool['brainstrike.runSkillScript']).toBe('execute');
 
     const nonRead = new Set<string>([
       ...EDIT_TOOLS,
       'brainstrike.executeCommand',
       'brainstrike.manageCommandSession',
+      'brainstrike.runSkillScript',
     ]);
     const readTools = Object.keys(riskByTool).filter((id) => !nonRead.has(id));
     expect(readTools.length).toBeGreaterThan(0);

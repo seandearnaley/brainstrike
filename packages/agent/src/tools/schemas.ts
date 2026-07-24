@@ -675,6 +675,50 @@ export const ExecuteCommandInputSchema = z
 
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
+const StrictRootRelativePathSchema = z
+  .string()
+  .min(1)
+  .max(1000)
+  .refine(
+    (value) =>
+      value === '.' ||
+      (!(value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/.test(value)) &&
+        value
+          .split('/')
+          .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..')),
+    'Must be a canonical root-relative path without traversal'
+  );
+
+export const RunSkillScriptInputSchema = z
+  .object({
+    args: z.array(z.string().max(2000)).max(64).optional().describe('Literal argv'),
+    cwd: StrictRootRelativePathSchema.describe('Root-relative working directory'),
+    root: z.string().min(1).max(500).describe('Mounted root name or id'),
+    runtime: z.enum(['bash', 'node', 'python3']).describe('Script interpreter'),
+    scriptPath: StrictRootRelativePathSchema.refine(
+      (value) => value.startsWith('scripts/') && value.split('/').length >= 2,
+      'Must begin with scripts/'
+    ).describe('Listed scripts/... path'),
+    skillName: z
+      .string()
+      .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
+      .describe('Enabled skill name'),
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const totalArgChars = (input.args ?? []).reduce((total, value) => total + value.length, 0);
+    if (totalArgChars > 16_000) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Combined arguments exceed the 16000-character cap',
+        path: ['args'],
+      });
+    }
+  });
+
+export type RunSkillScriptInput = z.infer<typeof RunSkillScriptInputSchema>;
+
 // ============================================================================
 // Persistent Command Session Tool Schemas
 // ============================================================================
@@ -891,6 +935,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.renameWorkspaceFile]: RenameWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.runSkillScript]: RunSkillScriptInputSchema,
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: StringReplaceWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.submitPlan]: SubmitPlanInputSchema,
   [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: UpdateWorkspaceContextSelectionInputSchema,

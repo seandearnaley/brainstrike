@@ -380,8 +380,12 @@ export {
   createScannedWorkspaceSkills,
   MAX_SKILL_ASSET_BYTES,
   MAX_SKILL_CONTENT_FILE_CHARS,
+  type ResolvedSkillScriptExecution,
+  type ResolveSkillScriptExecutionInput,
+  type ScannedWorkspaceSkills,
   type ScannedWorkspaceSkillsConfig,
   type SkillContentDeps,
+  type SkillScriptRuntime,
 } from './skills/scanned-workspace-skills';
 export {
   __resetSkillScanWarningsForTests,
@@ -400,6 +404,7 @@ export {
   scanSkills,
 } from './skills/skill-scan';
 export {
+  BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
   createAssistantSkillTools,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   SKILL_TOOL_IDS,
@@ -588,6 +593,8 @@ export {
   RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
+  type RunSkillScriptInput,
+  RunSkillScriptInputSchema,
   type SelectRootTreeFilesInput,
   SelectRootTreeFilesInputSchema,
   type StringReplaceWorkspaceFileInput,

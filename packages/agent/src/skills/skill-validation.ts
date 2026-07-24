@@ -84,6 +84,15 @@ function estimateTokens(text: string): number {
 
 function validateOptionalFields(data: Record<string, unknown>): string[] {
   const errors: string[] = [];
+  const allowedTools = data['allowed-tools'];
+  if (
+    allowedTools !== undefined &&
+    (!Array.isArray(allowedTools) ||
+      allowedTools.length === 0 ||
+      !allowedTools.every((value) => typeof value === 'string' && value.trim().length > 0))
+  ) {
+    errors.push('allowed-tools: Expected a non-empty array of non-empty strings');
+  }
   const license = data['license'];
   if (license !== undefined && license !== null && typeof license !== 'string') {
     errors.push(`license: Expected string, received ${typeof license}`);

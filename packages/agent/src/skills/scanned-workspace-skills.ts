@@ -16,6 +16,7 @@
  * (mirrors the user-commands loader's no-polling posture).
  */
 
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { Skill, SkillMetadata, WorkspaceSkills } from '@mastra/core/skills';
 import type { ScannedSkill, SkillDirEntry, SkillReadResult, SkillScanResult } from './skill-scan';
@@ -77,6 +78,31 @@ export interface ScannedWorkspaceSkillsConfig {
   readonly scan: () => SkillScanResult;
 }
 
+export type SkillScriptRuntime = 'bash' | 'node' | 'python3';
+
+export interface ResolveSkillScriptExecutionInput {
+  readonly args?: readonly string[];
+  readonly runtime: SkillScriptRuntime;
+  readonly scriptPath: string;
+  readonly skillName: string;
+}
+
+export interface ResolvedSkillScriptExecution {
+  readonly absolutePath: string;
+  readonly policy: 'approval-only' | 'matched-allowed-tools';
+  readonly scriptPath: string;
+  readonly skillName: string;
+  readonly skillRootPath: string;
+  readonly sourceRootId?: string;
+  readonly sourceTier: ScannedSkill['tier'];
+}
+
+export interface ScannedWorkspaceSkills extends WorkspaceSkills {
+  resolveScriptExecution(
+    input: ResolveSkillScriptExecutionInput
+  ): Promise<ResolvedSkillScriptExecution>;
+}
+
 const SKILL_SUBDIRS = ['references', 'scripts', 'assets'] as const;
 type SkillSubdir = (typeof SKILL_SUBDIRS)[number];
 
@@ -105,6 +131,45 @@ function sanitizeRelativePath(relPath: string): readonly string[] | null {
     }
   }
   return segments;
+}
+
+const RUNTIME_EXTENSIONS: Readonly<Record<SkillScriptRuntime, ReadonlySet<string>>> = {
+  bash: new Set(['.sh']),
+  node: new Set(['.cjs', '.js', '.mjs']),
+  python3: new Set(['.py']),
+};
+
+function scriptExtension(scriptPath: string): string {
+  const fileName = scriptPath.split('/').at(-1) ?? '';
+  const dotIndex = fileName.lastIndexOf('.');
+  return dotIndex < 0 ? '' : fileName.slice(dotIndex);
+}
+
+function globPatternMatches(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`).test(value);
+}
+
+function isAllowedByClaudePolicy(
+  skill: ScannedSkill,
+  runtime: SkillScriptRuntime,
+  scriptPath: string,
+  args: readonly string[]
+): boolean {
+  if (!skill.allowedTools) {
+    return true;
+  }
+  const argumentSuffix = args.length > 0 ? ` ${args.join(' ')}` : '';
+  const candidates = [
+    `${runtime} .brainstrike/skills/${skill.name}/${scriptPath}${argumentSuffix}`,
+    `${runtime} .claude/skills/${skill.name}/${scriptPath}${argumentSuffix}`,
+  ];
+  return skill.allowedTools.some((rule) => {
+    const match = /^Bash\((.+)\)$/.exec(rule.trim());
+    return match
+      ? candidates.some((candidate) => globPatternMatches(match[1] ?? '', candidate))
+      : false;
+  });
 }
 
 /**
@@ -179,7 +244,7 @@ function appendLineMatches(args: {
 /** Create a {@link WorkspaceSkills} engine over the bounded skills scan. */
 export function createScannedWorkspaceSkills(
   config: ScannedWorkspaceSkillsConfig
-): WorkspaceSkills {
+): ScannedWorkspaceSkills {
   const { deps, isEnabled, scan } = config;
   let scanned: SkillScanResult | null = null;
   const listingsCache = new Map<string, SkillListings>();
@@ -418,6 +483,49 @@ export function createScannedWorkspaceSkills(
     async refresh(): Promise<void> {
       scanned = scan();
       listingsCache.clear();
+    },
+    async resolveScriptExecution(
+      input: ResolveSkillScriptExecutionInput
+    ): Promise<ResolvedSkillScriptExecution> {
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(input.skillName)) {
+        throw new ToolInputError('skillName must be a canonical installed skill name');
+      }
+      const skill = enabledSkills().find((candidate) => candidate.name === input.skillName);
+      if (!skill) {
+        throw new ToolInputError(`Skill "${input.skillName}" is not available or is disabled`);
+      }
+      const segments = sanitizeRelativePath(input.scriptPath);
+      if (!segments || segments.length < 2 || segments[0] !== 'scripts') {
+        throw new ToolInputError(
+          'scriptPath must be a canonical skill-root-relative path beginning with scripts/'
+        );
+      }
+      const canonicalPath = segments.join('/');
+      const listedPath = segments.slice(1).join('/');
+      if (!listings(skill).scripts.includes(listedPath)) {
+        throw new ToolInputError(
+          `Script "${canonicalPath}" is missing from the enabled "${skill.name}" skill`
+        );
+      }
+      if (!RUNTIME_EXTENSIONS[input.runtime].has(scriptExtension(canonicalPath))) {
+        throw new ToolInputError(
+          `Requested runtime "${input.runtime}" does not match script "${canonicalPath}"`
+        );
+      }
+      if (!isAllowedByClaudePolicy(skill, input.runtime, canonicalPath, input.args ?? [])) {
+        throw new ToolInputError(
+          `Skill "${skill.name}" allowed-tools does not authorize ${input.runtime} for ${canonicalPath}`
+        );
+      }
+      return {
+        absolutePath: joinPath(skill.dirAbsPath, segments),
+        policy: skill.allowedTools ? 'matched-allowed-tools' : 'approval-only',
+        scriptPath: canonicalPath,
+        skillName: skill.name,
+        skillRootPath: skill.dirAbsPath,
+        ...(skill.sourceRootId ? { sourceRootId: skill.sourceRootId } : {}),
+        sourceTier: skill.tier,
+      };
     },
     async search(query: string, options?: SkillSearchOptions): Promise<SkillSearchResult[]> {
       return searchTexts(query, options);

@@ -151,6 +151,37 @@ describe('scanSkills discovery', () => {
     expect(entry.skill.metadata).toMatchObject({ author: 'sean' });
   });
 
+  it('preserves Claude allowed-tools as a typed script policy input', () => {
+    const content = [
+      '---',
+      'name: scripted-skill',
+      'description: Runs bundled helpers.',
+      'allowed-tools:',
+      '  - Bash(node .claude/skills/scripted-skill/scripts/*)',
+      '  - Read',
+      '---',
+      'Run the helper when needed.',
+      '',
+    ].join('\n');
+    const deps = makeDeps({
+      dirs: {
+        '/proj/a/.brainstrike/skills': [{ kind: 'dir', name: 'scripted-skill' }],
+        '/proj/a/.brainstrike/skills/scripted-skill': [{ kind: 'file', name: 'SKILL.md' }],
+      },
+      files: { '/proj/a/.brainstrike/skills/scripted-skill/SKILL.md': content },
+    });
+
+    const result = scanSkills(scanInput(), deps);
+    const entry = result.entries[0];
+    if (entry?.status !== 'ok') {
+      throw new Error(`expected ok entry, got ${JSON.stringify(entry)}`);
+    }
+    expect(entry.skill.allowedTools).toEqual([
+      'Bash(node .claude/skills/scripted-skill/scripts/*)',
+      'Read',
+    ]);
+  });
+
   it('scans all four tiers in priority order and shadows lower-tier same-name skills', () => {
     const deps = makeDeps({
       dirs: {

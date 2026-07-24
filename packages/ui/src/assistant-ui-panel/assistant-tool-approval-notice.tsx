@@ -45,9 +45,19 @@ export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
  * the model-facing names.
  */
 const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
+const RUN_SKILL_SCRIPT_TOOL_ID = NATIVE_TOOL_ID.runSkillScript;
 const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
 const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
 const EXECUTE_COMMAND_ARG_KEYS = new Set(['command', 'cwd', 'root', 'timeoutMs']);
+const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
+  'args',
+  'cwd',
+  'root',
+  'runtime',
+  'scriptPath',
+  'skillName',
+  'timeoutMs',
+]);
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -75,6 +85,75 @@ interface ExecuteCommandApprovalArgs {
   cwd?: string;
   root?: string;
   timeoutMs?: number;
+}
+
+interface RunSkillScriptApprovalArgs {
+  args?: readonly string[];
+  cwd: string;
+  root: string;
+  runtime: 'bash' | 'node' | 'python3';
+  scriptPath: string;
+  skillName: string;
+  timeoutMs?: number;
+}
+
+function isCanonicalRelativePath(value: string): boolean {
+  return (
+    value === '.' ||
+    (value.length > 0 &&
+      !value.startsWith('/') &&
+      !value.includes('\\') &&
+      !/^[A-Za-z]:/.test(value) &&
+      value
+        .split('/')
+        .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..'))
+  );
+}
+
+function narrowRunSkillScriptArgs(value: unknown): RunSkillScriptApprovalArgs | null {
+  if (!isRecord(value) || Object.keys(value).some((key) => !RUN_SKILL_SCRIPT_ARG_KEYS.has(key))) {
+    return null;
+  }
+  const { args, cwd, root, runtime, scriptPath, skillName, timeoutMs } = value;
+  if (
+    typeof cwd !== 'string' ||
+    cwd.length > 1000 ||
+    !isCanonicalRelativePath(cwd) ||
+    typeof root !== 'string' ||
+    root.length === 0 ||
+    root.length > 500 ||
+    (runtime !== 'bash' && runtime !== 'node' && runtime !== 'python3') ||
+    typeof scriptPath !== 'string' ||
+    scriptPath.length > 1000 ||
+    !scriptPath.startsWith('scripts/') ||
+    !isCanonicalRelativePath(scriptPath) ||
+    typeof skillName !== 'string' ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(skillName) ||
+    (args !== undefined &&
+      (!Array.isArray(args) ||
+        args.length > 64 ||
+        !args.every((argument) => typeof argument === 'string' && argument.length <= 2000) ||
+        args.reduce(
+          (total, argument) => total + (typeof argument === 'string' ? argument.length : 0),
+          0
+        ) > 16_000)) ||
+    (timeoutMs !== undefined &&
+      (typeof timeoutMs !== 'number' ||
+        !Number.isInteger(timeoutMs) ||
+        timeoutMs <= 0 ||
+        timeoutMs > 600_000))
+  ) {
+    return null;
+  }
+  return {
+    ...(Array.isArray(args) ? { args: args as string[] } : {}),
+    cwd,
+    root,
+    runtime,
+    scriptPath,
+    skillName,
+    ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+  };
 }
 
 /**
@@ -231,6 +310,50 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
   );
 }
 
+function RunSkillScriptPreview({ args }: { args: unknown }) {
+  const parsed = narrowRunSkillScriptArgs(args);
+  if (!parsed) {
+    return <PreviewParseError />;
+  }
+  const fileName = parsed.scriptPath.split('/').at(-1) ?? parsed.scriptPath;
+  return (
+    <div className="mt-3 text-xs" data-testid="approval-skill-script-summary">
+      <p className="font-medium text-foreground/90">
+        Run script <span className="font-mono">{fileName}</span> from activated skill{' '}
+        <span className="font-mono">{parsed.skillName}</span>
+      </p>
+      <dl className="mt-2 space-y-1">
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Skill path</dt>
+          <dd className="font-mono" data-testid="approval-skill-script-path">
+            {parsed.scriptPath}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Mounted root</dt>
+          <dd className="font-mono" data-testid="approval-skill-script-root">
+            {parsed.root}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-muted-foreground">Working directory</dt>
+          <dd className="font-mono" data-testid="approval-skill-script-cwd">
+            {parsed.cwd}
+          </dd>
+        </div>
+        {parsed.args?.length ? (
+          <div className="flex gap-2">
+            <dt className="text-muted-foreground">Arguments</dt>
+            <dd className="font-mono" data-testid="approval-skill-script-args">
+              {parsed.args.join(' ')}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 interface TruncatedPreviewText {
   readonly shownChars: number;
   readonly text: string;
@@ -294,6 +417,9 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
 function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }) {
   if (toolName === EXECUTE_COMMAND_TOOL_ID) {
     return <ExecuteCommandPreview args={args} />;
+  }
+  if (toolName === RUN_SKILL_SCRIPT_TOOL_ID) {
+    return <RunSkillScriptPreview args={args} />;
   }
 
   if (toolName === STRING_REPLACE_TOOL_ID) {

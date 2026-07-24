@@ -401,6 +401,23 @@ describe('cross-tool safety guidance', () => {
     expect(instructions).toContain('never include secrets or private workspace content');
     expect(instructions).toContain('both indexed and live on-disk content');
   });
+
+  it('routes activated skill scripts through the typed tool and recovers from decline with native writes', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([
+        ['brainstrike_runSkillScript', 'brainstrike.runSkillScript'],
+        ['brainstrike_writeWorkspaceFile', 'brainstrike.writeWorkspaceFile'],
+        ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
+        ['skill', 'skill'],
+      ])
+    );
+
+    expect(instructions).toContain('brainstrike_runSkillScript');
+    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).toMatch(/do not reconstruct.*absolute skill/i);
+    expect(instructions).toMatch(/declined.*continue.*native workspace tools/i);
+    expect(instructions).toMatch(/never.*heredoc/i);
+  });
 });
 
 describe('multi-root guidance', () => {

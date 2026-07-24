@@ -17,7 +17,11 @@
  */
 
 import type { AgentMessage, WorkspaceSkills } from '@brainstrike/agent';
-import { formatSkillActivation, SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '@brainstrike/agent';
+import {
+  BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
+  formatSkillActivation,
+  SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+} from '@brainstrike/agent';
 import {
   extractSkillDirectives,
   MAX_ACTIVATED_SKILLS_PER_MESSAGE,
@@ -104,7 +108,7 @@ export async function injectActivatedSkillsContext(
       activation = sliceCodePoints(activation, MAX_SKILL_ACTIVATION_CHARS_PER_SKILL);
       suffix = `\n[Truncated to the first ${MAX_SKILL_ACTIVATION_CHARS_PER_SKILL.toLocaleString()} characters — the full skill exceeds the activation budget.]`;
     }
-    const section = `### Skill: ${skill.name}\n${activation}${suffix}`;
+    const section = `### Skill: ${skill.name}\n${activation}${suffix}${BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE}`;
     // HARD aggregate ceiling: an activation that would overshoot is OMITTED
     // (named in the note below), never partially crammed in — the total
     // injected content can never exceed the budget.
