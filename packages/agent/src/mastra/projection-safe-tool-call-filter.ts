@@ -56,7 +56,7 @@ const FILTERABLE_NATIVE_TOOL_IDS = new Set<string>([
   NATIVE_TOOL_ID.webSearch,
 ]);
 
-export const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 2;
+export const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 1;
 
 interface FilterLogger {
   info(metadata: Record<string, unknown>, message: string): void;
@@ -320,7 +320,10 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     return this.#toolNameMap.get(registeredName) ?? denormalizeNativeToolName(registeredName);
   }
 
-  private collectRecentToolCallIds(messages: readonly MastraDBMessage[]): Set<string> {
+  private collectRecentToolCallIds(
+    messages: readonly MastraDBMessage[],
+    eligibleIds: ReadonlySet<string>
+  ): Set<string> {
     const recentIds = new Set<string>();
     if (this.#filterAfterToolSteps === 0) {
       return recentIds;
@@ -350,7 +353,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       const invocationPart = readToolInvocationPart(part);
       if (invocationPart) {
         const toolCallId = readToolCallId(invocationPart.toolInvocation);
-        if (toolCallId) {
+        if (toolCallId && eligibleIds.has(toolCallId)) {
           pendingStepIds.add(toolCallId);
         }
         continue;
@@ -369,7 +372,6 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     recentToolCallCount: number;
     safeIds: ReadonlySet<string>;
   } {
-    const recentIds = this.collectRecentToolCallIds(messages);
     const groups = new Map<string, ToolCallGroup>();
     for (const message of messages) {
       for (const part of readMessageParts(message)) {
@@ -379,6 +381,13 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
         }
       }
     }
+    const eligibleIds = new Set<string>();
+    for (const [toolCallId, group] of groups) {
+      if (group.hasSafeResult && !group.unsafe) {
+        eligibleIds.add(toolCallId);
+      }
+    }
+    const recentIds = this.collectRecentToolCallIds(messages, eligibleIds);
 
     const safeIds = new Set<string>();
     let ineligibleToolCallCount = 0;

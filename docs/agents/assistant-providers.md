@@ -652,12 +652,15 @@ markers), delegates to Mastra's limiter, and restores the exact raw result in a
 
 Before compatibility normalization and token limiting, hosted runs apply the
 projection-safe stale-history filter documented in `assistant-runtime.md`.
-Brainstrike owns the per-call eligibility and two-tool-step window because
+Brainstrike owns the per-call eligibility and one-tool-step window because
 Mastra's stock processor filters by tool name and performs its transform from a
 message-processing hook whose result is applied to the live `MessageList`.
 Eligibility is recorded during `processInputStep`; replacement happens only in
 Mastra's transient `processLLMRequest` hook. Persisted raw evidence and artifact
-continuation data therefore remain authoritative.
+continuation data therefore remain authoritative. Stateful writes remain
+verbatim regardless of age, while the newest eligible read/search/retrieval
+step protects the only current verification result without retaining an older
+redundant read. Protected state tools do not consume that recent-read window.
 
 Runtime token measurement is observational and MUST NOT replace those safety
 limits. `provider-registry.ts` resolves one explicit capability from the exact

@@ -3,9 +3,9 @@
  * deliberately NOT persisted — after reload the meter falls back to the
  * heuristic estimate until the next turn reports exact usage).
  *
- * The stored value is the LAST turn's usage: the next prompt's size ≈ previous
- * prompt + previous output, so inputTokens + outputTokens is the standard
- * context-meter baseline (one-turn-lag estimate; spec §2).
+ * The stored value is the latest provider step's prompt plus completion. Hosted
+ * multi-step runs keep this provider-effective context separate from aggregate
+ * input/output usage, which remains the durable billing/cost contract.
  *
  * `breakdownByThread` mirrors that lifecycle for the run-start prompt
  * breakdown (transient `brainstrike.context-breakdown` data part): the LAST

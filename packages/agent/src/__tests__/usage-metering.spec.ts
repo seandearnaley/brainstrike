@@ -87,6 +87,8 @@ describe('accumulateSteppedUsage', () => {
     expect(state.steppedPromptTokens).toBe(300);
     expect(state.steppedCompletionTokens).toBe(12);
     expect(state.providerReportedPromptTokens).toBe(300);
+    expect(state.latestStepPromptTokens).toBe(200);
+    expect(state.latestStepCompletionTokens).toBe(7);
   });
 
   it('falls back to inputTokens/outputTokens field names', () => {
@@ -103,5 +105,7 @@ describe('accumulateSteppedUsage', () => {
     expect(state.steppedPromptTokens).toBe(0);
     expect(state.steppedCompletionTokens).toBe(0);
     expect(state.providerReportedPromptTokens).toBeUndefined();
+    expect(state.latestStepPromptTokens).toBeUndefined();
+    expect(state.latestStepCompletionTokens).toBeUndefined();
   });
 });

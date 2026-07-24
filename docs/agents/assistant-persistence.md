@@ -411,13 +411,21 @@ Runtime invariants:
 - Both turn paths report usage: hosted via the data-stream `message-finish` tap
   (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
   local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
+- Hosted multi-step finishes carry two distinct token views. Aggregate
+  `inputTokens`/`outputTokens` remain the durable billing and cost totals across
+  every provider step. `contextInputTokens`/`contextOutputTokens` carry only the
+  latest provider step and feed the transient context meter. A transport that
+  structurally has no per-step fields uses its aggregate single-step values.
+  Never display a billed cross-step sum as context occupancy.
 - The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
-  must never lie — wire-format usage is `{inputTokens, outputTokens, billedCostUsd?}` (e2e mocks
-  must use the token field names).
+  must never lie — wire-format usage is
+  `{inputTokens, outputTokens, contextInputTokens?, contextOutputTokens?, billedCostUsd?}`
+  (e2e mocks must use the token field names).
 - UI shape: a compact ring row (`context-ring.tsx` donut + used/budget fraction) that triggers the
   "Context Usage" popover (`context-usage-popover.tsx` — breakdown list, OM stats, cumulative+cost).
-  The critical (≥90%) windowing notice renders INLINE next to the ring, never inside the hover
-  popover — a warning must not hide behind hover. The ONE-DERIVATION invariant above is unchanged:
+  The critical (≥90%) trimming-risk notice renders INLINE next to the ring, never inside the hover
+  popover — a warning must not hide behind hover or claim that compaction already happened. The
+  ONE-DERIVATION invariant above is unchanged:
   `agentLoopSettings.inputTokenLimit` remains the TokenLimiter budget, the meter/ring denominator,
   and the instruction budget note; the popover introduces no second derivation.
 - Prompt breakdown channel: the agent computes HEURISTIC (chars/4) category counts at prompt

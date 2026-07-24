@@ -101,6 +101,7 @@ import {
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
   pickCacheTokenFields,
+  pickContextMeterUsage,
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
@@ -1394,7 +1395,7 @@ export function AssistantUiPanelWrapper({
       if (!hasContextBreakdownChannel(selectedProvider, localChatTransport)) {
         useContextUsageStore.getState().clearBreakdown(threadId);
       }
-      useContextUsageStore.getState().recordUsage(threadId, usage);
+      useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
 
       // A turn just finished: re-list threads so an observer-generated title
       // (observational memory names threads as observations run) becomes

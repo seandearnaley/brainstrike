@@ -45,6 +45,10 @@ export interface AssistantUsage {
   readonly cacheCreationInputTokens?: number;
   /** Anthropic prompt-cache read tokens; present only when reported. */
   readonly cacheReadInputTokens?: number;
+  /** Latest provider-step prompt size for context occupancy. */
+  readonly contextInputTokens?: number;
+  /** Latest provider-step completion size for next-prompt occupancy. */
+  readonly contextOutputTokens?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
@@ -739,6 +743,14 @@ function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefine
   const usageRecord = chunk.usage as Record<string, unknown> | undefined;
   const cacheReadInputTokens = readPositiveCount(usageRecord?.['cacheReadInputTokens']);
   const cacheCreationInputTokens = readPositiveCount(usageRecord?.['cacheCreationInputTokens']);
+  const contextInputTokens = readOptionalNonNegativeCount(
+    usageRecord?.['contextInputTokens'],
+    'contextInputTokens'
+  );
+  const contextOutputTokens = readOptionalNonNegativeCount(
+    usageRecord?.['contextOutputTokens'],
+    'contextOutputTokens'
+  );
   // Approval-pause finishes contain only zero tokens; do not persist them.
   if (inputTokens + outputTokens === 0 && billedCostUsd === undefined) {
     return;
@@ -747,9 +759,21 @@ function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefine
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
     ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    ...(contextInputTokens === undefined ? {} : { contextInputTokens }),
+    ...(contextOutputTokens === undefined ? {} : { contextOutputTokens }),
     inputTokens,
     outputTokens,
   };
+}
+
+function readOptionalNonNegativeCount(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be a finite, non-negative number.`);
+  }
+  return value;
 }
 
 function readPositiveCount(value: unknown): number | undefined {

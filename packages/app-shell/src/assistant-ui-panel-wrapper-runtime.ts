@@ -1422,8 +1422,21 @@ export interface AssistantRunUsagePayload {
   readonly billedCostUsd?: number;
   readonly cacheCreationInputTokens?: number;
   readonly cacheReadInputTokens?: number;
+  readonly contextInputTokens?: number;
+  readonly contextOutputTokens?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
+}
+
+/** Select provider-effective context for the transient meter; billing keeps run totals. */
+export function pickContextMeterUsage(usage: AssistantRunUsagePayload): {
+  inputTokens: number;
+  outputTokens: number;
+} {
+  return {
+    inputTokens: usage.contextInputTokens ?? usage.inputTokens,
+    outputTokens: usage.contextOutputTokens ?? usage.outputTokens,
+  };
 }
 
 /**

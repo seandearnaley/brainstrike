@@ -337,7 +337,12 @@ describe('mastra streaming integration', () => {
         finishReason: 'stop',
         path: [],
         type: 'message-finish',
-        usage: { completionTokens: 11, promptTokens: 7 },
+        usage: {
+          completionTokens: 11,
+          contextInputTokens: 7,
+          contextOutputTokens: 11,
+          promptTokens: 7,
+        },
       },
     ]);
   });
@@ -436,6 +441,8 @@ describe('mastra streaming integration', () => {
         cacheCreationInputTokens: 60,
         cacheReadInputTokens: 40,
         completionTokens: 11,
+        contextInputTokens: 107,
+        contextOutputTokens: 11,
         promptTokens: 107,
       },
     });
@@ -476,7 +483,12 @@ describe('mastra streaming integration', () => {
       finishReason: 'stop',
       path: [],
       type: 'message-finish',
-      usage: { completionTokens: 11, promptTokens: 107 },
+      usage: {
+        completionTokens: 11,
+        contextInputTokens: 107,
+        contextOutputTokens: 11,
+        promptTokens: 107,
+      },
     });
   });
 
@@ -544,13 +556,23 @@ describe('mastra streaming integration', () => {
     const finish = chunks.at(-1) as {
       finishReason?: string;
       type: string;
-      usage?: { completionTokens: number; promptTokens: number };
+      usage?: {
+        completionTokens: number;
+        contextInputTokens: number;
+        contextOutputTokens: number;
+        promptTokens: number;
+      };
     };
     expect(finish.type).toBe('message-finish');
     expect(finish.finishReason).toBe('stop');
     // Usage is ACCUMULATED across every completed step (10+40 / 2+5), never
     // just the boundary step's own numbers.
-    expect(finish.usage).toEqual({ completionTokens: 7, promptTokens: 50 });
+    expect(finish.usage).toEqual({
+      completionTokens: 7,
+      contextInputTokens: 40,
+      contextOutputTokens: 5,
+      promptTokens: 50,
+    });
   });
 
   it('flushes pending output-only tool completions before the steered finish', async () => {
@@ -685,7 +707,12 @@ describe('mastra streaming integration', () => {
       finishReason: 'stop',
       path: [],
       type: 'message-finish',
-      usage: { completionTokens: 7, promptTokens: 30 },
+      usage: {
+        completionTokens: 7,
+        contextInputTokens: 20,
+        contextOutputTokens: 5,
+        promptTokens: 30,
+      },
     });
   });
 
@@ -1458,7 +1485,12 @@ describe('mastra streaming integration', () => {
         finishReason: 'stop',
         path: [],
         type: 'message-finish',
-        usage: { completionTokens: 6, promptTokens: 5 },
+        usage: {
+          completionTokens: 6,
+          contextInputTokens: 3,
+          contextOutputTokens: 4,
+          promptTokens: 5,
+        },
       },
     ]);
   });
@@ -2063,7 +2095,12 @@ describe('mastra streaming integration', () => {
       finishReason: 'stop',
       path: [],
       type: 'message-finish',
-      usage: { completionTokens: 3, promptTokens: 2 },
+      usage: {
+        completionTokens: 3,
+        contextInputTokens: 2,
+        contextOutputTokens: 3,
+        promptTokens: 2,
+      },
     });
   });
 
@@ -2516,7 +2553,12 @@ describe('mastra streaming integration', () => {
       finishReason: 'length',
       path: [],
       type: 'message-finish',
-      usage: { completionTokens: 4, promptTokens: 20 },
+      usage: {
+        completionTokens: 4,
+        contextInputTokens: 20,
+        contextOutputTokens: 4,
+        promptTokens: 20,
+      },
     });
   });
 
@@ -2537,7 +2579,12 @@ describe('mastra streaming integration', () => {
       finishReason: 'unknown',
       path: [],
       type: 'message-finish',
-      usage: { completionTokens: 5, promptTokens: 3 },
+      usage: {
+        completionTokens: 5,
+        contextInputTokens: 3,
+        contextOutputTokens: 5,
+        promptTokens: 3,
+      },
     });
   });
 
