@@ -532,9 +532,24 @@ export function registerFileSystemIpcHandlers({
    * stale row. The failure is logged at ERROR (never silent) and the next boot
    * retries. fs:removeRoot remains the fail-closed primary; this is convergence.
    */
-  const convergeRootStatuses = async (mountedPaths: readonly string[]): Promise<void> => {
+  const convergeRootStatuses = async (restoredPaths: readonly string[]): Promise<void> => {
     try {
       const rootsDatabase = await getRootsDatabase();
+      // Re-read rootsList HERE rather than reusing the entries this handler
+      // opened with. restoreRoots awaits per-entry path resolution, so an
+      // fs:addRoot CAN interleave mid-restore (boot is not user-gesture-driven,
+      // unlike the handlers the addRoot no-mutex note covers). That add writes
+      // its rootsList entry BEFORE returning, and the renderer's reconcileRoots
+      // inserts the DB row only after the IPC resolves — so a live row can only
+      // exist for a path already in this list. Reading it immediately before the
+      // UPDATE therefore makes the mount set a strict SUPERSET of every path
+      // that could own a live row. Over-inclusion is the safe direction: at
+      // worst a genuinely stale row survives to the next boot, whereas
+      // under-inclusion would silently drop a just-mounted root.
+      const currentEntries = await readRootsList(storage);
+      const mountedPaths = [
+        ...new Set([...restoredPaths, ...currentEntries.map((entry) => entry.path)]),
+      ];
       const demoted = await markRootsDisconnectedExcept(rootsDatabase, mountedPaths);
       if (demoted.length > 0) {
         logger.warn('restoreRoots: disconnected DB roots that are no longer mounted', {

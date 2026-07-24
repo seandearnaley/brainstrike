@@ -380,6 +380,33 @@ describe('fs:restoreRoots', () => {
       expect(rootsDbQuery.mock.calls[0]?.[1]).toEqual([[]]);
     });
 
+    // Regression (PR #1940 review): boot is NOT user-gesture-driven, so an
+    // fs:addRoot can interleave at one of restoreRoots' per-entry awaits. That
+    // add writes its rootsList entry before the IPC returns and reconcileRoots
+    // inserts its DB row only afterwards, so re-reading the list at convergence
+    // time makes the mount set a superset of every path that could own a live
+    // row — the added root must NOT be demoted.
+    it('does not demote a root added concurrently during the restore', async () => {
+      const restoredPath = path.resolve('/users/test/restored');
+      const addedPath = path.resolve('/users/test/added-midway');
+      const restoredEntry = { addedAt: 1000, path: restoredPath, rootId: 'root-restored' };
+      const addedEntry = { addedAt: 2000, path: addedPath, rootId: 'root-added' };
+
+      fileSystem = createFileSystem();
+      // Post-add state on disk; the handler's FIRST read sees the pre-add list.
+      storage = createStorage({ rootsList: JSON.stringify([restoredEntry, addedEntry]) });
+      vi.mocked(storage.getItem).mockResolvedValueOnce(JSON.stringify([restoredEntry]));
+      registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+
+      const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+      // The restore itself is unaffected — it only ever saw the pre-add list.
+      expect(result).toHaveLength(1);
+      const mountedPaths = rootsDbQuery.mock.calls[0]?.[1]?.[0] as string[];
+      expect(mountedPaths).toContain(restoredPath);
+      expect(mountedPaths).toContain(addedPath);
+    });
+
     it('logs and still restores when the convergence query fails (boot must not break)', async () => {
       setLogLevel(LogLevel.ERROR);
       const captured: LogRecord[] = [];

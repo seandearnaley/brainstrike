@@ -1067,6 +1067,18 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   leave the app with no roots at all, strictly worse than a stale row. The failure
   is logged at ERROR (never silent) and the next boot retries; `fs:removeRoot`
   remains the fail-closed primary.
+- The mount set is read at CONVERGENCE time, not at handler entry (do not "tidy"
+  this into reusing the opening `readRootsList` result). Boot is not
+  user-gesture-driven, so unlike the handlers the `fs:addRoot` no-mutex note
+  covers, an add CAN interleave at one of `restoreRoots`' per-entry awaits.
+  Ordering is what makes the late read sufficient: `fs:addRoot` writes its
+  rootsList entry BEFORE the IPC returns, and the renderer's `reconcileRoots`
+  inserts the DB row only after it resolves — so a `live` row can only exist for
+  a path already in the list. Re-reading immediately before the UPDATE therefore
+  yields a strict SUPERSET of every path that could own a live row.
+  Over-inclusion is the SAFE direction (a genuinely stale row just survives to
+  the next boot); under-inclusion would silently demote a just-mounted root,
+  which is the failure mode this whole mechanism exists to prevent.
 - The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
   (unremappable without DB access → re-approval is the safe direction; mirrors the
   permission-policy v2 security bump). Factory reset clears the store unchanged.
