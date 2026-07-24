@@ -27,7 +27,7 @@ describe('CSP Utils', () => {
       const prodCSP = getCSP('production');
 
       expect(prodCSP).toContain("default-src 'self'");
-      expect(prodCSP).toContain("script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net");
+      expect(prodCSP).toContain("script-src 'self' blob: 'wasm-unsafe-eval'");
       expect(prodCSP).toContain("worker-src 'self' blob:");
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob:");
@@ -64,13 +64,13 @@ describe('CSP Utils', () => {
       expect(prodCSP).toContain('https://*.hf.co');
     });
 
-    it('includes CDN domains for external resources', () => {
+    it('keeps the CDN fetch-only in production', () => {
       const devCSP = getCSP('development');
       const prodCSP = getCSP('production');
 
-      // Both should include jsdelivr CDN
-      expect(devCSP).toContain('https://cdn.jsdelivr.net');
-      expect(prodCSP).toContain('https://cdn.jsdelivr.net');
+      expect(devCSP).toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+      expect(prodCSP).not.toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+      expect(prodCSP).toMatch(/connect-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
     });
 
     it('maintains strict security directives in both environments', () => {
@@ -219,9 +219,10 @@ describe('CSP Utils', () => {
       expect(devCSP).toMatch(/script-src[^;]*'unsafe-inline'/);
       expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-inline'/);
 
-      // Both allow unsafe-eval (needed for transformers.js)
+      // Production permits WebAssembly compilation without enabling string-to-code eval.
       expect(devCSP).toMatch(/script-src[^;]*'unsafe-eval'/);
-      expect(prodCSP).toMatch(/script-src[^;]*'unsafe-eval'/);
+      expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-eval'/);
+      expect(prodCSP).toMatch(/script-src[^;]*'wasm-unsafe-eval'/);
     });
 
     it('development includes localhost in multiple directives', () => {

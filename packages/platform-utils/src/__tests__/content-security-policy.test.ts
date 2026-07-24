@@ -30,7 +30,7 @@ const WEB_PROD_CSP =
   "frame-ancestors 'none'; " +
   "img-src 'self' data: blob:; " +
   "object-src 'none'; " +
-  "script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net blob:; " +
+  "script-src 'self' blob: 'wasm-unsafe-eval'; " +
   "style-src 'self' 'unsafe-inline'; " +
   "worker-src 'self' blob:";
 
@@ -157,24 +157,23 @@ describe('getContentSecurityPolicy', () => {
       expect(webProd).not.toContain('localhost');
     });
 
-    it('keeps jsdelivr out of Electron script-src but allows it for web (BST-573)', () => {
-      // Electron's renderer holds the secrets/terminal/git bridges, so a CDN
-      // compromise must never mean code execution — jsdelivr stays a fetch
-      // origin (connect-src) only. Web has no such bridges.
+    it('keeps jsdelivr out of every production script-src while preserving development HMR', () => {
+      // A CDN compromise must never mean code execution in either production
+      // target. jsdelivr stays a fetch origin (connect-src) only.
       expect(directiveOf(electronDev, 'script-src')).not.toContain('jsdelivr');
       expect(directiveOf(electronProd, 'script-src')).not.toContain('jsdelivr');
       expect(directiveOf(webDev, 'script-src')).toContain('https://cdn.jsdelivr.net');
-      expect(directiveOf(webProd, 'script-src')).toContain('https://cdn.jsdelivr.net');
+      expect(directiveOf(webProd, 'script-src')).not.toContain('https://cdn.jsdelivr.net');
       // jsdelivr remains a fetch origin on both.
       expect(directiveOf(electronProd, 'connect-src')).toContain('https://cdn.jsdelivr.net');
       expect(directiveOf(webProd, 'connect-src')).toContain('https://cdn.jsdelivr.net');
     });
 
-    it('runs Electron WASM on wasm-unsafe-eval in production; web keeps full unsafe-eval (BST-573)', () => {
+    it('uses wasm-unsafe-eval without full unsafe-eval in every production target', () => {
       expect(directiveOf(electronProd, 'script-src')).toContain("'wasm-unsafe-eval'");
       expect(directiveOf(electronProd, 'script-src')).not.toContain("'unsafe-eval' ");
-      expect(directiveOf(webProd, 'script-src')).toContain("'unsafe-eval'");
-      expect(directiveOf(webProd, 'script-src')).not.toContain("'wasm-unsafe-eval'");
+      expect(directiveOf(webProd, 'script-src')).toContain("'wasm-unsafe-eval'");
+      expect(directiveOf(webProd, 'script-src')).not.toContain("'unsafe-eval' ");
     });
   });
 });

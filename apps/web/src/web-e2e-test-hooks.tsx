@@ -13,6 +13,21 @@ interface AssistantThreadRow {
   readonly title: string | null;
 }
 
+interface ExtensionRow {
+  readonly extname: string;
+}
+
+interface SearchQualificationRow {
+  readonly distance: number | string;
+  // biome-ignore lint/style/useNamingConvention: SQL projection uses snake_case
+  readonly full_text_match: boolean | number | string | null;
+}
+
+interface Bm25QualificationRow {
+  // biome-ignore lint/style/useNamingConvention: SQL projection uses snake_case
+  readonly bm25_score: number | string;
+}
+
 export interface WebE2EAssistantThreadSnapshot {
   readonly id: string;
   readonly metadata: unknown;
@@ -20,8 +35,16 @@ export interface WebE2EAssistantThreadSnapshot {
   readonly title: string;
 }
 
+export interface WebE2EDatabaseQualification {
+  readonly bm25Score: number;
+  readonly extensions: readonly string[];
+  readonly fullTextMatch: boolean;
+  readonly vectorDistance: number;
+}
+
 export interface WebE2ETestHooks {
   readonly dbPath: string;
+  readonly qualifyDatabaseExtensions: () => Promise<WebE2EDatabaseQualification>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
   readonly syncDatabase: () => Promise<void>;
@@ -53,6 +76,64 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
 
     const hooks: WebE2ETestHooks = {
       dbPath,
+      qualifyDatabaseExtensions: async (): Promise<WebE2EDatabaseQualification> => {
+        if (typeof db.transaction !== 'function') {
+          throw new Error('Web E2E database handle does not expose transactions');
+        }
+
+        const extensionResult = await db.query<ExtensionRow>(
+          "SELECT extname FROM pg_extension WHERE extname IN ('pg_textsearch', 'pg_trgm', 'vector') ORDER BY extname"
+        );
+        const searchResult = await db.query<SearchQualificationRow>(
+          "SELECT ('[1,0,0]'::vector(3) <=> '[1,0,0]'::vector(3))::float8 AS distance, to_tsvector('english', 'brainstrike csp qualification') @@ plainto_tsquery('english', 'brainstrike') AS full_text_match"
+        );
+        const qualificationId = crypto.randomUUID();
+        const fileRecordId = `csp-file-${qualificationId}`;
+        const chunkId = `csp-chunk-${qualificationId}`;
+        const bm25Result = await db.transaction(async (tx) => {
+          await tx.query(
+            "INSERT INTO file_records (id, name, path, size) VALUES ($1, 'csp-qualification.txt', $2, 29)",
+            [fileRecordId, `csp-qualification://${qualificationId}`]
+          );
+          await tx.query(
+            "INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, 'brainstrike csp qualification')",
+            [chunkId, fileRecordId]
+          );
+          const result = await tx.query<Bm25QualificationRow>(
+            "SELECT -(content <@> to_bm25query('brainstrike', 'idx_file_chunks_content_bm25'))::float8 AS bm25_score FROM file_chunks WHERE id = $1",
+            [chunkId]
+          );
+          await tx.query('DELETE FROM file_chunks WHERE id = $1', [chunkId]);
+          await tx.query('DELETE FROM file_records WHERE id = $1', [fileRecordId]);
+          return result;
+        });
+        const searchRow = searchResult.rows[0];
+        const bm25Row = bm25Result.rows[0];
+        if (!(searchRow && bm25Row)) {
+          throw new Error('Web E2E database qualification returned no result');
+        }
+
+        const vectorDistance = Number(searchRow.distance);
+        const bm25Score = Number(bm25Row.bm25_score);
+        const extensions = extensionResult.rows.map((row) => row.extname);
+        const fullTextMatch = parseModelEnabled(searchRow.full_text_match);
+        if (
+          extensions.join(',') !== 'pg_textsearch,pg_trgm,vector' ||
+          vectorDistance !== 0 ||
+          !fullTextMatch ||
+          !Number.isFinite(bm25Score) ||
+          bm25Score <= 0
+        ) {
+          throw new Error('Web E2E database qualification failed');
+        }
+
+        return {
+          bm25Score,
+          extensions,
+          fullTextMatch,
+          vectorDistance,
+        };
+      },
       readAssistantThreads: async (): Promise<readonly WebE2EAssistantThreadSnapshot[]> => {
         const result = await db.query<AssistantThreadRow>(
           'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'
