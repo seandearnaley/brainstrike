@@ -339,8 +339,27 @@ function isToolResultPart(part: unknown): part is Record<string, unknown> {
   return 'result' in part || 'output' in part;
 }
 
+/** Reads the parts array out of a message's `content`, accepting both the
+ * legacy bare-array shape (old data / fixtures) and the real persisted
+ * Mastra V2 shape `{ format: 2, parts: [...] }` (see
+ * `packages/agent/src/pglite-mastra-memory/memory-store.ts` and
+ * `docs/agents/assistant-persistence.md` §1). Returns `null` when `content`
+ * has no readable parts array at all. Every part-walking branch below
+ * (stage-2 detection + elision) goes through this so both shapes are
+ * handled identically. */
+function readContentParts(content: unknown): unknown[] | null {
+  if (Array.isArray(content)) {
+    return content;
+  }
+  if (isRecord(content) && content['format'] === 2 && Array.isArray(content['parts'])) {
+    return content['parts'];
+  }
+  return null;
+}
+
 function hasToolResultParts(content: unknown): boolean {
-  return Array.isArray(content) && content.some(isToolResultPart);
+  const parts = readContentParts(content);
+  return parts?.some(isToolResultPart) ?? false;
 }
 
 function stringifyResultValue(value: unknown): string {
@@ -351,12 +370,14 @@ function stringifyResultValue(value: unknown): string {
 }
 
 /** Stage 2: keeps args/input intact, truncates the result/output body to a
- * visibly-marked preview. */
+ * visibly-marked preview. Rebuilds whatever shape `content` came in as (bare
+ * array, or `{ format: 2, parts: [...] }`) with only the parts replaced. */
 function elideToolResultBodies(content: unknown): unknown {
-  if (!Array.isArray(content)) {
+  const parts = readContentParts(content);
+  if (parts === null) {
     return content;
   }
-  return content.map((part) => {
+  const elidedParts = parts.map((part) => {
     if (!isToolResultPart(part)) {
       return part;
     }
@@ -372,6 +393,12 @@ function elideToolResultBodies(content: unknown): unknown {
       [resultKey]: `${preview}${suffix} _[tool result elided — ${serialized.length} chars]_`,
     };
   });
+  if (Array.isArray(content)) {
+    return elidedParts;
+  }
+  // readContentParts only returns non-null for arrays or isRecord(content)
+  // with a `parts` array, so this branch is always a record here.
+  return { ...(content as Record<string, unknown>), parts: elidedParts };
 }
 
 function serializedContentLength(content: unknown): number {
