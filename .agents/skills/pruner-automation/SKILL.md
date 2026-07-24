@@ -33,7 +33,11 @@ node .agents/skills/pruner-automation/scripts/collect-pruner-baseline.mjs \
 
 The collector performs no repository or external writes (its Git reads disable
 optional locks, fsmonitor, and the untracked cache so `status` never rewrites
-the index). It:
+the index). Before starting either scan, it requires the checked-out
+dependency runtime at `node_modules/.bin/knip` and
+`node_modules/.bin/react-doctor`. If either binary is absent, it exits visibly
+before invoking pnpm or creating logs; install dependencies explicitly with
+`pnpm install --frozen-lockfile`, then rerun the collector. It:
 
 - runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm exec react-doctor . --json` without shell pipelines (invoking the binary directly, because `pnpm run doctor -- --json` leaks a literal `--` that makes react-doctor ignore `--json`; it asserts the root `doctor` script is react-doctor first);
 - preserves each command's real exit code and distinguishes findings from operational failure for BOTH tools — Knip via exit-code + category counts, Doctor via its structured `--json` report (`ok`/`summary`), never scraped CLI copy;

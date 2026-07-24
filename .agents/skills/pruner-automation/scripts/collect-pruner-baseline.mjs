@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -11,6 +11,7 @@ const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 // or rev-parse opportunistically rewrite .git/index or spawn fsmonitor.
 const GIT_READONLY_ENV = { GIT_OPTIONAL_LOCKS: '0' };
 const GIT_READONLY_CONFIG = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
+const REQUIRED_DEPENDENCY_BINARIES = ['knip', 'react-doctor'];
 
 const fail = (message) => {
   process.stderr.write(`collect-pruner-baseline: ${message}\n`);
@@ -173,6 +174,28 @@ function readRootDoctorScript(repoRoot) {
   return script;
 }
 
+function hasInstalledBinary(binaryPath) {
+  try {
+    return statSync(binaryPath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function assertDependencyRuntimeAvailable(repoRoot) {
+  const missingBinaries = REQUIRED_DEPENDENCY_BINARIES.filter(
+    (binary) => !hasInstalledBinary(join(repoRoot, 'node_modules', '.bin', binary))
+  );
+  if (missingBinaries.length === 0) {
+    return;
+  }
+  fail(
+    `required dependency runtime is unavailable (missing node_modules/.bin/${missingBinaries.join(
+      ', node_modules/.bin/'
+    )}); run "pnpm install --frozen-lockfile" before collecting`
+  );
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
@@ -215,6 +238,7 @@ function main() {
   if (git(repoRoot, ['rev-parse', '--show-toplevel']) !== repoRoot) {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
+  assertDependencyRuntimeAvailable(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
