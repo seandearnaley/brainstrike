@@ -848,22 +848,31 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       })
     );
 
-    // Last shutdown step, deliberately: the durable NDJSON file is the last
-    // writer standing, so it must stay open through every earlier step in
-    // order to capture their failures too.
+    if (failures.length > 0) {
+      // The ONLY place any of the failures collected above gets logged — and
+      // therefore the only warn+ record that could describe them. It MUST
+      // run before the error-log-sink step below: closing the sink first
+      // would make `recordDurableLog` a no-op for this very call, so the
+      // NDJSON backstop would contain no trace of a shutdown-step failure
+      // (e.g. `closeDatabase()` throwing) despite being "the last writer
+      // standing".
+      logger.warn('Graceful shutdown completed with cleanup failures', {
+        failures,
+        trigger,
+      });
+    }
+
+    // Last shutdown step, deliberately, and AFTER the warn above (not just
+    // after 'database'): the durable NDJSON file is the last writer
+    // standing, so it must stay open through every earlier step — including
+    // the aggregate failure log immediately above — in order to capture
+    // their failures too.
     recordFailure(
       await runShutdownStep('error-log-sink', async () => {
         errorLogSink?.close();
         errorLogSink = null;
       })
     );
-
-    if (failures.length > 0) {
-      logger.warn('Graceful shutdown completed with cleanup failures', {
-        failures,
-        trigger,
-      });
-    }
   })().finally(() => {
     clearForcedProcessExitTimer();
   });
@@ -1271,6 +1280,15 @@ if (singleInstanceLockAcquired) {
       // entirely under BRAINSTRIKE_DISABLE_FILE_LOGS=1 — every desktop
       // test:e2e* script sets it, and this must not start writing files
       // during those Playwright lanes.
+      //
+      // sessionId is a fresh per-launch randomUUID(), stable for the process
+      // but INDEPENDENT of the diagnostic session id a renderer's
+      // DiagnosticSinkBridge stamps on its own `diagnostic_events` DB rows
+      // (getDiagnosticSessionId() in packages/app-shell). This is
+      // deliberate, per the Flight Recorder P2a design — the NDJSON
+      // backstop and the PGlite-backed DB sink are independent failure
+      // domains — but it means a line in this file and a DB row cannot be
+      // joined on `sessionId` alone.
       if (!disableFileLogs) {
         errorLogSink = createErrorLogSink({
           appVersion: app.getVersion(),

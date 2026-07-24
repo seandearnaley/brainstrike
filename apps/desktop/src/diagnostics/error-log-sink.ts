@@ -36,6 +36,17 @@ function deriveSource(record: LogRecord): string {
   return String(record.bindings['sourceWindowRole'] ?? 'hidden-host');
 }
 
+/** The ONE deliberate exception to "never call the logger from this module"
+ * (see module doc): a single raw `console.error`, reused by both the
+ * underlying sink's `onFailure` (write/rotate/open failures) and the
+ * try/catch in `recordLogRecord` below (conversion/serialization failures).
+ * A `logger.*` call here would re-enter the very listener that feeds this
+ * sink and recurse without bound. */
+function reportSinkFailure(context: string, error: unknown): void {
+  // biome-ignore lint/suspicious/noConsole: the durable backstop sink must never call the logger it is fed by (see module doc) — this is the one deliberate exception.
+  console.error(`[error-log-sink] ${context}`, error);
+}
+
 /**
  * Wraps a `RotatingNdjsonSink` with the LogRecord → DiagnosticEvent → NDJSON
  * line pipeline, for the Electron main process durable backstop (Flight
@@ -43,20 +54,13 @@ function deriveSource(record: LogRecord): string {
  *
  * This is fed by a log listener (see `logging-ipc.ts` and `main.ts`), so —
  * same rule as `RotatingNdjsonSink` — NEVER import or call
- * `@brainstrike/utils/logger` from this module or from the `onFailure`
- * callback below. A `logger.*` call here would re-enter the very listener
- * that calls `recordLogRecord`, recursing without bound. Failures are
- * reported exactly once via a single raw `console.error` instead.
+ * `@brainstrike/utils/logger` from this module. See `reportSinkFailure`.
  */
 export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLogSinkHandle {
   const sink = new RotatingNdjsonSink({
     filePath: options.filePath,
     onFailure: (error) => {
-      // biome-ignore lint/suspicious/noConsole: the durable backstop sink must never call the logger it is fed by (see module doc) — this is the one deliberate exception.
-      console.error(
-        '[error-log-sink] durable NDJSON error log disabled after a write failure',
-        error
-      );
+      reportSinkFailure('durable NDJSON error log disabled after a write failure', error);
     },
     ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
     ...(options.maxFiles === undefined ? {} : { maxFiles: options.maxFiles }),
@@ -68,17 +72,30 @@ export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLog
     },
     filePath: options.filePath,
     recordLogRecord(record: LogRecord): void {
-      const event = logRecordToDiagnosticEvent(record, {
-        appVersion: options.appVersion,
-        makeId: () => randomUUID(),
-        platform: options.platform,
-        sessionId: options.sessionId,
-        source: deriveSource(record),
-      });
-      if (!event) {
-        return;
+      // `sink.writeLine` is contractually never-throwing (see
+      // rotating-ndjson-sink.ts), but `logRecordToDiagnosticEvent` and
+      // `serializeDiagnosticEventLine` are NOT — e.g. a BigInt anywhere in
+      // `record.args`/context throws out of `JSON.stringify`. This tap is
+      // called synchronously from inside `addLogListener` (see
+      // logging-ipc.ts), so an uncaught throw here would escape into
+      // whatever code emitted the original log call. Never let a
+      // malformed/unusual record silently kill the caller — report once via
+      // the same raw console.error path as a sink write failure instead.
+      try {
+        const event = logRecordToDiagnosticEvent(record, {
+          appVersion: options.appVersion,
+          makeId: () => randomUUID(),
+          platform: options.platform,
+          sessionId: options.sessionId,
+          source: deriveSource(record),
+        });
+        if (!event) {
+          return;
+        }
+        sink.writeLine(serializeDiagnosticEventLine(event));
+      } catch (error) {
+        reportSinkFailure('failed to convert/serialize a log record — record dropped', error);
       }
-      sink.writeLine(serializeDiagnosticEventLine(event));
     },
   };
 }

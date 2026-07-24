@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseDiagnosticEventLine } from '@brainstrike/utils/diagnostics';
 import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createErrorLogSink } from '../../diagnostics/error-log-sink';
 
 async function makeDir(): Promise<string> {
@@ -79,13 +79,17 @@ describe('createErrorLogSink', () => {
       sessionId: 'session-abc',
     });
 
-    sink.recordLogRecord(createRecord({ bindings: { sourceWindowRole: 'hidden-host' } }));
+    // A distinct role (not the `?? 'hidden-host'` fallback value itself) so
+    // this assertion actually discriminates: an implementation that ignored
+    // `sourceWindowRole` entirely would still produce 'hidden-host' via the
+    // fallback and pass a same-value test undetected.
+    sink.recordLogRecord(createRecord({ bindings: { sourceWindowRole: 'chunking-host' } }));
     sink.close();
 
     const lines = await readLines(filePath);
     expect(lines).toHaveLength(1);
     const event = parseDiagnosticEventLine(lines[0] ?? '');
-    expect(event?.source).toBe('hidden-host');
+    expect(event?.source).toBe('chunking-host');
   });
 
   it('writes nothing for a record below the warn+ severity floor', async () => {
@@ -100,6 +104,27 @@ describe('createErrorLogSink', () => {
     sink.close();
 
     await expect(fsPromises.access(filePath)).rejects.toThrow();
+  });
+
+  it('does not throw when a record cannot be converted/serialized (e.g. a BigInt in args)', () => {
+    const sink = createErrorLogSink({
+      appVersion: '1.2.3',
+      filePath,
+      platform: 'darwin-arm64',
+      sessionId: 'session-abc',
+    });
+    // `writeLine` never throws, but `logRecordToDiagnosticEvent` /
+    // `serializeDiagnosticEventLine` are not contractually safe — a BigInt
+    // anywhere in the record's context throws out of `JSON.stringify`. This
+    // must be caught and reported via the same raw console.error path, never
+    // escape into the caller (the addLogListener tap).
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    expect(() => sink.recordLogRecord(createRecord({ args: [{ big: 10n }] }))).not.toThrow();
+
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    consoleErrorSpy.mockRestore();
+    sink.close();
   });
 
   it('exposes the configured filePath on the handle', () => {
