@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -11,6 +11,7 @@ const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 // or rev-parse opportunistically rewrite .git/index or spawn fsmonitor.
 const GIT_READONLY_ENV = { GIT_OPTIONAL_LOCKS: '0' };
 const GIT_READONLY_CONFIG = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
+const REQUIRED_DEPENDENCY_BINARIES = ['knip', 'react-doctor'];
 
 const fail = (message) => {
   process.stderr.write(`collect-pruner-baseline: ${message}\n`);
@@ -25,12 +26,18 @@ const parseArgs = (argv) => {
       options.pretty = true;
       continue;
     }
-    if (argument === '--repo' || argument === '--logs-dir') {
+    if (argument === '--repo' || argument === '--logs-dir' || argument === '--output') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) {
         fail(`${argument} requires a value`);
       }
-      options[argument === '--repo' ? 'repo' : 'logsDir'] = value;
+      if (argument === '--repo') {
+        options.repo = value;
+      } else if (argument === '--logs-dir') {
+        options.logsDir = value;
+      } else {
+        options.output = value;
+      }
       index += 1;
       continue;
     }
@@ -41,6 +48,9 @@ const parseArgs = (argv) => {
   }
   if (!options.logsDir) {
     fail('--logs-dir is required');
+  }
+  if (!options.output) {
+    fail('--output is required');
   }
   return options;
 };
@@ -173,6 +183,28 @@ function readRootDoctorScript(repoRoot) {
   return script;
 }
 
+function hasInstalledBinary(binaryPath) {
+  try {
+    return statSync(binaryPath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function assertDependencyRuntimeAvailable(repoRoot) {
+  const missingBinaries = REQUIRED_DEPENDENCY_BINARIES.filter(
+    (binary) => !hasInstalledBinary(join(repoRoot, 'node_modules', '.bin', binary))
+  );
+  if (missingBinaries.length === 0) {
+    return;
+  }
+  fail(
+    `required dependency runtime is unavailable (missing node_modules/.bin/${missingBinaries.join(
+      ', node_modules/.bin/'
+    )}); run "pnpm install --frozen-lockfile" before collecting`
+  );
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
@@ -180,6 +212,9 @@ function main() {
   }
   if (!existsSync(options.logsDir)) {
     fail(`--logs-dir does not exist: ${options.logsDir}`);
+  }
+  if (!isAbsolute(options.output)) {
+    fail('--output must be an absolute path');
   }
 
   const requestedRepo = resolve(options.repo);
@@ -195,9 +230,17 @@ function main() {
   ) {
     fail('--logs-dir must be outside the repository');
   }
+  const outputParent = realpathSync(dirname(resolve(options.output)));
+  if (outputParent !== logsDir) {
+    fail('--output must be a direct child of --logs-dir');
+  }
+  const outputPath = join(logsDir, basename(options.output));
   const knipLog = join(logsDir, 'knip.log');
   const doctorLog = join(logsDir, 'doctor.log');
-  for (const logPath of [knipLog, doctorLog]) {
+  if (outputPath === knipLog || outputPath === doctorLog) {
+    fail('--output must not replace a raw collector log');
+  }
+  for (const logPath of [knipLog, doctorLog, outputPath]) {
     if (existsSync(logPath)) {
       fail(`refusing to overwrite existing log: ${logPath}`);
     }
@@ -215,6 +258,7 @@ function main() {
   if (git(repoRoot, ['rev-parse', '--show-toplevel']) !== repoRoot) {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
+  assertDependencyRuntimeAvailable(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
@@ -253,7 +297,9 @@ function main() {
     schemaVersion: 2,
   };
 
-  process.stdout.write(`${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`);
+  writeFileSync(outputPath, `${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`, {
+    flag: 'wx',
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

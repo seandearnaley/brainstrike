@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { parseDoctor, parseKnip } from './collect-pruner-baseline.mjs';
+
+const COLLECTOR_PATH = fileURLToPath(new URL('./collect-pruner-baseline.mjs', import.meta.url));
 
 function doctorReport(overrides = {}) {
   return JSON.stringify({
@@ -94,4 +110,121 @@ test('parseKnip preserves category-name keys and strips real ANSI sequences', ()
   const parsed = parseKnip(raw, 1);
   assert.deepEqual(parsed.categories, { 'UNUSED Exports': 5, 'Unused files': 2 });
   assert.equal(parsed.findingsTotal, 7);
+});
+
+function writeFixtureFile(repo, path, contents) {
+  const absolutePath = join(repo, path);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, contents);
+}
+
+function git(repo, args) {
+  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
+}
+
+function createCollectorFixture(t, { installBinaryShims = false } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'pruner-runtime-preflight-'));
+  t.after(() => rmSync(root, { force: true, recursive: true }));
+  const repo = join(root, 'repo');
+  const logsDir = join(root, 'logs');
+  const outputPath = join(logsDir, 'baseline.json');
+  const binDir = join(root, 'bin');
+  const invocationLog = join(root, 'pnpm-invocations.log');
+  mkdirSync(repo);
+  mkdirSync(logsDir);
+  mkdirSync(binDir);
+  git(repo, ['init', '-b', 'main']);
+  git(repo, ['config', 'user.email', 'pruner-test@example.com']);
+  git(repo, ['config', 'user.name', 'Pruner Test']);
+  writeFixtureFile(
+    repo,
+    'package.json',
+    `${JSON.stringify({
+      devDependencies: { knip: '1.0.0', 'react-doctor': '1.0.0' },
+      scripts: { doctor: 'react-doctor .' },
+    })}\n`
+  );
+  writeFixtureFile(repo, 'pnpm-workspace.yaml', 'packages: []\n');
+  writeFixtureFile(repo, '.night-shift/PROTOCOL.md', '# Protocol\n');
+  writeFixtureFile(repo, '.night-shift/charters/pruner.md', '# Pruner\n');
+  git(repo, ['add', '.']);
+  git(repo, ['commit', '-m', 'fixture']);
+  git(repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  if (installBinaryShims) {
+    writeFixtureFile(repo, 'node_modules/.bin/knip', '');
+    writeFixtureFile(repo, 'node_modules/.bin/react-doctor', '');
+  }
+
+  const fakePnpm = join(binDir, 'pnpm');
+  writeFileSync(
+    fakePnpm,
+    `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.PNPM_INVOCATION_LOG, \`\${process.argv.slice(2).join(' ')}\\n\`);
+if (process.argv[2] === 'knip') {
+  process.exit(0);
+}
+process.stdout.write(${JSON.stringify(doctorReport())});
+`
+  );
+  chmodSync(fakePnpm, 0o755);
+
+  return { binDir, invocationLog, logsDir, outputPath, repo, root };
+}
+
+function collectFixture(fixture) {
+  return spawnSync(
+    process.execPath,
+    [
+      COLLECTOR_PATH,
+      '--repo',
+      fixture.repo,
+      '--logs-dir',
+      fixture.logsDir,
+      '--output',
+      fixture.outputPath,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}:${process.env.PATH}`,
+        PNPM_INVOCATION_LOG: fixture.invocationLog,
+      },
+    }
+  );
+}
+
+test('fails before invoking pnpm when the required dependency binaries are unavailable', (t) => {
+  const fixture = createCollectorFixture(t);
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is unavailable/u);
+  assert.equal(
+    existsSync(fixture.invocationLog),
+    false,
+    'pnpm must not be invoked during preflight'
+  );
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
+test('collects only after both required dependency binaries are installed', (t) => {
+  const fixture = createCollectorFixture(t, { installBinaryShims: true });
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
+    'knip',
+    'exec react-doctor . --json',
+  ]);
+  assert.deepEqual(readdirSync(fixture.logsDir).sort(), [
+    'baseline.json',
+    'doctor.log',
+    'knip.log',
+  ]);
+  assert.equal(result.stdout, '');
+  const evidence = JSON.parse(readFileSync(fixture.outputPath, 'utf8'));
+  assert.equal(evidence.knip.outcome, 'clean');
+  assert.equal(evidence.doctor.outcome, 'passed');
 });
