@@ -344,12 +344,12 @@ describe('desktop native tool provider prompt budget', () => {
         ])
       ),
     }).toEqual({
-      criticalDefinitionTokens: 2103,
+      criticalDefinitionTokens: 2157,
       criticalToolCount: 8,
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
-      eagerDefinitionTokens: 7028,
+      eagerDefinitionTokens: 7131,
       eagerToolCount: 29,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,

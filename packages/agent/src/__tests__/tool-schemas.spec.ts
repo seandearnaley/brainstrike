@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
-import { UpdateWorkspaceTapestrySelectionsInputSchema, validateToolInput } from '../tools/schemas';
+import {
+  GlobWorkspaceInputSchema,
+  GrepSearchInputSchema,
+  HybridSearchInputSchema,
+  QueryEmbeddingSpaceInputSchema,
+  UpdateWorkspaceTapestrySelectionsInputSchema,
+  validateToolInput,
+} from '../tools/schemas';
 
 describe('tool schemas', () => {
   it('passes through unknown tool names', () => {
@@ -116,6 +123,22 @@ describe('tool schemas', () => {
     expect(display?.parameters.find((param) => param.name === 'includeIgnored')?.type).toBe(
       'boolean'
     );
+  });
+
+  it('documents bound-root omission semantics in every workspace search schema', () => {
+    const rootDescriptions = [
+      GlobWorkspaceInputSchema.shape.root.description,
+      GrepSearchInputSchema.shape.root.description,
+      HybridSearchInputSchema.shape.root.description,
+      QueryEmbeddingSpaceInputSchema.shape.root.description,
+    ];
+
+    for (const description of rootDescriptions) {
+      expect(description).toContain('thread-bound folder');
+      expect(description).toContain('unbound request');
+      expect(description).toContain('once per root id');
+      expect(description).not.toMatch(/omit to (search|enumerate) all/i);
+    }
   });
 
   it('executeCommand description reflects the per-call approval flow (no stale "no approval prompt" text)', () => {

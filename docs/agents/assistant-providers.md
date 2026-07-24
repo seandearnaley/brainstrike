@@ -579,8 +579,10 @@ uses `boundWorkspaceRootId` only when request preparation has durably bound the
 thread to a live DB root; without that binding, ordinary single-target tools
 retain the visible ambiguity error. Search tools whose legacy omission meant
 "all roots" narrow to the binding when one exists and retain all-root behavior
-only for genuinely unbound requests. An explicit selector for another live
-mounted root is an observable cross-root call. A stale/disconnected binding
+only for genuinely unbound requests. Their provider schemas state that omission
+rule and direct a bound thread to call once per root id when it needs every
+folder. An explicit selector for another live mounted root is an observable
+cross-root call. A stale/disconnected binding
 throws and never falls back to Main. Successful resolution logs the mode and
 safe root id/name, and native results surface `rootName` in the tool card. The
 default multi-root instruction includes
@@ -1112,8 +1114,8 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 29 tools / 7,028 `o200k_base` tokens, while the
-live critical definition surface is 8 tools / 2,103 tokens before the compact
+contract: the eager baseline is 29 tools / 7,131 `o200k_base` tokens, while the
+live critical definition surface is 8 tools / 2,157 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
 captured-request and last-position limiter budgets.
