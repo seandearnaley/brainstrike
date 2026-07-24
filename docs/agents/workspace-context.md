@@ -700,6 +700,10 @@ Later global Main/Focused changes do not retarget that thread or its composer
 chip. Request preparation reuses the persisted id and emits
 `boundWorkspaceRootId`; approval/resume preparation is pinned by an in-memory
 copy before the metadata-store rerender can land.
+Restored tab ids can become selected before their `mastra_threads` rows have
+loaded. That state keeps the composer disabled and causes root resolution or
+persistence to fail visibly; it must never be treated as missing metadata and
+rebound to the current Main root.
 Desktop validates that id against its server-loaded live DB roots before hooks
 or the initial manifest can use another mounted root, then orders the bound root
 first. An omitted native workspace-tool `root` resolves to the binding. An

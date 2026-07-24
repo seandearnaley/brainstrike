@@ -800,9 +800,17 @@ Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
 Right provides the non-drag alternative. Panels remain mounted while inactive
 so runtime state is not discarded, and a colored thread supplies the canonical
 accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
+The persisted store contains tab/selection ids but not `mastra_threads` rows.
+After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
+`ensureResourceThreads` hydrates the selected row and its metadata. Composer
+sends stay disabled during both states, and root-binding resolution/persistence
+also rejects a selected id whose row is not loaded; that transient absence is
+never interpreted as an unbound thread eligible for the current Main root.
 
 Paired tests: `assistant-thread-store.test.ts`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
-and `assistant-thread-tabs-workspace.test.tsx`.
+`assistant-thread-tabs-workspace.test.tsx`,
+`assistant-ui-panel-wrapper-runtime.test.ts`, and
+`use-assistant-thread-root-binding.test.ts`.
 
 ---

@@ -151,6 +151,18 @@ describe('assistant runtime helpers', () => {
     ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
   });
 
+  it.each([
+    'idle',
+    'loading',
+  ] as const)('keeps assistant memory disabled while restored thread metadata is %s', (status) => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { status },
+      })
+    ).toBe('Assistant memory is loading from PGlite.');
+  });
+
   it('blocks unsupported semantic recall embedding providers', () => {
     expect(
       resolveAssistantMemoryDisabledReason({

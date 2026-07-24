@@ -49,10 +49,13 @@ export function useAssistantThreadRootBinding({
   const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
+  const selectedThreadMetadataPending = Boolean(selectedMemoryThreadId && !selectedThread);
   const threadRootBinding = resolveAssistantOperatingRootBinding({
     ...(selectedThread?.metadata ? { threadMetadata: selectedThread.metadata } : {}),
   });
-  const displayRootBinding = threadRootBinding ?? currentMainRoot;
+  const displayRootBinding = selectedThreadMetadataPending
+    ? undefined
+    : (threadRootBinding ?? currentMainRoot);
   const operatingRoot =
     activeRootCount >= 2 && displayRootBinding
       ? {
@@ -61,6 +64,11 @@ export function useAssistantThreadRootBinding({
         }
       : undefined;
   const resolveThreadRootBinding = useCallback(async () => {
+    if (selectedThreadMetadataPending) {
+      throw new Error(
+        'Cannot resolve the assistant thread root before the selected thread metadata is loaded.'
+      );
+    }
     if (threadRootBinding) {
       const { persisted: _persisted, ...binding } = threadRootBinding;
       return binding;
@@ -74,11 +82,16 @@ export function useAssistantThreadRootBinding({
       );
     }
     return resolveDurableAssistantOperatingRootBinding(database, currentMainRoot);
-  }, [currentMainRoot, database, threadRootBinding]);
+  }, [currentMainRoot, database, selectedThreadMetadataPending, threadRootBinding]);
   const persistThreadRootBinding = useCallback(
     async (binding: Omit<AssistantOperatingRootBinding, 'persisted'>): Promise<void> => {
       if (!(assistantThreadRepository && selectedMemoryThreadId)) {
         throw new Error('Cannot bind an assistant thread root without an active thread.');
+      }
+      if (selectedThreadMetadataPending) {
+        throw new Error(
+          'Cannot persist the assistant thread root before the selected thread metadata is loaded.'
+        );
       }
       await updateThreadMetadata(
         assistantThreadRepository,
@@ -91,7 +104,13 @@ export function useAssistantThreadRootBinding({
         }
       );
     },
-    [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]
+    [
+      assistantThreadRepository,
+      memoryResourceId,
+      selectedMemoryThreadId,
+      selectedThreadMetadataPending,
+      updateThreadMetadata,
+    ]
   );
 
   return {
