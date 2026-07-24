@@ -17,6 +17,7 @@ function readDesktopSource(relativePath: string): string {
 describe('logging API contract', () => {
   it('defines the canonical logging IPC channel names in one main-process contract', () => {
     expect(LOGGING_API_CHANNELS).toEqual({
+      durableRecord: 'logging:durable-record',
       getBufferedLogs: 'logging:get-buffered-logs',
       getPreferences: 'logging:get-preferences',
       ingestBufferedRecord: 'logging:ingest-buffered-record',

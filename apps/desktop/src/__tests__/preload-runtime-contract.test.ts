@@ -65,6 +65,9 @@ describe('preload runtime contract', () => {
       "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
     );
     expect(preloadSource).toContain(
+      "const LOGGING_DURABLE_RECORD_EVENT = 'logging:durable-record'"
+    );
+    expect(preloadSource).toContain(
       "const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot'"
     );
   });
@@ -73,6 +76,7 @@ describe('preload runtime contract', () => {
     const preloadSource = readPreloadSource();
 
     expect({
+      durableRecord: extractPreloadStringConstant(preloadSource, 'LOGGING_DURABLE_RECORD_EVENT'),
       getBufferedLogs: extractPreloadStringConstant(
         preloadSource,
         'LOGGING_GET_BUFFERED_LOGS_CHANNEL'
