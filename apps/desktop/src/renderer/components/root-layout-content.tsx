@@ -3,6 +3,7 @@
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
 import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
+import NotesPageContent from '@brainstrike/app-shell/notes-page-content';
 import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
@@ -16,7 +17,7 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
-// notes-page-content.tsx.
+// `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { createLogger } from '@brainstrike/utils/logger';
 import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
@@ -24,7 +25,6 @@ import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, use
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
-import NotesPageContent from './notes-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 

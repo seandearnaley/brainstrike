@@ -2,7 +2,7 @@ import { lazy, type ReactElement, Suspense } from 'react';
 
 // Code-split the notes vault surface so it only loads when the Notes tab is
 // opened. The wrapper is rendered only when the File System Access directory
-// picker exists (see root-layout-content.tsx capability gate).
+// picker exists (see each app's root-layout-content.tsx capability gate).
 const NotesVaultPanel = lazy(() =>
   import('@brainstrike/notes-vault/panel').then((module) => ({
     default: module.NotesVaultPanel,
