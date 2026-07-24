@@ -8,8 +8,9 @@ import {
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
+import { useDebouncedQuery } from './use-debounced-query';
 
 /** Honest label for a file whose root has no display name (legacy NULL root). */
 const WORKSPACE_FALLBACK_LABEL = 'Workspace';
@@ -111,25 +112,4 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   // Report loading while a query is in flight OR a debounce is pending, so the
   // palette shows "Searching…" instead of a misleading "No files found.".
   return { files, loading: trimmed.length > 0 && (rowsAreStale || loading) };
-}
-
-/**
- * Local debounce (mirrors `@brainstrike/hooks` `useDebouncedValue`) — inlined to
- * avoid adding a package dependency just for one call. Derived during render is
- * impossible for a time-delayed value, so the setState-in-effect here is the
- * canonical debounce pattern (cleared on every change).
- */
-function useDebouncedQuery(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delayMs]);
-
-  return debounced;
 }
