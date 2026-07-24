@@ -94,6 +94,9 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
  *
  * `askUser` and `submitPlan` are the other critical tools, but the local
  * provider deliberately does not register their suspend/resume implementations.
+ * `writeWorkspaceFile` is critical for hosted small-model create reachability,
+ * but remains excluded here: the local capability surface is an explicit,
+ * separately qualified product contract rather than every critical hosted tool.
  */
 export const LOCAL_DESKTOP_NATIVE_TOOL_IDS: readonly LocalDesktopNativeToolId[] = Object.freeze(
   Object.values(LOCAL_DESKTOP_NATIVE_TOOL_ID)

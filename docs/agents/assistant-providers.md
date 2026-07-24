@@ -878,13 +878,16 @@ surface to `BrainstrikeToolSearchProcessor` (the fail-loud wrapper around
 Mastra 1.51 `ToolSearchProcessor`). Built-in/local runtime behavior is unchanged;
 provider-native tool-search adapters remain out of scope.
 
-The canonical native metadata has one exact seven-tool `critical` set:
+The canonical native metadata has one exact eight-tool `critical` set:
 `askUser`, `executeCommand`, `globWorkspace`, `grepSearch`,
-`readWorkspaceFile`, `stringReplaceWorkspaceFile`, and `submitPlan`. These are
-the universal exact-read/search/edit/execute/suspend primitives that remain
-model-visible after discovery goes live. The search/load control is owned by
-the selected discovery adapter and must be exposed beside this set; it is not a
-second Brainstrike native-tool id. Every other native tool is `deferred` and
+`readWorkspaceFile`, `stringReplaceWorkspaceFile`, `submitPlan`, and
+`writeWorkspaceFile`. These are the universal exact-read/search/edit/create/
+execute/suspend primitives that remain model-visible after discovery goes
+live. Keeping one approval-gated create primitive critical is deliberate:
+smaller hosted models otherwise cannot create a new file unless they first
+infer that they must search for the deferred write tool. The search/load
+control is owned by the selected discovery adapter and must be exposed beside
+this set; it is not a second Brainstrike native-tool id. Every other native tool is `deferred` and
 belongs to exactly one concise namespace in
 `NATIVE_TOOL_DISCOVERY_NAMESPACES`: artifacts, context, embeddings, semantics,
 sessions, skills, web, or specialist workspace operations. Namespace parity tests prove
@@ -935,8 +938,9 @@ search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
 Mastra's BM25 catalog ranks the sanitized tool id plus its canonical
 description. Brainstrike's initial `search_tools` description must therefore
 name the major deferred capability families explicitly, including open
-workspace roots and focused context; do not widen the eager registry to work
-around a model that skips discovery. Deterministic ranking fixtures cover the
+workspace roots and focused context. Aside from the deliberately critical
+create primitive above, do not widen the eager registry to work around a model
+that skips discovery. Deterministic ranking fixtures cover the
 context/list/read/grep/glob/edit/command intents. The opt-in hosted matrix in
 `tool-discovery-live-eval.integration.spec.ts` exercises GPT-5.4 Mini and Claude
 Haiku against the real processor and fails visibly when either provider key is
@@ -1101,7 +1105,7 @@ invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
 contract: the eager baseline is 29 tools / 7,028 `o200k_base` tokens, while the
-live critical definition surface is 7 tools / 1,923 tokens before the compact
+live critical definition surface is 8 tools / 2,103 tokens before the compact
 `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
 captured-request and last-position limiter budgets.

@@ -3012,6 +3012,30 @@ describe('assistant-tools', () => {
   });
 
   describe('stringReplaceWorkspaceFile', () => {
+    it('surfaces a typed create-file recovery when the target does not exist', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({
+            context: {
+              newStr: '<main>Created</main>',
+              oldStr: '<main>Missing</main>',
+              path: '/index.html',
+            },
+          })
+        ).rejects.toMatchObject<ToolInputError>({
+          code: 'tool_input_invalid',
+          message: expect.stringMatching(/writeWorkspaceFile.*create/i),
+        });
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
     it('applies an exact match and leaves the rest of the file intact', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {

@@ -2943,7 +2943,7 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('keeps critical execute guidance but defers noncritical edits when plan mode is OFF', async () => {
+  it('keeps create-capable write guidance critical when plan mode is OFF', async () => {
     await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
@@ -2965,7 +2965,7 @@ describe('mastra streaming integration', () => {
     const instructions = agentInstances[0]?.config.instructions ?? '';
     expect(instructions).not.toContain('PLAN MODE IS ACTIVE');
     expect(instructions).toContain('brainstrike_readWorkspaceFile');
-    expect(instructions).not.toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
     expect(instructions).toContain('brainstrike_executeCommand');
   });
 

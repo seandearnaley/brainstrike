@@ -17,6 +17,7 @@ const EXPECTED_CRITICAL_TOOL_IDS = [
   'brainstrike.readWorkspaceFile',
   'brainstrike.stringReplaceWorkspaceFile',
   'brainstrike.submitPlan',
+  'brainstrike.writeWorkspaceFile',
 ] as const;
 
 const EXPECTED_DEFERRED_NAMESPACES = {
@@ -41,7 +42,6 @@ const EXPECTED_DEFERRED_NAMESPACES = {
     'brainstrike.deleteWorkspaceFile',
     'brainstrike.manageTaskList',
     'brainstrike.renameWorkspaceFile',
-    'brainstrike.writeWorkspaceFile',
   ],
 } as const;
 
