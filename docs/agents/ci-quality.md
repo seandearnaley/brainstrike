@@ -205,6 +205,24 @@ per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
 `synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
 per-PR coverage is advisory Codecov patch signal only.
 
+Nightly package coverage uses six static GitHub Actions matrix shards plus a
+separate DB job. Five package shards isolate the measured heavyweight lanes;
+the sixth is a negative-filter remainder, so a new package with a
+`test:coverage` task is covered automatically instead of requiring registry
+maintenance. Each job uploads its raw JSON in a tar archive. The final
+`coverage` job fails closed unless all seven archives are present, restores
+them into one workspace, and is the only job that runs
+`coverage:prepare-workspace`, `coverage:enforce`, the merged report, and
+Codecov. Do not replace this with a generated planner or raise the original
+shared timeout: the split preserves one authoritative threshold decision while
+giving slow packages independent failure and timeout domains.
+
+Native packages may retain a `test:coverage` alias that deliberately runs their
+real addon tests without instrumentation. The artifact-completeness check
+requires JSON only from coverage-producing scripts (those invoking
+`--coverage`); it still fails when any instrumented package omits its artifact.
+This distinction does not exempt instrumented code or relax a threshold.
+
 **Why its own file, and why you must not merge it back into `test.yml`:** the
 label trigger requires subscribing to the `pull_request` `labeled` action.
 `test.yml` is the SOLE producer of all five required status checks, so if it

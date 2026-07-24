@@ -20,21 +20,48 @@ env:
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
-  coverage:
-    name: Coverage
+  package-coverage:
+    name: Coverage packages (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Measured from scheduled run 30081361078. The heavyweight packages
+          # get isolated failure/timeout domains; the negative-filter shard
+          # remains the automatic home for newly added packages.
+          - shard: agent
+            concurrency: 1
+            filters: '--filter=@brainstrike/agent'
+          - shard: app-shell
+            concurrency: 2
+            filters: '--filter=@brainstrike/app-shell --filter=@brainstrike/web'
+          - shard: desktop
+            concurrency: 1
+            filters: '--filter=@brainstrike/desktop'
+          - shard: embeddings-preferences
+            concurrency: 2
+            filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/preferences'
+          - shard: ui-db-explorer
+            concurrency: 2
+            filters: '--filter=@brainstrike/ui --filter=@brainstrike/db-explorer'
+          - shard: remaining
+            concurrency: 4
+            filters: >-
+              --filter=!@brainstrike/db
+              --filter=!@brainstrike/agent
+              --filter=!@brainstrike/app-shell
+              --filter=!@brainstrike/web
+              --filter=!@brainstrike/desktop
+              --filter=!@brainstrike/embeddings
+              --filter=!@brainstrike/preferences
+              --filter=!@brainstrike/ui
+              --filter=!@brainstrike/db-explorer
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Series C R9a: shares the setup-workspace composite's re-keyed local
-      # `.turbo` cache entry (lockfile+turbo.jsonc hash) with test.yml's
-      # static/unit/build and coverage.yml's coverage job, replacing this
-      # job's former private `turbo-coverage-${{ github.sha }}` key. Remote
-      # Turbo cache (TURBO_TOKEN/TURBO_TEAM) is doing the real work regardless
-      # (measured: `Remote caching enabled`, `FULL TURBO`); this local layer is
-      # an outage hedge.
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
@@ -45,7 +72,7 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
-      - name: Run package coverage
+      - name: Run package shard coverage
         timeout-minutes: 30
         env:
           COVERAGE: "true"
@@ -53,11 +80,48 @@ jobs:
           TURBO_TEST_MODE: coverage
         run: >
           pnpm turbo run test:coverage
-          --filter="!@brainstrike/db"
-          --concurrency=4
+          ${{ matrix.filters }}
+          --concurrency=${{ matrix.concurrency }}
           --summarize
           --log-order=grouped
           --cache-dir=.turbo
+
+      - name: Bundle package shard coverage
+        if: always()
+        run: |
+          find packages apps -type f -name "coverage-final.json" -path "*/coverage/*" -print0 > coverage-files
+          if [ ! -s coverage-files ]; then
+            echo "::error::Package shard ${{ matrix.shard }} produced no coverage artifacts."
+            exit 1
+          fi
+          tar --null --files-from=coverage-files --create --file="nightly-coverage-${{ matrix.shard }}.tar"
+
+      - name: Upload package shard coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-${{ matrix.shard }}
+          path: nightly-coverage-${{ matrix.shard }}.tar
+          retention-days: 7
+          if-no-files-found: error
+
+  db-coverage:
+    name: Coverage DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Clear coverage directories
+        run: |
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
 
       - name: Run DB runtime coverage
         timeout-minutes: 10
@@ -92,6 +156,58 @@ jobs:
           --summarize
           --log-order=grouped
           --cache-dir=.turbo
+
+      - name: Bundle DB coverage
+        if: always()
+        run: |
+          find packages/db -type f -name "coverage-final.json" -path "*/coverage-*/*" -print0 > coverage-files
+          if [ ! -s coverage-files ]; then
+            echo "::error::DB coverage produced no coverage artifacts."
+            exit 1
+          fi
+          tar --null --files-from=coverage-files --create --file=nightly-coverage-db.tar
+
+      - name: Upload DB coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-coverage-db
+          path: nightly-coverage-db.tar
+          retention-days: 7
+          if-no-files-found: error
+
+  coverage:
+    name: Coverage
+    needs:
+      - package-coverage
+      - db-coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Download coverage shards
+        uses: actions/download-artifact@v7
+        with:
+          pattern: nightly-coverage-*
+          path: .coverage-artifacts
+
+      - name: Restore coverage shards
+        run: |
+          archive_count=$(find .coverage-artifacts -type f -name "nightly-coverage-*.tar" | wc -l | tr -d ' ')
+          if [ "$archive_count" -ne 7 ]; then
+            echo "::error::Expected 7 coverage shard archives; found ${archive_count}."
+            exit 1
+          fi
+          while IFS= read -r -d '' archive; do
+            tar --extract --file="$archive"
+          done < <(find .coverage-artifacts -type f -name "nightly-coverage-*.tar" -print0)
 
       - name: Prepare coverage workspace
         id: coverage
@@ -145,8 +261,16 @@ jobs:
 
   notify-failure:
     name: Notify nightly coverage failure
-    needs: coverage
-    if: failure() && github.event_name == 'schedule'
+    needs:
+      - package-coverage
+      - db-coverage
+      - coverage
+    if: >-
+      always() &&
+      github.event_name == 'schedule' &&
+      (needs.package-coverage.result != 'success' ||
+       needs.db-coverage.result != 'success' ||
+       needs.coverage.result != 'success')
     runs-on: ubuntu-latest
     # gh issue create / comment are sub-second under normal conditions; cap at
     # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
