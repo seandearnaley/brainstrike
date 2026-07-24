@@ -201,6 +201,7 @@ jobs:
       - name: Restore coverage shards
         run: |
           archive_count=$(find .coverage-artifacts -type f -name "nightly-coverage-*.tar" | wc -l | tr -d ' ')
+          # Six package matrix shards plus the dedicated DB shard.
           if [ "$archive_count" -ne 7 ]; then
             echo "::error::Expected 7 coverage shard archives; found ${archive_count}."
             exit 1

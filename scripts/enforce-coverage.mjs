@@ -142,6 +142,9 @@ function discoverCoverageScriptPackages() {
           typeof pkg.scripts['test:coverage'] === 'string'
             ? pkg.scripts['test:coverage']
             : null;
+        // Coverage-producing workspace scripts must opt in with the explicit
+        // Vitest CLI flag. A bare native-test alias is intentionally
+        // uninstrumented and cannot produce coverage-final.json.
         const producesCoverageArtifact = coverageScript?.includes('--coverage');
         if (producesCoverageArtifact && !ALLOW_MISSING_COVERAGE_ARTIFACT.has(name)) {
           packages.push({ dir: pkgDir, name });
