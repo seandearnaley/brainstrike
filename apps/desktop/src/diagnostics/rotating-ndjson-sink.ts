@@ -37,9 +37,27 @@ export class RotatingNdjsonSink {
   private isDisabled = false;
 
   constructor(options: RotatingNdjsonSinkOptions) {
+    const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+    const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+    // NO SILENT FALLBACKS: a degenerate retention window (maxFiles < 2 means
+    // "no room for even one rotated sibling"; maxBytes < 1 means "no line
+    // can ever fit") is malformed config, not something to quietly coerce —
+    // rotate()'s slot math assumes at least one rotated slot exists. This
+    // throws from the constructor, not through `onFailure`: there is no
+    // sink instance yet to disable, and misconfiguration should fail the
+    // caller's setup immediately rather than surface later as a runtime
+    // write failure.
+    if (maxFiles < 2) {
+      throw new Error(
+        `RotatingNdjsonSink: maxFiles must be >= 2 (the live file plus at least one rotated sibling), got ${maxFiles}`
+      );
+    }
+    if (maxBytes < 1) {
+      throw new Error(`RotatingNdjsonSink: maxBytes must be >= 1, got ${maxBytes}`);
+    }
     this.filePath = options.filePath;
-    this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-    this.maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+    this.maxBytes = maxBytes;
+    this.maxFiles = maxFiles;
     this.onFailure = options.onFailure;
   }
 
@@ -72,19 +90,47 @@ export class RotatingNdjsonSink {
         fd = this.rotate();
       }
       const buffer = Buffer.from(`${line}\n`, 'utf8');
-      fs.writeSync(fd, buffer);
+      const bytesWritten = fs.writeSync(fd, buffer);
+      if (bytesWritten !== buffer.byteLength) {
+        // fs.writeSync can write fewer bytes than requested (signal
+        // interruption, RLIMIT_FSIZE, an ENOSPC boundary, …). Silently
+        // continuing would land a TRUNCATED NDJSON line on disk and over-
+        // count `currentSize` by the untracked remainder. Treat it exactly
+        // like any other write failure: throw so the catch below disables
+        // the sink and reports it — a truncated durable record must
+        // surface, never pass silently.
+        throw new Error(
+          `RotatingNdjsonSink: short write to "${this.filePath}" (${bytesWritten}/${buffer.byteLength} bytes)`
+        );
+      }
       this.currentSize += buffer.byteLength;
     } catch (error) {
       this.disable(error);
     }
   }
 
-  /** Idempotent: closes the fd if open. Safe to call multiple times. */
+  /**
+   * Idempotent: closes the fd if open. Safe to call multiple times.
+   *
+   * Does NOT disable the sink. A `writeLine` call after `close()`
+   * transparently reopens the file (re-seeding `currentSize` from disk) and
+   * keeps writing — deliberately so: Task 3 calls `close()` during graceful
+   * shutdown, but a diagnostic event logged after that point (e.g. an error
+   * from the shutdown path itself) must still reach disk rather than being
+   * silently dropped just because the sink was previously closed.
+   */
   close(): void {
-    if (this.fd !== null) {
-      fs.closeSync(this.fd);
-      this.fd = null;
+    if (this.fd === null) {
+      return;
     }
+    const fd = this.fd;
+    // Untrack BEFORE the syscall, not after: if fs.closeSync throws
+    // (EBADF/EIO), `fd` must still end up untracked. Otherwise a second
+    // close() would try to re-close the same already-invalid descriptor,
+    // and a later writeLine would believe it still owns a live fd instead
+    // of correctly reopening.
+    this.fd = null;
+    fs.closeSync(fd);
   }
 
   private ensureOpen(): number {

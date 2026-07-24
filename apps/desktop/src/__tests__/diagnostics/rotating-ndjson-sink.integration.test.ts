@@ -6,6 +6,7 @@
  * rather than a mocked one. Mirrors the mkdtemp + afterEach cleanup pattern
  * from `git-ipc-handlers.integration.test.ts`.
  */
+import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import {
   parseDiagnosticEventLine,
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RotatingNdjsonSink } from '../../diagnostics/rotating-ndjson-sink';
 
 const createdDirs: string[] = [];
@@ -172,7 +173,7 @@ describe('RotatingNdjsonSink', () => {
     const failures: unknown[] = [];
     const sink = new RotatingNdjsonSink({
       filePath,
-      onFailure: (error) => failures.push(error),
+      onFailure: (error: unknown) => failures.push(error),
     });
 
     expect(() => sink.writeLine('first')).not.toThrow();
@@ -182,5 +183,92 @@ describe('RotatingNdjsonSink', () => {
     expect(() => sink.writeLine('second')).not.toThrow();
     expect(sink.disabled).toBe(true);
     expect(failures).toHaveLength(1);
+  });
+
+  it('throws from the constructor when maxFiles < 2 (no room for a rotated sibling)', () => {
+    expect(
+      () => new RotatingNdjsonSink({ filePath: '/irrelevant/errors.ndjson', maxFiles: 1 })
+    ).toThrow(/maxFiles/);
+  });
+
+  it('throws from the constructor when maxBytes < 1 (no line could ever fit)', () => {
+    expect(
+      () => new RotatingNdjsonSink({ filePath: '/irrelevant/errors.ndjson', maxBytes: 0 })
+    ).toThrow(/maxBytes/);
+  });
+
+  it('disables the sink and reports onFailure when a write returns fewer bytes than requested', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'errors.ndjson');
+    const failures: unknown[] = [];
+    const sink = new RotatingNdjsonSink({
+      filePath,
+      onFailure: (error: unknown) => failures.push(error),
+    });
+
+    // A genuine short write (signal interruption, RLIMIT_FSIZE, an ENOSPC
+    // boundary) is not reliably forceable from a portable test. Simulated
+    // instead: intercept fs.writeSync and report fewer bytes than requested
+    // for exactly one call. The sink calls `fs.writeSync` via property
+    // access on the imported `fs` namespace (not a reference captured at
+    // import time), so a spy on that same shared `node:fs` module object is
+    // observed by the sink.
+    const writeSyncSpy = vi.spyOn(fs, 'writeSync').mockReturnValueOnce(1);
+
+    expect(() => sink.writeLine('hello')).not.toThrow();
+    writeSyncSpy.mockRestore();
+
+    expect(sink.disabled).toBe(true);
+    expect(failures).toHaveLength(1);
+    expect(String((failures[0] as Error).message)).toMatch(/short write/);
+
+    // Same no-throw / no-re-report contract as the open-failure path.
+    expect(() => sink.writeLine('after')).not.toThrow();
+    expect(failures).toHaveLength(1);
+  });
+
+  it('close() untracks the fd before calling closeSync, so a throwing close stays idempotent', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'errors.ndjson');
+    const sink = new RotatingNdjsonSink({ filePath });
+    sink.writeLine('first');
+
+    const closeSyncSpy = vi.spyOn(fs, 'closeSync').mockImplementation(() => {
+      throw new Error('simulated EBADF');
+    });
+
+    expect(() => sink.close()).toThrow('simulated EBADF');
+    // The fix untracks `fd` BEFORE the (throwing) syscall, so a second
+    // close() sees no fd to close and is a true no-op: it must NOT attempt
+    // to re-close the same descriptor (the pre-fix code only nulled `fd`
+    // AFTER a successful closeSync, so a throw left it re-closable).
+    expect(() => sink.close()).not.toThrow();
+    expect(closeSyncSpy).toHaveBeenCalledTimes(1);
+
+    closeSyncSpy.mockRestore();
+
+    // A later writeLine must reopen a fresh fd rather than believing it
+    // still owns the untracked one.
+    sink.writeLine('second');
+    sink.close();
+
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe('first\nsecond\n');
+  });
+
+  it('reopens transparently on a writeLine after close() — close() does not disable', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'errors.ndjson');
+    const sink = new RotatingNdjsonSink({ filePath });
+
+    sink.writeLine('before-close');
+    sink.close();
+    // A late write after close() is deliberately NOT treated as writing to
+    // a disabled sink — only an actual open/write/rotate failure disables.
+    expect(sink.disabled).toBe(false);
+
+    sink.writeLine('after-close');
+    sink.close();
+
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe('before-close\nafter-close\n');
   });
 });
