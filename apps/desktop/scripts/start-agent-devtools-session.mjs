@@ -16,6 +16,8 @@ const POLL_INTERVAL_MS = 500;
 const PROCESS_TREE_POLL_INTERVAL_MS = 50;
 const PROCESS_TREE_TERM_GRACE_MS = 2000;
 const PROCESS_TREE_KILL_GRACE_MS = 2000;
+const PROFILE_REMOVAL_RETRIES = 3;
+const PROFILE_REMOVAL_RETRY_DELAY_MS = 150;
 const MAC_AGENT_DEBUG_APP_NAME = 'BrainStrike Agent Debug';
 const MAC_AGENT_DEBUG_BUNDLE_ID = 'com.brainstrike.desktop.agent-debug';
 
@@ -206,8 +208,48 @@ export function initializeWindowsJob(platform = process.platform, load = require
   return windowsJob;
 }
 
-async function removeUserDataDir(userDataDir) {
-  await fs.rm(userDataDir, { force: true, recursive: true });
+/**
+ * Remove the disposable profile directory, verifying it is actually gone.
+ *
+ * A bare recursive `fs.rm` is not sufficient here. It removes leaves before
+ * their parents, and a still-exiting Electron descendant can recreate cache
+ * directories underneath the walk after it has passed them. The removal then
+ * reports success while an empty directory skeleton survives — observed in
+ * practice as profiles containing zero files but a full directory tree,
+ * accumulating roughly one per agent-debug run.
+ *
+ * Re-check after each attempt and retry, then fail loudly. A profile left on
+ * disk must surface as an error rather than a silent leak, per the cleanup
+ * contract in docs/agents/ci-quality.md.
+ */
+export async function removeUserDataDir(userDataDir, options = {}) {
+  const retries = options.retries ?? PROFILE_REMOVAL_RETRIES;
+  const retryDelayMs = options.retryDelayMs ?? PROFILE_REMOVAL_RETRY_DELAY_MS;
+  const rm = options.rm ?? ((target) => fs.rm(target, { force: true, recursive: true }));
+  const exists = options.exists ?? pathExists;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    await rm(userDataDir);
+    if (!(await exists(userDataDir))) {
+      return;
+    }
+    if (attempt < retries) {
+      await sleep(retryDelayMs);
+    }
+  }
+
+  throw new Error(
+    `Agent DevTools profile ${userDataDir} still exists after ${retries + 1} removal attempts.`
+  );
+}
+
+async function pathExists(target) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function createAgentDevtoolsProfile(options = {}) {
