@@ -710,8 +710,9 @@ falls through to the thread binding. Bound-root resolution requires an
 authoritative `workspaceRoots` inventory; if DB enrichment is unavailable, the
 tool fails visibly instead of comparing the durable id with a synthesized
 path-backed root or silently clearing the binding. A missing, stale, or
-disconnected bound id fails visibly; it never path-falls back or silently adopts
-the new global Main root. The one intentional omission exception is
+disconnected bound id fails visibly as `bound_workspace_root_unavailable` with
+HTTP 409; it never path-falls back or silently adopts the new global Main root.
+The one intentional omission exception is
 `readWorkspaceContext` with no explicit `filePaths`: renderer-selected paths and
 Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
 selection-default read resolves the focused path against the authoritative

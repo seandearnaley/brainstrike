@@ -9,6 +9,13 @@ const logger = createLogger('AssistantWorkspaceRoots');
 const disconnectedRootIds = new Set<string>();
 const REDACTED_ROOT_ID_LOG_VALUE = { redacted: true } as const;
 
+export class BoundWorkspaceRootUnavailableError extends ToolInputError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BoundWorkspaceRootUnavailableError';
+  }
+}
+
 /** Minimal DB surface for loading roots — structural so it is trivially mockable. */
 export interface WorkspaceRootsQueryable {
   query: <T>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
@@ -446,7 +453,7 @@ function orderWorkspaceRootsForRuntime(
       const boundRoot = roots[boundRootIndex] as RuntimeWorkspaceRoot;
       return [boundRoot, ...roots.filter((_root, index) => index !== boundRootIndex)];
     }
-    throw new ToolInputError(
+    throw new BoundWorkspaceRootUnavailableError(
       `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
     );
   }

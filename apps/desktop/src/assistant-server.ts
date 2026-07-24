@@ -116,7 +116,8 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 type AgentStreamInitializationStage =
   | 'native_tool_preferences'
   | 'provider_model_bootstrap'
-  | 'stream_construction';
+  | 'stream_construction'
+  | 'workspace_root_resolution';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
@@ -158,7 +159,10 @@ import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
-import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
+import {
+  BoundWorkspaceRootUnavailableError,
+  enrichRuntimeDataWithWorkspaceRoots,
+} from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
@@ -2066,6 +2070,21 @@ function buildAgentStreamInitializationFailure(
   };
 }
 
+function buildWorkspaceRootResolutionFailure(error: unknown): AgentStreamFailure {
+  if (error instanceof BoundWorkspaceRootUnavailableError) {
+    return {
+      ok: false,
+      payload: {
+        error: 'bound_workspace_root_unavailable',
+        message: error.message,
+        stage: 'workspace_root_resolution',
+      },
+      status: 409,
+    };
+  }
+  return buildAgentStreamInitializationFailure(error, 'workspace_root_resolution');
+}
+
 function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeData | undefined {
   if (!runtimeData) {
     return;
@@ -2099,10 +2118,15 @@ async function initializeAgentStream(
     logger.warn('Workspace roots DB unavailable; tools fall back to the focused root.', { error });
     return null;
   });
-  const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(
-    stripClientWorkspaceRoots(incomingRuntimeData),
-    rootsDatabase
-  );
+  let runtimeData: RuntimeData | undefined;
+  try {
+    runtimeData = await enrichRuntimeDataWithWorkspaceRoots(
+      stripClientWorkspaceRoots(incomingRuntimeData),
+      rootsDatabase
+    );
+  } catch (error) {
+    return buildWorkspaceRootResolutionFailure(error);
+  }
 
   // Re-inject the current per-thread task list into the instructions this
   // turn (see readThreadTaskListForTurn for the local-provider skip).

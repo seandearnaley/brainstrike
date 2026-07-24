@@ -582,8 +582,9 @@ retain the visible ambiguity error. Search tools whose legacy omission meant
 only for genuinely unbound requests. Their provider schemas state that omission
 rule and direct a bound thread to call once per root id when it needs every
 folder. An explicit selector for another live mounted root is an observable
-cross-root call. A stale/disconnected binding
-throws and never falls back to Main. Successful resolution logs the mode and
+cross-root call. A stale/disconnected binding returns the explicit
+`bound_workspace_root_unavailable` HTTP 409 initialization failure and never
+falls back to Main. Successful resolution logs the mode and
 safe root id/name, and native results surface `rootName` in the tool card. The
 default multi-root instruction includes
 deferred `lspInspect`, so a newly activated semantic tool receives the same
