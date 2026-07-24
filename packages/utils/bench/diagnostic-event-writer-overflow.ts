@@ -31,9 +31,12 @@ const events = Array.from(
 );
 
 function checksum(batch: readonly DiagnosticEvent[], dropped: number): number {
-  let value = dropped;
-  for (const event of batch) {
-    value += event.occurredAt;
+  let value = dropped >>> 0;
+  for (const [index, event] of batch.entries()) {
+    value = Math.imul(value ^ index, 16_777_619) >>> 0;
+    for (const character of event.id) {
+      value = Math.imul(value ^ character.charCodeAt(0), 16_777_619) >>> 0;
+    }
   }
   return value;
 }
