@@ -156,7 +156,7 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
-    "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/ui",
+    "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
     "agent-debug:mcp-config": "node scripts/start-agent-devtools-session.mjs --print-config",
     "dev": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
