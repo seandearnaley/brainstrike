@@ -24,8 +24,10 @@ function usage() {
     'Usage: collect-watch-evidence.mjs --repo <path> [options]',
     '',
     'Options:',
-    '  --watermark <key[,key...]>  Previously checkpointed completed-run keys, each <runId>@<attempt>;',
-    '                             pass "none" (or an empty value) for an explicitly empty prior set',
+    '  --watermark <key[,key...]>  Completed-run keys from automation memory, each <runId>@<attempt>;',
+    '                             pass "none" for an explicitly empty prior set',
+    '  --checkpoint-watermark <hash:...>',
+    '                             Prior Linear checkpoint hash; required with --watermark',
     '  --preflight-port <port>    Check a local reproduction port (repeatable)',
     '  --pretty                   Pretty-print JSON',
     '  --help                     Show this help',
@@ -39,6 +41,7 @@ export function parseArgs(argv) {
   let repo;
   let pretty = false;
   let watermarkSupplied = false;
+  let checkpointWatermark;
   const watermark = [];
   const preflightPorts = [];
 
@@ -67,6 +70,14 @@ export function parseArgs(argv) {
             .map((part) => part.trim())
             .filter(Boolean)
         );
+      }
+      index += 1;
+      continue;
+    }
+    if (argument === '--checkpoint-watermark') {
+      checkpointWatermark = argv[index + 1];
+      if (!/^hash:[0-9a-f]{64}$/u.test(checkpointWatermark ?? '')) {
+        throw new Error('--checkpoint-watermark requires hash:<64-hex>');
       }
       index += 1;
       continue;
@@ -104,11 +115,25 @@ export function parseArgs(argv) {
     throw new Error(`Invalid watermark key (expected <runId>@<attempt>): ${invalidWatermark}`);
   }
 
+  if (watermarkSupplied !== (checkpointWatermark !== undefined)) {
+    throw new Error('--watermark and --checkpoint-watermark must be supplied together');
+  }
+  const normalizedWatermark = uniqueSorted(watermark.map(String));
+  if (
+    checkpointWatermark !== undefined &&
+    checkpointWatermark !== checkpointWatermarkForRunKeys(normalizedWatermark)
+  ) {
+    throw new Error(
+      '--checkpoint-watermark does not match the completed-run keys from automation memory'
+    );
+  }
+
   return {
+    checkpointWatermark,
     preflightPorts: uniqueSorted(preflightPorts),
     pretty,
     repo,
-    watermark: uniqueSorted(watermark.map(String)),
+    watermark: normalizedWatermark,
     watermarkSupplied,
   };
 }
@@ -291,6 +316,15 @@ function uniqueSorted(values) {
   );
 }
 
+export function checkpointWatermarkForRunKeys(runKeys) {
+  const completedRunKeys = uniqueSorted(runKeys.map(String));
+  const invalidRunKey = completedRunKeys.find((value) => !/^\d+@\d+$/u.test(value));
+  if (invalidRunKey) {
+    throw new Error(`Invalid completed-run key (expected <runId>@<attempt>): ${invalidRunKey}`);
+  }
+  return `hash:${createHash('sha256').update(JSON.stringify(completedRunKeys)).digest('hex')}`;
+}
+
 function runKey(runItem) {
   return `${runItem.id}@${runItem.attempt}`;
 }
@@ -301,9 +335,7 @@ export function compareWatermark({ previousKeys, runs, supplied }) {
   const completedRunKeys = uniqueSorted(
     runs.filter((runItem) => runItem.status === 'completed').map(runKey)
   );
-  const checkpointWatermark = `hash:${createHash('sha256')
-    .update(JSON.stringify(completedRunKeys))
-    .digest('hex')}`;
+  const checkpointWatermark = checkpointWatermarkForRunKeys(completedRunKeys);
   const pendingRuns = runs
     .filter((runItem) => runItem.status !== 'completed')
     .map((runItem) => ({ attempt: runItem.attempt, id: runItem.id, status: runItem.status }))

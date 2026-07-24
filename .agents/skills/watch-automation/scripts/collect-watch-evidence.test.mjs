@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   assertStableRunSnapshots,
+  checkpointWatermarkForRunKeys,
   compareWatermark,
   deriveCharter,
   deriveWatchedWorkflows,
@@ -49,25 +50,51 @@ watch:<workflow>:<test-title-slug>:<error-class>
 });
 
 test('parseArgs validates watermark keys, empty watermark, and preflight ports', () => {
+  const priorCheckpointWatermark = checkpointWatermarkForRunKeys(['123@1', '124@2']);
   const parsed = parseArgs([
     '--repo',
     '/x',
     '--watermark',
     '124@2,123@1',
+    '--checkpoint-watermark',
+    priorCheckpointWatermark,
     '--preflight-port',
     '8080',
   ]);
+  assert.equal(parsed.checkpointWatermark, priorCheckpointWatermark);
   assert.deepEqual(parsed.watermark, ['123@1', '124@2']);
   assert.equal(parsed.watermarkSupplied, true);
   assert.deepEqual(parsed.preflightPorts, [8080]);
 
-  const explicitlyEmpty = parseArgs(['--repo', '/x', '--watermark', 'none']);
+  const explicitlyEmpty = parseArgs([
+    '--repo',
+    '/x',
+    '--watermark',
+    'none',
+    '--checkpoint-watermark',
+    checkpointWatermarkForRunKeys([]),
+  ]);
   assert.deepEqual(explicitlyEmpty.watermark, []);
   assert.equal(explicitlyEmpty.watermarkSupplied, true);
-  assert.equal(parseArgs(['--repo', '/x', '--watermark', '']).watermarkSupplied, true);
   assert.equal(parseArgs(['--repo', '/x']).watermarkSupplied, false);
 
   assert.throws(() => parseArgs(['--repo', '/x', '--watermark', '123']), /<runId>@<attempt>/);
+  assert.throws(
+    () => parseArgs(['--repo', '/x', '--watermark', '123@1']),
+    /must be supplied together/
+  );
+  assert.throws(
+    () =>
+      parseArgs([
+        '--repo',
+        '/x',
+        '--watermark',
+        '123@1',
+        '--checkpoint-watermark',
+        checkpointWatermarkForRunKeys(['999@1']),
+      ]),
+    /does not match/
+  );
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', '8080abc']), /integer/);
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', ' 8080']), /integer/);
 });
@@ -203,9 +230,7 @@ test('compareWatermark hashes a sorted serialized completed-run set deterministi
     ],
     supplied: false,
   });
-  const expected = `hash:${createHash('sha256')
-    .update(JSON.stringify(['2@1', '10@2']))
-    .digest('hex')}`;
+  const expected = checkpointWatermarkForRunKeys(['10@2', '2@1']);
 
   assert.deepEqual(first.completedRunKeys, ['2@1', '10@2']);
   assert.equal(first.checkpointWatermark, expected);
