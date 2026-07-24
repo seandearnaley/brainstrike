@@ -412,15 +412,22 @@ export function AssistantUiPanelWrapper({
   const providerOptions = useMemo(
     () =>
       selectedThreadDraftRuntime?.providerOptions ??
-      buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
+      buildProviderOptions(
+        selectedProvider,
+        resolvedModelName,
+        selectedProviderSettings,
+        openRouterMetadata.lookup?.state === 'resolved'
+          ? openRouterMetadata.lookup.snapshot.metadata
+          : undefined
+      ),
     [
+      openRouterMetadata.lookup,
       selectedProvider,
       resolvedModelName,
       selectedProviderSettings,
       selectedThreadDraftRuntime?.providerOptions,
     ]
   );
-
   useEffect(() => {
     if (!(memoryThreadId && selectedProvider && resolvedModelName)) {
       return;
@@ -445,10 +452,8 @@ export function AssistantUiPanelWrapper({
   const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
   const activeRootCount = useFileExplorerStoreSelector((s) => s.activeRootIds?.length ?? 0);
-  // Multi-root write-back: map each open root's absolute path -> its client
-  // RootId so an assistant update carrying a server rootPath can route to the
-  // right folder (the two id spaces share only the path). Recomputed only when
-  // the open roots change.
+  // Multi-root write-back maps each open path to its client RootId so assistant
+  // updates route correctly; the two id spaces share only the path.
   const pathToClientRootId = useMemo(() => {
     const map = new Map<string, string>();
     for (const descriptor of Object.values(rootDescriptors ?? {})) {

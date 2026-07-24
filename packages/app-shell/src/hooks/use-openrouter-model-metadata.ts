@@ -111,8 +111,15 @@ export function useOpenRouterModelMetadata({
     [lookup, modelSettings, providerId, settings]
   );
   const effectiveModelSettings = useMemo(
-    () => buildEffectiveModelSettings(providerId, modelSettings, budgetModelDef),
-    [budgetModelDef, modelSettings, providerId]
+    () =>
+      buildEffectiveModelSettings(
+        providerId,
+        modelSettings,
+        budgetModelDef,
+        lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined,
+        modelId
+      ),
+    [budgetModelDef, lookup, modelId, modelSettings, providerId]
   );
   const agentLoopSettings = useMemo(
     () =>

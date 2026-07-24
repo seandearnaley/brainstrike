@@ -1,15 +1,35 @@
+import type { OpenAiReasoningEffort } from './runtime-data.js';
+
 export const OPENROUTER_MODEL_METADATA_SOURCE = 'openrouter-models-api' as const;
 
 const MAX_SUPPORTED_PARAMETERS = 64;
 const MAX_SUPPORTED_PARAMETER_LENGTH = 64;
 const MAX_MODEL_ID_LENGTH = 256;
 const MAX_WARNING_LENGTH = 300;
+const OPENROUTER_REASONING_EFFORTS: ReadonlySet<string> = new Set([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
+
+export interface OpenRouterReasoningMetadata {
+  readonly defaultEffort?: OpenAiReasoningEffort;
+  readonly defaultEnabled?: boolean;
+  readonly mandatory: boolean;
+  readonly supportedEfforts?: readonly OpenAiReasoningEffort[];
+  readonly supportsMaxTokens: boolean;
+}
 
 export interface OpenRouterModelMetadata {
   readonly checkedAt: number;
   readonly contextWindow: number;
   readonly id: string;
   readonly maxOutputTokens?: number;
+  readonly reasoning?: OpenRouterReasoningMetadata;
   readonly source: typeof OPENROUTER_MODEL_METADATA_SOURCE;
   readonly supportedParameters: readonly string[];
 }
@@ -63,6 +83,71 @@ function parseSupportedParameters(value: unknown): readonly string[] {
   });
 }
 
+function parseReasoningEffort(value: unknown, field: string): OpenAiReasoningEffort {
+  if (!(typeof value === 'string' && OPENROUTER_REASONING_EFFORTS.has(value))) {
+    throw new Error(`OpenRouter model metadata contains an invalid ${field}`);
+  }
+  return value as OpenAiReasoningEffort;
+}
+
+function parseReasoningMetadata(value: unknown): OpenRouterReasoningMetadata | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new Error('OpenRouter model metadata reasoning must be an object');
+  }
+  if (typeof value['mandatory'] !== 'boolean') {
+    throw new Error('OpenRouter model metadata reasoning.mandatory must be a boolean');
+  }
+  if (value['default_enabled'] !== undefined && typeof value['default_enabled'] !== 'boolean') {
+    throw new Error('OpenRouter model metadata reasoning.default_enabled must be a boolean');
+  }
+  const rawEfforts = value['supported_efforts'];
+  if (
+    rawEfforts !== undefined &&
+    !(Array.isArray(rawEfforts) && rawEfforts.length > 0 && rawEfforts.length <= 7)
+  ) {
+    throw new Error(
+      'OpenRouter model metadata reasoning.supported_efforts must be a non-empty bounded array'
+    );
+  }
+  const supportedEfforts = Array.isArray(rawEfforts)
+    ? rawEfforts.map((effort) => parseReasoningEffort(effort, 'reasoning.supported_efforts value'))
+    : undefined;
+  if (
+    supportedEfforts !== undefined &&
+    new Set(supportedEfforts).size !== supportedEfforts.length
+  ) {
+    throw new Error('OpenRouter model metadata reasoning.supported_efforts must be unique');
+  }
+  const rawDefaultEffort = value['default_effort'];
+  const defaultEffort =
+    rawDefaultEffort === undefined
+      ? undefined
+      : parseReasoningEffort(rawDefaultEffort, 'reasoning.default_effort');
+  if (
+    defaultEffort !== undefined &&
+    supportedEfforts !== undefined &&
+    !supportedEfforts.includes(defaultEffort)
+  ) {
+    throw new Error(
+      'OpenRouter model metadata reasoning.default_effort must appear in supported_efforts'
+    );
+  }
+  const rawSupportsMaxTokens = value['supports_max_tokens'];
+  if (rawSupportsMaxTokens !== undefined && typeof rawSupportsMaxTokens !== 'boolean') {
+    throw new Error('OpenRouter model metadata reasoning.supports_max_tokens must be a boolean');
+  }
+  return {
+    ...(defaultEffort === undefined ? {} : { defaultEffort }),
+    ...(value['default_enabled'] === undefined ? {} : { defaultEnabled: value['default_enabled'] }),
+    mandatory: value['mandatory'],
+    ...(supportedEfforts === undefined ? {} : { supportedEfforts }),
+    supportsMaxTokens: rawSupportsMaxTokens === true,
+  };
+}
+
 export function parseOpenRouterModelMetadata(
   payload: unknown,
   expectedModelId: string,
@@ -78,6 +163,7 @@ export function parseOpenRouterModelMetadata(
 
   const contextWindow = requirePositiveInteger(data['context_length'], 'context_length');
   const supportedParameters = parseSupportedParameters(data['supported_parameters']);
+  const reasoning = parseReasoningMetadata(data['reasoning']);
   const topProvider = data['top_provider'];
   if (!isRecord(topProvider)) {
     throw new Error('OpenRouter model metadata requires a top_provider object');
@@ -89,6 +175,7 @@ export function parseOpenRouterModelMetadata(
       checkedAt,
       contextWindow,
       id: expectedModelId,
+      ...(reasoning === undefined ? {} : { reasoning }),
       source: OPENROUTER_MODEL_METADATA_SOURCE,
       supportedParameters,
     };
@@ -107,6 +194,7 @@ export function parseOpenRouterModelMetadata(
     contextWindow,
     id: expectedModelId,
     maxOutputTokens,
+    ...(reasoning === undefined ? {} : { reasoning }),
     source: OPENROUTER_MODEL_METADATA_SOURCE,
     supportedParameters,
   };
@@ -133,6 +221,20 @@ function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
   data['context_length'] = value['contextWindow'];
   data['supported_parameters'] = value['supportedParameters'];
   data['top_provider'] = topProvider;
+  if (value['reasoning'] !== undefined) {
+    if (!isRecord(value['reasoning'])) {
+      throw new Error('OpenRouter model metadata snapshot reasoning must be an object');
+    }
+    const reasoning = value['reasoning'];
+    const rawReasoning: Record<string, unknown> = {
+      mandatory: reasoning['mandatory'],
+    };
+    rawReasoning['default_effort'] = reasoning['defaultEffort'];
+    rawReasoning['default_enabled'] = reasoning['defaultEnabled'];
+    rawReasoning['supported_efforts'] = reasoning['supportedEfforts'];
+    rawReasoning['supports_max_tokens'] = reasoning['supportsMaxTokens'];
+    data['reasoning'] = rawReasoning;
+  }
   return parseOpenRouterModelMetadata({ data }, id, checkedAt);
 }
 

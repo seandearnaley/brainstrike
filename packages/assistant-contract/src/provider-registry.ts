@@ -116,6 +116,7 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   reasoning?: {
     defaultEffort?: OpenAiReasoningEffort;
+    defaultEnabled?: boolean;
     mandatory: boolean;
     supportedEfforts: readonly OpenAiReasoningEffort[];
   };
@@ -747,8 +748,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         reasoning: {
           defaultEffort: 'max',
-          mandatory: true,
-          supportedEfforts: ['max'],
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['max', 'high', 'low'],
         },
         supportsStreaming: true,
         type: 'llm',
@@ -815,6 +817,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.9282, outputPerMTok: 2.9172 },
         reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
           mandatory: false,
           supportedEfforts: ['xhigh', 'high'],
         },

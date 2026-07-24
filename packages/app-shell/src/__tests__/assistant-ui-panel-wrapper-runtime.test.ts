@@ -855,11 +855,40 @@ describe('assistant runtime helpers', () => {
         reasoningEffort: 'max',
       })
     ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
-    expect(() =>
+    expect(buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {})).toEqual({
+      openrouter: { reasoning: { effort: 'low' } },
+    });
+    expect(
+      buildProviderOptions(
+        'openrouter',
+        'moonshotai/kimi-k3',
+        {},
+        {
+          checkedAt: 42,
+          contextWindow: 1_048_576,
+          id: 'moonshotai/kimi-k3',
+          reasoning: {
+            defaultEffort: 'max',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['max', 'high', 'low'],
+            supportsMaxTokens: false,
+          },
+          source: 'openrouter-models-api',
+          supportedParameters: ['reasoning', 'max_tokens'],
+        }
+      )
+    ).toEqual({ openrouter: { reasoning: { effort: 'low' } } });
+    expect(
+      buildProviderOptions('openrouter', 'z-ai/glm-5.2', {
+        reasoningEffort: 'none',
+      })
+    ).toEqual({ openrouter: { reasoning: { enabled: false } } });
+    expect(
       buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
         reasoningEffort: 'high',
       })
-    ).toThrow(/Kimi K3.*does not support.*high/i);
+    ).toEqual({ openrouter: { reasoning: { effort: 'high' } } });
     expect(() =>
       buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'none',
@@ -875,7 +904,7 @@ describe('assistant runtime helpers', () => {
         maxOutputTokens: 2048,
         reasoningEffort: 'high',
       })
-    ).toEqual({ maxOutputTokens: 2048 });
+    ).toEqual({ maxOutputTokens: 2048, reasoningEffort: 'high' });
     expect(
       reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
         reasoningEffort: 'max',
@@ -1050,6 +1079,43 @@ describe('buildEffectiveModelSettings', () => {
     });
   });
 
+  it('uses live reasoning metadata to reserve final-answer output on Auto', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+        {
+          checkedAt: 42,
+          contextWindow: 1_048_576,
+          id: 'z-ai/glm-5.2',
+          maxOutputTokens: 131_072,
+          reasoning: {
+            defaultEffort: 'high',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['xhigh', 'high'],
+            supportsMaxTokens: false,
+          },
+          source: 'openrouter-models-api',
+          supportedParameters: ['reasoning', 'max_tokens'],
+        }
+      )
+    ).toEqual({ maxOutputTokens: 40_960 });
+  });
+
+  it('uses reviewed static reasoning metadata while the live lookup is pending', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
+        undefined,
+        'z-ai/glm-5.2'
+      )
+    ).toEqual({ maxOutputTokens: 40_960 });
+  });
+
   it('does not inject OpenRouter defaults into other providers', () => {
     expect(buildEffectiveModelSettings('anthropic', undefined)).toBeUndefined();
   });
@@ -1086,6 +1152,36 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
         state: 'error',
       })
     ).toBeUndefined();
+  });
+
+  it('blocks an explicit Auto output limit that leaves no final-answer reserve', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { maxOutputTokens: 32_000 },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'z-ai/glm-5.2',
+              maxOutputTokens: 131_072,
+              reasoning: {
+                defaultEffort: 'high',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['xhigh', 'high'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toMatch(/32,000.*8,192.*final answer/i);
   });
 
   it('blocks an explicitly configured input limit above the live effective budget', () => {

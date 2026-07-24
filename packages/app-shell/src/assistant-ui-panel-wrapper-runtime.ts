@@ -9,10 +9,12 @@ import {
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
+  type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
+  resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -1026,13 +1028,24 @@ export function buildModelSettings(
 export function buildEffectiveModelSettings(
   providerId: string | null | undefined,
   configuredSettings: RuntimeData['modelSettings'] | undefined,
-  selectedModelDef?: SelectedModelBudgetDef
+  selectedModelDef?: SelectedModelBudgetDef,
+  openRouterMetadata?: OpenRouterModelMetadata,
+  modelName?: string
 ): RuntimeData['modelSettings'] | undefined {
   if (providerId !== 'openrouter') {
     return configuredSettings;
   }
   if (configuredSettings?.maxOutputTokens !== undefined) {
     return configuredSettings;
+  }
+  const autoProfileModel =
+    openRouterMetadata ??
+    (modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName));
+  if (autoProfileModel) {
+    return {
+      ...configuredSettings,
+      maxOutputTokens: resolveOpenRouterAutoRuntimeProfile(autoProfileModel).maxOutputTokens,
+    };
   }
   return {
     ...configuredSettings,
@@ -1059,6 +1072,15 @@ export function resolveOpenRouterMetadataDisabledReason(
   const provenance = lookup.snapshot.freshness === 'stale-cache' ? 'cached' : 'live';
   if (configuredOutput && maximum && configuredOutput > maximum) {
     return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
+  }
+  if (settings?.reasoningEffort === undefined) {
+    try {
+      resolveOpenRouterAutoRuntimeProfile(metadata, configuredOutput);
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : 'OpenRouter Auto reasoning profile is invalid.';
+    }
   }
 
   const outputReservation = configuredOutput ?? resolveOpenRouterCodingMaxOutputTokens(maximum);
@@ -1169,26 +1191,49 @@ function buildOpenAiOptions(
   ]);
 }
 
+function assertOpenRouterReasoningEffortSupported(
+  modelName: string,
+  reasoningEffort: NonNullable<AssistantProviderSettings['reasoningEffort']>,
+  metadata: OpenRouterModelMetadata | undefined
+): void {
+  const model = getLlmModelDefinition('openrouter', modelName);
+  const reasoning =
+    metadata?.id === modelName && metadata.reasoning?.supportedEfforts
+      ? metadata.reasoning
+      : model.reasoning;
+  const supportedEfforts = reasoning?.supportedEfforts;
+  if (!(reasoning && supportedEfforts)) {
+    throw new Error(
+      `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+    );
+  }
+  const supportsDisabledReasoning = reasoningEffort === 'none' && !reasoning.mandatory;
+  if (!(supportsDisabledReasoning || supportedEfforts.includes(reasoningEffort))) {
+    throw new Error(
+      `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${supportedEfforts.join(', ')}.`
+    );
+  }
+}
+
 function buildOpenRouterOptions(
   modelName: string | undefined,
-  settings: AssistantProviderSettings
+  settings: AssistantProviderSettings,
+  metadata?: OpenRouterModelMetadata
 ): OpenRouterProviderOptions | undefined {
   const reasoningEffort = settings.reasoningEffort;
   if (modelName && reasoningEffort) {
-    const model = getLlmModelDefinition('openrouter', modelName);
-    if (!model.reasoning) {
-      throw new Error(
-        `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
-      );
-    }
-    if (!model.reasoning.supportedEfforts.includes(reasoningEffort)) {
-      throw new Error(
-        `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${model.reasoning.supportedEfforts.join(', ')}.`
-      );
-    }
+    assertOpenRouterReasoningEffortSupported(modelName, reasoningEffort, metadata);
   }
+  const autoEffort =
+    reasoningEffort === undefined && modelName
+      ? resolveOpenRouterAutoRuntimeProfile(
+          metadata?.id === modelName ? metadata : getLlmModelDefinition('openrouter', modelName),
+          settings.maxOutputTokens
+        ).reasoningEffort
+      : undefined;
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
-    ['effort', reasoningEffort || undefined],
+    ['enabled', reasoningEffort === 'none' ? false : undefined],
+    ['effort', reasoningEffort === 'none' ? undefined : (reasoningEffort ?? autoEffort)],
     ['summary', settings.reasoningSummary || undefined],
   ]);
   return reasoning ? { reasoning } : undefined;
@@ -1256,7 +1301,8 @@ function buildLocalRuntimeOptions(
 export function buildProviderOptions(
   providerId: SupportedProvider | null,
   modelName: string | undefined,
-  settings: AssistantProviderSettings | undefined
+  settings: AssistantProviderSettings | undefined,
+  openRouterMetadata?: OpenRouterModelMetadata
 ): RuntimeData['providerOptions'] | undefined {
   if (!(providerId && settings)) {
     return;
@@ -1268,7 +1314,7 @@ export function buildProviderOptions(
       return openai ? { openai } : undefined;
     }
     case 'openrouter': {
-      const openrouter = buildOpenRouterOptions(modelName, settings);
+      const openrouter = buildOpenRouterOptions(modelName, settings, openRouterMetadata);
       return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {

@@ -309,7 +309,7 @@ describe('ComposerModelMenu', () => {
       );
     });
 
-    it('restricts kimi-k3 to its declared max-only efforts with a Default chip', async () => {
+    it('shows Kimi K3 live efforts, Off, and its default chip', async () => {
       const user = setup();
       render(
         <ComposerModelMenu
@@ -333,7 +333,7 @@ describe('ComposerModelMenu', () => {
         .getAllByRole('menuitemradio')
         .filter((option) => option.closest('[data-slot="dropdown-menu-sub-content"]'))
         .map((option) => option.textContent);
-      expect(optionLabels).toEqual(['Auto (default)', 'MaxDefault']);
+      expect(optionLabels).toEqual(['Auto (default)', 'MaxDefault', 'High', 'Low', 'None']);
     });
 
     it('disables the Effort row when settings updates are unavailable', async () => {
