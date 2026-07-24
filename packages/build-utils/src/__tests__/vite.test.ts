@@ -5,6 +5,7 @@ import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  createCspQualifiedEvalWarningFilter,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -24,6 +25,77 @@ afterEach(() => {
 function toVitePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
+
+describe('createCspQualifiedEvalWarningFilter', () => {
+  it.each([
+    '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+    '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/index.js',
+    '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-HXUXMFL7.js',
+  ])('suppresses the CSP-qualified EVAL warning from %s', (id) => {
+    const defaultHandler = vi.fn();
+
+    createCspQualifiedEvalWarningFilter()(
+      'warn',
+      {
+        code: 'EVAL',
+        id,
+        message: 'Use of direct eval',
+      },
+      defaultHandler
+    );
+
+    expect(defaultHandler).not.toHaveBeenCalled();
+  });
+
+  it('accepts Rolldown location metadata when no module id is present', () => {
+    const defaultHandler = vi.fn();
+
+    createCspQualifiedEvalWarningFilter()(
+      'warn',
+      {
+        code: 'EVAL',
+        loc: {
+          column: 33,
+          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.25.10\node_modules\web-tree-sitter\tree-sitter.js`,
+          line: 2978,
+        },
+        message: 'Use of direct eval',
+      },
+      defaultHandler
+    );
+
+    expect(defaultHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      code: 'CIRCULAR_DEPENDENCY',
+      id: '../../node_modules/.pnpm/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js',
+      message: 'A different warning from an allowlisted module',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/other-runtime@1.0.0/node_modules/other-runtime/index.js',
+      message: 'An unexpected direct eval',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.4/node_modules/@electric-sql/pglite/dist/index.js',
+      message: 'A direct eval after an unreviewed dependency upgrade',
+    },
+    {
+      code: 'EVAL',
+      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.3/node_modules/@electric-sql/pglite/dist/chunk-NEWBUILD.js',
+      message: 'A direct eval from an unreviewed PGlite module',
+    },
+  ])('forwards non-qualified warnings unchanged', (log) => {
+    const defaultHandler = vi.fn();
+
+    createCspQualifiedEvalWarningFilter()('warn', log, defaultHandler);
+
+    expect(defaultHandler).toHaveBeenCalledExactlyOnceWith('warn', log);
+  });
+});
 
 describe('findPGliteWasm', () => {
   it('returns path when wasm exists', () => {

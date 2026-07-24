@@ -403,6 +403,15 @@ contract instead of parsing the table into JavaScript. Both package build
 scripts run `verify-tokenizer-asset-bundle.mjs`; do not remove that post-build
 guard when changing their bundle topology.
 
+Both app builds install the shared
+`createCspQualifiedEvalWarningFilter`. It suppresses Rolldown's `EVAL` warning
+only for the exact web-tree-sitter 0.25.10 and PGlite 0.5.3 files whose real
+runtime paths were exercised under the production CSP without `unsafe-eval`
+(BST-573/594). The package versions and PGlite chunk filename are intentionally
+pinned: an upgrade, a new emitted module, a different warning code, or an eval
+from any other dependency must surface normally and require fresh review.
+Never replace this with a code-only or package-wide warning suppression.
+
 ### Desktop development dependency freshness
 
 `apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every

@@ -1,13 +1,42 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HmrContext, Plugin } from 'vite';
+import type { HmrContext, Plugin, Rolldown } from 'vite';
 import { createBuildLogger } from './build-logger';
 import { isCompilerHotspot } from './compiler-hotspots';
 
 // @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';
 const logger = createBuildLogger('PGliteLocator');
+
+const CSP_QUALIFIED_EVAL_MODULES = [
+  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.25\.10\/node_modules\/web-tree-sitter\/tree-sitter\.js$/,
+  /\/node_modules\/\.pnpm\/@electric-sql\+pglite@0\.5\.3\/node_modules\/@electric-sql\/pglite\/dist\/(?:index|chunk-HXUXMFL7)\.js$/,
+] as const;
+
+/**
+ * Suppress only dependency eval warnings whose runtime paths have been
+ * exercised under the production CSP without `unsafe-eval` (BST-573/594).
+ *
+ * Package versions and emitted PGlite filenames stay pinned in the patterns
+ * so dependency upgrades or newly introduced eval sites become visible again
+ * and require fresh review. Every other Rolldown log is forwarded unchanged.
+ */
+export function createCspQualifiedEvalWarningFilter(): NonNullable<Rolldown.InputOptions['onLog']> {
+  return (level, log, defaultHandler) => {
+    if (log.code !== 'EVAL') {
+      defaultHandler(level, log);
+      return;
+    }
+
+    const moduleId = (log.id ?? log.loc?.file)?.replaceAll('\\', '/');
+    if (moduleId && CSP_QUALIFIED_EVAL_MODULES.some((pattern) => pattern.test(moduleId))) {
+      return;
+    }
+
+    defaultHandler(level, log);
+  };
+}
 
 /**
  * Co-locate the whole context-action / command system into ONE chunk.

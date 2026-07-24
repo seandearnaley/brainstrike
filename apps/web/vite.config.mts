@@ -29,6 +29,7 @@ const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 // The @tailwindcss/vite plugin will automatically pick it up.
 
 const {
+  createCspQualifiedEvalWarningFilter,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -82,6 +83,7 @@ export default defineConfig({
     outDir: 'dist', // Output directory for the build - cache bust
     rolldownOptions: {
       external: ['electron', '@mastra/core', /^@mastra\//],
+      onLog: createCspQualifiedEvalWarningFilter(),
       output: {
         codeSplitting: {
           groups: [

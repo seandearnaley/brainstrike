@@ -37,6 +37,13 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain('chunkSizeWarningLimit: 1300');
   });
 
+  it('filters only CSP-qualified dependency eval warnings', () => {
+    const config = readDesktopViteConfig();
+
+    expect(config).toContain('createCspQualifiedEvalWarningFilter,');
+    expect(config).toContain('onLog: createCspQualifiedEvalWarningFilter()');
+  });
+
   it('spreads the shared workspace-src-alias registry', () => {
     const config = readDesktopViteConfig();
 
