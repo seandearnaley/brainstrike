@@ -996,6 +996,7 @@ describe('database IPC handlers', () => {
       expect(queryMock).toHaveBeenCalledWith(
         'DELETE FROM brainstrike_assistant_tool_output_artifacts'
       );
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_diagnostic_events');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
       // Factory-reset contract: stale roots must not survive a clear and

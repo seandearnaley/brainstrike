@@ -1,3 +1,4 @@
+import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
@@ -357,6 +358,7 @@ function App() {
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
+      <DiagnosticSinkBridge source="desktop-renderer" />
       <DbSchemaVerifier>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <RootLayoutContent />

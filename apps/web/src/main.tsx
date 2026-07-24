@@ -1,3 +1,4 @@
+import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import {
   DbProvider,
@@ -211,6 +212,7 @@ root.render(
   <React.StrictMode>
     <HelmetProvider>
       <DbProvider dbPath={webDbPath}>
+        <DiagnosticSinkBridge source="web-renderer" />
         <WebE2ETestHooks dbPath={webDbPath} />
         <DbSchemaVerifier>
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
