@@ -35,6 +35,19 @@ const NDJSON_KEY_ORDER = [
   'threadId',
 ] as const satisfies readonly (keyof DiagnosticEvent)[];
 
+// `satisfies readonly (keyof DiagnosticEvent)[]` above only checks that every
+// LISTED key is a valid `DiagnosticEvent` key — it does NOT check the
+// reverse. A newly added `DiagnosticEvent` field (optional or not) that
+// nobody remembers to add to `NDJSON_KEY_ORDER` would compile fine and then
+// silently vanish from every NDJSON line, breaking the "grep hit in the file
+// == SQL row" contract this module exists to guarantee. This assertion turns
+// that omission into a compile error instead: if it fails to compile, a
+// `DiagnosticEvent` field is missing from `NDJSON_KEY_ORDER` above. Mirrors
+// the same pattern in `packages/types/src/assistant-provider-settings.ts`
+// (`assertNoMissingAssistantProviderSettingKeys`).
+const assertNoMissingNdjsonKeys = <_MissingKeys extends never>(): void => undefined;
+assertNoMissingNdjsonKeys<Exclude<keyof DiagnosticEvent, (typeof NDJSON_KEY_ORDER)[number]>>();
+
 const VALID_SEVERITIES: readonly DiagnosticSeverity[] = ['warn', 'error', 'fatal'];
 
 const REQUIRED_STRING_FIELDS = [

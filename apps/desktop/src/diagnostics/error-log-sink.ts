@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
@@ -46,17 +47,6 @@ export interface CreateErrorLogSinkOptions {
   readonly maxFiles?: number;
   readonly platform: string;
   readonly sessionId: string;
-}
-
-/** Mirrors the renderer bridge's source derivation exactly
- * (`packages/app-shell/src/diagnostics/diagnostic-sink-bridge.tsx`,
- * `deriveForwardedRecordSource`) so a desktop main-process record and the
- * same record forwarded to a renderer sink resolve to the same `source`. */
-function deriveSource(record: LogRecord): string {
-  if (record.bindings['runtime'] === 'electron-main') {
-    return 'electron-main';
-  }
-  return String(record.bindings['sourceWindowRole'] ?? 'hidden-host');
 }
 
 /** The ONE deliberate exception to "never call the logger from this module"
@@ -110,7 +100,7 @@ export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLog
           makeId: () => randomUUID(),
           platform: options.platform,
           sessionId: options.sessionId,
-          source: deriveSource(record),
+          source: deriveDiagnosticRecordSource(record),
         });
         if (!event) {
           return;

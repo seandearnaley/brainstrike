@@ -2,6 +2,7 @@ import { DiagnosticEventsRepository, useOptionalPGliteDatabase } from '@brainstr
 import {
   type DiagnosticEvent,
   DiagnosticEventWriter,
+  deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
 } from '@brainstrike/utils/diagnostics';
 import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
@@ -59,13 +60,6 @@ export interface DiagnosticSinkBridgeProps {
   readonly source: string;
 }
 
-function deriveForwardedRecordSource(record: LogRecord): string {
-  if (record.bindings['runtime'] === 'electron-main') {
-    return 'electron-main';
-  }
-  return String(record.bindings['sourceWindowRole'] ?? 'hidden-host');
-}
-
 /** Render-nothing bridge: logger fan-out → batched writer → PGlite (design §4.3).
  * Mounted ONLY in the visible web + desktop renderers (capability by composition —
  * hidden hosts never mount it). */
@@ -121,7 +115,7 @@ export function DiagnosticSinkBridge({
       }
       const event = logRecordToDiagnosticEvent(record, {
         ...env,
-        source: deriveForwardedRecordSource(record),
+        source: deriveDiagnosticRecordSource(record),
       });
       if (event) {
         writer.enqueue(event);

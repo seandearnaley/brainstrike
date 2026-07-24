@@ -118,10 +118,19 @@ export class RotatingNdjsonSink {
    *
    * Does NOT disable the sink. A `writeLine` call after `close()`
    * transparently reopens the file (re-seeding `currentSize` from disk) and
-   * keeps writing — deliberately so: Task 3 calls `close()` during graceful
-   * shutdown, but a diagnostic event logged after that point (e.g. an error
-   * from the shutdown path itself) must still reach disk rather than being
-   * silently dropped just because the sink was previously closed.
+   * keeps writing — this class itself never drops a post-close write.
+   *
+   * CHOSEN, NOT ACCIDENTAL — but currently UNREACHABLE via the desktop
+   * production wiring: `main.ts`'s `error-log-sink` shutdown step calls
+   * `close()` and then sets its `errorLogSink` handle to `null` in the same
+   * step (see the comment there), so `recordDurableLog` becomes a permanent
+   * no-op after that point rather than exercising this reopen path — e.g. a
+   * shutdown-timeout error logged later by `scheduleForcedProcessExit`
+   * reaches console/`brainstrike.log` but NOT this NDJSON file. That
+   * null-out is deliberate (see `docs/agents/platform-contracts.md`'s P2a
+   * section for the reasoning), not a bug in this class: this reopen
+   * affordance is kept here so a caller that DOES hold onto the handle past
+   * `close()` — a test, or a future different wiring — gets it for free.
    */
   close(): void {
     if (this.fd === null) {
