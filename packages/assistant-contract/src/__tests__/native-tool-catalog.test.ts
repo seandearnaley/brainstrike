@@ -24,6 +24,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.readWorkspaceDirectory',
   'brainstrike.readWorkspaceFile',
   'brainstrike.renameWorkspaceFile',
+  'brainstrike.runSkillScript',
   'brainstrike.stringReplaceWorkspaceFile',
   'brainstrike.submitPlan',
   'brainstrike.updateWorkspaceContextSelection',
@@ -73,7 +74,7 @@ describe('native tool catalog', () => {
       sorted([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS, ...EXPECTED_SKILL_NATIVE_TOOL_IDS])
     );
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
-    expect(desktopIds).toHaveLength(26);
+    expect(desktopIds).toHaveLength(27);
     expect(skillIds).toHaveLength(3);
     expect(nonDurableOutputIds).toEqual([
       'brainstrike.inspectCommandSessions',
@@ -82,7 +83,9 @@ describe('native tool catalog', () => {
     expect(webIds).toEqual(
       desktopIds.filter(
         (id) =>
-          id !== 'brainstrike.inspectCommandSessions' && id !== 'brainstrike.manageCommandSession'
+          id !== 'brainstrike.inspectCommandSessions' &&
+          id !== 'brainstrike.manageCommandSession' &&
+          id !== 'brainstrike.runSkillScript'
       )
     );
     expect(webIds).toHaveLength(24);

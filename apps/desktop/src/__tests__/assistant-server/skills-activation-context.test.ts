@@ -125,6 +125,8 @@ describe('injectActivatedSkillsContext', () => {
     const text = systemTextOf(result);
     expect(text).toContain('alpha');
     expect(text).toContain('Alpha instructions body.');
+    expect(text).toContain('brainstrike.runSkillScript');
+    expect(text).toContain('brainstrike.writeWorkspaceFile');
     expect(result[1]).toBe(messages[0]);
   });
 

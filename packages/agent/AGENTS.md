@@ -140,6 +140,18 @@ When adding a new tool:
 6. **Document your tool**. Update this AGENTS.md to describe any new tools,  
     their purpose, limitations and usage. If the tool proxies to an external  
     service, document rate limits and fallback behaviour.
+
+### `brainstrike.runSkillScript` tool
+
+This desktop-only deferred tool runs a bundled script from the trusted,
+enabled Agent Skills scan. Input is a canonical skill name, a `scripts/...`
+skill-root-relative path, `node|python3|bash`, structured argv, and an explicit
+mounted root/root-relative cwd. The scanner resolves the winning skill and
+enforces Claude `allowed-tools: Bash(...)`; the desktop runner rechecks
+skill/root containment and workspace-local root ownership before direct argv
+spawning. Never replace this with a reconstructed absolute path or a shell
+command/heredoc. It is execute-risk and approval-gated; use native workspace
+tools for project mutation.
     
 ### `brainstrike.retrieveContext` tool
 

@@ -12,6 +12,7 @@ import type {
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
+  ScannedWorkspaceSkills,
   ScopedToolOutputArtifactReader,
   StreamChunk,
   ToolOutputArtifactSettlementStore,
@@ -1889,6 +1890,16 @@ function withToolOutputArtifactReader(
   return { ...dependencies, toolOutputArtifactReader: reader };
 }
 
+function withSkillScriptResolver(
+  dependencies: DesktopAssistantToolDependencies,
+  resolver: ReturnType<typeof prepareRequestSkillsFromDisk>['workspaceSkills']
+): DesktopAssistantToolDependencies {
+  if (!resolver) {
+    return dependencies;
+  }
+  return { ...dependencies, skillScriptResolver: resolver };
+}
+
 function buildInitialStreamMemoryOptions(
   memoryResult: DesktopMastraMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined
@@ -1959,7 +1970,7 @@ async function resolveInitialAgentStream(args: {
  * Extracted from initializeAgentStream for the cognitive-complexity budget.
  */
 function prepareRequestSkillsFromDisk(runtimeData: RuntimeData | undefined): {
-  workspaceSkills?: NonNullable<RuntimeData['workspaceSkills']>;
+  workspaceSkills?: ScannedWorkspaceSkills;
 } {
   const { workspaceSkills } = prepareRequestSkills({
     fs: createSecureSkillsFs([
@@ -2210,7 +2221,13 @@ async function initializeAgentStream(
     initializationStage = 'native_tool_preferences';
     const mastraTools = buildDesktopAssistantTools(
       runtimeData,
-      withToolOutputArtifactReader(toolDependencies, artifactCapabilities.toolOutputArtifactReader)
+      withSkillScriptResolver(
+        withToolOutputArtifactReader(
+          toolDependencies,
+          artifactCapabilities.toolOutputArtifactReader
+        ),
+        skillsRuntimeFields.workspaceSkills
+      )
     );
     initializationStage = 'provider_model_bootstrap';
     const runtime: RuntimeData = {

@@ -309,6 +309,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     requiresApproval: true,
     riskCategory: 'edit',
   },
+  [NATIVE_TOOL_ID.runSkillScript]: {
+    category: 'action',
+    estimatedTokens: 220,
+    loadingTier: 'deferred',
+    requiresApproval: true,
+    riskCategory: 'execute',
+  },
   // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
   // block and replaces it. Same edit-risk gating.
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: {
@@ -382,8 +389,8 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   // the runtime tool map BEFORE guards/hooks/plan-mode/permission — so they
   // need registry risk entries like every native tool. All three are
   // READ-ONLY: they load, search, and read skill content the user installed on
-  // disk; skill *scripts* still run through `brainstrike.executeCommand` and
-  // its 'execute' approval gate. Explicit 'read' keeps them free under the
+  // disk; skill scripts run through typed `brainstrike.runSkillScript` and
+  // its 'execute' approval gate. Explicit 'read' keeps these tools free under the
   // default policy and available in plan mode (investigation tools).
   [NATIVE_TOOL_ID.skill]: {
     category: 'retrieval',

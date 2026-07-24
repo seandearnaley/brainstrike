@@ -336,3 +336,49 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.getByText(/This approval has been pending a while/i)).toBeInTheDocument();
   });
 });
+
+describe('AssistantToolApprovalNotice skill script preview', () => {
+  it('separates the activated skill source from the mounted working root', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        args: ['--target', 'src/index.html'],
+        cwd: '.',
+        root: '05-nonprofit',
+        runtime: 'node',
+        scriptPath: 'scripts/palette.mjs',
+        skillName: 'impeccable',
+      },
+      toolName: 'brainstrike.runSkillScript',
+    });
+
+    expect(screen.getByTestId('approval-skill-script-summary')).toHaveTextContent(
+      'Run script palette.mjs from activated skill impeccable'
+    );
+    expect(screen.getByTestId('approval-skill-script-path')).toHaveTextContent(
+      'scripts/palette.mjs'
+    );
+    expect(screen.getByTestId('approval-skill-script-cwd')).toHaveTextContent('.');
+    expect(screen.getByTestId('approval-skill-script-root')).toHaveTextContent('05-nonprofit');
+    expect(screen.getByTestId('approval-skill-script-args')).toHaveTextContent(
+      '--target src/index.html'
+    );
+  });
+
+  it('keeps malformed skill-script args on the visible raw-arguments error path', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        cwd: '.',
+        root: '05-nonprofit',
+        runtime: 'node',
+        scriptPath: '/absolute/palette.mjs',
+        skillName: 'impeccable',
+      },
+      toolName: 'brainstrike.runSkillScript',
+    });
+
+    expect(screen.queryByTestId('approval-skill-script-summary')).toBeNull();
+    expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
+  });
+});

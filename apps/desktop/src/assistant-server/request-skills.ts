@@ -17,10 +17,10 @@
 
 import type {
   RuntimeData,
+  ScannedWorkspaceSkills,
   SkillContentDeps,
   SkillScanDeps,
   SkillScanRoot,
-  WorkspaceSkills,
 } from '@brainstrike/agent';
 import { createScannedWorkspaceSkills, MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
@@ -70,7 +70,7 @@ export interface PrepareRequestSkillsParams {
 
 export interface PreparedRequestSkills {
   /** The server-built skills engine, or undefined when skills are off. */
-  readonly workspaceSkills?: WorkspaceSkills;
+  readonly workspaceSkills?: ScannedWorkspaceSkills;
 }
 
 /** Resolve the per-request skills engine from runtime data + preference. */

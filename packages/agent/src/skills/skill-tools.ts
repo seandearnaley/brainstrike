@@ -14,6 +14,7 @@
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { createSkillTools } from '@mastra/core/workspace';
+import { z } from 'zod';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -24,10 +25,21 @@ export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 /** The canonical Mastra skill tool ids (never renamed/namespaced). */
 export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 
+export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
+  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd. Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If declined, continue with native workspace tools and do not retry.';
+
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;
 
 type AnyToolExecute = (input: unknown, context: unknown) => Promise<unknown>;
+
+function withProviderContract<TTool extends object>(
+  tool: TTool,
+  description: string,
+  inputSchema: z.ZodType
+): TTool {
+  return { ...tool, description, inputSchema } as TTool;
+}
 
 /**
  * The transport guard measures JSON-SERIALIZED length (quotes + escaped
@@ -75,6 +87,18 @@ function withBoundedStringOutput<TTool extends object>(
   return { ...tool, execute: boundedExecute } as TTool;
 }
 
+function withActivationGuidance<TTool extends object>(tool: TTool): TTool {
+  const originalExecute = (tool as { execute?: AnyToolExecute }).execute;
+  if (!originalExecute) {
+    return tool;
+  }
+  const execute: AnyToolExecute = async (input, context) => {
+    const output = await originalExecute(input, context);
+    return typeof output === 'string' ? output + BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE : output;
+  };
+  return { ...tool, execute } as TTool;
+}
+
 /**
  * Create the three skill tools over a {@link WorkspaceSkills} engine, each
  * self-bounding its string output within the transport budget.
@@ -83,7 +107,13 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
   const tools = createSkillTools(skills);
   return {
     skill: withBoundedStringOutput(
-      tools.skill,
+      withActivationGuidance(
+        withProviderContract(
+          tools.skill,
+          'Activate a skill by name or path.',
+          z.object({ name: z.string() })
+        )
+      ),
       SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Skill instructions truncated at ~${SKILL_ACTIVATION_RESULT_TOKEN_BUDGET} tokens ` +
@@ -93,7 +123,16 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
     ),
     // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
     skill_read: withBoundedStringOutput(
-      tools.skill_read,
+      withProviderContract(
+        tools.skill_read,
+        'Read a skill reference, script, or asset by relative path.',
+        z.object({
+          endLine: z.number().optional(),
+          path: z.string(),
+          skillName: z.string(),
+          startLine: z.number().optional(),
+        })
+      ),
       NATIVE_TOOL_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Output truncated at ~${NATIVE_TOOL_RESULT_TOKEN_BUDGET} tokens ` +
@@ -102,7 +141,15 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
     ),
     // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
     skill_search: withBoundedStringOutput(
-      tools.skill_search,
+      withProviderContract(
+        tools.skill_search,
+        'Search skill content.',
+        z.object({
+          query: z.string(),
+          skillNames: z.array(z.string()).optional(),
+          topK: z.number().optional(),
+        })
+      ),
       NATIVE_TOOL_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Results truncated at ~${NATIVE_TOOL_RESULT_TOKEN_BUDGET} tokens ` +

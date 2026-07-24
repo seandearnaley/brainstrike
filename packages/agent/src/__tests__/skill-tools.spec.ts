@@ -56,6 +56,16 @@ describe('createAssistantSkillTools', () => {
     expect(String(output)).toContain('references/notes.md');
   });
 
+  it('routes bundled scripts and project writes through typed native tools', async () => {
+    const tools = createAssistantSkillTools(inlineEngine('Run scripts/palette.mjs if useful.'));
+    const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
+
+    expect(output).toContain('brainstrike.runSkillScript');
+    expect(output).toContain('brainstrike.writeWorkspaceFile');
+    expect(output).toMatch(/declined.*continue.*native workspace tools/is);
+    expect(output).not.toMatch(/absolute skill path/i);
+  });
+
   it('self-bounds an oversized activation with an honest truncation note (never an error)', async () => {
     // Markdown with newlines: JSON serialization escapes them, so the bound
     // must hold on the SERIALIZED form the transport guard measures — a

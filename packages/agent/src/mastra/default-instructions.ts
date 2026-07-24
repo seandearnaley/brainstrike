@@ -83,6 +83,7 @@ interface ModelFacingToolNames {
   readWorkspaceDirectory: string | null;
   readWorkspaceFile: string | null;
   renameWorkspaceFile: string | null;
+  runSkillScript: string | null;
   skill: string | null;
   skillRead: string | null;
   skillSearch: string | null;
@@ -163,6 +164,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     renameWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.renameWorkspaceFile
+    ),
+    runSkillScript: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.runSkillScript
     ),
     skill: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skill),
     skillRead: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.skillRead),
@@ -249,6 +254,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.stringReplaceWorkspaceFile,
     names.deleteWorkspaceFile,
     names.renameWorkspaceFile,
+    names.runSkillScript,
     names.executeCommand,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
@@ -446,10 +452,20 @@ function buildSkillsInstruction(names: ModelFacingToolNames): string {
   const searchClause = names.skillSearch
     ? `${readClause ? ', and search' : ' Search'} across skill content with ${names.skillSearch}`
     : '';
+  const executionClause = names.runSkillScript
+    ? ` Run listed scripts with ${names.runSkillScript} using literal args and mounted root/cwd; do not reconstruct an absolute skill path.`
+    : '';
+  const mutationClause = names.writeWorkspaceFile
+    ? ` Use ${names.writeWorkspaceFile} or other native tools for project writes; never construct shell heredocs.`
+    : '';
+  const declineClause = names.runSkillScript
+    ? ' If a script is declined, continue with native workspace tools; do not retry.'
+    : '';
   return (
     'Agent Skills are listed under <available_skills>. ' +
     `When a task matches one, activate it proactively with ${names.skill}, then follow its returned instructions.` +
-    `${readClause}${searchClause}${readClause || searchClause ? '.' : ''} ` +
+    `${readClause}${searchClause}${readClause || searchClause ? '.' : ''}` +
+    `${executionClause}${mutationClause}${declineClause} ` +
     'Never guess its contents before activation.'
   );
 }

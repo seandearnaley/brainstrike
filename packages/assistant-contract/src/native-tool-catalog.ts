@@ -26,6 +26,7 @@ const DESKTOP_NATIVE_TOOL_ID = {
   readWorkspaceDirectory: 'brainstrike.readWorkspaceDirectory',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
   renameWorkspaceFile: 'brainstrike.renameWorkspaceFile',
+  runSkillScript: 'brainstrike.runSkillScript',
   stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
   submitPlan: 'brainstrike.submitPlan',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
@@ -52,7 +53,9 @@ export type SkillNativeToolId = (typeof SKILL_NATIVE_TOOL_ID)[keyof typeof SKILL
 export type NativeToolId = DesktopNativeToolId | SkillNativeToolId;
 export type WebNativeToolId = Exclude<
   DesktopNativeToolId,
-  typeof NATIVE_TOOL_ID.inspectCommandSessions | typeof NATIVE_TOOL_ID.manageCommandSession
+  | typeof NATIVE_TOOL_ID.inspectCommandSessions
+  | typeof NATIVE_TOOL_ID.manageCommandSession
+  | typeof NATIVE_TOOL_ID.runSkillScript
 >;
 export type LocalDesktopNativeToolId = Extract<
   DesktopNativeToolId,
@@ -85,7 +88,9 @@ export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] = Object.fr
 export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
   DESKTOP_NATIVE_TOOL_IDS.filter(
     (id): id is WebNativeToolId =>
-      id !== NATIVE_TOOL_ID.inspectCommandSessions && id !== NATIVE_TOOL_ID.manageCommandSession
+      id !== NATIVE_TOOL_ID.inspectCommandSessions &&
+      id !== NATIVE_TOOL_ID.manageCommandSession &&
+      id !== NATIVE_TOOL_ID.runSkillScript
   )
 );
 

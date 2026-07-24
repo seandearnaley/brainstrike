@@ -59,8 +59,13 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
     toolIds: [NATIVE_TOOL_ID.inspectCommandSessions, NATIVE_TOOL_ID.manageCommandSession],
   },
   skills: {
-    summary: 'Discover, activate, and read installed Agent Skills.',
-    toolIds: [NATIVE_TOOL_ID.skill, NATIVE_TOOL_ID.skillRead, NATIVE_TOOL_ID.skillSearch],
+    summary: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
+    toolIds: [
+      NATIVE_TOOL_ID.runSkillScript,
+      NATIVE_TOOL_ID.skill,
+      NATIVE_TOOL_ID.skillRead,
+      NATIVE_TOOL_ID.skillSearch,
+    ],
   },
   web: {
     summary: 'Search the public web and extract readable page content.',

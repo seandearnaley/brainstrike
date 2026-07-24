@@ -21,6 +21,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.readWorkspaceDirectory',
   'brainstrike.readWorkspaceFile',
   'brainstrike.renameWorkspaceFile',
+  'brainstrike.runSkillScript',
   'brainstrike.stringReplaceWorkspaceFile',
   'brainstrike.submitPlan',
   'brainstrike.updateWorkspaceContextSelection',

@@ -239,7 +239,7 @@ async function resolveCommandCwd(
   return { cwd: canonicalCwd, rootName: root.displayName };
 }
 
-interface SpawnOutcome {
+export interface SpawnOutcome {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   stderr: string;
@@ -302,15 +302,16 @@ function createBoundedShellStreamer(
  * left running is best-effort group-reaped. The child is always removed from the
  * global registry in `cleanup` (run from the close/error handlers).
  */
-function runShellCommand(args: {
-  command: string;
+export function runDetachedProcess(args: {
+  argv: readonly string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
+  executable: string;
   timeoutMs: number;
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
 }): Promise<SpawnOutcome> {
-  const { command, cwd, timeoutMs, signal, streamer } = args;
-  const { shell, args: shellArgs } = resolveShellInvocation(command);
+  const { argv, cwd, env, executable, timeoutMs, signal, streamer } = args;
 
   return new Promise<SpawnOutcome>((resolve, reject) => {
     // Already-aborted-before-spawn: honor it without ever starting the shell.
@@ -323,11 +324,12 @@ function runShellCommand(args: {
 
     let child: ChildProcess;
     try {
-      child = spawn(shell, shellArgs, {
+      child = spawn(executable, argv, {
         cwd,
         detached: true,
         env: {
           ...process.env,
+          ...env,
           // Discourage interactive prompts that would hang a non-interactive run.
           // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
           CI: 'true',
@@ -453,6 +455,25 @@ function runShellCommand(args: {
         timedOut,
       });
     });
+  });
+}
+
+function runShellCommand(args: {
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+  signal: AbortSignal | undefined;
+  streamer: ShellOutputStreamer | undefined;
+}): Promise<SpawnOutcome> {
+  const { command, cwd, timeoutMs, signal, streamer } = args;
+  const invocation = resolveShellInvocation(command);
+  return runDetachedProcess({
+    argv: invocation.args,
+    cwd,
+    executable: invocation.shell,
+    signal,
+    streamer,
+    timeoutMs,
   });
 }
 

@@ -21,8 +21,10 @@ import {
   type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
   type RenameWorkspaceFileInput,
+  type RunSkillScriptInput,
   type RuntimeData,
   readToolOutputArtifactPage,
+  type ScannedWorkspaceSkills,
   type ScopedToolOutputArtifactReader,
   type StringReplaceWorkspaceFileInput,
   type UpdateWorkspaceContextSelectionInput,
@@ -65,6 +67,7 @@ import {
 } from './read-workspace-file-cursor-registry';
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
+import { runSkillScript } from './run-skill-script-tool';
 import {
   logToolFailure,
   parseToolExecuteInput,
@@ -105,6 +108,7 @@ export interface DesktopAssistantToolDependencies {
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
+  skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
    * Optional override for the webSearch tool's network/key resolution. Used by
@@ -665,6 +669,36 @@ export function buildDesktopAssistantTools(
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
   };
 
+  const skillScriptResolver = dependencies.skillScriptResolver;
+  if (skillScriptResolver) {
+    tools[NATIVE_TOOL_ID.runSkillScript] = {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.runSkillScript],
+      execute: async (
+        input: ToolExecuteInput<RunSkillScriptInput>,
+        options?: ToolExecuteContext
+      ) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
+          input
+        );
+        const stream = resolveShellOutputStreamer(options, (error) => {
+          logToolFailure('runSkillScript output streaming failed', error, resolvedInput);
+        });
+        try {
+          return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
+            signal: options?.abortSignal,
+            ...(stream ? { stream } : {}),
+          });
+        } catch (error) {
+          logToolFailure('runSkillScript failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.runSkillScript,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
+    };
+  }
+
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;
   if (!Array.isArray(enabledNativeToolIds)) {
     return tools;
@@ -677,7 +711,14 @@ export function buildDesktopAssistantTools(
   if (unknownToolIds.length > 0) {
     throw new Error('Enabled native tool preferences contain unknown tool IDs.');
   }
-  const unavailableToolIds = Array.from(enabledSet).filter((toolId) => tools[toolId] === undefined);
+  const unavailableToolIds = Array.from(enabledSet).filter(
+    (toolId) =>
+      tools[toolId] === undefined &&
+      // Skill execution is capability-gated by the trusted per-request scan
+      // engine. A persisted preference may still name it while Skills are
+      // disabled; omission is the explicit capability result, not corruption.
+      toolId !== NATIVE_TOOL_ID.runSkillScript
+  );
   if (unavailableToolIds.length > 0) {
     logger.debug('Enabled native tool ids unavailable in the current runtime', {
       toolIds: unavailableToolIds,
