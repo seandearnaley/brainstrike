@@ -173,6 +173,66 @@ describe('formatThreadDebugBundle', () => {
     expect(output).not.toContain('sk-live-123');
     expect(output).toContain('[REDACTED]');
   });
+
+  it('elides an oversized tool-result body via stage 2 when stage 1 has no eligible messages', () => {
+    const bigResult = 'R'.repeat(30_000);
+    // Only 3 messages total, so the protected window (newest assistant +- 2)
+    // covers every index — stage 1 has zero eligible candidates. Only stage 2
+    // (truncating the tool-result body, keeping args) can free room.
+    const fixture: ThreadDebugBundleData = {
+      diagnosticEvents: [],
+      environment: {
+        appVersion: '1.2.3',
+        generatedAt: '2026-07-23T12:05:00.000Z',
+        platform: 'darwin',
+        sessionId: 'session-fixed-1',
+      },
+      messages: [
+        {
+          content: [{ text: 'Read the config file.', type: 'text' }],
+          createdAt: '2026-07-23T12:00:00.000Z',
+          id: 'msg-a',
+          role: 'user',
+        },
+        {
+          content: [
+            {
+              args: { path: 'config.json' },
+              result: bigResult,
+              toolName: 'read_file',
+              type: 'tool-result',
+            },
+          ],
+          createdAt: '2026-07-23T12:00:05.000Z',
+          id: 'msg-b',
+          role: 'assistant',
+        },
+        {
+          content: [{ text: 'Done.', type: 'text' }],
+          createdAt: '2026-07-23T12:00:10.000Z',
+          id: 'msg-c',
+          role: 'assistant',
+        },
+      ],
+      priorFailures: null,
+      run: null,
+      runEvents: [],
+      threadId: 'thread-stage2',
+      usage: [],
+    };
+
+    const output = formatThreadDebugBundle(fixture, { maxBytes: 5000 });
+    const bytes = new TextEncoder().encode(output).length;
+
+    expect(bytes).toBeLessThanOrEqual(5000);
+    expect(output).not.toContain(bigResult);
+    expect(output).toContain('[tool result elided');
+    expect(output).toContain('"path": "config.json"'); // args retained verbatim
+    expect(output).toContain('R'.repeat(200)); // first-200-chars preview retained
+    expect(output).not.toContain('R'.repeat(201));
+    expect(output).toContain('Elided tool-result bodies in 1 message');
+    expect(output).not.toContain('[elided message'); // stage 1 never fired
+  });
 });
 
 describe('collectThreadDebugBundleData', () => {
