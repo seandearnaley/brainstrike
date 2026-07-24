@@ -35,6 +35,7 @@ export interface OpenAiProviderOptions extends RuntimeJsonObject {
 
 export interface OpenRouterProviderOptions extends RuntimeJsonObject {
   reasoning?: {
+    enabled?: boolean;
     effort?: OpenAiReasoningEffort;
     summary?: OpenAiReasoningSummary;
   };

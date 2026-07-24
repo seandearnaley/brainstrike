@@ -214,7 +214,14 @@ export interface RuntimeMemoryContext {
   threadId: string;
 }
 
-export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAiReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 
 export interface OpenAiProviderOptions extends JSONObject {
@@ -224,6 +231,7 @@ export interface OpenAiProviderOptions extends JSONObject {
 
 export interface OpenRouterProviderOptions extends JSONObject {
   reasoning?: {
+    enabled?: boolean;
     effort?: OpenAiReasoningEffort;
     summary?: OpenAiReasoningSummary;
   };

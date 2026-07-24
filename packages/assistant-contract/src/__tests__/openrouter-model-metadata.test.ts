@@ -12,6 +12,13 @@ describe('parseOpenRouterModelMetadata', () => {
           data: {
             context_length: 400_000,
             id: 'openai/gpt-5.4-mini',
+            reasoning: {
+              default_effort: 'high',
+              default_enabled: true,
+              mandatory: false,
+              supported_efforts: ['high', 'low'],
+              supports_max_tokens: true,
+            },
             supported_parameters: ['tools', 'reasoning', 'max_tokens'],
             top_provider: {
               context_length: 400_000,
@@ -27,6 +34,13 @@ describe('parseOpenRouterModelMetadata', () => {
       contextWindow: 400_000,
       id: 'openai/gpt-5.4-mini',
       maxOutputTokens: 128_000,
+      reasoning: {
+        defaultEffort: 'high',
+        defaultEnabled: true,
+        mandatory: false,
+        supportedEfforts: ['high', 'low'],
+        supportsMaxTokens: true,
+      },
       source: 'openrouter-models-api',
       supportedParameters: ['tools', 'reasoning', 'max_tokens'],
     });
@@ -52,6 +66,55 @@ describe('parseOpenRouterModelMetadata', () => {
       id: 'example/no-output-limit',
       source: 'openrouter-models-api',
       supportedParameters: [],
+    });
+  });
+
+  it('rejects malformed reasoning capability metadata instead of guessing', () => {
+    expect(() =>
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 32_768,
+            id: 'example/bad-reasoning',
+            reasoning: {
+              default_effort: 'medium',
+              default_enabled: true,
+              mandatory: false,
+              supported_efforts: ['high', 'low'],
+            },
+            supported_parameters: ['reasoning'],
+            top_provider: { max_completion_tokens: 16_384 },
+          },
+        },
+        'example/bad-reasoning',
+        42
+      )
+    ).toThrow(/default_effort.*supported_efforts/i);
+  });
+
+  it('preserves a partial reasoning object without inventing missing capabilities', () => {
+    expect(
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 32_768,
+            id: 'example/token-budget-only',
+            reasoning: {
+              default_enabled: true,
+              mandatory: false,
+              supports_max_tokens: true,
+            },
+            supported_parameters: ['reasoning'],
+            top_provider: { max_completion_tokens: 16_384 },
+          },
+        },
+        'example/token-budget-only',
+        42
+      ).reasoning
+    ).toEqual({
+      defaultEnabled: true,
+      mandatory: false,
+      supportsMaxTokens: true,
     });
   });
 
@@ -129,6 +192,13 @@ describe('parseOpenRouterModelMetadataSnapshot', () => {
           contextWindow: 1_000_000,
           id: 'anthropic/claude-sonnet-4.6',
           maxOutputTokens: 128_000,
+          reasoning: {
+            defaultEffort: 'high',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['high', 'low'],
+            supportsMaxTokens: false,
+          },
           source: 'openrouter-models-api',
           supportedParameters: ['tools', 'reasoning'],
         },
@@ -140,6 +210,13 @@ describe('parseOpenRouterModelMetadataSnapshot', () => {
         contextWindow: 1_000_000,
         id: 'anthropic/claude-sonnet-4.6',
         maxOutputTokens: 128_000,
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high', 'low'],
+          supportsMaxTokens: false,
+        },
         source: 'openrouter-models-api',
         supportedParameters: ['tools', 'reasoning'],
       },

@@ -227,17 +227,26 @@
   fails visibly rather than silently undercounting.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
-  `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
+  `{openrouter:{reasoning:{effort,summary}}}`. Optional reasoning models map the
+  explicit Off choice to `{openrouter:{reasoning:{enabled:false}}}`; `none` is
+  never sent as a guessed effort. Never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
 - OpenRouter `Auto` is a zero-configuration coding profile, not an implicit
   provider-wide 4,096-token cap. The shared contract resolves its output limit
   as `min(model max completion, 32,000)` when live/static model metadata
   publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
-  ceiling. That resolved value must drive both Mastra `modelSettings` and the
-  input-context reservation. Explicit user overrides remain strict: a value
-  above a known model maximum is surfaced and blocks the request rather than
-  being silently clamped.
+  ceiling. When live reasoning metadata says reasoning is enabled by default,
+  Auto jointly selects the strongest published effort and output limit that
+  reserve at least 8,192 tokens for the final answer, using OpenRouter's
+  documented effort ratios. It may raise the coding ceiling only within a
+  published maximum (GLM 5.2 uses high reasoning with 40,960 total output);
+  without a published maximum it keeps 32,000 and selects a compatible effort
+  (Kimi K3 uses low). That resolved value drives both Mastra `modelSettings` and
+  the input-context reservation. An explicit output limit that cannot fit any
+  published Auto effort plus the reserve blocks visibly. Explicit reasoning
+  choices remain authoritative, and output values above a known model maximum
+  are surfaced rather than silently clamped.
 - A newly readable OpenRouter configuration must be usable without visiting
   model settings. When the DB-backed OpenRouter catalog is untouched, app-shell
   enables the small `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` set (balanced
@@ -266,12 +275,18 @@
   after consuming an AI SDK release containing vercel/ai#17667; do not replace
   it with `patchedDependencies` or a lossy history filter.
 - OpenRouter reasoning controls are model-capability-aware when the Models API
-  publishes `reasoning.supported_efforts`. Declare those efforts on the static
+  publishes its `reasoning` object. Selected-model metadata validates and
+  preserves `mandatory`, `default_enabled`, `supported_efforts`,
+  `default_effort`, and `supports_max_tokens`; absence is never guessed as
+  support. Declare those efforts on the static
   model definition; `resolveReasoningControlsAvailability` in
   packages/assistant-contract/src/model-reasoning.ts is the single resolver
   that filters the UI controls (the composer model menu's Effort submenu) to
   the declared set, and the request boundary rejects incompatible settings at
-  construction. Its sibling `resolveModelReasoningSupport` is deliberately
+  construction. Matching live metadata overrides the static entry for both
+  controls and request construction. Optional models expose Off even when
+  `none` is not an advertised effort, using `reasoning.enabled=false`. Its
+  sibling `resolveModelReasoningSupport` is deliberately
   separate: an UNDECLARED OpenRouter model keeps the full effort list for the
   controls (the request boundary accepts `openrouter.reasoning` for any model)
   while its capability badge resolves to a visible `unknown` ("unverified") —
@@ -319,8 +334,9 @@
 - Desktop exposes `GET /assistant/openrouter-model?model=<provider/model>` for
   selected-model metadata. It resolves the stored OpenRouter key in main,
   requests the official single-model endpoint, validates exact model identity,
-  positive context/output limits, and bounded supported parameters, and keeps a
-  bounded five-minute in-memory cache. A refresh failure may return a prior
+  positive context/output limits, bounded supported parameters, and the full
+  published reasoning-capability object, and keeps a bounded five-minute
+  in-memory cache. A refresh failure may return a prior
   snapshot only as explicit `stale-cache` data with a warning; a first failure
   is a visible 502. The renderer validates the assistant-server snapshot before
   using it for the selected model's context meter, derived input budget, and
