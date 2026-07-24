@@ -6,7 +6,7 @@
 **Last revised**: 2026-06-08 v1.4
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
-**Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
+**Source analysis**: `docs/archive/background-indexer-deep-dive-2026-06-07.md`
 
 ---
 
@@ -228,8 +228,8 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 **Files**
 
-- Create: `docs/prd-workspace-index-background-indexer-2026-06.md`
-- Keep: `docs/background-indexer-deep-dive-2026-06-07.md`
+- Create: `docs/archive/prd-workspace-index-background-indexer-2026-06.md`
+- Keep: `docs/archive/background-indexer-deep-dive-2026-06-07.md`
 
 **Tests**
 
@@ -566,7 +566,7 @@ Each phase should land as a separate PR unless implementation evidence shows two
 - Modify: `apps/desktop/e2e/background-indexing-settings.desktop.test.ts`
 - Modify: `apps/desktop/e2e/background-indexing-pause.desktop.test.ts`
 - Modify: `apps/desktop/e2e/embedding-worker-renderer.backfill-search.desktop.test.ts`
-- Modify: `docs/prd-workspace-index-background-indexer-2026-06.md`
+- Modify: `docs/archive/prd-workspace-index-background-indexer-2026-06.md`
 - Modify: `AGENTS.md` if architecture or commands changed.
 
 **E2E scenarios**
@@ -765,8 +765,8 @@ Each PR that changes scope should add a revision-history row and update `Open De
 
 ## 17. Source Documents
 
-- `docs/background-indexer-deep-dive-2026-06-07.md`
-- `docs/bst-364-background-throttling-qos-research-2026-05.md`
+- `docs/archive/background-indexer-deep-dive-2026-06-07.md`
+- `docs/archive/bst-364-background-throttling-qos-research-2026-05.md`
 - `docs/superpowers/specs/2026-06-05-embedding-host-query-coordination-design.md`
 - `docs/superpowers/plans/2026-06-05-embedding-host-query-coordination.md`
 - Electron BrowserWindow docs: https://www.electronjs.org/docs/latest/api/browser-window

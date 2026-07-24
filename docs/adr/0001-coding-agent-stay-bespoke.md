@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-06-19
 - **Context source:** reverse-engineering of `mastra-ai/mastra-code-ui`
-  (see `docs/mastra-code-port-breakdown-2026-06-19.md` + `...-synthesis-2026-06-19.md`).
+  (see `docs/archive/mastra-code-port-breakdown-2026-06-19.md` +
+  `docs/mastra-code-port-synthesis-2026-06-19.md`).
 
 ## Context
 
@@ -51,7 +52,7 @@ The decision: adopt the Harness wholesale, or keep the bespoke loop and replicat
   this single union and must ship with hydration fixtures from real persisted rows.
 - The `@mastra/libsql` data-layer split is a **separate, measured decision** (see plan
   Phase 0.3), not a precondition.
-- Execution follows `docs/coding-agent-pr-plan-2026-06-19.md`: permission engine before any
+- Execution follows `docs/archive/coding-agent-pr-plan-2026-06-19.md`: permission engine before any
   mutating tool; edit+shell before subagents; data-layer decided (not built) up front; OAuth
   gated behind legal review.
 
