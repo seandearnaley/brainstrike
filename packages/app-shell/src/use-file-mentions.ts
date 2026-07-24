@@ -9,8 +9,9 @@ import {
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { type RootIdentity, useOptionalRootIdentity } from './roots/root-identity-context';
+import { useDebouncedQuery } from './use-debounced-query';
 
 const logger = createLogger('useFileMentions');
 
@@ -147,23 +148,4 @@ export function useFileMentions(query: string): UseFileMentionsResult {
   }, [enabled, rowsAreStale, rows, activeRootIds, rootDescriptors, rootIdentity]);
 
   return { fileMentions, loading: trimmed.length > 0 && (rowsAreStale || loading) };
-}
-
-/**
- * Local debounce (mirrors `use-quick-open-files`). A time-delayed value can't be
- * derived during render, so the setState-in-effect is the canonical pattern.
- */
-function useDebouncedQuery(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delayMs]);
-
-  return debounced;
 }
