@@ -7,15 +7,26 @@ import {
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
+import {
+  resetDiagnosticSinkHealthStore,
+  useDiagnosticSinkHealthStore,
+} from '../diagnostics/diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE } from '../diagnostics/diagnostic-sink-session';
 
 // Mock the db context to hand the bridge an in-memory query recorder.
 const queries: { sql: string; params?: unknown[] | undefined }[] = [];
+// Toggled by the "writer disables" test below to make every INSERT reject,
+// driving the writer's own failure/retry accounting. Left false for every
+// other test so their inserts continue to succeed unchanged.
+let rejectInserts = false;
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: () => ({
     query: async (sql: string, params?: unknown[]) => {
       queries.push({ params, sql });
+      if (rejectInserts && sql.includes('INSERT INTO brainstrike_diagnostic_events')) {
+        throw new Error('simulated sink insert failure');
+      }
       return { rows: [] };
     },
   }),
@@ -24,6 +35,8 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
 describe('DiagnosticSinkBridge', () => {
   beforeEach(() => {
     queries.length = 0;
+    rejectInserts = false;
+    resetDiagnosticSinkHealthStore();
   });
 
   it('captures a warn+ log record into the diagnostic events table', async () => {
@@ -241,5 +254,53 @@ describe('DiagnosticSinkBridge', () => {
     unmount();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('populates the sink health store once the writer disables from repeated flush failures', async () => {
+    rejectInserts = true;
+    render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    const insertAttempts = () =>
+      queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))
+        .length;
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+
+    // The writer's default maxConsecutiveFailures is 5
+    // (packages/utils/src/diagnostics/diagnostic-event-writer.ts). With
+    // flushBatchSize=1, one logError call enqueues + eagerly flushes exactly
+    // one event per cycle. A failed flush's own cleanup (consecutiveFailures
+    // increment, requeue, clearing the in-flight guard) finishes a few
+    // microtask ticks AFTER `vi.waitFor` first observes the insert attempt,
+    // so a next logError fired too early would see the writer still
+    // "in flight" and its event would silently pile up in `pending` instead
+    // of starting a new attempt. The macrotask boundary below (a real
+    // `setTimeout`) forces that cleanup to fully settle before the next
+    // attempt, so this genuinely drives 5 CONSECUTIVE writer-level failures
+    // rather than asserting the health store directly.
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      logError(`bridge disable drive ${attempt}`, { code: 'bridge_disable_test' });
+      // Sequential await is required: each attempt must observably land
+      // before the next enqueue, or several events would bunch into one
+      // flush cycle and understate the failure count.
+      await vi.waitFor(() => {
+        expect(insertAttempts()).toBe(attempt);
+      });
+      // Forces the macrotask boundary described above between each attempt.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    await vi.waitFor(() => {
+      expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
+    });
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
+      'simulated sink insert failure'
+    );
+
+    // The writer is now disabled: further enqueues are no-ops, so no 6th
+    // insert attempt should ever appear.
+    logError('after disable, should not be attempted', { code: 'bridge_disable_test' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(insertAttempts()).toBe(5);
   });
 });
