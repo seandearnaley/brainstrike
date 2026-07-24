@@ -278,10 +278,10 @@ function isValidColumnSizesStore(
   if (!candidate || typeof candidate !== 'function') {
     return false;
   }
-  const fn = candidate as unknown as {
+  const fn = candidate as {
     getState?: unknown;
     setState?: unknown;
-    [k: string]: unknown;
+    [SINGLETON_BRAND]?: unknown;
   };
   const ok = typeof fn.getState === 'function' && typeof fn.setState === 'function';
   return ok && fn[SINGLETON_BRAND] === SINGLETON_BRAND_VERSION;
@@ -291,7 +291,9 @@ export function createSingletonColumnSizesStore(
   globalKey: string,
   options: CreateTreeTableColumnSizesStoreOptions
 ): ColumnSizesStore {
-  const g = globalThis as unknown as Record<string, unknown>;
+  // `typeof globalThis` carries an implicit string index signature, so the
+  // registry view is a plain annotated assignment — no cast required.
+  const g: Record<string, unknown> = globalThis;
   let singleton = g[globalKey] as unknown;
   if (!isValidColumnSizesStore(singleton)) {
     singleton = createTreeTableColumnSizesStore(options);

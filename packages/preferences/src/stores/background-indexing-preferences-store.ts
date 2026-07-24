@@ -144,6 +144,11 @@ const GLOBAL_KEY = '__brainstrike_background_indexing_preferences_store__' as co
 const BRAND = '__brainstrike_store_brand__';
 const BRAND_VERSION = 1 as const;
 
+/** The bound store plus the HMR brand slot stamped onto it after creation. */
+type BrandableStore = BoundBackgroundIndexingPreferencesStore & {
+  [BRAND]?: typeof BRAND_VERSION;
+};
+
 function installBackgroundIndexingHydrationMarker(
   store: BoundBackgroundIndexingPreferencesStore
 ): void {
@@ -241,7 +246,10 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
     )
   );
   installBackgroundIndexingHydrationMarker(store);
-  (store as unknown as Record<string, unknown>)[BRAND] = BRAND_VERSION;
+  // Widening to an optional brand slot is a plain assignment, so the brand can
+  // be stamped without casting the bound store to an index-signature shape.
+  const brandable: BrandableStore = store;
+  brandable[BRAND] = BRAND_VERSION;
   return store;
 }
 
@@ -266,7 +274,9 @@ function isValidStore(
   );
 }
 
-const globalStoreRegistry = globalThis as unknown as Record<string, unknown>;
+// `typeof globalThis` carries an implicit string index signature, so the
+// registry view is a plain annotated assignment — no cast required.
+const globalStoreRegistry: Record<string, unknown> = globalThis;
 const existingStore = globalStoreRegistry[GLOBAL_KEY];
 
 export const useBackgroundIndexingPreferencesStore = isValidStore(existingStore)

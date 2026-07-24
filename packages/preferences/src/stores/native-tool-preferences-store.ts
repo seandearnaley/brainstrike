@@ -1,6 +1,7 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 
 type NativeToolStateMap = Record<string, boolean>;
 
@@ -191,15 +192,6 @@ export const nativeToolPreferencesSelectors = {
 };
 
 export function __resetNativeToolPreferencesStoreForTests(): void {
-  try {
-    const persistApi = (
-      useNativeToolPreferencesStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Intentionally silent in tests - storage errors should not fail test resets.
-  }
+  clearPersistedStorageForTests(useNativeToolPreferencesStore);
   useNativeToolPreferencesStore.setState({ toolStates: {} });
 }

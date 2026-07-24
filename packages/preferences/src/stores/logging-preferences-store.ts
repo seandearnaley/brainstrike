@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/utils/logging-preferences';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends readonly unknown[]
@@ -102,12 +103,7 @@ export function __resetLoggingPreferencesStoreForTests() {
       hasHydrated: false,
       preferences: DEFAULT_PREFERENCES,
     });
-    const persistApi = (
-      useLoggingPreferencesStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
+    clearPersistedStorageForTests(useLoggingPreferencesStore);
   } catch {
     // Intentionally silent in tests - if storage fails, state is still reset.
     // This prevents test failures when localStorage is unavailable.

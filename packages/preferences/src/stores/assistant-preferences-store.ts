@@ -35,6 +35,7 @@ import {
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
+import { clearPersistedStorageForTests } from './persist-api';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -1282,12 +1283,7 @@ export function __resetAssistantPreferencesStoreForTests() {
       localRuntimeServices.modelCatalogService.clearCache();
       localRuntimeServices = null;
     }
-    const persistApi = (
-      useAssistantPreferencesStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
+    clearPersistedStorageForTests(useAssistantPreferencesStore);
   } catch {
     // Intentionally silent in tests - if storage fails, state is still reset.
     // This prevents test failures when localStorage is unavailable.

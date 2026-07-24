@@ -2,6 +2,7 @@ import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 
 /**
  * Map of enabled models per provider
@@ -343,12 +344,7 @@ function resetStoreState() {
 export function __resetEmbeddingPreferencesStoreForTests() {
   try {
     resetStoreState();
-    const persistApi = (
-      useEmbeddingPreferencesStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
+    clearPersistedStorageForTests(useEmbeddingPreferencesStore);
   } catch {
     // Intentionally silent in tests - if storage fails, state is still reset.
     // This prevents test failures when localStorage is unavailable.

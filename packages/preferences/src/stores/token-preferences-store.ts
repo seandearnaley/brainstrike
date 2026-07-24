@@ -1,5 +1,6 @@
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { clearPersistedStorageForTests } from './persist-api';
 
 interface TokenPreferencesData {
   accurateCounting: boolean;
@@ -119,15 +120,6 @@ export const tokenPreferencesSelectors = {
 
 // Test-only helper to reset state between suites
 export function __resetTokenPreferencesStoreForTests() {
-  try {
-    const persistApi = (
-      useTokenPreferencesStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Intentionally silent in tests - storage errors should not fail test resets.
-  }
+  clearPersistedStorageForTests(useTokenPreferencesStore);
   useTokenPreferencesStore.setState({ accurateCounting: true });
 }

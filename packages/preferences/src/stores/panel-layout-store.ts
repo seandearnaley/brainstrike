@@ -281,7 +281,9 @@ function createPanelLayoutStoreWithPersistStorage(storage: PersistStorage<Persis
 const GLOBAL_KEY = '__brainstrike_panel_layout_store__' as const;
 const BRAND = '__brainstrike_store_brand__';
 const BRAND_VERSION = 1 as const;
-const g = globalThis as unknown as Record<string, unknown>;
+// `typeof globalThis` carries an implicit string index signature, so the
+// registry view is a plain annotated assignment — no cast required.
+const g: Record<string, unknown> = globalThis;
 
 type BoundStore = ReturnType<ReturnType<typeof create<PanelLayoutStoreState>>>;
 
@@ -289,10 +291,10 @@ function isValidStore(candidate: unknown): candidate is BoundStore & { [k: strin
   if (!candidate || typeof candidate !== 'function') {
     return false;
   }
-  const fn = candidate as unknown as {
+  const fn = candidate as {
     getState?: unknown;
     setState?: unknown;
-    [k: string]: unknown;
+    [BRAND]?: unknown;
   };
   const ok = typeof fn.getState === 'function' && typeof fn.setState === 'function';
   return ok && fn[BRAND] === BRAND_VERSION;
