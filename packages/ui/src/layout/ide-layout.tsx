@@ -1086,22 +1086,34 @@ export const IdeLayout = React.memo(function IdeLayout({
    * Double-clicking a separator resets its panel to `defaultSize`. The library
    * performs that reset through the imperative panel API, which reports
    * `isUserInteraction: false`, so `handleHorizontalLayout` deliberately
-   * ignores it — persist it here instead. The library's own `dblclick` listener
-   * is registered capture-phase on the ownerDocument, so by the time this
-   * bubble-phase handler runs the new layout is already committed.
+   * ignores it — persist it here instead.
+   *
+   * The read is deferred to a microtask rather than run inline. The library
+   * resets from its own `dblclick` listener, and whether that listener runs
+   * before ours depends on which phase and element it is bound to — an internal
+   * detail that a version bump could change silently. A microtask runs once the
+   * whole event dispatch has unwound, so the layout is committed either way.
+   * Reading inline and guessing wrong would persist the *pre*-reset layout with
+   * no error at all, which is precisely the kind of silent wrong-save this
+   * codebase forbids. `use-panel-persistence` de-dupes identical states, so a
+   * double-click that resets nothing costs nothing.
    */
   const handleHorizontalSeparatorDoubleClick = () => {
-    const group = horizontalGroupRef.current;
-    if (group) {
-      persistHorizontalLayout(group.getLayout());
-    }
+    queueMicrotask(() => {
+      const group = horizontalGroupRef.current;
+      if (group) {
+        persistHorizontalLayout(group.getLayout());
+      }
+    });
   };
 
   const handleVerticalSeparatorDoubleClick = () => {
-    const group = verticalGroupRef.current;
-    if (group) {
-      persistVerticalLayout(group.getLayout());
-    }
+    queueMicrotask(() => {
+      const group = verticalGroupRef.current;
+      if (group) {
+        persistVerticalLayout(group.getLayout());
+      }
+    });
   };
 
   // v4: Build defaultLayout object for the horizontal Group

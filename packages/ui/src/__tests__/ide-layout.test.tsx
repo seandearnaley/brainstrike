@@ -942,33 +942,46 @@ describe('IdeLayout', () => {
       vi.useRealTimers();
     });
 
-    it('persists the reset layout when a separator is double-clicked', () => {
-      vi.useFakeTimers();
-      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
-      const { unmount } = renderDefaultLayout();
-      act(() => {
-        vi.advanceTimersByTime(100);
+    // The library resets the panel from its own `dblclick` listener and reports the
+    // result as isUserInteraction: false, so IdeLayout persists it explicitly by
+    // reading the group layout back. Which listener runs first depends on the phase
+    // and element the library binds to — an internal detail. Both orderings are
+    // exercised here; reading the layout inline instead of after the dispatch would
+    // pass the capture case and silently persist the PRE-reset layout in the bubble
+    // case, with no error to notice.
+    for (const phase of ['capture', 'bubble'] as const) {
+      it(`persists the post-reset layout when the library resets during the ${phase} phase`, async () => {
+        Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+        const { unmount } = renderDefaultLayout();
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        const group = groupHandles['horizontal'];
+        expect(group).toBeDefined();
+        // Pre-reset layout: what the group reports before the library resets it.
+        group?.getLayout.mockReturnValue({ 'explorer-panel': 45, 'tools-panel': 20 });
+
+        // Stand in for the library's own dblclick listener performing the reset.
+        const libraryReset = () => {
+          group?.getLayout.mockReturnValue({ 'explorer-panel': 25, 'tools-panel': 20 });
+        };
+        document.addEventListener('dblclick', libraryReset, phase === 'capture');
+
+        mockState.saveLayout.mockClear();
+        const separators = screen.getAllByTestId('resize-handle');
+        await act(async () => {
+          fireEvent.doubleClick(separators[0] as HTMLElement);
+          await Promise.resolve();
+        });
+        document.removeEventListener('dblclick', libraryReset, phase === 'capture');
+
+        expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, true, true);
+        expect(mockState.saveLayout).not.toHaveBeenCalledWith([45, 20, 30], false, true, true);
+
+        unmount();
       });
-      mockState.saveLayout.mockClear();
-
-      // The library resets through the imperative panel API, which reports
-      // isUserInteraction: false — so IdeLayout has to persist this explicitly by
-      // reading the group's post-reset layout.
-      groupHandles['horizontal']?.getLayout.mockReturnValue({
-        'explorer-panel': 25,
-        'tools-panel': 20,
-      });
-
-      const separators = screen.getAllByTestId('resize-handle');
-      act(() => {
-        fireEvent.doubleClick(separators[0] as HTMLElement);
-      });
-
-      expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, true, true);
-
-      unmount();
-      vi.useRealTimers();
-    });
+    }
   });
 
   describe('transition-free separators', () => {
