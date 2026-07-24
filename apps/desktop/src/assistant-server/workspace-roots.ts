@@ -251,7 +251,13 @@ export function resolveFocusedWorkspaceRoot(
   }
 
   if (runtimeData?.workspaceRoots === undefined) {
-    return resolveWorkspaceRoot(runtimeData);
+    const [focusedRoot] = getWorkspaceRoots(runtimeData);
+    if (!focusedRoot) {
+      throw new ToolInputError(
+        'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
+      );
+    }
+    return assertRootStillConnected(focusedRoot);
   }
 
   const resolvedFocusedPath = path.resolve(focusedPath);

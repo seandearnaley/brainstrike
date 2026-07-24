@@ -806,7 +806,9 @@ After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
 sends stay disabled during both states even when no workspace root is focused,
 and root-binding resolution/persistence also rejects a selected id whose row is
 not loaded; that transient absence is never interpreted as an unbound thread
-eligible for the current Main root.
+eligible for the current Main root. A terminal database initialization error
+always outranks the transient loading reason so a failed capability cannot
+remain disguised as pending hydration.
 
 Paired tests: `assistant-thread-store.test.ts`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,

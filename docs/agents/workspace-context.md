@@ -720,7 +720,9 @@ The one intentional omission exception is
 `readWorkspaceContext` with no explicit `filePaths`: renderer-selected paths and
 Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
 selection-default read resolves the focused path against the authoritative
-inventory instead of the thread binding. Supplying `filePaths` restores the
+inventory instead of the thread binding. If the inventory is unavailable, the
+legacy focused-path fallback remains independent of the durable binding rather
+than attempting to validate or adopt it. Supplying `filePaths` restores the
 normal omitted-root binding rule. Disconnect transitions also revoke
 already-enriched in-flight runtime snapshots, while a later authoritative live
 root load clears that revocation after reconciliation/reconnect.

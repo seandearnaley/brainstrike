@@ -8,6 +8,7 @@ import {
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
+  resolveFocusedWorkspaceRoot,
   resolveOptionalWorkspaceRoot,
   resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
@@ -249,6 +250,23 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [dupA, dupB] }), 'src')).toThrow(
       /multiple folders.*named "src".*id/is
     );
+  });
+});
+
+describe('resolveFocusedWorkspaceRoot', () => {
+  it('uses the focused path fallback without consulting a durable thread binding', () => {
+    expect(
+      resolveFocusedWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: 'root-b',
+          workspaceRootPath: '/Users/me/ProjectA',
+        })
+      )
+    ).toEqual({
+      displayName: 'ProjectA',
+      path: '/Users/me/ProjectA',
+      rootId: '/Users/me/ProjectA',
+    });
   });
 });
 
