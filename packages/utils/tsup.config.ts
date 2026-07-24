@@ -11,7 +11,7 @@ export default defineConfig({
     'console-guard': 'src/console-guard.ts',
     'create-debounce': 'src/create-debounce.ts',
     crypto: 'src/crypto.ts',
-    diagnostics: 'src/diagnostics/index.ts',
+    diagnostics: 'src/diagnostics.ts',
     'env-utils': 'src/env-utils.ts',
     'error-utils': 'src/error-utils.ts',
     'file-content': 'src/file-content.ts',
