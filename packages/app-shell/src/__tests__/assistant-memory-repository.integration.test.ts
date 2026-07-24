@@ -2043,6 +2043,35 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it.each([
+    123,
+    '   ',
+  ])('rejects malformed persisted operating-root ids instead of treating them as unbound (%j)', async (operatingRootId) => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-07-23T09:00:00Z'),
+            id: 'thread-malformed-root',
+            metadata: JSON.stringify({ operatingRootId }),
+            resourceId: 'workspace-a',
+            title: 'Malformed root',
+            updatedAt: new Date('2026-07-23T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'Invalid assistant thread metadata operating root id.'
+    );
+  });
+
   it('lists thread edit checkpoints across all runs and omits before_content', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {

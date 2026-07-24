@@ -13,9 +13,11 @@ mounted adapter root's absolute path to exactly one live `roots` row; adapter
 root ids are never persisted as execution authority because reconnects may
 change them. Later requests/resumes reuse the durable id instead of reading the
 current global Main/Focused root. The app-shell metadata sanitizer and write
-boundary reject partial bindings: id and display name are required together,
-while path is optional. Server-side native tools validate only the id against
-the live root inventory; the stored path is never an authority or fallback.
+boundary reject partial bindings and any present-but-invalid operating-root
+field: id and display name are required together, while path is optional.
+Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
+the thread. Server-side native tools validate only the id against the live root
+inventory; the stored path is never an authority or fallback.
 
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two

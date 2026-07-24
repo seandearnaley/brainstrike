@@ -988,6 +988,21 @@ function optionalThreadColorId(value: unknown): AssistantThreadColorId | undefin
     : undefined;
 }
 
+function optionalOperatingRootMetadataString(
+  metadata: Record<string, unknown>,
+  key: 'operatingRootDisplayName' | 'operatingRootId' | 'operatingRootPath',
+  label: string
+): string | undefined {
+  if (!Object.hasOwn(metadata, key)) {
+    return;
+  }
+  const value = optionalString(metadata[key]);
+  if (!value) {
+    throw new Error(`Invalid assistant thread metadata ${label}.`);
+  }
+  return value;
+}
+
 function assertOptionalThreadMetadataString(value: string | undefined, label: string): void {
   if (value !== undefined && !optionalString(value)) {
     throw new Error(`Invalid assistant thread metadata ${label}.`);
@@ -1020,9 +1035,21 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   const provider = optionalString(value['provider']);
   const model = optionalString(value['model']);
   const modelSettings = optionalRecord(value['modelSettings']);
-  const operatingRootDisplayName = optionalString(value['operatingRootDisplayName']);
-  const operatingRootId = optionalString(value['operatingRootId']);
-  const operatingRootPath = optionalString(value['operatingRootPath']);
+  const operatingRootDisplayName = optionalOperatingRootMetadataString(
+    value,
+    'operatingRootDisplayName',
+    'operating root display name'
+  );
+  const operatingRootId = optionalOperatingRootMetadataString(
+    value,
+    'operatingRootId',
+    'operating root id'
+  );
+  const operatingRootPath = optionalOperatingRootMetadataString(
+    value,
+    'operatingRootPath',
+    'operating root path'
+  );
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
   assertCompleteOperatingRootMetadata({
