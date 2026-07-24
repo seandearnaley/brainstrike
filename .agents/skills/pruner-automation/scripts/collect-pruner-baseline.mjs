@@ -245,6 +245,20 @@ async function assertDependencyRuntimeCurrent(repoRoot) {
   );
 }
 
+function assertWorkspaceManifestsCurrent(repoRoot) {
+  const args = ['install', '--lockfile-only', '--frozen-lockfile', '--ignore-scripts'];
+  const validation = run('pnpm', args, repoRoot);
+  if (validation.exitCode === 0) {
+    return;
+  }
+  const detail = stripAnsi(validation.output).trim();
+  fail(
+    `required dependency runtime is stale or invalid (pnpm frozen lockfile validation failed with exit code ${
+      validation.exitCode
+    }${detail ? `: ${detail}` : ''}); run "pnpm install --frozen-lockfile" before collecting`
+  );
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (!isAbsolute(options.logsDir)) {
@@ -301,6 +315,7 @@ async function main() {
   }
   assertDependencyRuntimeAvailable(repoRoot);
   await assertDependencyRuntimeCurrent(repoRoot);
+  assertWorkspaceManifestsCurrent(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
   // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,

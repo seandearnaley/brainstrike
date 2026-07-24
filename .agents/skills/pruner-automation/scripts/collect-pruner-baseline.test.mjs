@@ -126,7 +126,11 @@ function git(repo, args) {
 
 function createCollectorFixture(
   t,
-  { installBinaryShims = false, installedLockfile = 'importers: {}\nlockfileVersion: "9.0"\n' } = {}
+  {
+    installBinaryShims = false,
+    installedLockfile = 'importers: {}\nlockfileVersion: "9.0"\n',
+    manifestLockMismatch = false,
+  } = {}
 ) {
   const root = mkdtempSync(join(tmpdir(), 'pruner-runtime-preflight-'));
   t.after(() => rmSync(root, { force: true, recursive: true }));
@@ -168,6 +172,13 @@ function createCollectorFixture(
     `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 appendFileSync(process.env.PNPM_INVOCATION_LOG, \`\${process.argv.slice(2).join(' ')}\\n\`);
+if (process.argv[2] === 'install') {
+  if (${JSON.stringify(manifestLockMismatch)}) {
+    process.stderr.write('ERR_PNPM_OUTDATED_LOCKFILE Cannot install with frozen-lockfile\\n');
+    process.exit(1);
+  }
+  process.exit(0);
+}
 if (process.argv[2] === 'knip') {
   process.exit(0);
 }
@@ -252,12 +263,28 @@ test('fails before invoking pnpm when the installed dependency lock is stale', (
   assert.deepEqual(readdirSync(fixture.logsDir), []);
 });
 
+test('fails before scans when workspace manifests do not satisfy the lockfile', (t) => {
+  const fixture = createCollectorFixture(t, {
+    installBinaryShims: true,
+    manifestLockMismatch: true,
+  });
+  const result = collectFixture(fixture);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /required dependency runtime is stale/u);
+  assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
+    'install --lockfile-only --frozen-lockfile --ignore-scripts',
+  ]);
+  assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
 test('collects only after both required dependency binaries are installed', (t) => {
   const fixture = createCollectorFixture(t, { installBinaryShims: true });
   const result = collectFixture(fixture);
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(readFileSync(fixture.invocationLog, 'utf8').trim().split('\n'), [
+    'install --lockfile-only --frozen-lockfile --ignore-scripts',
     'knip',
     'exec react-doctor . --json',
   ]);
