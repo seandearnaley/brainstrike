@@ -399,6 +399,75 @@ leave a stale-but-running JavaScript watcher. The build order, disabled tsup
 DTS worker, project-only declaration watch, and two-watcher topology are
 guarded by `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
 
+### tsup clean/dts invariants (`pnpm lint`, BST-746)
+
+`scripts/verify-tsup-build-invariants.mjs` (alias `lint:tsup-build-invariants`,
+in both the `lint` and `lint:ci` chains; guard test:
+`scripts/__tests__/verify-tsup-build-invariants.test.mjs`) generalises the rule
+above from `@brainstrike/agent` to every workspace package. A package whose
+`build` runs `tsc -b` must not let tsup `clean` the outDir (TypeScript wrote the
+`.d.ts` files into it first, and tsup's clean is not concurrency-safe against the
+sibling workspace builds that concurrent app prebuilds trigger) and must not let
+tsup emit declarations (the separate declaration-bundler worker duplicates
+`tsc -b` and causes severe build startup contention).
+
+BST-746 originally proposed a `createTsupConfig` factory in
+`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: only 9 of
+18 configs are simple, and they genuinely diverge on `sourcemap`, `format`,
+`target` and `splitting` (tsup defaults `splitting` to TRUE for ESM, so
+build-utils/embeddings/text-splitter really do split). A factory would also have
+added 8 build-graph edges (none of those packages depend on build-utils) or hit
+the config-load hash-gap class `verify-config-load-hash-coverage.mjs` guards —
+unifying the 4 fields that must stay different while doing nothing about the 2
+that must stay the same.
+
+The invariant is CONDITIONAL, and the class is DERIVED from each package's
+`build` script rather than hand-listed (a list would be a second copy of a fact
+already in the script, free to disagree with it). **TypeScript-owned** (17
+packages, 14 with a config file) runs `tsc -b`/`tsc --build` then tsup, and is
+governed. **tsup-owned** — exactly `chunking-worker`, `file-tree-worker`,
+`test-utils`, `token-cache` — runs tsup ALONE (`type-check` is a separate
+`tsc --noEmit`), so tsup is the only possible declaration emitter and `dts: true`
+is REQUIRED there. A flat "every config sets clean/dts false" rule would have
+been false for those 4 on the day it was written. The exemption carries the
+INVERSE obligation (a tsup-owned package that enables no declaration emit FAILS),
+so it cannot be used as a parking spot to silence a violation; a test pins the
+exempt set to those four names so growing it is a deliberate decision.
+
+Three rulings, all enforced and all with failure-path tests:
+
+1. **Dynamic values are rejected**, not assumed safe. Only the literal `false`
+   passes; `!options.watch`, a ternary, an env read, and the non-boolean shapes
+   tsup accepts (`clean?: boolean | string[]`, `dts?: boolean | string |
+   DtsConfig` — every non-false value ENABLES the behaviour) all fail. The guard
+   reads source text and cannot prove an expression is false at build time.
+   `clean: !options.watch` is not a false positive because every config using it
+   is tsup-owned; in a `tsc -b` package it SHOULD fail, since `options.watch` is
+   falsy during a plain `pnpm build`.
+2. **`clean` and `dts` must be STATED EXPLICITLY** in a governed config that
+   exists. tsup's defaults already match, so omission is currently harmless —
+   which is the problem: `text-splitter` set neither while the guard claimed all
+   governed packages were "pinned", an unverified assertion (the vacuous-green
+   class the discovery floors exist to prevent), and deleting `clean: false` from
+   a config would have been a silent no-op. Config-LESS packages (`queue`,
+   `types`, `worker-runtime`) are exempt from this — they have nothing to drift
+   and are covered by the CLI check instead.
+3. **Every declaration-emit spelling is modelled**, verified against the
+   installed tsup 8.5.1 rather than from memory: config keys `dts` AND
+   `experimentalDts`, plus four CLI flags — `--dts`, `--dts-only`,
+   `--dts-resolve`, `--experimental-dts`. tsup normalises
+   `if (flags.dts || flags.dtsResolve || flags.dtsOnly)`, so `--dts-only` and
+   `--dts-resolve` each enable emit ON THEIR OWN; they are not modifiers of
+   `--dts`. `experimentalDts` may be omitted but never enabled.
+
+Discovery floors (`MIN_TSUP_CONFIGS`, `MIN_TYPESCRIPT_OWNED_PACKAGES`) refuse to
+run rather than report a vacuous green — the second catches a collapsed
+classification, where discovery looks healthy but the governed class has emptied
+out. Config parsing is line-shaped with comments blanked (preserving line
+numbers, which are printed in the report); a permissive cross-check THROWS on any
+guarded token the line shape did not parse, so an unmodelled shape fails loudly
+instead of escaping.
+
 ### App bundle chunk ceiling and tokenizer asset
 
 Both app Vite builds use a 1,300 kB JavaScript chunk warning ceiling. This
