@@ -249,10 +249,10 @@ app-wide diagnostic capture — deliberately SEPARATE from the run-scoped
 `brainstrike_assistant_run_events` timeline (different scope, retention, and
 sanitization contract; do not relitigate).
 
-**Table**: `brainstrike_diagnostic_events` (migration 072, numbered runner
-`packages/db/src/migrations/072-diagnostic-events.ts` AND drizzle
+**Table**: `brainstrike_diagnostic_events` (migration 073, numbered runner
+`packages/db/src/migrations/073-diagnostic-events.ts` AND drizzle
 `customMigrations` in `packages/db/src/drizzle/migrate.ts` —
-`custom-072-diagnostic-events`). NO foreign keys (same precedent as
+`custom-073-diagnostic-events`). NO foreign keys (same precedent as
 `run_usage` 046 / `run_outcomes` 062): correlation ids (`run_id`, `thread_id`,
 `resource_id`, `root_id`) are nullable text and orphans are inert. `severity`
 is a CHECK-constrained `warn | error | fatal`. `fingerprint` is computed at
@@ -361,7 +361,7 @@ specific set of secret shapes, not a general-purpose scanner.
 
 **Paired tests**: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
 `packages/utils/src/__tests__/diagnostic-event-writer.test.ts`,
-`packages/db/__tests__/migration-072-diagnostic-events.test.ts`,
+`packages/db/__tests__/migration-073-diagnostic-events.test.ts`,
 `packages/db/__tests__/diagnostic-events-repository.test.ts`,
 `packages/app-shell/src/__tests__/diagnostic-sink-bridge.test.tsx`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (durable-record
