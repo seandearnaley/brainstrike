@@ -37,6 +37,13 @@ describe('web vite config alias contract', () => {
     expect(config).toContain('chunkSizeWarningLimit: 1300');
   });
 
+  it('filters only CSP-qualified dependency eval warnings', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toContain('createCspQualifiedEvalWarningFilter,');
+    expect(config).toContain('onLog: createCspQualifiedEvalWarningFilter()');
+  });
+
   it('delegates assistant API requests to the bounded Node middleware', () => {
     const config = readWebViteConfig();
 
