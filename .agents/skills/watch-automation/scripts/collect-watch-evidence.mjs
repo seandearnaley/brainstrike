@@ -676,7 +676,10 @@ export function fingerprint(workflowName, title, errorClass) {
     .filter(Boolean)
     .join(' ');
   const titleSlug = slug(fullPath);
-  const boundedSlug = titleSlug.length > 80 ? titleSlug.slice(0, 80).replace(/-+$/, '') : titleSlug;
+  const hash = createHash('sha256').update(titleSlug).digest('hex').slice(0, 12);
+  const readableLength = 80 - hash.length - 1;
+  const readablePrefix = titleSlug.slice(0, readableLength).replace(/-+$/, '');
+  const boundedSlug = titleSlug.length > 80 ? `${readablePrefix || 'unnamed'}-${hash}` : titleSlug;
   return `watch:${slug(workflowName)}:${boundedSlug || 'unnamed'}:${errorClass}`;
 }
 
@@ -890,11 +893,37 @@ export function extractLogEvidence({ attempt, jobs, logText, workflowName }) {
     });
   }
 
+  const collisionGroups = new Map();
+  for (const candidate of [...failureCandidates, ...unattributedCandidates]) {
+    const representation = `${candidate.attempt}:${candidate.job}:${candidate.fingerprintCandidate}`;
+    const group = collisionGroups.get(representation) ?? {
+      attempt: candidate.attempt,
+      fingerprint: candidate.fingerprintCandidate,
+      job: candidate.job,
+      testTitles: new Set(),
+    };
+    group.testTitles.add(candidate.testTitle);
+    collisionGroups.set(representation, group);
+  }
+  for (const group of collisionGroups.values()) {
+    if (group.testTitles.size < 2) {
+      continue;
+    }
+    unparsedFailures.push({
+      attempt: group.attempt,
+      fingerprint: group.fingerprint,
+      job: group.job,
+      reason: 'fingerprint-collision',
+      testTitles: [...group.testTitles],
+    });
+  }
+
   const dedupe = (values, key) => [...new Map(values.map((value) => [key(value), value])).values()];
   return {
     failureCandidates: dedupe(
       failureCandidates,
-      (value) => `${value.attempt}:${value.job}:${value.fingerprintCandidate}:${value.errorLine}`
+      (value) =>
+        `${value.attempt}:${value.job}:${value.testTitle}:${value.fingerprintCandidate}:${value.errorLine}`
     ),
     imagesByJob,
     retrySignals: dedupe(
@@ -903,7 +932,8 @@ export function extractLogEvidence({ attempt, jobs, logText, workflowName }) {
     ),
     unattributedCandidates: dedupe(
       unattributedCandidates,
-      (value) => `${value.attempt}:${value.job}:${value.fingerprintCandidate}:${value.errorLine}`
+      (value) =>
+        `${value.attempt}:${value.job}:${value.testTitle}:${value.fingerprintCandidate}:${value.errorLine}`
     ),
     unparsedFailures,
   };
