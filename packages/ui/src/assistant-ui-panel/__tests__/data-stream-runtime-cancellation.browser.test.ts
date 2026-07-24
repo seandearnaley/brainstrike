@@ -252,6 +252,28 @@ describe('BrainstrikeDataStreamRuntimeAdapter — cancellation lifecycle (BST-70
     }
   });
 
+  it('releases the transport when the consumer exits the run iterator early without aborting', async () => {
+    const { bodies } = stubFetchWith((signal) => createScriptedBody(signal));
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+    });
+    const iterator = adapter.run(makeRunOptions(new AbortController().signal));
+    const first = iterator.next();
+    while (bodies.length === 0) {
+      await tick();
+    }
+    const body = bodies[0] as ScriptedBody;
+    const producer = body.feed(TOOL_RUN_CHUNKS);
+    await first;
+    // Early consumer exit with no abort: the run()-level finally must still
+    // engage the insulation firewall and release the transport.
+    await iterator.return(undefined);
+    await settle();
+    expect(body.cancelled()).toBe(true);
+    await producer;
+    expect(unhandledReasons).toEqual([]);
+  });
+
   it('supersede: aborting mid-tool-result and immediately starting the next run leaves the adapter usable', async () => {
     const { bodies } = stubFetchWith((signal) => createScriptedBody(signal));
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({

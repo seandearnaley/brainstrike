@@ -79,6 +79,12 @@ export function insulateAssistantStreamPipeline<T>({
   const pipelineReader = buildPipeline(guardedSource).getReader();
   let consumerCancelled = false;
 
+  // Drain lifetime is bounded by the pipeline reaching its natural EOF: the
+  // byte source is cancelled first, but transforms may still await in-flight
+  // settlements (e.g. unstable_toolResultStream's flush awaits every pending
+  // tool execute). The run's abort settles tool executions promptly; a client
+  // tool whose execute never settles on abort would pin this loop (and the
+  // transform state it closes over) until it does.
   const drainAfterCancel = async (reason: unknown): Promise<void> => {
     try {
       await byteReader.cancel(reason);

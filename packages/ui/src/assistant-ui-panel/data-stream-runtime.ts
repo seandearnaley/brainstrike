@@ -965,9 +965,19 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
             .pipeThrough(new AssistantMessageAccumulator()),
       });
 
-      for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
-        this.notifyActivity();
-        yield accumulatedMessage;
+      try {
+        for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
+          this.notifyActivity();
+          yield accumulatedMessage;
+        }
+      } finally {
+        // Engage the insulation firewall even when the consumer stops early
+        // through an async-iterator path that only releases its reader lock
+        // (assistant-stream's polyfill for engines without native
+        // ReadableStream async iteration) instead of cancelling the stream.
+        // Cancel is a no-op after clean EOF or a native-iteration cancel, and
+        // it must never mask the loop's own outcome.
+        await stream.cancel(abortSignal.reason).catch(() => undefined);
       }
       // The insulated pipeline ends with a clean EOF on expected aborts; an
       // aborted run must still surface its abort as the single terminal
