@@ -1,0 +1,163 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatThreadDebugBundle > renders a fully-populated bundle in the pinned golden format 1`] = `
+"# BrainStrike Debug Bundle
+bundle_format: 1
+generated_at: 2026-07-23T12:05:00.000Z
+thread_id: thread-1
+run_id: run-1
+app: 1.2.3 · darwin · session session-fixed-1
+
+## 1. Failure summary
+
+- status: failed
+- provider: anthropic
+- model: claude-sonnet-5
+- runtime_kind: agent
+- started_at: 2026-07-23T12:00:00.000Z
+- completed_at: 2026-07-23T12:00:31.000Z
+- error: Provider stream closed unexpectedly
+
+## 2. Run configuration
+
+\`\`\`json
+{
+  "modelSettings": {
+    "apiKey": "[REDACTED]",
+    "temperature": 0.2
+  },
+  "providerOptions": {
+    "anthropicBeta": [
+      "prompt-caching-2024-07-31"
+    ]
+  },
+  "runtimeKind": "agent"
+}
+\`\`\`
+
+## 3. Run timeline
+
+### Event 1 — tool.registered / ok
+- occurred_at: 2026-07-23T12:00:00.500Z
+- label: Native tools
+- detail: Resolved 3 native tools
+- duration_ms: 12
+
+\`\`\`json
+{
+  "toolNames": [
+    "read_file",
+    "write_file",
+    "grep"
+  ]
+}
+\`\`\`
+
+### Event 2 — stream.error / failed
+- occurred_at: 2026-07-23T12:00:30.000Z
+- label: Provider stream
+- detail: (none)
+- duration_ms: (none)
+
+\`\`\`json
+null
+\`\`\`
+
+## 4. Resilience history
+
+_Resilience history (retry attempts, backoff, watchdog decisions) is not captured by bundle format 1 — no \`run_errors\` attempts table is wired in yet._
+
+## 5. Correlated diagnostic events
+
+### Event diag-1 — error / web-renderer
+- occurred_at: 2026-07-23T12:00:30.000Z
+- scope: AssistantStream
+- code: provider_stream_error
+- fingerprint: fp-abc123
+- message: Provider stream closed unexpectedly
+
+\`\`\`json
+{
+  "causeChain": [
+    {
+      "code": "ECONNRESET",
+      "message": "socket reset",
+      "name": "Error"
+    }
+  ],
+  "context": {
+    "attempt": 2
+  },
+  "stack": "Error: socket reset\\n    at fixture.ts:1:1"
+}
+\`\`\`
+
+## 6. Transcript
+
+### Message msg-1 — user — 2026-07-23T12:00:00.000Z
+\`\`\`json
+[
+  {
+    "text": "Please fix the bug in checkout.ts",
+    "type": "text"
+  }
+]
+\`\`\`
+
+### Message msg-2 — assistant — 2026-07-23T12:00:10.000Z
+\`\`\`json
+[
+  {
+    "args": {
+      "path": "checkout.ts"
+    },
+    "result": "export function checkout() { /* ... */ }",
+    "toolName": "read_file",
+    "type": "tool-result"
+  }
+]
+\`\`\`
+
+### Message msg-3 — assistant — 2026-07-23T12:00:20.000Z
+\`\`\`json
+[
+  {
+    "text": "The stream failed before I could finish.",
+    "type": "text"
+  }
+]
+\`\`\`
+
+## 7. Usage & cost
+
+\`\`\`json
+[
+  {
+    "billedCostUsd": "0.004215000000",
+    "inputTokens": 812,
+    "model": "claude-sonnet-5",
+    "outputTokens": 156,
+    "provider": "anthropic"
+  }
+]
+\`\`\`
+
+## 8. Environment
+
+\`\`\`json
+{
+  "appVersion": "1.2.3",
+  "generatedAt": "2026-07-23T12:05:00.000Z",
+  "platform": "darwin",
+  "sessionId": "session-fixed-1"
+}
+\`\`\`
+
+_Extended OS/architecture, DB-diagnostics, and crash-recovery snapshots are not collected by bundle format 1._
+
+## 9. Prior related failures
+
+- count (last 7 days): 4
+- first_seen: 2026-07-16T09:00:00.000Z
+- last_seen: 2026-07-23T12:00:30.000Z"
+`;
