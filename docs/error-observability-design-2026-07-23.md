@@ -213,6 +213,22 @@ One small module in `packages/utils` (interface) + platform bindings:
   channel to main, which owns a single writer per process tree on desktop. Web
   has exactly one writer in the visible renderer + workers forwarding via
   `postMessage` (the queue-telemetry pattern).
+- **Eager flush for high severity**: `error`/`fatal` events bypass the batch
+  window entirely — the writer flushes immediately (single-flight, so this is
+  cheap even under bursts) instead of waiting for the 2s timer or the 32-event
+  threshold. `warn` events still batch normally. Rationale: browsers do not
+  guarantee that async work started inside a `visibilitychange:hidden` handler
+  actually completes before the page is torn down, so anything above `warn`
+  cannot be allowed to sit in the batch window waiting for that handler to fire.
+- **Web close-durability is best-effort, not guaranteed**: even with the
+  `visibilitychange:hidden` flush and the eager high-severity flush above, web
+  has no durable backstop equivalent to desktop's file mirror. Stated worst
+  case: a batch of `warn` events sitting inside the 2s flush window can be lost
+  if the tab is killed (not just hidden) mid-flush — e.g. OS-level process kill,
+  browser crash, or force-quit before the in-flight `insertBatch` call
+  resolves. Desktop's file backstop (§7) covers the equivalent failure mode
+  once the P2 NDJSON sink lands; web has no equivalent today and this is an
+  accepted gap, not an oversight.
 
 ### 4.4 Correlation model
 
@@ -311,6 +327,22 @@ wrapping is already idiomatic there). Nothing outside the whitelist is stored;
 bodies are never stored. `thread_runs.error` stays as-is for back-compat; the
 UI error block can now show "code + request id" with a copy affordance.
 
+**Conflict rule (multiple terminal choke points, one run):** more than one of
+`makeProviderErrorTermination`, watchdog expiry, and guard terminal can fire
+for the same `run_id` (e.g. the watchdog expires the same tick a provider
+error terminates the stream). The writer is an **UPSERT keyed on `run_id`**
+with **first-terminal-wins** semantics for the classification fields (`code`,
+`message`, `cause_chain`, `http_status`, `provider_request_id`,
+`response_headers`, `occurred_at`) — whichever choke point writes first owns
+the row's classification; later writers for the same `run_id` do **not**
+overwrite those fields. Later writers **merge only `attempts`** (append their
+attempt entries to the existing `attempts` array) so the resilience-history
+timeline stays complete even though the classification is stable. Stated
+invariant: **a run's `run_errors` row never changes its `code` after the first
+write.** This requires a test: two choke points racing on the same `run_id`
+must leave the first writer's classification fields intact while both
+writers' `attempts` entries are present in the merged array.
+
 This is the single highest-leverage schema change for multi-provider debugging:
 provider support tickets start with "what's the request id".
 
@@ -320,7 +352,15 @@ provider support tickets start with "what's the request id".
 
 - Switch the existing file transport line format to **NDJSON** and add a second
   file sink: `${logs}/brainstrike-errors.ndjson` at `warn+`, size-rotated
-  (10 MB × 5 files; pino transport options — no new dependency).
+  (10 MB × 5 files). **Correction from an earlier draft of this doc**: `pino`
+  and `pino/file` alone cannot rotate — `pino/file` is a plain append-only
+  destination stream with no size-check-and-rotate logic built in. Size
+  rotation needs either a real rotating transport (e.g. `pino-roll`, which
+  does support size-based rotation) or an explicit size-check-and-rotate
+  implemented in main (stat the file on an interval / before each write batch,
+  rename-and-reopen past the threshold). This is a real new dependency (or a
+  real chunk of hand-rolled rotation logic) — not the "no new dependency"
+  claim in the earlier draft.
 - All processes land there: renderers/hidden hosts already forward via
   `logging:ingest-buffered-record`; the ingest handler now also feeds the error
   file sink (today it only feeds the in-memory buffer).
@@ -379,29 +419,43 @@ server (#1187) for external agents; the NDJSON file covers them meanwhile.
 | Phase | Scope | Key risk retired |
 | --- | --- | --- |
 | **P1 — Durable log** | Migration + writer + capture wiring (logger listener, boundaries, main-process, queue adapter) + retention + factory reset | The store exists; background errors survive close |
-| **P2 — Surfaces** | Log Viewer persistent source, status-bar chip, settings, web NDJSON export | Errors are *seen*, not just stored |
+| **P2 — Surfaces** | Log Viewer persistent source, status-bar chip, settings, web NDJSON export, **desktop warn+ NDJSON file backstop + rotation (moved from P5 — see below)** | Errors are *seen*, not just stored; the DB-sink failure path has a durable destination before broad reliance |
 | **P3 — Run-error enrichment** | `run_errors` table, header-capturing fetch wrapper, retry-attempt recording, error-block code/request-id display | Multi-provider forensics |
 | **P4 — Debug bundle** | Builder + Copy/Save UI + bounds/redaction + tests with golden bundles | The headline feature; depends on P1+P3 for full value but ships useful after P1 |
-| **P5 — Agent access** | Desktop NDJSON error sink + rotation; `brainstrike.queryDiagnostics` tool | Agents diagnose without re-running |
+| **P5 — Agent access** | `brainstrike.queryDiagnostics` tool | Agents diagnose without re-running |
+
+**Move (review follow-up):** the desktop warn+ NDJSON backstop (file sink +
+rotation, §7) moved from P5 into **P2**. Rationale: the file mirror is the
+DB-sink's failure backstop (§4.3 "Loop guard" / "Corruption interplay") — it
+needs to exist before the app leans on the DB sink broadly, not after. P5 now
+scopes down to just the `queryDiagnostics` tool, which has no dependency on
+the file sink.
 
 Each phase is independently shippable and testable; P1 is the only hard
 prerequisite for the others. Suggested order P1→P4a (bundle over existing data
-only)→P3→P4b→P2→P5 if the bundle is the most urgent pain.
+only)→P3→P4b→P2 (now includes the NDJSON backstop)→P5 if the bundle is the
+most urgent pain.
 
 ## 11. Testing
 
 - **P1**: migration tests in both runners (+ lane-manifest regex); writer unit
-  tests (batching, overflow-loud, loop guard, corruption-generation buffering);
+  tests (batching, overflow-loud, loop guard, corruption-generation buffering,
+  **eager flush on `error`/`fatal` severity, no eager flush on `warn`**);
   integration: real PGlite, error hook → row round-trip; factory-reset test
   extension.
+- **P2**: NDJSON rotation integration test (desktop lane) — **moved here from
+  P5** alongside the backstop's move (§10).
 - **P3**: fetch-wrapper header whitelist tests (never a non-whitelisted key);
   integration spec extension in `mastra-error-processors.spec.ts` (attempts
-  recorded); golden `run_errors` row from a scripted provider failure.
+  recorded); golden `run_errors` row from a scripted provider failure;
+  **required conflict test (§6): two terminal choke points racing on the same
+  `run_id` leave the first writer's classification fields unchanged and merge
+  both writers' `attempts` entries.**
 - **P4**: golden-bundle snapshot tests (fixed fake data → byte-stable Markdown);
   bound/elision tests (oversized transcript → visible markers, ≤ budget);
-  redaction test (seeded secrets never appear in output).
-- **P5**: tool registered across the multi-registry checklist tests; NDJSON
-  rotation integration test (desktop lane).
+  redaction test (seeded secrets never appear in output, including the
+  value-shape secret scrub over the final rendered string).
+- **P5**: tool registered across the multi-registry checklist tests.
 
 ## 12. Invariants honored (checklist)
 
