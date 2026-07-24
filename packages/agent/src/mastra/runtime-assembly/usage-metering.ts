@@ -80,6 +80,10 @@ export function readOpenRouterBilledCost(part: ProviderMetadataStreamPart): numb
  * (`ToolLifecycleState` satisfies this structurally).
  */
 export interface UsageMeteringState {
+  /** Completion usage from the latest provider step, not the billed run sum. */
+  latestStepCompletionTokens?: number;
+  /** Prompt usage from the latest provider step, not the billed run sum. */
+  latestStepPromptTokens?: number;
   /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
   providerReportedPromptTokens?: number;
   steppedCompletionTokens: number;
@@ -96,8 +100,10 @@ export function accumulateSteppedUsage(
   if (typeof prompt === 'number' && Number.isFinite(prompt)) {
     lifecycleState.steppedPromptTokens += prompt;
     lifecycleState.providerReportedPromptTokens = lifecycleState.steppedPromptTokens;
+    lifecycleState.latestStepPromptTokens = prompt;
   }
-  lifecycleState.steppedCompletionTokens += Number.isFinite(completion)
-    ? (completion as number)
-    : 0;
+  if (typeof completion === 'number' && Number.isFinite(completion)) {
+    lifecycleState.steppedCompletionTokens += completion;
+    lifecycleState.latestStepCompletionTokens = completion;
+  }
 }

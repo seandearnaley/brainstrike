@@ -11,7 +11,7 @@
  * Threshold states (fraction of effectiveInputBudget):
  *   ok      < 75%
  *   warning ≥ 75%
- *   critical ≥ 90% → shows the windowing notice INLINE (a warning must not
+ *   critical ≥ 90% → shows the trimming-risk notice INLINE (a warning must not
  *   hide inside a hover surface)
  */
 import { useAuiState } from '@assistant-ui/react';
@@ -246,11 +246,11 @@ export const ContextUsageMeter = ({
         </PopoverContent>
       </Popover>
 
-      {/* Critical windowing notice — INLINE next to the ring, never hidden
+      {/* Critical trimming-risk notice — INLINE next to the ring, never hidden
           inside the hover popover (visibility rule). */}
       {state === 'critical' && (
         <p className="text-[11px] text-destructive/80" data-testid="context-usage-critical-notice">
-          Older messages are summarized out of context.
+          Approaching input budget; older messages may be trimmed.
         </p>
       )}
     </div>

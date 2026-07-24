@@ -133,6 +133,8 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
+  const contextInputTokens = lifecycleState.latestStepPromptTokens ?? promptTokens;
+  const contextOutputTokens = lifecycleState.latestStepCompletionTokens ?? completionTokens;
   const finishCost = readOpenRouterBilledCost(p);
   if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
     // Mastra makes terminal token usage cumulative, but copies providerMetadata
@@ -163,6 +165,8 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
     type: 'message-finish',
     usage: {
       completionTokens,
+      contextInputTokens,
+      contextOutputTokens,
       promptTokens,
       ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
       ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
@@ -299,6 +303,9 @@ interface ToolLifecycleState {
    * (review nit, BST-587).
    */
   includeCacheTokenClasses: boolean;
+  /** Provider usage for the latest completed step, kept separate from billed sums. */
+  latestStepCompletionTokens?: number;
+  latestStepPromptTokens?: number;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
   /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
   providerReportedPromptTokens?: number;
@@ -917,6 +924,7 @@ function processMastraStreamPart(
               ...steeredBaseFinish,
               finishReason: 'stop',
               usage: {
+                ...steeredBaseFinish.usage,
                 completionTokens: lifecycleState.steppedCompletionTokens,
                 promptTokens: lifecycleState.steppedPromptTokens,
               },

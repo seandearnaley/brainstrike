@@ -3,7 +3,7 @@
  * compact ring row (see context-usage-meter.tsx). Holds everything that used to
  * render inline in the bordered meter card: the usage header, the segmented
  * breakdown list, the OM informational stats, and the cumulative tokens + cost
- * row. The critical windowing notice deliberately does NOT live here — a
+ * row. The critical trimming-risk notice deliberately does NOT live here — a
  * warning must not hide inside a hover surface (it stays inline next to the
  * ring).
  */
@@ -237,7 +237,7 @@ function buildBreakdownRows(params: {
   }
   if (params.usage) {
     rows.push({
-      label: 'Exact usage last turn',
+      label: 'Provider-effective context',
       testId: 'context-usage-breakdown-exact',
       value: formatCompact(params.usage.inputTokens + params.usage.outputTokens),
     });

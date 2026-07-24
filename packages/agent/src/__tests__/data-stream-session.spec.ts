@@ -356,6 +356,8 @@ describe('AssistantDataStreamSession', () => {
           cacheCreationInputTokens: 60,
           cacheReadInputTokens: 40,
           completionTokens: 13,
+          contextInputTokens: 28,
+          contextOutputTokens: 3,
           promptTokens: 111,
         },
       } as unknown as StreamChunk,
@@ -374,6 +376,8 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({
       cacheCreationInputTokens: 60,
       cacheReadInputTokens: 40,
+      contextInputTokens: 28,
+      contextOutputTokens: 3,
       inputTokens: 111,
       outputTokens: 13,
     });

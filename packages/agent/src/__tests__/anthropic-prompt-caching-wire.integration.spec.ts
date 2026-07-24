@@ -138,6 +138,8 @@ describe('anthropic prompt caching wire contract', () => {
       cacheCreationInputTokens: 60,
       cacheReadInputTokens: 40,
       completionTokens: 3,
+      contextInputTokens: 107,
+      contextOutputTokens: 3,
       // Mastra flattens the provider's structured usage to the TOTAL the
       // model saw: 7 uncached + 40 cache-read + 60 cache-write.
       promptTokens: 107,

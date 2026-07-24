@@ -66,16 +66,16 @@ describe('ContextUsageMeter', () => {
     rerender(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'critical');
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'critical');
-    expect(screen.getByText(/summarized out of context/i)).toBeInTheDocument();
+    expect(screen.getByText(/older messages may be trimmed/i)).toBeInTheDocument();
   });
 
-  it('keeps the critical windowing notice INLINE (visible without opening the popover)', () => {
+  it('keeps the critical trimming-risk notice INLINE (visible without opening the popover)', () => {
     useContextUsageStore.getState().recordUsage('t1', { inputTokens: 120_000, outputTokens: 0 });
     render(<ContextUsageMeter {...props} />);
     // Popover closed — the notice must still be visible next to the ring.
     expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
     expect(screen.getByTestId('context-usage-critical-notice')).toHaveTextContent(
-      /summarized out of context/i
+      /older messages may be trimmed/i
     );
   });
 

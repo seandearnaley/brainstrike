@@ -15,6 +15,7 @@ function serialize(value: unknown): string {
 }
 
 function createToolMessage(options: {
+  args?: Record<string, unknown>;
   id: string;
   modelOutput?: unknown;
   rawResult?: unknown;
@@ -33,7 +34,7 @@ function createToolMessage(options: {
         {
           ...(providerMetadata ? { providerMetadata } : {}),
           toolInvocation: {
-            args: { path: `${options.id}.ts` },
+            args: options.args ?? { path: `${options.id}.ts` },
             ...(Object.hasOwn(options, 'rawResult') ? { result: options.rawResult } : {}),
             state: options.state ?? 'result',
             toolCallId: options.toolCallId ?? `call-${options.id}`,
@@ -188,7 +189,7 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(logger.info).toHaveBeenCalledOnce();
   });
 
-  it('filters only stale completed reads and keeps two recent tool-producing steps', async () => {
+  it('filters only stale completed reads and keeps the newest tool-producing step', async () => {
     const processor = new ProjectionSafeToolCallFilter({ toolNameMap: TOOL_NAME_MAP });
     const messages = [
       createToolMessage({
@@ -217,9 +218,80 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(output).toContain('compact old result');
     expect(output).not.toContain('raw-old-sentinel');
     expect(output).not.toContain('old.ts');
-    expect(output).toContain('recent-one.ts');
+    expect(output).toContain('compact recent one');
+    expect(output).not.toContain('recent-one.ts');
     expect(output).toContain('recent-two.ts');
     expect(output).toContain('Continue with the next two reads.');
+  });
+
+  it('retires the older redundant verification read after a hosted file write', async () => {
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: TOOL_NAME_MAP });
+    const generatedHtml = '<main>Conference schedule</main>'.padEnd(17_060, ' ');
+    const messages = [
+      createTextMessage('turn-one', 'Read BRIEF.md and build the conference site.'),
+      createToolMessage({
+        id: 'brief',
+        modelOutput: { type: 'text', value: 'Conference brief projection' },
+        rawResult: { body: 'Conference brief raw result' },
+      }),
+      createTextMessage(
+        'turn-two',
+        'Create index.html without executeCommand, then verify its beginning and end.'
+      ),
+      createToolMessage({
+        args: { content: generatedHtml, path: '09-conference/index.html' },
+        id: 'write-site',
+        modelOutput: { type: 'text', value: 'Wrote 17060 bytes to 09-conference/index.html' },
+        rawResult: { bytesWritten: 17_060, ok: true },
+        toolName: 'brainstrike_writeWorkspaceFile',
+      }),
+      createToolMessage({
+        id: 'verify-beginning',
+        modelOutput: { type: 'text', value: 'Beginning verified: conference heading present' },
+        rawResult: { body: `beginning-raw-sentinel:${generatedHtml}` },
+      }),
+      createToolMessage({
+        id: 'verify-end',
+        modelOutput: { type: 'text', value: 'End verified: closing HTML present' },
+        rawResult: { body: `end-raw-sentinel:${generatedHtml}` },
+      }),
+      createToolMessage({
+        id: 'working-memory',
+        modelOutput: { type: 'text', value: 'Working memory updated' },
+        rawResult: { ok: true },
+        toolName: 'brainstrike_updateWorkingMemory',
+      }),
+    ];
+
+    const { inputAfter, output } = await filterMessages(processor, messages, 'response');
+    const providerPrompt = JSON.stringify(output);
+    const twoReadWindow = await filterMessages(
+      new ProjectionSafeToolCallFilter({
+        filterAfterToolSteps: 2,
+        toolNameMap: TOOL_NAME_MAP,
+      }),
+      messages,
+      'response'
+    );
+    const twoReadProviderPrompt = JSON.stringify(twoReadWindow.output);
+    const providerPromptBackstopTokens = Math.ceil(providerPrompt.length / 4);
+
+    expect(inputAfter).toContain('beginning-raw-sentinel');
+    expect(inputAfter).toContain('end-raw-sentinel');
+    expect(providerPrompt).toContain(generatedHtml);
+    expect(providerPrompt).toContain('brainstrike_writeWorkspaceFile');
+    expect(providerPrompt).toContain('Beginning verified: conference heading present');
+    expect(providerPrompt).not.toContain('beginning-raw-sentinel');
+    expect(providerPrompt).not.toContain('verify-beginning.ts');
+    expect(providerPrompt).toContain('End verified: closing HTML present');
+    expect(providerPrompt).toContain('verify-end.ts');
+    expect(providerPrompt).toContain('brainstrike_updateWorkingMemory');
+    expect(providerPrompt).toContain('Read BRIEF.md and build the conference site.');
+    expect(providerPrompt).toContain(
+      'Create index.html without executeCommand, then verify its beginning and end.'
+    );
+    expect(providerPrompt.length).toBeLessThan(twoReadProviderPrompt.length);
+    expect(providerPromptBackstopTokens).toBeLessThan(126_000);
   });
 
   it.each([

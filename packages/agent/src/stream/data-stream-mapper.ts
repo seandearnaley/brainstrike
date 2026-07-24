@@ -47,6 +47,10 @@ interface DataStreamUsage {
   cacheCreationInputTokens?: number;
   /** Anthropic prompt-cache read tokens; present only when reported. */
   cacheReadInputTokens?: number;
+  /** Latest provider-step prompt size; the aggregate inputTokens remains billable usage. */
+  contextInputTokens?: number;
+  /** Latest provider-step completion size; aggregate outputTokens remains billable usage. */
+  contextOutputTokens?: number;
   inputTokens: number;
   outputTokens: number;
 }
@@ -75,6 +79,8 @@ function toDataStreamUsage(raw?: {
   cacheCreationInputTokens?: unknown;
   cacheReadInputTokens?: unknown;
   completionTokens?: unknown;
+  contextInputTokens?: unknown;
+  contextOutputTokens?: unknown;
   inputTokens?: unknown;
   outputTokens?: unknown;
   promptTokens?: unknown;
@@ -97,9 +103,23 @@ function toDataStreamUsage(raw?: {
     raw.cacheReadInputTokens > 0
       ? raw.cacheReadInputTokens
       : undefined;
+  const contextInputTokens =
+    typeof raw?.contextInputTokens === 'number' &&
+    Number.isFinite(raw.contextInputTokens) &&
+    raw.contextInputTokens >= 0
+      ? raw.contextInputTokens
+      : undefined;
+  const contextOutputTokens =
+    typeof raw?.contextOutputTokens === 'number' &&
+    Number.isFinite(raw.contextOutputTokens) &&
+    raw.contextOutputTokens >= 0
+      ? raw.contextOutputTokens
+      : undefined;
   return {
     ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
     ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
+    ...(contextInputTokens === undefined ? {} : { contextInputTokens }),
+    ...(contextOutputTokens === undefined ? {} : { contextOutputTokens }),
     inputTokens,
     outputTokens,
   };
@@ -129,6 +149,8 @@ function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish)
         cacheCreationInputTokens?: unknown;
         cacheReadInputTokens?: unknown;
         completionTokens?: unknown;
+        contextInputTokens?: unknown;
+        contextOutputTokens?: unknown;
         inputTokens?: unknown;
         outputTokens?: unknown;
         promptTokens?: unknown;

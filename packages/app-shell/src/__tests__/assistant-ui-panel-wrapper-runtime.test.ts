@@ -19,6 +19,7 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
+  pickContextMeterUsage,
   reconcileProviderSettingsForModel,
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
@@ -31,6 +32,26 @@ import {
   resolveProviderModelSelection,
   toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
+
+describe('pickContextMeterUsage', () => {
+  it('uses the latest provider step while retaining aggregate run usage for billing', () => {
+    expect(
+      pickContextMeterUsage({
+        contextInputTokens: 28_400,
+        contextOutputTokens: 900,
+        inputTokens: 138_800,
+        outputTokens: 4100,
+      })
+    ).toEqual({ inputTokens: 28_400, outputTokens: 900 });
+  });
+
+  it('uses aggregate usage when a transport has no per-step context fields', () => {
+    expect(pickContextMeterUsage({ inputTokens: 50, outputTokens: 20 })).toEqual({
+      inputTokens: 50,
+      outputTokens: 20,
+    });
+  });
+});
 
 function createRepositoryStub(
   createThreadRun: AssistantThreadRepository['createThreadRun']

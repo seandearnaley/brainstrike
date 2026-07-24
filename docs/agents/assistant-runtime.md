@@ -202,12 +202,15 @@ Mastra applies that hook's result back to the live `MessageList`.
 `processLLMRequest` performs the transient rewrite after stored model
 projections are resolved. It replaces only old, completed, successful native
 read/search/retrieval calls that have a serializable non-multimodal stored
-projection. The two newest tool-producing steps stay verbatim, as do missing
+projection. The newest eligible read/search/retrieval step stays verbatim, as do missing
 projections, errors, edits, commands, verification, tasks, discovery, skills,
 approvals, incomplete calls, and MCP tools. It never mutates the live
 `MessageList` or durable rows. Same-turn and reload integration tests must keep
-proving raw arguments/results remain persisted. Local, Ollama, and LM Studio
-runs omit it.
+proving raw arguments/results remain persisted. A file write followed by two
+successful reads therefore retires the older redundant read while preserving
+the write and newest verification result; later protected state/working-memory
+tools do not consume that recent-read window. Local, Ollama, and LM Studio runs
+omit it.
 
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one

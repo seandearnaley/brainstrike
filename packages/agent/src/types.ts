@@ -345,6 +345,10 @@ export interface StreamChunkMessageFinish {
   usage: {
     promptTokens: number;
     completionTokens: number;
+    /** Latest provider-step prompt size for context occupancy, not billed run input. */
+    contextInputTokens?: number;
+    /** Latest provider-step completion size for next-prompt occupancy. */
+    contextOutputTokens?: number;
     /** Anthropic prompt-cache write tokens (billed at the cache-write rate). */
     cacheCreationInputTokens?: number;
     /** Anthropic prompt-cache read tokens (billed at the cache-read rate). */
