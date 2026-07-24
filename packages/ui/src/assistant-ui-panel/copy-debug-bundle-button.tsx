@@ -1,6 +1,6 @@
 import { useAuiState } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { type ReactElement, useMemo, useState } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { useDebugBundleContext } from './debug-bundle-context';
 
@@ -68,18 +68,41 @@ export function CopyDebugBundleButton(): ReactElement | null {
   const hasErrorState = useAuiState(selectHasErrorState);
   const context = useDebugBundleContext();
   const [phase, setPhase] = useState<ButtonPhase>({ kind: 'idle' });
+  // Tracks the pending "copied → idle" revert timer so a later click (or
+  // unmount) can cancel a STALE one — untracked, it can fire after a second
+  // click already started a newer cycle and clobber that cycle's state (or
+  // fire post-unmount).
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear a pending "copied → idle" revert timer on unmount.
+  // biome-ignore lint/plugin: unmount-only timer cleanup — not a state-as-event-handler effect
+  useEffect(
+    () => () => {
+      if (resetTimeoutRef.current !== null) {
+        clearTimeout(resetTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   if (!(context && (runId || hasErrorState))) {
     return null;
   }
 
   const handleClick = async (): Promise<void> => {
+    if (resetTimeoutRef.current !== null) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     setPhase({ kind: 'building' });
     try {
       const bundle = await context.buildBundle({ runId });
       await navigator.clipboard.writeText(bundle);
       setPhase({ kb: formatKb(new TextEncoder().encode(bundle).length), kind: 'copied' });
-      setTimeout(() => setPhase({ kind: 'idle' }), COPIED_RESET_MS);
+      resetTimeoutRef.current = setTimeout(() => {
+        resetTimeoutRef.current = null;
+        setPhase({ kind: 'idle' });
+      }, COPIED_RESET_MS);
     } catch (error) {
       setPhase({
         kind: 'error',

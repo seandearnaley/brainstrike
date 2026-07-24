@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CopyDebugBundleButton } from '../assistant-ui-panel/copy-debug-bundle-button';
 import {
   type DebugBundleBinding,
@@ -101,5 +101,92 @@ describe('CopyDebugBundleButton', () => {
 
     expect(await screen.findByText('Copy failed: db unavailable')).toBeInTheDocument();
     expect(clipboardWriteText).not.toHaveBeenCalled();
+  });
+});
+
+describe('CopyDebugBundleButton — revert timer (pinning regressions)', () => {
+  const COPIED_RESET_MS = 3000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not let a stale revert timer clobber a newer copy cycle on rapid double-click', async () => {
+    messagePartsMock.push(
+      runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })
+    );
+    const buildBundle = vi.fn().mockResolvedValue('# BrainStrike Debug Bundle\n\nsome content');
+    wrap({ buildBundle }, <CopyDebugBundleButton />);
+    const button = screen.getByTestId('copy-debug-bundle');
+
+    // First click: resolves to "Copied" at fake-time 0 and schedules a
+    // revert timer due at t=3000.
+    await act(async () => {
+      fireEvent.click(button);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+
+    // Let some time pass before the second click so the two revert timers
+    // land at distinct due points.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    // Second click (t=1000): must cancel the FIRST timer and start its own
+    // cycle, due at t=4000.
+    await act(async () => {
+      fireEvent.click(button);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(buildBundle).toHaveBeenCalledTimes(2);
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+
+    // Advance to the FIRST click's original 3s due point (t=3000): the stale
+    // timer must NOT fire — the button must still read the SECOND cycle's
+    // "Copied" state, not have reverted to idle early.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+
+    // Advance the remaining time for the SECOND cycle's own timer (t=4000).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(button).toHaveTextContent('Copy debug bundle');
+  });
+
+  it('clears the pending revert timer on unmount without a setState-after-unmount warning', async () => {
+    messagePartsMock.push(
+      runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })
+    );
+    const buildBundle = vi.fn().mockResolvedValue('# BrainStrike Debug Bundle\n\nsome content');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { unmount } = wrap({ buildBundle }, <CopyDebugBundleButton />);
+    const button = screen.getByTestId('copy-debug-bundle');
+
+    await act(async () => {
+      fireEvent.click(button);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+
+    unmount();
+
+    // If the revert timer were still live, this fires setState on an
+    // unmounted component — React (or a strict-mode test harness) surfaces
+    // that via console.error.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COPIED_RESET_MS);
+    });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
