@@ -1,7 +1,10 @@
 import { Button, ScrollArea } from '@brainstrike/ui';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+
+const boundaryLogger = createLogger('ErrorBoundary');
 
 export interface ErrorBoundaryProps {
   children: ReactNode;
@@ -37,6 +40,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    boundaryLogger.error(
+      'React error boundary caught render error',
+      { componentStack: errorInfo.componentStack },
+      error
+    );
     this.setState({ errorInfo });
     this.props.onError?.(error, errorInfo);
   }
