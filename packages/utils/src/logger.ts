@@ -652,6 +652,10 @@ export function redactSensitiveLogValue(
     return existing;
   }
   const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
+  // Memoize BEFORE any recursion (including the Error-cause walk below): a
+  // cyclic cause chain (err.cause === err, or mutual A<->B) must hit the
+  // WeakMap and terminate — recursing first would loop forever.
+  seen.set(value, redacted);
   if (value instanceof Error) {
     Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
     // `Error.cause` is a non-enumerable own property, so the `Object.entries`
@@ -662,7 +666,6 @@ export function redactSensitiveLogValue(
       redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen);
     }
   }
-  seen.set(value, redacted);
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = [...path, key];
     redacted[key] = isSensitiveLogKey(key, entryPath)

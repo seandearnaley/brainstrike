@@ -14,10 +14,39 @@ import {
   logError,
   logInfo,
   logWarn,
+  redactSensitiveLogValue,
   resetLogger,
   setLogLevel,
   warn,
 } from '../logger';
+
+describe('redactSensitiveLogValue cause chains', () => {
+  it('carries a nested Error cause through redaction', () => {
+    const redacted = redactSensitiveLogValue(
+      new Error('outer', { cause: new Error('root cause') })
+    ) as Record<string, unknown>;
+    expect((redacted['cause'] as Record<string, unknown>)['message']).toBe('root cause');
+  });
+
+  it('terminates on a self-referential cause cycle', () => {
+    const cyclic = new Error('self');
+    (cyclic as Error & { cause: unknown }).cause = cyclic;
+    const redacted = redactSensitiveLogValue(cyclic) as Record<string, unknown>;
+    // The memoized redacted object breaks the cycle: cause resolves to itself.
+    expect(redacted['cause']).toBe(redacted);
+    expect(redacted['message']).toBe('self');
+  });
+
+  it('terminates on a mutual cause cycle', () => {
+    const a = new Error('a');
+    const b = new Error('b', { cause: a });
+    (a as Error & { cause: unknown }).cause = b;
+    const redacted = redactSensitiveLogValue(a) as Record<string, unknown>;
+    const causeB = redacted['cause'] as Record<string, unknown>;
+    expect(causeB['message']).toBe('b');
+    expect(causeB['cause']).toBe(redacted);
+  });
+});
 
 interface BrowserWriteMethods {
   error?: (value: unknown) => void;
