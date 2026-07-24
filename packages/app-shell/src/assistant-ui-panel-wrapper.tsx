@@ -756,17 +756,16 @@ export function AssistantUiPanelWrapper({
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
-  // Workspace-global assistant memory: a stable resource id (or an explicit
-  // override), never the focused root path. See assistant-memory-resource.ts.
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
-  const { operatingRoot, persistThreadRootBinding, threadRootBinding } =
+  const { operatingRoot, persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
     useAssistantThreadRootBinding({
       activeRootCount,
       assistantThreadRepository,
       ...(mainRootId && rootDescriptors?.[mainRootId]
-        ? { currentMainRoot: { ...rootDescriptors[mainRootId], rootId: mainRootId } }
+        ? { currentMainRoot: rootDescriptors[mainRootId] }
         : {}),
+      database: db,
       memoryResourceId,
       selectedMemoryThreadId,
     });
@@ -1007,9 +1006,10 @@ export function AssistantUiPanelWrapper({
     // Only the desktop data-stream server runs the runtime permission gate;
     // mirrors the `permissionPolicyRequest` useMemo transport gate above.
     permissionEnforceable: localChatTransport === 'data-stream',
-    ...(localChatTransport === 'data-stream' && threadRootBinding
+    ...(localChatTransport === 'data-stream'
       ? {
           persistThreadRootBinding,
+          resolveThreadRootBinding,
           threadRootBinding,
         }
       : {}),

@@ -683,19 +683,23 @@ one" comment):
   assistant's root.
 
 **Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
-wrapper attaches `mainRootId` (= `activeRootIds[0]`) and `mainRootPath` (the
-descriptor's absolute path) per request. They are an ORDERING HINT for the
-server — a preference, not a security boundary; the id is a durable identity
-(DB `roots.id` since storage v5), NEVER a path. `workspaceRootPath` stays the
-FOCUSED root (selection scope) — unchanged.
+wrapper attaches `mainRootId` (= adapter `activeRootIds[0]`) and `mainRootPath`
+(the descriptor's absolute path) per request. They are an ORDERING HINT for the
+server — a preference, not a security boundary. The server may use the path to
+match that ordering hint after reconnects; neither field is the durable
+thread-binding authority. `workspaceRootPath` stays the FOCUSED root (selection
+scope) — unchanged.
 
 **Thread/run binding:** Desktop data-stream threads persist their first
 request's explicit Main root in `mastra_threads.metadata` as
 `operatingRootId` plus display-only name/path fields. The durable id, not the
-path or label, is the execution authority. Later global Main/Focused changes do
-not retarget that thread or its composer chip. Request preparation reuses the
-persisted id and emits `boundWorkspaceRootId`; approval/resume preparation is
-pinned by an in-memory copy before the metadata-store rerender can land.
+path or label, is the execution authority. At first request preparation,
+app-shell resolves the mounted adapter root path to exactly one live DB
+`roots.id`; it fails visibly rather than persisting an adapter id or guessing.
+Later global Main/Focused changes do not retarget that thread or its composer
+chip. Request preparation reuses the persisted id and emits
+`boundWorkspaceRootId`; approval/resume preparation is pinned by an in-memory
+copy before the metadata-store rerender can land.
 Desktop validates that id against its server-loaded live DB roots and orders the
 bound root first for hooks and the initial manifest. An omitted native
 workspace-tool `root` resolves to the binding. An explicit selector for another

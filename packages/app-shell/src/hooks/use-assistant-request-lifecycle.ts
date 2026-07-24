@@ -49,6 +49,9 @@ interface UseAssistantRequestLifecycleArgs {
   readonly providerOptions: Record<string, unknown> | undefined;
   readonly requestData: Record<string, unknown>;
   readonly resolvedModelName: string | undefined;
+  readonly resolveThreadRootBinding?: () => Promise<
+    PersistedAssistantThreadRootBinding | undefined
+  >;
   readonly selectedMemoryThreadId: string | undefined;
   readonly selectedProvider: SupportedProvider | null;
   readonly threadRootBinding?: AssistantThreadRootBinding | undefined;
@@ -82,6 +85,7 @@ async function resolvePreparedThreadRootBinding(args: {
   readonly current: ThreadRootBindingRefValue | null;
   readonly persist?: (binding: PersistedAssistantThreadRootBinding) => Promise<void> | undefined;
   readonly proposed?: AssistantThreadRootBinding | undefined;
+  readonly resolve: (() => Promise<PersistedAssistantThreadRootBinding | undefined>) | undefined;
   readonly threadId?: string | undefined;
 }): Promise<PersistedAssistantThreadRootBinding | undefined> {
   if (args.proposed?.persisted) {
@@ -91,13 +95,15 @@ async function resolvePreparedThreadRootBinding(args: {
   if (current && current.threadId === args.threadId) {
     return current.binding;
   }
-  if (!args.proposed) {
+  const binding = args.proposed
+    ? toPersistedThreadRootBinding(args.proposed)
+    : await args.resolve?.();
+  if (!binding) {
     return;
   }
   if (!(args.threadId && args.persist)) {
     throw new Error('Assistant thread root binding cannot be persisted.');
   }
-  const binding = toPersistedThreadRootBinding(args.proposed);
   await args.persist(binding);
   return binding;
 }
@@ -200,6 +206,7 @@ export function useAssistantRequestLifecycle({
   planModeAvailable,
   providerOptions,
   requestData,
+  resolveThreadRootBinding,
   resolvedModelName,
   selectedMemoryThreadId,
   selectedProvider,
@@ -299,6 +306,7 @@ export function useAssistantRequestLifecycle({
       current: threadRootBindingRef.current,
       ...(persistThreadRootBinding ? { persist: persistThreadRootBinding } : {}),
       ...(threadRootBinding ? { proposed: threadRootBinding } : {}),
+      resolve: resolveThreadRootBinding,
       ...(selectedMemoryThreadId ? { threadId: selectedMemoryThreadId } : {}),
     });
     if (activeThreadRootBinding && selectedMemoryThreadId) {
@@ -375,6 +383,7 @@ export function useAssistantRequestLifecycle({
     planModeAvailable,
     providerOptions,
     requestData,
+    resolveThreadRootBinding,
     resolvedModelName,
     selectedMemoryThreadId,
     selectedProvider,

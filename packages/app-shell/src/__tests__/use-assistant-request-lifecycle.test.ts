@@ -127,6 +127,11 @@ describe('useAssistantRequestLifecycle', () => {
 
   it('persists the first explicit thread root and pins the prepared run to it', async () => {
     const persistThreadRootBinding = vi.fn(async () => {});
+    const resolveThreadRootBinding = vi.fn(async () => ({
+      displayName: 'ProjectA',
+      path: '/workspace-a',
+      rootId: 'db-root-a',
+    }));
     const repository = createRepositoryStub({
       createThreadRun: vi.fn(async (input) => ({
         ...input,
@@ -147,14 +152,9 @@ describe('useAssistantRequestLifecycle', () => {
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
+        resolveThreadRootBinding,
         selectedMemoryThreadId: 'thread-a',
         selectedProvider: 'openai',
-        threadRootBinding: {
-          displayName: 'ProjectA',
-          path: '/workspace-a',
-          persisted: false,
-          rootId: 'root-a',
-        },
       })
     );
 
@@ -163,13 +163,14 @@ describe('useAssistantRequestLifecycle', () => {
     expect(persistThreadRootBinding).toHaveBeenCalledWith({
       displayName: 'ProjectA',
       path: '/workspace-a',
-      rootId: 'root-a',
+      rootId: 'db-root-a',
     });
     expect(prepared).toMatchObject({
-      boundWorkspaceRootId: 'root-a',
-      mainRootId: 'root-a',
+      boundWorkspaceRootId: 'db-root-a',
+      mainRootId: 'db-root-a',
       mainRootPath: '/workspace-a',
     });
+    expect(resolveThreadRootBinding).toHaveBeenCalledOnce();
   });
 
   it('keeps the first run root across an approval-style second preparation', async () => {
@@ -197,14 +198,13 @@ describe('useAssistantRequestLifecycle', () => {
           providerOptions: undefined,
           requestData: baseRequestData,
           resolvedModelName: 'gpt-5.2',
-          selectedMemoryThreadId: 'thread-a',
-          selectedProvider: 'openai',
-          threadRootBinding: {
+          resolveThreadRootBinding: async () => ({
             displayName: rootId,
             path: `/${rootId}`,
-            persisted: false,
-            rootId,
-          },
+            rootId: `db-${rootId}`,
+          }),
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
         }),
       { initialProps: { rootId: 'root-a' } }
     );
@@ -213,8 +213,8 @@ describe('useAssistantRequestLifecycle', () => {
     rerender({ rootId: 'root-b' });
     const resumed = await act(async () => result.current.prepareRequestData());
 
-    expect(first['boundWorkspaceRootId']).toBe('root-a');
-    expect(resumed['boundWorkspaceRootId']).toBe('root-a');
+    expect(first['boundWorkspaceRootId']).toBe('db-root-a');
+    expect(resumed['boundWorkspaceRootId']).toBe('db-root-a');
     expect(persistThreadRootBinding).toHaveBeenCalledTimes(1);
   });
 

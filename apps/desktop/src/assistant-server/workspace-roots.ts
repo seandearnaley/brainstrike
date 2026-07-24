@@ -4,6 +4,8 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('AssistantWorkspaceRoots');
+// Process-lifetime revocation tombstones protect in-flight runtime snapshots.
+// An id clears only after a verified live DB reload observes that exact root.
 const disconnectedRootIds = new Set<string>();
 const REDACTED_ROOT_ID_LOG_VALUE = { redacted: true } as const;
 
@@ -64,13 +66,15 @@ function describeRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
 
 function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
   const maxChars = 800;
-  const fullDescription = roots.map((root) => `${root.displayName} (id ${root.rootId})`).join(', ');
+  const fullDescription = roots
+    .map((root) => `${root.displayName} (id ${rootIdForMessage(root.rootId)})`)
+    .join(', ');
   if (fullDescription.length <= maxChars) {
     return fullDescription;
   }
   const descriptions: string[] = [];
   for (const root of roots) {
-    const description = `${root.displayName} (id ${root.rootId})`;
+    const description = `${root.displayName} (id ${rootIdForMessage(root.rootId)})`;
     const candidateDescriptions = [...descriptions, description];
     const omitted = roots.length - candidateDescriptions.length;
     const overflow = `${omitted} more not shown. Call listWorkspaceContext for the complete root inventory`;
@@ -94,10 +98,14 @@ function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
 function assertRootStillConnected(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot {
   if (disconnectedRootIds.has(root.rootId)) {
     throw new ToolInputError(
-      `Workspace root "${root.displayName}" (id ${root.rootId}) was disconnected during this run. Reconnect it before continuing.`
+      `Workspace root "${root.displayName}" (id ${rootIdForMessage(root.rootId)}) was disconnected during this run. Reconnect it before continuing.`
     );
   }
   return root;
+}
+
+function rootIdForMessage(rootId: string): string {
+  return path.isAbsolute(rootId) ? 'path-backed id redacted' : rootId;
 }
 
 function rootIdForLog(root: RuntimeWorkspaceRoot): string | typeof REDACTED_ROOT_ID_LOG_VALUE {
@@ -169,7 +177,7 @@ export function resolveWorkspaceRoot(
     const boundRoot = roots.find((root) => root.rootId === boundRootId);
     if (!boundRoot) {
       throw new ToolInputError(
-        `The bound workspace root (id ${boundRootId}) is no longer open. Reconnect that folder before continuing this thread.`
+        `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
       );
     }
     logger.info('Resolved native workspace tool root.', {

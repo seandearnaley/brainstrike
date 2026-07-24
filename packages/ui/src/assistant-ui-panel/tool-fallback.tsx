@@ -243,7 +243,7 @@ export function summarizeResult(result: ToolResult): string | undefined {
   return;
 }
 
-export function extractResolvedRootName(result: ToolResult): string | undefined {
+function extractResolvedRootName(result: ToolResult): string | undefined {
   if (!(result && typeof result === 'object' && !Array.isArray(result))) {
     return;
   }

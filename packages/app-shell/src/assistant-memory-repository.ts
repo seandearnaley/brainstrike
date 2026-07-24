@@ -994,6 +994,22 @@ function assertOptionalThreadMetadataString(value: string | undefined, label: st
   }
 }
 
+function assertCompleteOperatingRootMetadata(metadata: {
+  readonly operatingRootDisplayName?: string | undefined;
+  readonly operatingRootId?: string | undefined;
+  readonly operatingRootPath?: string | undefined;
+}): void {
+  const hasAnyOperatingRootMetadata = Boolean(
+    metadata.operatingRootDisplayName || metadata.operatingRootId || metadata.operatingRootPath
+  );
+  if (
+    hasAnyOperatingRootMetadata &&
+    !(metadata.operatingRootDisplayName && metadata.operatingRootId)
+  ) {
+    throw new Error('Assistant thread operating-root metadata is incomplete.');
+  }
+}
+
 function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
     return;
@@ -1009,6 +1025,11 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   const operatingRootPath = optionalString(value['operatingRootPath']);
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
+  assertCompleteOperatingRootMetadata({
+    ...(operatingRootDisplayName ? { operatingRootDisplayName } : {}),
+    ...(operatingRootId ? { operatingRootId } : {}),
+    ...(operatingRootPath ? { operatingRootPath } : {}),
+  });
 
   if (icon) {
     metadata.icon = icon;
@@ -1059,6 +1080,7 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
+  assertCompleteOperatingRootMetadata(metadata);
   assertOptionalThreadMetadataString(metadata.provider, 'provider');
   assertOptionalThreadMetadataString(metadata.model, 'model');
   assertOptionalThreadMetadataString(

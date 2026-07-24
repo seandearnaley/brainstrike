@@ -62,6 +62,26 @@ describe('resolveWorkspaceRoot', () => {
     expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/i);
   });
 
+  it('redacts a path-backed legacy bound id from a missing-root error', () => {
+    const legacyRootId = '/Users/me/SecretProject';
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: legacyRootId,
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).toThrow(/path-backed id redacted/i);
+    expect(() =>
+      resolveWorkspaceRoot(
+        runtime({
+          boundWorkspaceRootId: legacyRootId,
+          workspaceRoots: [ROOT_A, ROOT_B],
+        })
+      )
+    ).not.toThrow(legacyRootId);
+  });
+
   it('returns the sole root when there is exactly one and no qualifier', () => {
     expect(resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A] }))).toEqual(ROOT_A);
   });
