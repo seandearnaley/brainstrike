@@ -8,6 +8,7 @@ import {
   type HookTrustRequest,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
+  mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
@@ -1246,7 +1247,13 @@ function buildOpenRouterOptions(
   const autoEffort =
     reasoningEffort === undefined && modelName
       ? resolveOpenRouterAutoRuntimeProfile(
-          metadata?.id === modelName ? metadata : getLlmModelDefinition('openrouter', modelName),
+          // Live metadata cannot carry our catalog-only `autoEffort`, so it is
+          // merged back in rather than selected away (see
+          // mergeOpenRouterAutoProfileModel).
+          mergeOpenRouterAutoProfileModel(
+            metadata?.id === modelName ? metadata : undefined,
+            getLlmModelDefinition('openrouter', modelName)
+          ) ?? getLlmModelDefinition('openrouter', modelName),
           settings.maxOutputTokens
         ).reasoningEffort
       : undefined;

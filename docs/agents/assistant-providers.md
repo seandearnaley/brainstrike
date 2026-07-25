@@ -280,15 +280,23 @@
   provider-wide 4,096-token cap. The shared contract resolves its output limit
   as `min(model max completion, 32,000)` when live/static model metadata
   publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
-  ceiling. When live reasoning metadata says reasoning is enabled by default,
-  Auto prefers a supported completion-biased thinking effort (`minimal`, then
-  `low`) over disabling reasoning; `none` is selected only when neither is
-  available. An optional model whose available efforts are only
-  `medium`/`high`/`xhigh`/`max`, or which publishes no bounded effort, receives
-  `reasoning.enabled=false` in Auto; the user may still explicitly select every
-  supported effort. This prevents an unbounded
-  provider default from silently consuming the answer budget without claiming
-  an invented reasoning-to-answer token split. OpenRouter effort is a provider
+  ceiling. When reasoning metadata says reasoning is enabled by default, the
+  Auto effort is DECLARED, never inferred (BST-833): `reasoning.autoEffort`
+  from our catalog if recorded, else the vendor's `defaultEffort`. With neither
+  declared, Auto sends NO effort and the provider applies its own default —
+  inventing one would be a silent fallback.
+  Do NOT reintroduce the old rule, which scanned `supportedEfforts` for a
+  "completion-biased" effort (`minimal`/`low`) and substituted `none` when it
+  found none. That discarded the model's own declared default invisibly:
+  GLM-5.2 declares `defaultEffort: 'high'` and advertises no low tier, so it
+  lost reasoning entirely — for a reason unrelated to any measured budget risk,
+  and with nothing surfaced to the user.
+  A model that must reason less under Auto records `autoEffort` in the catalog
+  (`'none'` switches it off deliberately and greppably) — `moonshotai/kimi-k3`
+  does exactly this, because its `max` vendor default spends the whole output
+  budget reasoning. Recording a fact we cannot get from OpenRouter is preferred
+  over deriving it. The answer budget is protected by the output ceiling above,
+  which is independent of effort. OpenRouter effort is a provider
   hint, not a deterministic reservation. The resolved output value drives both
   Mastra `modelSettings` and the input-context reservation. Explicit reasoning
   choices remain authoritative, and output values above a known model maximum

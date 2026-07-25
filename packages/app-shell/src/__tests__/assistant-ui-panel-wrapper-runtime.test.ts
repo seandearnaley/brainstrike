@@ -871,10 +871,12 @@ describe('assistant runtime helpers', () => {
         reasoning: { effort: 'low' },
       },
     });
+    // Auto now follows GLM's declared `defaultEffort` instead of being coerced
+    // to `none` because it advertises no low tier (BST-833).
     expect(buildProviderOptions('openrouter', 'z-ai/glm-5.2', {})).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { enabled: false },
+        reasoning: { effort: 'high' },
       },
     });
     expect(
