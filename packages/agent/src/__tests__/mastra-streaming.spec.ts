@@ -1489,6 +1489,13 @@ describe('mastra streaming integration', () => {
       expect(chunks).toContainEqual(
         expect.objectContaining({
           event: expect.objectContaining({
+            // `detail` carries the SPECIFIC reason. The label is the same
+            // generic "Assistant run failed" for every termination, and the
+            // mapper derives `thread_runs.error` from this event — so without a
+            // detail here a failed run persists a signal-free string. Pinned
+            // end-to-end because the mapper's own tests build this event by
+            // hand and would stay green if the helper stopped populating it.
+            detail: expect.stringMatching(/arguments within 35ms/i),
             kind: 'run.failed',
             metadata: expect.objectContaining({
               code: 'tool_call_input_streaming_timeout',

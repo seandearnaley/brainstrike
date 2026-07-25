@@ -124,6 +124,48 @@ Output-limit finishes are terminal failures, not successful completions:
 `finishReason: length` emits `run.failed`, an error finish, and a failed durable
 run outcome.
 
+**EVERY error finish is a failed durable outcome, not just `length`.** All three
+parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
+`makeToolCallInputTimeoutTermination`. This was NOT true until 2026-07-25:
+`getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
+termination helpers already emit the human detail as a visible text-delta, so a
+message here would double-report it), and `terminalFailureText` was only ever
+assigned from that message, so an error finish fell through to
+`{status: 'completed', error: null}`. A provider failure therefore emitted a
+`run.failed` run event while `thread_runs` recorded the run as SUCCEEDED — the
+ledger contradicted its own events, and the debug bundle's Failure summary
+(which reads `thread_runs`) reported success for exactly the runs it exists to
+diagnose.
+
+`handleFinish` now sets `terminalFailureText` for an `'error'` finish without
+emitting a visible message, taking the text from the preceding `run.failed`
+event's label and falling back to `ERROR_FINISH_FALLBACK_TEXT`. Two paired tests
+in `data-stream-session.spec.ts` keep this honest: one pins the run-event-derived
+text, one pins the bare-finish fallback — either alone would pass without the
+other's mechanism working. Do not "simplify" this by making
+`getAbnormalFinishMessage` return a string for `'error'`; that reintroduces the
+duplicate visible message. `tool-calls` and `stop` correctly remain
+`completed` — they are intermediate/normal finishes, not terminals.
+
+The durable text comes from the `run.failed` event's **`detail`**, not its
+`label`: all three terminations share the generic label "Assistant run failed",
+so persisting the label alone yields a correct status with no forensic value.
+`makeRunFailedChunk` exists to carry that detail. It is a separate helper rather
+than another optional parameter on `makeRunEventChunk` because `detail` and
+`timestamp` are both `string`, so a positional slip between them would
+type-check cleanly while writing a timestamp into the detail field.
+
+**NOT closed by this: `finishReason: 'unknown'` still has the same split.**
+`makeTerminalRunEvent` emits `run.failed` for anything that is not
+`stop`/`tool-calls`, so `unknown` produces a `run.failed` event while the
+outcome stays `completed`. Do NOT simply add `'unknown'` to the error-finish
+condition: `resolveFinishReason` also returns `'unknown'` when a provider omits
+`finishReason` on an otherwise-normal final chunk, so that would mark healthy
+runs failed. The run-event side and the outcome side genuinely disagree about
+what `unknown` means; reconciling them needs one deliberate decision, not a
+reflex at either site.
+
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
 lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
