@@ -31,6 +31,7 @@ interface ScriptedBody {
 function createScriptedBody(abortSignal: AbortSignal): ScriptedBody {
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
   let cancelled = false;
+  let closed = false;
   let errored = false;
   const stream = new ReadableStream<Uint8Array>({
     cancel() {
@@ -41,7 +42,12 @@ function createScriptedBody(abortSignal: AbortSignal): ScriptedBody {
     },
   });
   const errorOnAbort = () => {
-    if (cancelled || errored) {
+    // Aborting a fully-read/closed body is a no-op, as with real fetch: once
+    // the response body ended, a later abort has nothing left to error. (The
+    // Streams spec already makes `error()` on a closed controller a silent
+    // no-op; tracking `closed` keeps this fake's own state honest so
+    // `errored` never claims a failure that did not happen.)
+    if (cancelled || closed || errored) {
       return;
     }
     errored = true;
@@ -65,7 +71,8 @@ function createScriptedBody(abortSignal: AbortSignal): ScriptedBody {
       }
     },
     finish: () => {
-      if (!(cancelled || errored)) {
+      if (!(cancelled || closed || errored)) {
+        closed = true;
         controller?.close();
       }
     },

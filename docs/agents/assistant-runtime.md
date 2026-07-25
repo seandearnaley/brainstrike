@@ -388,8 +388,14 @@ abort reason after the loop (an aborted run must never fabricate a successful
 finish). Completion wins only after the buffered terminal `complete` message
 has already been yielded: because that marker is deferred until decoder EOF, a
 superseding abort in the yield-to-iterator-EOF gap must not rewrite the finished
-run as cancelled. The usage/context-breakdown taps are abort-gated so a draining
-stream cannot report late usage. Real faults stay loud: pre-cancellation
+run as cancelled. That decision reads the flush-time flag surfaced by
+`deferMessageFinishUntilFlush`, NEVER the accumulated message's status:
+`AssistantMessageAccumulator.flush()` fabricates a terminal status for any
+stream that ends while still running, so message status is terminal on EVERY
+drained EOF and cannot distinguish "run finished" from "stream was cut" (using
+it marks every aborted run complete — proven by the abort-reason unit test,
+whose expected rejection then never fires). The usage/context-breakdown taps
+are abort-gated so a draining stream cannot report late usage. Real faults stay loud: pre-cancellation
 pipeline/transport errors propagate to the consumer, post-cancellation
 non-abort drain failures log with diagnostic context. Do NOT re-route the
 decoded pipeline around this boundary or pass raw `response.body` into the
