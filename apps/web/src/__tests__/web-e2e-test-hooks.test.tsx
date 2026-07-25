@@ -43,6 +43,8 @@ describe('WebE2ETestHooks', () => {
       qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
+      readResetRowCounts: vi.fn(),
+      seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
     };
     usePGliteDatabaseMock.mockReturnValue({
@@ -65,6 +67,8 @@ describe('WebE2ETestHooks', () => {
       qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
+      readResetRowCounts: vi.fn(),
+      seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
     };
     usePGliteDatabaseMock.mockReturnValue(null);

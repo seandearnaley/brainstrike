@@ -51,6 +51,16 @@ export interface WebE2EEmbeddingQualification {
   readonly finite: boolean;
 }
 
+export interface WebE2EResetRowCounts {
+  readonly fileChunks: number;
+  readonly fileRecords: number;
+  readonly workflowSnapshots: number;
+}
+
+interface CountRow {
+  readonly count: number | string;
+}
+
 export interface WebE2ETestHooks {
   readonly dbPath: string;
   readonly qualifyDatabaseExtensions: () => Promise<WebE2EDatabaseQualification>;
@@ -59,6 +69,8 @@ export interface WebE2ETestHooks {
   ) => Promise<WebE2EEmbeddingQualification>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
+  readonly readResetRowCounts: () => Promise<WebE2EResetRowCounts>;
+  readonly seedResetProbeRows: () => Promise<void>;
   readonly syncDatabase: () => Promise<void>;
 }
 
@@ -167,6 +179,68 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         );
         const row = result.rows[0];
         return row ? parseModelEnabled(row.is_enabled) : null;
+      },
+      readResetRowCounts: async (): Promise<WebE2EResetRowCounts> => {
+        const countOf = async (table: string): Promise<number> => {
+          const result = await db.query<CountRow>(`SELECT COUNT(*)::int AS count FROM ${table}`);
+          const value = result.rows[0]?.count;
+          const parsed = typeof value === 'number' ? value : Number(value);
+          if (!Number.isFinite(parsed)) {
+            throw new Error(`Count for ${table} was not numeric: ${String(value)}`);
+          }
+          return parsed;
+        };
+
+        return {
+          fileChunks: await countOf('file_chunks'),
+          fileRecords: await countOf('file_records'),
+          workflowSnapshots: await countOf('mastra_workflow_snapshot'),
+        };
+      },
+      seedResetProbeRows: async (): Promise<void> => {
+        if (typeof db.exec !== 'function') {
+          throw new Error('Web E2E database handle does not expose exec');
+        }
+        if (typeof db.transaction !== 'function') {
+          throw new Error('Web E2E database handle does not expose transactions');
+        }
+        const fileRecordId = crypto.randomUUID();
+        const chunkId = crypto.randomUUID();
+        const runId = crypto.randomUUID();
+
+        // `mastra_workflow_snapshot` is created lazily by
+        // `PgliteWorkflowsStore.initialize()` and by NO migration, so on a fresh
+        // web profile it is absent. Create it explicitly rather than assuming
+        // the assistant has run — a probe-and-skip seed could not report which
+        // branch the test exercised.
+        await db.exec(`
+          CREATE TABLE IF NOT EXISTS mastra_workflow_snapshot (
+            workflow_name TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            "resourceId" TEXT,
+            snapshot JSONB NOT NULL,
+            "createdAt" TIMESTAMPTZ NOT NULL,
+            "updatedAt" TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (workflow_name, run_id)
+          );
+        `);
+
+        await db.transaction(async (tx) => {
+          await tx.query(
+            'INSERT INTO file_records (id, name, path, size) VALUES ($1, $2, $3, $4)',
+            [fileRecordId, 'reset-probe.txt', `reset-probe://${fileRecordId}`, 42]
+          );
+          await tx.query(
+            'INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, $3)',
+            [chunkId, fileRecordId, 'reset probe chunk']
+          );
+          await tx.query(
+            `INSERT INTO mastra_workflow_snapshot
+               (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW())`,
+            ['reset-probe-workflow', runId, 'reset-probe-resource', '{"status":"suspended"}']
+          );
+        });
       },
       syncDatabase: async (): Promise<void> => {
         if (typeof db.syncToFs !== 'function') {
