@@ -58,12 +58,18 @@ const MIN_STATIC_EDGES = 100;
  * clause skipped the pattern would need a quote immediately after `import`, and a
  * dynamic import has a paren there. Dynamic imports must NOT be edges — they do
  * not participate in init ordering.
+ *
+ * An optional block comment may sit between the boundary character and the
+ * keyword: Terser and rolldown preserve "legal comment" banners (block
+ * comments starting with `/*!`), and one of those between two top-level
+ * imports would otherwise break the anchor and silently drop the second edge.
  */
-const STATIC_IMPORT_PATTERN = /(?:^|[;}\n])\s*import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
+const STATIC_IMPORT_PATTERN =
+  /(?:^|[;}\n])\s*(?:\/\*[\s\S]*?\*\/\s*)?import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
 
 /** `export * from '…'`, `export * as ns from '…'`, `export { a } from '…'`. */
 const STATIC_REEXPORT_PATTERN =
-  /(?:^|[;}\n])\s*export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
+  /(?:^|[;}\n])\s*(?:\/\*[\s\S]*?\*\/\s*)?export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
 
 /** Raw specifier strings for every STATIC edge in one chunk's source text. */
 export function parseStaticChunkSpecifiers(text) {

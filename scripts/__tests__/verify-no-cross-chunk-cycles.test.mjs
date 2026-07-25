@@ -19,7 +19,7 @@
 // POSITIVE (counting a dynamic import as an edge) would block builds over a cycle
 // that physically cannot fire.
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -41,6 +41,11 @@ function cycleNamesOf(files) {
   return findChunkCycles(graphOf(files))
     .map((cycle) => cycle.join(','))
     .sort();
+}
+
+/** Register cleanup for a mkdtempSync'd directory so temp dirs don't accumulate. */
+function cleanUpTempDir(t, directory) {
+  t.after(() => rmSync(directory, { force: true, recursive: true }));
 }
 
 // --- specifier parsing: real bundles are MINIFIED, no whitespace ------------
@@ -67,12 +72,58 @@ test('parses several statements sharing one minified line', () => {
   );
 });
 
+test('parses an import preceded by a preserved legal comment banner', () => {
+  // Terser and rolldown preserve `/*! … */` banners. One sitting between two
+  // top-level imports must not break the statement-boundary anchor — a
+  // dropped edge here could hide a genuine cycle.
+  assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/*! lic */import"./b.js";'), [
+    './a.js',
+    './b.js',
+  ]);
+});
+
+test('parses a re-export preceded by a preserved legal comment banner', () => {
+  assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/*! lic */export*from"./b.js";'), [
+    './a.js',
+    './b.js',
+  ]);
+});
+
 test('IGNORES dynamic import() — it does not participate in init ordering', () => {
   // The false-positive control. Counting these would block builds over cycles
   // that physically cannot fire, and dynamic splitting is used heavily here to
   // keep mermaid/shiki/katex/codemirror off the startup path.
   assert.deepEqual(parseStaticChunkSpecifiers('const m=await import("./lazy.js");'), []);
   assert.deepEqual(parseStaticChunkSpecifiers('x.then(()=>import("./lazy.js"));'), []);
+});
+
+test('IGNORES dynamic import() even when it sits at a statement boundary', () => {
+  // Both cases above are rejected by the statement-boundary anchor alone —
+  // `import` there is never preceded by `;`/`}`/newline/start-of-file. This
+  // case puts a dynamic import right after a `;` instead, so the anchor no
+  // longer rejects it.
+  //
+  // It still comes back empty, but NOT because of the `(` exclusion: the `(`
+  // is immediately followed by a `"`, which the optional clause's character
+  // class always excludes (real dynamic-import arguments are always a bare
+  // string literal), so the clause can never reach a `from` token regardless
+  // of whether `(` itself is excluded. Confirmed by ablation — this assertion
+  // still passes with `(` removed from STATIC_IMPORT_PATTERN's class.
+  assert.deepEqual(parseStaticChunkSpecifiers('const a=1;import("./x.js").then(f);'), []);
+});
+
+test('the `(` exclusion is what stops a dynamic import containing a literal "from"', () => {
+  // The genuine ablation case for the `(` exclusion: an adversarial
+  // dynamic-import-shaped string whose parenthesized argument contains the
+  // literal substring "from" immediately before the specifier's quote, with
+  // no excluded character (quote/`)`/`;`) in between. This is not valid JS —
+  // real dynamic-import arguments never look like this — but the pattern is
+  // plain text matching, not a parser, so it must stay defensive against any
+  // input shaped this way.
+  //
+  // Ablation-verified: with `(` removed from STATIC_IMPORT_PATTERN's
+  // character class, this incorrectly returns ['./x.js'] instead of [].
+  assert.deepEqual(parseStaticChunkSpecifiers('const a=1;import(x from"./x.js");'), []);
 });
 
 // --- graph construction -----------------------------------------------------
@@ -83,13 +134,17 @@ test('edges point only at sibling chunks that actually exist', () => {
     'b.js': 'export const b=1;',
   });
 
-  assert.deepEqual([...(graph.get('a.js') ?? [])], ['b.js']);
+  // Assert the key exists before asserting its contents, so an implementation
+  // that never sets 'a.js' at all cannot pass this by falling through to `??`.
+  assert.ok(graph.has('a.js'));
+  assert.deepEqual([...graph.get('a.js')], ['b.js']);
 });
 
 test('a chunk importing only externals has no edges', () => {
   const graph = graphOf({ 'a.js': 'import{useState}from"react";' });
 
-  assert.deepEqual([...(graph.get('a.js') ?? [])], []);
+  assert.ok(graph.has('a.js'));
+  assert.deepEqual([...graph.get('a.js')], []);
 });
 
 // --- detection controls: each MUST be caught --------------------------------
@@ -163,8 +218,9 @@ test('a long acyclic chain is clean', () => {
  * `main` can be driven with its PRODUCTION thresholds. Lowering the floors for
  * the test would leave the shipped values unexercised.
  */
-function writeGeneratedBundle({ withCycle }) {
+function writeGeneratedBundle(t, { withCycle }) {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'bst861-bundle-'));
+  cleanUpTempDir(t, directory);
   const total = 60;
 
   for (let i = 0; i < total; i++) {
@@ -187,8 +243,8 @@ function writeGeneratedBundle({ withCycle }) {
   return directory;
 }
 
-test('a realistic acyclic bundle clears both floors and reports no cycles', async () => {
-  const directory = writeGeneratedBundle({ withCycle: false });
+test('a realistic acyclic bundle clears both floors and reports no cycles', async (t) => {
+  const directory = writeGeneratedBundle(t, { withCycle: false });
   const result = await findCrossChunkCycles({ directory });
 
   assert.equal(result.chunkCount, 60);
@@ -196,10 +252,10 @@ test('a realistic acyclic bundle clears both floors and reports no cycles', asyn
   assert.deepEqual(result.cycles, []);
 });
 
-test('MONEY TEST: main() rejects a real cyclic bundle at production floors', async () => {
+test('MONEY TEST: main() rejects a real cyclic bundle at production floors', async (t) => {
   // The whole point. Not the pure SCC helper — the shipped entry point, on a
   // directory big enough that no floor short-circuits the verdict.
-  const directory = writeGeneratedBundle({ withCycle: true });
+  const directory = writeGeneratedBundle(t, { withCycle: true });
 
   await assert.rejects(
     () => main({ directory }),
@@ -210,8 +266,9 @@ test('MONEY TEST: main() rejects a real cyclic bundle at production floors', asy
 
 // --- instrument controls (BST-836) ------------------------------------------
 
-test('an empty directory throws rather than reporting a clean bundle', async () => {
+test('an empty directory throws rather than reporting a clean bundle', async (t) => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'bst861-empty-'));
+  cleanUpTempDir(t, directory);
 
   await assert.rejects(
     () => findCrossChunkCycles({ directory }),
@@ -221,11 +278,12 @@ test('an empty directory throws rather than reporting a clean bundle', async () 
   );
 });
 
-test('a bundle whose imports no longer parse throws rather than reporting clean', async () => {
+test('a bundle whose imports no longer parse throws rather than reporting clean', async (t) => {
   // The regression that matters most: if a bundler output change stops the
   // import regex matching, edge count collapses to 0 and every future build
   // reports a clean bill of health forever.
   const directory = mkdtempSync(path.join(os.tmpdir(), 'bst861-noedges-'));
+  cleanUpTempDir(t, directory);
   for (let i = 0; i < 60; i++) {
     writeFileSync(path.join(directory, `chunk-${i}.js`), `export const x=${i};`);
   }
