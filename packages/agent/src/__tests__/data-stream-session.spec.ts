@@ -657,6 +657,86 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
+  // A provider failure terminates via `makeProviderErrorTermination`, whose
+  // chunk sequence is: the visible text-delta, a `run.failed` run event, then an
+  // error finish (`finishReason: 'error'`). The durable outcome MUST be
+  // `failed` — `docs/agents/assistant-runtime.md` states that a terminal
+  // failure emits "run.failed, an error finish, and a failed durable run
+  // outcome". Recording it as `completed` makes `thread_runs` contradict the
+  // `run.failed` run event, and makes the debug bundle's Failure summary — which
+  // reads `thread_runs` — report success for exactly the runs it exists to
+  // diagnose.
+  it('records a provider-error finish as a FAILED terminal outcome, not completed', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'The model request failed: upstream 429' },
+      {
+        event: {
+          id: 'run-event-provider-failure',
+          kind: 'run.failed',
+          label: 'Assistant run failed',
+          status: 'failed',
+          timestamp: '2026-07-25T00:00:00.000Z',
+        },
+        type: 'run-event',
+      },
+      {
+        finishReason: 'error',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-provider-error-finish',
+      sessionId: 'provider-error-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const outcome = session.getTerminalOutcome();
+
+    expect(outcome.status).toBe('failed');
+    // Pinned exactly, not `toBeTruthy()`: a loose assertion would pass whether
+    // the text came from the run event's label or from the generic fallback,
+    // leaving the run-event wiring untested. The companion case below pins the
+    // fallback, so the two together prove which source was used.
+    expect(outcome.error).toBe('Assistant run failed');
+    // The visible text the termination helper already emitted must not be
+    // duplicated by the mapper's own failure fallback.
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+    expect(visibleText).toBe('The model request failed: upstream 429');
+  });
+
+  // Companion to the case above: an error finish with NO preceding `run.failed`
+  // event must still be terminal. This is what makes the pinned text above
+  // meaningful — if the mapper ignored the run event, this case and that one
+  // would produce identical text and neither would prove anything.
+  it('records an error finish as failed even with no run.failed event to name it', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        finishReason: 'error',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-bare-error-finish',
+      sessionId: 'bare-error-finish',
+    });
+
+    await readResponse(session.createResponse());
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: 'Assistant run failed.',
+      status: 'failed',
+    });
+  });
+
   it('does not surface intermediate tool-call finishes as visible errors', async () => {
     const chunks: StreamChunk[] = [
       {

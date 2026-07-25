@@ -124,6 +124,30 @@ Output-limit finishes are terminal failures, not successful completions:
 `finishReason: length` emits `run.failed`, an error finish, and a failed durable
 run outcome.
 
+**EVERY error finish is a failed durable outcome, not just `length`.** All three
+parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
+`makeToolCallInputTimeoutTermination`. This was NOT true until 2026-07-25:
+`getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
+termination helpers already emit the human detail as a visible text-delta, so a
+message here would double-report it), and `terminalFailureText` was only ever
+assigned from that message, so an error finish fell through to
+`{status: 'completed', error: null}`. A provider failure therefore emitted a
+`run.failed` run event while `thread_runs` recorded the run as SUCCEEDED — the
+ledger contradicted its own events, and the debug bundle's Failure summary
+(which reads `thread_runs`) reported success for exactly the runs it exists to
+diagnose.
+
+`handleFinish` now sets `terminalFailureText` for an `'error'` finish without
+emitting a visible message, taking the text from the preceding `run.failed`
+event's label and falling back to `ERROR_FINISH_FALLBACK_TEXT`. Two paired tests
+in `data-stream-session.spec.ts` keep this honest: one pins the run-event-derived
+text, one pins the bare-finish fallback — either alone would pass without the
+other's mechanism working. Do not "simplify" this by making
+`getAbnormalFinishMessage` return a string for `'error'`; that reintroduces the
+duplicate visible message. `tool-calls` and `stop` correctly remain
+`completed` — they are intermediate/normal finishes, not terminals.
+
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
 lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
