@@ -18,6 +18,12 @@ const PROCESS_TREE_TERM_GRACE_MS = 2000;
 const PROCESS_TREE_KILL_GRACE_MS = 2000;
 const PROFILE_REMOVAL_RETRIES = 3;
 const PROFILE_REMOVAL_RETRY_DELAY_MS = 150;
+const PROFILE_PREFIX = 'brainstrike-agent-devtools-';
+const OWNER_MARKER_FILENAME = 'agent-devtools-owner.json';
+const LEGACY_REPORT_LIMIT = 10;
+// `os.uptime()` has second granularity; require a marker to predate the boot by
+// a clear margin so a freshly written one is never mistaken for a pre-boot one.
+const BOOT_TIME_MARGIN_MS = 60_000;
 const MAC_AGENT_DEBUG_APP_NAME = 'BrainStrike Agent Debug';
 const MAC_AGENT_DEBUG_BUNDLE_ID = 'com.brainstrike.desktop.agent-debug';
 
@@ -272,15 +278,247 @@ async function pathExists(target) {
   }
 }
 
+/**
+ * Record which launcher owns a profile, so a later run can tell an abandoned
+ * profile from a concurrent session.
+ *
+ * The marker lives at the profile root, which is also `BRAINSTRIKE_DB_ROOT_PATH`.
+ * That is safe because the database only ever joins `<root>/profiles/<profile>`
+ * onto this path and never enumerates the root itself.
+ */
+export async function writeProfileOwnerMarker(userDataDir, overrides = {}) {
+  const marker = {
+    pgid: null,
+    pid: process.pid,
+    platform: process.platform,
+    startedAtMs: Date.now(),
+    ...overrides,
+  };
+  await fs.writeFile(
+    path.join(userDataDir, OWNER_MARKER_FILENAME),
+    `${JSON.stringify(marker, null, 2)}\n`
+  );
+  return marker;
+}
+
+/**
+ * Read a profile's owner marker, or null when the profile cannot prove who owns
+ * it. A missing or malformed marker is not an error: profiles created before
+ * this marker existed are legitimately markerless, and a launcher killed
+ * between `mkdtemp` and the marker write leaves a half-built one. Both are
+ * reported rather than removed, because neither can be proven abandoned.
+ */
+export async function readProfileOwnerMarker(userDataDir) {
+  let raw;
+  try {
+    raw = await fs.readFile(path.join(userDataDir, OWNER_MARKER_FILENAME), 'utf8');
+  } catch {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Number.isInteger(parsed?.pid) || parsed.pid <= 0) {
+      return null;
+    }
+    return {
+      pgid: Number.isInteger(parsed?.pgid) && parsed.pgid > 0 ? parsed.pgid : null,
+      pid: parsed.pid,
+      platform: typeof parsed?.platform === 'string' ? parsed.platform : null,
+      startedAtMs: Number.isInteger(parsed?.startedAtMs) ? parsed.startedAtMs : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wall-clock time of the current boot. A marker written before it cannot
+ * describe a running process, whatever its recorded pid now probes as.
+ */
+export function resolveBootTimeMs(uptime = os.uptime, now = Date.now) {
+  return now() - uptime() * 1000;
+}
+
+/**
+ * Probe whether a recorded owner is still running. Every uncertain answer must
+ * resolve to "alive" so the sweep can only ever under-delete: a recycled pid or
+ * a pid owned by another user (EPERM) protects a profile that might be live,
+ * where the cost is a retained directory rather than a destroyed session.
+ */
+export function isOwnerAlive(pid, kill = process.kill) {
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== 'ESRCH';
+  }
+}
+
+/**
+ * Reclaim sibling profiles whose owning launcher is provably gone.
+ *
+ * The in-process cleanup path covers every exit this launcher can observe, but
+ * SIGKILL, a panic, and loss of power cannot run a handler at all, and nothing
+ * reclaims `$TMPDIR` while a machine stays up — 121 profiles totalling 262 GB
+ * had accumulated over a single eleven-day uptime when this was written.
+ * Because the profile doubles as `BRAINSTRIKE_DB_ROOT_PATH`, each abandoned one
+ * holds an entire PGlite cluster, so the leak is measured in gigabytes rather
+ * than kilobytes.
+ *
+ * This is opportunistic hygiene, not the ownership guarantee. It removes only
+ * what it can prove is dead, and never fails a launch: the run's own profile
+ * stays fail-loud through `removeUserDataDir`, while anything found here that
+ * resists removal is reported to the caller and left alone.
+ *
+ * A dead launcher pid is NOT sufficient proof on POSIX. `pnpm dev` is spawned
+ * detached, so SIGKILLing the launcher leaves the whole tree reparented and
+ * still writing to `BRAINSTRIKE_DB_ROOT_PATH` -- which is this directory.
+ * Reclaiming on the pid alone would `rm -rf` a live PGlite cluster, and on
+ * macOS would also delete the running app's own `electron-dist` bundle. The
+ * owned process group must be proven empty as well.
+ */
+export async function sweepStaleProfiles(options = {}) {
+  const {
+    bootTimeMs = resolveBootTimeMs(),
+    currentUserDataDir,
+    hasLiveProcessGroupMembers: groupHasMembers = hasLiveProcessGroupMembers,
+    isOwnerAlive: ownerAlive = isOwnerAlive,
+    removeProfile = removeUserDataDir,
+    tempDirectory = os.tmpdir(),
+  } = options;
+  const result = { failed: [], legacy: [], removed: [], scanError: null, skippedLive: [] };
+
+  let entries;
+  try {
+    entries = await fs.readdir(tempDirectory, { withFileTypes: true });
+  } catch (error) {
+    result.scanError = error;
+    return result;
+  }
+
+  const owned = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(PROFILE_PREFIX))
+    .map((entry) => path.join(tempDirectory, entry.name))
+    .sort();
+
+  for (const userDataDir of owned) {
+    if (currentUserDataDir && path.resolve(userDataDir) === path.resolve(currentUserDataDir)) {
+      continue;
+    }
+
+    const marker = await readProfileOwnerMarker(userDataDir);
+    if (!marker) {
+      result.legacy.push(userDataDir);
+      continue;
+    }
+
+    const disposition = await classifyProfile(marker, {
+      bootTimeMs,
+      groupHasMembers,
+      ownerAlive,
+    });
+    if (disposition !== 'reclaim') {
+      result[disposition].push(userDataDir);
+      continue;
+    }
+
+    try {
+      await removeProfile(userDataDir);
+      result.removed.push(userDataDir);
+    } catch (error) {
+      result.failed.push({ error, userDataDir });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Decide what a marked profile is: `reclaim`, `skippedLive` (something owning
+ * it is still running), or `legacy` (staleness cannot be proven, so a human
+ * decides). Order matters -- the boot boundary is checked before any pid probe
+ * because pids are re-issued from a low watermark after a reboot, and a stale
+ * marker that collides with an unrelated live process would otherwise make its
+ * profile permanently unreclaimable.
+ */
+async function classifyProfile(marker, { bootTimeMs, groupHasMembers, ownerAlive }) {
+  if (marker.startedAtMs !== null && marker.startedAtMs < bootTimeMs - BOOT_TIME_MARGIN_MS) {
+    return 'reclaim';
+  }
+  if (ownerAlive(marker.pid)) {
+    return 'skippedLive';
+  }
+  if (marker.platform === 'win32') {
+    // Descendants inherit a non-breakaway Job Object with KILL_ON_JOB_CLOSE,
+    // so no tree can outlive the launcher there.
+    return 'reclaim';
+  }
+  if (marker.pgid === null) {
+    // Killed between `mkdtemp` and the post-spawn marker update. A detached
+    // tree may exist with no handle on it, so removal is not provable.
+    return 'legacy';
+  }
+  return (await groupHasMembers(marker.pgid)) ? 'skippedLive' : 'reclaim';
+}
+
+export function reportSweep(result, log = console.log, logError = console.error) {
+  if (result.scanError) {
+    logError('Agent DevTools could not scan for stale profiles:', result.scanError);
+  }
+  if (result.removed.length > 0) {
+    log(`Agent DevTools reclaimed ${result.removed.length} abandoned profile(s).`);
+  }
+  if (result.skippedLive.length > 0) {
+    // Skipping is the safe answer, but a machine where the sweep never reclaims
+    // anything must not look identical to one with nothing to reclaim.
+    log(
+      `Agent DevTools left ${result.skippedLive.length} profile(s) still in use by a running ` +
+        'launcher or an orphaned process tree.'
+    );
+  }
+  for (const { error, userDataDir } of result.failed) {
+    logError(`Agent DevTools could not reclaim abandoned profile ${userDataDir}:`, error);
+  }
+  if (result.legacy.length > 0) {
+    // These predate the owner marker, so staleness cannot be proven. Surface
+    // them for an explicit decision instead of guessing.
+    //
+    // Every path is listed in full and never collapsed to a `PROFILE_PREFIX*`
+    // glob: such a glob also matches the profile of any session running right
+    // now, so pasting it would destroy a live database. An exact list is the
+    // only form of this report that is safe to act on.
+    log(
+      `Agent DevTools found ${result.legacy.length} profile(s) with no ownership marker. ` +
+        'These predate ownership tracking, cannot be proven abandoned, and were left ' +
+        'untouched. Remove any you recognise as finished:'
+    );
+    for (const userDataDir of result.legacy.slice(0, LEGACY_REPORT_LIMIT)) {
+      log(`  ${userDataDir}`);
+    }
+    const remaining = result.legacy.length - LEGACY_REPORT_LIMIT;
+    if (remaining > 0) {
+      // A glob is safe to suggest for listing, never for removal.
+      log(
+        `  ...and ${remaining} more; list them all with:\n` +
+          `    ls -d ${path.join(os.tmpdir(), `${PROFILE_PREFIX}*`)}`
+      );
+    }
+  }
+}
+
 export async function createAgentDevtoolsProfile(options = {}) {
   const {
     electronExecutablePath,
     platform = process.platform,
     tempDirectory = os.tmpdir(),
   } = options;
-  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, 'brainstrike-agent-devtools-'));
+  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, PROFILE_PREFIX));
 
   try {
+    // Claim ownership before anything else can fail, so a profile that outlives
+    // this launcher is always attributable to a pid a later sweep can probe.
+    await writeProfileOwnerMarker(userDataDir);
     const electronOverrideDistPath =
       platform === 'darwin'
         ? await createMacAgentDebugElectronDist({
@@ -553,6 +791,17 @@ async function main() {
   const cleanupOptions = windowsJob ? { windowsJob } : {};
   const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, cleanupOptions);
   try {
+    // On POSIX the detached child leads its own process group, so its pid is
+    // the group a later sweep must prove empty before reclaiming this profile.
+    // Recorded here rather than at creation because it does not exist until
+    // the spawn returns.
+    if (process.platform !== 'win32' && Number.isInteger(child.pid)) {
+      await writeProfileOwnerMarker(userDataDir, { pgid: child.pid });
+    }
+    // Deliberately after the spawn: reclaiming other people's leftovers is
+    // hygiene and must not sit in front of the dev server the user asked for.
+    // It now overlaps with startup instead.
+    reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
     await waitForEndpointOrChildExit(endpoint, child);
     console.log('\nMCP config:\n');
     console.log(formatMcpConfig(endpoint));
