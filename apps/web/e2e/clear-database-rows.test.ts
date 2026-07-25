@@ -88,7 +88,11 @@ async function assertWorkflowSnapshotRelationAbsent(page: Page): Promise<void> {
   });
 
   expect(failureMessage).not.toBeNull();
-  expect(failureMessage).toContain('mastra_workflow_snapshot');
+  // Must be a genuine missing-relation error, not merely any error that
+  // happens to mention the table name — `readFileRowCounts`'s own
+  // "was not numeric" error would also match a substring check, silently
+  // passing this assertion for the wrong reason.
+  expect(failureMessage).toMatch(/relation .*mastra_workflow_snapshot.* does not exist/);
 }
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
@@ -166,13 +170,16 @@ async function createActiveCollection(page: Page, collectionName: string): Promi
 }
 
 async function clickClearAllCollections(page: Page): Promise<void> {
+  // "Clear All Collections" renders inside `SettingsPanel`, which only mounts
+  // once the "Import Settings" popover trigger (an exact accessible name, see
+  // `database-demo-panel.tsx`) is opened — `ensureDatabasePanelVisible` only
+  // gets as far as the Collections tabpanel, not into this popover. An exact
+  // match, unconditional click replaces the previous loose
+  // `/import settings|settings/i` regex behind a swallowed `.catch(() =>
+  // false)`, which risked matching the wrong "settings" control.
+  await page.getByRole('button', { name: 'Import Settings' }).click();
+
   const clearButton = page.getByRole('button', { name: 'Clear All Collections' });
-  if (!(await clearButton.isVisible({ timeout: 500 }).catch(() => false))) {
-    await page
-      .getByRole('button', { name: /import settings|settings/i })
-      .first()
-      .click();
-  }
   await expect(clearButton).toBeVisible({ timeout: 10_000 });
   await expect(clearButton).toBeEnabled({ timeout: 10_000 });
   await clearButton.click();
@@ -255,6 +262,14 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
     await ensureDatabasePanelVisible(page);
     const collectionId = await createActiveCollection(page, `Clear DB Absent Probe ${Date.now()}`);
     await linkResetProbeRowsToCollection(page, collectionId);
+
+    // Re-assert absence immediately before the action: the absence of
+    // mastra_workflow_snapshot is the premise of this test, and it must hold
+    // at the moment Clear Database is invoked, not merely at setup. If a
+    // future change made collection creation boot Mastra memory, only this
+    // second check would catch the test silently degrading into a duplicate
+    // of the present-relation test above.
+    await assertWorkflowSnapshotRelationAbsent(page);
 
     await clickClearAllCollections(page);
 

@@ -115,6 +115,29 @@ function parseModelEnabled(value: ModelEnabledRow['is_enabled']): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+/**
+ * `QueryExecutor['query']` (packages/db/src/db-provider.tsx) only types its
+ * return as `{ rows: T[] }`, but PGlite's actual result also carries
+ * `affectedRows?: number`. Read it through `unknown` rather than widening the
+ * shared type or reaching for `any`.
+ */
+function readAffectedRows(result: unknown): number | null {
+  if (typeof result !== 'object' || result === null || !('affectedRows' in result)) {
+    return null;
+  }
+  const value = (result as { affectedRows: unknown }).affectedRows;
+  return typeof value === 'number' ? value : null;
+}
+
+function assertRowsMatched(result: unknown, updateLabel: string): void {
+  const affectedRows = readAffectedRows(result);
+  if (!(typeof affectedRows === 'number' && affectedRows > 0)) {
+    throw new Error(
+      `linkResetProbeRowsToCollection: ${updateLabel} matched zero rows — the marker literal may have drifted`
+    );
+  }
+}
+
 export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
   const db = usePGliteDatabase();
 
@@ -136,14 +159,17 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           throw new Error('Web E2E database handle does not expose transactions');
         }
         await db.transaction(async (tx) => {
-          await tx.query(
+          const fileRecordsResult: unknown = await tx.query(
             "UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%'",
             [collectionId]
           );
-          await tx.query(
+          assertRowsMatched(fileRecordsResult, 'UPDATE file_records');
+
+          const fileChunksResult: unknown = await tx.query(
             "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk'",
             [collectionId]
           );
+          assertRowsMatched(fileChunksResult, 'UPDATE file_chunks');
         });
       },
       qualifyDatabaseExtensions: async (): Promise<WebE2EDatabaseQualification> => {
