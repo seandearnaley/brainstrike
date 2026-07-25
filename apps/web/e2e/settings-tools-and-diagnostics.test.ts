@@ -1,9 +1,25 @@
+import {
+  NATIVE_TOOL_DEFAULTS,
+  TOOL_LOADING_TIERS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 
 const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+// A retrieval peer that sits in a *different* loading tier, so filtering by one
+// tier must hide the other. Used as the negative half of the tier assertion.
+const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
+
+// Derive the filter labels from the canonical contract rather than hardcoding
+// them: the tier partition is owned by tool-discovery-contract.test.ts, and a
+// re-tiering there (as in BST-612/BST-757) previously left this spec stale.
+const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): string =>
+  TOOL_LOADING_TIERS[NATIVE_TOOL_DEFAULTS[toolId].loadingTier].label;
+
+const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
+const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
 
 async function openToolsSettings(page: import('@playwright/test').Page): Promise<SettingsPage> {
   const home = new HomePage(page);
@@ -22,13 +38,17 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
   });
 
   test('supports search, category/tier filters, and native bulk toggles', async ({ page }) => {
+    // Guard the premise of the tier assertions below: if both tools ever land in
+    // the same tier the negative assertion would silently stop discriminating.
+    expect(TOOL_TIER_LABEL).not.toBe(PEER_TIER_LABEL);
+
     await openToolsSettings(page);
 
     await expect(page.getByTestId('unified-tools-settings')).toBeVisible();
 
     await page.getByTestId('search-input').fill('readWorkspaceContext');
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
-    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
+    await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toHaveCount(0);
     await expect(
       page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`).getByTestId('requires-approval-icon')
     ).toHaveCount(0);
@@ -37,14 +57,14 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     await page.getByTestId('category-filter').click();
     await page.getByRole('option', { name: 'Retrieval' }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
-    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toBeVisible();
+    await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toBeVisible();
 
-    // readWorkspaceContext is 'deferred': the canonical 'critical' partition is
-    // exactly the eight primitives pinned by tool-discovery-contract.test.ts.
+    // Both rows survive the category filter, so narrowing to one tier must keep
+    // this tool and drop its differently-tiered peer.
     await page.getByTestId('tier-filter').click();
-    await page.getByRole('option', { name: 'Deferred' }).click();
+    await page.getByRole('option', { exact: true, name: TOOL_TIER_LABEL }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
-    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
+    await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toHaveCount(0);
 
     await page.getByTestId('tool-group-menu-native').click();
     await page.getByTestId('disable-all-action').click();
