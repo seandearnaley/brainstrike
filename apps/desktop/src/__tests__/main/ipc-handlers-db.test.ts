@@ -1,5 +1,5 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
@@ -938,14 +938,14 @@ describe('database IPC handlers', () => {
 
   describe('db:clearAll handler', () => {
     /**
-     * `mastra_workflow_snapshot` is created lazily at runtime, so the handler
-     * probes it with `to_regclass` before deleting — a `DELETE FROM` on a
-     * missing relation would abort the whole transaction (25P02 on every later
-     * statement), which no `vi.fn()` stub can reproduce. Wrapping the stub lets
-     * the probe answer "present" WITHOUT consuming a slot in the caller's
-     * positional `mockResolvedValueOnce` chain, so these tests keep asserting
-     * exactly what they asserted before. The real aborted-transaction behaviour
-     * is pinned separately in ipc-handlers-db-clear-all.integration.test.ts.
+     * Every optional relation is now PROBED with `to_regclass` before deleting —
+     * a `DELETE FROM` on a missing relation would abort the whole transaction
+     * (25P02 on every later statement), which no `vi.fn()` stub can reproduce.
+     * Wrapping the stub lets the probe answer "present" WITHOUT consuming a slot
+     * in the caller's positional `mockResolvedValueOnce` chain, so these tests
+     * keep asserting exactly what they asserted before. The real
+     * aborted-transaction behaviour is pinned separately in
+     * ipc-handlers-db-clear-all.integration.test.ts.
      */
     function withPresentRelationProbe(
       query: (sql: string) => unknown
@@ -956,6 +956,36 @@ describe('database IPC handlers', () => {
         }
         return await query(sql);
       };
+    }
+
+    /**
+     * Dispatch-by-SQL `tx.query` stub for the probe-first clear path: counts
+     * answer 0, a `to_regclass` probe answers present unless the table is listed
+     * in `absent`, and `onDelete` may throw to simulate a genuine failure.
+     *
+     * Deliberately NOT a positional `mockResolvedValueOnce` chain. The handler
+     * now issues one probe per optional relation, so a positional chain would
+     * have to be re-counted every time a table is added to the clear — the exact
+     * brittleness that made these tests need rewriting in the first place.
+     */
+    function createClearTxQuery(
+      options: { absent?: readonly string[]; onDelete?: (table: string) => void } = {}
+    ): Mock<(sql: string) => Promise<{ rows: Array<{ count?: string; present?: boolean }> }>> {
+      const absent = new Set<string>(options.absent ?? []);
+      return vi.fn(async (sql: string) => {
+        if (sql.startsWith('SELECT COUNT(*)')) {
+          return { rows: [{ count: '0' }] };
+        }
+        const probed = sql.match(/^SELECT to_regclass\('([^']+)'\)/u);
+        if (probed) {
+          return { rows: [{ present: !absent.has(probed[1] as string) }] };
+        }
+        const deleted = sql.match(/^DELETE FROM (\w+)$/u);
+        if (deleted) {
+          options.onDelete?.(deleted[1] as string);
+        }
+        return { rows: [] };
+      });
     }
 
     it('requires confirmation token', async () => {
@@ -1126,29 +1156,14 @@ describe('database IPC handlers', () => {
       });
     });
 
-    it('ignores missing relation errors when clearing selection snapshots', async () => {
+    // Absence is now handled by SKIPPING the delete, not by catching its error.
+    // These two cases used to assert delete-and-tolerate; that shape could never
+    // work inside a transaction (the tolerated 42P01 leaves it aborted), so the
+    // assertion is now "no DELETE was ever issued for the absent relation".
+    it('skips selection snapshots entirely when the relation is absent', async () => {
       const handler = handlers.get('db:clearAll');
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const error = Object.assign(
-          new Error('relation "selection_snapshot_files" does not exist'),
-          { code: '42P01' }
-        );
-        const mockTx = {
-          query: withPresentRelationProbe(
-            vi
-              .fn()
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-              .mockResolvedValueOnce(undefined) // DELETE chunks
-              .mockRejectedValueOnce(error) // DELETE snapshot files
-              .mockResolvedValueOnce(undefined) // DELETE files
-              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-              .mockResolvedValueOnce(undefined) // DELETE job_queue
-          ),
-        };
-        return await callback(mockTx);
-      });
+      const query = createClearTxQuery({ absent: ['selection_snapshot_files'] });
+      mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
@@ -1158,28 +1173,16 @@ describe('database IPC handlers', () => {
         message: 'Database cleared successfully',
         success: true,
       });
+      expect(query).not.toHaveBeenCalledWith('DELETE FROM selection_snapshot_files');
+      // The clear must continue past the absent relation, not abandon it.
+      expect(query).toHaveBeenCalledWith('DELETE FROM selection_snapshots');
       expect(loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('logs unexpected errors when clearing selection snapshots', async () => {
+    it('skips an optional indexing table when the relation is absent', async () => {
       const handler = handlers.get('db:clearAll');
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const mockTx = {
-          query: withPresentRelationProbe(
-            vi
-              .fn()
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-              .mockResolvedValueOnce(undefined) // DELETE chunks
-              .mockRejectedValueOnce(new Error('boom')) // DELETE snapshot files
-              .mockResolvedValueOnce(undefined) // DELETE files
-              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-              .mockResolvedValueOnce(undefined) // DELETE job_queue
-          ),
-        };
-        return await callback(mockTx);
-      });
+      const query = createClearTxQuery({ absent: ['collection_indexing_stats'] });
+      mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
@@ -1189,70 +1192,66 @@ describe('database IPC handlers', () => {
         message: 'Database cleared successfully',
         success: true,
       });
-      expect(loggerWarn).toHaveBeenCalledWith('Failed to clear selection snapshots', {
-        error: expect.any(Error),
-      });
-    });
-
-    it('ignores missing relation errors when clearing optional indexing tables', async () => {
-      const handler = handlers.get('db:clearAll');
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const missingRelation = Object.assign(
-          new Error('relation "collection_indexing_stats" does not exist'),
-          { code: '42P01' }
-        );
-        const mockTx = {
-          query: withPresentRelationProbe(
-            vi
-              .fn()
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-              .mockResolvedValueOnce(undefined) // DELETE chunks
-              .mockResolvedValueOnce(undefined) // DELETE snapshot files
-              .mockResolvedValueOnce(undefined) // DELETE snapshot headers
-              .mockResolvedValueOnce(undefined) // DELETE files
-              .mockResolvedValueOnce(undefined) // DELETE roots
-              .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
-              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-              .mockResolvedValueOnce(undefined) // DELETE job_queue
-          ),
-        };
-        return await callback(mockTx);
-      });
-
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
-
-      expect(result).toEqual({
-        deletedChunks: 0,
-        deletedFiles: 0,
-        message: 'Database cleared successfully',
-        success: true,
-      });
+      expect(query).not.toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
+      expect(query).toHaveBeenCalledWith('DELETE FROM embedding_sets');
       expect(loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('fails closed when optional table cleanup reports an unrelated undefined relation', async () => {
+    // The selection-snapshot block used to only LOG a non-missing-relation error
+    // and never rethrow, so the clear reported success having rolled back. The
+    // relation is PRESENT here, so the failure is genuine and must fail closed.
+    it('fails the clear when a present selection-snapshot relation cannot be deleted', async () => {
+      const handler = handlers.get('db:clearAll');
+      let transactionCommitted = false;
+      const query = createClearTxQuery({
+        onDelete: (table) => {
+          if (table === 'selection_snapshot_files') {
+            throw new Error('boom');
+          }
+        },
+      });
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const value = await callback({ query });
+        transactionCommitted = true;
+        return value;
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(transactionCommitted).toBe(false);
+      expect(result).toEqual({
+        deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database clear failed: boom',
+        success: false,
+      });
+    });
+
+    /**
+     * A 42P01 naming a DIFFERENT relation (say a trigger's audit table) must not
+     * be mistaken for "prompt_items is absent". Under probe-first that is true by
+     * construction: the probe already said prompt_items is present, so the DELETE
+     * is unwrapped and the real error propagates verbatim — no message parsing,
+     * and no duplicate warn on the way out.
+     */
+    it('fails closed when a present table reports an unrelated undefined relation', async () => {
       const handler = handlers.get('db:clearAll');
       const unrelatedMissingRelation = Object.assign(
         new Error('relation "prompt_item_audit_log" does not exist while deleting prompt_items'),
         { code: '42P01' }
       );
       let transactionCommitted = false;
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const query = vi.fn(async (sql: string) => {
-          if (sql.startsWith('SELECT COUNT(*)')) {
-            return { rows: [{ count: '0' }] };
-          }
-          if (sql === 'DELETE FROM prompt_items') {
+      const query = createClearTxQuery({
+        onDelete: (table) => {
+          if (table === 'prompt_items') {
             throw unrelatedMissingRelation;
           }
-          return { rows: [] };
-        });
-        const result = await callback({ query });
+        },
+      });
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const value = await callback({ query });
         transactionCommitted = true;
-        return result;
+        return value;
       });
 
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
@@ -1265,29 +1264,18 @@ describe('database IPC handlers', () => {
           'Database clear failed: relation "prompt_item_audit_log" does not exist while deleting prompt_items',
         success: false,
       });
-      expect(loggerWarn).toHaveBeenCalledWith('Failed to clear optional database table', {
-        error: unrelatedMissingRelation,
-        tableName: 'prompt_items',
-      });
     });
 
     it('fails the clear when optional indexing table cleanup hits an unexpected error', async () => {
       const handler = handlers.get('db:clearAll');
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockResolvedValueOnce(undefined) // DELETE snapshot files
-            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
-            .mockResolvedValueOnce(undefined) // DELETE files
-            .mockRejectedValueOnce(new Error('stats cleanup failed')),
-        };
-        return await callback(mockTx);
+      const query = createClearTxQuery({
+        onDelete: (table) => {
+          if (table === 'collection_indexing_stats') {
+            throw new Error('stats cleanup failed');
+          }
+        },
       });
+      mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 

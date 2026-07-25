@@ -172,6 +172,60 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('prompt_items')).toBe(1);
   });
 
+  /**
+   * `clearViaPGlite` kept bare `try { DELETE } catch { logger.warn }` blocks
+   * around roots / collection_indexing_stats / embedding_sets / job_queue /
+   * run_outcomes / selection snapshots. Two defects in one shape:
+   *
+   *  1. NO SILENT FALLBACKS — they swallow EVERY error, not just 42P01.
+   *  2. They cannot tolerate absence anyway. The 42P01 has already aborted the
+   *     transaction, so `collection_indexing_stats` → `embedding_sets` →
+   *     `job_queue` all fail 25P02 (each swallowed in turn) until the first
+   *     NARROWED helper rethrows — and the caller is then told the transaction
+   *     was aborted rather than which table was missing.
+   */
+  it('commits the direct clear when a migration-created relation is absent', async () => {
+    await db.exec('DROP TABLE collection_indexing_stats');
+
+    const { result } = renderHook(
+      () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.clearData).not.toBeNull();
+    });
+
+    await expect(result.current.clearData?.()).resolves.toBeDefined();
+    await assertSentinelsCleared();
+  });
+
+  it('fails the direct clear loudly when a delete genuinely errors', async () => {
+    await db.exec(`
+      INSERT INTO roots (id, kind, display_name, path)
+        VALUES ('root-1', 'path', 'probe root', '/tmp/clear-fk-probe');
+      CREATE TABLE clear_fk_probe (
+        id text PRIMARY KEY,
+        root_id text NOT NULL REFERENCES roots(id) ON DELETE NO ACTION
+      );
+      INSERT INTO clear_fk_probe (id, root_id) VALUES ('probe-1', 'root-1');
+    `);
+
+    const { result } = renderHook(
+      () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.clearData).not.toBeNull();
+    });
+
+    // The FK violation itself — NOT the misleading `25P02 current transaction is
+    // aborted` that the swallowing tail surfaced instead.
+    await expect(result.current.clearData?.()).rejects.toThrow(/violates foreign key constraint/iu);
+    expect(await countRows('prompt_items')).toBe(1);
+  });
+
   it('clears the workflow snapshot rows when the relation does exist', async () => {
     await db.exec(`CREATE TABLE ${MASTRA_WORKFLOW_TABLE} (run_id text primary key)`);
     await db.exec(`INSERT INTO ${MASTRA_WORKFLOW_TABLE} (run_id) VALUES ('suspended-run')`);

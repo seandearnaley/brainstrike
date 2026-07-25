@@ -87,9 +87,9 @@ also be cleared explicitly (BST-558). It has an UNBOUNDED lifetime — its only
 deletes are `deleteWorkflowRunById` (no production caller) and
 `dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
 call and arguments, so it must not survive a "true fresh start". It is cleared
-in BOTH reset paths: desktop `db-ipc.ts` (`clearLazilyCreatedRelation(tx,
-MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s
-`clearWorkflowSnapshotsIfPresent` (used by direct-PGlite clear AND
+in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
+MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s `clearRelationIfPresent(tx,
+MASTRA_WORKFLOW_TABLE)` (used by direct-PGlite clear AND
 `purgeTablesTx`). The relation is created lazily by
 `PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
 never ran) is tolerated; every other delete failure stays visible. The
@@ -106,26 +106,41 @@ ROLLBACK. Catching the original `42P01` does NOT undo that, and there are no
 savepoints anywhere in this repo — so a tolerated missing-relation error rolls
 the ENTIRE reset back and the user's Clear Database silently does nothing. Use
 `SELECT to_regclass('<table>') IS NOT NULL AS present`, which returns NULL
-instead of raising, and skip the `DELETE` when absent (BST-558 review). This
-matters most for lazily created relations (`mastra_workflow_snapshot` is created
-by `PgliteWorkflowsStore.initialize()` and by NO migration, so "absent" is the
-normal state for a never-used assistant), and it is why desktop has BOTH
-`clearOptionalRelation` (delete-and-tolerate, for migration-created tables whose
-absence is a legacy-schema edge) and `clearLazilyCreatedRelation` (probe-first).
+instead of raising, and skip the `DELETE` when absent (BST-558 review).
+
+There is now exactly ONE clear helper per side and both probe: desktop
+`clearOptionalRelation` (`apps/desktop/src/ipc-domains/db-ipc.ts`) and renderer
+`clearRelationIfPresent` (`packages/db/src/db-provider.tsx`, used by BOTH
+`clearViaPGlite` and `purgeTablesTx`). Every call site is therefore safe by
+construction rather than by the coincidence that its table happens to be created
+by an already-run numbered migration. Do not reintroduce a delete-and-tolerate
+variant alongside them.
+
 A probed relation's `DELETE` is deliberately NOT wrapped in a catch: nothing in
-this repo ever DROPs `mastra_workflow_snapshot`, so the probe/delete race is
-unreachable, and a tolerated `42P01` there could not recover anyway — it would
-leave the transaction aborted and resurface as a misleading `25P02`.
+this repo ever DROPs these relations, so the probe/delete race is unreachable,
+and a tolerated `42P01` there could not recover anyway — it would leave the
+transaction aborted and resurface as a misleading `25P02`.
+
+Probing trades one hazard for another, and the TYPE SYSTEM is what closes the
+new one. With delete-and-catch a misspelled table raises a loud `42P01`; with
+`to_regclass` it returns NULL, indistinguishable from absence, so it becomes a
+PERMANENT SILENT SKIP with every test still green. Both helpers therefore take a
+closed literal union (`OptionalRelationTable` / `ClearableRelation`), never a
+`string` parameter. Keep it that way.
 
 **The probed table name must come from `MASTRA_WORKFLOW_TABLE`
-(`@brainstrike/assistant-contract/mastra-memory-schema`), never a local
-literal.** `to_regclass` on a stale name returns NULL, which turns the probe
-into a PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Both
-production sites and every test import the constant; a hardcoded copy would
-survive a Mastra table rename with every test still green. Verified by control:
-renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while `db-provider.tsx` held
-the literal left a suspended-run row alive through a full clear
-(`expected 1 to be +0`), and importing the constant made it pass.
+(`@brainstrike/assistant-contract/mastra-memory-schema`), never a hand-copied
+literal.** `to_regclass` on a stale name returns NULL, which makes the probe a
+PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by
+control: renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path
+held an unpinned literal left a suspended-run row alive through a full clear
+(`expected 1 to be +0`). Both production sites (desktop `db-ipc.ts` and renderer
+`db-provider.tsx`) now import the constant.
+
+The renderer used to hold a pinned local literal instead, because that import
+reordered bundle chunk init and killed the app at startup. That is FIXED at the
+root, not worked around — see the next rule — and the stopgap guard that pinned
+the literal is deleted. Do not reintroduce a hand-copied literal here.
 
 **Import those constants freely, but read them only inside a function — never at
 module scope (BST-558).** Module-scope initializers run at bundle CHUNK
@@ -176,40 +191,33 @@ Generalizing it is **BST-861**; note that a naive "flag every module-scope read
 of an imported binding" rule returns 431 hits in `app-shell` + `db` alone and is
 useless. The chunk, not the file or the package, is the unit of risk.
 
-**Narrow every catch in a purge to `isMissingNamedRelationError`.** A bare
-`catch (err) { logger.warn(...) }` cannot be a tolerance inside a transaction:
-the first genuine error aborts it, every later statement fails `25P02`, each of
-THOSE is swallowed too, the purge returns normally, and `COMMIT` on an aborted
-transaction degrades to `ROLLBACK` WITHOUT raising — factory reset reports
-SUCCESS having cleared nothing. This was measured, not reasoned: against real
-PGlite, an FK violation on `job_queue` with the old bare-catch tail made
-`useFactoryReset()` resolve while every table still held its rows. The
-`purgeTablesTx` tail now routes through `clearMigratedRelation`, which tolerates
-only "relation does not exist" (BST-558 review).
+**No catch anywhere in a purge tolerates a missing relation — the probe does.**
+A bare `catch (err) { logger.warn(...) }` could never be a tolerance inside a
+transaction: the first genuine error aborts it, every later statement fails
+`25P02`, each of THOSE is swallowed too, the purge returns normally, and `COMMIT`
+on an aborted transaction degrades to `ROLLBACK` WITHOUT raising — factory reset
+reports SUCCESS having cleared nothing. This was measured, not reasoned: against
+real PGlite, an FK violation on `job_queue` with the old bare-catch tail made
+`useFactoryReset()` resolve while every table still held its rows, and an FK
+violation on `roots` in `clearViaPGlite` produced three consecutive
+"(table may not exist)" warnings before surfacing as a misleading `25P02`.
 
-Known remaining debt: the ~14 desktop `clearOptionalRelation` call sites still
-delete-and-tolerate rather than probe. That specific defect — a tolerated
-`42P01` poisoning the transaction — is unreachable today because every one of
-those tables is created by a numbered migration that has already run by the time
-a clear starts; unlike the bare catches above, `clearOptionalRelation` already
-rethrows everything that is not a missing-relation error, so it cannot mask a
-genuine failure.
+Narrowing such a catch was only ever a half-measure — it makes the first real
+failure visible as itself, but still cannot let the clear CONTINUE past an
+absent relation, because the tolerated `42P01` has already aborted the
+transaction. Probing is the only form that actually tolerates absence, so the
+narrowed-catch helpers (`clearMigratedRelation`, `isMissingNamedRelationError`,
+`isMissingOptionalRelationError`, and the per-table `*IfPresent` variants) are
+GONE, collapsed into the two probe helpers above. Do not reintroduce a
+message-parsing matcher: asking the catalog is both simpler and correct.
 
-Two honest caveats on that paragraph, both raised in review (BST-558):
-
-- It does NOT cover every remaining catch. The selection-snapshot block in
-  `apps/desktop/src/ipc-domains/db-ipc.ts` (~`:750-757`) still swallows
-  everything — it only *logs* non-missing-relation errors and never rethrows,
-  the exact pattern removed from `purgeTablesTx`. It does not produce a false
-  success on desktop (the next unwrapped `DELETE` raises `25P02` and the handler
-  returns `success: false`), but the surfaced message is the misleading
-  aborted-transaction error rather than the real cause. Not yet converted.
-- A narrowed catch around a `DELETE` inside a transaction still cannot *tolerate*
-  a missing relation, only report it more honestly: the tolerated `42P01` has
-  already aborted the transaction, so the next statement fails `25P02` and the
-  clear dies anyway. `clearMigratedRelation`'s warn branch therefore means "this
-  is why the reset is about to fail", not "the reset continued". Probing with
-  `to_regclass` is the only form that actually tolerates absence.
+Historical debt now CLOSED (BST-558 follow-up), recorded so it is not
+re-litigated: the ~14 desktop `clearOptionalRelation` call sites and the
+selection-snapshot block in `db-ipc.ts` both delete-and-tolerated. On the desktop
+side the defect was latent rather than live — every one of those tables is
+created by a numbered migration that has already run by the time a clear starts —
+but it was a loaded gun, and the selection-snapshot block additionally only
+*logged* non-missing-relation errors without rethrowing. Both are converted.
 
 Add tests when changing reset behavior — and note that a mocked `tx.query`
 CANNOT reproduce aborted-transaction semantics. Reset changes that depend on

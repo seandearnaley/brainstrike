@@ -23,6 +23,37 @@ interface MockTx {
 type TransactionCallback = (tx: MockTx) => Promise<unknown> | unknown;
 type TransactionMock = Mock<(callback: TransactionCallback) => Promise<unknown>>;
 
+/**
+ * Dispatch-by-SQL `tx.query` stub for the probe-first purge path.
+ *
+ * `purgeTablesTx` PROBES every relation with `to_regclass` before deleting it,
+ * because inside a transaction a caught 42P01 has already aborted everything —
+ * delete-and-tolerate rolled the whole reset back (BST-558). A stub that ignores
+ * the probe answers "absent" for every table and silently purges nothing, so it
+ * has to answer: `absent` marks the tables that are genuinely missing, and
+ * `onDelete` may throw to simulate a genuine delete failure.
+ */
+function createPurgeQueryMock({
+  absent = [],
+  onDelete,
+}: {
+  absent?: readonly string[];
+  onDelete?: (table: string) => void;
+} = {}): QueryMock {
+  const missing = new Set<string>(absent);
+  return vi.fn(async (sql: string) => {
+    const probed = sql.match(/^SELECT to_regclass\('([^']+)'\)/u);
+    if (probed) {
+      return { rows: [{ present: !missing.has(probed[1] as string) }] };
+    }
+    const deleted = sql.match(/^DELETE FROM (\w+)$/u);
+    if (deleted) {
+      onDelete?.(deleted[1] as string);
+    }
+    return { rows: [] };
+  });
+}
+
 interface MockDb {
   close: CloseMock;
   exec: ExecMock;
@@ -180,11 +211,12 @@ describe('DbProvider factoryReset', () => {
     if (!initialDb) {
       throw new Error('Expected initial DB to be created');
     }
-    const query: QueryMock = vi.fn(async (sql: string) => {
-      if (sql === 'DELETE FROM prompt_items') {
-        throw new Error('prompt reset storage failure');
-      }
-      return { rows: [] };
+    const query = createPurgeQueryMock({
+      onDelete: (table) => {
+        if (table === 'prompt_items') {
+          throw new Error('prompt reset storage failure');
+        }
+      },
     });
     initialDb.transaction.mockImplementation(
       async (callback: TransactionCallback) => await callback({ query })
@@ -216,11 +248,12 @@ describe('DbProvider factoryReset', () => {
     if (!initialDb) {
       throw new Error('Expected initial DB to be created');
     }
-    const query: QueryMock = vi.fn(async (sql: string) => {
-      if (sql === 'DELETE FROM brainstrike_assistant_tool_output_artifacts') {
-        throw new Error('artifact reset storage failure');
-      }
-      return { rows: [] };
+    const query = createPurgeQueryMock({
+      onDelete: (table) => {
+        if (table === 'brainstrike_assistant_tool_output_artifacts') {
+          throw new Error('artifact reset storage failure');
+        }
+      },
     });
     initialDb.transaction.mockImplementation(
       async (callback: TransactionCallback) => await callback({ query })
@@ -235,7 +268,10 @@ describe('DbProvider factoryReset', () => {
     expect(result.current.reset).not.toBeNull();
   });
 
-  it('tolerates missing pre-current assistant tables during direct factory reset', async () => {
+  // Absence is tolerated by SKIPPING the delete, not by catching its 42P01: the
+  // caught error has already aborted the reset transaction, so delete-and-catch
+  // could never continue past it (BST-558).
+  it('skips missing pre-current assistant tables during direct factory reset', async () => {
     const { result } = renderHook(
       () => ({
         repo: useFileRecordRepository(),
@@ -252,14 +288,8 @@ describe('DbProvider factoryReset', () => {
     if (!initialDb) {
       throw new Error('Expected initial DB to be created');
     }
-    const query: QueryMock = vi.fn(async (sql: string) => {
-      if (sql === 'DELETE FROM prompt_items') {
-        throw new Error('table "prompt_items" does not exist');
-      }
-      if (sql === 'DELETE FROM brainstrike_assistant_tool_output_artifacts') {
-        throw new Error('relation "brainstrike_assistant_tool_output_artifacts" does not exist');
-      }
-      return { rows: [] };
+    const query = createPurgeQueryMock({
+      absent: ['prompt_items', 'brainstrike_assistant_tool_output_artifacts'],
     });
     initialDb.transaction.mockImplementation(
       async (callback: TransactionCallback) => await callback({ query })
@@ -268,8 +298,12 @@ describe('DbProvider factoryReset', () => {
     await act(async () => {
       await expect(result.current.reset?.()).resolves.toBeUndefined();
     });
-    expect(query).toHaveBeenCalledWith('DELETE FROM prompt_items');
-    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_tool_output_artifacts');
+    expect(query).not.toHaveBeenCalledWith('DELETE FROM prompt_items');
+    expect(query).not.toHaveBeenCalledWith(
+      'DELETE FROM brainstrike_assistant_tool_output_artifacts'
+    );
+    // The purge must continue past both absent relations, not abandon the reset.
+    expect(query).toHaveBeenCalledWith('DELETE FROM roots');
     expect(initialDb.close).toHaveBeenCalledTimes(1);
   });
 
