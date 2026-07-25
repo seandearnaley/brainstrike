@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyManagedCacheBatchMock,
@@ -936,6 +937,27 @@ describe('database IPC handlers', () => {
   });
 
   describe('db:clearAll handler', () => {
+    /**
+     * `mastra_workflow_snapshot` is created lazily at runtime, so the handler
+     * probes it with `to_regclass` before deleting — a `DELETE FROM` on a
+     * missing relation would abort the whole transaction (25P02 on every later
+     * statement), which no `vi.fn()` stub can reproduce. Wrapping the stub lets
+     * the probe answer "present" WITHOUT consuming a slot in the caller's
+     * positional `mockResolvedValueOnce` chain, so these tests keep asserting
+     * exactly what they asserted before. The real aborted-transaction behaviour
+     * is pinned separately in ipc-handlers-db-clear-all.integration.test.ts.
+     */
+    function withPresentRelationProbe(
+      query: (sql: string) => unknown
+    ): (sql: string) => Promise<unknown> {
+      return async (sql: string) => {
+        if (sql.startsWith('SELECT to_regclass(')) {
+          return { rows: [{ present: true }] };
+        }
+        return await query(sql);
+      };
+    }
+
     it('requires confirmation token', async () => {
       const handler = handlers.get('db:clearAll');
 
@@ -976,7 +998,7 @@ describe('database IPC handlers', () => {
           .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
           .mockResolvedValue(undefined);
         const mockTx = {
-          query: queryMock,
+          query: withPresentRelationProbe(queryMock),
         };
         return await callback(mockTx);
       });
@@ -1003,6 +1025,71 @@ describe('database IPC handlers', () => {
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
+
+    // BST-558: `mastra_workflow_snapshot` is the only assistant-owned durable
+    // store with an unbounded lifetime (its sole production writer is
+    // persistWorkflowSnapshot; nothing deletes rows). Per the FACTORY RESET
+    // CONTRACT it must be purged, otherwise suspended-approval snapshots — and
+    // their tool arguments — survive a "true fresh start".
+    it('clears the Mastra workflow snapshot store per the factory reset contract', async () => {
+      const handler = handlers.get('db:clearAll');
+      let queryMock: ReturnType<typeof vi.fn> | null = null;
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        queryMock = vi
+          .fn()
+          .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+          .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+          .mockResolvedValue(undefined);
+        return await callback({ query: withPresentRelationProbe(queryMock) });
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toMatchObject({ success: true });
+      expect(queryMock).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
+    });
+
+    // The relation is created lazily by PgliteWorkflowsStore.initialize(), so
+    // "absent" is the normal state for a never-used assistant. It must be
+    // PROBED, not deleted-and-caught: a 42P01 aborts the enclosing transaction,
+    // and swallowing it still rolls the entire clear back (25P02 thereafter).
+    it('probes rather than deletes a missing mastra_workflow_snapshot relation', async () => {
+      const handler = handlers.get('db:clearAll');
+      let query: ReturnType<typeof vi.fn> | null = null;
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        query = vi.fn(async (sql: string) => {
+          if (sql.startsWith('SELECT COUNT(*)')) {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === `SELECT to_regclass('${MASTRA_WORKFLOW_TABLE}') IS NOT NULL AS present`) {
+            return { rows: [{ present: false }] };
+          }
+          if (sql.startsWith('SELECT to_regclass(')) {
+            return { rows: [{ present: true }] };
+          }
+          return { rows: [] };
+        });
+        return await callback({ query });
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toMatchObject({ success: true });
+      expect(query).not.toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
+      // The clear must continue past the absent relation, not abandon it.
+      expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_diagnostic_events');
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    // NOTE: there is deliberately no "tolerates the relation vanishing between
+    // probe and delete" case. A mocked `tx.query` has no aborted-transaction
+    // semantics, so such a test would assert `success: true` for something real
+    // Postgres cannot produce: the 42P01 aborts the transaction, the next
+    // statement raises 25P02, and the handler returns `success: false`. Nothing
+    // in the repo ever DROPs the relation, so the race is unreachable and the
+    // DELETE now surfaces any genuine failure as itself.
 
     it('handles database errors gracefully', async () => {
       const handler = handlers.get('db:clearAll');
@@ -1048,15 +1135,17 @@ describe('database IPC handlers', () => {
           { code: '42P01' }
         );
         const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockRejectedValueOnce(error) // DELETE snapshot files
-            .mockResolvedValueOnce(undefined) // DELETE files
-            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-            .mockResolvedValueOnce(undefined), // DELETE job_queue
+          query: withPresentRelationProbe(
+            vi
+              .fn()
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+              .mockResolvedValueOnce(undefined) // DELETE chunks
+              .mockRejectedValueOnce(error) // DELETE snapshot files
+              .mockResolvedValueOnce(undefined) // DELETE files
+              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+              .mockResolvedValueOnce(undefined) // DELETE job_queue
+          ),
         };
         return await callback(mockTx);
       });
@@ -1077,15 +1166,17 @@ describe('database IPC handlers', () => {
 
       mockDb.transaction.mockImplementation(async (callback) => {
         const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockRejectedValueOnce(new Error('boom')) // DELETE snapshot files
-            .mockResolvedValueOnce(undefined) // DELETE files
-            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-            .mockResolvedValueOnce(undefined), // DELETE job_queue
+          query: withPresentRelationProbe(
+            vi
+              .fn()
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+              .mockResolvedValueOnce(undefined) // DELETE chunks
+              .mockRejectedValueOnce(new Error('boom')) // DELETE snapshot files
+              .mockResolvedValueOnce(undefined) // DELETE files
+              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+              .mockResolvedValueOnce(undefined) // DELETE job_queue
+          ),
         };
         return await callback(mockTx);
       });
@@ -1112,18 +1203,20 @@ describe('database IPC handlers', () => {
           { code: '42P01' }
         );
         const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockResolvedValueOnce(undefined) // DELETE snapshot files
-            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
-            .mockResolvedValueOnce(undefined) // DELETE files
-            .mockResolvedValueOnce(undefined) // DELETE roots
-            .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
-            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-            .mockResolvedValueOnce(undefined), // DELETE job_queue
+          query: withPresentRelationProbe(
+            vi
+              .fn()
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+              .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+              .mockResolvedValueOnce(undefined) // DELETE chunks
+              .mockResolvedValueOnce(undefined) // DELETE snapshot files
+              .mockResolvedValueOnce(undefined) // DELETE snapshot headers
+              .mockResolvedValueOnce(undefined) // DELETE files
+              .mockResolvedValueOnce(undefined) // DELETE roots
+              .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
+              .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+              .mockResolvedValueOnce(undefined) // DELETE job_queue
+          ),
         };
         return await callback(mockTx);
       });

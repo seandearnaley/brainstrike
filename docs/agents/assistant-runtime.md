@@ -890,6 +890,42 @@ untouched. Flow:
 - Restart proof extends the same spec: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
   to execution by a THIRD fresh runtime.
+- **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
+  TARGETED snapshot read in `PgliteWorkflowsStore`
+  (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
+  THROWS on a snapshot that is not an object or lacks `context`: the malformed
+  row is the answer the caller asked for, so skipping it would be a lie.
+  `listWorkflowRuns` — which backs `agent.listSuspendedRuns` and therefore this
+  rediscovery flow — is the ONE deliberate exception: it still returns the
+  intact rows, because throwing for the page would let a single corrupt row
+  make EVERY pending approval undiscoverable (a total outage traded for a
+  partial one). The corruption is not swallowed: each excluded row is logged at
+  ERROR severity with code `mastra_workflow_snapshot_malformed`, which the
+  DIAGNOSTIC EVENTS contract eagerly flushes into
+  `brainstrike_diagnostic_events` and surfaces in the debug bundle. Do not
+  downgrade it to a warn/debug log, and do not make listing throw.
+- **The ERROR record is emitted ONCE PER RUN PER PROCESS** (settled — do not
+  relitigate), guarded by `PgliteWorkflowsStore#reportedMalformedRuns`. A
+  corrupt row is PERMANENT in production (`deleteWorkflowRunById` has no
+  production caller) while the listing runs on every renderer reload AND on
+  every `readResumedApprovalToolCall` during tool approval — so an unguarded
+  ERROR would write another eagerly flushed `brainstrike_diagnostic_events` row
+  per approval, forever, for one unfixable condition, bounded only by retention
+  purge. Repeats carry no information: `computeDiagnosticFingerprint(code,
+  scope, message)` is identical every time. This is NOT a silent fallback — the
+  condition is reported at ERROR once, and suppressed repeats still emit a
+  `debug` record. Do not remove the guard, and do not re-report per call.
+- **`total` and `runs.length` may legitimately disagree** (settled — do not
+  relitigate). `total` comes from a separate `SELECT COUNT(*)` and is
+  AUTHORITATIVE for what matches the filter IN STORAGE — that is what keeps page
+  boundaries stable, so it must not shrink as corrupt rows are excluded page by
+  page. `runs` is what is SERVABLE; the invariant is `runs.length <= total`, and
+  the shortfall is exactly the excluded corrupt rows (genuinely unfetchable —
+  `getWorkflowRunById` throws for them by design). Excluding corrupt rows from
+  the COUNT would need a SQL predicate mirroring `parseWorkflowSnapshot`'s JS
+  predicate, and any drift between the two would silently miscount. No in-repo
+  consumer reads `total`: `agent.listSuspendedRuns` destructures `{ runs }`
+  only. The corruption signal is the ERROR diagnostic, not the arithmetic.
 
 When changing this flow, update this section and the related tests.
 

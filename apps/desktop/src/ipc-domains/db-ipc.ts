@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
@@ -304,6 +305,41 @@ async function clearOptionalRelation(
     logger.warn('Failed to clear optional database table', { error, tableName });
     throw error;
   }
+}
+
+/**
+ * Clears a relation that is created LAZILY at runtime rather than by a numbered
+ * migration, so "absent" is a NORMAL state rather than a legacy-schema edge.
+ *
+ * `clearOptionalRelation` cannot serve that case. This whole handler body runs
+ * inside ONE `db.transaction(...)`, and in Postgres (PGlite is real Postgres) a
+ * statement error puts the transaction into the ABORTED state: catching the
+ * 42P01 does not undo that, and every later statement fails with `25P02 current
+ * transaction is aborted, commands ignored until end of transaction block` until
+ * ROLLBACK. There are no savepoints in this codebase, so a tolerated 42P01 here
+ * would roll the entire clear back (BST-558 review).
+ *
+ * `to_regclass` returns NULL for an absent relation instead of raising, so the
+ * probe can never poison the transaction. The DELETE that follows a successful
+ * probe is deliberately NOT wrapped: nothing in this repo ever DROPs the
+ * relation (`PgliteWorkflowsStore` only creates it), and a tolerated 42P01 could
+ * not recover anyway — it would leave the transaction aborted and surface later
+ * as a misleading 25P02. A genuine delete failure must surface as itself.
+ *
+ * `tableName` is only ever `MASTRA_WORKFLOW_TABLE`, never a local literal: a
+ * stale name makes `to_regclass` return NULL forever, which would turn this into
+ * a permanent SILENT skip instead of a visible error.
+ */
+async function clearLazilyCreatedRelation(
+  tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
+  tableName: typeof MASTRA_WORKFLOW_TABLE
+): Promise<void> {
+  const probe = await tx.query(`SELECT to_regclass('${tableName}') IS NOT NULL AS present`);
+  if ((probe.rows[0] as { present?: boolean } | undefined)?.present !== true) {
+    logger.debug('Skipped lazily created database table (not present)', { tableName });
+    return;
+  }
+  await tx.query(`DELETE FROM ${tableName}`);
 }
 
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
@@ -756,6 +792,18 @@ export function registerDatabaseIpcHandlers(
             // pre-migration-068 database may omit this table; any other delete
             // failure remains visible through clearOptionalRelation.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
+            // Suspended Mastra workflow snapshots (BST-558): the only durable
+            // assistant store with an UNBOUNDED lifetime — nothing deletes rows
+            // in production, and a suspended run retains its pending tool call
+            // and arguments. No FK cascades it, so clear it explicitly per the
+            // FACTORY RESET CONTRACT. The table is created lazily by
+            // PgliteWorkflowsStore.initialize() and by NO migration, so a
+            // database where the assistant never ran legitimately lacks the
+            // relation. That "absent" case is the NORMAL state, not a legacy
+            // edge, so it is probed for rather than caught — a caught 42P01
+            // would still leave this transaction aborted and roll the whole
+            // clear back (see clearLazilyCreatedRelation).
+            await clearLazilyCreatedRelation(tx, MASTRA_WORKFLOW_TABLE);
             // Durable diagnostic events (Flight Recorder P1): warn+ error log.
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.

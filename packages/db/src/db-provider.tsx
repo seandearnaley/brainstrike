@@ -114,6 +114,35 @@ async function clearThreadSearchIndexIfPresent(tx: {
 }
 
 /**
+ * Deletes every row of a relation created by a NUMBERED migration, tolerating
+ * ONLY "relation does not exist" (reachable solely on a legacy database that
+ * predates the migration). Every other failure throws.
+ *
+ * The factory-reset tail used bare `catch (err) { logger.warn(...) }` blocks
+ * instead. Those could never be a tolerance: the first genuine failure aborts
+ * the enclosing transaction, so every later statement fails with `25P02 current
+ * transaction is aborted…`, each of THOSE is swallowed too, `purgeTablesTx`
+ * returns normally, and `COMMIT` on an aborted transaction degrades to
+ * `ROLLBACK` WITHOUT raising — factory reset reports success having cleared
+ * nothing (BST-558 review). Narrowing the catch is what makes the first real
+ * failure visible as itself.
+ */
+async function clearMigratedRelation(
+  tx: { query: (sql: string) => Promise<unknown> },
+  table: string,
+  phase: string
+): Promise<void> {
+  try {
+    await tx.query(`DELETE FROM ${table}`);
+  } catch (error) {
+    if (!isMissingNamedRelationError(error, table)) {
+      throw error;
+    }
+    logger.warn(`[DbProvider] Skipped missing ${table} table during ${phase}:`, error);
+  }
+}
+
+/**
  * Complete tool output can contain sensitive command results and has no FK to
  * Mastra-owned message tables. A clear/reset must therefore delete it
  * explicitly. Only a pre-migration-068 database may omit the relation; every
@@ -132,6 +161,70 @@ async function clearToolOutputArtifactsIfPresent(tx: {
     }
     logger.warn(`[DbProvider] Skipped missing ${table} table during clear:`, error);
   }
+}
+
+/**
+ * Mirror of `MASTRA_WORKFLOW_TABLE`, kept as a local literal rather than an
+ * import — see the note on `clearWorkflowSnapshotsIfPresent` below. Pinned to the
+ * contract by `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`.
+ */
+const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot';
+
+/**
+ * Suspended Mastra workflow snapshots (BST-558) have an UNBOUNDED lifetime:
+ * nothing deletes rows in production, and a suspended run retains its pending
+ * tool call and arguments. No FK cascades the table, so a clear/reset must
+ * delete it explicitly per the FACTORY RESET CONTRACT.
+ *
+ * The relation is created LAZILY by `PgliteWorkflowsStore.initialize()` and by
+ * NO migration, so a database whose owner never opened the assistant legitimately
+ * lacks it — unlike every sibling helper here, "absent" is the NORMAL state, not
+ * a legacy-schema edge. That makes catch-and-tolerate insufficient: `DELETE FROM`
+ * a missing relation raises 42P01, which puts the ENCLOSING transaction into the
+ * aborted state, and swallowing the error does not undo that — every later
+ * statement then fails with `25P02 current transaction is aborted…` until
+ * ROLLBACK (there are no savepoints in this codebase). Probing with `to_regclass`
+ * avoids the issue entirely: it returns NULL for an absent relation instead of
+ * raising, so the transaction is never poisoned.
+ *
+ * There is deliberately NO `catch` around the DELETE. A tolerated 42P01 could
+ * not recover anyway (the transaction is already aborted at that point, so the
+ * next statement fails 25P02 and the whole clear rolls back with a misleading
+ * message), and nothing in this repo ever DROPs the relation —
+ * `PgliteWorkflowsStore` only creates it. A genuine delete failure must surface
+ * as itself.
+ *
+ * `WORKFLOW_SNAPSHOT_TABLE` MUST equal `MASTRA_WORKFLOW_TABLE` from
+ * `@brainstrike/assistant-contract/mastra-memory-schema`: with `to_regclass`, a
+ * stale name returns NULL forever, turning this into a permanent SILENT skip
+ * rather than a visible error.
+ *
+ * It is a literal and NOT that import ON PURPOSE. This module is renderer-side,
+ * and importing the contract package here reorders bundle chunk init so
+ * `MASTRA_MEMORY_TABLES` is undefined when `assistant-memory-repository.ts`
+ * evaluates its module-scope SQL template literals — the renderer then dies with
+ * "Cannot read properties of undefined (reading 'threads')" and the app never
+ * becomes ready. Measured on this branch: commit 3e8d1b7fd added the import and
+ * turned Web + Desktop E2E red where the preceding commit was green, while
+ * type-check and every unit suite stayed green.
+ * `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs` pins the
+ * literal to the constant instead — same protection, no runtime import edge.
+ */
+async function clearWorkflowSnapshotsIfPresent(tx: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  const table = WORKFLOW_SNAPSHOT_TABLE;
+  const probe = (await tx.query(`SELECT to_regclass('${table}') IS NOT NULL AS present`)) as
+    | { rows?: Array<{ present?: boolean }> }
+    | undefined;
+  if (probe?.rows?.[0]?.present !== true) {
+    // `debug`, not `warn`: an absent relation is the expected state for a
+    // never-used assistant, and warn+ records are persisted into
+    // brainstrike_diagnostic_events — the very table this clear is emptying.
+    logger.debug(`[DbProvider] Skipped missing ${table} table during clear`);
+    return;
+  }
+  await tx.query(`DELETE FROM ${table}`);
 }
 
 /**
@@ -901,7 +994,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           error
         );
       }
+      // These awaits are deliberately SEQUENTIAL, not `Promise.all` (react-doctor
+      // async-parallel flags them): they are statements on ONE PGlite connection
+      // inside ONE transaction. Interleaving them races statements on a single
+      // connection, and once any statement fails the transaction is aborted, so
+      // the rest would only pile up `25P02` errors.
       await clearToolOutputArtifactsIfPresent(tx);
+      await clearWorkflowSnapshotsIfPresent(tx);
       await clearThreadSearchIndexIfPresent(tx);
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
@@ -938,55 +1037,26 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
+    // Sequential by necessity — see the identical note in clearViaPGlite: one
+    // connection, one transaction, so `Promise.all` would race statements and
+    // turn any single failure into a pile of `25P02`s.
     await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
     await clearToolOutputArtifactsIfPresent(tx);
-    try {
-      // Task Ledger outcome labels: web-writable (user verdicts), no FK —
-      // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
-      await tx.query('DELETE FROM brainstrike_assistant_run_outcomes');
-    } catch (err) {
-      logger.warn('Failed to clear brainstrike_assistant_run_outcomes during reset:', err);
-    }
+    await clearWorkflowSnapshotsIfPresent(tx);
+    // Task Ledger outcome labels: web-writable (user verdicts), no FK —
+    // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
+    await clearMigratedRelation(tx, 'brainstrike_assistant_run_outcomes', 'reset');
     await clearThreadSearchIndexIfPresent(tx);
-    try {
-      await tx.query('DELETE FROM job_queue');
-    } catch (err) {
-      logger.warn('Failed to clear job_queue during reset:', err);
-    }
-    try {
-      await tx.query('DELETE FROM collection_indexing_stats');
-    } catch (err) {
-      logger.warn('Failed to clear collection_indexing_stats during reset:', err);
-    }
-    try {
-      await tx.query('DELETE FROM embedding_sets');
-    } catch (err) {
-      logger.warn('Failed to clear embedding_sets during reset:', err);
-    }
-    try {
-      await tx.query('DELETE FROM selection_snapshot_files');
-      await tx.query('DELETE FROM selection_snapshots');
-    } catch (err) {
-      logger.warn('Failed to clear selection snapshots during reset:', err);
-    }
-    try {
-      await tx.query('DELETE FROM file_chunks');
-    } catch (err) {
-      logger.warn('Failed to clear file_chunks during reset:', err);
-    }
-    try {
-      await tx.query('DELETE FROM file_records');
-    } catch (err) {
-      logger.warn('Failed to clear file_records during reset:', err);
-    }
-    try {
-      // After file_records (the FK child): stale roots would otherwise
-      // survive a reset and resurface as ghost workspaces once consumers
-      // read the roots table.
-      await tx.query('DELETE FROM roots');
-    } catch (err) {
-      logger.warn('Failed to clear roots during reset:', err);
-    }
+    await clearMigratedRelation(tx, 'job_queue', 'reset');
+    await clearMigratedRelation(tx, 'collection_indexing_stats', 'reset');
+    await clearMigratedRelation(tx, 'embedding_sets', 'reset');
+    await clearMigratedRelation(tx, 'selection_snapshot_files', 'reset');
+    await clearMigratedRelation(tx, 'selection_snapshots', 'reset');
+    await clearMigratedRelation(tx, 'file_chunks', 'reset');
+    await clearMigratedRelation(tx, 'file_records', 'reset');
+    // After file_records (the FK child): stale roots would otherwise survive a
+    // reset and resurface as ghost workspaces once consumers read the table.
+    await clearMigratedRelation(tx, 'roots', 'reset');
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {

@@ -84,16 +84,71 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
   };
 }
 
-function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefined {
+/**
+ * Listing-only tolerance for a corrupt snapshot row (BST-558).
+ *
+ * NO SILENT FALLBACK: every targeted read (`loadWorkflowSnapshot`,
+ * `getWorkflowRunById`, `updateWorkflowResults`) throws, because the malformed
+ * row IS the answer the caller asked for — skipping it there would be a lie.
+ *
+ * Listing is deliberately different. `listWorkflowRuns` backs
+ * `agent.listSuspendedRuns`, which is how pending tool approvals are
+ * rediscovered after a restart or renderer reload. Throwing for the whole page
+ * would let ONE corrupt row make EVERY pending approval undiscoverable — a
+ * total outage traded for a partial one. So the intact rows are still served,
+ * and the corruption is surfaced at ERROR severity with a stable diagnostic
+ * code instead: per the DIAGNOSTIC EVENTS contract
+ * (docs/agents/platform-contracts.md) error-severity records are eagerly
+ * flushed into `brainstrike_diagnostic_events` (the Flight Recorder) and reach
+ * the debug bundle, so the row cannot vanish unnoticed the way a batched warn
+ * (which waits on the 2s/32-event window) could.
+ *
+ * The ERROR record is emitted once per corrupt row PER STORE INSTANCE, guarded
+ * by `reportedMalformedRuns`. NOT once per process — review (BST-558) established
+ * that `createPgliteMastraMemory` constructs a fresh `PgliteWorkflowsStore` on
+ * every call (`memory-factory.ts:137`) and that desktop DELIBERATELY bypasses the
+ * shared memory cache for run-scoped instances (`apps/desktop/src/assistant-server.ts:2652`),
+ * so a new `Set` is created roughly once per assistant run. Within one store the
+ * guard holds; across stores the same permanent corrupt row is re-reported.
+ *
+ * Closing that fully needs the registry to live in a process-lived owner rather
+ * than the store — deliberately NOT done here, because it changes ownership of
+ * state this PR does not otherwise touch. Tracked separately; do not describe the
+ * current behaviour as a per-process guarantee.
+ *
+ * A corrupt row is PERMANENT in production
+ * (`deleteWorkflowRunById` has no production caller), while this listing runs on
+ * every renderer reload AND on every `readResumedApprovalToolCall` during tool
+ * approval. Without the guard, each of those writes another eagerly flushed
+ * `brainstrike_diagnostic_events` row for the same unfixable condition, bounded
+ * only by retention purge. Repeats carry NO new information: the fingerprint is
+ * `computeDiagnosticFingerprint(code, scope, message)` and is identical every
+ * time. This is not a silent fallback — the condition IS reported, once, at
+ * ERROR, and every suppressed repeat still emits a `debug` record.
+ */
+function safeWorkflowRunFromRow(
+  row: WorkflowSnapshotRow,
+  reportedMalformedRuns: Set<string>
+): WorkflowRun | undefined {
   try {
     return workflowRunFromRow(row);
   } catch (error) {
-    logger.warn('Skipping malformed Mastra workflow snapshot while listing workflow runs', {
-      code: 'mastra_workflow_snapshot_list_skip_malformed',
+    const details = {
+      code: 'mastra_workflow_snapshot_malformed',
       error: error instanceof Error ? error.message : String(error),
       runId: row.runId,
       workflowName: row.workflowName,
-    });
+    };
+    const identity = `${row.workflowName}\u0000${row.runId}`;
+    if (reportedMalformedRuns.has(identity)) {
+      logger.debug('Malformed Mastra workflow snapshot excluded again (already reported)', details);
+    } else {
+      reportedMalformedRuns.add(identity);
+      logger.error(
+        'Malformed Mastra workflow snapshot excluded from workflow run listing',
+        details
+      );
+    }
   }
   return;
 }
@@ -208,6 +263,10 @@ async function writeWorkflowSnapshot(
 export class PgliteWorkflowsStore extends WorkflowsStorage {
   private readonly database: PgliteDatabase;
   private initPromise: Promise<void> | null = null;
+  /** Identity (`workflowName`, NUL, `runId` — NUL cannot occur in either, so
+   * the pair cannot collide) of every corrupt row already reported at ERROR
+   * severity by this store instance — see {@link safeWorkflowRunFromRow}. */
+  private readonly reportedMalformedRuns = new Set<string>();
 
   constructor(options: PgliteWorkflowsStoreOptions) {
     super();
@@ -347,6 +406,24 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     });
   }
 
+  /**
+   * DO NOT RELITIGATE — `total` and `runs.length` are answers to DIFFERENT
+   * questions and may legitimately disagree when a snapshot is corrupt:
+   *
+   * - `total` is AUTHORITATIVE for what matches the filter IN STORAGE. It is
+   *   what makes page boundaries stable, so it must not shrink as rows are
+   *   excluded page by page (an exclusion on page 3 cannot retroactively
+   *   renumber pages 1-2).
+   * - `runs` is what is SERVABLE. A corrupt row is genuinely unfetchable —
+   *   `getWorkflowRunById` throws for it by design — so `runs.length <= total`
+   *   is the invariant, and the shortfall is exactly the excluded corrupt rows.
+   *
+   * The alternative — excluding corrupt rows from the COUNT too — would require
+   * a SQL predicate mirroring `parseWorkflowSnapshot`'s JS predicate, and any
+   * drift between the two would silently miscount. No in-repo consumer reads
+   * `total`: `agent.listSuspendedRuns` destructures `{ runs }` only. The
+   * corruption signal is the ERROR diagnostic, not the arithmetic.
+   */
   async listWorkflowRuns({
     workflowName,
     fromDate,
@@ -403,7 +480,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
 
     return {
       runs: result.rows.flatMap((row) => {
-        const run = safeWorkflowRunFromRow(row);
+        const run = safeWorkflowRunFromRow(row, this.reportedMalformedRuns);
         return run ? [run] : [];
       }),
       total: Number(countResult.rows[0]?.count ?? 0),
