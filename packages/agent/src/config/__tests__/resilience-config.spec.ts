@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
   resolveStreamInactivityMs,
+  resolveToolCallInputMs,
   resolveToolTimeoutMs,
 } from '../resilience-config';
 
@@ -14,6 +16,7 @@ describe('resilience-config', () => {
   const KEYS = [
     'BRAINSTRIKE_TOOL_TIMEOUT_MS',
     'BRAINSTRIKE_STREAM_INACTIVITY_MS',
+    'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
     'BRAINSTRIKE_APPROVAL_STALE_MS',
   ] as const;
   afterEach(() => {
@@ -50,6 +53,7 @@ describe('resilience-config', () => {
   it('resolves the documented assistant resilience defaults together', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamInactivityMs: DEFAULT_STREAM_INACTIVITY_MS,
+      toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
   });
@@ -57,10 +61,38 @@ describe('resilience-config', () => {
   it('resolves valid tool and stream timeout env values together', () => {
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '25';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamInactivityMs: 50,
+      toolCallInputMs: 75,
       toolTimeoutMs: 25,
     });
+  });
+
+  it('gives streamed tool-call input assembly a budget far wider than inactivity', () => {
+    // Regression: a legitimate large file write (tens of KB of streamed
+    // argument JSON) must not be killed by the inactivity-sized window while
+    // deltas are still arriving. See BST-839.
+    expect(resolveToolCallInputMs()).toBe(DEFAULT_TOOL_CALL_INPUT_MS);
+    expect(DEFAULT_TOOL_CALL_INPUT_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
+  });
+
+  it('uses a valid tool-call-input env override', () => {
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '900000';
+    expect(resolveToolCallInputMs()).toBe(900_000);
+  });
+
+  it('throws on a malformed tool-call-input env value (no silent coercion)', () => {
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = 'soon';
+    expect(() => resolveToolCallInputMs()).toThrow(/BRAINSTRIKE_TOOL_CALL_INPUT_MS/);
+  });
+
+  it('throws when the tool-call-input budget is tighter than stream inactivity', () => {
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '119999';
+    expect(() => resolveAssistantResilienceConfig()).toThrow(
+      /BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+    );
   });
 
   it('returns the documented 24h default for the approval staleness threshold', () => {
