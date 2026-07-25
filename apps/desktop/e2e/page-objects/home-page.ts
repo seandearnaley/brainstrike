@@ -59,26 +59,27 @@ export class HomePage {
    * That is why the guard reads the settings navigation rather than the trigger:
    * the trigger is unobservable in exactly the state we need to detect.
    *
+   * The guard is scoped to `[data-state="open"]` because `DialogContent` carries
+   * `duration-200 data-[state=closed]:animate-out` (`packages/ui/src/dialog.tsx`),
+   * so Radix keeps it mounted and visible for ~200ms AFTER a close. An unscoped
+   * visibility probe would read `true` against a CLOSING dialog, skip the trigger
+   * click, and then fail confusingly in whatever `openCategory()` came next.
+   *
    * This is a navigation postcondition, not error tolerance — the method still
    * ends by asserting Settings is open on BOTH paths, so a genuine failure to
    * open remains a visible timeout.
    */
   async openSettings() {
-    const settingsNavigation = this.page.getByRole('navigation', {
-      name: 'Settings categories',
-    });
+    const openSettingsNavigation = this.page
+      .locator('[data-slot="dialog-content"][data-state="open"]')
+      .getByRole('navigation', { name: 'Settings categories' });
 
-    if (!(await settingsNavigation.isVisible())) {
+    if (!(await openSettingsNavigation.isVisible())) {
       await this.page.getByRole('button', { name: 'Open profile menu' }).click();
       await this.page.getByRole('menuitem', { name: 'Settings…' }).click();
-
-      const settingsLoading = this.page.getByTestId('desktop-settings-page-loading');
-      if (await settingsLoading.isVisible().catch(() => false)) {
-        await settingsLoading.waitFor({ state: 'hidden', timeout: 10_000 });
-      }
     }
 
-    await settingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
+    await openSettingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
   }
 
   async toggleTheme() {
