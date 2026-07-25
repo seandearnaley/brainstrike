@@ -206,7 +206,7 @@ function effortRank(value: string): number {
  * living in a separate control.
  */
 export function buildEffortSliderModel(model: EffortControlModel): EffortSliderModel {
-  const ordered = [...model.options].sort(
+  const ordered = model.options.toSorted(
     (left, right) => effortRank(left.value) - effortRank(right.value)
   );
   const stops: EffortSliderStop[] = [
