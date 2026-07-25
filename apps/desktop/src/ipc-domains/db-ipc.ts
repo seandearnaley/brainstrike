@@ -1,4 +1,8 @@
-import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  MASTRA_MEMORY_TABLES,
+  MASTRA_VECTOR_TABLE,
+  MASTRA_WORKFLOW_TABLE,
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
@@ -77,6 +81,8 @@ interface PGliteLiveQuerySurface {
 }
 
 type OptionalRelationTable =
+  | (typeof MASTRA_MEMORY_TABLES)[keyof typeof MASTRA_MEMORY_TABLES]
+  | typeof MASTRA_VECTOR_TABLE
   | typeof MASTRA_WORKFLOW_TABLE
   | 'brainstrike_assistant_edit_checkpoints'
   | 'brainstrike_assistant_message_parents'
@@ -302,8 +308,8 @@ async function handleLiveQueryRefreshError(
  * `tableName` is a fixed union, never a caller-supplied string: with
  * `to_regclass` a STALE name is indistinguishable from an absent table, so a
  * typo would become a permanent SILENT skip rather than a visible error. The
- * Mastra name comes from `MASTRA_WORKFLOW_TABLE`, never a local literal, for the
- * same reason.
+ * Mastra names come from the assistant-contract schema constants, never local
+ * literals, for the same reason.
  */
 async function clearOptionalRelation(
   tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
@@ -768,6 +774,18 @@ export function registerDatabaseIpcHandlers(
             // pre-migration-068 database may omit this table; any other delete
             // failure remains visible through clearOptionalRelation.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
+            // Mastra creates all of its memory relations lazily, so a fresh
+            // profile can legitimately omit any of them. Probe first, then wipe
+            // every durable assistant-memory store so no conversation,
+            // resource, or observational-memory state survives factory reset.
+            await clearOptionalRelation(tx, MASTRA_MEMORY_TABLES.messages);
+            await clearOptionalRelation(tx, MASTRA_MEMORY_TABLES.threads);
+            await clearOptionalRelation(tx, MASTRA_MEMORY_TABLES.resources);
+            await clearOptionalRelation(tx, MASTRA_MEMORY_TABLES.observationalMemory);
+            // Vector rows may span multiple indexes, models, and namespaces.
+            // Factory reset intentionally clears the whole relation rather than
+            // guessing which subset belongs to the current configuration.
+            await clearOptionalRelation(tx, MASTRA_VECTOR_TABLE);
             // Suspended Mastra workflow snapshots (BST-558): the only durable
             // assistant store with an UNBOUNDED lifetime — nothing deletes rows
             // in production, and a suspended run retains its pending tool call
