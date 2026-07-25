@@ -556,3 +556,45 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
   }
   return violations;
 }
+
+/**
+ * BST-836: this module shipped without an entrypoint, so
+ * `node scripts/verify-workspace-src-aliases.mjs` exited 0 while checking
+ * nothing.
+ *
+ * `appsRoot` is passed explicitly to mirror the CI-wired paired test — the
+ * function's own default covers packages/ only, and a CLI that quietly checked
+ * a narrower tree than CI would be a second, weaker verdict under the same name.
+ *
+ * @param {{ repoRoot?: string }} options
+ */
+export async function main(options = {}) {
+  const repoRoot = options.repoRoot ?? resolve(HERE, '..');
+  const violations = await findWorkspaceSrcAliasViolations({
+    appsRoot: join(repoRoot, 'apps'),
+    packagesRoot: join(repoRoot, 'packages'),
+  });
+  if (violations.length === 0) {
+    console.log(
+      'verify-workspace-src-aliases: OK (every package and app test lane resolves @brainstrike/* ' +
+        'imports from source, not built dist)'
+    );
+    return;
+  }
+  console.error(
+    'Package/app test lanes resolve @brainstrike/* imports from built dist ' +
+      '(spread `...workspaceSrcAliases(...)` in the flagged config/project, or allowlist with a reason):'
+  );
+  console.error(
+    violations
+      .map((v) => `  - ${v.package} [${v.config} / ${v.project}] ${v.specifier}: ${v.problem}`)
+      .join('\n')
+  );
+  process.exitCode = 1;
+}
+
+const isDirectExecution =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectExecution) {
+  await main();
+}

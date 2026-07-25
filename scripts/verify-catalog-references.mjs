@@ -30,6 +30,9 @@
 // drop the dep from the catalog to make a literal pass.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * Dependency fields whose entries MUST use "catalog:" for a catalogued name.
@@ -530,4 +533,56 @@ export function formatViolations(violations) {
       );
     })
     .join('\n');
+}
+
+/** Render bare-override shadowing conflicts (mirrors the paired test's wording). */
+export function formatOverrideConflicts(conflicts) {
+  return conflicts
+    .map(
+      (c) =>
+        `  ${c.name}: catalog says "${c.catalogVersion}" but overrides["${c.overrideKey}"] wins. ` +
+        'Either drop it from the catalog (leaving overrides the single governor — correct when the override ' +
+        'is load-bearing for TRANSITIVE deps, as with react/react-dom) or remove the override so the catalog ' +
+        'genuinely governs. Do not keep both: the catalog entry would be decorative.'
+    )
+    .join('\n');
+}
+
+/**
+ * BST-836: this module shipped without an entrypoint, so
+ * `node scripts/verify-catalog-references.mjs` exited 0 while checking nothing.
+ * It runs BOTH real-repo checks the paired test asserts — a CLI that covered
+ * only the literal-reference half would be a second, weaker verdict wearing the
+ * same name.
+ *
+ * @param {{ repoRoot?: string }} options
+ */
+export function main(options = {}) {
+  const repoRoot = options.repoRoot ?? REPO_ROOT;
+  const violations = findCatalogViolations({ repoRoot });
+  const conflicts = findCatalogOverrideConflicts({ repoRoot });
+
+  if (violations.length === 0 && conflicts.length === 0) {
+    const catalog = readCatalogEntries(repoRoot);
+    console.log(
+      `verify-catalog-references: OK (${catalog.size} catalog entries across ` +
+        `${packageManifestPaths(repoRoot).length} manifests; no literal references, no bare-override shadowing)`
+    );
+    return;
+  }
+  if (violations.length > 0) {
+    console.error('Catalogued dependencies referenced by literal version:');
+    console.error(formatViolations(violations));
+  }
+  if (conflicts.length > 0) {
+    console.error('Catalogued deps silently shadowed by a bare overrides: entry:');
+    console.error(formatOverrideConflicts(conflicts));
+  }
+  process.exitCode = 1;
+}
+
+const isDirectExecution =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectExecution) {
+  main();
 }

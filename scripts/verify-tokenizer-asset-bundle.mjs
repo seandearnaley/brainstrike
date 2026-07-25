@@ -71,8 +71,16 @@ export async function findTokenizerAssetContractViolations(directory) {
   return violations;
 }
 
-async function main() {
-  const directoryArgument = process.argv[2];
+/**
+ * Unlike the other verify-* guards this one inspects a BUILD ARTIFACT, not the
+ * repo tree, so it takes a bundle directory rather than a repo root. `directory`
+ * is threaded as an option so the BST-836 entrypoint contract test can drive it
+ * against a tree where it must not pass.
+ *
+ * @param {{ directory?: string }} options
+ */
+export async function main(options = {}) {
+  const directoryArgument = options.directory ?? process.argv[2];
   if (!directoryArgument) {
     throw new Error('Usage: verify-tokenizer-asset-bundle.mjs <bundle-directory>');
   }

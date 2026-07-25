@@ -185,7 +185,7 @@ Shared dependency versions (TypeScript, Vitest, the testing-library family, and 
 How this is enforced (two layers — read this before assuming `pnpm install` protects you):
 
 - **`pnpm add` / `pnpm update`** — pnpm rejects an off-catalog version itself, via `catalogMode: strict`: `ERR_PNPM_CATALOG_VERSION_MISMATCH`, exit 1.
-- **Hand edits** — **plain `pnpm install` does NOT reject drift.** If you hand-edit a catalogued dep to a literal version, `pnpm install` exits 0 and quietly resolves a *second, parallel* copy of that package; `--frozen-lockfile` then passes too. That path is caught in CI by `scripts/verify-catalog-references.mjs` (runs in `pnpm test:scripts`), which fails if any catalogued dep is referenced by a literal version, or if a catalog entry is shadowed by a bare override.
+- **Hand edits** — **plain `pnpm install` does NOT reject drift.** If you hand-edit a catalogued dep to a literal version, `pnpm install` exits 0 and quietly resolves a *second, parallel* copy of that package; `--frozen-lockfile` then passes too. That path is caught in CI by `scripts/verify-catalog-references.mjs` (runs in `pnpm test:scripts`), which fails if any catalogued dep is referenced by a literal version, or if a catalog entry is shadowed by a bare override. To check locally, run `node scripts/verify-catalog-references.mjs` — it reports the same verdict CI does (before BST-836 that command exited 0 unconditionally, so an older green from it proves nothing).
 
 So: a green local `pnpm install` is *not* evidence your version change is legal. Run `pnpm test:scripts` for that.
 

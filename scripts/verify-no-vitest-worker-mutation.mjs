@@ -7,7 +7,10 @@
 // isolated runs. Simulate non-test runtimes through an injectable/mockable
 // seam instead (see packages/file-explorer/src/persistence/test-environment.ts).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const WORKER_STATE_KEY = '__vitest_worker__';
 
@@ -99,4 +102,31 @@ export function scanRepositoryTestFiles(rootDir) {
     }
   }
   return violations;
+}
+
+/**
+ * BST-836: this module shipped without an entrypoint, so
+ * `node scripts/verify-no-vitest-worker-mutation.mjs` exited 0 while scanning
+ * nothing.
+ *
+ * @param {{ repoRoot?: string }} options
+ */
+export function main(options = {}) {
+  const repoRoot = options.repoRoot ?? REPO_ROOT;
+  const violations = scanRepositoryTestFiles(repoRoot);
+  if (violations.length === 0) {
+    console.log(
+      `verify-no-vitest-worker-mutation: OK (no test file under packages/ or apps/ mutates ${WORKER_STATE_KEY})`
+    );
+    return;
+  }
+  console.error(`Test files mutating the ${WORKER_STATE_KEY} global (see BST-591 flake class):`);
+  console.error(violations.map((v) => `  - ${v.filename}: ${v.description}`).join('\n'));
+  process.exitCode = 1;
+}
+
+const isDirectExecution =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectExecution) {
+  main();
 }
