@@ -34,6 +34,16 @@
 // read them only from inside a function body, where every chunk has already been
 // evaluated. Build SQL in the function that executes it.
 //
+// SCOPE: this guard covers ONE constant family — the exports of the schema
+// module below. That is a floor, not a ceiling. The same class has already bitten
+// an unrelated family (the context-action helpers, PR #1292), which is held today
+// only by a `codeSplitting.groups` entry in `apps/web/vite.config.mts`, and
+// migration 066's `QUALIFIED_PG_TEXTSEARCH_VERSION` is a known live instance
+// outside this scope (BST-860). Generalizing is BST-861 — read that ticket first:
+// a naive "flag every module-scope read of an imported binding" rule returns 431
+// hits in `app-shell` + `db` alone, nearly all benign, because the CHUNK (not the
+// file, not the package) is the unit of risk.
+//
 // This supersedes `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`,
 // a stopgap that pinned one hand-copied literal in one file and forbade one
 // import syntax there. That guard could not see `export … from`, `await

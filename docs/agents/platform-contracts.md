@@ -158,14 +158,23 @@ supersedes a stopgap (`mastra-workflow-table-literal-contract.test.mjs`, deleted
 that pinned one hand-copied literal in one file and could not see `export … from`,
 `await import()`, or the same import added from any other module.
 
-Known remaining instance of the same class, deliberately NOT changed here:
-`packages/db/src/migrations/066-restore-pg-textsearch.ts` interpolates the
-imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope `up` string. It
-is out of the guard's scope (a different constant family), intra-package, and
-fails LOUDLY (the DO block raises) rather than silently. Fixing it means moving
-`up` to the `MigrationCallback` form the `Migration` type already allows, which
-touches a dual-registered, fail-closed migration guarding against real BM25 data
-corruption — that needs explicit sign-off, not a drive-by.
+Known remaining instance of the same class, deliberately NOT changed here
+(**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
+interpolates the imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope
+`up` string. It is out of the guard's scope (a different constant family),
+intra-package, and fails LOUDLY (the DO block raises) rather than silently.
+Fixing it means moving `up` to the `MigrationCallback` form the `Migration` type
+already allows, which touches a dual-registered, fail-closed migration guarding
+against real BM25 data corruption — that needs explicit sign-off, not a
+drive-by.
+
+The guard is deliberately scoped to ONE constant family. The class itself has
+recurred twice in unrelated families — the context-action helpers (PR #1292,
+held today only by a `codeSplitting.groups` entry in `apps/web/vite.config.mts`)
+and these schema constants — so a family-scoped guard is a floor, not a ceiling.
+Generalizing it is **BST-861**; note that a naive "flag every module-scope read
+of an imported binding" rule returns 431 hits in `app-shell` + `db` alone and is
+useless. The chunk, not the file or the package, is the unit of risk.
 
 **Narrow every catch in a purge to `isMissingNamedRelationError`.** A bare
 `catch (err) { logger.warn(...) }` cannot be a tolerance inside a transaction:
