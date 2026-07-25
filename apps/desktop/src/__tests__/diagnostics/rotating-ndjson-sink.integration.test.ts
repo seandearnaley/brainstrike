@@ -82,6 +82,24 @@ describe('RotatingNdjsonSink', () => {
     expect(sink.disabled).toBe(false);
   });
 
+  it('uses encoded UTF-8 bytes rather than string length for rotation accounting', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'errors.ndjson');
+    // Each line is 20 UTF-8 bytes + trailing '\n' = 21 bytes on disk, while
+    // its JavaScript string length is only 10.
+    const line = '\u00e9'.repeat(10);
+    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 55, maxFiles: 5 });
+
+    sink.writeLine(line);
+    sink.writeLine(line);
+    sink.writeLine(line);
+    sink.close();
+
+    expect(sink.disabled).toBe(false);
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe(`${line}\n`);
+    expect(await fsPromises.readFile(`${filePath}.1`, 'utf8')).toBe(`${line}\n${line}\n`);
+  });
+
   it('rotates once a write would exceed maxBytes, and the live file restarts small', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
