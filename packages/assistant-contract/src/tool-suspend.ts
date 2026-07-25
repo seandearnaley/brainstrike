@@ -28,14 +28,17 @@ export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
 /**
  * The suspending tools whose `resumeSchema` has a REGISTERED typed suspension UI
  * (`AssistantToolSuspendNotice` branches on exactly these ids). This is the
- * single source of truth for "can this pause actually be resumed?" — the agent
- * stream mapper rejects a pause from any other tool visibly and terminally
- * instead of emitting a resumable pause nobody can answer, and the renderer
- * shows the matching dead-end rejection.
+ * single source of truth for "can this pause be answered by THIS build?" — the
+ * agent stream mapper records a visible, durable rejection for a pause from any
+ * other tool (never a silent inert card), and the renderer shows the matching
+ * dead-end notice with a dismiss action. The rejection is deliberately
+ * NON-terminal: the Mastra workflow snapshot is already persisted, so the run
+ * stays suspended and a build that later registers the tool can still resume it.
  *
  * Adding a suspending tool means: register its typed UI branch AND add its id
  * here. Adding the id alone re-creates the silent dead end this list exists to
- * prevent.
+ * prevent; `SUSPENDING_NATIVE_TOOL_IDS` (plan-mode gate) derives from this list
+ * so the two cannot drift.
  */
 export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,

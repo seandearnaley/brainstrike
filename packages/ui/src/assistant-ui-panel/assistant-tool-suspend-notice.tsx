@@ -465,12 +465,14 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
 /**
  * Dead-end rejection for a suspending tool with NO registered typed resume UI
  * (`hasRegisteredSuspendResumeUi`). We still refuse to guess a typed action
- * (no-silent-wrong-render), but the pause is presented as what it is: an
- * UNRESUMABLE failure, not a card that is still waiting for input. The agent
- * stream mapper already terminated this run with a durable `run.failed` event;
- * this component is the renderer-side surface for that same rejection (and the
- * defense-in-depth surface for a client older than the tool). Dismiss removes
- * the inert card so the user is not stranded staring at it.
+ * (no-silent-wrong-render), but the pause is presented as what it is: something
+ * this build cannot answer, not a card that is still waiting for input. The
+ * agent stream mapper records the matching durable `tool.failed` run event and
+ * deliberately does NOT terminate the run (the Mastra snapshot is already
+ * persisted and stays resumable by a build that registers the tool), so the copy
+ * claims nothing about server-side state — it must stay true both on that path
+ * and on the version-skew path where an older client renders a newer tool's
+ * pause. Dismiss clears the card so the user is not stranded staring at it.
  */
 function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const [dismissed, setDismissed] = useState(false);
@@ -491,8 +493,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
     >
       <p className="mt-1 text-muted-foreground text-xs">
         This tool paused the run for input, but this build has no resume UI registered for its
-        resume schema. The run was stopped instead of waiting forever; the failure is recorded in
-        the run diagnostics.
+        resume schema, so the pause cannot be answered and the run cannot continue here.
       </p>
       <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
         {detail}

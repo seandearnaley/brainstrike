@@ -45,6 +45,21 @@ function setMockStreamParts(parts: unknown[]) {
   streamParts = [...parts];
 }
 
+interface RunEventChunk {
+  event: { kind: string; label: string; metadata?: Record<string, unknown> };
+  type: 'run-event';
+}
+
+function findRunEventChunks(chunks: readonly unknown[], kind: string): RunEventChunk[] {
+  return chunks.filter(
+    (chunk): chunk is RunEventChunk =>
+      typeof chunk === 'object' &&
+      chunk !== null &&
+      (chunk as { type?: string }).type === 'run-event' &&
+      (chunk as { event?: { kind?: string } }).event?.kind === kind
+  );
+}
+
 async function expectMastraAgentError(
   promise: Promise<unknown>,
   code: MastraAgentErrorCode
@@ -2495,7 +2510,59 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('rejects an UNREGISTERED suspending tool visibly instead of leaving the run suspended forever', async () => {
+  // REGRESSION GUARD: the real Mastra stream part carries the REGISTERED
+  // (sanitized) id — see mastra-tool-suspend-resume.integration.spec.ts:219,344 —
+  // and `sanitizedNameMap` is optional (spread conditionally at every call site),
+  // so a missing map must never decide whether a pause is resumable.
+  it.each([
+    ['brainstrike_askUser', 'brainstrike.askUser', { question: 'Which city?' }],
+    [
+      'brainstrike_submitPlan',
+      'brainstrike.submitPlan',
+      { overview: 'do it', steps: [{ title: 'step' }], title: 'Plan' },
+    ],
+  ])('treats a %s suspend part with NO sanitizedNameMap as REGISTERED and resumable', async (sanitizedToolName, dottedToolName, suspendPayload) => {
+    setMockStreamParts([
+      {
+        payload: {
+          suspendPayload,
+          toolCallId: 'suspended-sanitized-1',
+          toolName: sanitizedToolName,
+        },
+        runId: 'run-suspended-sanitized-1',
+        type: 'tool-call-suspended',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-sanitized', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    // The pause is offered for resume, under the CLIENT-FACING dotted id.
+    expect(chunks).toContainEqual({
+      runId: 'run-suspended-sanitized-1',
+      suspendPayload,
+      toolCallId: 'suspended-sanitized-1',
+      toolName: dottedToolName,
+      type: 'tool-suspend-required',
+    });
+    // ...and it is NOT treated as an unregistered dead end.
+    expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+    );
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
+  });
+
+  it('records a VISIBLE, NON-TERMINAL rejection for an UNREGISTERED suspending tool', async () => {
     setMockStreamParts([
       {
         payload: {
@@ -2519,46 +2586,37 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    // NO resumable pause is offered — the UI must never guess a typed action.
-    expect(chunks).not.toContainEqual(expect.objectContaining({ type: 'tool-suspend-required' }));
-    // Visible failed tool event (the makeUnsupportedApprovalChunks idiom).
-    expect(chunks).toContainEqual(
-      expect.objectContaining({
-        name: 'brainstrike.someFutureSuspendingTool',
-        payload: expect.objectContaining({
-          actionRequired: true,
-          resumeSupported: false,
-          suspended: true,
-          toolCallId: 'suspended-unregistered-1',
-          unregisteredResumeSchema: true,
-        }),
-        status: 'error',
-        type: 'tool-event',
-      })
-    );
-    // Durable diagnostic: a terminal run.failed run-event carrying the flags.
-    const runFailed = chunks.find(
-      (chunk): chunk is { event: { kind: string; metadata?: Record<string, unknown> } } =>
-        typeof chunk === 'object' &&
-        chunk !== null &&
-        (chunk as { type?: string }).type === 'run-event' &&
-        (chunk as { event?: { kind?: string } }).event?.kind === 'run.failed'
-    );
-    expect(runFailed?.event.metadata).toMatchObject({
-      resumeSupported: false,
+    // Durable, visible rejection: this build cannot answer the pause.
+    const rejections = findRunEventChunks(chunks, 'tool.failed');
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]?.event.metadata).toMatchObject({
+      resumeSupportedByClient: false,
       runId: 'run-suspended-unregistered-1',
+      runStillSuspended: true,
       suspended: true,
       toolCallId: 'suspended-unregistered-1',
       toolName: 'brainstrike.someFutureSuspendingTool',
       unregisteredResumeSchema: true,
     });
     // The raw tool-defined suspend payload must NEVER reach durable metadata.
-    expect(runFailed?.event.metadata).not.toHaveProperty('suspendPayload');
-    expect(JSON.stringify(runFailed?.event.metadata)).not.toContain('raw payload body');
-    // Terminal error finish — the user is not stranded on an inert card.
-    expect(chunks).toContainEqual(
+    expect(rejections[0]?.event.metadata).not.toHaveProperty('suspendPayload');
+    expect(JSON.stringify(rejections[0]?.event.metadata)).not.toContain('raw payload body');
+    // NOT terminal: Mastra already persisted the suspended snapshot, so claiming
+    // the run was stopped would be false. No run.failed, no error finish.
+    expect(findRunEventChunks(chunks, 'run.failed')).toHaveLength(0);
+    expect(chunks).not.toContainEqual(
       expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
     );
+    // The pause still reaches the renderer so the notice can explain it and
+    // offer a dismiss action instead of an inert waiting card.
+    expect(chunks).toContainEqual({
+      resumeSchema: '{"type":"object"}',
+      runId: 'run-suspended-unregistered-1',
+      suspendPayload: { secretish: 'raw payload body' },
+      toolCallId: 'suspended-unregistered-1',
+      toolName: 'brainstrike.someFutureSuspendingTool',
+      type: 'tool-suspend-required',
+    });
   });
 
   it.each([
@@ -2594,6 +2652,7 @@ describe('mastra streaming integration', () => {
       toolName,
       type: 'tool-suspend-required',
     });
+    expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
     );

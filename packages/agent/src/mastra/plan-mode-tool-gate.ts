@@ -16,23 +16,28 @@
  *
  * A "suspending tool" is detected structurally by an own `suspendSchema`
  * property, so this needs no coupling to specific tool ids (future suspend tools
- * are covered automatically). {@link SUSPENDING_NATIVE_TOOL_IDS} anchors the two
- * v1 tools for registry/UX purposes.
+ * are covered automatically). {@link SUSPENDING_NATIVE_TOOL_IDS} names those
+ * tools for registry/UX purposes and is DERIVED from the resume-UI registry, so
+ * a suspending tool can never be listed here without a way to answer its pause.
  */
 
 import {
   NATIVE_TOOL_ID,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { REGISTERED_SUSPEND_RESUME_TOOL_IDS } from '@brainstrike/assistant-contract/tool-suspend';
 
 export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
-/** The v1 suspending native tools (kept in plan mode; omitted without storage). */
-export const SUSPENDING_NATIVE_TOOL_IDS: readonly string[] = [
-  SUBMIT_PLAN_TOOL_ID,
-  ASK_USER_TOOL_ID,
-];
+/**
+ * The suspending native tools (kept in plan mode; omitted without storage).
+ * DERIVED from `REGISTERED_SUSPEND_RESUME_TOOL_IDS` — a tool that can `suspend()`
+ * but has no registered typed resume UI would pause a run this build cannot
+ * answer, so the two lists are one list by construction rather than two
+ * hardcoded copies that can drift.
+ */
+export const SUSPENDING_NATIVE_TOOL_IDS: readonly string[] = REGISTERED_SUSPEND_RESUME_TOOL_IDS;
 
 export interface PlanModeToolGateLogger {
   info: (message: string, context?: Record<string, unknown>) => void;

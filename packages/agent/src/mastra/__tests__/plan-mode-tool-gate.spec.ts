@@ -1,9 +1,19 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  hasRegisteredSuspendResumeUi,
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { describe, expect, it, vi } from 'vitest';
+import { createAskUserTool } from '../../tools/ask-user-tool';
+import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import {
   filterToolsForPlanMode,
   hasSuspendSchema,
   resolveSuspendToolsForRun,
+  SUSPENDING_NATIVE_TOOL_IDS,
 } from '../plan-mode-tool-gate';
 
 function makeLogger() {
@@ -47,6 +57,38 @@ describe('hasSuspendSchema', () => {
     expect(hasSuspendSchema({ suspendSchema: {} })).toBe(true);
     expect(hasSuspendSchema({ id: 'x' })).toBe(false);
     expect(hasSuspendSchema(null)).toBe(false);
+  });
+});
+
+// A tool that CAN suspend() but has no registered typed resume UI pauses runs
+// this build cannot answer. That direction has no compile-time guard, so it is
+// guarded here.
+describe('suspending tools vs the resume-UI registry', () => {
+  it('derives SUSPENDING_NATIVE_TOOL_IDS from REGISTERED_SUSPEND_RESUME_TOOL_IDS', () => {
+    expect([...SUSPENDING_NATIVE_TOOL_IDS]).toEqual([...REGISTERED_SUSPEND_RESUME_TOOL_IDS]);
+    for (const toolId of SUSPENDING_NATIVE_TOOL_IDS) {
+      expect(hasRegisteredSuspendResumeUi(toolId)).toBe(true);
+    }
+  });
+
+  it('every REAL suspending tool factory has a registered resume UI', () => {
+    for (const tool of [createAskUserTool(), createSubmitPlanTool()]) {
+      expect(hasSuspendSchema(tool)).toBe(true);
+      expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
+    }
+  });
+
+  it('no other tool module declares a suspendSchema', () => {
+    // If this fails you added a suspending tool: register its id in
+    // REGISTERED_SUSPEND_RESUME_TOOL_IDS + a typed UI branch in
+    // AssistantToolSuspendNotice, assert it above, then list it here. Without
+    // the registry entry the stream mapper marks every pause it raises as
+    // unanswerable and the user only gets a dead-end notice.
+    const toolsDir = fileURLToPath(new URL('../../tools', import.meta.url));
+    const declaringSuspendSchema = readdirSync(toolsDir)
+      .filter((name) => name.endsWith('.ts'))
+      .filter((name) => /\bsuspendSchema\s*:/.test(readFileSync(join(toolsDir, name), 'utf8')));
+    expect(declaringSuspendSchema.sort()).toEqual(['ask-user-tool.ts', 'submit-plan-tool.ts']);
   });
 });
 

@@ -226,6 +226,14 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/Cannot resume brainstrike\.somethingElse/)).toBeInTheDocument();
     // Never present the pause as still-actionable, and never guess a typed action.
     expect(screen.queryByText(/Waiting on input/)).not.toBeInTheDocument();
+    // The copy must claim nothing about server-side state: the run is NOT stopped
+    // (the mapper leaves the Mastra snapshot suspended on purpose) and there is no
+    // run.failed to point at.
+    expect(
+      screen.getByText(/the pause cannot be answered and the run cannot continue here/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/run was stopped/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/run diagnostics/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
     // The user is not stranded: the dead card is explicitly dismissible.
