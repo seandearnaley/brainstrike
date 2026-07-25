@@ -128,15 +128,33 @@ PERMANENT SILENT SKIP with every test still green. Both helpers therefore take a
 closed literal union (`OptionalRelationTable` / `ClearableRelation`), never a
 `string` parameter. Keep it that way.
 
-**The probed table name must come from `MASTRA_WORKFLOW_TABLE`
-(`@brainstrike/assistant-contract/mastra-memory-schema`), never a local
-literal.** `to_regclass` on a stale name returns NULL, which turns the probe
-into a PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Both
-production sites and every test import the constant; a hardcoded copy would
-survive a Mastra table rename with every test still green. Verified by control:
-renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while `db-provider.tsx` held
-the literal left a suspended-run row alive through a full clear
-(`expected 1 to be +0`), and importing the constant made it pass.
+**The probed Mastra table name must be pinned to `MASTRA_WORKFLOW_TABLE` — but
+HOW it is pinned differs by side, and getting this backwards turns the app red.**
+`to_regclass` on a stale name returns NULL, which makes the probe a PERMANENT
+SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by control:
+renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path held an
+unpinned literal left a suspended-run row alive through a full clear
+(`expected 1 to be +0`).
+
+- **Desktop main** (`apps/desktop/src/ipc-domains/db-ipc.ts`) imports
+  `MASTRA_WORKFLOW_TABLE` from
+  `@brainstrike/assistant-contract/mastra-memory-schema` directly. It is Electron
+  MAIN, not renderer, so there is no bundle-chunk hazard.
+- **Renderer** (`packages/db/src/db-provider.tsx`) keeps the local literal
+  `const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot'` and **MUST NOT
+  import the contract package**. That import reorders bundle chunk init so
+  `MASTRA_MEMORY_TABLES` is undefined when
+  `packages/app-shell/src/assistant-memory-repository.ts` evaluates its
+  module-scope SQL template literals; the renderer dies with "Cannot read
+  properties of undefined (reading 'threads')" and the app never becomes ready.
+  Measured, not theorised: commit `3e8d1b7fd` added the import and turned Web +
+  Desktop E2E red where its parent was green, while type-check and every unit
+  suite stayed green. `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`
+  pins the literal to the constant and asserts the import is absent — same
+  protection, no runtime import edge.
+
+Do not "simplify" the renderer literal into an import. The guard test exists
+precisely because nothing else catches it.
 
 **Import those constants freely, but read them only inside a function — never at
 module scope (BST-558).** Module-scope initializers run at bundle CHUNK
