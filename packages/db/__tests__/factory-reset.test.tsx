@@ -272,6 +272,75 @@ describe('DbProvider factoryReset', () => {
     expect(initialDb.close).toHaveBeenCalledTimes(1);
   });
 
+  // BST-558: `mastra_workflow_snapshot` is cleared in BOTH reset paths named by
+  // the FACTORY RESET CONTRACT. clear-data.test.tsx locks the direct-clear side;
+  // these two lock `purgeTablesTx`, the factory-reset side, which previously had
+  // no regression lock at all. Real transaction semantics live in
+  // clear-data.integration.test.tsx — a mocked `tx.query` cannot model them.
+  it('purges suspended workflow snapshots during direct factory reset', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql.startsWith('SELECT to_regclass(')) {
+        return { rows: [{ present: true }] };
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).resolves.toBeUndefined();
+    });
+    expect(query).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+  });
+
+  it('skips the workflow snapshot delete when the relation was never created', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    // to_regclass returns NULL for an absent relation instead of raising, which
+    // is the whole point: issuing the DELETE would abort the reset transaction.
+    const query: QueryMock = vi.fn(async () => ({ rows: [{ present: false }] }));
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).resolves.toBeUndefined();
+    });
+    expect(query).not.toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+    expect(initialDb.close).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
     installElectronDbBridge({
       clearAll: vi.fn(async () => ({ success: true })),

@@ -129,7 +129,15 @@ describe('Database clearing functionality', () => {
 
     it('should successfully clear database with data', async () => {
       const queryMock = vi
-        .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
+        .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async (sql: string) => {
+          // `mastra_workflow_snapshot` is probed with to_regclass before the
+          // delete (a missing relation would abort the whole transaction), so
+          // the stub has to answer the probe for the delete to be reached.
+          if (sql.startsWith('SELECT to_regclass(')) {
+            return { rows: [{ present: true }] };
+          }
+          return { rows: [] };
+        })
         .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
         .mockResolvedValueOnce(undefined) // DELETE chunks
         .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
@@ -182,6 +190,9 @@ describe('Database clearing functionality', () => {
       // BST-558: suspended workflow snapshots have an unbounded lifetime (no
       // production delete path), so the clear/reset must purge them or a
       // pending approval's tool arguments survive a "true fresh start".
+      // The OTHER reset path (`purgeTablesTx`) is locked in
+      // factory-reset.test.tsx; real transaction semantics — which a mocked
+      // `tx.query` structurally cannot model — in clear-data.integration.test.tsx.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
     });
 

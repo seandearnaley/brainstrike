@@ -87,7 +87,7 @@ also be cleared explicitly (BST-558). It has an UNBOUNDED lifetime — its only
 deletes are `deleteWorkflowRunById` (no production caller) and
 `dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
 call and arguments, so it must not survive a "true fresh start". It is cleared
-in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
+in BOTH reset paths: desktop `db-ipc.ts` (`clearLazilyCreatedRelation(tx,
 'mastra_workflow_snapshot')`) and `db-provider.tsx`'s
 `clearWorkflowSnapshotsIfPresent` (used by direct-PGlite clear AND
 `purgeTablesTx`). The relation is created lazily by
@@ -97,7 +97,30 @@ remaining `mastra_*` tables (`mastra_threads`, `mastra_messages`,
 `mastra_vectors`, `mastra_observational_memory`, …) are still NOT in either
 list — a known gap, not a ruling.
 
-Add tests when changing reset behavior.
+**A relation that can legitimately be ABSENT must be PROBED, not
+deleted-and-caught.** Both reset paths run their whole body inside ONE
+transaction, and PGlite is real Postgres: a statement error puts the transaction
+into the ABORTED state, after which every command fails with `25P02 current
+transaction is aborted, commands ignored until end of transaction block` until
+ROLLBACK. Catching the original `42P01` does NOT undo that, and there are no
+savepoints anywhere in this repo — so a tolerated missing-relation error rolls
+the ENTIRE reset back and the user's Clear Database silently does nothing. Use
+`SELECT to_regclass('<table>') IS NOT NULL AS present`, which returns NULL
+instead of raising, and skip the `DELETE` when absent (BST-558 review). This
+matters most for lazily created relations (`mastra_workflow_snapshot` is created
+by `PgliteWorkflowsStore.initialize()` and by NO migration, so "absent" is the
+normal state for a never-used assistant), and it is why desktop has BOTH
+`clearOptionalRelation` (delete-and-tolerate, for migration-created tables whose
+absence is a legacy-schema edge) and `clearLazilyCreatedRelation` (probe-first).
+Known debt: the ~14 `clearOptionalRelation` call sites carry the same latent
+defect, unreachable today only because every one of those tables is created by a
+numbered migration that has already run by the time a clear starts.
+
+Add tests when changing reset behavior — and note that a mocked `tx.query`
+CANNOT reproduce aborted-transaction semantics. Reset changes that depend on
+them need a real-PGlite `*.integration.test.*`
+(`packages/db/__tests__/clear-data.integration.test.tsx`,
+`apps/desktop/src/__tests__/main/ipc-handlers-db-clear-all.integration.test.ts`).
 
 ### Persistent command-session lifecycle
 

@@ -138,16 +138,37 @@ async function clearToolOutputArtifactsIfPresent(tx: {
  * Suspended Mastra workflow snapshots (BST-558) have an UNBOUNDED lifetime:
  * nothing deletes rows in production, and a suspended run retains its pending
  * tool call and arguments. No FK cascades the table, so a clear/reset must
- * delete it explicitly per the FACTORY RESET CONTRACT. The relation is created
- * lazily by `PgliteWorkflowsStore.initialize()`, so a database where the
- * assistant never ran legitimately lacks it — only that missing-relation case
- * is tolerated; every other failure is surfaced.
+ * delete it explicitly per the FACTORY RESET CONTRACT.
+ *
+ * The relation is created LAZILY by `PgliteWorkflowsStore.initialize()` and by
+ * NO migration, so a database whose owner never opened the assistant legitimately
+ * lacks it — unlike every sibling helper here, "absent" is the NORMAL state, not
+ * a legacy-schema edge. That makes catch-and-tolerate insufficient: `DELETE FROM`
+ * a missing relation raises 42P01, which puts the ENCLOSING transaction into the
+ * aborted state, and swallowing the error does not undo that — every later
+ * statement then fails with `25P02 current transaction is aborted…` until
+ * ROLLBACK (there are no savepoints in this codebase). Probing with `to_regclass`
+ * avoids the issue entirely: it returns NULL for an absent relation instead of
+ * raising, so the transaction is never poisoned.
+ *
+ * The `catch` still stands for the narrow race where the relation disappears
+ * between probe and delete; every other failure is surfaced.
  */
 async function clearWorkflowSnapshotsIfPresent(tx: {
   query: (sql: string) => Promise<unknown>;
 }): Promise<void> {
   const table = 'mastra_workflow_snapshot';
   try {
+    const probe = (await tx.query(`SELECT to_regclass('${table}') IS NOT NULL AS present`)) as
+      | { rows?: Array<{ present?: boolean }> }
+      | undefined;
+    if (probe?.rows?.[0]?.present !== true) {
+      // `debug`, not `warn`: an absent relation is the expected state for a
+      // never-used assistant, and warn+ records are persisted into
+      // brainstrike_diagnostic_events — the very table this clear is emptying.
+      logger.debug(`[DbProvider] Skipped missing ${table} table during clear`);
+      return;
+    }
     await tx.query(`DELETE FROM ${table}`);
   } catch (error) {
     if (!isMissingNamedRelationError(error, table)) {
@@ -924,6 +945,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           error
         );
       }
+      // These awaits are deliberately SEQUENTIAL, not `Promise.all` (react-doctor
+      // async-parallel flags them): they are statements on ONE PGlite connection
+      // inside ONE transaction. Interleaving them races statements on a single
+      // connection, and once any statement fails the transaction is aborted, so
+      // the rest would only pile up `25P02` errors.
       await clearToolOutputArtifactsIfPresent(tx);
       await clearWorkflowSnapshotsIfPresent(tx);
       await clearThreadSearchIndexIfPresent(tx);
@@ -962,6 +988,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
+    // Sequential by necessity — see the identical note in clearViaPGlite: one
+    // connection, one transaction, so `Promise.all` would race statements and
+    // turn any single failure into a pile of `25P02`s.
     await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
     await clearToolOutputArtifactsIfPresent(tx);
     await clearWorkflowSnapshotsIfPresent(tx);

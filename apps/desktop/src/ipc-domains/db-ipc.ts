@@ -307,6 +307,34 @@ async function clearOptionalRelation(
   }
 }
 
+/**
+ * Clears a relation that is created LAZILY at runtime rather than by a numbered
+ * migration, so "absent" is a NORMAL state rather than a legacy-schema edge.
+ *
+ * `clearOptionalRelation` cannot serve that case. This whole handler body runs
+ * inside ONE `db.transaction(...)`, and in Postgres (PGlite is real Postgres) a
+ * statement error puts the transaction into the ABORTED state: catching the
+ * 42P01 does not undo that, and every later statement fails with `25P02 current
+ * transaction is aborted, commands ignored until end of transaction block` until
+ * ROLLBACK. There are no savepoints in this codebase, so a tolerated 42P01 here
+ * would roll the entire clear back (BST-558 review).
+ *
+ * `to_regclass` returns NULL for an absent relation instead of raising, so the
+ * probe can never poison the transaction. The delegated `clearOptionalRelation`
+ * still covers the narrow race where the relation disappears in between.
+ */
+async function clearLazilyCreatedRelation(
+  tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
+  tableName: OptionalRelationTable
+): Promise<void> {
+  const probe = await tx.query(`SELECT to_regclass('${tableName}') IS NOT NULL AS present`);
+  if ((probe.rows[0] as { present?: boolean } | undefined)?.present !== true) {
+    logger.debug('Skipped lazily created database table (not present)', { tableName });
+    return;
+  }
+  await clearOptionalRelation(tx, tableName);
+}
+
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
   if (!db || typeof db !== 'object') {
     throw new Error('Live query extension is not available');
@@ -762,10 +790,13 @@ export function registerDatabaseIpcHandlers(
             // in production, and a suspended run retains its pending tool call
             // and arguments. No FK cascades it, so clear it explicitly per the
             // FACTORY RESET CONTRACT. The table is created lazily by
-            // PgliteWorkflowsStore.initialize(), so a database where the
-            // assistant never ran legitimately lacks the relation; only that
-            // missing-relation case is tolerated by clearOptionalRelation.
-            await clearOptionalRelation(tx, 'mastra_workflow_snapshot');
+            // PgliteWorkflowsStore.initialize() and by NO migration, so a
+            // database where the assistant never ran legitimately lacks the
+            // relation. That "absent" case is the NORMAL state, not a legacy
+            // edge, so it is probed for rather than caught — a caught 42P01
+            // would still leave this transaction aborted and roll the whole
+            // clear back (see clearLazilyCreatedRelation).
+            await clearLazilyCreatedRelation(tx, 'mastra_workflow_snapshot');
             // Durable diagnostic events (Flight Recorder P1): warn+ error log.
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.
