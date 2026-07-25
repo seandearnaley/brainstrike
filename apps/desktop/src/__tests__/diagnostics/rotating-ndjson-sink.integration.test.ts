@@ -82,23 +82,22 @@ describe('RotatingNdjsonSink', () => {
     expect(sink.disabled).toBe(false);
   });
 
-  it('derives the incoming byte count from the encoded line without a separate UTF-8 scan', async () => {
+  it('uses encoded UTF-8 bytes rather than string length for rotation accounting', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
-    const sink = new RotatingNdjsonSink({ filePath });
-    const byteLengthSpy = vi.spyOn(Buffer, 'byteLength');
-    let byteLengthCalls = -1;
+    // Each line is 20 UTF-8 bytes + trailing '\n' = 21 bytes on disk, while
+    // its JavaScript string length is only 10.
+    const line = '\u00e9'.repeat(10);
+    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 55, maxFiles: 5 });
 
-    try {
-      sink.writeLine('unicode-\u00e9');
-      sink.close();
-      byteLengthCalls = byteLengthSpy.mock.calls.length;
-    } finally {
-      byteLengthSpy.mockRestore();
-    }
+    sink.writeLine(line);
+    sink.writeLine(line);
+    sink.writeLine(line);
+    sink.close();
 
-    expect(byteLengthCalls).toBe(0);
-    expect(await fsPromises.readFile(filePath, 'utf8')).toBe('unicode-\u00e9\n');
+    expect(sink.disabled).toBe(false);
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe(`${line}\n`);
+    expect(await fsPromises.readFile(`${filePath}.1`, 'utf8')).toBe(`${line}\n${line}\n`);
   });
 
   it('rotates once a write would exceed maxBytes, and the live file restarts small', async () => {
