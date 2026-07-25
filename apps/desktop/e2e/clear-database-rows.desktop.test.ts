@@ -99,16 +99,17 @@ test.describe('Clear Database clears rows (desktop) @destructive @desktop-db-sto
     await expect(collectionOption).toBeVisible({ timeout: 10_000 });
     await collectionOption.click();
 
-    // Expand Import Settings > Danger Zone, where Clear All Collections lives.
-    // The settings content renders in a portal, so the button is queried from
-    // the page root rather than from the panel scope.
+    // "Clear All Collections" renders inside `SettingsPanel`, which only
+    // mounts once the "Import Settings" popover trigger (an exact accessible
+    // name, see `database-demo-panel.tsx`) is opened. The settings content
+    // renders in a portal, so the button is queried from the page root rather
+    // than from the panel scope. An exact match, unconditional click replaces
+    // a probe-and-adapt `isVisible({ timeout }).catch(() => false)` check,
+    // which silently ignored the timeout option and swallowed every error
+    // including a Playwright strict-mode violation.
+    await panelPage.getByRole('button', { name: 'Import Settings' }).click();
+
     const clearButton = panelPage.getByRole('button', { name: 'Clear All Collections' });
-    if (!(await clearButton.isVisible({ timeout: 500 }).catch(() => false))) {
-      await panelScope
-        .getByRole('button', { name: /import settings|settings/i })
-        .first()
-        .click();
-    }
     await expect(clearButton).toBeVisible({ timeout: 10_000 });
     await expect(clearButton).toBeEnabled({ timeout: 15_000 });
     await clearButton.click();

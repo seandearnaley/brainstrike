@@ -124,8 +124,10 @@ schema state cannot report which branch it exercised, and the project rule is no
 fallbacks. No toast assertion. No early returns — every precondition that
 `database-persistence.test.ts` currently `return`s on becomes an assertion.
 
-Tag `@desktop-db-storage` so it joins the existing `test:e2e:lane:db-storage` regression
-lane next to `database-persistence.test.ts`.
+Tag `@desktop-db-storage`. `test:e2e:lane:db-storage` (`apps/desktop/package.json`) passes
+an explicit file-argument list (`database-persistence.test.ts`) and merely narrows it with
+`--grep`; the tag alone does not add a spec to the lane. The new file must also be added to
+that lane's file-argument list, matching how the other desktop lanes compose.
 
 ### Component 2 — Web clear-database row counts
 

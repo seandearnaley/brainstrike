@@ -27,7 +27,16 @@ Spec: `docs/superpowers/specs/2026-07-25-clear-database-reset-e2e-design.md`
 - **NO SILENT FALLBACKS.** Seeding is unconditional; no probe-and-adapt, no `try/catch` that lets a test proceed on a state it did not establish.
 - No early `return`s used as skips. Every precondition is an assertion. (`database-persistence.test.ts` is the anti-pattern being avoided, not copied.)
 - Prefer role/text/data-testid selectors over raw CSS.
-- Seed row ids MUST be bare `crypto.randomUUID()` values. Production `file_records.id` and `file_chunks.id` are `uuid` under the drizzle runner (`packages/db/src/drizzle/migrations.json`); a prefixed string raises `22P02`.
+- Seed row ids MUST be bare `crypto.randomUUID()` values. **Correction:** an earlier draft of
+  this plan claimed production `file_records.id` and `file_chunks.id` are `uuid` under the
+  drizzle runner and that a prefixed string raises `22P02`. That is false — a later drizzle
+  migration in `packages/db/src/drizzle/migrations.json` runs `ALTER TABLE "file_records"
+  ALTER COLUMN "id" SET DATA TYPE text` (and the same for `file_chunks.id` and
+  `file_chunks.file_record_id`), matching `packages/db/src/schema/index.ts:150`
+  (`id: text('id').primaryKey()`). The original claim came from reading only the first
+  `CREATE TABLE` in the migrations file and never checking for later `ALTER`s. Bare
+  `crypto.randomUUID()` ids are still used here — not because the column type requires it,
+  but because a UUID is a valid TEXT value and keeps seeded ids collision-free.
 - `mastra_workflow_snapshot` columns: `workflow_name TEXT`, `run_id TEXT`, `"resourceId" TEXT`, `snapshot JSONB NOT NULL`, `"createdAt" TIMESTAMPTZ NOT NULL`, `"updatedAt" TIMESTAMPTZ NOT NULL`. No defaults — supply `NOW()` for both timestamps. Quote the camelCase identifiers.
 - `db:query` permits `CREATE TABLE IF NOT EXISTS` but rejects `DROP`/`TRUNCATE`/`ALTER…DROP` (`DESTRUCTIVE_SCHEMA_SQL_PATTERN`, `apps/desktop/src/ipc-domains/db-ipc.ts:102`). It is single-statement.
 - Run Playwright non-interactively. Never `--headed`, never `--ui`, never `--debug`.
@@ -201,6 +210,15 @@ export async function readResetProbeCounts(page: Page): Promise<ResetProbeCounts
 }
 ```
 
+**Correction:** the code block above (`apps/desktop/e2e/utils/reset-seed-helpers.ts`) is
+preserved verbatim as historical record of what was actually committed, including its
+`Ids are bare UUIDs because production file_records.id / file_chunks.id are uuid columns
+under the drizzle runner; a prefixed string raises 22P02` comment. That rationale is false
+— see the Global Constraints correction above. `file_records.id` and `file_chunks.id` are
+TEXT columns (`packages/db/src/schema/index.ts:150`); bare `crypto.randomUUID()` ids are
+used because a UUID is a valid TEXT value and keeps seeded ids collision-free, not because
+the column type requires it.
+
 Note: `readBridge` above is declared for the Node-side type shape only and is not
 referenced inside `page.evaluate` (evaluate bodies are serialized and cannot close
 over module scope). If lint flags it as unused, delete `readBridge` and
@@ -311,7 +329,10 @@ pnpm --filter @brainstrike/desktop exec playwright test e2e/clear-database-rows.
 ```
 Expected: PASS. (The production fix already landed in #1978; this run only proves the harness works. Step 3 is the real check.)
 
-If it fails on the seed, the most likely cause is a `22P02` from a non-UUID id — confirm `crypto.randomUUID()` is used bare.
+If it fails on the seed, check the error message for the actual cause — `file_records.id`
+and `file_chunks.id` are TEXT columns, not `uuid`, so a non-UUID id string does not raise
+`22P02` here. (An earlier draft of this plan claimed otherwise; see the Global Constraints
+correction above.)
 
 - [ ] **Step 3: CONTROL — prove the test can fail**
 
@@ -907,10 +928,13 @@ Do not fix these in-band. Record them in the PR description:
    in-function read of `MASTRA_WORKFLOW_TABLE` (not a module-scope import) — both
    `db-provider.tsx` and `db-ipc.ts` now import the constant, matching the doc, enforced by
    `scripts/verify-mastra-schema-init-order.mjs`. No longer a live follow-up.
-2. `apps/web/src/web-e2e-test-hooks.tsx:105-110` (`qualifyDatabaseExtensions`) inserts
-   ids shaped `csp-file-${crypto.randomUUID()}`. Production `file_records.id` is a
-   `uuid` column under the drizzle runner, so that raises `22P02`. It survives only
-   because `production-csp.test.ts` sits in the `@destructive`-excluded broad pass.
+2. **Raised and disproved — not a follow-up.** An earlier draft of this plan claimed
+   `apps/web/src/web-e2e-test-hooks.tsx`'s `qualifyDatabaseExtensions` (ids shaped
+   `csp-file-${crypto.randomUUID()}`) had a latent `22P02` bug because
+   `file_records.id` is a `uuid` column under the drizzle runner. That premise is false —
+   `file_records.id` is TEXT (see the Global Constraints correction above) — and a prefixed
+   string is a perfectly valid TEXT value, so there is no bug here. Recorded rather than
+   silently dropped, per this branch's value being its record of corrected premises.
 
 ---
 

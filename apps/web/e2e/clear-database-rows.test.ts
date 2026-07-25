@@ -1,19 +1,9 @@
 import type { Page } from '@playwright/test';
+import type { WebE2EFileRowCounts, WebE2EResetRowCounts } from '../src/web-e2e-test-hooks';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
-
-interface ResetRowCounts {
-  readonly fileChunks: number;
-  readonly fileRecords: number;
-  readonly workflowSnapshots: number;
-}
-
-interface FileRowCounts {
-  readonly fileChunks: number;
-  readonly fileRecords: number;
-}
 
 const VECTOR_STATUS_UI_STORAGE_KEY = 'vector-status-ui.v1';
 
@@ -37,7 +27,7 @@ async function seedFileRowsOnly(page: Page): Promise<void> {
   });
 }
 
-async function readProbeCounts(page: Page): Promise<ResetRowCounts> {
+async function readProbeCounts(page: Page): Promise<WebE2EResetRowCounts> {
   return await page.evaluate(async () => {
     const hooks = window.__brainstrikeWebE2ETestHooks__;
     if (!hooks) {
@@ -47,7 +37,7 @@ async function readProbeCounts(page: Page): Promise<ResetRowCounts> {
   });
 }
 
-async function readFileRowCounts(page: Page): Promise<FileRowCounts> {
+async function readFileRowCounts(page: Page): Promise<WebE2EFileRowCounts> {
   return await page.evaluate(async () => {
     const hooks = window.__brainstrikeWebE2ETestHooks__;
     if (!hooks) {

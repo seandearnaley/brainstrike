@@ -4,6 +4,7 @@ import { updateSettingsTestOverrides } from '../../e2e-test-utils/settings-test-
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { waitForDatabaseReady } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedResetProbeRows } from './utils/reset-seed-helpers';
 
@@ -215,7 +216,13 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     // fail for the reason it appears to guard. That case is covered at the
     // handler layer by
     // apps/desktop/src/__tests__/main/ipc-handlers-db-clear-all.integration.test.ts.
-    await seedResetProbeRows(window);
+    //
+    // Everything above this point is settings overrides, filesystem sentinel
+    // writes, and browser-storage seeding — nothing that guarantees migrations
+    // have completed. A bare INSERT before migrations finish raises 42P01, so
+    // gate the seed on database readiness first.
+    const databaseReadyWindow = await waitForDatabaseReady(window);
+    await seedResetProbeRows(databaseReadyWindow);
 
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
