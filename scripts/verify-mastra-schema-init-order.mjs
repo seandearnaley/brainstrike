@@ -131,37 +131,94 @@ function isFunctionLike(node) {
 }
 
 /**
- * Local names bound to a guarded constant by a VALUE import in this file.
+ * Local bindings in this file that can carry a guarded constant.
  *
- * Matched on the IMPORTED name, not the module specifier, so a re-export hop
- * (`packages/agent/src/pglite-mastra-memory/sql.ts` re-exports the whole set)
- * is covered without teaching this guard every alias path. `import type` and
- * type-only specifiers are skipped: they are erased and never read at runtime.
+ * Two shapes, because they need different matching:
+ *
+ * - `direct`: `import { MASTRA_VECTOR_TABLE as T }` → local name -> constant.
+ *   Matched on the IMPORTED name, never the module specifier, so a re-export hop
+ *   (`packages/agent/src/pglite-mastra-memory/sql.ts` re-exports the whole set)
+ *   is covered without teaching this guard every alias path.
+ * - `namespaces`: `import * as schema` / `import schema from`. There is no
+ *   imported name to match, so these are matched at the USE site instead — a
+ *   module-scope `schema.MASTRA_VECTOR_TABLE` is flagged by property name. Any
+ *   namespace local counts, deliberately: narrowing by specifier is what would
+ *   miss the re-export hops this guard exists to cover, and a module-scope read
+ *   of an imported namespace's `MASTRA_*` property is worth flagging regardless
+ *   of which module it came from.
+ *
+ * `import type` and type-only specifiers are skipped: they are erased and never
+ * read at runtime.
+ *
+ * `export { X } from '…'` is deliberately NOT collected. A re-export links a
+ * binding, it does not READ one, so it cannot itself throw or splice
+ * "undefined" into SQL. It can still perturb chunking — but this guard protects
+ * the crash SITES, which is what makes any chunk order survivable.
  */
 function collectGuardedLocalNames(sourceFile, guarded) {
-  const locals = new Map();
+  const direct = new Map();
+  const namespaces = new Set();
   for (const statement of sourceFile.statements) {
     if (!(ts.isImportDeclaration(statement) && statement.importClause)) {
       continue;
     }
-    if (isTypeOnlyImportClause(statement.importClause)) {
+    const importClause = statement.importClause;
+    if (isTypeOnlyImportClause(importClause)) {
       continue;
     }
-    const named = statement.importClause.namedBindings;
-    if (!(named && ts.isNamedImports(named))) {
-      continue;
+    if (importClause.name) {
+      namespaces.add(importClause.name.text);
     }
-    for (const element of named.elements) {
-      if (element.isTypeOnly) {
-        continue;
-      }
-      const importedName = (element.propertyName ?? element.name).text;
-      if (guarded.has(importedName)) {
-        locals.set(element.name.text, importedName);
+    const named = importClause.namedBindings;
+    if (named && ts.isNamespaceImport(named)) {
+      namespaces.add(named.name.text);
+    }
+    if (named && ts.isNamedImports(named)) {
+      for (const element of named.elements) {
+        if (element.isTypeOnly) {
+          continue;
+        }
+        const importedName = (element.propertyName ?? element.name).text;
+        if (guarded.has(importedName)) {
+          direct.set(element.name.text, importedName);
+        }
       }
     }
   }
-  return locals;
+  return { direct, namespaces };
+}
+
+/**
+ * Cheap pre-filter deciding whether a file is worth parsing.
+ *
+ * Tests for the GUARDED NAMES themselves, never a `'mastra'` substring. The
+ * substring version silently skipped real violations twice over: it was
+ * case-sensitive while every guarded name is upper-case (so
+ * `packages/agent/src/pglite-mastra-memory/schema.ts`, which re-exports four of
+ * them and contains no lower-case `mastra` at all, was never parsed — the
+ * directory name is in the PATH, not the text), and three guarded constants
+ * (`DEFAULT_THREAD_TITLE`, `THREAD_TITLE_SOURCE_*`) contain no `mastra` in any
+ * case. Matching the names is both exact and cheaper than a parse.
+ *
+ * Exported so the paired test can pin that regression directly: it is invisible
+ * to the per-source detector, which never pre-filters.
+ */
+export function shouldScanSource(text, guardedNames) {
+  return guardedNames.some((name) => text.includes(name));
+}
+
+/** Unwrap `(fn)` / `(fn as T)` so a parenthesized IIFE callee is still seen. */
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isNonNullExpression(current))
+  ) {
+    current = current.expression;
+  }
+  return current;
 }
 
 /**
@@ -175,23 +232,70 @@ function collectGuardedLocalNames(sourceFile, guarded) {
  * to a grep.
  */
 function findModuleScopeReads(sourceFile, guarded) {
-  const locals = collectGuardedLocalNames(sourceFile, guarded);
-  if (locals.size === 0) {
+  const { direct, namespaces } = collectGuardedLocalNames(sourceFile, guarded);
+  if (direct.size === 0 && namespaces.size === 0) {
     return [];
   }
 
   const reads = [];
+  const record = (node, binding, local) => {
+    const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    reads.push({ binding, line: line + 1, local });
+  };
+
   const walk = (node) => {
+    // An IIFE's body DOES run at module scope, so it must be walked eagerly.
+    // This is the `const X = (() => …)()` "module-scope memo" shape — exactly
+    // what the fix comments warn against reintroducing — and skipping it
+    // because the callee is function-like would be the guard's worst blind spot.
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      if (callee && isFunctionLike(callee) && callee.body) {
+        walk(callee.body);
+      }
+    }
     if (isFunctionLike(node)) {
       return;
     }
     if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+      // Heritage clauses, STATIC property initializers and STATIC blocks all
+      // evaluate when the class definition is evaluated — i.e. at module init.
+      // Instance members and methods do not.
       for (const clause of node.heritageClauses ?? []) {
         walk(clause);
       }
+      for (const member of node.members) {
+        if (ts.isClassStaticBlockDeclaration(member)) {
+          walk(member.body);
+          continue;
+        }
+        const isStatic = member.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
+        );
+        if (isStatic && ts.isPropertyDeclaration(member) && member.initializer) {
+          walk(member.initializer);
+        }
+      }
       return;
     }
-    if (ts.isIdentifier(node) && locals.has(node.text)) {
+    if (ts.isPropertyAccessExpression(node)) {
+      // `schema.MASTRA_VECTOR_TABLE` on a namespace/default import: matched by
+      // PROPERTY name, since a namespace import exposes no imported name to key
+      // off. Without this, one `import * as` turns a whole file into a blind
+      // spot (review, PR #1988).
+      const target = unwrapExpression(node.expression);
+      const propertyName = node.name.text;
+      if (
+        target &&
+        ts.isIdentifier(target) &&
+        namespaces.has(target.text) &&
+        guarded.has(propertyName)
+      ) {
+        record(node, propertyName, `${target.text}.${propertyName}`);
+        return;
+      }
+    }
+    if (ts.isIdentifier(node) && direct.has(node.text)) {
       // A property NAME (`foo.MASTRA_MEMORY_TABLES`) or an object key is not a
       // read of the imported binding.
       const parent = node.parent;
@@ -199,28 +303,29 @@ function findModuleScopeReads(sourceFile, guarded) {
         (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
         (ts.isPropertyAssignment(parent) && parent.name === node);
       if (!isPropertyName) {
-        const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        reads.push({ binding: locals.get(node.text), line: line + 1, local: node.text });
+        record(node, direct.get(node.text), node.text);
       }
       return;
     }
     ts.forEachChild(node, walk);
   };
 
+  // Walk every top-level statement rather than whitelisting a few kinds. A
+  // whitelist missed `export default`, top-level `if`/`for`/`try`, and static
+  // class members — all of which run at chunk-init (review, PR #1988). Only
+  // declarations whose bodies do NOT execute on evaluation are skipped.
   for (const statement of sourceFile.statements) {
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (declaration.initializer) {
-          walk(declaration.initializer);
-        }
-      }
-    } else if (ts.isExpressionStatement(statement)) {
-      walk(statement.expression);
-    } else if (ts.isClassDeclaration(statement)) {
-      for (const clause of statement.heritageClauses ?? []) {
-        walk(clause);
-      }
+    if (
+      ts.isImportDeclaration(statement) ||
+      ts.isExportDeclaration(statement) ||
+      ts.isFunctionDeclaration(statement) ||
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement) ||
+      ts.isModuleDeclaration(statement)
+    ) {
+      continue;
     }
+    walk(statement);
   }
   return reads;
 }
@@ -271,14 +376,14 @@ export async function findMastraSchemaModuleScopeReads({ root = REPO_ROOT } = {}
     );
   }
 
+  const guardedNames = [...guarded];
   const violations = [];
   for (const filePath of sourceFiles.sort()) {
     if (filePath === SCHEMA_MODULE) {
       continue;
     }
     const text = await readFile(path.join(root, filePath), 'utf8');
-    // Cheap pre-filter: parsing every file in the monorepo is the slow path.
-    if (!text.includes('mastra')) {
+    if (!shouldScanSource(text, guardedNames)) {
       continue;
     }
     const sourceFile = ts.createSourceFile(

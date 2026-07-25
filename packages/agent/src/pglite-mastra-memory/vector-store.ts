@@ -67,7 +67,9 @@ const INDEX_METADATA_ID = '__index_metadata__';
  * lint and every unit suite stayed green. Only a production build exhibits it.
  *
  * Deferring the read into a function body is the durable fix: by the time
- * `createIndex()` runs, every chunk has been evaluated. Keep it a function.
+ * `ensureVectorTable()` (the sole caller, reached from `createIndex`,
+ * `upsert`, `query`, `describeIndex` and `listIndexes`) runs, every chunk has
+ * been evaluated. Keep it a function.
  */
 function buildMastraVectorSchemaSql(): string {
   return `

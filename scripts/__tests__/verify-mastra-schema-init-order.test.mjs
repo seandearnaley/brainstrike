@@ -18,7 +18,7 @@
 // move the read inside a function, and a guard that flagged that too would push
 // people straight back to hand-copied literals — the thing being removed.
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -28,11 +28,19 @@ import {
   findMastraSchemaModuleScopeReads,
   findModuleScopeReadsInSource,
   readGuardedBindings,
+  shouldScanSource,
 } from '../verify-mastra-schema-init-order.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const GUARDED = ['MASTRA_MEMORY_TABLES', 'MASTRA_VECTOR_TABLE', 'MASTRA_WORKFLOW_TABLE'];
+// Includes DEFAULT_THREAD_TITLE on purpose: not every guarded constant has
+// "mastra" in its name, which is what broke the original pre-filter.
+const GUARDED = [
+  'MASTRA_MEMORY_TABLES',
+  'MASTRA_VECTOR_TABLE',
+  'MASTRA_WORKFLOW_TABLE',
+  'DEFAULT_THREAD_TITLE',
+];
 
 const CONTRACT = '@brainstrike/assistant-contract/mastra-memory-schema';
 
@@ -92,6 +100,35 @@ test('a readable tree with too few sources still refuses (the file-discovery flo
   );
 });
 
+test('the pre-filter admits every guarded constant, including the non-"mastra" ones', async () => {
+  const guardedNames = [...(await readGuardedBindings({ root: REPO_ROOT }))];
+
+  for (const name of guardedNames) {
+    assert.ok(
+      shouldScanSource(`import { ${name} } from './sql';`, guardedNames),
+      `A file importing ${name} must be parsed. The original pre-filter tested for a lower-case ` +
+        '"mastra" substring, which skipped both the upper-case-only re-export modules and the ' +
+        'THREAD_TITLE_* constants entirely — a silent false negative, not a slow path.'
+    );
+  }
+
+  // The real module that the substring pre-filter used to skip unparsed. Its
+  // path contains "mastra"; its TEXT does not.
+  const reExportModule = readFileSync(
+    path.join(REPO_ROOT, 'packages/agent/src/pglite-mastra-memory/schema.ts'),
+    'utf8'
+  );
+  assert.ok(
+    !reExportModule.includes('mastra'),
+    'Fixture assumption broke: that module now contains a lower-case "mastra", so it no longer ' +
+      'demonstrates the blind spot. Pick another module that re-exports the constants.'
+  );
+  assert.ok(
+    shouldScanSource(reExportModule, guardedNames),
+    'The re-export module must be parsed by the guard.'
+  );
+});
+
 // --- detection controls: each of these must be caught -----------------------
 
 const DETECTED = [
@@ -122,6 +159,48 @@ const DETECTED = [
   {
     name: 'top-level expression statement (a side-effecting registration call)',
     source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nregister(MASTRA_WORKFLOW_TABLE);\n`,
+  },
+  // --- gaps closed after review on PR #1988. Each was a false NEGATIVE: the
+  // guard reported clean on code that reads a constant at chunk-init time.
+  {
+    name: 'namespace import read by property (one `import * as` used to blind the whole file)',
+    source: `import * as schema from '${CONTRACT}';\nconst SQL = \`SELECT \${schema.MASTRA_MEMORY_TABLES.threads}\`;\n`,
+  },
+  {
+    name: 'default import read by property',
+    source: `import schema from './sql.js';\nconst TABLE = schema.MASTRA_VECTOR_TABLE;\n`,
+  },
+  {
+    name: 'module-scope IIFE (the "module-scope memo" shape the fix comments warn against)',
+    source: `import { MASTRA_VECTOR_TABLE } from '${CONTRACT}';\nconst SQL = (() => \`SELECT \${MASTRA_VECTOR_TABLE}\`)();\n`,
+  },
+  {
+    name: 'static class property initializer',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  static TABLE = MASTRA_WORKFLOW_TABLE;\n}\n`,
+  },
+  {
+    name: 'static initialization block',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  static {\n    register(MASTRA_WORKFLOW_TABLE);\n  }\n}\n`,
+  },
+  {
+    name: 'export default expression',
+    source: `import { MASTRA_VECTOR_TABLE } from '${CONTRACT}';\nexport default \`SELECT \${MASTRA_VECTOR_TABLE}\`;\n`,
+  },
+  {
+    name: 'top-level if statement',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nif (globalThis.flag) {\n  register(MASTRA_WORKFLOW_TABLE);\n}\n`,
+  },
+  {
+    name: 'top-level try/catch',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\ntry {\n  register(MASTRA_WORKFLOW_TABLE);\n} catch {}\n`,
+  },
+  {
+    name: 'top-level for loop',
+    source: `import { MASTRA_MEMORY_TABLES } from '${CONTRACT}';\nfor (const t of Object.values(MASTRA_MEMORY_TABLES)) {\n  register(t);\n}\n`,
+  },
+  {
+    name: 'a constant with no "mastra" in its name at all (the pre-filter blind spot)',
+    source: `import { DEFAULT_THREAD_TITLE } from '${CONTRACT}';\nconst TITLE = DEFAULT_THREAD_TITLE;\n`,
   },
 ];
 
@@ -165,6 +244,28 @@ const ALLOWED = [
   {
     name: 'the name appearing as a property key rather than a binding read',
     source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nconst config = { MASTRA_WORKFLOW_TABLE: 1 };\nfunction use() {\n  return MASTRA_WORKFLOW_TABLE;\n}\n`,
+  },
+  // Controls for the statement kinds now walked. Broadening the walk must not
+  // start flagging members and declarations that do NOT run at module init.
+  {
+    name: 'INSTANCE class property initializer (runs per construction, not at module init)',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  table = MASTRA_WORKFLOW_TABLE;\n}\n`,
+  },
+  {
+    name: 'a top-level function declaration body',
+    source: `import { MASTRA_MEMORY_TABLES } from '${CONTRACT}';\nexport function buildSql() {\n  return \`SELECT \${MASTRA_MEMORY_TABLES.threads}\`;\n}\n`,
+  },
+  {
+    name: 'a re-export (links a binding, never reads one)',
+    source: `export { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\n`,
+  },
+  {
+    name: 'a namespace import whose guarded-looking property is read inside a function',
+    source: `import * as schema from '${CONTRACT}';\nfunction build() {\n  return schema.MASTRA_VECTOR_TABLE;\n}\n`,
+  },
+  {
+    name: 'a namespace import read for an UNguarded property at module scope',
+    source: `import * as schema from '${CONTRACT}';\nconst other = schema.SOMETHING_ELSE;\n`,
   },
 ];
 
