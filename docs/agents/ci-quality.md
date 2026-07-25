@@ -587,28 +587,53 @@ addon with a late-writing orphan plus an unrelated-process survival assertion.
 #### Stale-profile sweep (abrupt-kill recovery)
 
 In-process cleanup covers every exit the launcher can observe, but SIGKILL, a
-panic, and loss of power run no handler at all, and macOS does not reclaim
-`$TMPDIR` between reboots. Because the profile is also
+panic, and loss of power run no handler at all, and nothing reclaims `$TMPDIR`
+while the machine stays up — 121 profiles totalling 262 GB accumulated over a
+single eleven-day uptime. Because the profile is also
 `BRAINSTRIKE_DB_ROOT_PATH`, each abandoned profile retains a whole PGlite
 cluster, so the leak is measured in gigabytes.
 
-Each profile therefore records an `agent-devtools-owner.json` marker holding the
-owning launcher pid, written immediately after `mkdtemp` and before any other
-setup. On startup, after creating its own profile, the launcher sweeps sibling
-`brainstrike-agent-devtools-*` directories.
+Each profile records an `agent-devtools-owner.json` marker
+(`{ pgid, pid, platform, startedAtMs }`). `pid` and `platform` are written
+immediately after `mkdtemp`; `pgid` is added right after `pnpm dev` is spawned,
+because the group does not exist before then. On startup, after spawning its own
+dev server, the launcher sweeps sibling `brainstrike-agent-devtools-*`
+directories.
 
-This sweep is opportunistic hygiene, **not** the ownership guarantee, and the
-two must not be conflated:
+**A dead launcher pid is not proof the profile is idle.** On POSIX `pnpm dev` is
+spawned detached, so SIGKILLing the launcher leaves the whole tree reparented and
+still writing to this directory. Reclaiming on the pid alone would `rm -rf` a
+live PGlite cluster — the historical failure, re-created from the other side —
+and on macOS would also delete the running app's own `electron-dist` bundle.
+Verified by experiment: after `kill -9` of the launcher, the detached tree stays
+alive and keeps writing.
 
-- It removes a sibling only when a marker proves the owning pid is **dead**.
-  Every uncertain liveness answer resolves to alive (`EPERM`, a recycled pid),
-  so the sweep can only under-delete. An age threshold is deliberately **not**
-  the deciding signal: a long-running agent-debug session is both old and live.
-- A profile with a missing or malformed marker cannot be proven stale. It is
-  reported with a copy-pasteable removal command and **never** auto-deleted.
-- Sweep failures are reported and non-fatal — a stale sibling must not block the
-  session the user asked for. The run's own profile stays fail-loud through
-  `removeUserDataDir`; do not make the sweep fatal to "match" it.
+The sweep is opportunistic hygiene, **not** the ownership guarantee, and the two
+must not be conflated:
+
+- A sibling is reclaimed only when the launcher pid is dead **and** its recorded
+  process group has no live members. Every uncertain liveness answer resolves to
+  alive (`EPERM`, a recycled pid), so the sweep can only under-delete. An age
+  threshold is deliberately **not** the deciding signal: a long-running
+  agent-debug session is both old and live.
+- A marker written before the current boot is reclaimable outright: no process
+  from before the boot survives. Without this, pids re-issued from a low
+  watermark after a reboot probe as alive against unrelated processes and the
+  profile becomes permanently unreclaimable.
+- On `win32` the launcher pid suffices — descendants inherit a non-breakaway Job
+  Object with `KILL_ON_JOB_CLOSE`, so no tree outlives the launcher.
+- A profile with a missing/malformed marker, or a POSIX marker with no recorded
+  `pgid`, cannot be proven stale. It is reported as an explicit list of paths,
+  **with no removal command**, and is **never** auto-deleted. Any glob in that
+  report is paired with `ls -d` only: a `brainstrike-agent-devtools-*` glob also
+  matches a concurrent session's profile.
+- Skipped and failed profiles are both reported. Skipping is the safe answer,
+  but a machine where the sweep never reclaims anything must not look identical
+  to one with nothing to reclaim.
+- The sweep runs after the dev server is spawned, so it overlaps startup instead
+  of delaying it, and it never fails a launch. The run's own profile stays
+  fail-loud through `removeUserDataDir`; do not make the sweep fatal to "match"
+  it.
 
 The marker sits at the profile root, which is safe only because the database
 joins `<root>/profiles/<profile>` and never enumerates the root. Re-verify that
@@ -629,10 +654,15 @@ running:
    confirm the printed `brainstrike-agent-devtools-*` profile remains absent
    after a bounded post-exit observation. Keep unrelated Electron processes
    running throughout this check.
-5. Verify abrupt-kill recovery: start the launcher again, `kill -9` its pid, and
-   confirm the printed profile survives (no handler can run). Start a third
-   session and confirm it reports reclaiming that profile and that the directory
-   is gone, while a second concurrently running session's profile is untouched.
+5. Verify abrupt-kill recovery in the correct order — the orphaned tree must be
+   spared, not reclaimed, while it is still alive:
+   a. Start the launcher, `kill -9` its pid, and confirm the printed profile
+      survives and the orphaned Electron/PGlite tree is still running.
+   b. Start a second session. It must report the profile as *still in use* and
+      leave it on disk. Reclaiming it here would delete a live database.
+   c. Kill the orphaned process group, then start a third session and confirm it
+      now reports reclaiming that profile and the directory is gone. A
+      concurrently running session's profile stays untouched throughout.
 
 ---
 

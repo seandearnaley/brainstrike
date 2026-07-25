@@ -265,8 +265,10 @@ profile. This path isolation does not enable E2E runtime semantics: live
 provider, storage, and single-instance behavior remain production-equivalent.
 
 Each profile carries an `agent-devtools-owner.json` marker naming the owning
-launcher pid, so a later run can distinguish a profile abandoned by an abrupt
-kill from a concurrent session and reclaim only the former. The sweep never
+launcher pid **and its detached process group**, so a later run can distinguish
+a profile abandoned by an abrupt kill from one still being written to. Because
+`pnpm dev` is spawned detached, a dead launcher pid alone does not mean the
+profile is idle — the tree survives SIGKILL of its launcher. The sweep never
 deletes a profile it cannot prove is dead, and never fails a launch. Full
 contract in `docs/agents/ci-quality.md`.
 

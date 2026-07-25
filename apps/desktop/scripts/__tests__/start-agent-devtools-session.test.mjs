@@ -469,7 +469,12 @@ async function createSiblingProfiles(siblings) {
       recursive: true,
     });
     if (owner !== 'legacy') {
-      await writeProfileOwnerMarker(profile, owner);
+      // A bare number means "owned by this pid, with its process group
+      // recorded" -- the shape a fully started launcher leaves behind.
+      await writeProfileOwnerMarker(
+        profile,
+        typeof owner === 'number' ? { pgid: owner, pid: owner } : owner
+      );
     }
     created[name] = profile;
   }
@@ -647,6 +652,143 @@ test('sweepStaleProfiles tolerates a temp directory that cannot be scanned', asy
   assert.ok(result.scanError);
 });
 
+test('sweepStaleProfiles spares a profile whose orphaned process tree is still running', {
+  skip: process.platform === 'win32',
+}, async () => {
+  // The launcher spawns `pnpm dev` detached, so SIGKILLing the launcher does
+  // NOT kill the tree -- it is reparented and keeps writing to the profile.
+  // A dead owner pid therefore does not prove the profile is idle, and
+  // removing it here would race a live PGlite cluster: the exact failure this
+  // whole feature exists to prevent, initiated from the other side.
+  const orphan = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-orphan': { pgid: orphan.pid, pid: 4242 },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      // The launcher itself really is gone.
+      isOwnerAlive: (pid) => pid !== 4242,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.skippedLive, [profiles['brainstrike-agent-devtools-orphan']]);
+    await stat(profiles['brainstrike-agent-devtools-orphan']);
+  } finally {
+    forceKillProcessGroup(orphan.pid);
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles reclaims once the orphaned process tree has exited', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const orphan = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-done': { pgid: orphan.pid, pid: 4242 },
+  });
+
+  try {
+    forceKillProcessGroup(orphan.pid);
+    await new Promise((resolve) => orphan.once('exit', resolve));
+
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: (pid) => pid !== 4242,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-done']]);
+    await assert.rejects(stat(profiles['brainstrike-agent-devtools-done']), { code: 'ENOENT' });
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles cannot prove a POSIX profile with no recorded process group', async () => {
+  // Killed between mkdtemp and the post-spawn marker update: a tree may exist
+  // and we have no handle on it, so removal is not provable.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-nopgid': { pgid: null, pid: 4242, platform: 'darwin' },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.legacy, [profiles['brainstrike-agent-devtools-nopgid']]);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles reclaims a Windows profile on the launcher pid alone', async () => {
+  // Windows descendants inherit a non-breakaway Job Object with
+  // KILL_ON_JOB_CLOSE, so the tree cannot outlive the launcher there.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-win32': { pgid: null, pid: 4242, platform: 'win32' },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-win32']]);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles reclaims a pre-boot profile despite a recycled pid', async () => {
+  // After a reboot, pids are re-issued from a low watermark, so a stale marker
+  // can probe as alive against an unrelated process. Without this the profile
+  // becomes permanently unreclaimable and the leak never clears.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-preboot': { pgid: 4242, pid: 4242, startedAtMs: 1000 },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      hasLiveProcessGroupMembers: async () => true,
+      // Everything probes alive; only the boot boundary proves otherwise.
+      isOwnerAlive: () => true,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-preboot']]);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('reportSweep makes skipped live profiles visible rather than silent', async () => {
+  const lines = [];
+  reportSweep(
+    {
+      failed: [],
+      legacy: [],
+      removed: [],
+      scanError: null,
+      skippedLive: ['/tmp/brainstrike-agent-devtools-a', '/tmp/brainstrike-agent-devtools-b'],
+    },
+    (line) => lines.push(line),
+    (line) => lines.push(line)
+  );
+
+  assert.match(lines.join('\n'), /2 profile\(s\) still in use/);
+});
+
 test('reportSweep names legacy profiles individually instead of suggesting a wildcard', async () => {
   // A `brainstrike-agent-devtools-*` glob would also match a concurrent
   // session's profile, so the report must never hand one to the user.
@@ -712,23 +854,40 @@ test('createAgentDevtoolsProfile records an owner marker the sweep can verify', 
     const marker = await readProfileOwnerMarker(userDataDir);
 
     assert.equal(marker.pid, process.pid);
+    assert.equal(marker.platform, process.platform);
+    // No process group until the dev server is spawned.
+    assert.equal(marker.pgid, null);
     assert.ok(Number.isInteger(marker.startedAtMs));
   } finally {
     await rm(root, { force: true, recursive: true });
   }
 });
 
-test('a profile whose owner was SIGKILLed is reclaimed by the next launch', async () => {
+test('a profile whose owner was SIGKILLed is reclaimed once its tree is gone too', {
+  skip: process.platform === 'win32',
+}, async () => {
   // The end-to-end case the sweep exists for: no exit handler can run, so the
-  // profile survives until a later launcher proves its owner is gone.
+  // profile survives until a later launcher proves both the launcher AND its
+  // detached tree are gone.
   const temp = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-sigkill-test-'));
-  const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)']);
+  const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], {
+    detached: true,
+    stdio: 'ignore',
+  });
   const abandoned = path.join(temp, 'brainstrike-agent-devtools-killed');
   await mkdir(abandoned, { recursive: true });
-  await writeProfileOwnerMarker(abandoned, victim.pid);
+  await writeProfileOwnerMarker(abandoned, { pgid: victim.pid, pid: victim.pid });
 
   try {
-    victim.kill('SIGKILL');
+    // Still running: not reclaimable yet, however dead the launcher looks.
+    const whileLive = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+    assert.deepEqual(whileLive.removed, []);
+    assert.deepEqual(whileLive.skippedLive, [abandoned]);
+
+    forceKillProcessGroup(victim.pid);
     await new Promise((resolve) => victim.once('exit', resolve));
 
     const result = await sweepStaleProfiles({ tempDirectory: temp });
@@ -736,6 +895,7 @@ test('a profile whose owner was SIGKILLed is reclaimed by the next launch', asyn
     assert.deepEqual(result.removed, [abandoned]);
     await assert.rejects(stat(abandoned), { code: 'ENOENT' });
   } finally {
+    forceKillProcessGroup(victim.pid);
     await rm(temp, { force: true, recursive: true });
   }
 });
