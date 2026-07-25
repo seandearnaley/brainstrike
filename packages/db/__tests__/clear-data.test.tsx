@@ -41,6 +41,42 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   };
 }
 
+/**
+ * Dispatch-by-SQL `tx.query` stub for the probe-first clear path.
+ *
+ * Every optional relation is now PROBED with `to_regclass` before its DELETE, so
+ * a positional `mockResolvedValueOnce` chain has to be re-counted every time a
+ * table joins the clear — which is exactly how these tests used to break. Match
+ * on the statement instead: `absent` makes a probe answer "not present" and
+ * `onDelete` may throw to simulate a genuine delete failure.
+ */
+function createClearQueryMock({
+  absent = [],
+  counts = {},
+  onDelete,
+}: {
+  absent?: readonly string[];
+  counts?: Record<string, string>;
+  onDelete?: (table: string) => void;
+} = {}): QueryMock {
+  const missing = new Set<string>(absent);
+  return vi.fn(async (sql: string) => {
+    const counted = sql.match(/^SELECT COUNT\(\*\) as count FROM (\w+)$/u);
+    if (counted) {
+      return { rows: [{ count: counts[counted[1] as string] ?? '0' }] };
+    }
+    const probed = sql.match(/^SELECT to_regclass\('([^']+)'\)/u);
+    if (probed) {
+      return { rows: [{ present: !missing.has(probed[1] as string) }] };
+    }
+    const deleted = sql.match(/^DELETE FROM (\w+)$/u);
+    if (deleted) {
+      onDelete?.(deleted[1] as string);
+    }
+    return { rows: [] };
+  });
+}
+
 describe('Database clearing functionality', () => {
   const activeDatabases: MockDb[] = [];
 
@@ -129,25 +165,9 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear database with data', async () => {
-      const queryMock = vi
-        .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async (sql: string) => {
-          // `mastra_workflow_snapshot` is probed with to_regclass before the
-          // delete (a missing relation would abort the whole transaction), so
-          // the stub has to answer the probe for the delete to be reached.
-          if (sql.startsWith('SELECT to_regclass(')) {
-            return { rows: [{ present: true }] };
-          }
-          return { rows: [] };
-        })
-        .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
-        .mockResolvedValueOnce(undefined) // DELETE chunks
-        .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
-        .mockResolvedValueOnce(undefined) // DELETE selection_snapshots
-        .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
-        .mockResolvedValueOnce(undefined) // DELETE files
-        .mockResolvedValueOnce(undefined) // DELETE roots
-        .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-        .mockResolvedValueOnce(undefined); // DELETE job_queue
+      const queryMock = createClearQueryMock({
+        counts: { file_chunks: '10', file_records: '5' },
+      });
       const mockTransaction: TransactionMock = vi.fn(
         async (callback: TransactionCallback) => await callback({ query: queryMock })
       );
@@ -198,17 +218,12 @@ describe('Database clearing functionality', () => {
     });
 
     it('propagates a real prompt_items delete failure from direct clear', async () => {
-      const queryMock: QueryMock = vi.fn(async (sql: string) => {
-        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'DELETE FROM prompt_items') {
-          throw new Error('prompt storage I/O failure');
-        }
-        return { rows: [] };
+      const queryMock = createClearQueryMock({
+        onDelete: (table) => {
+          if (table === 'prompt_items') {
+            throw new Error('prompt storage I/O failure');
+          }
+        },
       });
       const mockTransaction: TransactionMock = vi.fn(
         async (callback: TransactionCallback) => await callback({ query: queryMock })
@@ -234,22 +249,11 @@ describe('Database clearing functionality', () => {
       await expect(result.current.clearData?.()).rejects.toThrow('prompt storage I/O failure');
     });
 
-    it('tolerates a missing prompt_items relation during direct clear for older schemas', async () => {
-      const missingRelation = Object.assign(new Error('relation "prompt_items" does not exist'), {
-        code: '42P01',
-      });
-      const queryMock: QueryMock = vi.fn(async (sql: string) => {
-        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'DELETE FROM prompt_items') {
-          throw missingRelation;
-        }
-        return { rows: [] };
-      });
+    // Absence is tolerated by SKIPPING the delete, not by catching its 42P01:
+    // inside a transaction the caught error has already aborted everything, so
+    // delete-and-tolerate rolled the whole clear back (BST-558).
+    it('skips prompt_items during direct clear when the relation is absent', async () => {
+      const queryMock = createClearQueryMock({ absent: ['prompt_items'] });
       const mockTransaction: TransactionMock = vi.fn(
         async (callback: TransactionCallback) => await callback({ query: queryMock })
       );
@@ -275,25 +279,28 @@ describe('Database clearing functionality', () => {
         deletedChunks: 0,
         deletedFiles: 0,
       });
-      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
+      expect(queryMock).not.toHaveBeenCalledWith('DELETE FROM prompt_items');
+      // The clear must continue past the absent relation, not abandon it.
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
 
+    /**
+     * A 42P01 naming a DIFFERENT relation (a trigger's audit table) must not be
+     * mistaken for "prompt_items is absent". Under probe-first that holds by
+     * construction: the probe already said the table is present, so the DELETE is
+     * unwrapped and the real error propagates verbatim.
+     */
     it('propagates an undefined-table error for a different relation during prompt cleanup', async () => {
       const triggerFailure = Object.assign(
         new Error('relation "prompt_item_audit_log" does not exist while deleting prompt_items'),
         { code: '42P01' }
       );
-      const queryMock: QueryMock = vi.fn(async (sql: string) => {
-        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
-          return { rows: [{ count: '0' }] };
-        }
-        if (sql === 'DELETE FROM prompt_items') {
-          throw triggerFailure;
-        }
-        return { rows: [] };
+      const queryMock = createClearQueryMock({
+        onDelete: (table) => {
+          if (table === 'prompt_items') {
+            throw triggerFailure;
+          }
+        },
       });
       const mockTransaction: TransactionMock = vi.fn(
         async (callback: TransactionCallback) => await callback({ query: queryMock })

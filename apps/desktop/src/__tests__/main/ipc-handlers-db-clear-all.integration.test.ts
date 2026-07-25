@@ -107,6 +107,60 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 
+  /**
+   * The SAME defect, on the ~14 migration-created relations. It is latent today
+   * only because every one of those tables is created by a numbered migration
+   * that has already run before a clear begins — the tolerance branch is simply
+   * unreachable. The moment one is created lazily, or a migration is reordered,
+   * "Clear Database" silently rolls the whole thing back.
+   *
+   * `roots` is dropped rather than a late table on purpose: it is the FIRST
+   * optional relation in the handler's delete order, so both sentinels
+   * (`prompt_items`, `brainstrike_diagnostic_events`) sit AFTER it and survive
+   * only if the transaction was poisoned.
+   */
+  it('commits the clear when a migration-created optional relation is absent', async () => {
+    if (!db) {
+      throw new Error('Test database was not created.');
+    }
+    await db.exec('DROP TABLE roots');
+    const handler = handlers.get('db:clearAll');
+
+    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+
+    expect(result).toMatchObject({ message: 'Database cleared successfully', success: true });
+    expect(await countRows('prompt_items')).toBe(0);
+    expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
+  });
+
+  /**
+   * The selection-snapshot block was the one remaining catch in this handler
+   * that only LOGGED a non-missing-relation error and never rethrew (recorded as
+   * open debt in docs/agents/platform-contracts.md). It could not produce a false
+   * success on desktop — the next unwrapped DELETE raises 25P02 — but the message
+   * the user got named the aborted transaction instead of the real cause.
+   */
+  it('surfaces a genuine selection-snapshot failure as itself, not as 25P02', async () => {
+    if (!db) {
+      throw new Error('Test database was not created.');
+    }
+    await db.exec(`
+      INSERT INTO selection_snapshots (id) VALUES ('snap-1');
+      CREATE TABLE clear_fk_probe (
+        id text PRIMARY KEY,
+        snapshot_id text NOT NULL REFERENCES selection_snapshots(id) ON DELETE NO ACTION
+      );
+      INSERT INTO clear_fk_probe (id, snapshot_id) VALUES ('probe-1', 'snap-1');
+    `);
+    const handler = handlers.get('db:clearAll');
+
+    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/violates foreign key constraint/iu);
+    expect(result.message).not.toMatch(/transaction is aborted/iu);
+  });
+
   it('still clears the relation when it does exist', async () => {
     if (!db) {
       throw new Error('Test database was not created.');
