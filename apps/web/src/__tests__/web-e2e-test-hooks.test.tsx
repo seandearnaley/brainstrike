@@ -39,11 +39,14 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(false);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
+      readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
     };
@@ -63,11 +66,14 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(true);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
       readAssistantThreads: vi.fn(),
+      readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
     };
