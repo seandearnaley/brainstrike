@@ -343,6 +343,14 @@ export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRe
   type: 'tool-approval-required';
 }
 export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequest {
+  /**
+   * `false` when this build has no registered resume UI for the tool
+   * (`hasRegisteredSuspendResumeUi`). The mapper then SETTLES the tool call as
+   * an error instead of leaving a Running card nothing can ever resolve.
+   * Omitted (i.e. resumable) for the registered suspending tools, whose card is
+   * legitimately waiting for the user's answer.
+   */
+  resumeSupported?: false;
   type: 'tool-suspend-required';
 }
 export interface StreamChunkFinish {

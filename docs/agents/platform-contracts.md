@@ -197,8 +197,9 @@ executes it (`buildAssistantThreadRunsSchemaSql`,
 Nothing else catches this class: `tsc` types ESM live bindings identically
 either way, the schema module imports nothing so there is no source cycle to
 detect, and Vitest evaluates real modules in dependency order so unit tests
-always see a defined binding. Only a production build has a chunk graph, so only
-E2E observes it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
+always see a defined binding. Only a production build has a chunk graph.
+Before the structural backstop below (BST-861) landed, E2E was the only thing
+that observed it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
 (lint lane, paired test `scripts/__tests__/verify-mastra-schema-init-order.test.mjs`)
 enforces it statically instead. It scrapes the guarded names from the schema
 module rather than hand-listing them, matches on the imported name so re-export
@@ -207,6 +208,46 @@ at every function boundary so the prescribed fix is not itself flagged. It
 supersedes a stopgap (`mastra-workflow-table-literal-contract.test.mjs`, deleted)
 that pinned one hand-copied literal in one file and could not see `export … from`,
 `await import()`, or the same import added from any other module.
+
+**The structural backstop is an acyclic chunk graph (BST-861).** A cross-chunk
+cycle is a NECESSARY PRECONDITION for the cross-chunk form of this class, not
+a proxy for it: ESM evaluates a module's dependencies before its own body, so
+with an acyclic chunk graph a topological init order always exists BETWEEN
+chunks, and every imported binding is initialized before any cross-chunk
+module-scope read of it. That is not the whole class: two source modules that
+are themselves circular and land in the SAME chunk are concatenated by
+rolldown in an arbitrary order, which can throw the identical
+`ReferenceError` at init while the chunk graph — which has only one node for
+that pair — reports no cycle. The accurate statement is "acyclic chunk graph
+AND acyclic source-module graph ⇒ safe"; only the first conjunct is enforced.
+The second conjunct is tracked as **BST-890**.
+`scripts/verify-no-cross-chunk-cycles.mjs` asserts the first conjunct on the
+emitted bundle and runs inside `apps/web`'s `build` and `apps/desktop`'s
+`build:renderer`, so it cannot be bypassed by a code path that still runs the
+build. It CAN be skipped by a turbo cache hit: identical inputs produce an
+identical artifact, so a cached build never re-invokes the script — that is
+correct, not a gap, but it means "wired into build" is not "runs on every CI
+job." Measured at the time it landed: web 362 chunks / 1003 static edges / 0
+cycles, desktop renderer 367 / 1036 / 0. Scope: this covers the two RENDERER
+bundles only — `apps/desktop`'s `build:main` (the Electron main bundle) is
+NOT covered.
+
+The class had already recurred twice in unrelated families before this landed:
+the context-action helpers (PR #1292, held today only by a `codeSplitting.groups`
+entry in `apps/web/vite.config.mts`) and these schema constants. That recurrence
+is why **BST-861** generalizes the INVARIANT rather than the mastra-family AST
+guard above: the cycle check covers the cross-chunk form for every constant
+family, including the three still held by `codeSplitting.groups` pins in both
+vite configs (context-actions #1292, browser-events BST-580, zustand). Those
+three pins are safe only because their underlying source-module graphs happen
+to be acyclic today — nothing currently verifies that, so a future edit that
+introduces a real source cycle inside one of those pinned chunks would ship
+undetected. The AST guard is kept anyway because it does something the cycle
+check cannot — enforce the coding rule at review time, in seconds, with a file
+and line number. A repo-wide AST rule was rejected on measurement: "flag every
+module-scope read of an imported binding" returns 431 hits in `app-shell` +
+`db` alone, nearly all benign. The CHUNK, not the file or the package, is the
+unit of risk for the cross-chunk form.
 
 Known remaining instance of the same class, deliberately NOT changed here
 (**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
@@ -217,14 +258,6 @@ Fixing it means moving `up` to the `MigrationCallback` form the `Migration` type
 already allows, which touches a dual-registered, fail-closed migration guarding
 against real BM25 data corruption — that needs explicit sign-off, not a
 drive-by.
-
-The guard is deliberately scoped to ONE constant family. The class itself has
-recurred twice in unrelated families — the context-action helpers (PR #1292,
-held today only by a `codeSplitting.groups` entry in `apps/web/vite.config.mts`)
-and these schema constants — so a family-scoped guard is a floor, not a ceiling.
-Generalizing it is **BST-861**; note that a naive "flag every module-scope read
-of an imported binding" rule returns 431 hits in `app-shell` + `db` alone and is
-useless. The chunk, not the file or the package, is the unit of risk.
 
 **No catch anywhere in a purge tolerates a missing relation — the probe does.**
 A bare `catch (err) { logger.warn(...) }` could never be a tolerance inside a

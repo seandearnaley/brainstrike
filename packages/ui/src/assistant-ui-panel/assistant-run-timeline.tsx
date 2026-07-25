@@ -5,6 +5,7 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   AlertCircle,
   CheckCircle,
@@ -81,18 +82,40 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
 /**
  * Run-event rows that must surface even when background activity is hidden
  * (non-Developer detail). A failed or cancelled TURN would otherwise be silently
- * swallowed: tool-level failures already surface on their ToolFallback cards, and
- * a run rejected before any stream part renders via AssistantMessageError — but a
- * mid-run failure/cancellation has neither, so its terminal run-event row is the
- * only visible signal. Matched by `kind` (not `status`) on purpose: `tool.failed`
- * is also `status: 'failed'`, and re-surfacing it here would double-report the
- * card.
+ * swallowed: an ordinary tool failure already surfaces on its ToolFallback card,
+ * and a run rejected before any stream part renders via AssistantMessageError —
+ * but a mid-run failure/cancellation has neither, so its terminal run-event row
+ * is the only visible signal.
+ *
+ * Matched by `kind` (not `status`) on purpose: `tool.failed` is also
+ * `status: 'failed'`, and re-surfacing it here would double-report its card.
+ *
+ * `tool.resume.unsupported` (BST-558) IS included — the first `tool.*` kind
+ * here, and the one place the "already carded" premise does not apply. The card
+ * DOES settle (the mapper emits an error `toolCallResult`, so a dismissed notice
+ * cannot strand a Running spinner), but it reports a CLIENT capability error for
+ * that one call. This row reports something different and thread-level: the RUN
+ * is still suspended and this build cannot answer it. The transient
+ * `brainstrike.tool-suspend` notice that would otherwise say so is `aui-data` —
+ * gone after a reload — leaving this row the only surviving explanation.
+ *
+ * Because it is a `tool.*` kind carrying a `toolCallId`, and the mapper always
+ * emits a `tool-call` part for that id, `resolveAssistantRunEventRenderPlan` and
+ * `initialRenderPlanKey` BOTH exempt the always-visible kinds from their
+ * card-suppression rule. Without that exemption this predicate would only pick
+ * the code path, never the outcome, and the row would render at no detail level
+ * at all (review of PR #1977). `run.failed`/`run.cancelled` never needed the
+ * exemption: they carry no `toolCallId` and are not `tool.*`.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   if (!isAssistantRunEvent(data)) {
     return false;
   }
-  return data.kind === 'run.failed' || data.kind === 'run.cancelled';
+  return (
+    data.kind === 'run.failed' ||
+    data.kind === 'run.cancelled' ||
+    data.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
+  );
 }
 
 export function getMessageParts(message: unknown): readonly unknown[] {
@@ -306,8 +329,14 @@ function initialRenderPlanKey(
   toolCallIds: ReadonlySet<string>
 ): string {
   const toolCallId = event.metadata?.['toolCallId'];
+  // Mirrors `resolveAssistantRunEventRenderPlan`'s card-suppression rule,
+  // INCLUDING its always-visible exemption — the two paths must agree, or the
+  // Developer level hides a row the default level shows.
   const hasToolCard =
-    event.kind.startsWith('tool.') && typeof toolCallId === 'string' && toolCallIds.has(toolCallId);
+    !isAlwaysVisibleRunEvent(event) &&
+    event.kind.startsWith('tool.') &&
+    typeof toolCallId === 'string' &&
+    toolCallIds.has(toolCallId);
   return event.kind.startsWith('subagent.') || hasToolCard || hasIndexedTerminalEvent(event, index)
     ? 'hidden'
     : 'visible:1';
@@ -528,7 +557,14 @@ export function resolveAssistantRunEventRenderPlan(
   if (event.kind.startsWith('subagent.')) {
     return HIDDEN;
   }
-  if (hasToolCallPartForEvent(messages, event)) {
+  // Card suppression exists so a `tool.*` row never double-reports a status the
+  // ToolFallback card already owns. An always-visible kind is exempt: it is not
+  // a status for that call (the card reports a CLIENT capability error; this row
+  // explains why the RUN is still suspended), and the mapper guarantees the
+  // suppressing `tool-call` part exists for exactly this `toolCallId` — so
+  // without the exemption the row would be hidden at every detail level, which
+  // is the opposite of what `isAlwaysVisibleRunEvent` means.
+  if (!isAlwaysVisibleRunEvent(event) && hasToolCallPartForEvent(messages, event)) {
     return HIDDEN;
   }
 

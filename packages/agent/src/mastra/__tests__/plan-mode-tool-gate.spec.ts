@@ -1,9 +1,16 @@
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  hasRegisteredSuspendResumeUi,
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { describe, expect, it, vi } from 'vitest';
+import { createAskUserTool } from '../../tools/ask-user-tool';
+import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import {
   filterToolsForPlanMode,
   hasSuspendSchema,
   resolveSuspendToolsForRun,
+  SUSPENDING_NATIVE_TOOL_IDS,
 } from '../plan-mode-tool-gate';
 
 function makeLogger() {
@@ -48,6 +55,33 @@ describe('hasSuspendSchema', () => {
     expect(hasSuspendSchema({ id: 'x' })).toBe(false);
     expect(hasSuspendSchema(null)).toBe(false);
   });
+});
+
+// A tool that CAN suspend() but has no registered typed resume UI pauses runs
+// this build cannot answer. That direction has no compile-time guard, so it is
+// guarded here.
+describe('suspending tools vs the resume-UI registry', () => {
+  it('derives SUSPENDING_NATIVE_TOOL_IDS from REGISTERED_SUSPEND_RESUME_TOOL_IDS', () => {
+    expect([...SUSPENDING_NATIVE_TOOL_IDS]).toEqual([...REGISTERED_SUSPEND_RESUME_TOOL_IDS]);
+    for (const toolId of SUSPENDING_NATIVE_TOOL_IDS) {
+      expect(hasRegisteredSuspendResumeUi(toolId)).toBe(true);
+    }
+  });
+
+  it('every REAL suspending tool factory has a registered resume UI', () => {
+    for (const tool of [createAskUserTool(), createSubmitPlanTool()]) {
+      expect(hasSuspendSchema(tool)).toBe(true);
+      expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
+    }
+  });
+
+  // The reverse-drift scan ("no OTHER module declares a suspendSchema") lives in
+  // scripts/__tests__/suspending-tool-registry-contract.test.mjs: it must walk
+  // BOTH tool source roots recursively (suspending tools are defined in
+  // packages/agent but registered in apps/desktop), which a package-scoped
+  // vitest cannot do without turning a foreign package's source into an
+  // unhashed turbo input. It is control-tested there against subdirectory,
+  // shorthand, desktop-root, and comment-only fixtures.
 });
 
 describe('filterToolsForPlanMode', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ASSISTANT_RUN_EVENT_KINDS } from '../run-events.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
@@ -9,11 +10,29 @@ import {
   readToolResumeRunConfigAction,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
+  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '../tool-suspend.js';
 
 function runConfig(action: unknown): unknown {
   return { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } };
 }
+
+describe('unsupported-resume run event kind', () => {
+  it('is a registered run-event kind (the read path throws on unknown kinds)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain(UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND);
+  });
+
+  it('is NOT a tool.* metric kind — it must not reach the ledger/duration pairings', () => {
+    // `RUN_LEDGER_AGGREGATION_SQL` counts `tool.completed`/`tool.failed`;
+    // `collectToolDurations` and `getMatchingFailedKind` pair `tool.started` with
+    // those same two. A pause this build cannot answer is neither a tool call nor
+    // a tool failure — and the run stays suspended, so a later build resuming it
+    // emits the real `tool.completed` for the SAME toolCallId.
+    expect(UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND).not.toBe('tool.failed');
+    expect(UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND).not.toBe('tool.completed');
+    expect(UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND).toBe('tool.resume.unsupported');
+  });
+});
 
 describe('tool-suspend contract', () => {
   it('exposes stable transport names', () => {

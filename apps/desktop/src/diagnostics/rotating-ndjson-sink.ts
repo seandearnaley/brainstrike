@@ -88,12 +88,10 @@ export class RotatingNdjsonSink {
     }
     try {
       let fd = this.ensureOpen();
-      // +1 accounts for the trailing '\n' this write will add.
-      const incomingBytes = Buffer.byteLength(line, 'utf8') + 1;
-      if (this.currentSize > 0 && this.currentSize + incomingBytes > this.maxBytes) {
+      const buffer = Buffer.from(`${line}\n`, 'utf8');
+      if (this.currentSize > 0 && this.currentSize + buffer.byteLength > this.maxBytes) {
         fd = this.rotate();
       }
-      const buffer = Buffer.from(`${line}\n`, 'utf8');
       const bytesWritten = fs.writeSync(fd, buffer);
       if (bytesWritten !== buffer.byteLength) {
         // fs.writeSync can write fewer bytes than requested (signal

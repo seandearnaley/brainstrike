@@ -1,7 +1,23 @@
+import {
+  NATIVE_TOOL_DEFAULTS,
+  TOOL_LOADING_TIERS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
 
 const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+// A tool in a *different* loading tier, used to prove the tier filter actually
+// filters instead of being a no-op.
+const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
+
+// Derive the filter labels from the canonical contract rather than hardcoding
+// them: the tier partition is owned by tool-discovery-contract.test.ts, and a
+// re-tiering there (as in BST-612/BST-757) previously left this spec stale.
+const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): string =>
+  TOOL_LOADING_TIERS[NATIVE_TOOL_DEFAULTS[toolId].loadingTier].label;
+
+const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
+const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
 
 async function openToolsSettings(
   homePage: import('./page-objects/home-page').HomePage,
@@ -37,9 +53,20 @@ test.describe('AI Tools settings (desktop)', () => {
     const settingsPage = new SettingsPage(window);
     await openToolsSettings(homePage, settingsPage);
 
+    // Guard the premise: the two tiers below must differ for this to discriminate.
+    expect(TOOL_TIER_LABEL).not.toBe(PEER_TIER_LABEL);
+
     await window.getByTestId('search-input').fill('readWorkspaceContext');
+
+    // The search leaves exactly one row, so prove the tier filter actually
+    // filters: the row must vanish under the peer's tier and come back under
+    // its own. Asserting only the second half would pass on a no-op filter.
     await window.getByTestId('tier-filter').click();
-    await window.getByRole('option', { name: 'Critical' }).click();
+    await window.getByRole('option', { exact: true, name: PEER_TIER_LABEL }).click();
+    await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toHaveCount(0);
+
+    await window.getByTestId('tier-filter').click();
+    await window.getByRole('option', { exact: true, name: TOOL_TIER_LABEL }).click();
     await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
 
     await window.getByTestId('tool-group-menu-native').click();

@@ -271,8 +271,9 @@ to the paired test's (e.g. `verify-workspace-src-aliases`'s `main` passes
 `appsRoot` explicitly because the CI-wired test does — a CLI checking a narrower
 tree than CI is a second, weaker verdict wearing the same name).
 
-`verify-tokenizer-asset-bundle` is the one shape exception: it inspects a build
-artifact, so it takes a bundle `directory` instead of a repo root.
+`verify-tokenizer-asset-bundle` and `verify-no-cross-chunk-cycles` are the
+shape exceptions: each inspects a build artifact, so it takes a bundle
+`directory` instead of a repo root.
 
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 

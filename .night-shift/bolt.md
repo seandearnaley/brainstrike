@@ -108,3 +108,6 @@
 ## Diagnostic event overflow uses indexed ring replacement
 **Learning:** `DiagnosticEventWriter` can remain saturated during a warning storm or repeated sink failure. Removing one oldest entry with `Array.shift()` on every overflow moved the remaining 256 references per event; over 500,000 enqueues on Node 24.16.0, indexed ring replacement reduced the median from 14.55ms to 1.64ms with the same order-sensitive retained-event checksum.
 **Action:** Keep the diagnostic writer's bounded pending queue on indexed overwrite and materialize chronological order only when a wrapped batch flushes; do not reintroduce per-overflow array shifts.
+## Durable NDJSON lines encode once
+**Learning:** `RotatingNdjsonSink.writeLine()` used `Buffer.byteLength()` before `Buffer.from()`, scanning every durable warn-or-higher diagnostic line as UTF-8 twice. Over 20,000 representative 1,362-byte lines on Node 24.16.0, deriving the rotation byte count from the encoded buffer reduced the 30-sample median from 12.40ms to 8.71ms with identical accounting checksums.
+**Action:** Derive NDJSON rotation accounting from the buffer written to disk; do not reintroduce a separate UTF-8 byte-length scan.

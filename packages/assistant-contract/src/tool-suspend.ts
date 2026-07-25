@@ -16,6 +16,8 @@
  * and forward-compatible with it.
  */
 
+import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
+import type { AssistantRunEventKind } from './run-events.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
@@ -23,6 +25,64 @@ import {
 
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
 export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
+
+/**
+ * The suspending tools whose `resumeSchema` has a REGISTERED typed suspension UI
+ * (`AssistantToolSuspendNotice` branches on exactly these ids). This is the
+ * single source of truth for "can this pause be answered by THIS build?" — the
+ * agent stream mapper records a visible, durable rejection for a pause from any
+ * other tool (never a silent inert card), and the renderer shows the matching
+ * dead-end notice with a dismiss action. The rejection is deliberately
+ * NON-terminal: the Mastra workflow snapshot is already persisted, so the run
+ * stays suspended and a build that later registers the tool can still resume it.
+ *
+ * Adding a suspending tool means: register its typed UI branch AND add its id
+ * here. Adding the id alone re-creates the silent dead end this list exists to
+ * prevent; `SUSPENDING_NATIVE_TOOL_IDS` (plan-mode gate) derives from this list
+ * so the two cannot drift.
+ */
+export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
+  NATIVE_TOOL_ID.askUser,
+  NATIVE_TOOL_ID.submitPlan,
+] as const;
+
+export type RegisteredSuspendResumeToolId = (typeof REGISTERED_SUSPEND_RESUME_TOOL_IDS)[number];
+
+const REGISTERED_SUSPEND_RESUME_TOOL_ID_SET: ReadonlySet<string> = new Set(
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS
+);
+
+/**
+ * True when `toolName` names a suspending tool with a registered typed resume
+ * UI. The check is on the CLIENT-FACING name form (the dotted canonical id the
+ * stream chunk and the notice both use), so mapper and renderer agree.
+ */
+export function hasRegisteredSuspendResumeUi(
+  toolName: string
+): toolName is RegisteredSuspendResumeToolId {
+  return REGISTERED_SUSPEND_RESUME_TOOL_ID_SET.has(toolName);
+}
+
+/**
+ * The DURABLE run-event kind recorded when a suspending tool pauses a run this
+ * build has no registered resume UI for. Its own kind on purpose:
+ *
+ * - `RUN_LEDGER_AGGREGATION_SQL` counts `tool.completed`/`tool.failed` as tool
+ *   calls and `tool.failed` as failures. No tool ran here and none failed, and
+ *   because the run deliberately STAYS suspended, a build that later registers
+ *   the tool resumes the same `toolCallId` and emits the real `tool.completed`
+ *   — reusing `tool.failed` would both invent a failure and double-count the
+ *   one call, permanently.
+ * - `collectToolDurations` and the timeline's `tool.started` resolution both
+ *   close a tool call out on `tool.completed`/`tool.failed`. Closing this one
+ *   out would contradict `runStillSuspended: true` in the event's own metadata.
+ *
+ * It IS in `isAlwaysVisibleRunEvent`, because the transient
+ * `brainstrike.tool-suspend` notice is gone after a reload and this row is then
+ * the only thing left explaining the dead end.
+ */
+export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
+  'tool.resume.unsupported' satisfies AssistantRunEventKind;
 
 /**
  * The suspend-pause metadata surfaced to the renderer. `suspendPayload` is

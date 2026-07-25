@@ -1,4 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { describe, expect, it } from 'vitest';
 import { collectToolDurations } from '../tool-durations';
 
@@ -46,5 +47,18 @@ describe('collectToolDurations', () => {
 
   it('returns an empty map when there are no run events', () => {
     expect(collectToolDurations([{ toolCallId: 'x', type: 'tool-call' }])).toEqual({});
+  });
+
+  it('does NOT close out a tool that is still suspended server-side (BST-558)', () => {
+    // The unanswerable-pause rejection must not be mistaken for a terminal tool
+    // event: the tool is still suspended (`runStillSuspended: true`), and a
+    // later build that registers the resume UI answers this very pause and
+    // emits the real `tool.completed`. A duration here would be a lie.
+    expect(
+      collectToolDurations([
+        toolEvent('tool.started', 'suspended', '2026-06-16T10:00:00.000Z'),
+        toolEvent(UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND, 'suspended', '2026-06-16T10:00:01.000Z'),
+      ])
+    ).toEqual({});
   });
 });

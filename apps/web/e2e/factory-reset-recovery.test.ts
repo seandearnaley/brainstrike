@@ -7,6 +7,16 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
 
+async function seedProbeRows(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Web E2E test hooks are not installed');
+    }
+    await hooks.seedResetProbeRows();
+  });
+}
+
 async function openTokenCountingSettings(page: Page): Promise<void> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
@@ -76,6 +86,23 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     const tokenToggle = page.getByTestId('token-counting-accurate-toggle');
     await tokenToggle.click();
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+
+    // Populate the database before resetting. This is the purgeTablesTx path —
+    // the one that could report a SUCCESSFUL reset having cleared nothing.
+    //
+    // Post-reset ROW COUNTS are deliberately NOT asserted: resetPGliteState
+    // deletes the whole IndexedDB database after purging (db-provider.tsx:985),
+    // so a count afterwards reads zero regardless of what the purge did. The
+    // false-success case is only observable INSIDE the transaction, which is
+    // where packages/db/__tests__/clear-data.integration.test.tsx observes it.
+    // What this seed does guard: that a realistically-populated database still
+    // completes a reset, now that `clearRelationIfPresent` (formerly
+    // `clearMigratedRelation`, renamed and consolidated by PR #1986) probes
+    // each relation with `to_regclass` before deleting it instead of
+    // deleting-and-catching. The DELETE itself is never wrapped in a
+    // try/catch, so a genuine failure surfaces directly rather than being
+    // swallowed as a tolerated absence.
+    await seedProbeRows(page);
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
     await page.addInitScript((storageKey: string) => {

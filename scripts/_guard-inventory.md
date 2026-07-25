@@ -1,13 +1,13 @@
 architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries
-assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
-mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 architecture-domain-contract.mjs → wired/paired/armed → complete and valid architecture domain map
+assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
 browser-events-literal-guard.mjs → wired/paired/armed → shared browser CustomEvent names
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement
 check-e2e-destructive-tags.mjs → wired/paired/armed → factory-reset E2E isolation tags
 check-e2e-readiness-contracts.mjs → wired/paired/armed → fast E2E shard DB-readiness isolation
 enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives
+mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
 secret-scan.mjs → wired/paired/armed → committed credential patterns
 unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition

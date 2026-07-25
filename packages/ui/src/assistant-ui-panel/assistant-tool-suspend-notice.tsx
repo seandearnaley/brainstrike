@@ -5,11 +5,15 @@ import type {
   AskUserPayload,
   AssistantToolResumeAction,
   AssistantToolSuspendRequest,
+  RegisteredSuspendResumeToolId,
   SubmitPlanPayload,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  hasRegisteredSuspendResumeUi,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/utils/logger';
-import { Check, ListChecks, MessageCircleQuestion, X } from 'lucide-react';
+import { Check, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import { Button } from '../button';
 
@@ -229,21 +233,34 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
 function NoticeShell({
   children,
   icon,
+  role,
   testId,
   title,
+  tone = 'pending',
 }: {
   children: ReactNode;
   icon: ReactNode;
+  role?: 'alert';
   testId: string;
   title: string;
+  tone?: 'pending' | 'failed';
 }) {
+  const failed = tone === 'failed';
   return (
     <div
-      className="my-2 rounded-lg border border-sky-500/40 bg-sky-50/50 dark:bg-sky-950/20"
+      className={
+        failed
+          ? 'my-2 rounded-lg border border-destructive/50 bg-destructive/5'
+          : 'my-2 rounded-lg border border-sky-500/40 bg-sky-50/50 dark:bg-sky-950/20'
+      }
       data-testid={testId}
+      role={role}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 px-4 py-3">
-        <div aria-hidden="true" className="pt-0.5 text-sky-700 dark:text-sky-400">
+        <div
+          aria-hidden="true"
+          className={failed ? 'pt-0.5 text-destructive' : 'pt-0.5 text-sky-700 dark:text-sky-400'}
+        >
           {icon}
         </div>
         <div className="min-w-0">
@@ -445,34 +462,79 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   );
 }
 
+/**
+ * Dead-end rejection for a suspending tool with NO registered typed resume UI
+ * (`hasRegisteredSuspendResumeUi`). We still refuse to guess a typed action
+ * (no-silent-wrong-render), but the pause is presented as what it is: something
+ * this build cannot answer, not a card that is still waiting for input. The
+ * agent stream mapper records the matching durable `tool.resume.unsupported` run
+ * event (never `tool.failed` — no tool ran and none failed) and
+ * deliberately does NOT terminate the run (the Mastra snapshot is already
+ * persisted and stays resumable by a build that registers the tool), so the copy
+ * claims nothing about server-side state — it must stay true both on that path
+ * and on the version-skew path where an older client renders a newer tool's
+ * pause. Dismiss clears the card so the user is not stranded staring at it.
+ */
+function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRequest }) {
+  const [dismissed, setDismissed] = useState(false);
+  const detail = useMemo(
+    () => JSON.stringify(request.suspendPayload, null, 2),
+    [request.suspendPayload]
+  );
+  if (dismissed) {
+    return null;
+  }
+  return (
+    <NoticeShell
+      icon={<TriangleAlert className="size-4" />}
+      role="alert"
+      testId="assistant-tool-suspend-unsupported-notice"
+      title={`Cannot resume ${request.toolName}`}
+      tone="failed"
+    >
+      <p className="mt-1 text-muted-foreground text-xs">
+        This tool paused the run for input, but this build has no resume UI registered for its
+        resume schema, so the pause cannot be answered and the run cannot continue here.
+      </p>
+      <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+        {detail}
+      </pre>
+      <div className="mt-2">
+        <Button onClick={() => setDismissed(true)} size="sm" variant="outline">
+          Dismiss
+        </Button>
+      </div>
+    </NoticeShell>
+  );
+}
+
+/**
+ * The typed suspension UI per REGISTERED suspending tool. Typing it as a total
+ * `Record<RegisteredSuspendResumeToolId, …>` makes the contract registry and the
+ * rendered branches provably exhaustive at compile time: adding an id to
+ * `REGISTERED_SUSPEND_RESUME_TOOL_IDS` without a branch here is a type error,
+ * which is the drift that would otherwise re-create the silent dead end.
+ */
+const SUSPEND_NOTICE_BY_TOOL_ID: Record<
+  RegisteredSuspendResumeToolId,
+  (props: { request: AssistantToolSuspendRequest }) => ReactNode
+> = {
+  [ASK_USER_TOOL_ID]: AskUserNotice,
+  [SUBMIT_PLAN_TOOL_ID]: SubmitPlanNotice,
+};
+
 export function AssistantToolSuspendNotice({ data }: AssistantToolSuspendNoticeProps) {
   const request = isAssistantToolSuspendRequest(data) ? data : null;
-  const detail = useMemo(
-    () => (request ? JSON.stringify(request.suspendPayload, null, 2) : ''),
-    [request]
-  );
   if (!request) {
     return null;
   }
-  if (request.toolName === SUBMIT_PLAN_TOOL_ID) {
-    return <SubmitPlanNotice request={request} />;
+  if (hasRegisteredSuspendResumeUi(request.toolName)) {
+    const RegisteredNotice = SUSPEND_NOTICE_BY_TOOL_ID[request.toolName];
+    return <RegisteredNotice request={request} />;
   }
-  if (request.toolName === ASK_USER_TOOL_ID) {
-    return <AskUserNotice request={request} />;
-  }
-  // Unknown suspending tool: render a generic, non-actionable fallback rather
-  // than a wrong-typed action (no-silent-wrong-render).
-  return (
-    <NoticeShell
-      icon={<MessageCircleQuestion className="size-4" />}
-      testId="assistant-tool-suspend-notice"
-      title={`Waiting on input for ${request.toolName}`}
-    >
-      <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-        {detail}
-      </pre>
-    </NoticeShell>
-  );
+  // Unknown suspending tool: never guess a typed action (no-silent-wrong-render)
+  // AND never present it as still-actionable — surface the rejection.
+  return <UnsupportedSuspendNotice request={request} />;
 }
 
 AssistantToolSuspendNotice.displayName = 'AssistantToolSuspendNotice';

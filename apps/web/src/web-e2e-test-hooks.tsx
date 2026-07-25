@@ -51,14 +51,57 @@ export interface WebE2EEmbeddingQualification {
   readonly finite: boolean;
 }
 
+export interface WebE2EResetRowCounts {
+  readonly fileChunks: number;
+  readonly fileRecords: number;
+  readonly workflowSnapshots: number;
+}
+
+/**
+ * Narrower sibling of `WebE2EResetRowCounts` that omits `mastra_workflow_snapshot`.
+ * `readResetRowCounts` throws when that relation is absent (by design — see its
+ * implementation below), so a caller that needs to observe `file_records`/
+ * `file_chunks` counts on a profile that deliberately never created the
+ * relation (the BST-558 absent-relation regression path) needs a count that
+ * cannot itself raise 42P01.
+ */
+export interface WebE2EFileRowCounts {
+  readonly fileChunks: number;
+  readonly fileRecords: number;
+}
+
+interface CountRow {
+  readonly count: number | string;
+}
+
 export interface WebE2ETestHooks {
   readonly dbPath: string;
+  /**
+   * Links the `reset-probe://` file record and `reset probe chunk` chunk
+   * (seeded by `seedResetProbeRows` or `seedFileRowsOnly`) to a real
+   * collection. `ClearDatabaseDialog`'s trigger button is disabled unless the
+   * ACTIVE collection reports non-zero live counts
+   * (`ACTIVE_COLLECTION_LIVE_COUNTS_QUERY`), so without this the button never
+   * enables on a fresh profile with zero collections and the real UI path
+   * can't be exercised end to end.
+   */
+  readonly linkResetProbeRowsToCollection: (collectionId: string) => Promise<void>;
   readonly qualifyDatabaseExtensions: () => Promise<WebE2EDatabaseQualification>;
   readonly qualifyLocalEmbedding: (
     deviceHint?: 'wasm' | 'webgpu'
   ) => Promise<WebE2EEmbeddingQualification>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
+  readonly readFileRowCounts: () => Promise<WebE2EFileRowCounts>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
+  readonly readResetRowCounts: () => Promise<WebE2EResetRowCounts>;
+  /**
+   * Seeds ONLY `file_records` + `file_chunks` — deliberately does NOT create
+   * `mastra_workflow_snapshot` (contrast `seedResetProbeRows`). Used to prove
+   * the absent-relation path: a fresh web profile never boots Mastra memory,
+   * so the relation genuinely does not exist until something creates it.
+   */
+  readonly seedFileRowsOnly: () => Promise<void>;
+  readonly seedResetProbeRows: () => Promise<void>;
   readonly syncDatabase: () => Promise<void>;
 }
 
@@ -70,6 +113,29 @@ declare global {
 
 function parseModelEnabled(value: ModelEnabledRow['is_enabled']): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+/**
+ * PGlite does NOT populate `affectedRows` on a `tx.query()` result taken
+ * inside a transaction — the raw result comes back as `{ rows: [] }` with no
+ * such key, so a row-count assertion built on `affectedRows` can never see a
+ * match and always throws, even when the UPDATE succeeded. `RETURNING id` is
+ * the mechanism PGlite actually supports: the matched rows land in
+ * `result.rows`, so `rows.length` is the real, always-populated signal.
+ * `QueryExecutor['query']` (packages/db/src/db-provider.tsx) only types its
+ * return as `{ rows: T[] }`; read it through `unknown` rather than widening
+ * the shared type or reaching for `any`.
+ */
+function assertRowsReturned(result: unknown, updateLabel: string): void {
+  const rows =
+    typeof result === 'object' && result !== null && 'rows' in result
+      ? (result as { rows: unknown }).rows
+      : null;
+  if (!(Array.isArray(rows) && rows.length > 0)) {
+    throw new Error(
+      `linkResetProbeRowsToCollection: ${updateLabel} matched zero rows — the marker literal may have drifted`
+    );
+  }
 }
 
 export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
@@ -88,6 +154,24 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
 
     const hooks: WebE2ETestHooks = {
       dbPath,
+      linkResetProbeRowsToCollection: async (collectionId: string): Promise<void> => {
+        if (typeof db.transaction !== 'function') {
+          throw new Error('Web E2E database handle does not expose transactions');
+        }
+        await db.transaction(async (tx) => {
+          const fileRecordsResult: unknown = await tx.query(
+            "UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%' RETURNING id",
+            [collectionId]
+          );
+          assertRowsReturned(fileRecordsResult, 'UPDATE file_records');
+
+          const fileChunksResult: unknown = await tx.query(
+            "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk' RETURNING id",
+            [collectionId]
+          );
+          assertRowsReturned(fileChunksResult, 'UPDATE file_chunks');
+        });
+      },
       qualifyDatabaseExtensions: async (): Promise<WebE2EDatabaseQualification> => {
         if (typeof db.transaction !== 'function') {
           throw new Error('Web E2E database handle does not expose transactions');
@@ -160,6 +244,22 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           title: row.title?.trim() || 'New Thread',
         }));
       },
+      readFileRowCounts: async (): Promise<WebE2EFileRowCounts> => {
+        const countOf = async (table: string): Promise<number> => {
+          const result = await db.query<CountRow>(`SELECT COUNT(*)::int AS count FROM ${table}`);
+          const value = result.rows[0]?.count;
+          const parsed = typeof value === 'number' ? value : Number(value);
+          if (!Number.isFinite(parsed)) {
+            throw new Error(`Count for ${table} was not numeric: ${String(value)}`);
+          }
+          return parsed;
+        };
+
+        return {
+          fileChunks: await countOf('file_chunks'),
+          fileRecords: await countOf('file_records'),
+        };
+      },
       readModelEnabled: async (modelId: string): Promise<boolean | null> => {
         const result = await db.query<ModelEnabledRow>(
           'SELECT is_enabled FROM models WHERE id = $1',
@@ -167,6 +267,89 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         );
         const row = result.rows[0];
         return row ? parseModelEnabled(row.is_enabled) : null;
+      },
+      readResetRowCounts: async (): Promise<WebE2EResetRowCounts> => {
+        const countOf = async (table: string): Promise<number> => {
+          const result = await db.query<CountRow>(`SELECT COUNT(*)::int AS count FROM ${table}`);
+          const value = result.rows[0]?.count;
+          const parsed = typeof value === 'number' ? value : Number(value);
+          if (!Number.isFinite(parsed)) {
+            throw new Error(`Count for ${table} was not numeric: ${String(value)}`);
+          }
+          return parsed;
+        };
+
+        return {
+          fileChunks: await countOf('file_chunks'),
+          fileRecords: await countOf('file_records'),
+          workflowSnapshots: await countOf('mastra_workflow_snapshot'),
+        };
+      },
+      seedFileRowsOnly: async (): Promise<void> => {
+        if (typeof db.transaction !== 'function') {
+          throw new Error('Web E2E database handle does not expose transactions');
+        }
+        const fileRecordId = crypto.randomUUID();
+        const chunkId = crypto.randomUUID();
+
+        // Deliberately omits `mastra_workflow_snapshot` — see the interface
+        // doc comment. Any code path that creates the table here would make
+        // it impossible for a test to prove the relation was ever absent.
+        await db.transaction(async (tx) => {
+          await tx.query(
+            'INSERT INTO file_records (id, name, path, size) VALUES ($1, $2, $3, $4)',
+            [fileRecordId, 'reset-probe.txt', `reset-probe://${fileRecordId}`, 42]
+          );
+          await tx.query(
+            'INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, $3)',
+            [chunkId, fileRecordId, 'reset probe chunk']
+          );
+        });
+      },
+      seedResetProbeRows: async (): Promise<void> => {
+        if (typeof db.exec !== 'function') {
+          throw new Error('Web E2E database handle does not expose exec');
+        }
+        if (typeof db.transaction !== 'function') {
+          throw new Error('Web E2E database handle does not expose transactions');
+        }
+        const fileRecordId = crypto.randomUUID();
+        const chunkId = crypto.randomUUID();
+        const runId = crypto.randomUUID();
+
+        // `mastra_workflow_snapshot` is created lazily by
+        // `PgliteWorkflowsStore.initialize()` and by NO migration, so on a fresh
+        // web profile it is absent. Create it explicitly rather than assuming
+        // the assistant has run — a probe-and-skip seed could not report which
+        // branch the test exercised.
+        await db.exec(`
+          CREATE TABLE IF NOT EXISTS mastra_workflow_snapshot (
+            workflow_name TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            "resourceId" TEXT,
+            snapshot JSONB NOT NULL,
+            "createdAt" TIMESTAMPTZ NOT NULL,
+            "updatedAt" TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (workflow_name, run_id)
+          );
+        `);
+
+        await db.transaction(async (tx) => {
+          await tx.query(
+            'INSERT INTO file_records (id, name, path, size) VALUES ($1, $2, $3, $4)',
+            [fileRecordId, 'reset-probe.txt', `reset-probe://${fileRecordId}`, 42]
+          );
+          await tx.query(
+            'INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, $3)',
+            [chunkId, fileRecordId, 'reset probe chunk']
+          );
+          await tx.query(
+            `INSERT INTO mastra_workflow_snapshot
+               (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW())`,
+            ['reset-probe-workflow', runId, 'reset-probe-resource', '{"status":"suspended"}']
+          );
+        });
       },
       syncDatabase: async (): Promise<void> => {
         if (typeof db.syncToFs !== 'function') {
