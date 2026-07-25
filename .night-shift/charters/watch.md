@@ -3,7 +3,7 @@
 ```
 NAME=Watch
 ROLE=flake investigator
-SCHEDULE="13 10 * * *"   # daily 10:13 UTC, after nightly E2E completes
+SCHEDULE="13 10 * * *"   # daily 10:13 scheduler-local, after nightly E2E completes
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=xhigh
 AUTONOMY=diagnose-only (tickets and comments; NEVER edits code or tests)

@@ -3,7 +3,7 @@
 ```
 NAME=Axiom
 ROLE=invariant maintainer
-SCHEDULE="23 6 * * 1"   # weekly, Monday 06:23 UTC
+SCHEDULE="23 6 * * 1"   # weekly, Monday 06:23 scheduler-local
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max per run)

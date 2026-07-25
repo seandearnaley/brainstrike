@@ -3,7 +3,7 @@
 ```
 NAME=Forge
 ROLE=small-ticket implementer (label-gated backlog consumer)
-SCHEDULE="23 3 * * *"   # daily 03:23 UTC — quiet slot before sentinel 04:07
+SCHEDULE="23 3 * * *"   # daily 03:23 scheduler-local — quiet slot before sentinel 04:07
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (ONE ticket, ONE PR; declines anything risk-heavy)

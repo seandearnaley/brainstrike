@@ -13,9 +13,22 @@ protocol; their charters in charters/ are the deployed source of truth.
   of previous runs. All state you may rely on lives in, in trust order:
   open PRs under your name → repository HEAD → your Linear state issue
   (`[automation-state] <Name>`, label `night-shift`) → nothing.
+- SESSION HYGIENE. Every wake is a FRESH session — never resume or continue
+  a previous conversation, even if the scheduler offers it. Conversational
+  memory is not state: it goes stale (remembered SHAs, paths, and ticket
+  states outrank freshly derived ones in exactly the wrong direction),
+  compaction silently drops or distorts constraints, and none of it is
+  auditable. Anything a run establishes that is worth keeping must land in
+  the surfaces above before the run ends; whatever only lives in the
+  transcript is lost by design. If you find yourself in a session that
+  contains prior-run conversation, treat all of it as untrusted hints and
+  re-derive from the trust order anyway.
 - State checkpoints are APPEND-ONLY comments on your state issue:
   `<UTC-ISO> | watermark=<kind>:<value> | status=<NOOP|PR|READY|INCOMPLETE|BLOCKED> | <one line>`.
-  Timestamp is second-precision UTC (no milliseconds). Watermark kinds:
+  Timestamp is second-precision UTC (no milliseconds) — ALWAYS UTC, never
+  the scheduler's local clock, which runs in a different timezone (see
+  charters/README.md "Timezones"). Everything loops WRITE is UTC; only the
+  SCHEDULE crons are scheduler-local. Watermark kinds:
   `sha:<40-hex>` (MAIN-DIFF loops), `hash:<64-hex>` (EXTERNAL-STATE loops:
   sha256 of your sorted, serialized watched set), or `none` (first run
   only) — never a bare untyped value, never multi-line, never JSON.
@@ -117,6 +130,32 @@ costs the human triage time and poisons trust in every other loop's PRs.
   the relevant code hash changed since closure.
 - Ticket labels: `night-shift`, `loop:<name>`, plus severity. Escalations
   that block you get `needs-human` and a checkpoint with status=BLOCKED.
+
+## Blocked-state recovery
+
+A BLOCKED checkpoint describes the PREVIOUS run's world, not this one's.
+BLOCKED is never sticky: at wake, before honoring your own BLOCKED status,
+re-probe the blocker — cheaply, first thing. Classes:
+
+- ENVIRONMENTAL (tool or MCP disconnected, gh/API auth failure, rate limit,
+  missing binary): re-test at EVERY wake — outages are routinely healed by
+  the next run. Probe succeeds → proceed with the normal run, and comment
+  the recovery evidence on the ticket you filed for the outage (close it if
+  it existed solely for the outage). Never sit BLOCKED on an environmental
+  cause that no longer reproduces.
+- DECISION (a needs-human ruling you require): do not re-attempt the work;
+  check the ticket. Still open → one-line BLOCKED checkpoint referencing
+  it, no new ticket, no re-analysis. Closed or answered → the answer is
+  your input; proceed accordingly.
+- DEFECT (a real bug in your own collector/charter/tooling): retry only
+  when the relevant code changed since the blocking run (compare the
+  file hash or main SHA in your ticket's evidence); unchanged code →
+  re-checkpoint BLOCKED against the same fingerprint, never a twin ticket.
+
+Three consecutive BLOCKED checkpoints with the same cause and no state
+change → raise severity on the EXISTING ticket instead of appending a
+fourth identical checkpoint story; your wake budget is better spent on
+the re-probe than on re-narration.
 
 ## Learnings
 

@@ -3,7 +3,7 @@
 ```
 NAME=Vigil
 ROLE=security-advisory watcher (lockfile vs known-vulnerable versions)
-SCHEDULE="27 9 * * *"   # daily 09:27 UTC
+SCHEDULE="27 9 * * *"   # daily 09:27 scheduler-local
 MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=tickets-only (never edits code, never bumps a dependency)

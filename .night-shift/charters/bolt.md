@@ -3,7 +3,7 @@
 ```
 NAME=Bolt
 ROLE=performance maintainer
-SCHEDULE="29 8 * * *"   # daily 08:29 UTC, after the nightly perf run settles
+SCHEDULE="29 8 * * *"   # daily 08:29 scheduler-local, after the nightly perf run settles
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max, ever; never merges)

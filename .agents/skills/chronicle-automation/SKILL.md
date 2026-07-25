@@ -28,6 +28,7 @@ Run:
 node .agents/skills/chronicle-automation/scripts/collect-chronicle-evidence.mjs \
   --repo /absolute/path/to/brainstrike \
   --window-start <prior-checkpoint-utc-iso> \
+  --schedule-timezone <declared-zone-from-charters-README-Timezones> \
   --pretty
 ```
 
@@ -36,7 +37,7 @@ The collector performs no repository or external writes; all `gh` access is read
 - validates repository identity and derives the rostered loops and cadences from the charters directory at `origin/main`;
 - enumerates `night-shift/*` PRs opened, merged, or still open in the window, with per-PR check rollup, unresolved-thread counts, and the newest commit timestamp (`lastCommitAt`, the STALLED STEWARDSHIP input), paginated completely;
 - derives scheduled workflows from `.github/workflows/` and records each one's latest completed run conclusion;
-- computes expected-wake counts per loop from the roster cadence over the window (with the charter's scheduler-slack allowance) so missed-wake detection is arithmetic, not recollection;
+- computes expected-wake counts per loop from the roster cadence over the window (with the charter's scheduler-slack allowance) so missed-wake detection is arithmetic, not recollection — evaluating crons in the REQUIRED `--schedule-timezone` (the scheduler's local clock per charters/README.md "Timezones", DST-aware; window bounds stay UTC);
 - fails visibly on `gh` errors, ambiguous cron expressions, or an unparseable roster — a meta-monitor that guesses is worse than none.
 
 Gather the Linear side yourself with complete pagination: new checkpoints per `[automation-state]` issue, night-shift-labeled ticket activity in the window, and open `needs-human` tickets. Parse each newest checkpoint against the protocol grammar; a parse failure is itself a MALFORMED CHECKPOINT anomaly, never something to normalize silently.

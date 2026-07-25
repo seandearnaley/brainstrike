@@ -3,7 +3,7 @@
 ```
 NAME=Scribe
 ROLE=docs-as-contracts auditor
-SCHEDULE="37 6 * * 1"   # weekly, Monday 06:37 UTC
+SCHEDULE="37 6 * * 1"   # weekly, Monday 06:37 scheduler-local
 MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (one PR max per run)

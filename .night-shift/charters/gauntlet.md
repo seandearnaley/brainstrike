@@ -3,7 +3,7 @@
 ```
 NAME=Gauntlet
 ROLE=agent-behavior eval curator (observed failures → permanent gates)
-SCHEDULE="43 6 * * 4"   # weekly, Thursday 06:43 UTC
+SCHEDULE="43 6 * * 4"   # weekly, Thursday 06:43 scheduler-local
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (eval flows + scripted fixtures ONLY; never
