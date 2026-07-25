@@ -54,7 +54,7 @@ touches `mastra_workflow_snapshot`.
 `FactoryResetPanel` (`packages/preferences/src/settings/system/factory-reset-panel.tsx`)
 prefers `getDesktopResetBridge()` — `window.electronAPI.db.resetLocal` — and only falls
 back to `useFactoryReset()` when that bridge is absent. `factoryReset` in
-`packages/db/src/db-provider.tsx:1215` makes the same choice internally, trying
+`packages/db/src/db-provider.tsx:1103` makes the same choice internally, trying
 `tryElectronHardReset()` before `resetPGliteState()` (which runs `purgeTablesTx`).
 
 On desktop the bridge exists: `apps/desktop/src/preload.ts:583` exposes `db:resetLocal`,
@@ -77,7 +77,7 @@ The two bugs #1978 fixed therefore live on different platforms:
 Both factory-reset paths destroy the database container immediately after purging:
 
 - Desktop: `resetDesktopApplicationData` wipes the database and userData.
-- Web: `wasmLoader.deleteIndexedDB(resolvedPath)` at `db-provider.tsx:1097`.
+- Web: `wasmLoader.deleteIndexedDB(resolvedPath)` at `db-provider.tsx:985`.
 
 A row count taken after either reset reads zero **whether or not the purge did anything**.
 Writing that assertion produces a test that passes for the wrong reason and cannot fail
@@ -98,7 +98,7 @@ reached eagerly by `createPgliteMastraMemory` (`memory-factory.ts:137`).
 memory factory has run — not on desktop-vs-web. A manual CDP session finding the table
 present means memory had already initialized, not that a migration creates it.
 
-`DESTRUCTIVE_SCHEMA_SQL_PATTERN` (`apps/desktop/src/ipc-domains/db-ipc.ts:102`) matches only
+`DESTRUCTIVE_SCHEMA_SQL_PATTERN` (`apps/desktop/src/ipc-domains/db-ipc.ts:105`) matches only
 `DROP`/`TRUNCATE`/`ALTER…DROP`, so `CREATE TABLE IF NOT EXISTS` **is** permitted through
 `db:query`. A test can deterministically establish the present-relation state. It cannot
 establish the absent state (no `DROP`), which keeps that case with the integration tests.

@@ -91,7 +91,7 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     // the one that could report a SUCCESSFUL reset having cleared nothing.
     //
     // Post-reset ROW COUNTS are deliberately NOT asserted: resetPGliteState
-    // deletes the whole IndexedDB database after purging (db-provider.tsx:1097),
+    // deletes the whole IndexedDB database after purging (db-provider.tsx:985),
     // so a count afterwards reads zero regardless of what the purge did. The
     // false-success case is only observable INSIDE the transaction, which is
     // where packages/db/__tests__/clear-data.integration.test.tsx observes it.

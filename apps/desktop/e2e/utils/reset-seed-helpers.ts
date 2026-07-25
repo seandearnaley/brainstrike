@@ -18,8 +18,8 @@ export interface ResetProbeCounts {
  * `file_chunks` child, and one `mastra_workflow_snapshot` row behind an
  * idempotent CREATE.
  *
- * Ids are bare UUIDs because production `file_records.id` / `file_chunks.id` are
- * `uuid` columns under the drizzle runner; a prefixed string raises 22P02.
+ * Ids are bare `crypto.randomUUID()` values because they are collision-free and
+ * valid in the `text` primary keys `file_records.id` / `file_chunks.id`.
  *
  * Deliberately NOT probe-and-adapt: a seed that silently accepts either schema
  * state cannot report which branch the test exercised.

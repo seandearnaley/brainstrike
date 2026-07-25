@@ -38,7 +38,7 @@ Spec: `docs/superpowers/specs/2026-07-25-clear-database-reset-e2e-design.md`
   `crypto.randomUUID()` ids are still used here — not because the column type requires it,
   but because a UUID is a valid TEXT value and keeps seeded ids collision-free.
 - `mastra_workflow_snapshot` columns: `workflow_name TEXT`, `run_id TEXT`, `"resourceId" TEXT`, `snapshot JSONB NOT NULL`, `"createdAt" TIMESTAMPTZ NOT NULL`, `"updatedAt" TIMESTAMPTZ NOT NULL`. No defaults — supply `NOW()` for both timestamps. Quote the camelCase identifiers.
-- `db:query` permits `CREATE TABLE IF NOT EXISTS` but rejects `DROP`/`TRUNCATE`/`ALTER…DROP` (`DESTRUCTIVE_SCHEMA_SQL_PATTERN`, `apps/desktop/src/ipc-domains/db-ipc.ts:102`). It is single-statement.
+- `db:query` permits `CREATE TABLE IF NOT EXISTS` but rejects `DROP`/`TRUNCATE`/`ALTER…DROP` (`DESTRUCTIVE_SCHEMA_SQL_PATTERN`, `apps/desktop/src/ipc-domains/db-ipc.ts:105`). It is single-statement.
 - Run Playwright non-interactively. Never `--headed`, never `--ui`, never `--debug`.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 
@@ -845,7 +845,7 @@ The block below is preserved as originally written for historical accuracy.)
     // the one that could report a SUCCESSFUL reset having cleared nothing.
     //
     // Post-reset ROW COUNTS are deliberately NOT asserted: resetPGliteState
-    // deletes the whole IndexedDB database after purging (db-provider.tsx:1097),
+    // deletes the whole IndexedDB database after purging (db-provider.tsx:985),
     // so a count afterwards reads zero regardless of what the purge did. The
     // false-success case is only observable INSIDE the transaction, which is
     // where packages/db/__tests__/clear-data.integration.test.tsx observes it.
