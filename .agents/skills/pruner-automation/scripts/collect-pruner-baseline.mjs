@@ -206,6 +206,45 @@ function assertDependencyRuntimeAvailable(repoRoot) {
   );
 }
 
+// BST-830. Binaries being present and node_modules/.pnpm/lock.yaml deep-equalling
+// pnpm-lock.yaml do NOT prove the runtime is THIS worktree's. A detached
+// worktree can link straight into a sibling worktree's already-installed,
+// lock-COMPATIBLE store: every freshness preflight passes, and then `pnpm knip`
+// enters pnpm's dependency-status path, auto-installs, and runs node-gyp plus
+// postinstall lifecycle scripts — violating this collector's read-only
+// contract while still exiting 0. Prove ownership by resolving every rung of
+// the runtime chain and requiring it to land inside this worktree.
+//
+// Deliberately NOT solved by installing, CI=true, --ignore-scripts, or
+// gitignoring the generated output: each of those hides the foreign runtime
+// instead of rejecting it, and a baseline computed against another worktree's
+// dependency graph is wrong in ways no downstream check can detect.
+function assertDependencyRuntimeLocal(repoRoot) {
+  const runtimePaths = [
+    'node_modules',
+    join('node_modules', '.pnpm'),
+    ...REQUIRED_DEPENDENCY_BINARIES.map((binary) => join('node_modules', '.bin', binary)),
+  ];
+  for (const runtimePath of runtimePaths) {
+    let resolvedPath;
+    try {
+      resolvedPath = realpathSync(join(repoRoot, runtimePath));
+    } catch (error) {
+      fail(
+        `required dependency runtime is unavailable (could not resolve ${runtimePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }); run "pnpm install --frozen-lockfile" before collecting`
+      );
+    }
+    const pathFromRepo = relative(repoRoot, resolvedPath);
+    if (pathFromRepo === '' || pathFromRepo.startsWith('..') || isAbsolute(pathFromRepo)) {
+      fail(
+        `dependency runtime belongs to another worktree (${runtimePath} resolves to ${resolvedPath}, outside ${repoRoot}); run "pnpm install --frozen-lockfile" in THIS worktree before collecting`
+      );
+    }
+  }
+}
+
 async function assertDependencyRuntimeCurrent(repoRoot) {
   const workspaceLockfilePath = join(repoRoot, 'pnpm-lock.yaml');
   const installedLockfilePath = join(repoRoot, 'node_modules', '.pnpm', 'lock.yaml');
@@ -321,6 +360,10 @@ async function main() {
     fail(`--repo is not the Git worktree root: ${repoRoot}`);
   }
   assertDependencyRuntimeAvailable(repoRoot);
+  // Ownership before freshness: comparing a foreign virtual store's lock.yaml
+  // against this worktree's pnpm-lock.yaml can only ever answer the wrong
+  // question, and it answers it convincingly.
+  assertDependencyRuntimeLocal(repoRoot);
   await assertDependencyRuntimeCurrent(repoRoot);
   assertWorkspaceManifestsCurrent(repoRoot);
 

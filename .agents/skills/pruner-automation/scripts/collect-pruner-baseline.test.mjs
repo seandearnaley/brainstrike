@@ -10,6 +10,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -127,6 +128,7 @@ function git(repo, args) {
 function createCollectorFixture(
   t,
   {
+    crossWorktreeRuntime = null,
     installBinaryShims = false,
     installedLockfile = 'importers: {}\nlockfileVersion: "9.0"\n',
     manifestLockMismatch = false,
@@ -164,6 +166,29 @@ function createCollectorFixture(
     writeFixtureFile(repo, 'node_modules/.bin/knip', '');
     writeFixtureFile(repo, 'node_modules/.bin/react-doctor', '');
     writeFixtureFile(repo, 'node_modules/.pnpm/lock.yaml', installedLockfile);
+  }
+
+  // BST-830: a sibling worktree whose runtime is lock-COMPATIBLE, so every
+  // existing preflight (binaries present, .pnpm/lock.yaml deep-equal,
+  // frozen-lockfile manifests) passes while the runtime is not this
+  // worktree's. Each variant links a different rung of the chain.
+  if (crossWorktreeRuntime) {
+    const other = join(root, 'other-worktree');
+    writeFixtureFile(other, 'node_modules/.bin/knip', '');
+    writeFixtureFile(other, 'node_modules/.bin/react-doctor', '');
+    writeFixtureFile(other, 'node_modules/.pnpm/lock.yaml', installedLockfile);
+    if (crossWorktreeRuntime === 'node-modules') {
+      rmSync(join(repo, 'node_modules'), { force: true, recursive: true });
+      symlinkSync(join(other, 'node_modules'), join(repo, 'node_modules'), 'dir');
+    } else if (crossWorktreeRuntime === 'virtual-store') {
+      rmSync(join(repo, 'node_modules/.pnpm'), { force: true, recursive: true });
+      symlinkSync(join(other, 'node_modules/.pnpm'), join(repo, 'node_modules/.pnpm'), 'dir');
+    } else if (crossWorktreeRuntime === 'binary') {
+      rmSync(join(repo, 'node_modules/.bin/knip'), { force: true });
+      symlinkSync(join(other, 'node_modules/.bin/knip'), join(repo, 'node_modules/.bin/knip'));
+    } else {
+      throw new Error(`unknown crossWorktreeRuntime variant: ${crossWorktreeRuntime}`);
+    }
   }
 
   const fakePnpm = join(binDir, 'pnpm');
@@ -261,6 +286,39 @@ test('fails before invoking pnpm when the installed dependency lock is stale', (
     'pnpm must not be invoked during freshness preflight'
   );
   assert.deepEqual(readdirSync(fixture.logsDir), []);
+});
+
+// BST-830. A detached worktree can carry a node_modules/ that resolves into
+// ANOTHER worktree's already-installed, lock-compatible runtime. Every prior
+// preflight passes, then `pnpm knip` enters pnpm's dependency-status path and
+// auto-installs — running node-gyp and postinstall lifecycle scripts despite
+// this collector's read-only contract. The runtime must be proven to BELONG to
+// this worktree before pnpm is invoked at all.
+for (const variant of ['node-modules', 'virtual-store', 'binary']) {
+  test(`fails before invoking pnpm when the ${variant} runtime belongs to another worktree`, (t) => {
+    const fixture = createCollectorFixture(t, {
+      crossWorktreeRuntime: variant,
+      installBinaryShims: true,
+    });
+    const result = collectFixture(fixture);
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /dependency runtime belongs to another worktree/u);
+    assert.match(result.stderr, /pnpm install --frozen-lockfile/u);
+    assert.equal(
+      existsSync(fixture.invocationLog),
+      false,
+      'pnpm must not be invoked once the runtime is proven foreign'
+    );
+    assert.deepEqual(readdirSync(fixture.logsDir), []);
+  });
+}
+
+test('accepts a runtime that resolves entirely inside this worktree', (t) => {
+  const fixture = createCollectorFixture(t, { installBinaryShims: true });
+  const result = collectFixture(fixture);
+
+  assert.doesNotMatch(result.stderr, /belongs to another worktree/u);
 });
 
 test('fails before scans when workspace manifests do not satisfy the lockfile', (t) => {

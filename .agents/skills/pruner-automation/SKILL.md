@@ -36,7 +36,17 @@ The collector performs no repository or external writes (its Git reads disable
 optional locks, fsmonitor, and the untracked cache so `status` never rewrites
 the index). Before starting either scan, it requires the checked-out
 dependency runtime at `node_modules/.bin/knip` and
-`node_modules/.bin/react-doctor`, then proves pnpm's installed dependency state
+`node_modules/.bin/react-doctor`. It then proves that runtime BELONGS to this
+worktree: `node_modules`, `node_modules/.pnpm`, and each required
+`node_modules/.bin` entry are resolved through symlinks and must land inside
+the worktree root. A detached worktree linked into a sibling's already-
+installed, lock-compatible store passes every freshness check below and then
+trips pnpm's dependency-status path during `pnpm knip`, auto-installing and
+running node-gyp plus postinstall lifecycle scripts in violation of this
+collector's read-only contract (BST-830). Ownership is checked BEFORE
+freshness, because comparing a foreign virtual store's lock against this
+worktree's answers the wrong question convincingly. Next it proves pnpm's
+installed dependency state
 is current by parsing and semantically comparing `node_modules/.pnpm/lock.yaml`
 with the checked-out `pnpm-lock.yaml`, matching pnpm's current-vs-wanted
 lockfile check. It then runs pnpm's non-mutating
