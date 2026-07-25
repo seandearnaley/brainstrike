@@ -498,8 +498,30 @@ export function settingsModalCloseButtonLocator(page: Page) {
     .getByRole('button', { exact: true, name: 'Close' });
 }
 
+type SettingsModalState = 'closed' | 'occluded' | 'open';
+
+/**
+ * Reads the Settings dialog straight from the DOM instead of the accessibility
+ * tree. While a Radix Select or Popover is open *inside* the dialog, Radix marks
+ * the dialog `aria-hidden="true"` with `pointer-events: none` (measured, not
+ * assumed), so every role-based locator resolves to zero matches and the modal
+ * reports as CLOSED while it is open and merely occluded. `data-slot` is the only
+ * handle that survives that state.
+ */
+async function readSettingsModalState(page: Page): Promise<SettingsModalState> {
+  return page.evaluate(() => {
+    const dialog = Array.from(document.querySelectorAll('[data-slot="dialog-content"]')).find(
+      (node) => node.querySelector('[data-slot="dialog-title"]')?.textContent?.trim() === 'Settings'
+    );
+    if (!dialog) {
+      return 'closed';
+    }
+    return dialog.getAttribute('aria-hidden') === 'true' ? 'occluded' : 'open';
+  });
+}
+
 export async function isSettingsModalOpen(page: Page): Promise<boolean> {
-  return settingsModalHeadingLocator(page).isVisible();
+  return (await readSettingsModalState(page)) !== 'closed';
 }
 
 /**
@@ -546,16 +568,38 @@ export async function openSettingsModal(page: Page): Promise<void> {
  * Escape to the topmost `DismissableLayer`, so any Select or Popover open inside
  * Settings swallows the keypress and the dialog stays put — surfacing a whole
  * timeout later as a generic "expected to be hidden" with no hint of the cause.
- * Clicking is what a user does and is immune to layer ordering.
+ *
+ * Clicking is NOT immune to that same nested layer. Measured: with a Select open
+ * inside Settings the dialog carries `aria-hidden="true"` and
+ * `pointer-events: none`, so the close button is neither queryable by role nor
+ * clickable. What the state probe buys is a named, actionable failure instead of
+ * a bare "Settings heading not visible", which reads as "the modal is closed"
+ * when it is open and merely covered.
+ *
+ * The inner layer is deliberately NOT auto-dismissed. Swallowing it would let a
+ * test that lost track of its own UI state keep passing.
  */
 export async function closeSettingsModal(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
+
+  const state = await readSettingsModalState(page);
+  if (state === 'closed') {
+    throw new Error(
+      'closeSettingsModal(page) was called while the Settings modal is not open. Remove the redundant close, or open Settings first.'
+    );
+  }
+  if (state === 'occluded') {
+    throw new Error(
+      'closeSettingsModal(page) found the Settings modal covered by a nested overlay — a Select, Popover or Combobox is still open inside Settings. Radix marks the dialog aria-hidden with pointer-events:none while that layer is up, so the close button is neither queryable by role nor clickable. Dismiss the inner layer first (choose an option, or press Escape once).'
+    );
+  }
+
   const heading = settingsModalHeadingLocator(page);
   await expect(heading).toBeVisible({ timeout });
 
   const closeButton = settingsModalCloseButtonLocator(page);
   await expect(closeButton).toBeVisible({ timeout });
-  await closeButton.click();
+  await closeButton.click({ timeout });
   await expect(heading).not.toBeVisible({ timeout });
 }
 
