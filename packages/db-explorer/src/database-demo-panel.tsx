@@ -573,7 +573,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       [
         {
           critical: true,
-          name: 'Clear All Collections',
+          name: 'Clear Database',
           operation: async () => clearAllData(),
         },
         {
@@ -595,10 +595,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       ],
       setClearing,
       {
-        partialSuccessMessage: 'Collections were cleared but some data reload operations failed',
-        partialSuccessTitle: 'Collections Cleared',
-        successMessage: 'All collections data has been cleared and reloaded successfully',
-        successTitle: 'Collections Cleared',
+        partialSuccessMessage: 'The database was cleared but some data reload operations failed',
+        partialSuccessTitle: 'Database Cleared',
+        successMessage: 'The database has been cleared and collection data reloaded successfully',
+        successTitle: 'Database Cleared',
       }
     );
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
@@ -879,7 +879,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         </Panel>
       </Group>
 
-      {/* Clear All Collections dialog - triggered from Import Settings */}
+      {/* Clear Database dialog - triggered from Import Settings */}
       <ClearDatabaseDialog
         chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}
