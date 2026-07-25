@@ -20,6 +20,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
+import type { ChunkType } from '@mastra/core/stream';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
@@ -32,6 +33,7 @@ import type {
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
+import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import {
@@ -89,6 +91,111 @@ import {
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
+
+type DynamicMastraChunkType =
+  | `agent-execution-event-${string}`
+  | `data-${string}`
+  | `workflow-execution-event-${string}`;
+type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
+type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
+type MastraStaticChunkDisposition = 'ignored' | 'mapped';
+
+/**
+ * A complete disposition inventory for Mastra's exported static chunk union.
+ * `satisfies` makes a newly-added literal chunk type a type-check failure at
+ * upgrade time. `ignored` is a deliberate no-output decision; `mapped` means
+ * the switch below must consume the type. Dynamic chunk families remain
+ * observable at runtime because an unhandled member has no disposition.
+ */
+const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
+  abort: 'ignored',
+  'agent-execution-abort': 'ignored',
+  'agent-execution-approval': 'ignored',
+  'agent-execution-end': 'ignored',
+  'agent-execution-start': 'ignored',
+  'agent-execution-suspended': 'ignored',
+  'background-task-cancelled': 'ignored',
+  'background-task-completed': 'ignored',
+  'background-task-failed': 'ignored',
+  'background-task-output': 'ignored',
+  'background-task-progress': 'ignored',
+  'background-task-resumed': 'ignored',
+  'background-task-running': 'ignored',
+  'background-task-started': 'ignored',
+  'background-task-suspended': 'ignored',
+  error: 'mapped',
+  file: 'ignored',
+  finish: 'mapped',
+  goal: 'ignored',
+  'is-task-complete': 'ignored',
+  'network-execution-event-finish': 'ignored',
+  'network-execution-event-step-finish': 'ignored',
+  'network-object': 'ignored',
+  'network-object-result': 'ignored',
+  'network-validation-end': 'ignored',
+  'network-validation-start': 'ignored',
+  object: 'ignored',
+  'object-result': 'ignored',
+  raw: 'ignored',
+  'reasoning-delta': 'mapped',
+  'reasoning-end': 'ignored',
+  'reasoning-signature': 'ignored',
+  'reasoning-start': 'ignored',
+  'redacted-reasoning': 'ignored',
+  'response-metadata': 'ignored',
+  'routing-agent-abort': 'ignored',
+  'routing-agent-end': 'ignored',
+  'routing-agent-start': 'ignored',
+  'routing-agent-text-delta': 'ignored',
+  'routing-agent-text-start': 'ignored',
+  source: 'ignored',
+  start: 'mapped',
+  'step-finish': 'mapped',
+  'step-output': 'ignored',
+  'step-start': 'mapped',
+  'text-delta': 'mapped',
+  'text-end': 'ignored',
+  'text-start': 'ignored',
+  'tool-call': 'mapped',
+  'tool-call-approval': 'mapped',
+  'tool-call-delta': 'mapped',
+  'tool-call-input-streaming-end': 'mapped',
+  'tool-call-input-streaming-start': 'mapped',
+  'tool-call-suspended': 'mapped',
+  'tool-error': 'mapped',
+  'tool-execution-abort': 'ignored',
+  'tool-execution-approval': 'ignored',
+  'tool-execution-end': 'ignored',
+  'tool-execution-start': 'ignored',
+  'tool-execution-suspended': 'ignored',
+  'tool-output': 'mapped',
+  'tool-result': 'mapped',
+  tripwire: 'mapped',
+  watch: 'ignored',
+  'workflow-canceled': 'ignored',
+  'workflow-execution-abort': 'ignored',
+  'workflow-execution-end': 'ignored',
+  'workflow-execution-start': 'ignored',
+  'workflow-execution-suspended': 'ignored',
+  'workflow-finish': 'ignored',
+  'workflow-paused': 'ignored',
+  'workflow-start': 'ignored',
+  'workflow-step-finish': 'ignored',
+  'workflow-step-output': 'ignored',
+  'workflow-step-progress': 'ignored',
+  'workflow-step-result': 'ignored',
+  'workflow-step-start': 'ignored',
+  'workflow-step-suspended': 'ignored',
+  'workflow-step-waiting': 'ignored',
+} satisfies MastraChunkTypeMustStayLiteral &
+  Record<StaticMastraChunkType, MastraStaticChunkDisposition>;
+
+function readStaticMastraChunkDisposition(type: string): MastraStaticChunkDisposition | undefined {
+  if (!Object.hasOwn(MASTRA_STATIC_CHUNK_DISPOSITIONS, type)) {
+    return;
+  }
+  return MASTRA_STATIC_CHUNK_DISPOSITIONS[type as keyof typeof MASTRA_STATIC_CHUNK_DISPOSITIONS];
+}
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 interface MastraStreamPart {
@@ -339,6 +446,24 @@ interface ToolLifecycleState {
   steppedPromptTokens: number;
   streamStartedAtMs: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+  warnedUnknownChunkTypes: Set<string>;
+}
+
+function warnForUnrecognizedMastraStreamPart(
+  type: string,
+  lifecycleState: ToolLifecycleState
+): void {
+  if (readStaticMastraChunkDisposition(type) === 'ignored') {
+    return;
+  }
+  if (lifecycleState.warnedUnknownChunkTypes.has(type)) {
+    return;
+  }
+  lifecycleState.warnedUnknownChunkTypes.add(type);
+  logger.warn('mastra emitted an unrecognized stream chunk', {
+    chunkType: formatDiagnosticChunkType(type),
+    code: 'mastra_agent_unrecognized_stream_chunk',
+  });
 }
 
 function makeLifecycleStepMetadata(
@@ -1111,6 +1236,7 @@ function processMastraStreamPart(
       return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
+      warnForUnrecognizedMastraStreamPart(p.type, lifecycleState);
       return { chunks: [], finished: false };
   }
 }
@@ -1814,6 +1940,7 @@ async function* streamChunksFromMastra({
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
     terminalToolCallStates: new Map(),
+    warnedUnknownChunkTypes: new Set(),
   };
 
   try {

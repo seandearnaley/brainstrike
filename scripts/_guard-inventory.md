@@ -1,5 +1,6 @@
 architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries
 assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
+mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 architecture-domain-contract.mjs → wired/paired/armed → complete and valid architecture domain map
 browser-events-literal-guard.mjs → wired/paired/armed → shared browser CustomEvent names
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement

@@ -8,9 +8,11 @@
  * boundary (tool start, finish). Parallel tool calls (Mastra executes up to
  * 10 concurrently) must map interleaved per-call chunks without cross-talk.
  */
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { describe, expect, it } from 'vitest';
 import type { StreamChunk } from '../index';
 import { AssistantDataStreamSession } from '../stream/data-stream';
+import { DataStreamMapper } from '../stream/data-stream-mapper';
 
 interface Encoded {
   code: string;
@@ -101,6 +103,44 @@ async function mapChunks(chunks: StreamChunk[]): Promise<Encoded[]> {
   });
   return parseLines(await readResponse(session.createResponse()));
 }
+
+describe('unknown stream-chunk diagnostics', () => {
+  it('warns and keeps the data stream open when a runtime chunk is unrecognized', () => {
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const mapper = new DataStreamMapper('msg-unknown-chunk');
+      expect([
+        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
+      ]).toEqual([]);
+      expect([
+        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
+      ]).toEqual([]);
+    } finally {
+      removeLogListener();
+    }
+
+    const diagnosticRecords = logRecords.filter((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') &&
+          (arg as { code?: unknown }).code === 'data_stream_mapper_unrecognized_chunk'
+      )
+    );
+    const diagnosticFields = diagnosticRecords[0]?.args.find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') &&
+        (arg as { code?: unknown }).code === 'data_stream_mapper_unrecognized_chunk'
+    );
+    expect(diagnosticRecords).toHaveLength(1);
+    expect(diagnosticRecords[0]?.level).toBe(LogLevel.WARN);
+    expect(diagnosticFields).toMatchObject({
+      chunkType: 'future-brainstrike-stream-chunk',
+      code: 'data_stream_mapper_unrecognized_chunk',
+    });
+  });
+});
 
 const finishChunk: StreamChunk = {
   type: 'finish',

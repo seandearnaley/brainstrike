@@ -255,8 +255,23 @@ Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
 | `NetworkChunkType` (`:683`) | 27 | 0 |
 | `DataChunkType` (`:676`) | `data-${string}` | 2 Brainstrike-owned |
 
-Implementation is tracked separately (see FOLLOW-UPS). The decision is settled
-here, so it is no longer architecture-gated.
+The static inventory records an explicit `'mapped' | 'ignored'` disposition,
+not mere presence. An unhandled dynamic-family member has no disposition and
+therefore warns once per type per stream rather than once per chunk. A widened
+upstream `string` union is also a type-check failure.
+
+`processMastraStreamPart` is the live untyped Mastra boundary. The exhaustive
+`DataStreamMapper.handleChunk` and already-narrowed `mapMastraToolEvent`
+defaults are defensive backstops for runtime-unsound callers; their tests use
+casts deliberately. All three share the same bounded chunk-type formatter.
+
+`scripts/mastra-stream-chunk-contract.mjs` enforces the type import, the complete
+static disposition inventory, the widening assertion, and an AST-verified
+coded `logger.warn` on each named dispatch default path (the active Mastra
+boundary uses one pinned helper to keep the switch complexity bounded). Its
+paired control cases prove a silently-dropping default and a warning moved
+elsewhere both fail. The decision is settled here, so it is no longer
+architecture-gated.
 
 ## R7 MCP TRANSPORT AND CAPABILITIES
 
@@ -404,6 +419,7 @@ these tests in the same change.
 | --- | --- |
 | R1 | no `@mastra/{hono,express,fastify,koa,nestjs,deployer,server}` in the lockfile; constructed Mastra config carries no `server`/`observability`/`scorers` key in **any** literal form (`key:`, quoted, or bare shorthand — `storage,` in that object is already shorthand), and no opaque spread that would make the scan unverifiable |
 | R2 | **both** browser bundles — `apps/web/vite.config.mts` **and** `apps/desktop/vite.config.mts` (the Electron renderer build, `outDir: 'dist/renderer'`) — keep `@mastra/core` and `/^@mastra\//` in their vite externals |
+| R6 | `scripts/mastra-stream-chunk-contract.mjs` requires a complete static `ChunkType` disposition inventory and coded warnings at the Mastra, `StreamChunk`, and tool-event dispatch defaults; runtime tests keep the stream alive while the logger emits each diagnostic |
 | R4 | `@mastra/agent-browser` absent from every manifest and the lockfile |
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
 | R8 | *(unguarded by design — R8 permits adding `@mastra/evals` on its own merits, so an absence assertion would encode a constraint this ruling explicitly retires)* |
@@ -412,8 +428,6 @@ these tests in the same change.
 
 Decided here, implemented separately. None is architecture-gated any longer.
 
-- **Unknown-chunk policy (R6).** Type the mapper against Mastra's `ChunkType`;
-  coded warning + diagnostic event at the three dispatch defaults.
 - **Unknown resume schema (R9).** Replace the dead-end notice with visible
   rejection.
 - **Dead run-event kinds.** `context.budget`, `context.prepared`,

@@ -347,6 +347,54 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('records one diagnostic per unknown dynamic type and continues streaming', async () => {
+    setMockStreamParts([
+      { type: 'data-future-mastra-stream-chunk' },
+      { type: 'data-future-mastra-stream-chunk' },
+      { textDelta: 'still streaming', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual({ type: 'text-delta', value: 'still streaming' });
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+      );
+    } finally {
+      removeLogListener();
+    }
+
+    const diagnosticRecords = logRecords.filter((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') &&
+          (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
+      )
+    );
+    const diagnosticFields = diagnosticRecords[0]?.args.find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') &&
+        (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
+    );
+    expect(diagnosticRecords).toHaveLength(1);
+    expect(diagnosticRecords[0]?.level).toBe(LogLevel.WARN);
+    expect(diagnosticFields).toMatchObject({
+      chunkType: 'data-future-mastra-stream-chunk',
+      code: 'mastra_agent_unrecognized_stream_chunk',
+    });
+  });
+
   it('records bounded token diagnostics with actual provider prompt usage', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },

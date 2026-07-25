@@ -1,8 +1,10 @@
+import { createLogger } from '@brainstrike/utils';
 import {
   getTransformedToolPayload,
   hasTransformedToolPayload,
   type ToolPayloadTransformPhase,
 } from '@mastra/core/tools';
+import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
@@ -14,6 +16,7 @@ type ToolEventPart = {
 
 const PROGRESS_START_STEP = 'input_stream_start';
 const PROGRESS_END_STEP = 'input_stream_end';
+const logger = createLogger('MastraToolEventMapper');
 
 export function mapMastraToolEvent(
   candidate: unknown,
@@ -100,6 +103,10 @@ export function mapMastraToolEvent(
       } satisfies StreamChunk;
     }
     default:
+      logger.warn('mastra tool event mapper received an unrecognized chunk', {
+        chunkType: formatDiagnosticChunkType(candidate.type),
+        code: 'mastra_tool_event_unrecognized_stream_chunk',
+      });
       return;
   }
 }
