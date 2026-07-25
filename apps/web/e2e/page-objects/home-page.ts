@@ -1,7 +1,13 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
+  closeSettingsModal,
   contextExplorerActiveNavLocator,
+  isSettingsModalOpen,
+  openSettingsModal,
+  profileMenuButtonLocator,
+  settingsMenuItemLocator,
+  settingsModalHeadingLocator,
   type WaitForAppLoadOptions,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -25,15 +31,28 @@ export class HomePage {
   }
 
   get settingsHeading(): Locator {
-    return this.page.getByRole('heading', { exact: true, name: 'Settings' });
+    return settingsModalHeadingLocator(this.page);
   }
 
   get contextExplorerNavButton(): Locator {
     return this.page.getByRole('button', { exact: true, name: 'Context Explorer' });
   }
 
-  get settingsNavButton(): Locator {
-    return this.page.getByRole('button', { exact: true, name: 'Settings' });
+  /**
+   * Settings is launched from the account/profile dropdown, not the sidebar.
+   * `RootLayoutContent` filters the `/settings` item out of `navigationItems`,
+   * so no top-level Settings nav button exists.
+   */
+  get profileMenuButton(): Locator {
+    return profileMenuButtonLocator(this.page);
+  }
+
+  /**
+   * The dropdown entry renders as `Settings…` (with an ellipsis), so this matches
+   * on the prefix rather than an exact name.
+   */
+  get settingsMenuItem(): Locator {
+    return settingsMenuItemLocator(this.page);
   }
 
   async expectLoaded(): Promise<void> {
@@ -43,11 +62,28 @@ export class HomePage {
   }
 
   async navigateToSettings(): Promise<void> {
-    await this.settingsNavButton.click();
+    await openSettingsModal(this.page);
     await waitForSettingsPage(this.page);
   }
 
+  /**
+   * Dismiss the Settings modal and wait for it to unmount. Fails loudly when the
+   * modal is not actually open so callers cannot drift out of sync with the UI.
+   */
+  async closeSettings(): Promise<void> {
+    await closeSettingsModal(this.page);
+  }
+
   async navigateToHome(): Promise<void> {
+    // Radix marks everything outside an open dialog `aria-hidden`, which removes
+    // the sidebar from the accessibility tree that `getByRole` queries. Surface
+    // that state explicitly instead of silently dismissing the modal, which
+    // would let a test pass with the UI in an unexpected state.
+    if (await isSettingsModalOpen(this.page)) {
+      throw new Error(
+        'navigateToHome() was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — call closeSettings() first.'
+      );
+    }
     await this.contextExplorerNavButton.click();
     await waitForContextExplorerPage(this.page);
   }

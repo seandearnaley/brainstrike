@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
+  closeSettingsModal,
   contextExplorerActiveNavLocator,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -75,6 +76,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).toHaveClass(/dark/);
 
     // Navigate back to Context Explorer to test persistence
+    await closeSettingsModal(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
@@ -92,6 +94,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).not.toHaveClass(/dark/);
 
     // Test persistence again
+    await closeSettingsModal(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
@@ -108,6 +111,7 @@ test.describe('Theme Switching', () => {
     await page.waitForTimeout(100);
 
     // Navigate back to Context Explorer
+    await closeSettingsModal(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
@@ -145,6 +149,7 @@ test.describe('Theme Switching', () => {
     // that the system option is selectable and doesn't cause errors
 
     // Navigate to verify no errors occurred
+    await closeSettingsModal(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
@@ -187,6 +192,7 @@ test.describe('Theme Switching', () => {
 
     // Preview mode does not serve /settings directly on hard reload, so return
     // to the app root before verifying reload persistence.
+    await closeSettingsModal(page);
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
 
