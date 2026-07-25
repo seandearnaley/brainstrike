@@ -1,4 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
@@ -141,6 +142,53 @@ describe('deriveAssistantRunEventRows', () => {
       );
     }
   });
+
+  it('keeps the unanswerable-pause rejection visible despite its tool card (BST-558)', () => {
+    // The Developer path. `initialRenderPlanKey` mirrors
+    // `resolveAssistantRunEventRenderPlan`'s card suppression, so it must also
+    // mirror the always-visible exemption — otherwise raising the Detail level
+    // HIDES a row the default level shows. The `tool-call` part below is the
+    // one `DataStreamMapper.handleToolSuspendRequired` always emits for the
+    // suspended call, so this is the real thread shape, not a synthetic one.
+    const rejected = {
+      id: 'reject-1',
+      kind: UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+      label: 'Tool pause cannot be answered by this build',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const carded = {
+      id: 'tool-failed-1',
+      kind: 'tool.failed',
+      label: 'Tool failed',
+      metadata: { toolCallId: 'call-ordinary', toolName: 'brainstrike.readFile' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:02.000Z',
+    };
+    const messages = [
+      {
+        parts: [
+          runEventPart(rejected),
+          runEventPart(carded),
+          {
+            toolCallId: 'call-future',
+            toolName: 'brainstrike.someFutureSuspendingTool',
+            type: 'tool-call',
+          },
+          { toolCallId: 'call-ordinary', toolName: 'brainstrike.readFile', type: 'tool-call' },
+        ],
+      },
+    ];
+
+    const rows = deriveAssistantRunEventRows(messages);
+
+    expect(rows.renderPlanKeys[rejected.id]).toBe('visible:1');
+    // CONTROL: an ordinary carded tool.failed is still suppressed.
+    expect(rows.renderPlanKeys[carded.id]).toBe('hidden');
+  });
 });
 
 describe('getMatchingCompletedKind', () => {
@@ -169,6 +217,13 @@ describe('isAlwaysVisibleRunEvent', () => {
   it('forces run-level failure and cancellation rows to stay visible', () => {
     expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);
+  });
+
+  it('forces the unanswerable-tool-pause rejection to stay visible (BST-558)', () => {
+    // `tool.resume.unsupported` is the ONLY durable surface for a suspending
+    // tool this build has no resume UI for: the `brainstrike.tool-suspend`
+    // notice is transient, so after a reload this row is all that is left.
+    expect(isAlwaysVisibleRunEvent(event('tool.resume.unsupported', 'failed'))).toBe(true);
   });
 
   it('does not force background bookkeeping or already-carded tool failures', () => {
@@ -205,6 +260,34 @@ describe('resolveAssistantRunEventStatus', () => {
       { parts: [runEventPart(started), runEventPart(finished)], role: 'assistant' },
     ];
     expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('completed');
+  });
+
+  it('leaves tool.started RUNNING when the pause is only unanswerable here (BST-558)', () => {
+    // `getMatchingFailedKind` resolves tool.started ONLY on tool.failed. The
+    // unanswerable-pause rejection must not close it out: the tool is genuinely
+    // still suspended server-side, exactly as `runStillSuspended: true` says.
+    const started = {
+      id: 't1',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const rejected = {
+      id: 't2',
+      kind: UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+      label: 'Tool pause cannot be answered by this build',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const messages = [
+      { parts: [runEventPart(started), runEventPart(rejected)], role: 'assistant' },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('running');
   });
 });
 

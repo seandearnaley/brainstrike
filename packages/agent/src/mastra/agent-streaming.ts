@@ -16,6 +16,11 @@ import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  hasRegisteredSuspendResumeUi,
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
+  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
@@ -763,6 +768,75 @@ function makeUnsupportedApprovalChunks(
   ];
 }
 
+/**
+ * VISIBLE, NON-TERMINAL rejection notice for a well-formed suspend pause whose
+ * tool has NO registered typed resume UI (`REGISTERED_SUSPEND_RESUME_TOOL_IDS`):
+ * a single DURABLE {@link UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND} run event plus
+ * a coded error log.
+ *
+ * The kind is `tool.resume.unsupported`, never `tool.failed`: no tool ran and
+ * none failed. `tool.failed` is consumed as a METRIC — the Task Ledger counts it
+ * as both a tool call and a failed tool call, and `collectToolDurations` /
+ * the timeline's `tool.started` resolution close a call out on it. Because the
+ * run deliberately stays suspended, a build that later registers the tool
+ * resumes the SAME toolCallId and emits the real `tool.completed`, so reusing
+ * `tool.failed` would double-count that one call forever and would close out a
+ * tool that is still suspended (contradicting `runStillSuspended: true` in this
+ * very event's metadata). The new kind is in `isAlwaysVisibleRunEvent`, so the
+ * row shows at the DEFAULT detail level and survives a thread reload — the
+ * transient `brainstrike.tool-suspend` notice does not.
+ *
+ * Deliberately NOT the {@link makeUnsupportedApprovalChunks} idiom (`run.failed`
+ * + error finish). That idiom is right for a MALFORMED pause, which really is
+ * unrecoverable — this pause is not. Mastra persists the suspended workflow
+ * snapshot BEFORE this stream part is mapped, so terminating the client stream
+ * removes nothing: `listSuspendedRuns()` still returns the run and a later
+ * resume can still revive it. A durable `run.failed` claiming the run "was
+ * stopped" would therefore be FALSE.
+ *
+ * Leaving the run suspended server-side is INTENTIONAL, not a leak: a user who
+ * upgrades to a build that registers this tool's resume UI can still answer the
+ * very same pause. What this build owes them is honesty — this run event states
+ * that THIS build cannot answer the pause, and says nothing about the run's
+ * server-side state. The pause itself still reaches the renderer (carrying
+ * `resumeSupported: false`, which makes the mapper SETTLE the tool card so a
+ * dismissed notice cannot strand a permanently Running one), where
+ * `UnsupportedSuspendNotice` explains it and offers a dismiss action.
+ *
+ * The tool-defined `suspendPayload` is deliberately EXCLUDED from the durable
+ * metadata (it is arbitrary tool content; run-event metadata is
+ * allowlist-by-denial, not a content channel). It travels only on the transient
+ * `tool-suspend-required` chunk, which is never persisted.
+ */
+function makeUnregisteredSuspendResumeNoticeChunk(input: {
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+}): StreamChunk {
+  logger.error('suspending tool has no registered resume UI', {
+    code: 'mastra_agent_suspend_resume_schema_unregistered',
+    registeredSuspendResumeTools: [...REGISTERED_SUSPEND_RESUME_TOOL_IDS],
+    runId: input.runId,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+  });
+
+  return makeRunEventChunk(
+    UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+    'failed',
+    'Tool pause cannot be answered by this build (no registered resume UI)',
+    {
+      resumeSupportedByClient: false,
+      runId: input.runId,
+      runStillSuspended: true,
+      suspended: true,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      unregisteredResumeSchema: true,
+    }
+  );
+}
+
 function makeApprovalRequiredChunks(
   part: unknown,
   toolNames: Map<string, string>,
@@ -837,7 +911,10 @@ function makeApprovalRequiredChunks(
  * finish. Mirrors {@link makeApprovalRequiredChunks} but carries the tool-defined
  * `suspendPayload` (plan body / question) instead of approval-risk metadata. When
  * the pause is malformed (missing toolCallId/runId) we fall back to the existing
- * unsupported-termination so a bad pause fails visibly rather than silently.
+ * unsupported-termination so a bad pause fails visibly rather than silently, and
+ * when the tool has no registered typed resume UI we prepend the NON-terminal
+ * {@link makeUnregisteredSuspendResumeNoticeChunk} so the rejection is visible
+ * and durable without falsely claiming the run was stopped.
  */
 function makeToolSuspendRequiredChunks(
   part: unknown,
@@ -856,18 +933,31 @@ function makeToolSuspendRequiredChunks(
     readMastraStreamPartString(part, 'name') ??
     toolNames.get(toolCallId) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // Resolve the CLIENT-FACING (dotted) name the same way the approval side does
+  // in `resolveDiscoveredApprovalToolName`: the runtime's sanitized→original map
+  // first, then the STATIC native reverse map. The real stream part carries the
+  // Mastra-registered id (`brainstrike_askUser`), and `sanitizedNameMap` is
+  // optional — spread conditionally at every call site — so a missing map must
+  // not decide whether a pause is resumable. `denormalizeNativeToolName` is a
+  // no-op for already-dotted and non-native names.
+  const toolName = denormalizeNativeToolName(sanitizedNameMap?.get(rawToolName) ?? rawToolName);
+  const unregisteredNotice = hasRegisteredSuspendResumeUi(toolName)
+    ? undefined
+    : makeUnregisteredSuspendResumeNoticeChunk({ runId, toolCallId, toolName });
   const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
 
-  logger.info('mastra tool suspend pause surfaced for client resume', {
-    code: 'mastra_agent_tool_suspend_required',
-    runId,
-    toolCallId,
-    toolName,
-  });
+  if (!unregisteredNotice) {
+    logger.info('mastra tool suspend pause surfaced for client resume', {
+      code: 'mastra_agent_tool_suspend_required',
+      runId,
+      toolCallId,
+      toolName,
+    });
+  }
 
   return [
+    ...(unregisteredNotice ? [unregisteredNotice] : []),
     {
       runId,
       toolCallId,
@@ -875,6 +965,9 @@ function makeToolSuspendRequiredChunks(
       type: 'tool-suspend-required',
       ...(suspendPayload === undefined ? {} : { suspendPayload }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
+      // Only ever narrowed to false — a registered pause omits the flag so its
+      // tool card stays open, which is exactly what "waiting on you" means.
+      ...(unregisteredNotice ? { resumeSupported: false as const } : {}),
     },
     makeToolCallsFinishChunk(),
   ];

@@ -156,6 +156,39 @@ function findSuspendChunk(chunks: StreamChunk[]) {
   );
 }
 
+function runEventKinds(chunks: StreamChunk[]): string[] {
+  return chunks
+    .filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+    )
+    .map((chunk) => chunk.event.kind);
+}
+
+/**
+ * A suspending tool that is deliberately NOT in
+ * `REGISTERED_SUSPEND_RESUME_TOOL_IDS` — the exact shape BST-558 is about. It
+ * suspends through the same `context.agent.suspend` contract askUser uses, so
+ * the Mastra-level pause is identical to a registered one; only the
+ * client-side registry lookup differs.
+ */
+function makeUnregisteredSuspendingTool() {
+  return createTool({
+    description: 'Pauses the run with a question this build has no typed UI for.',
+    execute: async (
+      _input: { topic: string },
+      context?: { agent?: { suspend?: (payload: unknown) => Promise<unknown> } }
+    ) => {
+      await context?.agent?.suspend?.({ question: 'why?' });
+      return;
+    },
+    id: 'brainstrike.someFutureSuspendingTool',
+    inputSchema: z.object({ topic: z.string() }),
+    outputSchema: z.object({ answered: z.boolean() }),
+    resumeSchema: z.object({ answer: z.string() }),
+    suspendSchema: z.object({ question: z.string() }),
+  } as never);
+}
+
 function findApprovalChunk(chunks: StreamChunk[]) {
   return chunks.find(
     (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
@@ -852,4 +885,102 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
 
     await database.close();
   });
+  /**
+   * BST-558 / review of PR #1977. The earlier rounds of this work were argued
+   * against a SYNTHESIZED `tool-call-suspended` part, and a review round then
+   * asserted (from a stale in-repo comment written against @mastra/core 1.50)
+   * that the real loop reports `suspend()` through the `tool-error` path FIRST,
+   * so an unregistered pause would still be recorded as a durable `tool.failed`
+   * — polluting the Task Ledger and closing the tool's duration/timeline.
+   *
+   * This test drives the REAL loop instead of asserting either way, and pins
+   * the answer: on @mastra/core 1.51 a `suspend()` emits NO `tool-error` and
+   * therefore no durable `tool.failed`. If a future Mastra bump reintroduces
+   * that ordering, this test fails here rather than silently re-polluting the
+   * ledger — which is exactly the gap that let four green suites coexist with
+   * an unproven claim.
+   */
+  it('an UNREGISTERED suspending tool records tool.resume.unsupported and NEVER tool.failed', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'unused',
+      input: JSON.stringify({ topic: 'x' }),
+      toolCallId: 'call-unregistered-1',
+      toolName: 'brainstrike_someFutureSuspendingTool',
+    });
+
+    const chunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-unreg-1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: 'resource-unreg-1', threadId: 'thread-unreg-1' },
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.someFutureSuspendingTool': makeUnregisteredSuspendingTool() },
+        }
+      )
+    );
+
+    const kinds = runEventKinds(chunks);
+    // The rejection is recorded exactly once, on its own kind.
+    expect(kinds.filter((kind) => kind === 'tool.resume.unsupported')).toHaveLength(1);
+    // The claim the whole design rests on: nothing the ledger counts as a tool
+    // call or a tool failure is recorded for this pause.
+    expect(kinds).not.toContain('tool.failed');
+    expect(kinds).not.toContain('tool.completed');
+    // ...and no `tool-error` reached the mapper either, which is the upstream
+    // fact the `tool.failed` claim depended on.
+    expect(
+      chunks.filter((chunk) => chunk.type === 'tool-event' && chunk.status === 'error')
+    ).toHaveLength(0);
+    // The pause still reaches the renderer, flagged so the mapper settles the
+    // card instead of leaving a Running spinner nothing can resolve.
+    const suspend = findSuspendChunk(chunks);
+    expect(suspend?.toolName).toBe('brainstrike.someFutureSuspendingTool');
+    expect(suspend?.resumeSupported).toBe(false);
+
+    await database.close();
+  }, 120_000);
+
+  it('CONTROL: a REGISTERED suspending tool records no rejection and no tool.failed', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'unused',
+      input: SUBMIT_PLAN_INPUT,
+      toolCallId: 'call-registered-1',
+      toolName: 'brainstrike_submitPlan',
+    });
+
+    const chunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-reg-1', parts: [{ text: 'make a plan', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: 'resource-reg-1', threadId: 'thread-reg-1' },
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      )
+    );
+
+    const kinds = runEventKinds(chunks);
+    expect(kinds).not.toContain('tool.resume.unsupported');
+    expect(kinds).not.toContain('tool.failed');
+    // Its card legitimately stays open — it really is waiting on the user.
+    expect(findSuspendChunk(chunks)?.resumeSupported).toBeUndefined();
+
+    await database.close();
+  }, 120_000);
 });
