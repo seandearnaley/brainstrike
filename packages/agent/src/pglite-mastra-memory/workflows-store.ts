@@ -102,17 +102,41 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
  * flushed into `brainstrike_diagnostic_events` (the Flight Recorder) and reach
  * the debug bundle, so the row cannot vanish unnoticed the way a batched warn
  * (which waits on the 2s/32-event window) could.
+ *
+ * DO NOT RELITIGATE — the ERROR record is emitted ONCE PER RUN PER PROCESS,
+ * guarded by `reportedMalformedRuns`. A corrupt row is PERMANENT in production
+ * (`deleteWorkflowRunById` has no production caller), while this listing runs on
+ * every renderer reload AND on every `readResumedApprovalToolCall` during tool
+ * approval. Without the guard, each of those writes another eagerly flushed
+ * `brainstrike_diagnostic_events` row for the same unfixable condition, bounded
+ * only by retention purge. Repeats carry NO new information: the fingerprint is
+ * `computeDiagnosticFingerprint(code, scope, message)` and is identical every
+ * time. This is not a silent fallback — the condition IS reported, once, at
+ * ERROR, and every suppressed repeat still emits a `debug` record.
  */
-function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefined {
+function safeWorkflowRunFromRow(
+  row: WorkflowSnapshotRow,
+  reportedMalformedRuns: Set<string>
+): WorkflowRun | undefined {
   try {
     return workflowRunFromRow(row);
   } catch (error) {
-    logger.error('Malformed Mastra workflow snapshot excluded from workflow run listing', {
+    const details = {
       code: 'mastra_workflow_snapshot_malformed',
       error: error instanceof Error ? error.message : String(error),
       runId: row.runId,
       workflowName: row.workflowName,
-    });
+    };
+    const identity = `${row.workflowName}\u0000${row.runId}`;
+    if (reportedMalformedRuns.has(identity)) {
+      logger.debug('Malformed Mastra workflow snapshot excluded again (already reported)', details);
+    } else {
+      reportedMalformedRuns.add(identity);
+      logger.error(
+        'Malformed Mastra workflow snapshot excluded from workflow run listing',
+        details
+      );
+    }
   }
   return;
 }
@@ -227,6 +251,10 @@ async function writeWorkflowSnapshot(
 export class PgliteWorkflowsStore extends WorkflowsStorage {
   private readonly database: PgliteDatabase;
   private initPromise: Promise<void> | null = null;
+  /** Identity (`workflowName`, NUL, `runId` — NUL cannot occur in either, so
+   * the pair cannot collide) of every corrupt row already reported at ERROR
+   * severity by this store instance — see {@link safeWorkflowRunFromRow}. */
+  private readonly reportedMalformedRuns = new Set<string>();
 
   constructor(options: PgliteWorkflowsStoreOptions) {
     super();
@@ -366,6 +394,24 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     });
   }
 
+  /**
+   * DO NOT RELITIGATE — `total` and `runs.length` are answers to DIFFERENT
+   * questions and may legitimately disagree when a snapshot is corrupt:
+   *
+   * - `total` is AUTHORITATIVE for what matches the filter IN STORAGE. It is
+   *   what makes page boundaries stable, so it must not shrink as rows are
+   *   excluded page by page (an exclusion on page 3 cannot retroactively
+   *   renumber pages 1-2).
+   * - `runs` is what is SERVABLE. A corrupt row is genuinely unfetchable —
+   *   `getWorkflowRunById` throws for it by design — so `runs.length <= total`
+   *   is the invariant, and the shortfall is exactly the excluded corrupt rows.
+   *
+   * The alternative — excluding corrupt rows from the COUNT too — would require
+   * a SQL predicate mirroring `parseWorkflowSnapshot`'s JS predicate, and any
+   * drift between the two would silently miscount. No in-repo consumer reads
+   * `total`: `agent.listSuspendedRuns` destructures `{ runs }` only. The
+   * corruption signal is the ERROR diagnostic, not the arithmetic.
+   */
   async listWorkflowRuns({
     workflowName,
     fromDate,
@@ -422,7 +468,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
 
     return {
       runs: result.rows.flatMap((row) => {
-        const run = safeWorkflowRunFromRow(row);
+        const run = safeWorkflowRunFromRow(row, this.reportedMalformedRuns);
         return run ? [run] : [];
       }),
       total: Number(countResult.rows[0]?.count ?? 0),

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
@@ -193,7 +194,7 @@ describe('Database clearing functionality', () => {
       // The OTHER reset path (`purgeTablesTx`) is locked in
       // factory-reset.test.tsx; real transaction semantics — which a mocked
       // `tx.query` structurally cannot model — in clear-data.integration.test.tsx.
-      expect(queryMock).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+      expect(queryMock).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
     });
 
     it('propagates a real prompt_items delete failure from direct clear', async () => {

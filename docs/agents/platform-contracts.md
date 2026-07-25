@@ -88,7 +88,7 @@ deletes are `deleteWorkflowRunById` (no production caller) and
 `dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
 call and arguments, so it must not survive a "true fresh start". It is cleared
 in BOTH reset paths: desktop `db-ipc.ts` (`clearLazilyCreatedRelation(tx,
-'mastra_workflow_snapshot')`) and `db-provider.tsx`'s
+MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s
 `clearWorkflowSnapshotsIfPresent` (used by direct-PGlite clear AND
 `purgeTablesTx`). The relation is created lazily by
 `PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
@@ -112,9 +112,39 @@ by `PgliteWorkflowsStore.initialize()` and by NO migration, so "absent" is the
 normal state for a never-used assistant), and it is why desktop has BOTH
 `clearOptionalRelation` (delete-and-tolerate, for migration-created tables whose
 absence is a legacy-schema edge) and `clearLazilyCreatedRelation` (probe-first).
-Known debt: the ~14 `clearOptionalRelation` call sites carry the same latent
-defect, unreachable today only because every one of those tables is created by a
-numbered migration that has already run by the time a clear starts.
+A probed relation's `DELETE` is deliberately NOT wrapped in a catch: nothing in
+this repo ever DROPs `mastra_workflow_snapshot`, so the probe/delete race is
+unreachable, and a tolerated `42P01` there could not recover anyway — it would
+leave the transaction aborted and resurface as a misleading `25P02`.
+
+**The probed table name must come from `MASTRA_WORKFLOW_TABLE`
+(`@brainstrike/assistant-contract/mastra-memory-schema`), never a local
+literal.** `to_regclass` on a stale name returns NULL, which turns the probe
+into a PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Both
+production sites and every test import the constant; a hardcoded copy would
+survive a Mastra table rename with every test still green. Verified by control:
+renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while `db-provider.tsx` held
+the literal left a suspended-run row alive through a full clear
+(`expected 1 to be +0`), and importing the constant made it pass.
+
+**Narrow every catch in a purge to `isMissingNamedRelationError`.** A bare
+`catch (err) { logger.warn(...) }` cannot be a tolerance inside a transaction:
+the first genuine error aborts it, every later statement fails `25P02`, each of
+THOSE is swallowed too, the purge returns normally, and `COMMIT` on an aborted
+transaction degrades to `ROLLBACK` WITHOUT raising — factory reset reports
+SUCCESS having cleared nothing. This was measured, not reasoned: against real
+PGlite, an FK violation on `job_queue` with the old bare-catch tail made
+`useFactoryReset()` resolve while every table still held its rows. The
+`purgeTablesTx` tail now routes through `clearMigratedRelation`, which tolerates
+only "relation does not exist" (BST-558 review).
+
+Known remaining debt: the ~14 desktop `clearOptionalRelation` call sites still
+delete-and-tolerate rather than probe. That specific defect — a tolerated
+`42P01` poisoning the transaction — is unreachable today because every one of
+those tables is created by a numbered migration that has already run by the time
+a clear starts; unlike the bare catches above, `clearOptionalRelation` already
+rethrows everything that is not a missing-relation error, so it cannot mask a
+genuine failure.
 
 Add tests when changing reset behavior — and note that a mocked `tx.query`
 CANNOT reproduce aborted-transaction semantics. Reset changes that depend on

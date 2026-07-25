@@ -20,6 +20,7 @@
  * direct-PGlite clear (`clearViaPGlite`) and the factory-reset purge
  * (`purgeTablesTx`, previously with no regression lock at all).
  */
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -133,9 +134,47 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     await assertSentinelsCleared();
   });
 
+  /**
+   * The factory-reset tail used bare `catch (err) { logger.warn(...) }` blocks.
+   * This proves why that could never be a tolerance: an FK violation on
+   * `job_queue` (a GENUINE error, not a missing relation) aborts the
+   * transaction, so `file_records`/`roots` and everything else after it fail
+   * 25P02, each swallowed in turn, `purgeTablesTx` returns normally, and COMMIT
+   * on an aborted transaction degrades to ROLLBACK WITHOUT raising — reset
+   * reported success having cleared nothing. Narrowed to
+   * `isMissingNamedRelationError`, the first real failure now propagates.
+   */
+  it('fails the factory reset loudly when a purge statement genuinely errors', async () => {
+    await db.exec(`
+      INSERT INTO job_queue (id, queue, job_type) VALUES ('job-1', 'q', 'embed');
+      CREATE TABLE reset_fk_probe (
+        id text PRIMARY KEY,
+        job_id text NOT NULL REFERENCES job_queue(id) ON DELETE NO ACTION
+      );
+      INSERT INTO reset_fk_probe (id, job_id) VALUES ('probe-1', 'job-1');
+    `);
+
+    const { result } = renderHook(
+      () => ({ factoryReset: useFactoryReset(), repo: useFileRecordRepository() }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.factoryReset).not.toBeNull();
+    });
+
+    await act(async () => {
+      await expect(result.current.factoryReset?.()).rejects.toThrow(
+        /violates foreign key constraint/iu
+      );
+    });
+    // The rollback is honest: nothing was cleared AND the caller was told.
+    expect(await countRows('prompt_items')).toBe(1);
+  });
+
   it('clears the workflow snapshot rows when the relation does exist', async () => {
-    await db.exec('CREATE TABLE mastra_workflow_snapshot (run_id text primary key)');
-    await db.exec("INSERT INTO mastra_workflow_snapshot (run_id) VALUES ('suspended-run')");
+    await db.exec(`CREATE TABLE ${MASTRA_WORKFLOW_TABLE} (run_id text primary key)`);
+    await db.exec(`INSERT INTO ${MASTRA_WORKFLOW_TABLE} (run_id) VALUES ('suspended-run')`);
 
     const { result } = renderHook(
       () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
@@ -147,7 +186,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     });
 
     await expect(result.current.clearData?.()).resolves.toBeDefined();
-    expect(await countRows('mastra_workflow_snapshot')).toBe(0);
+    expect(await countRows(MASTRA_WORKFLOW_TABLE)).toBe(0);
     await assertSentinelsCleared();
   });
 });

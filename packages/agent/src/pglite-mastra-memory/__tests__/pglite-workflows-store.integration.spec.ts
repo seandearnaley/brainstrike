@@ -365,6 +365,39 @@ describe('PgliteWorkflowsStore', () => {
     }
   });
 
+  // BST-558 review: a corrupt row is PERMANENT in production, while this listing
+  // runs on every renderer reload AND every readResumedApprovalToolCall. An
+  // unguarded ERROR would write another eagerly flushed diagnostic row per tool
+  // approval, forever, for one unfixable condition. Report once per run per
+  // process; suppressed repeats stay visible at debug.
+  it('reports a malformed snapshot at error severity only once per run per process', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      await insertMalformedSnapshot(db, 'malformed-run');
+
+      for (let call = 0; call < 3; call += 1) {
+        const listed = await store.listWorkflowRuns({ workflowName: 'approval-workflow' });
+        // The row stays excluded on EVERY call — the guard suppresses the
+        // repeat REPORT, never the exclusion itself.
+        expect(listed.runs).toHaveLength(0);
+      }
+
+      const errors = records.filter(
+        (record) =>
+          record.level === LogLevel.ERROR &&
+          record.message === 'Malformed Mastra workflow snapshot excluded from workflow run listing'
+      );
+
+      expect(errors).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('preserves the original createdAt when a workflow snapshot is re-persisted', async () => {
     await store.persistWorkflowSnapshot({
       createdAt: new Date('2026-05-29T10:00:00Z'),

@@ -19,6 +19,7 @@
  * present EXCEPT the lazily created one) on a real PGlite and asserts the clear
  * actually commits.
  */
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { wasmLoader } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -110,14 +111,14 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     if (!db) {
       throw new Error('Test database was not created.');
     }
-    await db.exec('CREATE TABLE mastra_workflow_snapshot (id text primary key)');
-    await db.exec("INSERT INTO mastra_workflow_snapshot (id) VALUES ('suspended-run')");
+    await db.exec(`CREATE TABLE ${MASTRA_WORKFLOW_TABLE} (id text primary key)`);
+    await db.exec(`INSERT INTO ${MASTRA_WORKFLOW_TABLE} (id) VALUES ('suspended-run')`);
     const handler = handlers.get('db:clearAll');
 
     const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
 
     expect(result).toMatchObject({ success: true });
-    expect(await countRows('mastra_workflow_snapshot')).toBe(0);
+    expect(await countRows(MASTRA_WORKFLOW_TABLE)).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 });

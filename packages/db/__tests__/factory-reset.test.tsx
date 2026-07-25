@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -307,7 +308,7 @@ describe('DbProvider factoryReset', () => {
     await act(async () => {
       await expect(result.current.reset?.()).resolves.toBeUndefined();
     });
-    expect(query).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+    expect(query).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
   });
 
   it('skips the workflow snapshot delete when the relation was never created', async () => {
@@ -337,7 +338,7 @@ describe('DbProvider factoryReset', () => {
     await act(async () => {
       await expect(result.current.reset?.()).resolves.toBeUndefined();
     });
-    expect(query).not.toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+    expect(query).not.toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
     expect(initialDb.close).toHaveBeenCalledTimes(1);
   });
 

@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyManagedCacheBatchMock,
@@ -1046,7 +1047,7 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toMatchObject({ success: true });
-      expect(queryMock).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+      expect(queryMock).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
     });
 
     // The relation is created lazily by PgliteWorkflowsStore.initialize(), so
@@ -1062,7 +1063,7 @@ describe('database IPC handlers', () => {
           if (sql.startsWith('SELECT COUNT(*)')) {
             return { rows: [{ count: '0' }] };
           }
-          if (sql === "SELECT to_regclass('mastra_workflow_snapshot') IS NOT NULL AS present") {
+          if (sql === `SELECT to_regclass('${MASTRA_WORKFLOW_TABLE}') IS NOT NULL AS present`) {
             return { rows: [{ present: false }] };
           }
           if (sql.startsWith('SELECT to_regclass(')) {
@@ -1076,42 +1077,19 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toMatchObject({ success: true });
-      expect(query).not.toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+      expect(query).not.toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
       // The clear must continue past the absent relation, not abandon it.
       expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_diagnostic_events');
       expect(loggerWarn).not.toHaveBeenCalled();
     });
 
-    // Narrow race: the relation vanishes between probe and delete. The
-    // delegated clearOptionalRelation catch still tolerates that 42P01.
-    it('tolerates mastra_workflow_snapshot vanishing between probe and delete', async () => {
-      const handler = handlers.get('db:clearAll');
-      const missingRelation = Object.assign(
-        new Error('relation "mastra_workflow_snapshot" does not exist'),
-        { code: '42P01' }
-      );
-
-      mockDb.transaction.mockImplementation(async (callback) => {
-        const query = vi.fn(async (sql: string) => {
-          if (sql.startsWith('SELECT COUNT(*)')) {
-            return { rows: [{ count: '0' }] };
-          }
-          if (sql.startsWith('SELECT to_regclass(')) {
-            return { rows: [{ present: true }] };
-          }
-          if (sql === 'DELETE FROM mastra_workflow_snapshot') {
-            throw missingRelation;
-          }
-          return { rows: [] };
-        });
-        return await callback({ query });
-      });
-
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
-
-      expect(result).toMatchObject({ success: true });
-      expect(loggerWarn).not.toHaveBeenCalled();
-    });
+    // NOTE: there is deliberately no "tolerates the relation vanishing between
+    // probe and delete" case. A mocked `tx.query` has no aborted-transaction
+    // semantics, so such a test would assert `success: true` for something real
+    // Postgres cannot produce: the 42P01 aborts the transaction, the next
+    // statement raises 25P02, and the handler returns `success: false`. Nothing
+    // in the repo ever DROPs the relation, so the race is unreachable and the
+    // DELETE now surfaces any genuine failure as itself.
 
     it('handles database errors gracefully', async () => {
       const handler = handlers.get('db:clearAll');

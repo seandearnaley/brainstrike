@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
@@ -88,7 +89,6 @@ type OptionalRelationTable =
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
-  | 'mastra_workflow_snapshot'
   | 'prompt_items'
   | 'roots';
 
@@ -320,19 +320,26 @@ async function clearOptionalRelation(
  * would roll the entire clear back (BST-558 review).
  *
  * `to_regclass` returns NULL for an absent relation instead of raising, so the
- * probe can never poison the transaction. The delegated `clearOptionalRelation`
- * still covers the narrow race where the relation disappears in between.
+ * probe can never poison the transaction. The DELETE that follows a successful
+ * probe is deliberately NOT wrapped: nothing in this repo ever DROPs the
+ * relation (`PgliteWorkflowsStore` only creates it), and a tolerated 42P01 could
+ * not recover anyway — it would leave the transaction aborted and surface later
+ * as a misleading 25P02. A genuine delete failure must surface as itself.
+ *
+ * `tableName` is only ever `MASTRA_WORKFLOW_TABLE`, never a local literal: a
+ * stale name makes `to_regclass` return NULL forever, which would turn this into
+ * a permanent SILENT skip instead of a visible error.
  */
 async function clearLazilyCreatedRelation(
   tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
-  tableName: OptionalRelationTable
+  tableName: typeof MASTRA_WORKFLOW_TABLE
 ): Promise<void> {
   const probe = await tx.query(`SELECT to_regclass('${tableName}') IS NOT NULL AS present`);
   if ((probe.rows[0] as { present?: boolean } | undefined)?.present !== true) {
     logger.debug('Skipped lazily created database table (not present)', { tableName });
     return;
   }
-  await clearOptionalRelation(tx, tableName);
+  await tx.query(`DELETE FROM ${tableName}`);
 }
 
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
@@ -796,7 +803,7 @@ export function registerDatabaseIpcHandlers(
             // edge, so it is probed for rather than caught — a caught 42P01
             // would still leave this transaction aborted and roll the whole
             // clear back (see clearLazilyCreatedRelation).
-            await clearLazilyCreatedRelation(tx, 'mastra_workflow_snapshot');
+            await clearLazilyCreatedRelation(tx, MASTRA_WORKFLOW_TABLE);
             // Durable diagnostic events (Flight Recorder P1): warn+ error log.
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.
