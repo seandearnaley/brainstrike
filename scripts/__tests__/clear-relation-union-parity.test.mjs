@@ -24,11 +24,13 @@ import { fileURLToPath } from 'node:url';
  * set out to eliminate. Nothing else in the repo compares them (raised in review
  * on PR #1986).
  *
- * They are deliberately NOT derived from one exported runtime array. The
- * renderer module cannot safely import cross-package table constants — see
- * mastra-workflow-table-literal-contract.test.mjs for the measured renderer
- * crash that caused. A source-parsing guard has the same effect with no runtime
- * import edge.
+ * They are deliberately NOT collapsed into one shared array, because the two
+ * lists are not supposed to be IDENTICAL — they legitimately diverge (desktop
+ * `db:clearAll` and the renderer's `purgeTablesTx` have different
+ * responsibilities; desktop factory reset deletes the profile directory outright
+ * rather than enumerating tables). What matters is that each divergence is
+ * DELIBERATE and carries a reason, which an array cannot express and this guard
+ * can.
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -43,13 +45,14 @@ const CONTRACT_SOURCE = path.join(
 /**
  * Resolves a `typeof X` union member to its string value.
  *
- * The two sides name the Mastra workflow table DIFFERENTLY on purpose, so this
- * has to handle both: desktop main IMPORTS `MASTRA_WORKFLOW_TABLE` from the
- * contract package, while the renderer keeps a local literal because that import
- * reorders bundle chunk init and kills the app at startup (measured on
- * `3e8d1b7fd`; see mastra-workflow-table-literal-contract.test.mjs, which pins
- * the literal). Resolving both to the actual string is what makes the diff below
- * comparable.
+ * BOTH sides now import `MASTRA_WORKFLOW_TABLE` from the contract package, so
+ * the contract lookup is the live path. The local-literal branch is kept as a
+ * fallback rather than removed: the renderer previously held a hand-copied
+ * literal precisely because that import reordered bundle chunk init and killed
+ * the app at startup, and #1988 only made the import safe by fixing the ROOT
+ * cause (module-scope reads are now lazy, enforced by
+ * `scripts/verify-mastra-schema-init-order.mjs`). Either spelling must resolve
+ * to the same string for the diff below to mean anything.
  */
 function resolveConstant(source, sourcePath, name) {
   const local = source.match(new RegExp(`\\b${name}\\s*=\\s*'([^']+)'`, 'u'));

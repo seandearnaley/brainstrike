@@ -89,7 +89,7 @@ deletes are `deleteWorkflowRunById` (no production caller) and
 call and arguments, so it must not survive a "true fresh start". It is cleared
 in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
 MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s `clearRelationIfPresent(tx,
-WORKFLOW_SNAPSHOT_TABLE)` (used by direct-PGlite clear AND
+MASTRA_WORKFLOW_TABLE)` (used by direct-PGlite clear AND
 `purgeTablesTx`). The relation is created lazily by
 `PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
 never ran) is tolerated; every other delete failure stays visible. The
@@ -128,33 +128,19 @@ PERMANENT SILENT SKIP with every test still green. Both helpers therefore take a
 closed literal union (`OptionalRelationTable` / `ClearableRelation`), never a
 `string` parameter. Keep it that way.
 
-**The probed Mastra table name must be pinned to `MASTRA_WORKFLOW_TABLE` — but
-HOW it is pinned differs by side, and getting this backwards turns the app red.**
-`to_regclass` on a stale name returns NULL, which makes the probe a PERMANENT
-SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by control:
-renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path held an
-unpinned literal left a suspended-run row alive through a full clear
-(`expected 1 to be +0`).
+**The probed table name must come from `MASTRA_WORKFLOW_TABLE`
+(`@brainstrike/assistant-contract/mastra-memory-schema`), never a hand-copied
+literal.** `to_regclass` on a stale name returns NULL, which makes the probe a
+PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by
+control: renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path
+held an unpinned literal left a suspended-run row alive through a full clear
+(`expected 1 to be +0`). Both production sites (desktop `db-ipc.ts` and renderer
+`db-provider.tsx`) now import the constant.
 
-- **Desktop main** (`apps/desktop/src/ipc-domains/db-ipc.ts`) imports
-  `MASTRA_WORKFLOW_TABLE` from
-  `@brainstrike/assistant-contract/mastra-memory-schema` directly. It is Electron
-  MAIN, not renderer, so there is no bundle-chunk hazard.
-- **Renderer** (`packages/db/src/db-provider.tsx`) keeps the local literal
-  `const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot'` and **MUST NOT
-  import the contract package**. That import reorders bundle chunk init so
-  `MASTRA_MEMORY_TABLES` is undefined when
-  `packages/app-shell/src/assistant-memory-repository.ts` evaluates its
-  module-scope SQL template literals; the renderer dies with "Cannot read
-  properties of undefined (reading 'threads')" and the app never becomes ready.
-  Measured, not theorised: commit `3e8d1b7fd` added the import and turned Web +
-  Desktop E2E red where its parent was green, while type-check and every unit
-  suite stayed green. `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`
-  pins the literal to the constant and asserts the import is absent — same
-  protection, no runtime import edge.
-
-Do not "simplify" the renderer literal into an import. The guard test exists
-precisely because nothing else catches it.
+The renderer used to hold a pinned local literal instead, because that import
+reordered bundle chunk init and killed the app at startup. That is FIXED at the
+root, not worked around — see the next rule — and the stopgap guard that pinned
+the literal is deleted. Do not reintroduce a hand-copied literal here.
 
 **Import those constants freely, but read them only inside a function — never at
 module scope (BST-558).** Module-scope initializers run at bundle CHUNK
