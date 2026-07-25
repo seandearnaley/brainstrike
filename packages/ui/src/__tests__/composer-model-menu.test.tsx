@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderGroupConfig } from '../assistant-ui-panel/assistant-ui-panel';
@@ -220,8 +220,8 @@ describe('ComposerModelMenu', () => {
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-5');
   });
 
-  describe('Effort submenu', () => {
-    it('offers resolver-derived efforts with helper text and emits the exact settings update', async () => {
+  describe('Effort slider', () => {
+    it('offers resolver-derived stops inline and emits the exact settings update', async () => {
       const user = setup();
       const onProviderSettingsChange = vi.fn();
       render(
@@ -234,29 +234,24 @@ describe('ComposerModelMenu', () => {
       );
 
       const menu = await openMenu(user);
-      const effortTrigger = within(menu).getByTestId('composer-effort-trigger');
-      expect(effortTrigger).toHaveTextContent('Effort');
-      expect(effortTrigger).toHaveTextContent('Auto');
+      // No submenu to open: effort is one gesture from the model menu.
+      const slider = within(menu).getByTestId('composer-effort-slider');
+      expect(within(menu).getByTestId('composer-effort-value')).toHaveTextContent('Auto');
 
-      effortTrigger.focus();
-      await user.keyboard('{ArrowRight}');
-      const submenu = await screen.findByText(
-        'Higher effort means more thorough responses, but takes longer and uses more tokens.'
-      );
-      expect(submenu).toBeInTheDocument();
+      const rowText = within(menu).getByTestId('composer-effort-row').textContent ?? '';
+      expect(rowText).toContain('Minimal');
+      expect(rowText).toContain('Extra');
+      // `max` is only valid where a model declares it, so it must not appear
+      // on the default OpenAI-family track.
+      expect(rowText).not.toContain('Max');
 
-      const options = screen.getAllByRole('menuitemradio');
-      const labels = options.map((option) => option.textContent);
-      expect(labels).toEqual(
-        expect.arrayContaining(['Auto (default)', 'Minimal', 'Low', 'Medium', 'High', 'Extra'])
-      );
-      expect(labels.join(' ')).not.toContain('Max');
-
-      await user.click(screen.getByRole('menuitemradio', { name: 'High' }));
+      // Track is [Auto, Minimal, Low, Medium, High, Extra]; index 4 is High.
+      expect(slider).toHaveAttribute('max', '5');
+      fireEvent.change(slider, { target: { value: '4' } });
       expect(onProviderSettingsChange).toHaveBeenCalledWith('openai', { reasoningEffort: 'high' });
     });
 
-    it('marks the current effort with a checkmark and clears via Auto', async () => {
+    it('positions the thumb at the current effort and clears via the Auto stop', async () => {
       const user = setup();
       const onProviderSettingsChange = vi.fn();
       render(
@@ -269,15 +264,11 @@ describe('ComposerModelMenu', () => {
       );
 
       const menu = await openMenu(user);
-      const effortTrigger = within(menu).getByTestId('composer-effort-trigger');
-      effortTrigger.focus();
-      await user.keyboard('{ArrowRight}');
-      expect(await screen.findByRole('menuitemradio', { name: 'High' })).toHaveAttribute(
-        'aria-checked',
-        'true'
-      );
+      const slider = within(menu).getByTestId('composer-effort-slider');
+      expect(slider).toHaveValue('4');
+      expect(slider).toHaveAttribute('aria-valuetext', 'High');
 
-      await user.click(screen.getByRole('menuitemradio', { name: 'Auto (default)' }));
+      fireEvent.change(slider, { target: { value: '0' } });
       expect(onProviderSettingsChange).toHaveBeenCalledWith('openai', {
         reasoningEffort: undefined,
       });
@@ -295,27 +286,25 @@ describe('ComposerModelMenu', () => {
       );
 
       const menu = await openMenu(user);
-      const effortTrigger = within(menu).getByTestId('composer-effort-trigger');
-      // The trigger annotation must reflect what's actually being sent
+      // The readout must reflect what's actually being sent
       // (reasoningEffort: 'none'), not lie by falling back to "Auto".
-      expect(effortTrigger).toHaveTextContent('None');
-      expect(effortTrigger).not.toHaveTextContent('Auto');
-
-      effortTrigger.focus();
-      await user.keyboard('{ArrowRight}');
-      expect(await screen.findByRole('menuitemradio', { name: 'None' })).toHaveAttribute(
-        'aria-checked',
-        'true'
+      const value = within(menu).getByTestId('composer-effort-value');
+      expect(value).toHaveTextContent('None');
+      expect(value).not.toHaveTextContent('Auto');
+      expect(within(menu).getByTestId('composer-effort-slider')).toHaveAttribute(
+        'aria-valuetext',
+        'None'
       );
     });
 
-    it('shows Kimi K3 live efforts, Off, and its default chip', async () => {
+    it('marks the vendor default stop for Kimi K3 and announces it to assistive tech', async () => {
       const user = setup();
+      const onProviderSettingsChange = vi.fn();
       render(
         <ComposerModelMenu
           {...baseProps}
           onModelChange={vi.fn()}
-          onProviderSettingsChange={vi.fn()}
+          onProviderSettingsChange={onProviderSettingsChange}
           providerSettings={{}}
           selectedModel="openrouter::moonshotai/kimi-k3"
           selectedProvider="openrouter"
@@ -323,17 +312,45 @@ describe('ComposerModelMenu', () => {
       );
 
       const menu = await openMenu(user);
-      const effortTrigger = within(menu).getByTestId('composer-effort-trigger');
-      effortTrigger.focus();
-      await user.keyboard('{ArrowRight}');
-      const maxOption = await screen.findByRole('menuitemradio', { name: /Max/ });
-      expect(within(maxOption).getByText('Default')).toBeInTheDocument();
+      const row = within(menu).getByTestId('composer-effort-row');
+      const slider = within(menu).getByTestId('composer-effort-slider');
+      // Track order mirrors the resolver: Auto, Max (vendor default), High, Low, None.
+      expect(slider).toHaveAttribute('max', '4');
 
-      const optionLabels = screen
-        .getAllByRole('menuitemradio')
-        .filter((option) => option.closest('[data-slot="dropdown-menu-sub-content"]'))
-        .map((option) => option.textContent);
-      expect(optionLabels).toEqual(['Auto (default)', 'MaxDefault', 'High', 'Low', 'None']);
+      // Exactly one stop carries the vendor-default marker, and it is Max.
+      const markedStops = within(row)
+        .getAllByText(/./)
+        .filter((node) => node.textContent?.endsWith('•'));
+      expect(markedStops.map((node) => node.textContent)).toEqual(['Max•']);
+
+      // That stop writes the vendor's effort verbatim.
+      fireEvent.change(slider, { target: { value: '1' } });
+      expect(onProviderSettingsChange).toHaveBeenCalledWith('openrouter', {
+        reasoningEffort: 'max',
+      });
+    });
+
+    it('announces the vendor recommendation once that effort is in effect', async () => {
+      const user = setup();
+      render(
+        <ComposerModelMenu
+          {...baseProps}
+          onModelChange={vi.fn()}
+          onProviderSettingsChange={vi.fn()}
+          providerSettings={{ openrouter: { reasoningEffort: 'max' } }}
+          selectedModel="openrouter::moonshotai/kimi-k3"
+          selectedProvider="openrouter"
+        />
+      );
+
+      const menu = await openMenu(user);
+      expect(within(menu).getByTestId('composer-effort-value')).toHaveTextContent(
+        'Max (recommended)'
+      );
+      expect(within(menu).getByTestId('composer-effort-slider')).toHaveAttribute(
+        'aria-valuetext',
+        'Max (recommended)'
+      );
     });
 
     it('disables the Effort row when settings updates are unavailable', async () => {
@@ -341,7 +358,8 @@ describe('ComposerModelMenu', () => {
       render(<ComposerModelMenu {...baseProps} onModelChange={vi.fn()} />);
 
       const menu = await openMenu(user);
-      expect(within(menu).getByTestId('composer-effort-trigger')).toHaveAttribute('data-disabled');
+      expect(within(menu).getByTestId('composer-effort-row')).toHaveAttribute('data-disabled');
+      expect(within(menu).getByTestId('composer-effort-slider')).toBeDisabled();
     });
   });
 

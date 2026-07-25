@@ -151,6 +151,60 @@ export function buildEffortControlModel(
   }
 }
 
+export interface EffortSliderStop {
+  /** The vendor's recommended effort for this model, if it declares one. */
+  isModelDefault: boolean;
+  label: string;
+  value: string;
+}
+
+export interface EffortSliderModel {
+  /** Byte-identical settings update for a track position. */
+  buildUpdateForIndex: (index: number) => AssistantProviderSettingsUpdate;
+  /** Track position currently in effect. */
+  index: number;
+  /** Ordered stops, `auto` pinned first so the track reads low -> high. */
+  stops: EffortSliderStop[];
+  /** Screen-reader announcement for the active stop. */
+  valueText: string;
+}
+
+/**
+ * Project the family-normalized effort model onto a single ordered track.
+ *
+ * Effort is inherently ordinal, so a discrete slider expresses it in one
+ * gesture where the nested submenu needed open -> hover -> click. The stop
+ * list is already ordered low-to-high by each family's resolver; `auto` is
+ * pinned at position 0 as the "let the vendor decide" end of the same axis
+ * rather than living in a separate control.
+ */
+export function buildEffortSliderModel(model: EffortControlModel): EffortSliderModel {
+  const stops: EffortSliderStop[] = [
+    { isModelDefault: false, label: 'Auto', value: 'auto' },
+    ...model.options,
+  ];
+  const foundIndex = stops.findIndex((stop) => stop.value === model.currentValue);
+  // An unresolvable current value would silently mis-position the thumb, so
+  // fall back to `auto` — position 0 always exists.
+  const index = foundIndex >= 0 ? foundIndex : 0;
+  const active = stops[index];
+  const valueText = active?.isModelDefault
+    ? `${active.label} (recommended)`
+    : (active?.label ?? 'Auto');
+  return {
+    buildUpdateForIndex: (nextIndex) => {
+      const stop = stops[nextIndex];
+      if (!stop) {
+        throw new Error(`Effort slider index ${nextIndex} is outside the track.`);
+      }
+      return model.buildUpdate(stop.value);
+    },
+    index,
+    stops,
+    valueText,
+  };
+}
+
 export interface ThinkingToggleModel {
   buildUpdate: (checked: boolean) => AssistantProviderSettingsUpdate;
   checked: boolean;
