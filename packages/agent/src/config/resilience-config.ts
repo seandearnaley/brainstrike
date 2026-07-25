@@ -81,6 +81,15 @@ export function resolveToolCallInputMs(override?: number): number {
   );
 }
 
+/** Whether a value was actually supplied, rather than falling back to a default. */
+function hasExplicitValue(envName: string, override?: number): boolean {
+  if (typeof override === 'number') {
+    return true;
+  }
+  const raw = readEnv(envName);
+  return raw !== undefined && raw.trim() !== '';
+}
+
 export function resolveApprovalStaleMs(override?: number): number {
   return resolvePositiveIntMs('BRAINSTRIKE_APPROVAL_STALE_MS', DEFAULT_APPROVAL_STALE_MS, override);
 }
@@ -92,7 +101,7 @@ export function resolveAssistantResilienceConfig(options?: {
 }): AssistantResilienceConfig {
   const toolTimeoutMs = resolveToolTimeoutMs(options?.toolTimeoutMs);
   const streamInactivityMs = resolveStreamInactivityMs(options?.streamInactivityMs);
-  const toolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
+  const resolvedToolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
   if (toolTimeoutMs >= streamInactivityMs) {
     throw new Error(
       `BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${toolTimeoutMs}ms and ${streamInactivityMs}ms.`
@@ -101,10 +110,24 @@ export function resolveAssistantResilienceConfig(options?: {
   // A tighter input budget than the inactivity window would fire before the
   // inactivity watchdog could ever observe a genuine stall, turning healthy
   // in-progress argument streaming into a false timeout.
-  if (toolCallInputMs < streamInactivityMs) {
-    throw new Error(
-      `BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${toolCallInputMs}ms and ${streamInactivityMs}ms.`
-    );
+  //
+  // Two EXPLICIT values in that shape are contradictory, so they throw. But an
+  // unset input budget must not turn a long, deliberate inactivity window
+  // (a slow local route) into a hard failure naming a variable the user never
+  // set — the default simply resolves wide enough to satisfy the invariant.
+  // That is default resolution, not a silent degradation: the widened value
+  // still honours the documented rule, and nothing configured is overridden.
+  if (hasExplicitValue('BRAINSTRIKE_TOOL_CALL_INPUT_MS', options?.toolCallInputMs)) {
+    if (resolvedToolCallInputMs < streamInactivityMs) {
+      throw new Error(
+        `BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${resolvedToolCallInputMs}ms and ${streamInactivityMs}ms.`
+      );
+    }
+    return { streamInactivityMs, toolCallInputMs: resolvedToolCallInputMs, toolTimeoutMs };
   }
-  return { streamInactivityMs, toolCallInputMs, toolTimeoutMs };
+  return {
+    streamInactivityMs,
+    toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
+    toolTimeoutMs,
+  };
 }

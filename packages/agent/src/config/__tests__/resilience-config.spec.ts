@@ -87,12 +87,29 @@ describe('resilience-config', () => {
     expect(() => resolveToolCallInputMs()).toThrow(/BRAINSTRIKE_TOOL_CALL_INPUT_MS/);
   });
 
-  it('throws when the tool-call-input budget is tighter than stream inactivity', () => {
+  it('throws when BOTH budgets are set explicitly and the input one is tighter', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
       /BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
     );
+  });
+
+  it('widens the DEFAULT input budget to a longer configured inactivity window', () => {
+    // A deliberately long inactivity window (slow local route) must not blow up
+    // on a variable the user never set. Explicit conflicts still throw; an
+    // unset default simply resolves wide enough to satisfy the invariant.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '900000';
+    expect(resolveAssistantResilienceConfig()).toEqual({
+      streamInactivityMs: 900_000,
+      toolCallInputMs: 900_000,
+      toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+    });
+  });
+
+  it('keeps the default input budget when it already exceeds inactivity', () => {
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    expect(resolveAssistantResilienceConfig().toolCallInputMs).toBe(DEFAULT_TOOL_CALL_INPUT_MS);
   });
 
   it('returns the documented 24h default for the approval staleness threshold', () => {

@@ -1481,9 +1481,14 @@ describe('mastra streaming integration', () => {
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     const previousToolCallInput = process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
-    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '35';
+    // This test asserts a NEGATIVE (no timeout), so slowness can only break it
+    // — the opposite direction from the timeout test above. Scaled for ~10x
+    // per-gap headroom against the inactivity watchdog: 20 deltas x 20ms is
+    // ~400ms of streaming, which still exceeds the 200ms window that the old
+    // coupled behaviour would have applied, so the regression proof holds.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '5000';
-    streamPartDelayMs = 5;
+    streamPartDelayMs = 20;
     setMockStreamParts([
       {
         payload: { toolCallId: 'call-long-input' },

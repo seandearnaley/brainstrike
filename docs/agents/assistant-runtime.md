@@ -295,12 +295,20 @@ defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).
+  That invariant is enforced only when the value is EXPLICIT (env or override);
+  when it is left at its default it widens to the inactivity window instead of
+  throwing, so a deliberately long `BRAINSTRIKE_STREAM_INACTIVITY_MS` cannot
+  fail a run by naming a variable the operator never set. Widening a default is
+  not a silent fallback — nothing configured is overridden, and the documented
+  rule still holds.
 - A local-runtime inactivity termination includes the normalized provider and
   selected model in both the structured error log and visible run failure. Do
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget.
+- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
+  second comparison is enforced only against an explicitly configured input
+  budget; see above).
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
