@@ -52,6 +52,17 @@ Beat 0 — kill switches, checked before anything:
 - Collector failure or ANY switch state unreadable → BLOCKED. Fail
   closed, always.
 
+Beat 0b — PROBE, immediately after the kill switches and before any
+eligibility reasoning. Kill switches come first because a HOLD must be
+honored even on a quiet wake; the probe comes second because everything
+after it is expensive. From the same collector run: if there are zero
+open night-shift/* PRs, checkpoint NOOP and exit NOW — no eligibility
+walk, no check or thread analysis, no evidence table.
+On the observed cadence, 21 of 23 wakes merged nothing and most saw no
+watched PRs at all. A two-hourly merge executor is only worth its
+cadence if the empty wake is nearly free; the expensive part of this
+charter must never run speculatively.
+
 Beat 1 — eligibility. A PR is eligible only if ALL hold (collector
 fields in parentheses):
 1. head branch night-shift/*, not draft, base is main.
