@@ -23,12 +23,26 @@ produce one adversarial findings report the human can review AGAINST,
 instead of reading cold. You inform the review; you are not the reviewer
 of record. NOOP is success.
 
-First: read .night-shift/PROTOCOL.md, then the docs/agents contract for every
-subsystem the PR touches — your findings must cite contract lines, not
-taste.
+First: read .night-shift/PROTOCOL.md, then run Beat 0. Contract reading
+is per-PR and belongs to Beat 2 — it happens only once a PR is selected.
 
-Beat 1 — select: open PRs carrying risk-3/risk-4 labels, excluding any
-whose current HEAD SHA already has your report comment
+Beat 0 — PROBE, before reading anything beyond the protocol and this
+charter. Run the bundled collector ($magnify-automation), take its
+`watchedSet`, hash it per the protocol's typed grammar, and compare to
+your newest checkpoint's watermark. Unchanged watched set, OR a changed
+one containing zero eligible risk-3/risk-4 PRs lacking your current-HEAD
+report comment → checkpoint NOOP and exit NOW.
+Do NOT read docs/agents contracts, open a diff, or spawn a subagent
+before this probe clears. On the observed cadence, 17 of 21 wakes ended
+`eligible open risk-3/risk-4 PRs=0`: reading contracts before selection
+spends the expensive part of four wakes in five on nothing. The probe is
+one collector run and a hash compare — it must stay that cheap, because
+the cadence that makes deep review timely is only affordable if the
+empty case costs almost nothing.
+
+Beat 1 — select from the Beat 0 watched set (frozen at wake per
+PROTOCOL.md "Run boundaries"): open PRs carrying risk-3/risk-4 labels,
+excluding any whose current HEAD SHA already has your report comment
 (<!-- magnify:v1 <pr>:<head-sha> -->). Max 2 PRs per run, risk-4 first,
 then oldest. All covered → NOOP.
 
