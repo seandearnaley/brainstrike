@@ -183,8 +183,10 @@ test.describe('Application Layout', () => {
         throw new Error('A primary workspace header has no geometry');
       }
       const headerBoxes = headerGeometry.filter((box) => box !== null);
-      expect(Math.max(...headerBoxes.map((box) => box.height))).toBeLessThanOrEqual(48.5);
-      expect(Math.min(...headerBoxes.map((box) => box.height))).toBeGreaterThanOrEqual(47.5);
+      // All panel chrome sits on the 36px (h-9) rhythm established by #1732; the
+      // class-name lock lives in packages/ui ide-layout.test.tsx.
+      expect(Math.max(...headerBoxes.map((box) => box.height))).toBeLessThanOrEqual(36.5);
+      expect(Math.min(...headerBoxes.map((box) => box.height))).toBeGreaterThanOrEqual(35.5);
       expect(
         Math.max(...headerBoxes.map((box) => box.y)) - Math.min(...headerBoxes.map((box) => box.y))
       ).toBeLessThanOrEqual(1);

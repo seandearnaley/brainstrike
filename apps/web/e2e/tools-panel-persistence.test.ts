@@ -137,8 +137,10 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
       expect(Math.abs(sample.frame.y - firstSample.frame.y)).toBeLessThanOrEqual(1);
       expect(Math.abs(sample.frame.width - firstSample.frame.width)).toBeLessThanOrEqual(1);
       expect(Math.abs(sample.frame.height - firstSample.frame.height)).toBeLessThanOrEqual(1);
-      expect(sample.toolbarHeight).toBeGreaterThanOrEqual(47.5);
-      expect(sample.toolbarHeight).toBeLessThanOrEqual(48.5);
+      // Loading skeleton and real toolbar share the 36px (h-9) chrome rhythm
+      // established by #1732, so the chunk swap must not jump.
+      expect(sample.toolbarHeight).toBeGreaterThanOrEqual(35.5);
+      expect(sample.toolbarHeight).toBeLessThanOrEqual(36.5);
     }
 
     const libraryPanel = page.locator('#agent-workspace-explorer-panel');
