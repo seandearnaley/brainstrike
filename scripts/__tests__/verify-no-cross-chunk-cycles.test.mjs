@@ -360,3 +360,17 @@ test('both renderer builds run the guard on their emitted bundle, enforced not j
     "apps/desktop's `build` must actually invoke `build:renderer` — otherwise the renderer guard above is wired but never reached."
   );
 });
+
+test('turbo.jsonc lists the guard so editing it invalidates the build cache', () => {
+  // A cached build never re-invokes the guard (or `build` at all) — see
+  // docs/agents/platform-contracts.md. Without this globalDependencies entry,
+  // editing the guard would leave a stale cache HIT reporting a build that
+  // never actually ran the new guard logic.
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const turboConfig = readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8');
+
+  assert.ok(
+    turboConfig.includes('scripts/verify-no-cross-chunk-cycles.mjs'),
+    'turbo.jsonc globalDependencies must list scripts/verify-no-cross-chunk-cycles.mjs so the build cache is invalidated when the guard changes.'
+  );
+});

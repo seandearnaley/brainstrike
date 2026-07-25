@@ -181,8 +181,15 @@ Instrument controls
   weaker evidence than the E2E lanes that originally justified it. Do not delete
   pins on the strength of this note; it exists so the measurement isn't lost.
 - **Electron main is not covered.** Node module semantics, and no scar there.
-- Not a general dependency-cycle linter for source modules. Source-level cycles
-  are a different (and largely benign) concern; only *chunk* cycles cause this.
+- Not a general dependency-cycle linter for source modules. **Known remaining
+  gap:** two source modules that are themselves circular and land in the SAME
+  chunk are concatenated in an arbitrary order by rolldown, which can throw
+  the identical `ReferenceError: Cannot access 'X' before initialization` at
+  init — and the chunk graph reports no cycle, because there is only one
+  chunk. The accurate invariant is "acyclic chunk graph AND acyclic
+  source-module graph ⇒ safe"; only the first conjunct is enforced. This
+  guard removes the cross-chunk form (the shape behind all four recorded
+  scars) but does not detect an intra-chunk source cycle.
 
 ## Verification plan
 

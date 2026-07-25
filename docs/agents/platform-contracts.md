@@ -175,28 +175,43 @@ that pinned one hand-copied literal in one file and could not see `export … fr
 `await import()`, or the same import added from any other module.
 
 **The structural backstop is an acyclic chunk graph (BST-861).** A cross-chunk
-cycle is the NECESSARY PRECONDITION for this whole class, not a proxy for it:
-ESM evaluates a module's dependencies before its own body, so with an acyclic
-chunk graph a topological init order always exists and every imported binding is
-initialized before any module-scope read of it. `scripts/verify-no-cross-chunk-cycles.mjs`
-asserts that on the emitted bundle and runs inside `apps/web`'s `build` and
-`apps/desktop`'s `build:renderer`, so it cannot be skipped. Measured at the time
-it landed: web 362 chunks / 1003 static edges / 0 cycles, desktop renderer 367 /
-1036 / 0. Scope: this covers the two RENDERER bundles only —
-`apps/desktop`'s `build:main` (the Electron main bundle) is NOT covered.
+cycle is a NECESSARY PRECONDITION for the cross-chunk form of this class, not
+a proxy for it: ESM evaluates a module's dependencies before its own body, so
+with an acyclic chunk graph a topological init order always exists BETWEEN
+chunks, and every imported binding is initialized before any cross-chunk
+module-scope read of it. That is not the whole class: two source modules that
+are themselves circular and land in the SAME chunk are concatenated by
+rolldown in an arbitrary order, which can throw the identical
+`ReferenceError` at init while the chunk graph — which has only one node for
+that pair — reports no cycle. The accurate statement is "acyclic chunk graph
+AND acyclic source-module graph ⇒ safe"; only the first conjunct is enforced.
+`scripts/verify-no-cross-chunk-cycles.mjs` asserts the first conjunct on the
+emitted bundle and runs inside `apps/web`'s `build` and `apps/desktop`'s
+`build:renderer`, so it cannot be bypassed by a code path that still runs the
+build. It CAN be skipped by a turbo cache hit: identical inputs produce an
+identical artifact, so a cached build never re-invokes the script — that is
+correct, not a gap, but it means "wired into build" is not "runs on every CI
+job." Measured at the time it landed: web 362 chunks / 1003 static edges / 0
+cycles, desktop renderer 367 / 1036 / 0. Scope: this covers the two RENDERER
+bundles only — `apps/desktop`'s `build:main` (the Electron main bundle) is
+NOT covered.
 
 The class had already recurred twice in unrelated families before this landed:
 the context-action helpers (PR #1292, held today only by a `codeSplitting.groups`
 entry in `apps/web/vite.config.mts`) and these schema constants. That recurrence
 is why **BST-861** generalizes the INVARIANT rather than the mastra-family AST
-guard above: the cycle check already covers every constant family, including the
-three still held by `codeSplitting.groups` pins in both vite configs
-(context-actions #1292, browser-events BST-580, zustand). The AST guard is kept
-anyway because it does something the cycle check cannot — enforce the coding
-rule at review time, in seconds, with a file and line number. A repo-wide AST
-rule was rejected on measurement: "flag every module-scope read of an imported
-binding" returns 431 hits in `app-shell` + `db` alone, nearly all benign. The
-CHUNK, not the file or the package, is the unit of risk.
+guard above: the cycle check covers the cross-chunk form for every constant
+family, including the three still held by `codeSplitting.groups` pins in both
+vite configs (context-actions #1292, browser-events BST-580, zustand). Those
+three pins are safe only because their underlying source-module graphs happen
+to be acyclic today — nothing currently verifies that, so a future edit that
+introduces a real source cycle inside one of those pinned chunks would ship
+undetected. The AST guard is kept anyway because it does something the cycle
+check cannot — enforce the coding rule at review time, in seconds, with a file
+and line number. A repo-wide AST rule was rejected on measurement: "flag every
+module-scope read of an imported binding" returns 431 hits in `app-shell` +
+`db` alone, nearly all benign. The CHUNK, not the file or the package, is the
+unit of risk for the cross-chunk form.
 
 Known remaining instance of the same class, deliberately NOT changed here
 (**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`

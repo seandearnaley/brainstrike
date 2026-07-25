@@ -5,18 +5,26 @@
 // WHY THIS IS THE RIGHT THING TO MEASURE. A module-scope initializer that READS
 // an imported binding runs at chunk initialization. ESM evaluates a module's
 // dependencies before its own body, so when the chunk graph is ACYCLIC a
-// topological init order always exists and every imported binding is initialized
-// before any module-scope read of it. A cycle is the ONLY way to get an
-// uninitialized binding at module scope. This guard therefore measures the
-// NECESSARY PRECONDITION for the whole defect class rather than a proxy for it:
-// zero cycles means no instance can fire, no matter how many module-scope reads
-// the source contains.
+// topological init order always exists BETWEEN CHUNKS, which removes the
+// CROSS-CHUNK form of the hazard: no chunk can observe another chunk's export
+// before that chunk has finished initializing.
 //
-// That completeness is why it needs no allowlist. The obvious alternative — an
-// AST rule flagging module-scope reads of imported bindings — returns 431 hits in
-// packages/app-shell/src + packages/db/src alone, nearly all benign
-// (createLogger(), lazy(), memo(), zustand create()). The CHUNK, not the file or
-// the package, is the unit of risk.
+// That is not the whole class. Two source modules that are themselves
+// circular and happen to land in the SAME chunk are still a hazard: rolldown
+// concatenates them in an arbitrary order, so one can read the other's
+// binding before it is initialized, and the emitted chunk graph reports no
+// cycle at all because there is only one node. This guard cannot see that
+// case — it is a separate, still-undetected form of the same defect, not
+// covered by "acyclic chunk graph" alone. The accurate claim is: acyclic
+// chunk graph AND acyclic source-module graph together are what guarantee
+// every imported binding is initialized before any module-scope read of it.
+// Only the first conjunct is enforced here.
+//
+// Completeness for the cross-chunk form is why it needs no allowlist there. The
+// obvious alternative — an AST rule flagging module-scope reads of imported
+// bindings — returns 431 hits in packages/app-shell/src + packages/db/src
+// alone, nearly all benign (createLogger(), lazy(), memo(), zustand create()).
+// The CHUNK, not the file or the package, is the unit of risk for that form.
 //
 // FOUR RECORDED SCARS, all found by a production failure after the fact:
 //   - #1292        defineContextAction TDZ; #root stays empty
@@ -186,7 +194,9 @@ export async function findCrossChunkCycles({
 }) {
   const entries = await readdir(directory, { withFileTypes: true });
   const chunkNames = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+    .filter(
+      (entry) => entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.mjs'))
+    )
     .map((entry) => entry.name)
     .sort();
 
@@ -247,11 +257,17 @@ export async function main(options = {}) {
         'a cycle, so a module-scope read of an imported binding can see `undefined`: a property ' +
         'access throws and kills the renderer at startup, and a bare interpolation silently ' +
         `splices "undefined" into strings.\n\n${rendered}\n\n` +
-        'Fix, in order of preference:\n' +
-        '  1. Move the module-scope read inside the function that uses it (durable — no chunk ' +
-        'order can break it).\n' +
+        'Fix:\n' +
+        '  1. Move the module-scope read inside the function that uses it. This is always ' +
+        'correct — no chunk order can break it, regardless of what the underlying source ' +
+        'modules do.\n' +
         "  2. Co-locate the modules in one chunk via codeSplitting.groups in the app's " +
-        'vite.config.mts (config-level; a later refactor can silently undo it).\n' +
+        'vite.config.mts. WARNING: this only helps if the underlying SOURCE modules are not ' +
+        'themselves in a cycle. If they are, co-location hides the cycle from THIS guard ' +
+        '(one chunk has no cross-chunk edge to flag) without fixing it — concatenation order ' +
+        'inside a chunk is arbitrary, so the same uninitialized-binding crash can still fire, ' +
+        'just undetected. Use option 2 only after confirming the source modules are acyclic; ' +
+        'when in doubt, use option 1.\n' +
         'See docs/agents/platform-contracts.md, "read them only inside a function".'
     );
   }
