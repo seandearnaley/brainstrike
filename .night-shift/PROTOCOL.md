@@ -37,9 +37,12 @@ protocol; their charters in charters/ are the deployed source of truth.
     reopened ticket of yours → NOOP checkpoint and exit.
   - EXTERNAL-STATE loops watch something other than the main diff and must
     NOT exit just because `main` didn't advance — their inputs change on a
-    different clock. Assay/Magnify watch open-PR heads (watched set = the
-    `<pr,head-sha>` pairs already processed); Watch watches workflow-run
-    IDs; Sweep watches its open ticket set. The watermark is always
+    different clock. Assay/Magnify/Porter watch open-PR heads (watched set
+    = the `<pr,head-sha>` pairs already processed); Watch watches
+    workflow-run IDs; Sweep, Forge, and Vigil watch ticket/advisory sets;
+    Librarian watches pending-learnings; Curator watches the upstream model
+    catalog; Chronicle and Auditor watch the fleet's own state issues. The
+    watermark is always
     `hash:<sha256>` of the sorted, serialized watched set — per-item state
     (which run, which ticket, which head) lives where the work lives (the
     tickets, the PR comments), never inside the watermark. Each loop exits

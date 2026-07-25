@@ -15,7 +15,7 @@ scheduler; deployment must keep both surfaces in sync. Shared machinery lives
 in [../PROTOCOL.md](../PROTOCOL.md), which every loop reads at wake, so fleet
 doctrine upgrades are one PR here instead of N scheduler edits.
 
-Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
+Fleet design doc: "The Night Shift" (original 16-loop survey, tiers, guardrails; the deployed roster below has since grown).
 
 Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 (deterministic evidence collectors + step ordering; see PROTOCOL.md

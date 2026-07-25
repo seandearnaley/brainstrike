@@ -45,10 +45,16 @@ Beat 2 — verify each NEW advisory before routing (the collector proves
   bundled lib may be unreachable here — say so with the path evidence.)
 - Is a patched version available inside the current semver range?
 
-Beat 3 — route, one fingerprinted ticket per advisory
-(`vigil:advisory:<GHSA-id>:<package>`, dedupe against Linear first):
+Beat 3 — route, ONE fingerprinted ticket per PACKAGE
+(`vigil:advisory:<package>`, dedupe against Linear first). The first
+night proved per-advisory filing floods the queue (42 tickets, ten for
+undici alone) — a human triages by package bump, not by GHSA id. The
+ticket body lists every advisory ID for that package with its severity;
+the ticket's severity label is the MAX across them. A new advisory for
+an already-ticketed package updates that ticket (comment + relabel if
+severity rises), never files a twin. Routing per package:
 - Patchable + not plausibly exploitable in context → ticket labeled
-  night-shift, loop:vigil, severity per advisory, noting the patched
+  night-shift, loop:vigil, severity as above, noting the patched
   version and that it sits in Quartermaster's territory. If the bump
   is trivially in-range, also note it as a Forge candidate — the human
   decides whether to apply `agent-ready`.
@@ -67,7 +73,11 @@ Beat 4 — sweep your open tickets: an advisory that no longer matches
 any installed version (dep bumped, advisory withdrawn) gets a closing
 comment citing the resolving lockfile commit, then closed. Never close
 a ticket carrying a human comment; reply with the evidence and leave
-it open (Sweep's convention).
+it open (Sweep's convention). LEGACY CONSOLIDATION: open per-advisory
+tickets from before the per-package rule (fingerprints
+`vigil:advisory:<GHSA-id>:<package>`) are folded into their package
+ticket on sight — create/update the package ticket, cross-link, close
+the per-advisory one citing it (human-commented ones: link, leave open).
 
 Beat 5 — checkpoint. Watermark = the sorted advisory-triple set hash
 from the collector. Durable observations (a recurring false-positive

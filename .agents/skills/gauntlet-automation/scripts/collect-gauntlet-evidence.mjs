@@ -26,7 +26,7 @@ function parseArgs(argv) {
     const argument = argv[index];
     if (argument === '--help') {
       process.stdout.write(
-        'Usage: node collect-gauntlet-evidence.mjs --repo <path> --watermark <full-sha> [--revision <revision>] [--pretty]\n'
+        'Usage: node collect-gauntlet-evidence.mjs --repo <path> --watermark <full-sha|none> [--revision <revision>] [--pretty]\n'
       );
       process.exit(0);
     }
@@ -50,8 +50,8 @@ function parseArgs(argv) {
   if (!options.watermark) {
     fail('--watermark is required');
   }
-  if (!/^[0-9a-f]{40}$/iu.test(options.watermark)) {
-    fail('--watermark must be an exact 40-hex commit SHA');
+  if (options.watermark !== 'none' && !/^[0-9a-f]{40}$/iu.test(options.watermark)) {
+    fail("--watermark must be 'none' (first run only) or an exact 40-hex commit SHA");
   }
   return options;
 }
@@ -261,18 +261,37 @@ function collectMergedAssistantPrs(repo, watermark) {
   return results.sort((left, right) => left.number - right.number);
 }
 
+// First-run baseline (BST-722): a `none` watermark resolves to the oldest
+// commit that introduced the Gauntlet charter — deterministic and reviewable,
+// never an invented SHA. Fail closed when that history cannot be proven.
+const CHARTER_PATH = '.night-shift/charters/gauntlet.md';
+
+function deriveBootstrapWatermark(repo, revision) {
+  const history = git(repo, ['rev-list', '--reverse', revision, '--', CHARTER_PATH]).trim();
+  if (!history) {
+    fail(
+      `cannot bootstrap --watermark none: ${CHARTER_PATH} charter has no history at ${revision}`
+    );
+  }
+  return history.split('\n')[0];
+}
+
 function collect(options) {
   const repo = validateRepo(options.repo);
-  git(repo, ['rev-parse', '--verify', `${options.watermark}^{commit}`]);
   const revision = git(repo, ['rev-parse', '--verify', `${options.revision}^{commit}`]).trim();
-  assertAncestor(repo, options.watermark, revision);
+  const watermarkBootstrapped = options.watermark === 'none';
+  const watermark = watermarkBootstrapped
+    ? deriveBootstrapWatermark(repo, revision)
+    : options.watermark;
+  git(repo, ['rev-parse', '--verify', `${watermark}^{commit}`]);
+  assertAncestor(repo, watermark, revision);
   const spec = readRevisionFile(repo, revision, SPEC_PATH);
   const runner = readRevisionFile(repo, revision, RUNNER_PATH);
   const assistantDelta = parseNameStatus(
     git(repo, [
       'diff',
       '--name-status',
-      `${options.watermark}..${revision}`,
+      `${watermark}..${revision}`,
       '--',
       'packages/agent',
       'packages/assistant-contract',
@@ -289,10 +308,11 @@ function collect(options) {
         .digest('hex'),
     },
     generatedAt: new Date().toISOString(),
-    mergedAssistantPrs: collectMergedAssistantPrs(repo, options.watermark),
+    mergedAssistantPrs: collectMergedAssistantPrs(repo, watermark),
     revision,
     schema: 'collect-gauntlet-evidence/v1',
-    watermark: options.watermark,
+    watermark,
+    watermarkBootstrapped,
   };
 }
 

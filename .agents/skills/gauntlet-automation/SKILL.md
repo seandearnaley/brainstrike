@@ -30,6 +30,12 @@ node .agents/skills/gauntlet-automation/scripts/collect-gauntlet-evidence.mjs \
   --pretty
 ```
 
+On a first run (no prior checkpoint), pass `--watermark none`: the collector
+resolves the baseline to the oldest commit that introduced
+`.night-shift/charters/gauntlet.md` and reports `watermarkBootstrapped: true`
+in its output (BST-722). Record the resolved SHA in your first checkpoint's
+evidence; never invent a baseline by hand.
+
 The collector performs no repository writes; its only `gh` use is read-only. It:
 
 - validates repository identity and watermark ancestry;

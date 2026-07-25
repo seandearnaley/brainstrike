@@ -199,3 +199,27 @@ test('fails closed when the merged PR listing hits its limit', (t) => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /200-result limit/);
 });
+
+test('bootstraps a none watermark from the commit that introduced the charter', (t) => {
+  const fixture = createFixture(t);
+  mkdirSync(join(fixture.repo, '.night-shift/charters'), { recursive: true });
+  writeFileSync(join(fixture.repo, '.night-shift/charters/gauntlet.md'), 'charter v1\n');
+  git(fixture.repo, ['add', '.']);
+  git(fixture.repo, ['commit', '-m', 'introduce gauntlet charter']);
+  const charterIntroduction = git(fixture.repo, ['rev-parse', 'HEAD']);
+  writeFileSync(join(fixture.repo, '.night-shift/charters/gauntlet.md'), 'charter v2\n');
+  git(fixture.repo, ['add', '.']);
+  git(fixture.repo, ['commit', '-m', 'amend gauntlet charter']);
+  const result = run(fixture, { FAKE_GH_PRS: pullRequests }, 'none');
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.watermark, charterIntroduction);
+  assert.equal(output.watermarkBootstrapped, true);
+});
+
+test('fails closed on a none watermark when the charter has no history', (t) => {
+  const fixture = createFixture(t);
+  const result = run(fixture, {}, 'none');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /charter has no history/);
+});
