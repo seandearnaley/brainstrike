@@ -69,15 +69,19 @@ severity rises), never files a twin. Routing per package:
   needs-human, because the fix conflicts with a documented pin and
   only the human can re-litigate a pin.
 
-Beat 4 — sweep your open tickets: an advisory that no longer matches
-any installed version (dep bumped, advisory withdrawn) gets a closing
-comment citing the resolving lockfile commit, then closed. Never close
-a ticket carrying a human comment; reply with the evidence and leave
-it open (Sweep's convention). LEGACY CONSOLIDATION: open per-advisory
-tickets from before the per-package rule (fingerprints
+Beat 4 — sweep your open tickets. Re-derive each package ticket's
+advisory list against the current lockfile: an advisory that no longer
+matches any installed version (dep bumped, advisory withdrawn) gets a
+comment citing the resolving lockfile commit and is struck from the
+body; if the max severity across the REMAINING advisories dropped,
+relabel down. Close the ticket only when its LAST advisory clears.
+Never close a ticket carrying a human comment; reply with the evidence
+and leave it open (Sweep's convention). LEGACY CONSOLIDATION: open
+per-advisory tickets from before the per-package rule (fingerprints
 `vigil:advisory:<GHSA-id>:<package>`) are folded into their package
-ticket on sight — create/update the package ticket, cross-link, close
-the per-advisory one citing it (human-commented ones: link, leave open).
+ticket on sight — create/update the package ticket (it survives until
+its last advisory clears), cross-link, close the per-advisory one
+citing it (human-commented ones: link, leave open).
 
 Beat 5 — checkpoint. Watermark = the sorted advisory-triple set hash
 from the collector. Durable observations (a recurring false-positive

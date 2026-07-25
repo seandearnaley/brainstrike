@@ -267,6 +267,17 @@ function collectMergedAssistantPrs(repo, watermark) {
 const CHARTER_PATH = '.night-shift/charters/gauntlet.md';
 
 function deriveBootstrapWatermark(repo, revision) {
+  // A truncated clone's oldest reachable commit touching the charter is the
+  // graft boundary, not the introducing commit — indistinguishable from the
+  // real thing once returned, so refuse rather than derive a plausible lie.
+  // (Promisor/partial clones keep the full commit graph; only shallowness
+  // truncates rev-list.)
+  if (git(repo, ['rev-parse', '--is-shallow-repository']).trim() === 'true') {
+    fail('cannot bootstrap --watermark none in a shallow clone; run git fetch --unshallow first');
+  }
+  // Rule: oldest commit introducing the charter AT ITS CURRENT PATH. A rename
+  // restarts that history on purpose — the new path's introduction becomes the
+  // new reviewable baseline, never a silently followed pre-rename commit.
   const history = git(repo, ['rev-list', '--reverse', revision, '--', CHARTER_PATH]).trim();
   if (!history) {
     fail(

@@ -40,6 +40,7 @@ protocol; their charters in charters/ are the deployed source of truth.
     different clock. Assay/Magnify/Porter watch open-PR heads (watched set
     = the `<pr,head-sha>` pairs already processed); Watch watches
     workflow-run IDs; Sweep, Forge, and Vigil watch ticket/advisory sets;
+    Gauntlet watches processed failure sources plus the eval-suite hash;
     Librarian watches pending-learnings; Curator watches the upstream model
     catalog; Chronicle and Auditor watch the fleet's own state issues. The
     watermark is always
