@@ -37,6 +37,9 @@ let postedThisRun = null;
 for (let index = 0; index < argv.length; index += 1) {
   const argument = argv[index];
   if (argument === '--posted-this-run') {
+    if (postedThisRun !== null) {
+      fail('--posted-this-run may be passed at most once');
+    }
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) {
       fail('--posted-this-run requires a UTC-ISO value: the checkpoint this run already posted');

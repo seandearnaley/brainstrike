@@ -98,9 +98,33 @@ Beat 3 — act:
   never touch provider auth/transport code. If the right change is not
   an additive insert, it is a ticket.
 
-Beat 3b — SMOKE TEST every proposed model before the PR opens. A catalog
-row is a promise that selecting this model works; documentation proves
-what the provider claims, not what the route actually does today. Drive
+Beat 3b — SMOKE TEST every proposed model before the PR opens.
+
+AUTHORIZATION BOUNDARY, checked first. AGENTS.md requires explicit human
+confirmation before side-effectful external API calls, and a smoke test
+is exactly that: billed, credentialed traffic to a third party. Blanket
+per-run approval is not available to a scheduled loop, so the human's
+authorization is PRE-COMMITTED here and you never exceed it:
+- PROVIDER ALLOWLIST: you may authenticate only to providers already
+  configured in this repo's provider registry (re-derive the list from
+  docs/agents/assistant-providers.md at wake). A provider that appears
+  only in an aggregator lead is NOT authorized — the lead list is
+  externally controlled, and a hostile or compromised entry would
+  otherwise steer this loop's credentials at a target of its choosing.
+  Unlisted provider → no smoke test, no PR, one ticket naming it.
+- PER-RUN CEILING: at most 3 candidate models per run and at most 12
+  provider requests total. Prompts stay under 2,000 tokens and cap
+  output at 512 tokens; the context-window check (step 4) probes with a
+  ~2,000-token prompt and NEVER attempts to fill an advertised window —
+  a 1M-token probe would cost more than the finding is worth.
+- Exceeding either bound ends the run: checkpoint INCOMPLETE naming the
+  models not yet verified, and propose only what you fully verified.
+These bounds are the authorization. Widening them is a charter PR the
+human merges, never a judgement call inside a run.
+
+A catalog row is a promise that selecting this model works; documentation
+proves what the provider claims, not what the route actually does today.
+Drive
 each model through the repo's OWN provider path (re-derive the invocation
 from docs/agents/assistant-providers.md at wake — never a remembered
 command, never a raw curl that bypasses the app's request shaping), and
@@ -113,10 +137,15 @@ record the OBSERVED result per model:
 4. the advertised context window is not contradicted by an immediate
    provider rejection at a modest prompt size.
 The PR body carries this evidence per model: what ran, what came back,
-and the observed values beside the documented ones. A row whose
-documented capability the smoke test does not reproduce is corrected to
-the OBSERVED behavior or dropped from the PR — never shipped as
-documented-but-unproven.
+and the observed values beside the documented ones.
+A row whose documented capability the smoke test does not reproduce is
+DROPPED from the PR and ticketed with both readings. Do not "correct" the
+row to the observed value: Beat 2 requires every shipped field to carry
+an official-provider citation, so writing `tool support=false` under a
+doc that says it is supported produces a field grounded in nothing — the
+exact failure this gate exists to prevent, now wearing a citation that
+contradicts it. A documentation/behavior disagreement is a finding for
+the human, not a value for you to pick between.
 FAIL CLOSED. If you cannot run the smoke test at all — no credentials
 for that provider, transport unavailable, rate limited — you do NOT add
 the model and you do NOT open a partially-verified PR. Ticket it with

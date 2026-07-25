@@ -151,12 +151,27 @@ costs the human triage time and poisons trust in every other loop's PRs.
   1. No open PR of yours → exit silently. No checkpoint, no digest, no
      analysis. This is the overwhelmingly common case and it must cost
      one `gh pr list` and nothing else.
-  2. Newest checkpoint on your state issue younger than your charter's
-     WALL_CLOCK_BUDGET → exit silently. A discovery wake is likely still
-     running, and two hands on one PR is worse than a late reply.
-  3. PR unchanged since your newest checkpoint — same head SHA, same
-     review-thread count, same check conclusions → exit silently. There
-     is nothing to answer.
+  2. Your charter's own SCHEDULE cron fired within the last
+     WALL_CLOCK_BUDGET — evaluate the cron in the SCHEDULER timezone
+     (charters/README.md "Timezones") → exit silently. A discovery wake
+     is probably still running, and two hands on one PR is worse than a
+     late reply.
+     This is deliberately NOT "is my newest checkpoint recent". Run
+     boundaries puts the checkpoint LAST, so a discovery wake in flight
+     has posted nothing and its newest checkpoint is from the PREVIOUS
+     run — days old for a weekly loop. A checkpoint-age guard passes at
+     exactly the moment it needs to block, and at a 15-minute cadence
+     that race stops being rare and becomes routine on every run that
+     opens a PR.
+  3. Nothing changed on the PR since your newest checkpoint: same head
+     SHA, same check conclusions, and no review-thread activity —
+     compare the MAX `updatedAt` across all review threads, never the
+     thread COUNT. Count is invariant under the two commonest events: a
+     reply posted inside an existing thread, and a thread being resolved.
+     A count-based probe therefore exits silently on exactly the comment
+     this cadence exists to answer, and it fails closed to SILENCE — the
+     loop looks healthy while the comment sits unanswered. The probe
+     already pays for the `reviewThreads` read; take the timestamp.
   Only when the probe reports an actual change do you spend the wake.
   A steward wake that acts checkpoints once (Run boundaries); a steward
   wake that exits on the probe never checkpoints — silent exits are not

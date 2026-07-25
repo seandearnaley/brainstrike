@@ -52,12 +52,20 @@ wake's, two hours away. Do not re-enumerate to "catch" it, and never
 append a second checkpoint because it appeared.
 Per PR compute work_key = assay:<pr-number>:<head-sha>:<CHARTER_VERSION>.
 Skip a PR only when BOTH hold: your brief comment already contains
-work_key, AND the review/* labels currently on the PR still exactly match
-the grade+factors that brief asserts. A HEAD that hasn't moved but whose
-labels a human or another automation changed FAILS the second check — do
-not skip it; re-run Beats 2–4 so the labels are restored. This keeps
-re-runs free in the common case without letting the cache mask drifted
-labels. All PRs skipped → checkpoint NOOP.
+work_key, AND the GRADE and FACTOR labels currently on the PR still
+exactly match the grade+factors that brief asserts. The collector
+compares exactly that set (`isGradeCacheLabel`).
+`review/threads-*` is Beat 3b's namespace and sits OUTSIDE this
+comparison. It must: thread state changes when a reviewer comments,
+which does not move the head, so folding it into a head-keyed cache
+would make this check false on every PR the moment thread state moved —
+nothing would ever be skipped, every open PR would be re-graded every
+two hours, and "All PRs skipped → NOOP" would be unreachable.
+A HEAD that hasn't moved but whose GRADE OR FACTOR labels a human or
+another automation changed FAILS the second check — do not skip it;
+re-run Beats 2–4 so the labels are restored. This keeps re-runs free in
+the common case without letting the cache mask drifted labels. All PRs
+skipped → checkpoint NOOP.
 
 Beat 2 — grade each remaining PR against the rubric. Factors are
 detected from the DIFF plus changed-file paths, each with an explicit
@@ -87,8 +95,20 @@ Grade = max(floors) adjusted by modifiers, clamped 1–4. When uncertain
 between two grades, choose the higher and say why in the brief.
 
 Beat 3 — apply labels idempotently: exactly one risk grade + matching
-factors; remove YOUR stale review/* labels when the diff no longer
-supports them. Never touch labels outside the review/ namespace.
+factors; remove YOUR stale GRADE and FACTOR labels when the diff no
+longer supports them. Never touch labels outside the review/ namespace,
+and never touch `review/threads-*` here — those are Beat 3b's, they are
+derived from review threads rather than the diff, so a diff-driven sweep
+would strip them on every run and Beat 3b would re-add them moments
+later. If the budget expired between the two, the PR would be left with
+no thread-state label at all, breaking Beat 3b's "exactly one, always".
+Before writing a PR's labels or brief, confirm its head still equals the
+head recorded in the Beat 1 snapshot. If it moved, SKIP that PR and
+leave it to the next wake: a snapshot keeps this run bounded, but
+annotations are written to the LIVE PR, and a grade computed from the
+old diff would land on the new head — a schema-changing push could
+otherwise wear a risk-1 label for two hours. Skipping is the only
+resolution that is both bounded and honest.
 
 Beat 3b — THREAD STATE, on every open non-draft PR in the Beat 1
 snapshot, INCLUDING the ones Beat 1 skipped. This beat is deliberately
@@ -97,8 +117,11 @@ author comments, which does not move the head, so a head-keyed cache
 would pin the label to a stale answer. It is also cheap — one
 `reviewThreads` graphql read per PR, no diff, no grading, no model
 judgement.
-Per PR, read every review thread on the current head (`gh api graphql`;
-thread resolution is invisible to plain `gh pr view`) and classify:
+Per PR, read every review thread ON THE PR (`gh api graphql`; thread
+resolution is invisible to plain `gh pr view`). Threads are PR-scoped,
+not head-scoped — that is the same reason this beat sits outside the
+head-keyed cache — so do not filter by head: threads left on superseded
+commits stay attached and stay unanswered. Classify: 
 - a thread is RESOLVED per its `isResolved` flag;
 - a thread is ANSWERED when its newest comment is from the PR author.
 Apply exactly ONE of:

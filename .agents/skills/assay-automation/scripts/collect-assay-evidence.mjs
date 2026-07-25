@@ -79,6 +79,17 @@ function assertFile(repo, relativePath) {
   return absolutePath;
 }
 
+// Thread-state labels (charter Beat 3b) track review-thread activity, which
+// changes without the head moving. They are therefore OUTSIDE the head-keyed
+// grade cache: including them in the cache comparison would make labelsMatch
+// false on every PR the moment thread state moved, permanently disabling the
+// skip path and re-grading every open PR on every wake.
+const THREAD_STATE_LABEL_PREFIX = 'review/threads-';
+
+export function isGradeCacheLabel(label) {
+  return label.startsWith('review/') && !label.startsWith(THREAD_STATE_LABEL_PREFIX);
+}
+
 function uniqueSorted(values) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
@@ -446,8 +457,10 @@ function collectPrEvidence(repo, repositoryName, pr, charter) {
   }
   const workKey = `assay:${pr.number}:${pr.headRefOid}:${charter.version}`;
   const currentLabelObjects = finalDetails.labels ?? [];
-  const reviewLabels = uniqueSorted(
-    currentLabelObjects.map((label) => label.name).filter((label) => label.startsWith('review/'))
+  const currentLabelNames = currentLabelObjects.map((label) => label.name);
+  const reviewLabels = uniqueSorted(currentLabelNames.filter(isGradeCacheLabel));
+  const threadStateLabels = uniqueSorted(
+    currentLabelNames.filter((label) => label.startsWith(THREAD_STATE_LABEL_PREFIX))
   );
   const { assayComments, matching } = extractAssayComments(comments, charter, workKey);
   const cacheComment = matching.length === 1 ? matching[0] : null;
@@ -480,6 +493,9 @@ function collectPrEvidence(repo, repositoryName, pr, charter) {
       status: file.status,
     })),
     reviewLabels,
+    // Surfaced separately so Beat 3b can reconcile thread state without the
+    // grade cache ever seeing these labels.
+    threadStateLabels,
     workKey,
   };
 }

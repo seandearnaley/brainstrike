@@ -201,3 +201,18 @@ test('rejects a missing or malformed --posted-this-run value', () => {
   assert.equal(malformed.status, 1);
   assert.match(malformed.stderr, /--posted-this-run/u);
 });
+
+// A silent last-wins would let supersedes= name the SECOND value while the run's
+// actual first checkpoint was the first — the flag would then certify exactly
+// the amplification it exists to reject.
+test('rejects a repeated --posted-this-run instead of silently taking the last', () => {
+  const result = validate(
+    '--posted-this-run',
+    '2026-07-25T04:17:48Z',
+    '--posted-this-run',
+    '2026-07-25T04:19:04Z',
+    CORRECTION_LINE
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /at most once/u);
+});
