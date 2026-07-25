@@ -537,7 +537,11 @@ function makeUnsupportedApprovalChunks(
     readMastraStreamPartString(part, 'name') ??
     (upstreamToolCallId ? toolNames.get(upstreamToolCallId) : undefined) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // NAME-FORM CONTRACT: the runtime `toolNameMap` only holds tools registered on
+  // THIS runtime, so a native pause on a no-tools stream route would otherwise
+  // surface the raw sanitized id. `denormalizeNativeToolName` is the static
+  // native reverse map and a no-op for already-dotted and non-native names.
+  const toolName = denormalizeNativeToolName(sanitizedNameMap?.get(rawToolName) ?? rawToolName);
   const runId = readMastraStreamPartString(part, 'runId');
   const missingRunId = runId === undefined;
   const args = readMastraStreamPartValue(part, 'args');
@@ -611,7 +615,10 @@ function makeApprovalRequiredChunks(
     readMastraStreamPartString(part, 'name') ??
     toolNames.get(toolCallId) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // Same static-reverse-map fallback as the unsupported branch: the emitted
+  // `toolName` is the label the approval notice shows, so it is ALWAYS the
+  // original dotted name even when the runtime map cannot bridge it.
+  const toolName = denormalizeNativeToolName(sanitizedNameMap?.get(rawToolName) ?? rawToolName);
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
   // The Mastra approval part names the tool by its registered (sanitized) id

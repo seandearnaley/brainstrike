@@ -808,7 +808,21 @@ bridges:
   resolves metadata under EITHER form: `get(name)` first, else a scan over
   `meta.originalName`.
 - `makeApprovalRequiredChunks` uses that lookup; the emitted chunk's `toolName`
-  is always the ORIGINAL name (via the runtime `toolNameMap`). A policy-driven
+  is always the ORIGINAL name — resolved as
+  `denormalizeNativeToolName(sanitizedNameMap?.get(raw) ?? raw)`, the SAME
+  two-layer order as `resolveDiscoveredApprovalToolName` and
+  `listSuspendedMastraRuns` below. The runtime `toolNameMap` wins (it is the only
+  layer that can bridge MCP names), and the static native reverse map is the
+  floor for a route whose runtime registered no natives — e.g.
+  `apps/desktop/src/ipc-agent.ts` streams with NO `tools`, so a native pause
+  there has no map entry and would otherwise label the notice
+  `brainstrike_executeCommand`. Wrapping is safe because
+  `denormalizeNativeToolName` is a no-op for already-dotted and non-native
+  names. `makeUnsupportedApprovalChunks` (the malformed-pause termination, whose
+  tool-event `name` + `run.failed` `toolName` are the only names the user sees)
+  resolves identically. Proof: the two "denormalizes a native … tool name when
+  no sanitized name map entry exists" cases in `mastra-streaming.spec.ts`.
+  A policy-driven
   pause (non-empty `askTools`) whose tool resolves under NEITHER form still
   surfaces the pause but omits `riskCategory`/`policyDecision` (never
   fabricated) and logs `logger.error` code
