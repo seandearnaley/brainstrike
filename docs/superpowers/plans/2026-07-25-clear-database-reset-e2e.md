@@ -319,19 +319,30 @@ async function clearLazilyCreatedRelation(
 }
 ```
 
-Then run, from the repo root, a variant that removes the seeded table first so the
-tolerated `42P01` fires. Because `db:query` cannot `DROP`, use a fresh profile
-instead: delete the Playwright user-data dir so `mastra_workflow_snapshot` is absent,
-and comment out only the `CREATE TABLE` + snapshot `INSERT` in
-`seedResetProbeRows` for this run.
+Edit `apps/desktop/src/ipc-domains/db-ipc.ts`. In `clearLazilyCreatedRelation` (~:333),
+change the probed name to a stale one, reproducing the permanent-silent-skip failure
+the FACTORY RESET CONTRACT warns about (`to_regclass` on a stale name returns NULL
+forever — no error, no warn, only a `logger.debug`):
+
+```ts
+  // CONTROL ONLY — DO NOT COMMIT
+  const probe = (await tx.query(
+    `SELECT to_regclass('${tableName}_STALE') IS NOT NULL AS present`
+  )) as { rows?: Array<{ present?: boolean }> } | undefined;
+```
+
+Do NOT edit `reset-seed-helpers.ts` and do NOT delete the Playwright profile — the
+seed must stay exactly as committed in Task 1, or the control proves nothing about
+the committed test.
 
 Run:
 ```bash
 pnpm --filter @brainstrike/desktop exec playwright test e2e/clear-database-rows.desktop.test.ts --project=regression --workers=1 --retries=0
 ```
-Expected: FAIL — the clear rolls back, so `fileRecords`/`fileChunks` stay non-zero and the `.poll` times out with `expected Clear Database to empty every probed relation`.
+Expected: FAIL — `workflowSnapshots` stays at 1 and the `.poll` times out with
+`expected Clear Database to empty every probed relation`.
 
-Record the observed failure message in the commit body.
+Record the observed failure message in the report file.
 
 - [ ] **Step 4: Restore production code and the seed**
 
