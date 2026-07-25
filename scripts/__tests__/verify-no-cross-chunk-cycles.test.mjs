@@ -89,6 +89,24 @@ test('parses a re-export preceded by a preserved legal comment banner', () => {
   ]);
 });
 
+test('a string containing `;/*` does not swallow subsequent edges as a fake comment', () => {
+  // A regex cannot distinguish a comment from string content — only a real
+  // parser can. Requiring the banner's actual `!` marker (`/*!`, not any
+  // `/* … */` shape) is what rejects this string at the boundary: without
+  // it, `;/*` inside a string gets treated as the start of a comment and the
+  // lazy body keeps expanding until it finds the next `*/` anywhere later in
+  // the chunk — however far away and however unrelated — swallowing every
+  // real import in between and dropping their edges. The 2000-char cap is a
+  // second, independent guard against a pathological match spanning
+  // arbitrarily far even when a `!` genuinely opens the comment. A dropped
+  // edge can hide a genuine cross-chunk cycle, which is exactly what this
+  // guard exists to catch.
+  assert.deepEqual(
+    parseStaticChunkSpecifiers('x=";/*";import"./a.js";y="*/import";import"./b.js";'),
+    ['./a.js', './b.js']
+  );
+});
+
 test('IGNORES dynamic import() — it does not participate in init ordering', () => {
   // The false-positive control. Counting these would block builds over cycles
   // that physically cannot fire, and dynamic splitting is used heavily here to

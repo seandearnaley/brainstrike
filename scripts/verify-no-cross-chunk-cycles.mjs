@@ -54,22 +54,37 @@ const MIN_STATIC_EDGES = 100;
  * Static import edges. Anchored on a statement boundary (`;`, `}` or newline, or
  * start of file) because real chunks are MINIFIED onto single lines.
  *
- * The optional clause excludes `(`, so `import("./x.js")` cannot match: with the
- * clause skipped the pattern would need a quote immediately after `import`, and a
- * dynamic import has a paren there. Dynamic imports must NOT be edges — they do
- * not participate in init ordering.
+ * Dynamic `import()` must never match — dynamic imports do not participate in
+ * init ordering, so counting one as an edge would be a false positive. The
+ * optional clause's character class excludes both quotes and `(`. The quote
+ * exclusion is what stops the ordinary `import("./x.js")` form: the clause
+ * can never advance past the opening quote to reach a `from` token, so it
+ * fails to match and the pattern falls back to requiring a quote immediately
+ * after `import`, which the `(` isn't. The `(` exclusion is what stops the
+ * adversarial `import(x from"./x.js")` form, where an unquoted identifier
+ * would otherwise let the clause walk past the paren to a literal `from`.
  *
  * An optional block comment may sit between the boundary character and the
- * keyword: Terser and rolldown preserve "legal comment" banners (block
- * comments starting with `/*!`), and one of those between two top-level
- * imports would otherwise break the anchor and silently drop the second edge.
+ * keyword: Terser and rolldown preserve "legal comment" banners, block
+ * comments starting specifically with `/*!`, and one of those between two
+ * top-level imports would otherwise break the anchor and silently drop the
+ * second edge. The clause requires that literal `!` rather than accepting any
+ * block-comment opener — a regex cannot distinguish a comment from string
+ * content, so accepting any opener lets a chunk containing a string with a
+ * bare `/` immediately followed by `*` get misread as a comment start, with
+ * the lazy body swallowing everything up to a later, unrelated comment
+ * terminator and dropping the real edges in between. Requiring the banner's
+ * actual `!` marker rejects that string at the boundary instead of trying to
+ * out-distance it. The body is also bounded to 2000 chars, far more than any
+ * real banner needs, as a second, independent guard against a pathological
+ * match spanning arbitrarily far.
  */
 const STATIC_IMPORT_PATTERN =
-  /(?:^|[;}\n])\s*(?:\/\*[\s\S]*?\*\/\s*)?import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
+  /(?:^|[;}\n])\s*(?:\/\*![\s\S]{0,2000}?\*\/\s*)?import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
 
 /** `export * from '…'`, `export * as ns from '…'`, `export { a } from '…'`. */
 const STATIC_REEXPORT_PATTERN =
-  /(?:^|[;}\n])\s*(?:\/\*[\s\S]*?\*\/\s*)?export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
+  /(?:^|[;}\n])\s*(?:\/\*![\s\S]{0,2000}?\*\/\s*)?export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
 
 /** Raw specifier strings for every STATIC edge in one chunk's source text. */
 export function parseStaticChunkSpecifiers(text) {
