@@ -1256,7 +1256,29 @@ Mastra has not exposed that step's `step-finish` yet. Resume emits the deferred
 step finish before continuing, so the resumed terminal finish aggregates the
 pre-pause and subsequent step costs.
 A malformed pause (missing toolCallId/runId) still falls back to the unsupported
-termination so it fails visibly. `DataStreamMapper.handleToolSuspendRequired`
+termination so it fails visibly.
+
+**Unknown resume schemas are REJECTED VISIBLY (BST-558):** only tools listed in
+`REGISTERED_SUSPEND_RESUME_TOOL_IDS` (`@brainstrike/assistant-contract/tool-suspend`
+— today `askUser` + `submitPlan`) have a registered typed suspension UI. A
+well-formed pause from any OTHER tool never becomes a `tool-suspend-required`
+chunk: `makeUnregisteredSuspendResumeChunks` terminates it through the SAME
+idiom as `makeUnsupportedApprovalChunks` — a failed `tool-event`, a durable
+terminal `run.failed` run event carrying `resumeSupported:false` +
+`unregisteredResumeSchema:true` + `suspended:true` + the run/tool identifiers,
+then an error finish. The tool-defined `suspendPayload` is deliberately EXCLUDED
+from that durable metadata (run-event metadata is allowlist-by-denial, not a
+content channel). Previously such a pause rendered a generic "Waiting on input"
+card and the run stayed suspended forever with no error surface — a silent dead
+end. The renderer's `UnsupportedSuspendNotice` is the matching surface: still no
+guessed typed action (no-silent-wrong-render), but presented as an
+`role="alert"` UNRESUMABLE failure with a Dismiss control rather than an inert
+waiting card. `AssistantToolSuspendNotice` dispatches through a total
+`Record<RegisteredSuspendResumeToolId, …>`, so adding an id to the registry
+without a typed branch is a COMPILE error — the registry and the rendered
+branches cannot drift back into a dead end.
+
+`DataStreamMapper.handleToolSuspendRequired`
 emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral
 contract (flush pending run events + finalize open text first). The data part is
 transient (aui-data, NOT persisted) — same as approval.
@@ -1303,7 +1325,9 @@ waits on the separate `listSuspendedRuns` feature (the data part is transient).
 Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts
 (real Agent + real PGlite: suspend→approve, reject-with-feedback, askUser
 free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
-drops edit / keeps submitPlan); plan-mode-tool-gate.spec.ts; the streaming +
+drops edit / keeps submitPlan); the unregistered-resume-schema rejection +
+registered-tools-unaffected cases in `mastra-streaming.spec.ts`;
+plan-mode-tool-gate.spec.ts; the streaming +
 data-part-continuity + default-instructions plan-mode specs; the desktop
 assistant-server resume-dispatch tests; and the UI suspend-notice tests.
 

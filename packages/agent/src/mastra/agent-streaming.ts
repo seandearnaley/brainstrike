@@ -16,6 +16,10 @@ import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  hasRegisteredSuspendResumeUi,
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
@@ -593,6 +597,67 @@ function makeUnsupportedApprovalChunks(
   ];
 }
 
+/**
+ * Terminate a well-formed suspend pause whose tool has NO registered typed
+ * resume UI (`REGISTERED_SUSPEND_RESUME_TOOL_IDS`). Emitting a
+ * `tool-suspend-required` chunk here would strand the run: the renderer refuses
+ * to guess a typed action for an unknown `resumeSchema` (no-silent-wrong-render),
+ * so the pause would sit inert forever with no error surface.
+ *
+ * Follows the {@link makeUnsupportedApprovalChunks} idiom for an unrecoverable
+ * pause — a failed tool event, a DURABLE terminal `run.failed` run event
+ * carrying `resumeSupported:false` plus the diagnostic flags, then an error
+ * finish. The tool-defined `suspendPayload` is deliberately EXCLUDED from that
+ * durable metadata (it is arbitrary tool content; run-event metadata is
+ * allowlist-by-denial, not a content channel); the live tool event keeps the
+ * bounded human-readable detail instead.
+ */
+function makeUnregisteredSuspendResumeChunks(input: {
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+}): StreamChunk[] {
+  const detail = `${input.toolName} suspended the run for user input, but this Brainstrike client has no registered resume UI for its resume schema, so the run cannot be resumed and was stopped.`;
+
+  logger.error('suspending tool has no registered resume UI', {
+    code: 'mastra_agent_suspend_resume_schema_unregistered',
+    registeredSuspendResumeTools: [...REGISTERED_SUSPEND_RESUME_TOOL_IDS],
+    runId: input.runId,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+  });
+
+  return [
+    {
+      name: input.toolName,
+      payload: {
+        actionRequired: true,
+        approvalRequired: false,
+        callId: input.toolCallId,
+        detail,
+        error: detail,
+        resumeSupported: false,
+        runId: input.runId,
+        suspended: true,
+        toolCallId: input.toolCallId,
+        unregisteredResumeSchema: true,
+      },
+      status: 'error',
+      type: 'tool-event',
+    },
+    makeRunEventChunk('run.failed', 'failed', 'Tool resume unsupported', {
+      actionRequired: true,
+      resumeSupported: false,
+      runId: input.runId,
+      suspended: true,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      unregisteredResumeSchema: true,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
 function makeApprovalRequiredChunks(
   part: unknown,
   toolNames: Map<string, string>,
@@ -663,7 +728,9 @@ function makeApprovalRequiredChunks(
  * finish. Mirrors {@link makeApprovalRequiredChunks} but carries the tool-defined
  * `suspendPayload` (plan body / question) instead of approval-risk metadata. When
  * the pause is malformed (missing toolCallId/runId) we fall back to the existing
- * unsupported-termination so a bad pause fails visibly rather than silently.
+ * unsupported-termination so a bad pause fails visibly rather than silently, and
+ * when the tool has no registered typed resume UI we terminate through
+ * {@link makeUnregisteredSuspendResumeChunks} for the same reason.
  */
 function makeToolSuspendRequiredChunks(
   part: unknown,
@@ -683,6 +750,9 @@ function makeToolSuspendRequiredChunks(
     toolNames.get(toolCallId) ??
     'unknown-tool';
   const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  if (!hasRegisteredSuspendResumeUi(toolName)) {
+    return makeUnregisteredSuspendResumeChunks({ runId, toolCallId, toolName });
+  }
   const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
 

@@ -208,7 +208,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
   });
 
-  it('renders a generic fallback for an unknown suspending tool (no throw)', () => {
+  it('renders a VISIBLE rejection (not an inert waiting card) for an unregistered suspending tool', async () => {
+    const user = userEvent.setup();
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -219,7 +220,48 @@ describe('AssistantToolSuspendNotice', () => {
         }}
       />
     );
-    expect(screen.getByTestId('assistant-tool-suspend-notice')).toBeInTheDocument();
-    expect(screen.getByText(/Waiting on input/)).toBeInTheDocument();
+    const notice = screen.getByTestId('assistant-tool-suspend-unsupported-notice');
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.getByText(/Cannot resume brainstrike\.somethingElse/)).toBeInTheDocument();
+    // Never present the pause as still-actionable, and never guess a typed action.
+    expect(screen.queryByText(/Waiting on input/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
+    // The user is not stranded: the dead card is explicitly dismissible.
+    await user.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(
+      screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
+    ).not.toBeInTheDocument();
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves the REGISTERED suspending tools rendering and resuming normally', async () => {
+    const user = userEvent.setup();
+    const plan = render(<AssistantToolSuspendNotice data={planRequest} />);
+    expect(screen.getByTestId('assistant-submit-plan-notice')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(lastResumeAction()).toMatchObject({
+      resumeData: { action: 'approved' },
+      toolName: 'brainstrike.submitPlan',
+    });
+    plan.unmount();
+
+    render(<AssistantToolSuspendNotice data={askFreeTextRequest} />);
+    expect(screen.getByTestId('assistant-ask-user-notice')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
+    ).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/your answer/i), 'Lisbon');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(2));
+    expect(lastResumeAction()).toMatchObject({
+      resumeData: 'Lisbon',
+      toolName: 'brainstrike.askUser',
+    });
   });
 });

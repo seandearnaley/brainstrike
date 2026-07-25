@@ -16,6 +16,7 @@
  * and forward-compatible with it.
  */
 
+import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
@@ -23,6 +24,40 @@ import {
 
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
 export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
+
+/**
+ * The suspending tools whose `resumeSchema` has a REGISTERED typed suspension UI
+ * (`AssistantToolSuspendNotice` branches on exactly these ids). This is the
+ * single source of truth for "can this pause actually be resumed?" — the agent
+ * stream mapper rejects a pause from any other tool visibly and terminally
+ * instead of emitting a resumable pause nobody can answer, and the renderer
+ * shows the matching dead-end rejection.
+ *
+ * Adding a suspending tool means: register its typed UI branch AND add its id
+ * here. Adding the id alone re-creates the silent dead end this list exists to
+ * prevent.
+ */
+export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
+  NATIVE_TOOL_ID.askUser,
+  NATIVE_TOOL_ID.submitPlan,
+] as const;
+
+export type RegisteredSuspendResumeToolId = (typeof REGISTERED_SUSPEND_RESUME_TOOL_IDS)[number];
+
+const REGISTERED_SUSPEND_RESUME_TOOL_ID_SET: ReadonlySet<string> = new Set(
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS
+);
+
+/**
+ * True when `toolName` names a suspending tool with a registered typed resume
+ * UI. The check is on the CLIENT-FACING name form (the dotted canonical id the
+ * stream chunk and the notice both use), so mapper and renderer agree.
+ */
+export function hasRegisteredSuspendResumeUi(
+  toolName: string
+): toolName is RegisteredSuspendResumeToolId {
+  return REGISTERED_SUSPEND_RESUME_TOOL_ID_SET.has(toolName);
+}
 
 /**
  * The suspend-pause metadata surfaced to the renderer. `suspendPayload` is
