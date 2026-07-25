@@ -42,6 +42,8 @@ const WEATHER_TOOL_ID = 'get_weather';
 // the deferred-discovery behavior evaluated separately in BST-613.
 const WRITE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile';
 const MODEL_FACING_WRITE_TOOL_ID = 'brainstrike_stringReplaceWorkspaceFile';
+const CREATE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
+const MODEL_FACING_CREATE_TOOL_ID = 'brainstrike_writeWorkspaceFile';
 const ERROR_TOOL_ID = 'fail_task';
 const MISSING_TOOL_ID = 'missing_tool';
 
@@ -60,6 +62,16 @@ function makeWriteTool() {
     description: 'Write text content to a workspace file.',
     execute: ({ path }: { content: string; path: string }) => Promise.resolve({ path }),
     id: WRITE_TOOL_ID,
+    inputSchema: z.object({ content: z.string(), path: z.string() }),
+    outputSchema: z.object({ path: z.string() }),
+  });
+}
+
+function makeCreateTool() {
+  return createTool({
+    description: 'Create or replace a workspace file with complete text content.',
+    execute: ({ path }: { content: string; path: string }) => Promise.resolve({ path }),
+    id: CREATE_TOOL_ID,
     inputSchema: z.object({ content: z.string(), path: z.string() }),
     outputSchema: z.object({ path: z.string() }),
   });
@@ -93,6 +105,21 @@ async function buildPlanModeEvalAgent(model: LanguageModelV2, planMode = true) {
     runtime: { apiKey: 'eval-key', planMode, provider: 'openai' },
     tools: {
       [WEATHER_TOOL_ID]: makeWeatherTool(),
+      [WRITE_TOOL_ID]: makeWriteTool(),
+    },
+  });
+  return runtime.agent;
+}
+
+async function buildCreateFileReachabilityEvalAgent(
+  model: LanguageModelV2,
+  includeCreateTool = true
+) {
+  const runtime = await createMastraAgentRuntime({
+    modelOverride: model as unknown as MastraModelConfig,
+    runtime: { apiKey: 'eval-key', provider: 'openai' },
+    tools: {
+      ...(includeCreateTool ? { [CREATE_TOOL_ID]: makeCreateTool() } : {}),
       [WRITE_TOOL_ID]: makeWriteTool(),
     },
   });
@@ -195,10 +222,33 @@ export async function runAgentBehaviorEvaluation(): Promise<AgentBehaviorEvaluat
     target: planModeAgent,
   });
 
+  // BST-757 / PR #1935: smaller hosted models could not create a new file
+  // because writeWorkspaceFile was absent from the initial tool inventory and
+  // they fell back to stringReplaceWorkspaceFile against a missing file.
+  const createFileAgent = await buildCreateFileReachabilityEvalAgent(
+    createPlanModeInventoryEvalModel({
+      finalText: 'Created and verified index.html.',
+      forbiddenInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      forbiddenToolName: MODEL_FACING_CREATE_TOOL_ID,
+      safeInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      safeToolName: MODEL_FACING_WRITE_TOOL_ID,
+    })
+  );
+  const createFileReachability = await runEvals({
+    data: [{ input: 'Create a new index.html file in the workspace.' }],
+    gates: [
+      calledToolGate(MODEL_FACING_CREATE_TOOL_ID),
+      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
+      noToolErrorsGate(),
+    ],
+    target: createFileAgent,
+  });
+
   const flows = [
     toFlowResult('tool-selection', toolSelection as FlowOutcome),
     toFlowResult('error-free-run', errorFree as FlowOutcome),
     toFlowResult('plan-mode-tool-filter', planMode as FlowOutcome),
+    toFlowResult('create-file-tool-reachability', createFileReachability as FlowOutcome),
   ];
   const failures = collectFailures(flows);
   return { failures, flows, passed: failures.length === 0 };
@@ -291,11 +341,35 @@ export async function runMisbehavingControlEvaluation(): Promise<AgentBehaviorEv
     target: missingToolControlAgent,
   });
 
+  // BST-757 paired control: replay the pre-fix initial inventory without the
+  // create-capable tool. The same scripted decision falls back to replacement,
+  // so the create reachability gate must read `failed`.
+  const createFileControlAgent = await buildCreateFileReachabilityEvalAgent(
+    createPlanModeInventoryEvalModel({
+      finalText: 'I could not create index.html.',
+      forbiddenInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      forbiddenToolName: MODEL_FACING_CREATE_TOOL_ID,
+      safeInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      safeToolName: MODEL_FACING_WRITE_TOOL_ID,
+    }),
+    false
+  );
+  const createFileControlOutcome = await runEvals({
+    data: [{ input: 'Create a new index.html file in the workspace.' }],
+    gates: [
+      calledToolGate(MODEL_FACING_CREATE_TOOL_ID),
+      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
+      noToolErrorsGate(),
+    ],
+    target: createFileControlAgent,
+  });
+
   const flows = [
     toFlowResult('tool-selection-control', toolSelectionOutcome as FlowOutcome),
     toFlowResult('plan-mode-tool-filter-control', planModeOutcome as FlowOutcome),
     toFlowResult('tool-error-control', errorOutcome as FlowOutcome),
     toFlowResult('missing-tool-control', missingToolOutcome as FlowOutcome),
+    toFlowResult('create-file-tool-reachability-control', createFileControlOutcome as FlowOutcome),
   ];
   const failures = collectFailures(flows);
   return { failures, flows, passed: failures.length === 0 };
