@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  classifyAnchoredPath,
   classifyCommand,
   classifyFileToken,
   classifyProjectPath,
   isFileToken,
+  sourceAnchorEnd,
+  stripSourceAnchor,
 } from './collect-scribe-references.mjs';
 
 const tree = new Set([
@@ -29,9 +32,26 @@ test('an absent file token is MANUAL (a human-verify lead), never a fabricated D
   assert.equal(classifyFileToken('docs/agents/ghost.md', tree), 'MANUAL');
 });
 
-test('project-path citations ignore a trailing source line or range', () => {
+test('project-path citations strip only trailing source anchors', () => {
   assert.equal(classifyProjectPath('packages/db/src/repo.ts:12', tree), 'ACCURATE');
   assert.equal(classifyProjectPath('packages/db/src/repo.ts:12-24', tree), 'ACCURATE');
+  assert.equal(classifyProjectPath('packages/db/src/ghost.ts:12-24', tree), 'DANGLING');
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:main', tree), 'DANGLING');
+  assert.equal(stripSourceAnchor('packages/db/src/repo.ts:12:5'), 'packages/db/src/repo.ts');
+  assert.equal(sourceAnchorEnd('packages/db/src/repo.ts:12-24'), 24);
+  assert.equal(
+    classifyAnchoredPath('packages/db/src/repo.ts:12-24', tree, () => 24),
+    'ACCURATE'
+  );
+  assert.equal(
+    classifyAnchoredPath('packages/db/src/repo.ts:12-25', tree, () => 24),
+    'DANGLING'
+  );
+});
+
+test('bare filename citations with source anchors are classified', () => {
+  assert.equal(isFileToken('db-test-lane-manifest.mjs:12-24'), true);
+  assert.equal(classifyFileToken('db-test-lane-manifest.mjs:12-24', tree), 'ACCURATE');
 });
 
 test('dotted code identifiers are not treated as file tokens at all', () => {
