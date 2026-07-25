@@ -573,14 +573,19 @@ function describeViolation(violation) {
   }
 }
 
-function main() {
-  const violations = findTsupInvariantViolations();
+/**
+ * @param {{ repoRoot?: string }} options — threaded so the BST-836 entrypoint
+ *   contract test can drive this guard against a tree where it must not pass.
+ */
+export function main(options = {}) {
+  const repoRoot = options.repoRoot ?? REPO_ROOT;
+  const violations = findTsupInvariantViolations({ repoRoot });
   if (violations.length === 0) {
     // The summary claims ONLY what was actually verified — see RULING 2. The
     // previous wording said all 17 TypeScript-owned packages were "pinned to
     // clean:false/dts:false" when 3 have no config to pin and one stated
     // neither field.
-    const packages = discoverTsupPackages(REPO_ROOT);
+    const packages = discoverTsupPackages(repoRoot);
     const owned = packages.filter((pkg) => pkg.declarationOwner === 'typescript');
     const governed = owned.filter((pkg) => pkg.configSource !== null).length;
     const configless = owned.length - governed;

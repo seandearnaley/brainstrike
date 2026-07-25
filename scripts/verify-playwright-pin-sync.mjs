@@ -103,8 +103,12 @@ export function checkPlaywrightPinSync(options = {}) {
   return { expectedVersion, mismatches };
 }
 
-function main() {
-  const { expectedVersion, mismatches } = checkPlaywrightPinSync();
+/**
+ * @param {{ repoRoot?: string }} options — threaded so the BST-836 entrypoint
+ *   contract test can drive this guard against a tree where it must not pass.
+ */
+export function main(options = {}) {
+  const { expectedVersion, mismatches } = checkPlaywrightPinSync(options);
 
   if (mismatches.length > 0) {
     const detail = mismatches

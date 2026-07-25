@@ -170,8 +170,12 @@ export function findTsconfigPathsRegistryMismatches(options = {}) {
   return violations;
 }
 
-async function main() {
-  const violations = findTsconfigPathsRegistryMismatches();
+/**
+ * @param {{ repoRoot?: string }} options — threaded so the BST-836 entrypoint
+ *   contract test can drive this guard against a tree where it must not pass.
+ */
+export async function main(options = {}) {
+  const violations = findTsconfigPathsRegistryMismatches(options);
   if (violations.length === 0) {
     process.stdout.write('verify-tsconfig-paths-match-registry: OK\n');
     return;

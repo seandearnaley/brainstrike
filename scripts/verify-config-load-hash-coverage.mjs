@@ -302,3 +302,32 @@ export async function findConfigLoadHashGaps(options = {}) {
   }
   return violations;
 }
+
+/**
+ * BST-836: this module shipped without an entrypoint, so
+ * `node scripts/verify-config-load-hash-coverage.mjs` exited 0 while checking
+ * nothing.
+ *
+ * @param {{ repoRoot?: string }} options
+ */
+export async function main(options = {}) {
+  const violations = await findConfigLoadHashGaps(options);
+  if (violations.length === 0) {
+    console.log(
+      'verify-config-load-hash-coverage: OK (every cross-package config-load reference is covered ' +
+        "by a declared dependency or a turbo.json '$TURBO_ROOT$' input)"
+    );
+    return;
+  }
+  console.error('Config-load references with no dependency edge / turbo.json input:');
+  console.error(
+    violations.map((v) => `  - ${v.package} [${v.config}] ${v.reference}: ${v.problem}`).join('\n')
+  );
+  process.exitCode = 1;
+}
+
+const isDirectExecution =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectExecution) {
+  await main();
+}
