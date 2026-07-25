@@ -154,7 +154,7 @@
     "build": "pnpm build:renderer && pnpm build:main",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "build:main": "node scripts/build-main.mjs",
-    "build:renderer": "vite build",
+    "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
     "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
