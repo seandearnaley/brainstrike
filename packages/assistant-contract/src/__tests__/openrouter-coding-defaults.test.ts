@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mergeOpenRouterAutoProfileModel,
   OPENROUTER_CODING_MAX_OUTPUT_TOKENS,
   OPENROUTER_RECOMMENDED_CODING_MODEL_IDS,
   resolveOpenRouterAutoRuntimeProfile,
@@ -228,5 +229,128 @@ describe('Auto reasoning effort is DECLARED, never inferred (BST-833)', () => {
         reasoning: { defaultEffort: 'high', mandatory: false, supportedEfforts: ['high'] },
       })
     ).toEqual({ maxOutputTokens: 32_000 });
+  });
+});
+
+describe('catalog Auto overrides survive live metadata (BST-833)', () => {
+  // OpenRouter does not publish `autoEffort`, so `OpenRouterModelMetadata`
+  // structurally cannot carry it. A caller that picks live metadata INSTEAD of
+  // the catalog drops the override — which would drop Kimi K3 from its
+  // recorded `low` back to the vendor's `max` the moment a key resolves live
+  // metadata, silently restoring the exact behaviour BST-833 fixed.
+  const liveKimi = {
+    checkedAt: 42,
+    contextWindow: 1_048_576,
+    id: 'moonshotai/kimi-k3',
+    reasoning: {
+      defaultEffort: 'max' as const,
+      defaultEnabled: true,
+      mandatory: false,
+      supportedEfforts: ['max', 'high', 'low'] as const,
+      supportsMaxTokens: false,
+    },
+    source: 'openrouter-models-api' as const,
+    supportedParameters: ['reasoning', 'max_tokens'],
+  };
+  const catalogKimi = {
+    id: 'moonshotai/kimi-k3',
+    reasoning: {
+      autoEffort: 'low' as const,
+      defaultEffort: 'max' as const,
+      defaultEnabled: true,
+      mandatory: false,
+      supportedEfforts: ['max', 'high', 'low'] as const,
+    },
+  };
+
+  it('drops to the vendor default without the merge — the regression being guarded', () => {
+    expect(resolveOpenRouterAutoRuntimeProfile(liveKimi).reasoningEffort).toBe('max');
+  });
+
+  it('keeps the recorded autoEffort when live metadata is merged with the catalog', () => {
+    const merged = mergeOpenRouterAutoProfileModel(liveKimi, catalogKimi);
+    expect(merged).toBeDefined();
+    expect(resolveOpenRouterAutoRuntimeProfile(merged!).reasoningEffort).toBe('low');
+  });
+
+  it('keeps live vendor facts while overlaying only the override', () => {
+    const merged = mergeOpenRouterAutoProfileModel(liveKimi, catalogKimi);
+    expect(merged?.reasoning?.defaultEffort).toBe('max');
+    expect(merged?.reasoning?.supportedEfforts).toEqual(['max', 'high', 'low']);
+  });
+
+  it('falls back to the catalog when no live snapshot resolved', () => {
+    expect(mergeOpenRouterAutoProfileModel(undefined, catalogKimi)).toBe(catalogKimi);
+  });
+
+  it('respects live metadata that reports no reasoning at all', () => {
+    const noReasoning = { id: 'moonshotai/kimi-k3' };
+    expect(mergeOpenRouterAutoProfileModel(noReasoning, catalogKimi)).toBe(noReasoning);
+  });
+});
+
+describe('a malformed Auto override fails at its source, not on the wire', () => {
+  it('rejects an autoEffort the model does not support', () => {
+    expect(() =>
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'bad/entry',
+        reasoning: {
+          autoEffort: 'low',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'high'],
+        },
+      })
+    ).toThrow(/autoEffort 'low' is not in supportedEfforts \[xhigh, high\]/);
+  });
+
+  it("rejects autoEffort 'none' on a model whose reasoning is mandatory", () => {
+    expect(() =>
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'required/reasoning',
+        reasoning: {
+          autoEffort: 'none',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['high'],
+        },
+      })
+    ).toThrow(/autoEffort 'none' is invalid for a model whose reasoning is mandatory/);
+  });
+
+  it("allows autoEffort 'none' when reasoning is optional", () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'optional/reasoning',
+        reasoning: {
+          autoEffort: 'none',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high'],
+        },
+      }).reasoningEffort
+    ).toBe('none');
+  });
+});
+
+describe('every catalogued OpenRouter model resolves a valid Auto profile', () => {
+  // Registry-wide invariant: the resolver throws on a malformed override, so
+  // running it across the catalog catches a bad entry in CI rather than at the
+  // wire. Nothing else enforces `autoEffort` membership for the static
+  // registry — the live parser only validates `defaultEffort`.
+  it('resolves without throwing for all OpenRouter LLM entries', () => {
+    const models = listProviderLlmModels('openrouter');
+    expect(models.length).toBeGreaterThan(0);
+    for (const model of models) {
+      expect(() => resolveOpenRouterAutoRuntimeProfile(model), model.id).not.toThrow();
+    }
+  });
+
+  it('pins the Auto effort of the two models that reason by default', () => {
+    const byId = new Map(listProviderLlmModels('openrouter').map((m) => [m.id, m]));
+    const glm = byId.get('z-ai/glm-5.2');
+    const kimi = byId.get('moonshotai/kimi-k3');
+    expect(glm && resolveOpenRouterAutoRuntimeProfile(glm).reasoningEffort).toBe('high');
+    expect(kimi && resolveOpenRouterAutoRuntimeProfile(kimi).reasoningEffort).toBe('low');
   });
 });

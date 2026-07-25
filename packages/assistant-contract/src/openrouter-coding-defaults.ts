@@ -55,6 +55,38 @@ export function resolveOpenRouterCodingMaxOutputTokens(modelMaxOutputTokens?: nu
   return Math.min(modelMaxOutputTokens, OPENROUTER_CODING_MAX_OUTPUT_TOKENS);
 }
 
+/**
+ * Overlay our catalog's Auto override onto a live metadata snapshot.
+ *
+ * `autoEffort` is OURS — OpenRouter does not publish it, so
+ * `OpenRouterModelMetadata` structurally cannot carry it. Callers that pick
+ * live metadata *instead of* the catalog therefore drop the override, which is
+ * exactly how `moonshotai/kimi-k3` would fall from its recorded `low` back to
+ * the vendor's `max` the moment a key resolves live metadata. Vendor-published
+ * facts still win; only the catalog-only override is merged in.
+ *
+ * Use this at every site that feeds live metadata to
+ * `resolveOpenRouterAutoRuntimeProfile`.
+ */
+export function mergeOpenRouterAutoProfileModel(
+  live: OpenRouterAutoProfileModel | undefined,
+  catalog: OpenRouterAutoProfileModel | undefined
+): OpenRouterAutoProfileModel | undefined {
+  if (!live) {
+    return catalog;
+  }
+  const catalogAutoEffort = catalog?.reasoning?.autoEffort;
+  // No override to carry, or live says this model does not reason at all —
+  // in which case the override is moot and live remains authoritative.
+  if (!(catalogAutoEffort && live.reasoning)) {
+    return live;
+  }
+  return {
+    ...live,
+    reasoning: { ...live.reasoning, autoEffort: catalogAutoEffort },
+  };
+}
+
 export function resolveOpenRouterAutoRuntimeProfile<TModel extends OpenRouterAutoProfileModel>(
   model: TModel,
   configuredMaxOutputTokens?: number
@@ -87,7 +119,26 @@ export function resolveOpenRouterAutoRuntimeProfile<TModel extends OpenRouterAut
   // for a claim, so we send no effort at all and let the provider apply its
   // own default — inventing one here is exactly the silent fallback this
   // removes.
-  const declaredEffort = reasoning.autoEffort ?? reasoning.defaultEffort;
+  const autoEffort = reasoning.autoEffort;
+  if (autoEffort) {
+    // The Auto path bypasses `assertOpenRouterReasoningEffortSupported`, which
+    // only guards explicit user choices. Validate here so a bad catalog entry
+    // fails at its source instead of on the wire — under
+    // `provider.require_parameters` OpenRouter fails routing rather than
+    // ignoring an unsupported hint, which would surface far from the cause.
+    if (autoEffort === 'none') {
+      if (reasoning.mandatory === true) {
+        throw new Error(
+          `${model.id}: autoEffort 'none' is invalid for a model whose reasoning is mandatory.`
+        );
+      }
+    } else if (reasoning.supportedEfforts && !reasoning.supportedEfforts.includes(autoEffort)) {
+      throw new Error(
+        `${model.id}: autoEffort '${autoEffort}' is not in supportedEfforts [${reasoning.supportedEfforts.join(', ')}].`
+      );
+    }
+  }
+  const declaredEffort = autoEffort ?? reasoning.defaultEffort;
   return {
     maxOutputTokens: baselineOutputTokens,
     ...(declaredEffort ? { reasoningEffort: declaredEffort } : {}),
