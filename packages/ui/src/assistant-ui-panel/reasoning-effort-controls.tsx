@@ -170,18 +170,48 @@ export interface EffortSliderModel {
 }
 
 /**
+ * Canonical weakest-to-strongest effort order.
+ *
+ * A slider is an ORDINAL axis: dragging right must mean "think harder". Menu
+ * sources are under no such obligation — OpenRouter's live model metadata lists
+ * efforts strongest-first, which as a radio list is merely a presentation
+ * choice but as a track silently inverts the control. Ranking here makes the
+ * axis correct no matter what order the resolver hands over.
+ *
+ * Unranked values sort last (before `auto`, which is pinned separately) rather
+ * than being dropped — an unknown effort still has to be reachable.
+ */
+const EFFORT_TRACK_ORDER: readonly string[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
+
+function effortRank(value: string): number {
+  const rank = EFFORT_TRACK_ORDER.indexOf(value);
+  return rank === -1 ? EFFORT_TRACK_ORDER.length : rank;
+}
+
+/**
  * Project the family-normalized effort model onto a single ordered track.
  *
  * Effort is inherently ordinal, so a discrete slider expresses it in one
- * gesture where the nested submenu needed open -> hover -> click. The stop
- * list is already ordered low-to-high by each family's resolver; `auto` is
- * pinned at position 0 as the "let the vendor decide" end of the same axis
- * rather than living in a separate control.
+ * gesture where the nested submenu needed open -> hover -> click. Stops are
+ * sorted weakest-to-strongest (see EFFORT_TRACK_ORDER) and `auto` is pinned at
+ * position 0 as the "let the vendor decide" end of the same axis rather than
+ * living in a separate control.
  */
 export function buildEffortSliderModel(model: EffortControlModel): EffortSliderModel {
+  const ordered = [...model.options].sort(
+    (left, right) => effortRank(left.value) - effortRank(right.value)
+  );
   const stops: EffortSliderStop[] = [
     { isModelDefault: false, label: 'Auto', value: 'auto' },
-    ...model.options,
+    ...ordered,
   ];
   const foundIndex = stops.findIndex((stop) => stop.value === model.currentValue);
   // An unresolvable current value would silently mis-position the thumb, so

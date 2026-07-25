@@ -314,19 +314,28 @@ describe('ComposerModelMenu', () => {
       const menu = await openMenu(user);
       const row = within(menu).getByTestId('composer-effort-row');
       const slider = within(menu).getByTestId('composer-effort-slider');
-      // Track order mirrors the resolver: Auto, Max (vendor default), High, Low, None.
       expect(slider).toHaveAttribute('max', '4');
 
-      // Exactly one stop carries the vendor-default marker, and it is Max.
-      const markedStops = within(row)
-        .getAllByText(/./)
-        .filter((node) => node.textContent?.endsWith('•'));
-      expect(markedStops.map((node) => node.textContent)).toEqual(['Max•']);
+      // A slider is an ORDINAL axis: dragging right must mean "think harder".
+      // OpenRouter's live metadata lists efforts strongest-first, which as a
+      // radio list was harmless but as a track silently inverted the control.
+      const tickLabels = [...row.querySelectorAll('span[aria-hidden] span')].map(
+        (node) => node.textContent
+      );
+      expect(tickLabels).toEqual(['Auto', 'None', 'Low', 'High', 'Max•']);
 
-      // That stop writes the vendor's effort verbatim.
-      fireEvent.change(slider, { target: { value: '1' } });
+      // Exactly one stop carries the vendor-default marker, and it is Max.
+      expect(tickLabels.filter((label) => label?.endsWith('•'))).toEqual(['Max•']);
+
+      // The strongest stop is the LAST position and writes the effort verbatim.
+      fireEvent.change(slider, { target: { value: '4' } });
       expect(onProviderSettingsChange).toHaveBeenCalledWith('openrouter', {
         reasoningEffort: 'max',
+      });
+      // ...and the weakest real effort sits at position 1, just after Auto.
+      fireEvent.change(slider, { target: { value: '1' } });
+      expect(onProviderSettingsChange).toHaveBeenCalledWith('openrouter', {
+        reasoningEffort: 'none',
       });
     });
 
