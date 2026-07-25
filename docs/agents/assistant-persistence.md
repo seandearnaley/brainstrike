@@ -508,11 +508,17 @@ Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
 migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
 
-The desktop MAIN process writes into both relations without ever creating them
-(`recordDesktopAssistantRunEvent` and `recordDesktopAssistantHookRunOutcome` in
-`apps/desktop/src/assistant-server.ts`, both `INSERT … SELECT FROM
-brainstrike_assistant_thread_runs`). That is safe, and the reason is **runId
-provenance — NOT startup ordering**:
+The desktop MAIN process has THREE writers against these relations, none of
+which creates them (all in `apps/desktop/src/assistant-server.ts`, all reached
+through the same `db-main` `getDatabase()` handle and all gated on `if (runId)`):
+
+| Writer | Shape | On a missing parent row |
+| --- | --- | --- |
+| `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+| `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
+| `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+
+That is safe, and the reason is **runId provenance — NOT startup ordering**:
 
 - `memory.runId` has exactly ONE producer: `createAssistantThreadRunPromise`
   (`assistant-ui-panel-wrapper-runtime.ts`) → `repository.createThreadRun`,
@@ -531,10 +537,24 @@ and would mask a genuinely broken invariant if provenance ever changes.
 server-side background run, a cron/headless run, or subagent runs persisted
 under their own ids. Any such producer must bootstrap the schema itself.
 
-Failure stays loud either way: an un-bootstrapped write throws PG `42P01`, and
-`observeDesktopAssistantRunEvents` both `logger.error`s it and rethrows when it
-flushes its persistence queue. Paired test:
-`apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
+**Loudness is NOT uniform — do not read the above as a blanket guarantee.** An
+un-bootstrapped write always raises PG `42P01` at the driver, but only one path
+propagates it:
+
+- `observeDesktopAssistantRunEvents` `logger.error`s every failed event and
+  rethrows on flush — but the rethrow is CONDITIONAL (`assistant-server.ts`
+  ~`:773-785`): when the source stream ALSO threw, the persistence failure is
+  downgraded to a `logger.error` and only the stream error propagates.
+- `recordDesktopAssistantThreadRunStatus` (`:788-802`) wraps
+  `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
+  `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
+  reaches a terminal status.
+
+Neither carve-out is a regression introduced alongside this ruling, and neither
+is currently worth runtime machinery — but they are why the provenance invariant
+carries the weight here rather than error surfacing. If provenance is ever
+broken, expect partial silence, not a clean failure. Paired test (clean-stream
+path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
 
 ---
 

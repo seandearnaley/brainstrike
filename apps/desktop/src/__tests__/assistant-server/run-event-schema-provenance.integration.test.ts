@@ -30,6 +30,7 @@
  * schema itself. See docs/agents/assistant-persistence.md
  * § RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP.
  */
+import type { StreamChunk } from '@brainstrike/agent';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
@@ -45,35 +46,50 @@ type TestDatabase = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
  */
 let mainProcessDatabase: TestDatabase | undefined;
 vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(() => Promise.resolve(mainProcessDatabase)),
+  // Throw rather than resolve `undefined`: an unseeded handle is a test-setup
+  // mistake, and this file's whole point is telling "schema missing" apart from
+  // "handle missing" — a `Cannot read properties of undefined` raised from
+  // inside production code would blur exactly that distinction.
+  getDatabase: vi.fn(() => {
+    if (!mainProcessDatabase) {
+      throw new Error('Test did not seed mainProcessDatabase before the main-process write.');
+    }
+    return Promise.resolve(mainProcessDatabase);
+  }),
 }));
 
-interface CountRow {
-  count: number;
+interface ExistsRow {
+  exists: boolean;
 }
 
 async function tableExists(db: TestDatabase, tableName: string): Promise<boolean> {
   const result = await db.query(
-    'SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_name = $1',
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = $1
+     ) AS exists`,
     [tableName]
   );
-  const rows = result.rows as readonly CountRow[];
-  return (rows[0]?.count ?? 0) > 0;
+  const rows = result.rows as readonly ExistsRow[];
+  return rows[0]?.exists === true;
 }
 
-function singleRunEventStream(): AsyncIterable<never> {
-  return (async function* () {
-    yield {
-      event: {
-        id: 'event-1',
-        kind: 'run.started',
-        label: 'Assistant run started',
-        status: 'running',
-        timestamp: '2026-07-24T10:00:00.000Z',
-      },
-      type: 'run-event',
-    };
-  })() as AsyncIterable<never>;
+/**
+ * Typed as `StreamChunk` on purpose — an `AsyncIterable<never>` cast would be
+ * assignable to any chunk type, so a future change to the run-event contract
+ * would leave this fixture compiling against a shape production no longer emits.
+ */
+async function* singleRunEventStream(): AsyncGenerator<StreamChunk> {
+  yield {
+    event: {
+      id: 'event-1',
+      kind: 'run.started',
+      label: 'Assistant run started',
+      status: 'running',
+      timestamp: '2026-07-24T10:00:00.000Z',
+    },
+    type: 'run-event',
+  };
 }
 
 describe('main-process run-event schema provenance', () => {

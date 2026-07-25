@@ -1,4 +1,5 @@
 architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries
+assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
 architecture-domain-contract.mjs → wired/paired/armed → complete and valid architecture domain map
 browser-events-literal-guard.mjs → wired/paired/armed → shared browser CustomEvent names
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement
