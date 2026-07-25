@@ -1,4 +1,4 @@
-import { useDurableLogSource } from '@brainstrike/app-shell/diagnostics';
+import { useDiagnosticsPurge, useDurableLogSource } from '@brainstrike/app-shell/diagnostics';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -82,6 +82,7 @@ export function DesktopLoggingSettings() {
   }, []);
 
   const durableLogSource = useDurableLogSource();
+  const onPurgeNow = useDiagnosticsPurge();
 
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
@@ -239,6 +240,7 @@ export function DesktopLoggingSettings() {
             durableLogSource,
             onExportDurableNdjson: () => durableLogSource.exportNdjson(),
           })}
+      {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
     />
   );
 }

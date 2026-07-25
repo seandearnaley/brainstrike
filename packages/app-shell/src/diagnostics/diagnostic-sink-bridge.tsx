@@ -1,4 +1,5 @@
 import { DiagnosticEventsRepository, useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import {
   boundWithMarker,
   DIAGNOSTIC_MESSAGE_MAX_CHARS,
@@ -13,6 +14,7 @@ import { useDiagnosticSinkHealthStore } from './diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';
 
 const bridgeLogger = createLogger(DIAGNOSTIC_SINK_SCOPE);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function makeDroppedEvent(source: string) {
   return (droppedCount: number): DiagnosticEvent => ({
@@ -135,7 +137,13 @@ export function DiagnosticSinkBridge({
         }
       }
     });
-    repository.purge().catch((cause: unknown) => {
+    // Read (not subscribe): a one-off value at mount time is correct here —
+    // the startup purge runs once per mount, so it should use whatever the
+    // user's retention preference was AT that moment, not re-run if the
+    // preference changes later in the same session (Task 4's "Purge now"
+    // button is the explicit re-run affordance for that).
+    const { maxAgeDays, maxRows } = useDiagnosticsRetentionStore.getState();
+    repository.purge({ maxAgeMs: maxAgeDays * MS_PER_DAY, maxRows }).catch((cause: unknown) => {
       bridgeLogger.error('Diagnostic retention purge failed', {
         cause: cause instanceof Error ? cause.message : String(cause),
       });

@@ -97,6 +97,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
     id: 'diagnostics',
     title: 'Diagnostics',
   }),
+  useDiagnosticsPurge: () => undefined,
   useDurableLogSource: () => undefined,
 }));
 

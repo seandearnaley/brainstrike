@@ -4,7 +4,17 @@ const TABLE = 'brainstrike_diagnostic_events';
 
 export const DIAGNOSTIC_RETENTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const DIAGNOSTIC_RETENTION_MAX_ROWS = 20_000;
-const DEFAULT_PURGE_LIMIT = 500;
+/**
+ * Default per-query row cap for BOTH deletes inside `purge()` (the aged-rows
+ * delete and the over-cap delete each independently respect this limit, so a
+ * single `purge()` call can return up to 2x this value). Exported (Flight
+ * Recorder P2b Task 4) so the settings UI's "Purge now" toast can tell a
+ * user "more may remain" instead of silently implying the purge fully
+ * drained a large backlog — see `logging-settings-section.tsx`'s
+ * `DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD`, which mirrors this value (test-side
+ * drift guard: that section's test imports this constant directly).
+ */
+export const DIAGNOSTIC_EVENTS_PURGE_LIMIT = 500;
 const DEFAULT_QUERY_LIMIT = 200;
 
 export type DiagnosticEventsOperation = 'insert' | 'purge' | 'query';
@@ -209,7 +219,7 @@ export class DiagnosticEventsRepository {
   async purge(options?: { maxAgeMs?: number; maxRows?: number; limit?: number }): Promise<number> {
     const maxAgeMs = options?.maxAgeMs ?? DIAGNOSTIC_RETENTION_MAX_AGE_MS;
     const maxRows = options?.maxRows ?? DIAGNOSTIC_RETENTION_MAX_ROWS;
-    const limit = options?.limit ?? DEFAULT_PURGE_LIMIT;
+    const limit = options?.limit ?? DIAGNOSTIC_EVENTS_PURGE_LIMIT;
     const cutoffMs = Math.max(0, this.now().getTime() - maxAgeMs);
     const cutoff = new Date(cutoffMs).toISOString();
     try {

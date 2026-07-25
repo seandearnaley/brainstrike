@@ -1,4 +1,8 @@
 import {
+  __resetDiagnosticsRetentionStoreForTests,
+  useDiagnosticsRetentionStore,
+} from '@brainstrike/preferences/stores/diagnostics-retention-store';
+import {
   LogLevel,
   type LogRecord,
   error as logError,
@@ -12,6 +16,8 @@ import {
   useDiagnosticSinkHealthStore,
 } from '../diagnostics/diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE } from '../diagnostics/diagnostic-sink-session';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Mock the db context to hand the bridge an in-memory query recorder.
 const queries: { sql: string; params?: unknown[] | undefined }[] = [];
@@ -37,6 +43,7 @@ describe('DiagnosticSinkBridge', () => {
     queries.length = 0;
     rejectInserts = false;
     resetDiagnosticSinkHealthStore();
+    __resetDiagnosticsRetentionStoreForTests();
   });
 
   it('captures a warn+ log record into the diagnostic events table', async () => {
@@ -98,6 +105,41 @@ describe('DiagnosticSinkBridge', () => {
         queries.some((entry) => entry.sql.includes('DELETE FROM brainstrike_diagnostic_events'))
       ).toBe(true);
     });
+  });
+
+  it("passes the user's CONFIGURED retention values to the startup purge, not the repository defaults", async () => {
+    useDiagnosticsRetentionStore.getState().setMaxAgeDays(7);
+    useDiagnosticsRetentionStore.getState().setMaxRows(5000);
+
+    render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await vi.waitFor(() => {
+      expect(
+        queries.some((entry) => entry.sql.includes('DELETE FROM brainstrike_diagnostic_events'))
+      ).toBe(true);
+    });
+
+    // The over-cap delete binds `maxRows` as its sole OFFSET param.
+    const overCapDelete = queries.find(
+      (entry) =>
+        entry.sql.includes('DELETE FROM brainstrike_diagnostic_events') &&
+        entry.sql.includes('OFFSET $1')
+    );
+    expect(overCapDelete?.params).toEqual([5000]);
+
+    // The aged-rows delete binds an ISO cutoff derived from maxAgeDays; the
+    // repository's untouched default would be 30 days out, so pinning to a
+    // window around the CONFIGURED 7-day cutoff (rather than the 30-day
+    // default) proves the store's value reached the purge call.
+    const agedDelete = queries.find(
+      (entry) =>
+        entry.sql.includes('DELETE FROM brainstrike_diagnostic_events') &&
+        entry.sql.includes('occurred_at <')
+    );
+    const cutoffIso = agedDelete?.params?.[0] as string;
+    const cutoffMs = new Date(cutoffIso).getTime();
+    const expectedCutoffMs = Date.now() - 7 * MS_PER_DAY;
+    expect(Math.abs(cutoffMs - expectedCutoffMs)).toBeLessThan(5000);
   });
 
   it('enqueues a forwarded record into the same writer with a derived source', async () => {

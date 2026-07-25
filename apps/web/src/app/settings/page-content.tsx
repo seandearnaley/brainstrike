@@ -7,6 +7,7 @@ import {
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import {
   createSystemDiagnosticsSettingsCategory,
+  useDiagnosticsPurge,
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
@@ -108,6 +109,7 @@ export default function SettingsPageContent() {
   }, []);
 
   const durableLogSource = useDurableLogSource();
+  const onPurgeNow = useDiagnosticsPurge();
 
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
@@ -209,6 +211,7 @@ export default function SettingsPageContent() {
                   durableLogSource,
                   onExportDurableNdjson: () => durableLogSource.exportNdjson(),
                 })}
+            {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
           />
         ),
         description: 'Control browser log verbosity and redaction for debugging.',
@@ -240,6 +243,7 @@ export default function SettingsPageContent() {
   }, [
     logSource,
     durableLogSource,
+    onPurgeNow,
     storedFolders.length,
     clearStoredHandles,
     devInlineFixtureEnabled,
