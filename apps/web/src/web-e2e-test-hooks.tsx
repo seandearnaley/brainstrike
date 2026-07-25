@@ -116,22 +116,22 @@ function parseModelEnabled(value: ModelEnabledRow['is_enabled']): boolean {
 }
 
 /**
+ * PGlite does NOT populate `affectedRows` on a `tx.query()` result taken
+ * inside a transaction — the raw result comes back as `{ rows: [] }` with no
+ * such key, so a row-count assertion built on `affectedRows` can never see a
+ * match and always throws, even when the UPDATE succeeded. `RETURNING id` is
+ * the mechanism PGlite actually supports: the matched rows land in
+ * `result.rows`, so `rows.length` is the real, always-populated signal.
  * `QueryExecutor['query']` (packages/db/src/db-provider.tsx) only types its
- * return as `{ rows: T[] }`, but PGlite's actual result also carries
- * `affectedRows?: number`. Read it through `unknown` rather than widening the
- * shared type or reaching for `any`.
+ * return as `{ rows: T[] }`; read it through `unknown` rather than widening
+ * the shared type or reaching for `any`.
  */
-function readAffectedRows(result: unknown): number | null {
-  if (typeof result !== 'object' || result === null || !('affectedRows' in result)) {
-    return null;
-  }
-  const value = (result as { affectedRows: unknown }).affectedRows;
-  return typeof value === 'number' ? value : null;
-}
-
-function assertRowsMatched(result: unknown, updateLabel: string): void {
-  const affectedRows = readAffectedRows(result);
-  if (!(typeof affectedRows === 'number' && affectedRows > 0)) {
+function assertRowsReturned(result: unknown, updateLabel: string): void {
+  const rows =
+    typeof result === 'object' && result !== null && 'rows' in result
+      ? (result as { rows: unknown }).rows
+      : null;
+  if (!(Array.isArray(rows) && rows.length > 0)) {
     throw new Error(
       `linkResetProbeRowsToCollection: ${updateLabel} matched zero rows — the marker literal may have drifted`
     );
@@ -160,16 +160,16 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         }
         await db.transaction(async (tx) => {
           const fileRecordsResult: unknown = await tx.query(
-            "UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%'",
+            "UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%' RETURNING id",
             [collectionId]
           );
-          assertRowsMatched(fileRecordsResult, 'UPDATE file_records');
+          assertRowsReturned(fileRecordsResult, 'UPDATE file_records');
 
           const fileChunksResult: unknown = await tx.query(
-            "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk'",
+            "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk' RETURNING id",
             [collectionId]
           );
-          assertRowsMatched(fileChunksResult, 'UPDATE file_chunks');
+          assertRowsReturned(fileChunksResult, 'UPDATE file_chunks');
         });
       },
       qualifyDatabaseExtensions: async (): Promise<WebE2EDatabaseQualification> => {
