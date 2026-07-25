@@ -48,7 +48,29 @@ const DEFAULT_TOP_K = 10;
 const MAX_TOP_K = 1000;
 const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
 const INDEX_METADATA_ID = '__index_metadata__';
-const MASTRA_VECTOR_SCHEMA_SQL = `
+/**
+ * Built ON DEMAND, deliberately NOT as a module-scope constant.
+ *
+ * `MASTRA_VECTOR_TABLE` is re-exported by `./sql` from
+ * `@brainstrike/assistant-contract/mastra-memory-schema`. Interpolating it at
+ * module scope reads the binding during CHUNK INITIALIZATION, and the renderer's
+ * bundle chunk graph does not guarantee that contract chunk has evaluated by
+ * then. An uninitialized binding does not throw here — it splices the literal
+ * string "undefined" into the DDL, so the store would silently create and query
+ * a table named `undefined` instead of `mastra_vectors`.
+ *
+ * That ordering hazard is measured, not theoretical (BST-558): a single
+ * unrelated static import of the same contract module from
+ * `packages/db/src/db-provider.tsx` reordered chunk init and killed the renderer
+ * at startup via the sibling defect in
+ * `packages/app-shell/src/assistant-memory-repository.ts`, while type-check,
+ * lint and every unit suite stayed green. Only a production build exhibits it.
+ *
+ * Deferring the read into a function body is the durable fix: by the time
+ * `createIndex()` runs, every chunk has been evaluated. Keep it a function.
+ */
+function buildMastraVectorSchemaSql(): string {
+  return `
   CREATE EXTENSION IF NOT EXISTS vector;
   CREATE TABLE IF NOT EXISTS ${MASTRA_VECTOR_TABLE} (
     index_name TEXT NOT NULL,
@@ -66,6 +88,7 @@ const MASTRA_VECTOR_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS mastra_vectors_metadata_idx
     ON ${MASTRA_VECTOR_TABLE} USING gin (metadata);
 `;
+}
 const VECTOR_OPERATORS = {
   cosine: '<=>',
   dotproduct: '<#>',
@@ -721,7 +744,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
 
   private async ensureVectorTable(): Promise<void> {
     this.initPromise ??= this.database
-      .exec(MASTRA_VECTOR_SCHEMA_SQL)
+      .exec(buildMastraVectorSchemaSql())
       .then(() => undefined)
       .catch((error: unknown) => {
         this.initPromise = null;

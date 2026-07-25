@@ -127,6 +127,46 @@ renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while `db-provider.tsx` held
 the literal left a suspended-run row alive through a full clear
 (`expected 1 to be +0`), and importing the constant made it pass.
 
+**Import those constants freely, but read them only inside a function — never at
+module scope (BST-558).** Module-scope initializers run at bundle CHUNK
+INITIALIZATION, and the renderer's chunk graph does not guarantee the contract
+chunk has evaluated by then. `packages/app-shell/src/assistant-memory-repository.ts`
+used to build its bootstrap DDL in a module-scope template literal interpolating
+`MASTRA_MEMORY_TABLES.threads`; adding ONE unrelated static import of
+`@brainstrike/assistant-contract/mastra-memory-schema` to `db-provider.tsx`
+reordered chunk init and the renderer died at startup with `Cannot read
+properties of undefined (reading 'threads')` — measured on PR #1978, commit
+`df953a2a8` green and `3e8d1b7fd` red. The failure is not always loud: a
+property access throws, but a bare interpolation such as `${MASTRA_VECTOR_TABLE}`
+splices the literal string `undefined` into the DDL, and in `db-provider.tsx` an
+undefined table name would make `to_regclass('undefined')` return NULL — the
+permanent silent skip described above. Build SQL inside the function that
+executes it (`buildAssistantThreadRunsSchemaSql`,
+`buildMastraVectorSchemaSql`).
+
+Nothing else catches this class: `tsc` types ESM live bindings identically
+either way, the schema module imports nothing so there is no source cycle to
+detect, and Vitest evaluates real modules in dependency order so unit tests
+always see a defined binding. Only a production build has a chunk graph, so only
+E2E observes it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
+(lint lane, paired test `scripts/__tests__/verify-mastra-schema-init-order.test.mjs`)
+enforces it statically instead. It scrapes the guarded names from the schema
+module rather than hand-listing them, matches on the imported name so re-export
+hops like `packages/agent/src/pglite-mastra-memory/sql.ts` are covered, and stops
+at every function boundary so the prescribed fix is not itself flagged. It
+supersedes a stopgap (`mastra-workflow-table-literal-contract.test.mjs`, deleted)
+that pinned one hand-copied literal in one file and could not see `export … from`,
+`await import()`, or the same import added from any other module.
+
+Known remaining instance of the same class, deliberately NOT changed here:
+`packages/db/src/migrations/066-restore-pg-textsearch.ts` interpolates the
+imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope `up` string. It
+is out of the guard's scope (a different constant family), intra-package, and
+fails LOUDLY (the DO block raises) rather than silently. Fixing it means moving
+`up` to the `MigrationCallback` form the `Migration` type already allows, which
+touches a dual-registered, fail-closed migration guarding against real BM25 data
+corruption — that needs explicit sign-off, not a drive-by.
+
 **Narrow every catch in a purge to `isMissingNamedRelationError`.** A bare
 `catch (err) { logger.warn(...) }` cannot be a tolerance inside a transaction:
 the first genuine error aborts it, every later statement fails `25P02`, each of

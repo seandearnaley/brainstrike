@@ -615,7 +615,38 @@ const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
-const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
+/**
+ * Built ON DEMAND, deliberately NOT as a module-scope constant.
+ *
+ * This template interpolates two bindings imported from
+ * `@brainstrike/assistant-contract/mastra-memory-schema`:
+ * `MASTRA_MEMORY_SCHEMA_SQL` and `MASTRA_MEMORY_TABLES.threads`. Evaluating it
+ * at module scope reads them during CHUNK INITIALIZATION, and the renderer's
+ * bundle chunk graph does not guarantee the contract chunk has been evaluated by
+ * that point. When it has not, `MASTRA_MEMORY_TABLES` is still `undefined` and
+ * interpolating its `.threads` property throws "Cannot read properties of
+ * undefined (reading 'threads')" while this module is evaluating — the renderer
+ * dies at startup and the app never becomes ready.
+ *
+ * Measured, not theorised (BST-558): adding one unrelated static import of that
+ * same contract module to `packages/db/src/db-provider.tsx` reordered chunk init
+ * and turned Web + Desktop E2E red where the preceding commit was green, while
+ * type-check, lint and every unit suite stayed green throughout. The schema
+ * module imports nothing, so there is no source cycle for any static analysis to
+ * find — only the bundler's chunk graph decides this, and only a production
+ * build exhibits it.
+ *
+ * Deferring the reads into a function body is the durable fix: by the time
+ * `initialize()` calls this, every chunk has been evaluated, so NO import order
+ * can leave the bindings undefined. Keep it a function — do not "optimize" it
+ * back into a module-scope constant or a module-scope memo.
+ *
+ * Interpolating `MASTRA_MEMORY_SCHEMA_SQL` is the more insidious of the two
+ * reads: an uninitialized binding there does not throw, it splices the literal
+ * string "undefined" into the DDL.
+ */
+function buildAssistantThreadRunsSchemaSql(): string {
+  return `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
 -- assistant-ui's branch graph is client-owned topology layered over Mastra's
@@ -792,6 +823,7 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
   ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
 `;
+}
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
 const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
@@ -2319,7 +2351,7 @@ export function createPgliteAssistantThreadRepository(
     let initPromise = assistantThreadSchemaInitPromises.get(database);
     if (!initPromise) {
       initPromise = database
-        .exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
+        .exec(buildAssistantThreadRunsSchemaSql())
         .then(() => undefined)
         .catch((error: unknown) => {
           assistantThreadSchemaInitPromises.delete(database);

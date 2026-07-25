@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
@@ -164,13 +165,6 @@ async function clearToolOutputArtifactsIfPresent(tx: {
 }
 
 /**
- * Mirror of `MASTRA_WORKFLOW_TABLE`, kept as a local literal rather than an
- * import — see the note on `clearWorkflowSnapshotsIfPresent` below. Pinned to the
- * contract by `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`.
- */
-const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot';
-
-/**
  * Suspended Mastra workflow snapshots (BST-558) have an UNBOUNDED lifetime:
  * nothing deletes rows in production, and a suspended run retains its pending
  * tool call and arguments. No FK cascades the table, so a clear/reset must
@@ -194,26 +188,24 @@ const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot';
  * `PgliteWorkflowsStore` only creates it. A genuine delete failure must surface
  * as itself.
  *
- * `WORKFLOW_SNAPSHOT_TABLE` MUST equal `MASTRA_WORKFLOW_TABLE` from
- * `@brainstrike/assistant-contract/mastra-memory-schema`: with `to_regclass`, a
- * stale name returns NULL forever, turning this into a permanent SILENT skip
- * rather than a visible error.
+ * The table name MUST come from `MASTRA_WORKFLOW_TABLE`
+ * (`@brainstrike/assistant-contract/mastra-memory-schema`) and never a local
+ * literal: with `to_regclass`, a stale name returns NULL forever, turning this
+ * into a permanent SILENT skip rather than a visible error.
  *
- * It is a literal and NOT that import ON PURPOSE. This module is renderer-side,
- * and importing the contract package here reorders bundle chunk init so
- * `MASTRA_MEMORY_TABLES` is undefined when `assistant-memory-repository.ts`
- * evaluates its module-scope SQL template literals — the renderer then dies with
- * "Cannot read properties of undefined (reading 'threads')" and the app never
- * becomes ready. Measured on this branch: commit 3e8d1b7fd added the import and
- * turned Web + Desktop E2E red where the preceding commit was green, while
- * type-check and every unit suite stayed green.
- * `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs` pins the
- * literal to the constant instead — same protection, no runtime import edge.
+ * That constant is read HERE, inside the function, and deliberately not into a
+ * module-scope const. Module-scope initializers run at bundle chunk
+ * initialization, where the contract chunk is not guaranteed to have evaluated
+ * yet; the binding would be `undefined`, `to_regclass('undefined')` returns
+ * NULL, and the clear would silently skip forever. Reading it inside the
+ * function is safe because every chunk has evaluated by then. Enforced repo-wide
+ * by `scripts/verify-mastra-schema-init-order.mjs` — see that guard's header for
+ * the measured startup crash (BST-558) this class of read caused.
  */
 async function clearWorkflowSnapshotsIfPresent(tx: {
   query: (sql: string) => Promise<unknown>;
 }): Promise<void> {
-  const table = WORKFLOW_SNAPSHOT_TABLE;
+  const table = MASTRA_WORKFLOW_TABLE;
   const probe = (await tx.query(`SELECT to_regclass('${table}') IS NOT NULL AS present`)) as
     | { rows?: Array<{ present?: boolean }> }
     | undefined;
