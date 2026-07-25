@@ -247,7 +247,7 @@ function isCommand(token) {
 }
 
 function isSymbol(token) {
-  return /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token);
+  return !/^[a-f\d]{7,40}$/i.test(token) && /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token);
 }
 
 function collectDocument(path, text, allPaths, packages, readLineCount) {
@@ -363,6 +363,7 @@ export {
   classifyFileToken,
   classifyProjectPath,
   isFileToken,
+  isSymbol,
   sourceAnchorEnd,
   stripSourceAnchor,
 };

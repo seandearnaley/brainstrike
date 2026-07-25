@@ -7,6 +7,7 @@ import {
   classifyFileToken,
   classifyProjectPath,
   isFileToken,
+  isSymbol,
   sourceAnchorEnd,
   stripSourceAnchor,
 } from './collect-scribe-references.mjs';
@@ -59,6 +60,12 @@ test('dotted code identifiers are not treated as file tokens at all', () => {
   assert.equal(isFileToken('subagent-personas.v1'), false);
   assert.equal(isFileToken('assistant-preferences-store.planModeEnabled'), false);
   assert.equal(isFileToken('array.map'), false);
+});
+
+test('commit hashes are not counted as symbol references', () => {
+  assert.equal(isSymbol('c30fea0525d38329ee96950efd251285f912d2b9'), false);
+  assert.equal(isSymbol('0413d6baef16c1d716987ad2d3ef880e247b5e09'), false);
+  assert.equal(isSymbol('DataStreamMapper'), true);
 });
 
 const packages = new Map([
