@@ -491,6 +491,73 @@ Runtime invariants:
 
 ---
 
+## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP (settled 2026-07-24 — do not relitigate)
+
+`brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
+created ONLY by the renderer's lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap
+(`packages/app-shell/src/assistant-memory-repository.ts`, memoized per DB handle
+in the `assistantThreadSchemaInitPromises` WeakMap and awaited by every
+repository method). They have NO numbered migration, and must not get one: both
+carry `ON DELETE CASCADE` FKs to parents no migration creates (the Mastra
+threads table, and the runs row itself). An FK-less migration would either
+break the bare-PGlite migration suite or permanently diverge fresh-vs-upgraded
+installs and leak orphan rows — the same trade-off `brainstrike_assistant_edit_checkpoints`
+resolved in the other direction by deliberately dropping its FKs for migration 052.
+
+Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
+migration-backed (062, registered in both runners) *and* mirrored in the
+bootstrap SQL.
+
+The desktop MAIN process has THREE writers against these relations, none of
+which creates them (all in `apps/desktop/src/assistant-server.ts`, all reached
+through the same `db-main` `getDatabase()` handle and all gated on `if (runId)`):
+
+| Writer | Shape | On a missing parent row |
+| --- | --- | --- |
+| `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+| `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
+| `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+
+That is safe, and the reason is **runId provenance — NOT startup ordering**:
+
+- `memory.runId` has exactly ONE producer: `createAssistantThreadRunPromise`
+  (`assistant-ui-panel-wrapper-runtime.ts`) → `repository.createThreadRun`,
+  which awaits the schema bootstrap before it can return an id.
+- Every main-process write is gated on `if (runId)`, and `buildAssistantRequestData`
+  puts no `runId` on `data.memory`, so no stale or restored id can bypass the mint.
+- Desktop has ONE physical database: the renderer's handle is
+  `window.electronAPI.db`, whose `db:exec` resolves through the same `db-main`
+  `getDatabase()` the assistant server calls.
+
+Therefore do NOT add a defensive `CREATE TABLE IF NOT EXISTS` in main, and do
+not add an ordering handshake: both would be machinery for an unreachable state,
+and would mask a genuinely broken invariant if provenance ever changes.
+
+**The regression that WOULD make this real** is a second runId producer — a
+server-side background run, a cron/headless run, or subagent runs persisted
+under their own ids. Any such producer must bootstrap the schema itself.
+
+**Loudness is NOT uniform — do not read the above as a blanket guarantee.** An
+un-bootstrapped write always raises PG `42P01` at the driver, but only one path
+propagates it:
+
+- `observeDesktopAssistantRunEvents` `logger.error`s every failed event and
+  rethrows on flush — but the rethrow is CONDITIONAL (`assistant-server.ts`
+  ~`:773-785`): when the source stream ALSO threw, the persistence failure is
+  downgraded to a `logger.error` and only the stream error propagates.
+- `recordDesktopAssistantThreadRunStatus` (`:788-802`) wraps
+  `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
+  `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
+  reaches a terminal status.
+
+Neither carve-out is a regression introduced alongside this ruling, and neither
+is currently worth runtime machinery — but they are why the provenance invariant
+carries the weight here rather than error surfacing. If provenance is ever
+broken, expect partial silence, not a clean failure. Paired test (clean-stream
+path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
+
+---
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.
