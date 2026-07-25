@@ -1,11 +1,19 @@
 // Paired test for scripts/verify-no-cross-chunk-cycles.mjs (BST-861).
 //
-// This guard asserts the NECESSARY PRECONDITION for the module-scope
-// init-order class: a cross-chunk cycle. ESM evaluates a module's dependencies
-// before its own body, so with an acyclic chunk graph every imported binding is
-// initialized before any module-scope read of it. A cycle is the only way to get
-// an uninitialized binding at module scope — which is why this is complete for
-// the class rather than a heuristic, and why it needs no allowlist.
+// This guard asserts the NECESSARY PRECONDITION for the CROSS-CHUNK form of
+// the module-scope init-order class: ESM evaluates a module's dependencies
+// before its own body, so with an acyclic CHUNK graph every chunk's imported
+// bindings are initialized before any module-scope read of them — no chunk
+// can observe another chunk's export before that chunk has finished
+// initializing. That is complete for the cross-chunk shape behind all four
+// scars below, which is why it needs no allowlist there.
+//
+// It is not complete for the whole class: two SOURCE modules that are
+// themselves circular and land in the same chunk are concatenated in
+// arbitrary order, so one can still read the other's binding before it is
+// initialized, while the chunk graph reports no cycle at all (a single
+// node has no cross-chunk edge to flag). That intra-chunk source-cycle form
+// is a separate, still-undetected gap tracked in BST-890.
 //
 // Four recorded scars motivate it: #1292 (defineContextAction TDZ, blank #root),
 // BST-580 (browser-events, "L is not a function"), the zustand pin
@@ -87,6 +95,50 @@ test('parses a re-export preceded by a preserved legal comment banner', () => {
   assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/*! lic */export*from"./b.js";'), [
     './a.js',
     './b.js',
+  ]);
+});
+
+test('parses an import preceded by a JSDoc-style @license legal comment', () => {
+  // Terser's default `comments: 'some'` preserves ANY block comment matching
+  // `/^\**!|@preserve|@license|@cc_on/`, not just the `/*!` banner form.
+  // apps/web/vite.config.mts sets `minify: 'terser'`, so a `/** @license … */`
+  // banner is a real, reachable shape — not just the `/*!` one.
+  assert.deepEqual(
+    parseStaticChunkSpecifiers('import"./a.js";/** @license MIT */import"./b.js";'),
+    ['./a.js', './b.js']
+  );
+});
+
+test('parses an import preceded by a preserved @preserve legal comment', () => {
+  assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/* @preserve */import"./b.js";'), [
+    './a.js',
+    './b.js',
+  ]);
+});
+
+test('parses an import preceded by a preserved @cc_on legal comment', () => {
+  assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/* @cc_on */import"./b.js";'), [
+    './a.js',
+    './b.js',
+  ]);
+});
+
+test('parses a re-export preceded by a JSDoc-style @license legal comment', () => {
+  assert.deepEqual(
+    parseStaticChunkSpecifiers('import"./a.js";/** @license MIT */export*from"./b.js";'),
+    ['./a.js', './b.js']
+  );
+});
+
+test('does NOT skip a plain, non-preserved comment (known limitation, BST-890)', () => {
+  // `/* just a note */` matches none of Terser's preserved-comment markers,
+  // so Terser strips it in a real build and it never actually sits between
+  // two top-level imports. This guard intentionally does not treat it as a
+  // skippable comment — doing so would mean skipping ANY `/* … */`, which
+  // reintroduces the string-content false negative covered below. Accepted
+  // gap, tracked in BST-890: the second edge is dropped here.
+  assert.deepEqual(parseStaticChunkSpecifiers('import"./a.js";/* just a note */import"./b.js";'), [
+    './a.js',
   ]);
 });
 

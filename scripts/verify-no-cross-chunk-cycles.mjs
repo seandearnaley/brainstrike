@@ -73,26 +73,38 @@ const MIN_STATIC_EDGES = 100;
  * would otherwise let the clause walk past the paren to a literal `from`.
  *
  * An optional block comment may sit between the boundary character and the
- * keyword: Terser and rolldown preserve "legal comment" banners, block
- * comments starting specifically with `/*!`, and one of those between two
- * top-level imports would otherwise break the anchor and silently drop the
- * second edge. The clause requires that literal `!` rather than accepting any
- * block-comment opener — a regex cannot distinguish a comment from string
- * content, so accepting any opener lets a chunk containing a string with a
- * bare `/` immediately followed by `*` get misread as a comment start, with
- * the lazy body swallowing everything up to a later, unrelated comment
- * terminator and dropping the real edges in between. Requiring the banner's
- * actual `!` marker rejects that string at the boundary instead of trying to
- * out-distance it. The body is also bounded to 2000 chars, far more than any
- * real banner needs, as a second, independent guard against a pathological
- * match spanning arbitrarily far.
+ * keyword: Terser (apps/web's `minify: 'terser'`) and rolldown preserve
+ * "legal comment" banners, and one of those between two top-level imports
+ * would otherwise break the anchor and silently drop the second edge.
+ * Terser's default `comments: 'some'` preserves any block comment whose body
+ * matches `/^\**!|@preserve|@license|@cc_on/` — not just a `!`-prefixed
+ * banner, but also a JSDoc-style opener carrying `@license`, `@preserve`, or
+ * `@cc_on` anywhere in its body. The clause below requires one of those
+ * literal markers rather than accepting any block-comment opener — a regex
+ * cannot distinguish a comment from string content, so accepting any opener
+ * lets a chunk containing a string with a bare `/` immediately followed by
+ * `*` get misread as a comment start, with the lazy body swallowing
+ * everything up to a later, unrelated comment terminator and dropping the
+ * real edges in between. Requiring an actual preserved-comment marker rejects
+ * that string at the boundary instead of trying to out-distance it. The
+ * marker search itself is barred from crossing the comment's own closing
+ * delimiter (via a per-character negative lookahead) so it can only ever
+ * match within THIS comment's own body, never by continuing past its close
+ * into unrelated later source looking for a marker that has nothing to do
+ * with this comment. The body is also bounded to 2000 chars, far more than
+ * any real banner needs, as a second, independent guard against a
+ * pathological match spanning arbitrarily far. A plain, non-preserved
+ * comment (one with none of those markers) is deliberately NOT skipped —
+ * that is a known, accepted limitation tracked in BST-890, not a bug: Terser
+ * strips it, so it never actually appears between two imports in a real
+ * build.
  */
 const STATIC_IMPORT_PATTERN =
-  /(?:^|[;}\n])\s*(?:\/\*![\s\S]{0,2000}?\*\/\s*)?import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
+  /(?:^|[;}\n])\s*(?:\/\*(?=\*{0,}!|(?:(?!\*\/)[\s\S]){0,2000}?(?:@license|@preserve|@cc_on))[\s\S]{0,2000}?\*\/\s*)?import\s*(?:[^'"();]*?\s*from\s*)?["']([^"']+)["']/g;
 
 /** `export * from '…'`, `export * as ns from '…'`, `export { a } from '…'`. */
 const STATIC_REEXPORT_PATTERN =
-  /(?:^|[;}\n])\s*(?:\/\*![\s\S]{0,2000}?\*\/\s*)?export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
+  /(?:^|[;}\n])\s*(?:\/\*(?=\*{0,}!|(?:(?!\*\/)[\s\S]){0,2000}?(?:@license|@preserve|@cc_on))[\s\S]{0,2000}?\*\/\s*)?export\s*(?:\*(?:\s*as\s*[^'"{};]+?)?|\{[^}]*\})\s*from\s*["']([^"']+)["']/g;
 
 /** Raw specifier strings for every STATIC edge in one chunk's source text. */
 export function parseStaticChunkSpecifiers(text) {
