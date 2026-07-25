@@ -22,6 +22,7 @@
 // against a root where no guard can honestly pass and asserts it refuses to
 // report success.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,6 +68,36 @@ test('every verify-* script invokes its check on direct execution', () => {
     'These scripts are named verify-* but run nothing when executed directly, so ' +
       '`node scripts/<name>` exits 0 no matter what the repo looks like:\n' +
       libraries.map((name) => `  - scripts/${name}`).join('\n')
+  );
+});
+
+// The in-process test below imports main() directly, so it cannot see whether
+// the `isDirectExecution` predicate actually fires — a subtly wrong copy of the
+// idiom (comparing an unresolved argv[1] against a realpath-resolved
+// import.meta.url, say) silently restores the original bug.
+//
+// This asserts only that SOMETHING was reported, deliberately not the exit code:
+// a guard legitimately failing on a dirty tree is its paired test's business, and
+// duplicating that verdict here would make an unrelated violation surface as a
+// confusing "entrypoint" failure. Zero output is the signal that the wiring never
+// ran at all.
+test('direct execution actually reaches the check (the entrypoint predicate fires)', () => {
+  const silent = [];
+  for (const name of VERIFY_SCRIPTS) {
+    const result = spawnSync(process.execPath, [path.join(SCRIPTS_DIR, name)], {
+      encoding: 'utf8',
+    });
+    if (`${result.stdout}${result.stderr}`.trim() === '') {
+      silent.push(name);
+    }
+  }
+
+  assert.deepEqual(
+    silent,
+    [],
+    'These scripts produced no output at all when spawned directly, so their ' +
+      'direct-execution predicate never fired — the BST-836 bug, restored:\n' +
+      silent.map((name) => `  - scripts/${name}`).join('\n')
   );
 });
 
