@@ -98,7 +98,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/assets",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "vite --port 8080 --host",
     "format": "biome format --write .",

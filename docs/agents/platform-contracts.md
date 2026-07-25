@@ -173,6 +173,26 @@ supersedes a stopgap (`mastra-workflow-table-literal-contract.test.mjs`, deleted
 that pinned one hand-copied literal in one file and could not see `export … from`,
 `await import()`, or the same import added from any other module.
 
+**The structural backstop is an acyclic chunk graph (BST-861).** A cross-chunk
+cycle is the NECESSARY PRECONDITION for this whole class, not a proxy for it:
+ESM evaluates a module's dependencies before its own body, so with an acyclic
+chunk graph a topological init order always exists and every imported binding is
+initialized before any module-scope read of it. `scripts/verify-no-cross-chunk-cycles.mjs`
+asserts that on the emitted bundle and runs inside `apps/web`'s `build` and
+`apps/desktop`'s `build:renderer`, so it cannot be skipped. Measured at the time
+it landed: web 362 chunks / 1003 static edges / 0 cycles, desktop renderer 367 /
+1036 / 0.
+
+This is why the mastra-family AST guard above is NOT generalized: the cycle
+invariant already covers every constant family, including the three still held
+by `codeSplitting.groups` pins in both vite configs (context-actions #1292,
+browser-events BST-580, zustand). The AST guard is kept because it does
+something the cycle check cannot — enforce the coding rule at review time, in
+seconds, with a file and line number. A repo-wide AST rule was rejected on
+measurement: "flag every module-scope read of an imported binding" returns 431
+hits in `app-shell` + `db` alone, nearly all benign. The CHUNK, not the file or
+the package, is the unit of risk.
+
 Known remaining instance of the same class, deliberately NOT changed here
 (**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
 interpolates the imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope

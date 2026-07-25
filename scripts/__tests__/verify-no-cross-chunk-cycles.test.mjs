@@ -19,10 +19,11 @@
 // POSITIVE (counting a dynamic import as an edge) would block builds over a cycle
 // that physically cannot fire.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildChunkGraph,
@@ -311,4 +312,28 @@ test('a bundle whose imports no longer parse throws rather than reporting clean'
 
 test('main() with no directory argument refuses instead of guessing', async () => {
   await assert.rejects(() => main({ directory: '' }), /Usage:/);
+});
+
+// --- wiring ------------------------------------------------------------------
+//
+// Wired into each app's own build rather than a CI step, mirroring
+// verify-tokenizer-asset-bundle.mjs (run inside chunking-worker and token-cache
+// builds). That makes it unskippable: it runs in the Build job, in both E2E jobs
+// (which build first), and locally, with no CI-only wiring that can drift.
+
+test('both renderer builds run the guard on their emitted bundle', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const read = (relative) =>
+    JSON.parse(readFileSync(path.join(repoRoot, relative), 'utf8')).scripts;
+
+  assert.match(
+    read('apps/web/package.json').build,
+    /node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/assets/,
+    'apps/web must verify its bundle as part of `build`.'
+  );
+  assert.match(
+    read('apps/desktop/package.json')['build:renderer'],
+    /node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/renderer\/assets/,
+    'apps/desktop must verify its renderer bundle as part of `build:renderer`.'
+  );
 });
