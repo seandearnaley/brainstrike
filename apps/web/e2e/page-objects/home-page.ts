@@ -1,9 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
+  assertSettingsModalClosed,
   closeSettingsModal,
   contextExplorerActiveNavLocator,
-  isSettingsModalOpen,
   openSettingsModal,
   profileMenuButtonLocator,
   settingsMenuItemLocator,
@@ -75,15 +75,9 @@ export class HomePage {
   }
 
   async navigateToHome(): Promise<void> {
-    // Radix marks everything outside an open dialog `aria-hidden`, which removes
-    // the sidebar from the accessibility tree that `getByRole` queries. Surface
-    // that state explicitly instead of silently dismissing the modal, which
+    // Surface an open modal explicitly instead of silently dismissing it, which
     // would let a test pass with the UI in an unexpected state.
-    if (await isSettingsModalOpen(this.page)) {
-      throw new Error(
-        'navigateToHome() was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — call closeSettings() first.'
-      );
-    }
+    await assertSettingsModalClosed(this.page, 'navigateToHome()');
     await this.contextExplorerNavButton.click();
     await waitForContextExplorerPage(this.page);
   }
