@@ -202,6 +202,34 @@ const DETECTED = [
     name: 'a constant with no "mastra" in its name at all (the pre-filter blind spot)',
     source: `import { DEFAULT_THREAD_TITLE } from '${CONTRACT}';\nconst TITLE = DEFAULT_THREAD_TITLE;\n`,
   },
+  // A computed KEY is evaluated once, at class-definition time — i.e. at module
+  // init — whether or not the member is static. Same for decorators.
+  {
+    name: 'computed member name on an INSTANCE member (evaluated at class definition)',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  [MASTRA_WORKFLOW_TABLE] = 1;\n}\n`,
+  },
+  {
+    name: 'computed member name on a static member',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  static [MASTRA_WORKFLOW_TABLE] = 1;\n}\n`,
+  },
+  {
+    name: 'class decorator argument',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\n@register(MASTRA_WORKFLOW_TABLE)\nclass Store {}\n`,
+  },
+  {
+    name: 'member decorator argument on an instance method',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  @register(MASTRA_WORKFLOW_TABLE)\n  clear() {}\n}\n`,
+  },
+  {
+    name: 'object-literal computed key',
+    source: `import { MASTRA_VECTOR_TABLE } from '${CONTRACT}';\nconst byTable = { [MASTRA_VECTOR_TABLE]: 1 };\n`,
+  },
+  // A RENAMED re-export defeats name matching for every downstream consumer, so
+  // the rename itself is the violation.
+  {
+    name: 'renamed re-export (breaks name matching for every downstream consumer)',
+    source: `export { MASTRA_VECTOR_TABLE as VECTORS } from './sql.js';\n`,
+  },
 ];
 
 for (const { name, source } of DETECTED) {
@@ -267,7 +295,39 @@ const ALLOWED = [
     name: 'a namespace import read for an UNguarded property at module scope',
     source: `import * as schema from '${CONTRACT}';\nconst other = schema.SOMETHING_ELSE;\n`,
   },
+  {
+    name: 'a SAME-name re-export (the supported hop — renaming is what breaks matching)',
+    source: `export { MASTRA_VECTOR_TABLE, MASTRA_MEMORY_TABLES } from './sql.js';\n`,
+  },
+  {
+    name: 'a local import alias at the point of use (the imported name is still spelled)',
+    source: `import { MASTRA_VECTOR_TABLE as VECTORS } from './sql.js';\nfunction build() {\n  return \`SELECT \${VECTORS}\`;\n}\n`,
+  },
+  {
+    name: 'a type-only renamed re-export (erased, never read at runtime)',
+    source: `export type { MASTRA_VECTOR_TABLE as Vectors } from './sql.js';\n`,
+  },
+  {
+    name: 'an instance method body under a computed guarded key',
+    source: `import { MASTRA_WORKFLOW_TABLE } from '${CONTRACT}';\nclass Store {\n  clear() {\n    return MASTRA_WORKFLOW_TABLE;\n  }\n}\n`,
+  },
 ];
+
+test('the rename check reports its own reason, not the module-scope-read one', async () => {
+  const guardedNames = [...(await readGuardedBindings({ root: REPO_ROOT }))];
+  const [violation] = findModuleScopeReadsInSource(
+    `export { MASTRA_VECTOR_TABLE as VECTORS } from './sql.js';\n`,
+    guardedNames
+  );
+
+  assert.ok(violation, 'A renamed re-export of a guarded constant must be reported.');
+  assert.equal(
+    violation.rename,
+    true,
+    'The rename must be tagged so the CLI explains that name matching was broken, rather than ' +
+      'telling the author to "move the read inside a function" — there is no read here.'
+  );
+});
 
 for (const { name, source } of ALLOWED) {
   test(`allows: ${name}`, () => {

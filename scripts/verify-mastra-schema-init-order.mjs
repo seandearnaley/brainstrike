@@ -258,16 +258,30 @@ function findModuleScopeReads(sourceFile, guarded) {
       return;
     }
     if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
-      // Heritage clauses, STATIC property initializers and STATIC blocks all
-      // evaluate when the class definition is evaluated — i.e. at module init.
-      // Instance members and methods do not.
+      // Everything that evaluates when the CLASS DEFINITION is evaluated — i.e.
+      // at module init — must be walked. Instance member VALUES do not, but
+      // their decorators and computed KEYS do: a computed key is evaluated once,
+      // at class-definition time, whether or not the member is static.
       for (const clause of node.heritageClauses ?? []) {
         walk(clause);
+      }
+      for (const modifier of node.modifiers ?? []) {
+        if (ts.isDecorator(modifier)) {
+          walk(modifier);
+        }
       }
       for (const member of node.members) {
         if (ts.isClassStaticBlockDeclaration(member)) {
           walk(member.body);
           continue;
+        }
+        for (const modifier of member.modifiers ?? []) {
+          if (ts.isDecorator(modifier)) {
+            walk(modifier);
+          }
+        }
+        if (member.name && ts.isComputedPropertyName(member.name)) {
+          walk(member.name.expression);
         }
         const isStatic = member.modifiers?.some(
           (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword
@@ -331,6 +345,47 @@ function findModuleScopeReads(sourceFile, guarded) {
 }
 
 /**
+ * Guarded constants re-exported under a DIFFERENT name.
+ *
+ * This guard matches by name, everywhere, on purpose — that is what makes
+ * re-export hops work without enumerating alias paths. A RENAMED re-export
+ * (`export { MASTRA_VECTOR_TABLE as VECTORS } from './sql'`) breaks that
+ * premise: a downstream consumer then writes `import { VECTORS }`, its text
+ * mentions no guarded name, and both the pre-filter and the detector miss it
+ * silently — the guard would report clean on exactly the hazard it exists for.
+ *
+ * Rather than chase rename chains through module resolution, the rename itself
+ * is the violation: keep these constants spelled as themselves at every hop and
+ * name-matching stays complete. No such rename exists in the repo today; this
+ * stops one being introduced (review, PR #1988). Local aliasing at the point of
+ * USE (`import { X as Y }`) is unaffected — the imported name is still spelled.
+ */
+function findRenamedGuardedReExports(sourceFile, guarded) {
+  const renames = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) {
+      continue;
+    }
+    const clause = statement.exportClause;
+    if (!(clause && ts.isNamedExports(clause))) {
+      continue;
+    }
+    for (const element of clause.elements) {
+      if (element.isTypeOnly || !element.propertyName) {
+        continue;
+      }
+      const exportedFrom = element.propertyName.text;
+      const exportedAs = element.name.text;
+      if (guarded.has(exportedFrom) && exportedFrom !== exportedAs) {
+        const { line } = sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile));
+        renames.push({ binding: exportedFrom, line: line + 1, local: exportedAs, rename: true });
+      }
+    }
+  }
+  return renames;
+}
+
+/**
  * Analyze one module's source text. Exported so the paired test can drive the
  * detector over fixtures — including the false-positive controls that prove a
  * read inside a function body is NOT reported, which is the entire distinction
@@ -344,7 +399,11 @@ export function findModuleScopeReadsInSource(text, guardedNames, fileName = 'fix
     true,
     ts.ScriptKind.TSX
   );
-  return findModuleScopeReads(sourceFile, new Set(guardedNames));
+  const guarded = new Set(guardedNames);
+  return [
+    ...findModuleScopeReads(sourceFile, guarded),
+    ...findRenamedGuardedReExports(sourceFile, guarded),
+  ];
 }
 
 /**
@@ -396,6 +455,9 @@ export async function findMastraSchemaModuleScopeReads({ root = REPO_ROOT } = {}
     for (const read of findModuleScopeReads(sourceFile, guarded)) {
       violations.push({ filePath, ...read });
     }
+    for (const rename of findRenamedGuardedReExports(sourceFile, guarded)) {
+      violations.push({ filePath, ...rename });
+    }
   }
   return violations;
 }
@@ -408,19 +470,38 @@ export async function main({ repoRoot = REPO_ROOT } = {}) {
     return;
   }
 
-  console.error(
-    'Mastra memory-schema constants are read during module-scope evaluation. Bundle chunk order ' +
-      'does not guarantee the contract chunk has initialized at that point, so the binding can be ' +
-      'undefined: a property access throws and kills the renderer at startup, and a bare ' +
-      'interpolation silently splices "undefined" into SQL. Move the read inside the function that ' +
-      'uses it (build SQL where you execute it):'
-  );
-  for (const violation of violations) {
-    const alias =
-      violation.local === violation.binding
-        ? violation.binding
-        : `${violation.binding} as ${violation.local}`;
-    console.error(`- ${violation.filePath}:${violation.line} (${alias})`);
+  const reads = violations.filter((violation) => !violation.rename);
+  const renames = violations.filter((violation) => violation.rename);
+
+  if (reads.length > 0) {
+    console.error(
+      'Mastra memory-schema constants are read during module-scope evaluation. Bundle chunk order ' +
+        'does not guarantee the contract chunk has initialized at that point, so the binding can be ' +
+        'undefined: a property access throws and kills the renderer at startup, and a bare ' +
+        'interpolation silently splices "undefined" into SQL. Move the read inside the function that ' +
+        'uses it (build SQL where you execute it):'
+    );
+    for (const violation of reads) {
+      const alias =
+        violation.local === violation.binding
+          ? violation.binding
+          : `${violation.binding} as ${violation.local}`;
+      console.error(`- ${violation.filePath}:${violation.line} (${alias})`);
+    }
+  }
+
+  if (renames.length > 0) {
+    console.error(
+      'Mastra memory-schema constants are RE-EXPORTED under a different name. This guard matches by ' +
+        'name at every hop, which is what lets it follow re-exports without enumerating alias paths; ' +
+        'a renamed re-export breaks that premise, because a downstream consumer then spells only the ' +
+        'new name and is silently never scanned. Re-export them under their own names:'
+    );
+    for (const violation of renames) {
+      console.error(
+        `- ${violation.filePath}:${violation.line} (${violation.binding} as ${violation.local})`
+      );
+    }
   }
   process.exitCode = 1;
 }
