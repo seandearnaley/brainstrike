@@ -198,7 +198,7 @@ test('VERDICT: the renderer source graph has no cycles', async () => {
   );
   assert.ok(
     moduleCount > 1000,
-    `Only ${moduleCount} modules reached; resolution has probably broken (was 1258 when written).`
+    `Only ${moduleCount} modules reached; resolution has probably broken (was 1256 when written).`
   );
 });
 

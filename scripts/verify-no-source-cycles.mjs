@@ -33,7 +33,7 @@
 //   139  tsconfig resolution — cross-package source invisible
 //   768  + the workspace src-alias registry
 //   813  + curated agent browser-safe subpaths and @brainstrike/workers
-//  1258  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
+//  1256  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
 //         `.js`-names-a-`.ts`-file rewrite
 // `EXPECTED_UNRESOLVED` is consequently EMPTY: every in-scope specifier resolves.
 //
@@ -95,7 +95,7 @@ const RENDERER_APPS = Object.freeze([
 
 /**
  * Anti-vacuous floor (BST-836: an instrument that cannot fail is not evidence).
- * Measured at 1258 modules for the larger of the two renderer graphs. If a
+ * Measured at 1256 modules for the larger of the two renderer graphs. If a
  * resolution change or a bad entry path collapses the graph, that must fail
  * loudly rather than report "no cycles" forever. Keep the headroom modest: an
  * earlier 400 against ~813 was loose enough that losing half the graph would
@@ -396,6 +396,14 @@ export function findCycles(graph) {
  * genuine resolution FAILURE — which is a dropped edge that could hide a cycle.
  */
 function resolveSpecifier({ specifier, fromFile, aliases }) {
+  // Stylesheets are not modules in the init-order sense, and a relative one
+  // WOULD otherwise resolve — `resolveSourceFile` returns any existing file —
+  // padding the graph with non-modules. `apps/web/src/main.tsx` imports
+  // `./app/globals.css` at the entry, so this is live, not theoretical, and the
+  // padding lands in exactly the count MIN_MODULES is supposed to guard.
+  if (isStyleSheetSpecifier(specifier)) {
+    return null;
+  }
   const bare = specifier.replace(VITE_QUERY_SUFFIX, '');
   if (bare.startsWith('.')) {
     return resolveSourceFile(path.resolve(path.dirname(fromFile), bare));
