@@ -35,7 +35,7 @@ The collector performs no repository writes and no mutating installs. It:
 - validates repository identity and requires the lockfile;
 - runs `pnpm audit --json` in lockfile-only mode and normalizes every advisory (id, package, vulnerable range, installed versions, severity, patched range, dependency paths with a prod/dev marker);
 - fetches the repo's Dependabot alerts via `gh api` with complete pagination and merges them by GHSA id — BOTH sources are required: if either fails or alert access is disabled, the collector fails visibly rather than silently narrowing coverage to one feed;
-- emits per-advisory fingerprints in the charter's shape and a sorted `watchedSetHash` over the advisory triples;
+- emits the charter's per-PACKAGE ticket fingerprint (`fingerprint`) on every advisory, plus the pre-rule per-advisory shape as `legacyFingerprint` (for folding old tickets in the sweep), and a sorted `watchedSetHash` over the advisory triples;
 - distinguishes an empty advisory set (healthy, hash of empty) from a failed collection (exit 1) — the two are never conflated.
 
 Treat collector output as the surface, not the verdict: the collector proves version-range membership; reachability and routing are yours.
@@ -47,9 +47,9 @@ For a dry-run or audit request, stop after reporting the would-be routings. Make
 ## Verify and route
 
 1. For each NEW advisory, apply the charter's verification: dependency paths (dev-only vs shipped surface), plausible reachability in this local-first architecture, patched-version availability inside the current range. Read the actual dependent code paths before claiming reachability either way — never infer from the advisory text alone.
-2. Search Linear for the exact fingerprint before any write, with complete pagination. Update an open match rather than filing a twin.
+2. Search Linear for the exact package `fingerprint` before any write, with complete pagination — one ticket per package, its body listing every advisory id, severity label = max across them. Update an open match rather than filing a twin. Also search the advisory's `legacyFingerprint`: a pre-rule per-advisory ticket found open is folded into the package ticket per the charter's LEGACY CONSOLIDATION rule.
 3. Route per the charter: patchable-not-exploitable → Quartermaster-territory ticket (optionally noting Forge candidacy — the human applies `agent-ready`, never you); plausibly exploitable → DISCLOSURE RULE (public ticket carries only advisory id, package, severity; full analysis through Sentinel's private channel; `needs-human`); pinned-by-doctrine package → always `needs-human`; false positive → state-issue reasoning only, no ticket.
-4. Sweep open Vigil tickets per the charter's closure rules: a resolving lockfile commit is cited in the closing comment, and a human-commented ticket is never closed by you.
+4. Sweep open Vigil tickets per the charter's closure rules: strike resolved advisories from the package ticket's body (citing the resolving lockfile commit), relabel down when the remaining max severity drops, and close only when the LAST advisory clears. A human-commented ticket is never closed by you.
 
 Read before every Linear write and re-read after it. Surface partial writes immediately.
 

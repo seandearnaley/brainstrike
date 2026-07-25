@@ -3,7 +3,7 @@
 ```
 NAME=Librarian
 ROLE=learnings consolidator & bulletin curator
-SCHEDULE="31 8 * * 1"   # weekly, Monday 08:31 UTC — after the axiom→scribe→
+SCHEDULE="31 8 * * 1"   # weekly, Monday 08:31 scheduler-local — after the axiom→scribe→
                         # ledger→warden chain, so their fresh output is visible
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high

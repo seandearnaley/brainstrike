@@ -32,7 +32,7 @@ function parseArgs(argv) {
     const argument = argv[index];
     if (argument === '--help') {
       process.stdout.write(
-        'Usage: node collect-chronicle-evidence.mjs --repo <path> --window-start <UTC-ISO> [--window-end <UTC-ISO>] [--revision <revision>] [--pretty]\n'
+        'Usage: node collect-chronicle-evidence.mjs --repo <path> --window-start <UTC-ISO> --schedule-timezone <IANA-zone> [--window-end <UTC-ISO>] [--revision <revision>] [--pretty]\n'
       );
       process.exit(0);
     }
@@ -40,7 +40,11 @@ function parseArgs(argv) {
       options.pretty = true;
       continue;
     }
-    if (!['--repo', '--revision', '--window-start', '--window-end'].includes(argument)) {
+    if (
+      !['--repo', '--revision', '--schedule-timezone', '--window-start', '--window-end'].includes(
+        argument
+      )
+    ) {
       fail(`unsupported argument: ${argument}`);
     }
     const value = argv[index + 1];
@@ -55,6 +59,17 @@ function parseArgs(argv) {
   }
   if (!options['window-start']) {
     fail('--window-start is required');
+  }
+  // No default: an implicit UTC would silently reproduce the exact false
+  // missed-wake anomalies this option exists to prevent. The caller reads the
+  // declared value from charters/README.md "Timezones".
+  if (!options['schedule-timezone']) {
+    fail('--schedule-timezone is required (see .night-shift/charters/README.md "Timezones")');
+  }
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: options['schedule-timezone'] });
+  } catch {
+    fail(`--schedule-timezone is not a recognized IANA zone: ${options['schedule-timezone']}`);
   }
   const windowStart = parseUtcIso('--window-start', options['window-start']);
   const windowEnd = options['window-end']
@@ -251,7 +266,40 @@ function parseCron(cron) {
   };
 }
 
-function countExpectedWakes(cronText, windowStart, windowEnd) {
+const CRON_WEEKDAYS = { Fri: 5, Mon: 1, Sat: 6, Sun: 0, Thu: 4, Tue: 2, Wed: 3 };
+
+// The scheduler evaluates cron fields on ITS OWN wall clock, not UTC
+// (charters/README.md "Timezones"). Expected-wake arithmetic must therefore
+// read each UTC instant's field values in the declared scheduler timezone —
+// DST-aware via Intl, never a fixed offset.
+function zonedCronFields(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    hour: 'numeric',
+    hour12: false,
+    minute: 'numeric',
+    month: 'numeric',
+    timeZone,
+    weekday: 'short',
+  }).formatToParts(instant);
+  const byType = {};
+  for (const part of parts) {
+    byType[part.type] = part.value;
+  }
+  const dayOfWeek = CRON_WEEKDAYS[byType.weekday];
+  if (dayOfWeek === undefined) {
+    fail(`unrecognized weekday from timezone formatting: ${byType.weekday}`);
+  }
+  return {
+    dayOfMonth: Number(byType.day),
+    dayOfWeek,
+    hour: Number(byType.hour) % 24,
+    minute: Number(byType.minute),
+    month: Number(byType.month),
+  };
+}
+
+function countExpectedWakes(cronText, windowStart, windowEnd, timeZone) {
   const cron = parseCron(cronText);
   const cursor = new Date(windowStart);
   cursor.setUTCSeconds(0, 0);
@@ -260,8 +308,9 @@ function countExpectedWakes(cronText, windowStart, windowEnd) {
   }
   let count = 0;
   while (cursor.getTime() < windowEnd.getTime()) {
-    const dayOfMonthMatches = cron.dayOfMonth.matches(cursor.getUTCDate());
-    const dayOfWeekMatches = cron.dayOfWeek.matches(cursor.getUTCDay());
+    const fields = zonedCronFields(cursor, timeZone);
+    const dayOfMonthMatches = cron.dayOfMonth.matches(fields.dayOfMonth);
+    const dayOfWeekMatches = cron.dayOfWeek.matches(fields.dayOfWeek);
     const dayMatches =
       cron.dayOfMonth.wildcard && cron.dayOfWeek.wildcard
         ? true
@@ -271,9 +320,9 @@ function countExpectedWakes(cronText, windowStart, windowEnd) {
             ? dayOfMonthMatches
             : dayOfMonthMatches || dayOfWeekMatches;
     if (
-      cron.minute.matches(cursor.getUTCMinutes()) &&
-      cron.hour.matches(cursor.getUTCHours()) &&
-      cron.month.matches(cursor.getUTCMonth() + 1) &&
+      cron.minute.matches(fields.minute) &&
+      cron.hour.matches(fields.hour) &&
+      cron.month.matches(fields.month) &&
       dayMatches
     ) {
       count += 1;
@@ -283,7 +332,7 @@ function countExpectedWakes(cronText, windowStart, windowEnd) {
   return count;
 }
 
-function collectRoster(repo, revision, windowStart, windowEnd) {
+function collectRoster(repo, revision, windowStart, windowEnd, scheduleTimezone) {
   const charterFiles = revisionPaths(repo, revision, CHARTERS_ROOT)
     .filter(
       (file) =>
@@ -304,9 +353,9 @@ function collectRoster(repo, revision, windowStart, windowEnd) {
       const meta = parseCharterMeta(file, readRevisionFile(repo, revision, file));
       return {
         cron: meta.schedule,
-        expectedWakes: countExpectedWakes(meta.schedule, windowStart, dueHorizon),
+        expectedWakes: countExpectedWakes(meta.schedule, windowStart, dueHorizon, scheduleTimezone),
         name: meta.name,
-        pendingWakes: countExpectedWakes(meta.schedule, dueHorizon, windowEnd),
+        pendingWakes: countExpectedWakes(meta.schedule, dueHorizon, windowEnd, scheduleTimezone),
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -657,12 +706,19 @@ function collect(options) {
   return {
     generatedAt: new Date().toISOString(),
     prs: collectPullRequests(repo, repository, options.windowStart, options.windowEnd),
-    roster: collectRoster(repo, options.revision, options.windowStart, options.windowEnd),
+    roster: collectRoster(
+      repo,
+      options.revision,
+      options.windowStart,
+      options.windowEnd,
+      options['schedule-timezone']
+    ),
     scheduledWorkflows: collectScheduledWorkflows(repo, options.revision),
     schema: SCRIPT_NAME,
     window: {
       end: options.windowEnd.toISOString(),
       scheduleSlackMinutes: SCHEDULE_SLACK_MINUTES,
+      scheduleTimezone: options['schedule-timezone'],
       start: options.windowStart.toISOString(),
     },
   };

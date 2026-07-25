@@ -3,7 +3,7 @@
 ```
 NAME=Warden
 ROLE=guard-script meta-health monitor
-SCHEDULE="17 7 * * 1"   # weekly, Monday 07:17 UTC
+SCHEDULE="17 7 * * 1"   # weekly, Monday 07:17 scheduler-local
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (re-wiring only)

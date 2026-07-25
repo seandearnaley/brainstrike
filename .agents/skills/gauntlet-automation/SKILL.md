@@ -30,6 +30,18 @@ node .agents/skills/gauntlet-automation/scripts/collect-gauntlet-evidence.mjs \
   --pretty
 ```
 
+On a first run (no prior checkpoint), pass `--watermark none`: the collector
+resolves the baseline to the oldest commit that introduced
+`.night-shift/charters/gauntlet.md` and reports `watermarkBootstrapped: true`
+in its output (BST-722). Never invent a baseline by hand. Record the resolved
+SHA in your checkpoint message as the fixed token `baseline=<40-hex>` — the
+protocol's `watermark=` field carries your watched-set hash, so this token is
+the ONLY deterministic home the git baseline has. Every subsequent run greps
+its state issue's newest `baseline=` token and passes that SHA (advancing it
+when a run completes a sweep); `--watermark none` is valid ONLY when no prior
+Gauntlet checkpoint exists — once one does, re-passing `none` re-derives from
+the charter commit and silently rewinds the window, so treat it as forbidden.
+
 The collector performs no repository writes; its only `gh` use is read-only. It:
 
 - validates repository identity and watermark ancestry;

@@ -39,6 +39,9 @@ async function main() {
     absolute: false,
     ignore: IGNORE_PATTERNS,
     nodir: true,
+    // Windows: glob returns backslash-separated paths by default, which breaks
+    // the /-separated violation output consumers (and the test) match on.
+    posix: true,
   });
 
   const violations = (

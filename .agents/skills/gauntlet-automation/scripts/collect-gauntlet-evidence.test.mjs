@@ -199,3 +199,53 @@ test('fails closed when the merged PR listing hits its limit', (t) => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /200-result limit/);
 });
+
+test('bootstraps a none watermark from the commit that introduced the charter', (t) => {
+  const fixture = createFixture(t);
+  mkdirSync(join(fixture.repo, '.night-shift/charters'), { recursive: true });
+  writeFileSync(join(fixture.repo, '.night-shift/charters/gauntlet.md'), 'charter v1\n');
+  git(fixture.repo, ['add', '.']);
+  git(fixture.repo, ['commit', '-m', 'introduce gauntlet charter']);
+  const charterIntroduction = git(fixture.repo, ['rev-parse', 'HEAD']);
+  writeFileSync(join(fixture.repo, '.night-shift/charters/gauntlet.md'), 'charter v2\n');
+  writeFileSync(
+    join(fixture.repo, 'packages/agent/src/evaluation/agent-behavior-eval-runner.ts'),
+    "const flows = [{ name: 'runner-flow' }, { name: 'control-flow' }, { name: 'post-charter-flow' }];\n"
+  );
+  git(fixture.repo, ['add', '.']);
+  git(fixture.repo, ['commit', '-m', 'amend gauntlet charter and runner']);
+  const result = run(fixture, { FAKE_GH_PRS: pullRequests }, 'none');
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.watermark, charterIntroduction);
+  assert.equal(output.watermarkBootstrapped, true);
+  // The derived baseline must actually drive the delta window: assistant
+  // changes AFTER the charter introduction are in, changes BEFORE it are out.
+  assert.deepEqual(
+    output.assistantDelta.map((entry) => entry.path),
+    ['packages/agent/src/evaluation/agent-behavior-eval-runner.ts']
+  );
+});
+
+test('refuses to bootstrap a none watermark in a shallow clone', (t) => {
+  const fixture = createFixture(t);
+  mkdirSync(join(fixture.repo, '.night-shift/charters'), { recursive: true });
+  writeFileSync(join(fixture.repo, '.night-shift/charters/gauntlet.md'), 'charter v1\n');
+  git(fixture.repo, ['add', '.']);
+  git(fixture.repo, ['commit', '-m', 'introduce gauntlet charter']);
+  const root = join(fixture.repo, '..');
+  execFileSync('git', ['clone', '--depth', '1', `file://${fixture.repo}`, join(root, 'shallow')], {
+    encoding: 'utf8',
+  });
+  const shallowFixture = { ...fixture, repo: join(root, 'shallow') };
+  const result = run(shallowFixture, {}, 'none');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /shallow clone/);
+});
+
+test('fails closed on a none watermark when the charter has no history', (t) => {
+  const fixture = createFixture(t);
+  const result = run(fixture, {}, 'none');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /charter has no history/);
+});

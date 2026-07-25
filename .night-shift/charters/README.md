@@ -15,7 +15,7 @@ scheduler; deployment must keep both surfaces in sync. Shared machinery lives
 in [../PROTOCOL.md](../PROTOCOL.md), which every loop reads at wake, so fleet
 doctrine upgrades are one PR here instead of N scheduler edits.
 
-Fleet design doc: "The Night Shift" (16-loop survey, tiers, guardrails).
+Fleet design doc: "The Night Shift" (original 16-loop survey, tiers, guardrails; the deployed roster below has since grown).
 
 Every loop has a matching execution skill at `.agents/skills/<name>-automation/`
 (deterministic evidence collectors + step ordering; see PROTOCOL.md
@@ -26,7 +26,7 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 
 ## Roster
 
-| charter | role | schedule (UTC) | autonomy |
+| charter | role | schedule (scheduler-local) | autonomy |
 | --- | --- | --- | --- |
 | [axiom](axiom.md) | invariant maintainer — codifies unscripted invariants into guards | `23 6 * * 1` | propose-pr |
 | [scribe](scribe.md) | docs-as-contracts freshness auditor | `37 6 * * 1` | propose-pr |
@@ -52,6 +52,22 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 
 ## Deployment notes
 
+- TIMEZONES. Two clocks exist and they are NOT the same:
+  - SCHEDULE crons (this README and every charter meta block) execute on
+    the scheduler client's LOCAL clock: **America/New_York** (verified
+    2026-07-25 — observed wakes sit at a consistent DST offset from a UTC
+    reading of the same cron). Cron values are local wall-clock times.
+  - Everything the loops WRITE — checkpoint timestamps, watermark
+    evidence, ticket bodies — is always UTC (the checkpoint grammar
+    enforces the trailing `Z`).
+  Expected-wake arithmetic (Chronicle, Auditor) must therefore evaluate
+  crons in the scheduler timezone, never raw UTC: pass
+  `--schedule-timezone America/New_York` to the chronicle collector. A UTC
+  evaluation misses/misplaces every wake by the DST offset and files false
+  MISSED-WAKE anomalies. If the scheduler host's timezone ever changes,
+  update this bullet — it is the fleet's single declared source of truth
+  for the scheduler clock.
+
 - PR stewardship (PROTOCOL.md) applies to every PR-authoring loop: at wake,
   an open PR is reconciled — checks + review threads — before any new work;
   every comment gets a reply, threads are resolved via gh once addressed,
@@ -65,11 +81,11 @@ checkpoint-grammar validator; run it before posting any checkpoint).
   next weekly discovery wake. Scheduler prompt shape:
   `STEWARD WAKE for <Name>: read .night-shift/PROTOCOL.md (PR stewardship,
   steward-wake rules) and .night-shift/charters/<name>.md, then reconcile
-  your open PR only.` All run at hours 0,6,12,18 UTC with offset minutes;
+  your open PR only.` All run at hours 0,6,12,18 scheduler-local with offset minutes;
   the protocol's newest-checkpoint-vs-budget guard prevents overlap with a
   still-running discovery wake:
 
-  | loop | steward cron (UTC) |
+  | loop | steward cron (scheduler-local) |
   | --- | --- |
   | axiom | `3 0,6,12,18 * * *` |
   | curator | `5 0,6,12,18 * * *` |
