@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { describe, expect, it } from 'vitest';
 import { mapMastraToolEvent, readNestedToolOutputChunk } from '../mastra/tool-event-mapper';
 import { createHookResultEnvelope } from '../tools/hook-runner';
@@ -46,6 +47,37 @@ describe('readNestedToolOutputChunk', () => {
 });
 
 describe('mapMastraToolEvent', () => {
+  it('warns when a runtime tool chunk has an unrecognized type', () => {
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      expect(
+        mapMastraToolEvent({ type: 'future-mastra-tool-stream-chunk' }, new Map<string, string>())
+      ).toBeUndefined();
+    } finally {
+      removeLogListener();
+    }
+
+    const diagnosticRecord = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') &&
+          (arg as { code?: unknown }).code === 'mastra_tool_event_unrecognized_stream_chunk'
+      )
+    );
+    const diagnosticFields = diagnosticRecord?.args.find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') &&
+        (arg as { code?: unknown }).code === 'mastra_tool_event_unrecognized_stream_chunk'
+    );
+    expect(diagnosticRecord?.level).toBe(LogLevel.WARN);
+    expect(diagnosticFields).toMatchObject({
+      chunkType: 'future-mastra-tool-stream-chunk',
+      code: 'mastra_tool_event_unrecognized_stream_chunk',
+    });
+  });
+
   it('maps tool-call payloads to start events with args', () => {
     const toolNames = new Map<string, string>();
     const sanitizedNames = new Map<string, string>([['filesystem_list', 'filesystem.list']]);

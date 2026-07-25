@@ -20,6 +20,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
+import type { ChunkType } from '@mastra/core/stream';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
@@ -89,6 +90,113 @@ import {
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
+
+type DynamicMastraChunkType =
+  | `agent-execution-event-${string}`
+  | `data-${string}`
+  | `workflow-execution-event-${string}`;
+type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
+
+/**
+ * A complete disposition inventory for Mastra's exported static chunk union.
+ * `satisfies` makes a newly-added literal chunk type a type-check failure at
+ * upgrade time; dynamic chunk families remain observable at runtime below.
+ */
+const MASTRA_STATIC_CHUNK_TYPES = {
+  abort: true,
+  'agent-execution-abort': true,
+  'agent-execution-approval': true,
+  'agent-execution-end': true,
+  'agent-execution-start': true,
+  'agent-execution-suspended': true,
+  'background-task-cancelled': true,
+  'background-task-completed': true,
+  'background-task-failed': true,
+  'background-task-output': true,
+  'background-task-progress': true,
+  'background-task-resumed': true,
+  'background-task-running': true,
+  'background-task-started': true,
+  'background-task-suspended': true,
+  error: true,
+  file: true,
+  finish: true,
+  goal: true,
+  'is-task-complete': true,
+  'network-execution-event-finish': true,
+  'network-execution-event-step-finish': true,
+  'network-object': true,
+  'network-object-result': true,
+  'network-validation-end': true,
+  'network-validation-start': true,
+  object: true,
+  'object-result': true,
+  raw: true,
+  'reasoning-delta': true,
+  'reasoning-end': true,
+  'reasoning-signature': true,
+  'reasoning-start': true,
+  'redacted-reasoning': true,
+  'response-metadata': true,
+  'routing-agent-abort': true,
+  'routing-agent-end': true,
+  'routing-agent-start': true,
+  'routing-agent-text-delta': true,
+  'routing-agent-text-start': true,
+  source: true,
+  start: true,
+  'step-finish': true,
+  'step-output': true,
+  'step-start': true,
+  'text-delta': true,
+  'text-end': true,
+  'text-start': true,
+  'tool-call': true,
+  'tool-call-approval': true,
+  'tool-call-delta': true,
+  'tool-call-input-streaming-end': true,
+  'tool-call-input-streaming-start': true,
+  'tool-call-suspended': true,
+  'tool-error': true,
+  'tool-execution-abort': true,
+  'tool-execution-approval': true,
+  'tool-execution-end': true,
+  'tool-execution-start': true,
+  'tool-execution-suspended': true,
+  'tool-output': true,
+  'tool-result': true,
+  tripwire: true,
+  watch: true,
+  'workflow-canceled': true,
+  'workflow-execution-abort': true,
+  'workflow-execution-end': true,
+  'workflow-execution-start': true,
+  'workflow-execution-suspended': true,
+  'workflow-finish': true,
+  'workflow-paused': true,
+  'workflow-start': true,
+  'workflow-step-finish': true,
+  'workflow-step-output': true,
+  'workflow-step-progress': true,
+  'workflow-step-result': true,
+  'workflow-step-start': true,
+  'workflow-step-suspended': true,
+  'workflow-step-waiting': true,
+} satisfies Record<StaticMastraChunkType, true>;
+
+function isKnownMastraStreamPartType(type: string): boolean {
+  return (
+    Object.hasOwn(MASTRA_STATIC_CHUNK_TYPES, type) ||
+    type.startsWith('agent-execution-event-') ||
+    type.startsWith('data-') ||
+    type.startsWith('workflow-execution-event-')
+  );
+}
+
+function getDiagnosticChunkType(type: string): string {
+  const maximumLength = 128;
+  return type.length <= maximumLength ? type : `${type.slice(0, maximumLength - 3)}...`;
+}
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 interface MastraStreamPart {
@@ -1111,6 +1219,12 @@ function processMastraStreamPart(
       return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
+      if (!isKnownMastraStreamPartType(p.type)) {
+        logger.warn('mastra emitted an unrecognized stream chunk', {
+          chunkType: getDiagnosticChunkType(p.type),
+          code: 'mastra_agent_unrecognized_stream_chunk',
+        });
+      }
       return { chunks: [], finished: false };
   }
 }

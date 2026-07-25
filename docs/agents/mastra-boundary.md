@@ -255,8 +255,11 @@ Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
 | `NetworkChunkType` (`:683`) | 27 | 0 |
 | `DataChunkType` (`:676`) | `data-${string}` | 2 Brainstrike-owned |
 
-Implementation is tracked separately (see FOLLOW-UPS). The decision is settled
-here, so it is no longer architecture-gated.
+`scripts/mastra-stream-chunk-contract.mjs` enforces the type import, the complete
+static `ChunkType` disposition inventory, and a coded diagnostic at each of the
+three dispatch defaults. Its paired control case proves a silently-dropping
+default fails. The decision is settled here, so it is no longer
+architecture-gated.
 
 ## R7 MCP TRANSPORT AND CAPABILITIES
 
@@ -404,6 +407,7 @@ these tests in the same change.
 | --- | --- |
 | R1 | no `@mastra/{hono,express,fastify,koa,nestjs,deployer,server}` in the lockfile; constructed Mastra config carries no `server`/`observability`/`scorers` key in **any** literal form (`key:`, quoted, or bare shorthand — `storage,` in that object is already shorthand), and no opaque spread that would make the scan unverifiable |
 | R2 | **both** browser bundles — `apps/web/vite.config.mts` **and** `apps/desktop/vite.config.mts` (the Electron renderer build, `outDir: 'dist/renderer'`) — keep `@mastra/core` and `/^@mastra\//` in their vite externals |
+| R6 | `scripts/mastra-stream-chunk-contract.mjs` requires a complete static `ChunkType` disposition inventory and coded warnings at the Mastra, `StreamChunk`, and tool-event dispatch defaults; runtime tests keep the stream alive while the logger emits each diagnostic |
 | R4 | `@mastra/agent-browser` absent from every manifest and the lockfile |
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
 | R8 | *(unguarded by design — R8 permits adding `@mastra/evals` on its own merits, so an absence assertion would encode a constraint this ruling explicitly retires)* |
@@ -412,8 +416,6 @@ these tests in the same change.
 
 Decided here, implemented separately. None is architecture-gated any longer.
 
-- **Unknown-chunk policy (R6).** Type the mapper against Mastra's `ChunkType`;
-  coded warning + diagnostic event at the three dispatch defaults.
 - **Unknown resume schema (R9).** Replace the dead-end notice with visible
   rejection.
 - **Dead run-event kinds.** `context.budget`, `context.prepared`,

@@ -8,6 +8,7 @@ import {
   type AssistantToolSuspendRequest,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import { createLogger } from '@brainstrike/utils';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -65,6 +66,15 @@ const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop 
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
+const logger = createLogger('DataStreamMapper');
+
+function getDiagnosticChunkType(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '<non-string>';
+  }
+  const maximumLength = 128;
+  return value.length <= maximumLength ? value : `${value.slice(0, maximumLength - 3)}...`;
+}
 
 function formatVisibleFailure(prefix: string, errorText: string): string {
   return `${prefix} ${errorText}`;
@@ -316,6 +326,10 @@ export class DataStreamMapper {
         yield* this.handleFinish(chunk);
         return;
       default:
+        logger.warn('data stream mapper received an unrecognized chunk', {
+          chunkType: getDiagnosticChunkType((chunk as { type?: unknown }).type),
+          code: 'data_stream_mapper_unrecognized_chunk',
+        });
         return;
     }
   }
