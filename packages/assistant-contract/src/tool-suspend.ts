@@ -17,6 +17,7 @@
  */
 
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
+import type { AssistantRunEventKind } from './run-events.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
@@ -61,6 +62,27 @@ export function hasRegisteredSuspendResumeUi(
 ): toolName is RegisteredSuspendResumeToolId {
   return REGISTERED_SUSPEND_RESUME_TOOL_ID_SET.has(toolName);
 }
+
+/**
+ * The DURABLE run-event kind recorded when a suspending tool pauses a run this
+ * build has no registered resume UI for. Its own kind on purpose:
+ *
+ * - `RUN_LEDGER_AGGREGATION_SQL` counts `tool.completed`/`tool.failed` as tool
+ *   calls and `tool.failed` as failures. No tool ran here and none failed, and
+ *   because the run deliberately STAYS suspended, a build that later registers
+ *   the tool resumes the same `toolCallId` and emits the real `tool.completed`
+ *   — reusing `tool.failed` would both invent a failure and double-count the
+ *   one call, permanently.
+ * - `collectToolDurations` and the timeline's `tool.started` resolution both
+ *   close a tool call out on `tool.completed`/`tool.failed`. Closing this one
+ *   out would contradict `runStillSuspended: true` in the event's own metadata.
+ *
+ * It IS in `isAlwaysVisibleRunEvent`, because the transient
+ * `brainstrike.tool-suspend` notice is gone after a reload and this row is then
+ * the only thing left explaining the dead end.
+ */
+export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
+  'tool.resume.unsupported' satisfies AssistantRunEventKind;
 
 /**
  * The suspend-pause metadata surfaced to the renderer. `suspendPayload` is

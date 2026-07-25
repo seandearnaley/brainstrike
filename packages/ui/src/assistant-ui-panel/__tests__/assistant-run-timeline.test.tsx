@@ -1,4 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
@@ -171,6 +172,13 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);
   });
 
+  it('forces the unanswerable-tool-pause rejection to stay visible (BST-558)', () => {
+    // `tool.resume.unsupported` is the ONLY durable surface for a suspending
+    // tool this build has no resume UI for: the `brainstrike.tool-suspend`
+    // notice is transient, so after a reload this row is all that is left.
+    expect(isAlwaysVisibleRunEvent(event('tool.resume.unsupported', 'failed'))).toBe(true);
+  });
+
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
@@ -205,6 +213,34 @@ describe('resolveAssistantRunEventStatus', () => {
       { parts: [runEventPart(started), runEventPart(finished)], role: 'assistant' },
     ];
     expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('completed');
+  });
+
+  it('leaves tool.started RUNNING when the pause is only unanswerable here (BST-558)', () => {
+    // `getMatchingFailedKind` resolves tool.started ONLY on tool.failed. The
+    // unanswerable-pause rejection must not close it out: the tool is genuinely
+    // still suspended server-side, exactly as `runStillSuspended: true` says.
+    const started = {
+      id: 't1',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const rejected = {
+      id: 't2',
+      kind: UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+      label: 'Tool pause cannot be answered by this build',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const messages = [
+      { parts: [runEventPart(started), runEventPart(rejected)], role: 'assistant' },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('running');
   });
 });
 

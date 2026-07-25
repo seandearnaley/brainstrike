@@ -31,6 +31,14 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.started',
   'tool.completed',
   'tool.failed',
+  // A suspending tool paused a run this build has no registered resume UI for
+  // (BST-558). Deliberately NOT `tool.failed`: no tool ran and none failed, the
+  // Mastra snapshot stays suspended, and a build that later registers the tool
+  // resumes the SAME toolCallId and emits the real `tool.completed`. Reusing
+  // `tool.failed` would invent a failed tool call in the Task Ledger AND
+  // double-count that one call, and would close out `tool.started` in the
+  // timeline / duration pairings while the tool is still suspended.
+  'tool.resume.unsupported',
   'tool.started',
 ] as const;
 

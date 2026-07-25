@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   hasRegisteredSuspendResumeUi,
@@ -78,18 +75,13 @@ describe('suspending tools vs the resume-UI registry', () => {
     }
   });
 
-  it('no other tool module declares a suspendSchema', () => {
-    // If this fails you added a suspending tool: register its id in
-    // REGISTERED_SUSPEND_RESUME_TOOL_IDS + a typed UI branch in
-    // AssistantToolSuspendNotice, assert it above, then list it here. Without
-    // the registry entry the stream mapper marks every pause it raises as
-    // unanswerable and the user only gets a dead-end notice.
-    const toolsDir = fileURLToPath(new URL('../../tools', import.meta.url));
-    const declaringSuspendSchema = readdirSync(toolsDir)
-      .filter((name) => name.endsWith('.ts'))
-      .filter((name) => /\bsuspendSchema\s*:/.test(readFileSync(join(toolsDir, name), 'utf8')));
-    expect(declaringSuspendSchema.sort()).toEqual(['ask-user-tool.ts', 'submit-plan-tool.ts']);
-  });
+  // The reverse-drift scan ("no OTHER module declares a suspendSchema") lives in
+  // scripts/__tests__/suspending-tool-registry-contract.test.mjs: it must walk
+  // BOTH tool source roots recursively (suspending tools are defined in
+  // packages/agent but registered in apps/desktop), which a package-scoped
+  // vitest cannot do without turning a foreign package's source into an
+  // unhashed turbo input. It is control-tested there against subdirectory,
+  // shorthand, desktop-root, and comment-only fixtures.
 });
 
 describe('filterToolsForPlanMode', () => {

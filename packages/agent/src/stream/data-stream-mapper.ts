@@ -633,6 +633,30 @@ export class DataStreamMapper {
         name: TOOL_SUSPEND_DATA_NAME,
       },
     } satisfies EncodedChunk;
+
+    if (chunk.resumeSupported === false) {
+      // BST-558: this build has no registered resume UI for the tool, so nothing
+      // will ever produce this call's result. Leaving it open would keep a
+      // Running ToolFallback forever — and the notice above is dismissible, so a
+      // dismissed notice would strand an unactionable spinner. Settle the part
+      // as an error instead. NOT recorded in `pendingToolErrorTexts`: that would
+      // append "I couldn't complete the tool action because it failed" and mark
+      // the step errored, which is false — no tool failed, and the run stays
+      // suspended and resumable by a build that registers the tool.
+      this.toolState.delete(callId);
+      yield {
+        code: DataStreamCode.toolCallResult,
+        value: {
+          isError: true,
+          result: {
+            error: `This build has no registered resume UI for ${chunk.toolName}, so its pause cannot be answered here.`,
+            resumeSupportedByClient: false,
+            runStillSuspended: true,
+          },
+          toolCallId: callId,
+        },
+      } satisfies EncodedChunk;
+    }
   }
 
   private *handleToolStart(

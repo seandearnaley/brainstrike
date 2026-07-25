@@ -5,6 +5,7 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   AlertCircle,
   CheckCircle,
@@ -81,18 +82,29 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
 /**
  * Run-event rows that must surface even when background activity is hidden
  * (non-Developer detail). A failed or cancelled TURN would otherwise be silently
- * swallowed: tool-level failures already surface on their ToolFallback cards, and
- * a run rejected before any stream part renders via AssistantMessageError — but a
- * mid-run failure/cancellation has neither, so its terminal run-event row is the
- * only visible signal. Matched by `kind` (not `status`) on purpose: `tool.failed`
- * is also `status: 'failed'`, and re-surfacing it here would double-report the
- * card.
+ * swallowed: an ordinary tool failure already surfaces on its ToolFallback card,
+ * and a run rejected before any stream part renders via AssistantMessageError —
+ * but a mid-run failure/cancellation has neither, so its terminal run-event row
+ * is the only visible signal.
+ *
+ * Matched by `kind` (not `status`) on purpose: `tool.failed` is also
+ * `status: 'failed'`, and re-surfacing it here would double-report its card.
+ *
+ * `tool.resume.unsupported` (BST-558) IS included, and it is the case where the
+ * "already carded" premise does not hold in the way that matters: the tool never
+ * produced a real result, and the transient `brainstrike.tool-suspend` notice
+ * that explains the pause is `aui-data` — gone after a reload. This durable row
+ * is then the only surviving explanation for why the run stopped where it did.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   if (!isAssistantRunEvent(data)) {
     return false;
   }
-  return data.kind === 'run.failed' || data.kind === 'run.cancelled';
+  return (
+    data.kind === 'run.failed' ||
+    data.kind === 'run.cancelled' ||
+    data.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
+  );
 }
 
 export function getMessageParts(message: unknown): readonly unknown[] {

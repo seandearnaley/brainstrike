@@ -1350,6 +1350,75 @@ describe('AssistantDataStreamSession', () => {
       expect(visibleText).not.toContain('Tool execution failed');
     });
 
+    it('leaves a RESUMABLE suspended tool call open (it is genuinely waiting on the user)', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          runId: 'run-plan',
+          suspendPayload: { title: 'Implementation plan' },
+          toolCallId: 'call-plan',
+          toolName: 'brainstrike.submitPlan',
+          type: 'tool-suspend-required',
+        },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-registered-suspend',
+        sessionId: 'registered-suspend-test',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+
+      expect(parsed.find((part) => part.code === '9')).toBeDefined();
+      expect(parsed.filter((part) => part.code === 'a')).toHaveLength(0);
+    });
+
+    it('SETTLES the tool call when the pause has no registered resume UI (BST-558)', async () => {
+      // The mapper emits a `tool-call` for the pause so the plan/question has a
+      // card to hang off. For a REGISTERED tool the missing result is correct —
+      // resume supplies it. For an unregistered one nothing ever will, so the
+      // card would spin forever, and dismissing the notice would leave a
+      // permanent, unactionable Running card.
+      const chunks: StreamChunk[] = [
+        {
+          resumeSupported: false,
+          runId: 'run-future',
+          suspendPayload: { question: 'Which city?' },
+          toolCallId: 'call-future',
+          toolName: 'brainstrike.someFutureSuspendingTool',
+          type: 'tool-suspend-required',
+        },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-unregistered-suspend',
+        sessionId: 'unregistered-suspend-test',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      const toolCall = parsed.find((part) => part.code === '9');
+      const toolResults = parsed.filter((part) => part.code === 'a');
+      const visibleText = parsed
+        .filter((part) => part.code === '0')
+        .map((part) => part.value)
+        .join('');
+      const finishMessage = parsed.find((part) => part.code === 'd');
+
+      expect(toolCall?.value).toMatchObject({ toolCallId: 'call-future' });
+      // The tool part reaches a TERMINAL state, so no Running card can be
+      // stranded behind a dismissed notice.
+      expect(toolResults).toHaveLength(1);
+      expect(toolResults[0]?.value).toMatchObject({
+        isError: true,
+        toolCallId: 'call-future',
+      });
+      // Settling the card must NOT fabricate a run-level failure: the run is
+      // still suspended server-side and a later build can resume it.
+      expect(visibleText).not.toContain("I couldn't complete");
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+    });
+
     it('keeps oversized successful tool output successful with a bounded preview', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [

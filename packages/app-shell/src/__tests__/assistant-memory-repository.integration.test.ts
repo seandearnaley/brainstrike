@@ -3,6 +3,7 @@ import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -2458,6 +2459,51 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     });
   });
 
+  it('hydrates a persisted tool.resume.unsupported row (survives a thread reload)', async () => {
+    // BST-558 finding C: the `brainstrike.tool-suspend` data part is transient
+    // (aui-data, never persisted), so the live notice is gone after a reload.
+    // The durable surface is this run event — it has to survive the read path.
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM brainstrike_assistant_run_events')) {
+        return {
+          rows: [
+            {
+              detail: null,
+              duration_ms: null,
+              id: 'unsupported-1',
+              kind: 'tool.resume.unsupported',
+              label: 'Tool pause cannot be answered by this build',
+              metadata: JSON.stringify({
+                resumeSupportedByClient: false,
+                runStillSuspended: true,
+                toolCallId: 'call-future-tool',
+                toolName: 'brainstrike.someFutureSuspendingTool',
+              }),
+              occurred_at: '2026-07-24T12:00:01.000Z',
+              run_id: 'run-1',
+              sequence: 2,
+              status: 'failed',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const events = await repository.listThreadRunEvents('thread-1', '/tmp/workspace-a');
+
+    expect(events.map((event) => event.kind)).toEqual(['tool.resume.unsupported']);
+    expect(events[0]?.status).toBe('failed');
+    expect(events[0]?.metadata).toEqual({
+      resumeSupportedByClient: false,
+      runStillSuspended: true,
+      toolCallId: 'call-future-tool',
+      toolName: 'brainstrike.someFutureSuspendingTool',
+    });
+  });
+
   it('completes assistant run records without mutating thread metadata', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3637,6 +3683,27 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       sequence: 4,
       status: 'completed',
       timestamp: '2026-07-16T10:00:06.000Z',
+    } satisfies AssistantRunEvent);
+    // BST-558: a suspending tool with no registered resume UI is a CLIENT
+    // CAPABILITY MISMATCH, not a tool failure — no tool ran and none failed.
+    // The run deliberately stays suspended, so a later build that registers the
+    // UI resumes the SAME toolCallId and emits the real `tool.completed`;
+    // counting this notice would both invent a failure and double-count the call.
+    // Deliberately the EMITTED constant, not a literal: if the rejection is ever
+    // pointed back at `tool.failed` this test fails instead of quietly passing.
+    await repository.appendThreadRunEvent('run-1', {
+      id: 'event-5',
+      kind: UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+      label: 'Tool pause cannot be answered by this build',
+      metadata: {
+        resumeSupportedByClient: false,
+        runStillSuspended: true,
+        toolCallId: 'call-future-tool',
+        toolName: 'brainstrike.someFutureSuspendingTool',
+      },
+      sequence: 5,
+      status: 'failed',
+      timestamp: '2026-07-16T10:00:07.000Z',
     } satisfies AssistantRunEvent);
     await db.query(
       `INSERT INTO brainstrike_assistant_edit_checkpoints

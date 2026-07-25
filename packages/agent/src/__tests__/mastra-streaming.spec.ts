@@ -2552,7 +2552,10 @@ describe('mastra streaming integration', () => {
       toolName: dottedToolName,
       type: 'tool-suspend-required',
     });
-    // ...and it is NOT treated as an unregistered dead end.
+    // ...and it is NOT treated as an unregistered dead end: no rejection event,
+    // and no `resumeSupported: false` (which would settle the tool card that is
+    // legitimately waiting for the user's answer).
+    expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
     expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
@@ -2586,9 +2589,14 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    // Durable, visible rejection: this build cannot answer the pause.
-    const rejections = findRunEventChunks(chunks, 'tool.failed');
+    // Durable, visible rejection: this build cannot answer the pause. Its own
+    // KIND, never `tool.failed` — the ledger counts `tool.completed`/`tool.failed`
+    // as tool calls AND failures, and a later build resuming this very pause
+    // emits the real `tool.completed` for the same toolCallId.
+    expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
+    const rejections = findRunEventChunks(chunks, 'tool.resume.unsupported');
     expect(rejections).toHaveLength(1);
+    expect(rejections[0]?.event.status).toBe('failed');
     expect(rejections[0]?.event.metadata).toMatchObject({
       resumeSupportedByClient: false,
       runId: 'run-suspended-unregistered-1',
@@ -2607,10 +2615,12 @@ describe('mastra streaming integration', () => {
     expect(chunks).not.toContainEqual(
       expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
     );
-    // The pause still reaches the renderer so the notice can explain it and
-    // offer a dismiss action instead of an inert waiting card.
+    // The pause still reaches the renderer so the notice can explain it, and it
+    // carries `resumeSupported: false` so the mapper SETTLES the tool card
+    // instead of leaving a permanently Running one behind a dismissed notice.
     expect(chunks).toContainEqual({
       resumeSchema: '{"type":"object"}',
+      resumeSupported: false,
       runId: 'run-suspended-unregistered-1',
       suspendPayload: { secretish: 'raw payload body' },
       toolCallId: 'suspended-unregistered-1',
@@ -2652,6 +2662,7 @@ describe('mastra streaming integration', () => {
       toolName,
       type: 'tool-suspend-required',
     });
+    expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
     expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })

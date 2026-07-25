@@ -1263,12 +1263,50 @@ tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
 (`@brainstrike/assistant-contract/tool-suspend` — today `askUser` + `submitPlan`)
 have a registered typed suspension UI. A well-formed pause from any OTHER tool
 still becomes a `tool-suspend-required` chunk, but
-`makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable `tool.failed` run
-event (`unregisteredResumeSchema:true` + `resumeSupportedByClient:false` +
-`runStillSuspended:true` + `suspended:true` + the run/tool identifiers) and a
-coded `logger.error`. The tool-defined `suspendPayload` is deliberately EXCLUDED
-from that durable metadata (run-event metadata is allowlist-by-denial, not a
-content channel); it travels only on the transient chunk.
+`makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
+`tool.resume.unsupported` run event
+(`UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND`; `unregisteredResumeSchema:true` +
+`resumeSupportedByClient:false` + `runStillSuspended:true` + `suspended:true` +
+the run/tool identifiers) and a coded `logger.error`. The tool-defined
+`suspendPayload` is deliberately EXCLUDED from that durable metadata (run-event
+metadata is allowlist-by-denial, not a content channel); it travels only on the
+transient chunk.
+
+**Its OWN run-event kind, never `tool.failed`.** `tool.failed` is consumed as a
+METRIC in three places, all of which enumerate kinds explicitly, so the new kind
+is excluded from each by construction:
+
+| Consumer | With `tool.failed` | With `tool.resume.unsupported` |
+| --- | --- | --- |
+| `RUN_LEDGER_AGGREGATION_SQL` (`assistant-memory-repository.ts`) | +1 `toolCallCount` AND +1 `failedToolCallCount`, permanently — and when a later build resumes the same pause its real `tool.completed` counts the ONE call twice | not matched by either `FILTER` |
+| `collectToolDurations` (`tool-durations.ts`) | closes the `tool.started`→terminal pair, inventing a duration for a tool that never finished | kind not in its allowlist; no duration recorded |
+| `getMatchingFailedKind` (`assistant-run-timeline.tsx`) | resolves the `tool.started` row to `failed` | only `tool.failed` resolves it; the row stays `running`, which is TRUE — the tool IS still suspended |
+
+No tool ran and none failed: this is a CLIENT CAPABILITY MISMATCH. Recording it
+as a failed tool call would contradict `runStillSuspended: true` in the event's
+own metadata.
+
+**Durable AND always visible.** The `brainstrike.tool-suspend` data part is
+transient (aui-data, never persisted), so after a reload the notice is gone. The
+run event is persisted to `brainstrike_assistant_run_events` and rehydrated as a
+run-event data part, and `tool.resume.unsupported` is in
+`isAlwaysVisibleRunEvent`, so the row renders at the DEFAULT (`standard`) detail
+level, not just Developer. `kind` is a plain `text` column (no CHECK/enum), so
+the new kind needs no migration — but the read-path `requireRunEventKind` throws
+on an unknown kind and `listThreadRunEvents` maps the whole list, so DOWNGRADING
+to a build predating this enum entry fails that thread's entire run-event
+hydration. Enum and emitter ship together here (same build reads what it wrote);
+the constraint is one-directional and only bites on rollback.
+
+**The tool card is SETTLED.** `handleToolSuspendRequired` emits a `tool-call`
+part so the pause has a card; for a registered tool the missing result is
+correct (resume supplies it), but for an unregistered one nothing ever will, so
+the chunk carries `resumeSupported: false` and the mapper emits a terminal
+`toolCallResult` with `isError: true`. Without it, dismissing the notice — the
+only actionable control — would leave a permanently Running, unactionable card.
+It is deliberately NOT recorded in `pendingToolErrorTexts`: that would append
+"I couldn't complete the tool action because it failed" and mark the step
+errored, both false.
 
 It is deliberately NOT the `makeUnsupportedApprovalChunks` idiom (`run.failed` +
 error finish). **Mastra persists the suspended workflow snapshot BEFORE the
@@ -1294,10 +1332,17 @@ also be true in a version skew where an older client renders a newer tool's paus
 `AssistantToolSuspendNotice` dispatches through a total
 `Record<RegisteredSuspendResumeToolId, …>`, so adding an id to the registry
 without a typed branch is a COMPILE error. `SUSPENDING_NATIVE_TOOL_IDS`
-(plan-mode-tool-gate.ts) is DERIVED from the same registry, and a spec asserts the
-only `suspendSchema`-declaring modules under `packages/agent/src/tools` are the
-registered two — so the reverse drift (a suspending tool nobody can answer) is
-caught in the same run.
+(plan-mode-tool-gate.ts) is DERIVED from the same registry. The REVERSE drift (a
+tool that can `suspend()` with no registered resume UI) has no compile-time
+guard, so `scripts/__tests__/suspending-tool-registry-contract.test.mjs` scans
+BOTH tool source roots — `packages/agent/src/tools` (defined) and
+`apps/desktop/src/assistant-server` (registered, and it defines tools of its own)
+— RECURSIVELY, comment-stripped, on the loose token `\bsuspendSchema\b` so the
+`{ suspendSchema }` shorthand and a spread of a shared config object both count.
+It is control-tested in the same file against subdirectory, shorthand,
+desktop-root, comment-only, and test-file fixtures. It lives in `test:scripts`
+rather than a package spec because a package-scoped vitest reading a foreign
+package's source is an unhashed turbo input (stale-green cache landmine).
 
 `DataStreamMapper.handleToolSuspendRequired`
 emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral
@@ -1348,9 +1393,16 @@ Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.integratio
 free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
 drops edit / keeps submitPlan); the non-terminal unregistered-resume-schema
 rejection, the sanitized-id-with-NO-sanitizedNameMap regression guard, and the
-registered-tools-unaffected cases in `mastra-streaming.spec.ts`;
-plan-mode-tool-gate.spec.ts (incl. the registry-derivation + no-other-suspending-
-tool guards); the streaming +
+registered-tools-unaffected cases in `mastra-streaming.spec.ts`; the
+settle-the-tool-card + leave-a-resumable-pause-open cases in
+`data-stream-session.spec.ts`; plan-mode-tool-gate.spec.ts (registry derivation +
+every real factory registered) and
+`scripts/__tests__/suspending-tool-registry-contract.test.mjs` (the
+control-tested reverse-drift scan); the ledger-aggregation and
+run-event-hydration cases in
+`packages/app-shell/src/__tests__/assistant-memory-repository.integration.test.ts`;
+the `isAlwaysVisibleRunEvent`, default-detail data-part, duration-pairing and
+`tool.started`-stays-running cases in the UI timeline specs; the streaming +
 data-part-continuity + default-instructions plan-mode specs; the desktop
 assistant-server resume-dispatch tests; and the UI suspend-notice tests.
 

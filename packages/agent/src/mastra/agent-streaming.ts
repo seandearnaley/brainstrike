@@ -19,6 +19,7 @@ import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/
 import {
   hasRegisteredSuspendResumeUi,
   REGISTERED_SUSPEND_RESUME_TOOL_IDS,
+  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
@@ -600,7 +601,20 @@ function makeUnsupportedApprovalChunks(
 /**
  * VISIBLE, NON-TERMINAL rejection notice for a well-formed suspend pause whose
  * tool has NO registered typed resume UI (`REGISTERED_SUSPEND_RESUME_TOOL_IDS`):
- * a single DURABLE `tool.failed` run event plus a coded error log.
+ * a single DURABLE {@link UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND} run event plus
+ * a coded error log.
+ *
+ * The kind is `tool.resume.unsupported`, never `tool.failed`: no tool ran and
+ * none failed. `tool.failed` is consumed as a METRIC — the Task Ledger counts it
+ * as both a tool call and a failed tool call, and `collectToolDurations` /
+ * the timeline's `tool.started` resolution close a call out on it. Because the
+ * run deliberately stays suspended, a build that later registers the tool
+ * resumes the SAME toolCallId and emits the real `tool.completed`, so reusing
+ * `tool.failed` would double-count that one call forever and would close out a
+ * tool that is still suspended (contradicting `runStillSuspended: true` in this
+ * very event's metadata). The new kind is in `isAlwaysVisibleRunEvent`, so the
+ * row shows at the DEFAULT detail level and survives a thread reload — the
+ * transient `brainstrike.tool-suspend` notice does not.
  *
  * Deliberately NOT the {@link makeUnsupportedApprovalChunks} idiom (`run.failed`
  * + error finish). That idiom is right for a MALFORMED pause, which really is
@@ -614,7 +628,9 @@ function makeUnsupportedApprovalChunks(
  * upgrades to a build that registers this tool's resume UI can still answer the
  * very same pause. What this build owes them is honesty — this run event states
  * that THIS build cannot answer the pause, and says nothing about the run's
- * server-side state. The pause itself still reaches the renderer, where
+ * server-side state. The pause itself still reaches the renderer (carrying
+ * `resumeSupported: false`, which makes the mapper SETTLE the tool card so a
+ * dismissed notice cannot strand a permanently Running one), where
  * `UnsupportedSuspendNotice` explains it and offers a dismiss action.
  *
  * The tool-defined `suspendPayload` is deliberately EXCLUDED from the durable
@@ -636,7 +652,7 @@ function makeUnregisteredSuspendResumeNoticeChunk(input: {
   });
 
   return makeRunEventChunk(
-    'tool.failed',
+    UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
     'failed',
     'Tool pause cannot be answered by this build (no registered resume UI)',
     {
@@ -775,6 +791,9 @@ function makeToolSuspendRequiredChunks(
       type: 'tool-suspend-required',
       ...(suspendPayload === undefined ? {} : { suspendPayload }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
+      // Only ever narrowed to false — a registered pause omits the flag so its
+      // tool card stays open, which is exactly what "waiting on you" means.
+      ...(unregisteredNotice ? { resumeSupported: false as const } : {}),
     },
     makeToolCallsFinishChunk(),
   ];
