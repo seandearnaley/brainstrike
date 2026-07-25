@@ -35,7 +35,9 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
 export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
   high: 'High',
   low: 'Low',
+  max: 'Max',
   medium: 'Medium',
+  xhigh: 'Extra',
 };
 
 export const GOOGLE_THINKING_LEVEL_LABELS: Record<GoogleThinkingLevel, string> = {

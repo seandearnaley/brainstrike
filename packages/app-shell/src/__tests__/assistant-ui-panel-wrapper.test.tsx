@@ -1366,7 +1366,7 @@ describe('AssistantUiPanelWrapper', () => {
         model: 'gpt-5.2',
         modelSettings: { maxOutputTokens: 2048 },
         provider: 'openai',
-        providerOptions: { openai: { reasoningEffort: 'low' } },
+        providerOptions: { openai: { reasoningEffort: 'low', reasoningSummary: 'auto' } },
       })
     );
     expect(useAssistantPreferencesStore.getState().providerSettings['openai']).toEqual(
@@ -1704,7 +1704,7 @@ describe('AssistantUiPanelWrapper', () => {
           'openai',
           'gpt-5.2',
           JSON.stringify({ maxOutputTokens: 512 }),
-          JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+          JSON.stringify({ openai: { reasoningEffort: 'high', reasoningSummary: 'auto' } }),
           'hosted',
           'running',
         ])

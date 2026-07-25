@@ -225,6 +225,26 @@
   cumulative, but its terminal provider metadata repeats only the final step, so
   every observed step must report cost; a missing or malformed reported cost
   fails visibly rather than silently undercounting.
+- Reasoning has two INDEPENDENT dimensions, and they must not be re-conflated
+  (BST-840). DEPTH is a budget concern (`reasoningEffort`, `anthropicEffort`,
+  `googleThinkingLevel`, the OpenRouter auto profile). VISIBILITY is a UX
+  concern — whether the provider returns the reasoning at all — and is owned by
+  the single cross-provider `reasoningVisible` setting, resolved by
+  `packages/assistant-contract/src/reasoning-visibility.ts` (defaults to
+  visible). Each provider projects it onto its own wire field:
+  `openai.reasoningSummary`, `anthropic.thinking.display`,
+  `google.thinkingConfig.includeThoughts`, `openrouter.reasoning.summary`.
+  Two hard rules: visibility only ever MODIFIES a reasoning request that is
+  already being made (cleared settings must still produce NO provider options),
+  and a summary is never requested alongside reasoning that is switched off.
+  Provider-specific keys remain valid escape hatches and win when explicitly
+  set.
+- Anthropic thinking mirrors the installed `@ai-sdk/anthropic` discriminated
+  union: `adaptive` (carries `display`, whose provider-side default is
+  `omitted`), legacy `enabled` + `budgetTokens`, and `disabled`. An explicit
+  budget pins the legacy form; otherwise a chosen effort emits `adaptive`.
+  `effort` spans `low|medium|high|xhigh|max` — keep it in step with the SDK
+  enum, not a narrower hand-maintained subset.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.

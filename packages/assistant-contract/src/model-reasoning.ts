@@ -63,7 +63,14 @@ export const OPENAI_FAMILY_DEFAULT_EFFORTS: readonly OpenAiReasoningEffort[] = [
   'xhigh',
 ];
 
-export const ANTHROPIC_REASONING_EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high'];
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8). */
+export const ANTHROPIC_REASONING_EFFORTS: readonly AnthropicEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 
 const KNOWN_PROVIDER_IDS: ReadonlySet<string> = new Set<string>(
   listProviders().map((provider) => provider.id)
