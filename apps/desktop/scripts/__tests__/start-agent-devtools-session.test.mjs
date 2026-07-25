@@ -13,6 +13,7 @@ import {
   formatMcpConfig,
   initializeWindowsJob,
   parsePort,
+  removeUserDataDir,
   resolveEndpoint,
   resolvePnpmSpawnOptions,
   rewriteMacAgentDebugInfoPlist,
@@ -349,4 +350,103 @@ test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   } finally {
     await rm(root, { force: true, recursive: true });
   }
+});
+
+test('removeUserDataDir removes a real profile tree, directories included', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-rm-test-'));
+  const profile = path.join(root, 'profile');
+  // Mirror the shape an Electron profile actually leaves behind.
+  await mkdir(path.join(profile, 'session-data', 'Cache', 'Cache_Data'), { recursive: true });
+  await mkdir(path.join(profile, 'profiles', 'branch-main-wt-abc123', 'pgdata'), {
+    recursive: true,
+  });
+  await writeFile(path.join(profile, 'session-data', 'Cache', 'Cache_Data', 'entry'), 'x');
+
+  try {
+    await removeUserDataDir(profile);
+    await assert.rejects(stat(profile), { code: 'ENOENT' });
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('removeUserDataDir retries when a dying descendant recreates the directory', async () => {
+  // The observed leak: `fs.rm` reports success but an exiting Electron child has
+  // recreated the cache skeleton behind the walk, leaving an empty directory tree.
+  let attempts = 0;
+  let stillThere = true;
+
+  await removeUserDataDir('/fake/profile', {
+    exists: async () => stillThere,
+    retryDelayMs: 0,
+    rm: async () => {
+      attempts += 1;
+      // Recreated after the first sweep, genuinely gone after the second.
+      if (attempts >= 2) {
+        stillThere = false;
+      }
+    },
+  });
+
+  assert.equal(attempts, 2);
+});
+
+test('removeUserDataDir throws rather than leaking a profile that will not go away', async () => {
+  let attempts = 0;
+
+  await assert.rejects(
+    removeUserDataDir('/fake/stubborn-profile', {
+      exists: async () => true,
+      retries: 2,
+      retryDelayMs: 0,
+      rm: async () => {
+        attempts += 1;
+      },
+    }),
+    /still exists after 3 removal attempts/
+  );
+
+  // Every attempt is used before giving up, and the failure is visible.
+  assert.equal(attempts, 3);
+});
+
+test('removeUserDataDir retries when rm throws ENOTEMPTY from a mid-walk recreate', async () => {
+  // The same race lands two ways. `fs.rm` removes leaves before parents, so a
+  // descendant recreating a subdirectory mid-walk makes rmdir of the parent throw
+  // ENOTEMPTY. `force` only suppresses ENOENT, so this must not become a hard exit.
+  let attempts = 0;
+
+  await removeUserDataDir('/fake/racing-profile', {
+    exists: async () => false,
+    retryDelayMs: 0,
+    rm: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error('directory not empty'), { code: 'ENOTEMPTY' });
+      }
+    },
+  });
+
+  assert.equal(attempts, 2);
+});
+
+test('removeUserDataDir rethrows the underlying error when every attempt throws', async () => {
+  const busy = Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+  let attempts = 0;
+
+  await assert.rejects(
+    removeUserDataDir('/fake/busy-profile', {
+      exists: async () => true,
+      retries: 2,
+      retryDelayMs: 0,
+      rm: async () => {
+        attempts += 1;
+        throw busy;
+      },
+    }),
+    // The real cause survives rather than being masked by the generic message.
+    busy
+  );
+
+  assert.equal(attempts, 3);
 });
