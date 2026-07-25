@@ -467,7 +467,8 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
  * (`hasRegisteredSuspendResumeUi`). We still refuse to guess a typed action
  * (no-silent-wrong-render), but the pause is presented as what it is: something
  * this build cannot answer, not a card that is still waiting for input. The
- * agent stream mapper records the matching durable `tool.failed` run event and
+ * agent stream mapper records the matching durable `tool.resume.unsupported` run
+ * event (never `tool.failed` — no tool ran and none failed) and
  * deliberately does NOT terminate the run (the Mastra snapshot is already
  * persisted and stays resumable by a build that registers the tool), so the copy
  * claims nothing about server-side state — it must stay true both on that path

@@ -627,9 +627,17 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
-    // Mastra reports suspend() through the tool-error path before emitting the
-    // correlated suspension event. The pause is intentional, so discard only
-    // that call's transient error while preserving unrelated tool failures.
+    // DEFENSIVE, not load-bearing. This line was added (#1606, @mastra/core
+    // 1.50) when Mastra reported suspend() through the tool-error path before
+    // the correlated suspension event; the pause is intentional, so only that
+    // call's transient error is discarded and unrelated tool failures survive.
+    // On @mastra/core 1.51 that ordering no longer occurs — a real suspend
+    // emits no tool-error at all, pinned by the live-loop assertions in
+    // mastra-tool-suspend-resume.integration.spec.ts ("an UNREGISTERED
+    // suspending tool records tool.resume.unsupported and NEVER tool.failed").
+    // Kept so a Mastra bump that reinstates the ordering cannot resurface a
+    // false "tool failed" message; do NOT cite it as evidence of current
+    // behaviour (a PR #1977 review round did, and was wrong).
     this.pendingToolErrorTexts.delete(callId);
     // Text-part deferral contract: finalize any open text/reasoning append and
     // flush deferred run events BEFORE emitting the data part (a data part

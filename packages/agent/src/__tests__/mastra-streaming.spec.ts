@@ -46,7 +46,7 @@ function setMockStreamParts(parts: unknown[]) {
 }
 
 interface RunEventChunk {
-  event: { kind: string; label: string; metadata?: Record<string, unknown> };
+  event: { kind: string; label: string; metadata?: Record<string, unknown>; status: string };
   type: 'run-event';
 }
 

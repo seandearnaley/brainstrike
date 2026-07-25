@@ -142,6 +142,53 @@ describe('deriveAssistantRunEventRows', () => {
       );
     }
   });
+
+  it('keeps the unanswerable-pause rejection visible despite its tool card (BST-558)', () => {
+    // The Developer path. `initialRenderPlanKey` mirrors
+    // `resolveAssistantRunEventRenderPlan`'s card suppression, so it must also
+    // mirror the always-visible exemption — otherwise raising the Detail level
+    // HIDES a row the default level shows. The `tool-call` part below is the
+    // one `DataStreamMapper.handleToolSuspendRequired` always emits for the
+    // suspended call, so this is the real thread shape, not a synthetic one.
+    const rejected = {
+      id: 'reject-1',
+      kind: UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+      label: 'Tool pause cannot be answered by this build',
+      metadata: { toolCallId: 'call-future', toolName: 'brainstrike.someFutureSuspendingTool' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const carded = {
+      id: 'tool-failed-1',
+      kind: 'tool.failed',
+      label: 'Tool failed',
+      metadata: { toolCallId: 'call-ordinary', toolName: 'brainstrike.readFile' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:02.000Z',
+    };
+    const messages = [
+      {
+        parts: [
+          runEventPart(rejected),
+          runEventPart(carded),
+          {
+            toolCallId: 'call-future',
+            toolName: 'brainstrike.someFutureSuspendingTool',
+            type: 'tool-call',
+          },
+          { toolCallId: 'call-ordinary', toolName: 'brainstrike.readFile', type: 'tool-call' },
+        ],
+      },
+    ];
+
+    const rows = deriveAssistantRunEventRows(messages);
+
+    expect(rows.renderPlanKeys[rejected.id]).toBe('visible:1');
+    // CONTROL: an ordinary carded tool.failed is still suppressed.
+    expect(rows.renderPlanKeys[carded.id]).toBe('hidden');
+  });
 });
 
 describe('getMatchingCompletedKind', () => {

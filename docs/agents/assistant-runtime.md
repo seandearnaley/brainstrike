@@ -1414,12 +1414,49 @@ No tool ran and none failed: this is a CLIENT CAPABILITY MISMATCH. Recording it
 as a failed tool call would contradict `runStillSuspended: true` in the event's
 own metadata.
 
+**No `tool.failed` is emitted upstream either — verified against the live loop,
+do not relitigate from the comment alone.** `data-stream-mapper.ts` carries a
+line deleting the suspended call's `pendingToolErrorTexts` entry, added in #1606
+against @mastra/core 1.50 when Mastra reported `suspend()` through the
+`tool-error` path BEFORE the correlated suspension event. If that ordering still
+held, `makeToolLifecycleRunEventChunk` would convert the earlier part into a
+durable `tool.failed` and every claim in the table above would be void. It does
+not hold on @mastra/core 1.51: a real `suspend()` emits no `tool-error` at all.
+The observed durable sequence for an unregistered pause is `run.started` →
+`run.step.started` → `tool.started` → `tool.resume.unsupported` →
+`tool-suspend-required`. That is pinned by live-loop assertions (real Agent +
+real PGlite) in `mastra-tool-suspend-resume.integration.spec.ts`, not by a
+synthesized `tool-call-suspended` part — so a Mastra bump that reinstates the
+old ordering fails there instead of silently re-polluting the ledger. The
+mapper's delete stays as defence in depth; it is NOT evidence of current
+behaviour.
+
 **Durable AND always visible.** The `brainstrike.tool-suspend` data part is
 transient (aui-data, never persisted), so after a reload the notice is gone. The
 run event is persisted to `brainstrike_assistant_run_events` and rehydrated as a
 run-event data part, and `tool.resume.unsupported` is in
 `isAlwaysVisibleRunEvent`, so the row renders at the DEFAULT (`standard`) detail
-level, not just Developer. `kind` is a plain `text` column (no CHECK/enum), so
+level, not just Developer.
+
+`isAlwaysVisibleRunEvent` alone is NOT sufficient, and this is a settled ruling —
+do not relitigate it by reverting the exemption. It only selects which component
+renders the row; BOTH paths then consult the render plan, whose first suppression
+rule (`hasToolCallPartForEvent` in `resolveAssistantRunEventRenderPlan`, mirrored
+by `hasToolCard` in `initialRenderPlanKey`) hides ANY `tool.*` event whose
+`toolCallId` has a `tool-call` part in the thread. `tool.resume.unsupported` is
+the first `tool.*` kind ever added to the allowlist, and
+`handleToolSuspendRequired` GUARANTEES that part exists for exactly that id — so
+without an exemption the row would be hidden at every detail level. Both
+functions therefore skip card suppression for always-visible kinds. The rule
+still applies to every other `tool.*` row, because those genuinely duplicate a
+status their card owns; this row does not (the card reports a client capability
+error for one call, the row reports that the RUN is still suspended). Any test
+covering this MUST put the mapper's `tool-call` part in the mock thread — a
+fixture with only the run-event part is a shape the emitter cannot produce and
+passes vacuously. `run.failed`/`run.cancelled` never needed the exemption: they
+carry no `toolCallId` and are not `tool.*`.
+
+`kind` is a plain `text` column (no CHECK/enum), so
 the new kind needs no migration — but the read-path `requireRunEventKind` throws
 on an unknown kind and `listThreadRunEvents` maps the whole list, so DOWNGRADING
 to a build predating this enum entry fails that thread's entire run-event
@@ -1463,12 +1500,27 @@ without a typed branch is a COMPILE error. `SUSPENDING_NATIVE_TOOL_IDS`
 (plan-mode-tool-gate.ts) is DERIVED from the same registry. The REVERSE drift (a
 tool that can `suspend()` with no registered resume UI) has no compile-time
 guard, so `scripts/__tests__/suspending-tool-registry-contract.test.mjs` scans
-BOTH tool source roots — `packages/agent/src/tools` (defined) and
-`apps/desktop/src/assistant-server` (registered, and it defines tools of its own)
-— RECURSIVELY, comment-stripped, on the loose token `\bsuspendSchema\b` so the
-`{ suspendSchema }` shorthand and a spread of a shared config object both count.
-It is control-tested in the same file against subdirectory, shorthand,
-desktop-root, comment-only, and test-file fixtures. It lives in `test:scripts`
+source RECURSIVELY, comment-stripped, on the loose token `\bsuspendSchema\b` so
+the `{ suspendSchema }` shorthand and a spread of a shared config object both
+count. Two scopes, because the token alone cannot tell a DECLARATION from a
+consumer that merely reads the property:
+
+- the two declaration roots — `packages/agent/src/tools` (defined) and
+  `apps/desktop/src/assistant-server` (registered, and it defines tools of its
+  own) — drive an exact match against `REGISTERED_SUSPENDING_TOOL_MODULES`;
+- a repo-wide sweep of `apps` + `packages` must equal that set plus an explicit
+  `ACKNOWLEDGED_NON_DECLARING_MODULES` list (today just `plan-mode-tool-gate.ts`,
+  which READS the property to detect suspending tools structurally).
+
+The sweep exists because the root list was itself unguarded: `walkTypeScriptFiles`
+swallows a missing directory, so a suspending tool in a NEW package, or a renamed
+root, would have silently stopped being covered while the exact match still passed
+on whatever the other root contained. Every scan root is additionally asserted to
+exist and be non-empty. Known limitation, deliberate: `stripComments` has no
+string-literal awareness, so a `suspendSchema` token after a `//` inside a string
+on the same line is missed. It is control-tested in the same file against
+subdirectory, shorthand, desktop-root, outside-every-declaration-root,
+renamed-root, comment-only, and test-file fixtures. It lives in `test:scripts`
 rather than a package spec because a package-scoped vitest reading a foreign
 package's source is an unhashed turbo input (stale-green cache landmine).
 
