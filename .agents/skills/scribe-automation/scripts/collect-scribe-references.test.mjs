@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { classifyCommand, classifyFileToken, isFileToken } from './collect-scribe-references.mjs';
+import {
+  classifyAnchoredPath,
+  classifyCommand,
+  classifyFileToken,
+  classifyProjectPath,
+  isFileToken,
+  isSymbol,
+  sourceAnchorEnd,
+  stripSourceAnchor,
+} from './collect-scribe-references.mjs';
 
 const tree = new Set([
   'AGENTS.md',
@@ -24,11 +33,39 @@ test('an absent file token is MANUAL (a human-verify lead), never a fabricated D
   assert.equal(classifyFileToken('docs/agents/ghost.md', tree), 'MANUAL');
 });
 
+test('project-path citations strip only trailing source anchors', () => {
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:12', tree), 'ACCURATE');
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:12-24', tree), 'ACCURATE');
+  assert.equal(classifyProjectPath('packages/db/src/ghost.ts:12-24', tree), 'DANGLING');
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:main', tree), 'DANGLING');
+  assert.equal(stripSourceAnchor('packages/db/src/repo.ts:12:5'), 'packages/db/src/repo.ts');
+  assert.equal(sourceAnchorEnd('packages/db/src/repo.ts:12-24'), 24);
+  assert.equal(
+    classifyAnchoredPath('packages/db/src/repo.ts:12-24', tree, () => 24),
+    'ACCURATE'
+  );
+  assert.equal(
+    classifyAnchoredPath('packages/db/src/repo.ts:12-25', tree, () => 24),
+    'DANGLING'
+  );
+});
+
+test('bare filename citations with source anchors are classified', () => {
+  assert.equal(isFileToken('db-test-lane-manifest.mjs:12-24'), true);
+  assert.equal(classifyFileToken('db-test-lane-manifest.mjs:12-24', tree), 'ACCURATE');
+});
+
 test('dotted code identifiers are not treated as file tokens at all', () => {
   // hyphenated dotted identifiers and code-extension tokens stay out of the file branch
   assert.equal(isFileToken('subagent-personas.v1'), false);
   assert.equal(isFileToken('assistant-preferences-store.planModeEnabled'), false);
   assert.equal(isFileToken('array.map'), false);
+});
+
+test('commit hashes are not counted as symbol references', () => {
+  assert.equal(isSymbol('c30fea0525d38329ee96950efd251285f912d2b9'), false);
+  assert.equal(isSymbol('0413d6baef16c1d716987ad2d3ef880e247b5e09'), false);
+  assert.equal(isSymbol('DataStreamMapper'), true);
 });
 
 const packages = new Map([
