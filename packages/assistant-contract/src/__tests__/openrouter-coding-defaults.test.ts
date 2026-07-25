@@ -69,7 +69,7 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
 });
 
 describe('resolveOpenRouterAutoRuntimeProfile', () => {
-  it('prefers low reasoning over disabling reasoning when both are supported', () => {
+  it('sends the vendor default effort when the catalog records no override', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile({
         id: 'openai/gpt-5.6-terra',
@@ -83,17 +83,20 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
       })
     ).toEqual({
       maxOutputTokens: 32_000,
-      reasoningEffort: 'low',
+      reasoningEffort: 'medium',
     });
   });
 
-  it('keeps Kimi K3 at the coding ceiling and selects its lowest supported effort', () => {
+  it('keeps Kimi K3 at the coding ceiling and honours its recorded autoEffort', () => {
+    // Kimi's vendor default is `max`, which spends the whole coding-profile
+    // output budget reasoning — so the catalog records a lower Auto effort.
     expect(
       resolveOpenRouterAutoRuntimeProfile({
         checkedAt: 42,
         contextWindow: 1_048_576,
         id: 'moonshotai/kimi-k3',
         reasoning: {
+          autoEffort: 'low',
           defaultEffort: 'max',
           defaultEnabled: true,
           mandatory: false,
@@ -109,30 +112,7 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
     });
   });
 
-  it('disables optional Auto reasoning when the lowest supported effort is high and unbounded', () => {
-    expect(
-      resolveOpenRouterAutoRuntimeProfile({
-        checkedAt: 42,
-        contextWindow: 1_048_576,
-        id: 'z-ai/glm-5.2',
-        maxOutputTokens: 131_072,
-        reasoning: {
-          defaultEffort: 'high',
-          defaultEnabled: true,
-          mandatory: false,
-          supportedEfforts: ['xhigh', 'high'],
-          supportsMaxTokens: false,
-        },
-        source: 'openrouter-models-api',
-        supportedParameters: ['reasoning', 'max_tokens'],
-      })
-    ).toEqual({
-      maxOutputTokens: 32_000,
-      reasoningEffort: 'none',
-    });
-  });
-
-  it('keeps an explicit valid output limit while disabling unbounded optional Auto reasoning', () => {
+  it('keeps an explicit valid output limit alongside the declared effort', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile(
         {
@@ -154,31 +134,16 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
       )
     ).toEqual({
       maxOutputTokens: 32_000,
-      reasoningEffort: 'none',
+      reasoningEffort: 'high',
     });
   });
 
-  it('disables optional default reasoning when no bounded effort is published', () => {
-    expect(
-      resolveOpenRouterAutoRuntimeProfile({
-        id: 'qwen/qwen3.7-max',
-        reasoning: {
-          defaultEnabled: true,
-          mandatory: false,
-          supportsMaxTokens: false,
-        },
-      })
-    ).toEqual({
-      maxOutputTokens: 32_000,
-      reasoningEffort: 'none',
-    });
-  });
-
-  it('keeps the lowest effort for mandatory models that cannot disable reasoning', () => {
+  it('sends the declared default for mandatory models that cannot disable reasoning', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile({
         id: 'required-reasoning',
         reasoning: {
+          defaultEffort: 'high',
           defaultEnabled: true,
           mandatory: true,
           supportedEfforts: ['xhigh', 'high'],
@@ -189,5 +154,79 @@ describe('resolveOpenRouterAutoRuntimeProfile', () => {
       maxOutputTokens: 32_000,
       reasoningEffort: 'high',
     });
+  });
+});
+
+describe('Auto reasoning effort is DECLARED, never inferred (BST-833)', () => {
+  // The old resolver scanned `supportedEfforts` for a "completion-biased"
+  // effort and, failing to find one, silently substituted `none` — discarding
+  // the model's own declared default. GLM-5.2 declares `defaultEffort: 'high'`
+  // and advertises no low tier, so it lost reasoning entirely for a reason
+  // nothing surfaced. Auto now uses declared catalog data only.
+
+  it('uses an explicitly recorded autoEffort ahead of the vendor default', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'moonshotai/kimi-k3',
+        reasoning: {
+          autoEffort: 'low',
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+      })
+    ).toEqual({ maxOutputTokens: 32_000, reasoningEffort: 'low' });
+  });
+
+  it('honours a declared vendor default instead of coercing it to none', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'z-ai/glm-5.2',
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'high'],
+        },
+      })
+    ).toEqual({ maxOutputTokens: 32_000, reasoningEffort: 'high' });
+  });
+
+  it('lets the catalog record a deliberate off switch', () => {
+    // Switching reasoning off stays possible — it just has to be WRITTEN DOWN
+    // rather than inferred from the absence of a low tier.
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'budget/sensitive',
+        reasoning: {
+          autoEffort: 'none',
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high'],
+        },
+      })
+    ).toEqual({ maxOutputTokens: 32_000, reasoningEffort: 'none' });
+  });
+
+  it('claims nothing when neither an autoEffort nor a vendor default is declared', () => {
+    // No declared basis means no request parameter — the provider applies its
+    // own default. Inventing `none` here is the silent fallback this removes.
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'qwen/qwen3.7-max',
+        reasoning: { defaultEnabled: true, mandatory: false },
+      })
+    ).toEqual({ maxOutputTokens: 32_000 });
+  });
+
+  it('still sends no reasoning options when the model does not reason by default', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'plain/model',
+        reasoning: { defaultEffort: 'high', mandatory: false, supportedEfforts: ['high'] },
+      })
+    ).toEqual({ maxOutputTokens: 32_000 });
   });
 });

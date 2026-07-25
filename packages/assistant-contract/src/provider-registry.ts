@@ -115,6 +115,13 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * provider-wide saved setting cannot become an invalid model request.
    */
   reasoning?: {
+    /**
+     * Effort the zero-configuration Auto profile sends, when it must differ
+     * from `defaultEffort`. Recorded per model rather than derived — see
+     * `resolveOpenRouterAutoRuntimeProfile`. `'none'` switches Auto reasoning
+     * off deliberately and visibly.
+     */
+    autoEffort?: OpenAiReasoningEffort;
     defaultEffort?: OpenAiReasoningEffort;
     defaultEnabled?: boolean;
     mandatory: boolean;
@@ -747,6 +754,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'Kimi K3 (OpenRouter)',
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         reasoning: {
+          // Auto deliberately runs below the vendor default: Kimi's `max` spends
+          // the whole coding-profile output budget reasoning (BST-833).
+          autoEffort: 'low',
           defaultEffort: 'max',
           defaultEnabled: true,
           mandatory: false,
@@ -817,6 +827,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.9282, outputPerMTok: 2.9172 },
         reasoning: {
+          // No autoEffort: Auto follows the vendor default. Verified live
+          // 2026-07-25 at `high` — reasoning visible, 271-line file written,
+          // full final answer, 10.3K tokens (BST-833).
           defaultEffort: 'high',
           defaultEnabled: true,
           mandatory: false,

@@ -169,6 +169,8 @@ describe('frontier model refresh (2026-07)', () => {
       expect(kimi.contextWindow).toBe(1_048_576);
       expect(kimi.maxOutputTokens).toBeUndefined();
       expect(kimi.reasoning).toEqual({
+        // Auto runs below the vendor default; recorded, not derived (BST-833).
+        autoEffort: 'low',
         defaultEffort: 'max',
         defaultEnabled: true,
         mandatory: false,
