@@ -129,16 +129,21 @@ const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
  * reason `diagnostics-retention-store.ts` hardcodes its own defaults: this
  * file must not import `@brainstrike/db`'s heavy barrel (`onPurgeNow` is a
  * callback prop precisely to avoid that). Used only as a heuristic for
- * whether a purge may not have fully drained a large backlog — a returned
- * count at or above this threshold means at least one of `purge()`'s two
- * independently-capped deletes (aged rows / over-cap rows) hit its limit,
- * so more rows may remain (`>=`, not `===`: both deletes can each
- * independently reach this cap in the same call, so the total can exceed it
- * without either alone equaling it). Drift is caught test-side:
+ * whether a purge may not have fully drained a large backlog. It is a
+ * deliberately IMPRECISE heuristic biased toward over-warning: `purge()`
+ * returns the SUM of its two independently-capped deletes (aged rows +
+ * over-cap rows), so a count at or above this threshold does not prove
+ * either delete actually hit its cap — 300 aged + 250 over-cap trips it
+ * with neither near the limit. Over-warning ("more may remain" when nothing
+ * does) costs the user one redundant click; under-warning would imply a
+ * full drain that did not happen, which is the failure this project bans.
+ * An exact signal would need `purge()` to return per-delete counts. Drift
+ * is caught test-side in BOTH directions:
  * `logging-settings-section.test.tsx` resolves `onPurgeNow` with the REAL
- * exported `DIAGNOSTIC_EVENTS_PURGE_LIMIT` and asserts the "may remain"
- * toast copy, so a divergence here fails RED instead of silently
- * under-warning.
+ * exported `DIAGNOSTIC_EVENTS_PURGE_LIMIT` (asserting the "may remain"
+ * copy, which catches a DROP below this threshold) and with `LIMIT - 1`
+ * (asserting the plain copy, which catches a RISE above it), so either
+ * divergence fails RED instead of silently mis-warning.
  */
 const DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD = 500;
 

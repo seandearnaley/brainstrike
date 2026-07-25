@@ -325,8 +325,14 @@ describe('DiagnosticSinkBridge', () => {
       // Sequential await is required: each attempt must observably land
       // before the next enqueue, or several events would bunch into one
       // flush cycle and understate the failure count.
+      // `toBeGreaterThanOrEqual`, not `toBe`: if a slow runner ever let two
+      // enqueues bunch into one flush cycle, the counter would jump PAST
+      // `attempt` and a strict equality could never be satisfied — the
+      // waitFor would hard-timeout rather than retry. Nothing is lost by
+      // relaxing it, because the terminal `toBe(5)` below still pins the
+      // exact total.
       await vi.waitFor(() => {
-        expect(insertAttempts()).toBe(attempt);
+        expect(insertAttempts()).toBeGreaterThanOrEqual(attempt);
       });
       // Forces the macrotask boundary described above between each attempt.
       await new Promise((resolve) => setTimeout(resolve, 0));

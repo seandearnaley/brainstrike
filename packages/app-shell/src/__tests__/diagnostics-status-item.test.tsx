@@ -15,6 +15,10 @@ vi.mock('@brainstrike/db', () => ({
 }));
 
 import {
+  resetDiagnosticSinkHealthStore,
+  useDiagnosticSinkHealthStore,
+} from '../diagnostics/diagnostic-sink-health-store';
+import {
   resetDiagnosticsSeenStore,
   useDiagnosticsSeenStore,
 } from '../diagnostics/diagnostics-seen-store';
@@ -121,6 +125,51 @@ describe('DiagnosticsStatusItem', () => {
     expect(screen.getByTestId('diagnostics-status-item')).toHaveClass(
       'text-amber-800',
       'dark:text-amber-300'
+    );
+  });
+});
+
+describe('DiagnosticsStatusItem sink health', () => {
+  beforeEach(() => {
+    // A sibling describe does not inherit the block above's beforeEach, so
+    // the db/live-query mocks must be re-established here.
+    usePGliteDatabaseMock.mockReset();
+    usePGliteLiveQueryMock.mockReset();
+    usePGliteDatabaseMock.mockReturnValue({});
+    resetDiagnosticsSeenStore();
+    resetDiagnosticSinkHealthStore();
+  });
+
+  // A disabled sink writes NO new rows, so the unseen count sits at 0
+  // forever and the chip would render nothing — the status bar silently
+  // claiming "no errors" precisely when errors have stopped being
+  // recorded. That is the exact failure this feature's own contract text
+  // condemns for the Persistent log view, so the chip must not reproduce
+  // it. The Settings banner alone is not enough: the user has no reason to
+  // open Settings when the status bar says all is well.
+  it('surfaces a disabled sink even though the unseen count is 0', () => {
+    mockLiveQueryResult([{ count: 0 }]);
+    useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent(
+      'Diagnostics not recording'
+    );
+    expect(screen.getByTestId('diagnostics-status-trigger')).toHaveAttribute(
+      'aria-label',
+      'Diagnostic recording has stopped. Open logging settings'
+    );
+  });
+
+  it('prefers the disabled-sink label over a stale non-zero count', () => {
+    mockLiveQueryResult([{ count: 4 }]);
+    useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent(
+      'Diagnostics not recording'
     );
   });
 });

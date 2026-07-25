@@ -17,6 +17,16 @@ import { create } from 'zustand';
  * disable) must not overwrite the original root cause shown to the user.
  * Session-only; registered with factory reset in
  * `register-factory-reset-session-stores.ts`.
+ *
+ * KNOWN GAP: nothing in production calls `clear()` — the banner's "restart
+ * re-enables capture" copy is accurate for the normal case, but the bridge
+ * DOES rebuild its writer when the db handle identity changes (e.g. after
+ * runtime corruption recovery swaps the database), so capture can resume
+ * while the flag stays set. That direction is a stale OVER-warning, which
+ * is the safe way to be wrong here — the opposite (clearing the flag while
+ * capture is still dead) would be a silent all-clear. Wiring `clear()` into
+ * the bridge's writer-construction path is the fix if this becomes a real
+ * annoyance; it is deliberately not done blind.
  */
 export interface DiagnosticSinkHealthState {
   clear: () => void;

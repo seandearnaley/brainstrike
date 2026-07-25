@@ -1,5 +1,6 @@
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useCallback } from 'react';
+import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics-count';
 
@@ -8,11 +9,22 @@ import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics
  * visible". Counts warn+ diagnostic events recorded since the session
  * watermark and links straight to Settings → Logging.
  *
- * Renders nothing at count 0 — no chrome when there is nothing wrong. A
- * query error is NEVER rendered as 0 (that would be a silent "all clear"
- * claim); instead the chip surfaces in the same amber warning tone with an
- * honest "unavailable" label, so a broken count is visibly a problem rather
- * than invisible.
+ * Renders nothing at count 0 — no chrome when there is nothing wrong. But
+ * "nothing wrong" and "not watching" are different states, and this chip is
+ * the only always-visible diagnostics surface, so BOTH ways of not-knowing
+ * outrank the count:
+ *
+ *   - a disabled sink (`disabledReason`) means no new rows are ever written,
+ *     so the count would sit at 0 forever and the status bar would silently
+ *     claim "no errors" exactly when errors have STOPPED being recorded —
+ *     the same failure the contract condemns for the Persistent log view.
+ *     The settings banner alone cannot cover this: a user has no reason to
+ *     open settings while the status bar looks clean.
+ *   - a live-query error is likewise never rendered as 0.
+ *
+ * Both surface in the same amber warning tone with an honest label. The
+ * disabled-sink state outranks a non-zero count too, because that count is
+ * frozen and stale — reporting it as live would be its own small lie.
  */
 
 const AMBER_TONE_CLASSNAME = 'text-amber-800 dark:text-amber-300';
@@ -27,7 +39,18 @@ interface DiagnosticsChipDisplay {
   readonly visibleLabel: string;
 }
 
-function getDisplay(count: number, error: Error | null): DiagnosticsChipDisplay | null {
+function getDisplay(
+  count: number,
+  error: Error | null,
+  sinkDisabledReason: string | null
+): DiagnosticsChipDisplay | null {
+  if (sinkDisabledReason) {
+    return {
+      announcement: 'Diagnostics status: diagnostic recording has stopped',
+      ariaLabel: 'Diagnostic recording has stopped. Open logging settings',
+      visibleLabel: 'Diagnostics not recording',
+    };
+  }
   if (error) {
     return {
       announcement: 'Diagnostics status: unseen error count unavailable',
@@ -48,6 +71,7 @@ function getDisplay(count: number, error: Error | null): DiagnosticsChipDisplay 
 
 export function DiagnosticsStatusItem() {
   const { count, error } = useUnseenDiagnosticsCount();
+  const sinkDisabledReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
   const markAllSeen = useDiagnosticsSeenStore((state) => state.markAllSeen);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
@@ -59,7 +83,7 @@ export function DiagnosticsStatusItem() {
     }
   }, [markAllSeen, openSettings]);
 
-  const display = getDisplay(count, error);
+  const display = getDisplay(count, error, sinkDisabledReason);
   if (!display) {
     return null;
   }

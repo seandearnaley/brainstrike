@@ -665,9 +665,17 @@ a `usePGliteLiveQuery` `COUNT(*)` over rows newer than the watermark. The
 query carries NO severity predicate on purpose — the table's CHECK constraint
 already guarantees every row is warn+, so a redundant filter would just invite
 someone to "fix" it later. The chip renders `null` at count 0 (no chrome when
-nothing is wrong) and, on a query error, renders in a "Diagnostics
-unavailable" state rather than the honest-looking `0`. Clicking marks all
-seen, opens settings, and routes to `#settings/logging`.
+nothing is wrong), but BOTH not-knowing states outrank the count, because
+this is the only always-visible diagnostics surface: a live-query error
+renders "Diagnostics unavailable" rather than the honest-looking `0`, and a
+non-null `disabledReason` renders "Diagnostics not recording" — outranking
+even a non-zero count, since that count is frozen and stale once the sink is
+dead. Without the latter, a disabled sink writes no rows, the count sits at 0
+forever, and the status bar silently claims "no errors" precisely when errors
+have stopped being recorded; the settings banner alone cannot cover that,
+because a user has no reason to open settings while the status bar looks
+clean. Clicking marks all seen, opens settings, and routes to
+`#settings/logging`.
 
 The watermark (`diagnostics-seen-store.ts`) is **session-scoped, seeded to
 `Date.now()` at module load, and deliberately NOT persisted**: a persisted
@@ -681,8 +689,12 @@ persisted): `maxAgeDays` / `maxRows`, chosen from
 Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
 behavior is unchanged until a user edits them (a test asserts the equality by
 importing both, rather than hardcoding the numbers twice). Setters **throw**
-on a value outside the option list and `migrate` sanitizes an unknown
-persisted payload back to defaults — malformed config is loud, never coerced.
+on a value outside the option list — malformed config is loud, never coerced.
+`migrate` sanitizes an unknown persisted payload back to defaults, but note
+the standard zustand caveat this repo's other preference stores share: it
+runs ONLY on a version mismatch, so a hand-edited payload written at the
+CURRENT version is shallow-merged unsanitized. The setter guard is the real
+enforcement; `migrate` covers version bumps only.
 
 **Purge path**: the settings card's "Purge now" reaches the repository through
 an `onPurgeNow?: () => Promise<number>` **callback prop**, never a repository

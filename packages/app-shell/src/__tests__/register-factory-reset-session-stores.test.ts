@@ -10,6 +10,8 @@ import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
+import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 
 // The real notes-vault store's default services require indexedDB (handle
 // persistence), which this vitest environment does not provide. The reset
@@ -120,5 +122,27 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+  });
+
+  // The two diagnostics session stores get their own case rather than riding
+  // along above: without it, DELETING both `registerFactoryResetSessionStore`
+  // blocks for them would leave every test on the branch green, silently
+  // breaking the "any new session store must be wired into factory reset"
+  // contract. Their own unit tests only prove the reset FUNCTIONS work, not
+  // that anything calls them.
+  it('clears both diagnostics session stores when factory reset drains registered resetters', async () => {
+    const staleWatermark = Date.now() - 60 * 60 * 1000;
+    useDiagnosticsSeenStore.setState({ lastSeenAtMs: staleWatermark });
+    useDiagnosticSinkHealthStore.getState().markDisabled('sink exploded');
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBe('sink exploded');
+
+    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(result.success).toBe(true);
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+    // The watermark is RE-SEEDED to "now", not restored to a fixed initial
+    // value, so the assertion is that it advanced past the stale value.
+    expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThan(staleWatermark);
   });
 });

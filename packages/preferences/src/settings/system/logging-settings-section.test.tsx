@@ -638,6 +638,37 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     );
   });
 
+  // The companion to the case above, and the half that catches drift in the
+  // OTHER direction. The "hits the limit" test only fails if the repository
+  // constant DROPS below the mirrored threshold; if it were raised (say to
+  // 1000), that test would still pass while the section silently
+  // over-warned on every purge of 500+. Pinning `LIMIT - 1` to the plain
+  // copy closes that gap: raising the repository constant makes this
+  // assertion fail RED.
+  it('does not claim more may remain one row below the repository per-call limit', async () => {
+    const user = userEvent.setup();
+    const belowLimit = DIAGNOSTIC_EVENTS_PURGE_LIMIT - 1;
+    const onPurgeNow = vi.fn(async () => belowLimit);
+    render(
+      <LoggingSettingsSection
+        logSource={createLogSource([])}
+        onPurgeNow={onPurgeNow}
+        runtime="browser"
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /purge now/i }));
+
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: `Purged ${belowLimit} diagnostic events.`,
+          title: 'Diagnostics purged',
+        })
+      )
+    );
+  });
+
   it('shows a destructive toast when the purge rejects', async () => {
     const user = userEvent.setup();
     const onPurgeNow = vi.fn(async () => {
