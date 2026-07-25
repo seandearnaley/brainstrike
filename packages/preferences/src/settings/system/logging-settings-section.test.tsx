@@ -721,3 +721,59 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     await waitFor(() => expect(purgeButton).not.toBeDisabled());
   });
 });
+
+describe('LoggingSettingsSection sink-health banner', () => {
+  it('renders no banner when the sink is healthy', () => {
+    render(
+      <LoggingSettingsSection
+        logSource={createLogSource([])}
+        runtime="browser"
+        sinkHealthReason={null}
+      />
+    );
+
+    expect(screen.queryByTestId('diagnostic-sink-health-banner')).not.toBeInTheDocument();
+  });
+
+  it('renders no banner when the prop is omitted entirely', () => {
+    render(<LoggingSettingsSection logSource={createLogSource([])} runtime="browser" />);
+
+    expect(screen.queryByTestId('diagnostic-sink-health-banner')).not.toBeInTheDocument();
+  });
+
+  it('names the reason and states that capture is stopped until restart', () => {
+    render(
+      <LoggingSettingsSection
+        logSource={createLogSource([])}
+        runtime="browser"
+        sinkHealthReason="Failed to insert diagnostic events: disk is full"
+      />
+    );
+
+    const banner = screen.getByTestId('diagnostic-sink-health-banner');
+    expect(banner).toHaveTextContent('Failed to insert diagnostic events: disk is full');
+    // The honest-degradation copy (design §4.3): the user must learn that
+    // capture STOPPED, not merely that something failed once — an empty
+    // Persistent log view otherwise reads as "no errors happened".
+    expect(banner).toHaveTextContent(/stopped/i);
+    expect(banner).toHaveTextContent(/restart/i);
+  });
+
+  it('renders the banner above the general logging card', () => {
+    render(
+      <LoggingSettingsSection
+        logSource={createLogSource([])}
+        runtime="browser"
+        sinkHealthReason="sink exploded"
+      />
+    );
+
+    const banner = screen.getByTestId('diagnostic-sink-health-banner');
+    const generalCard = screen.getByText('General Logging');
+    // Node.compareDocumentPosition: DOCUMENT_POSITION_FOLLOWING (4) means
+    // the argument comes AFTER `banner` in document order.
+    expect(banner.compareDocumentPosition(generalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+});

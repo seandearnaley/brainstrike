@@ -7,6 +7,7 @@ import {
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import {
   createSystemDiagnosticsSettingsCategory,
+  useDiagnosticSinkHealthStore,
   useDiagnosticsPurge,
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
@@ -110,6 +111,7 @@ export default function SettingsPageContent() {
 
   const durableLogSource = useDurableLogSource();
   const onPurgeNow = useDiagnosticsPurge();
+  const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
 
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
@@ -205,6 +207,7 @@ export default function SettingsPageContent() {
           <LoggingSettingsSection
             logSource={logSource}
             runtime="browser"
+            sinkHealthReason={sinkHealthReason}
             {...(durableLogSource === undefined
               ? {}
               : {
@@ -244,6 +247,7 @@ export default function SettingsPageContent() {
     logSource,
     durableLogSource,
     onPurgeNow,
+    sinkHealthReason,
     storedFolders.length,
     clearStoredHandles,
     devInlineFixtureEnabled,

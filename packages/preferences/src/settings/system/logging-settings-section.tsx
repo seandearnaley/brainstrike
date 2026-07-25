@@ -98,6 +98,22 @@ export interface LoggingSettingsSectionProps {
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   onSelectLogDestination?: () => Promise<string | null>;
   runtime: 'browser' | 'electron-renderer';
+  /**
+   * Why durable diagnostic capture stopped, or `null` while healthy (Flight
+   * Recorder P2b Task 5). Callers read
+   * `useDiagnosticSinkHealthStore(...)` from
+   * `@brainstrike/app-shell/diagnostics`.
+   *
+   * This prop is the ONLY way a broken sink can reach a user. The two
+   * `LogRecord` -> `DiagnosticEvent` converters skip records scoped to
+   * `DIAGNOSTIC_SINK_SCOPE` (a loop guard stopping the sink from logging its
+   * own failures back into itself), so a disabled sink never appears in the
+   * durable table or the Persistent log view — those would just look empty,
+   * which reads as "no errors happened" rather than "errors are no longer
+   * being recorded". Surfacing it is the design's §4.3 honest-degradation
+   * requirement.
+   */
+  sinkHealthReason?: string | null;
 }
 
 export type { LogSourceAdapter };
@@ -158,6 +174,7 @@ export function LoggingSettingsSection({
   durableLogSource,
   onExportDurableNdjson,
   onPurgeNow,
+  sinkHealthReason,
 }: LoggingSettingsSectionProps) {
   const preferences = useLoggingPreferencesStore((state) => state.preferences);
   const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
@@ -428,6 +445,7 @@ export function LoggingSettingsSection({
 
   return (
     <div className="space-y-6">
+      {sinkHealthReason ? <DiagnosticSinkHealthBanner reason={sinkHealthReason} /> : null}
       <GeneralLoggingCard
         applyUpdates={applyUpdates}
         logLevelItems={logLevelItems}
@@ -792,6 +810,29 @@ function AdvancedLoggingCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Flight Recorder P2b Task 5: the §4.3 honest-degradation surface for a
+ * diagnostic sink that gave up after repeated flush failures. Rendered at the
+ * TOP of the section because everything below it (the Persistent log source,
+ * the retention card) silently describes a store that is no longer being
+ * written to. Uses the same amber treatment as the file-logging warning
+ * already in this file.
+ */
+function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
+  return (
+    <div
+      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200"
+      data-testid="diagnostic-sink-health-banner"
+      role="alert"
+    >
+      <span className="font-medium">Durable diagnostic capture has stopped.</span> Warnings and
+      errors are no longer being written to the local database, so the Persistent log view and
+      exports will not include anything after this point. Reason: {reason}. Restarting the app
+      re-enables capture.
+    </div>
   );
 }
 
