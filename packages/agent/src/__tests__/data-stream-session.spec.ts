@@ -671,6 +671,7 @@ describe('AssistantDataStreamSession', () => {
       { type: 'text-delta', value: 'The model request failed: upstream 429' },
       {
         event: {
+          detail: 'upstream 429',
           id: 'run-event-provider-failure',
           kind: 'run.failed',
           label: 'Assistant run failed',
@@ -697,10 +698,15 @@ describe('AssistantDataStreamSession', () => {
 
     expect(outcome.status).toBe('failed');
     // Pinned exactly, not `toBeTruthy()`: a loose assertion would pass whether
-    // the text came from the run event's label or from the generic fallback,
-    // leaving the run-event wiring untested. The companion case below pins the
-    // fallback, so the two together prove which source was used.
-    expect(outcome.error).toBe('Assistant run failed');
+    // the text came from the run event, the label, or the generic fallback,
+    // leaving the wiring untested. The companion cases below pin the
+    // label-fallback and the generic fallback, so the three together prove
+    // which source was used.
+    //
+    // Specifically the DETAIL, not the label: all three terminations share the
+    // generic label "Assistant run failed", so persisting the label would give
+    // a correct status with no forensic value.
+    expect(outcome.error).toBe('upstream 429');
     // The visible text the termination helper already emitted must not be
     // duplicated by the mapper's own failure fallback.
     const visibleText = events
@@ -733,6 +739,48 @@ describe('AssistantDataStreamSession', () => {
 
     expect(session.getTerminalOutcome()).toEqual({
       error: 'Assistant run failed.',
+      status: 'failed',
+    });
+  });
+
+  // The unsupported approval/suspend pause (`makeUnsupportedApprovalChunks`)
+  // also emits `run.failed` + an error finish, so it IS swept in by the same
+  // branch — pinned here because an earlier revision of this change claimed it
+  // was not. The outcome is correct: a malformed pause (missing toolCallId or
+  // runId) genuinely cannot proceed, so recording it `completed` was the same
+  // lie this change exists to fix. It carries no `detail`, so the label is the
+  // durable text — which is why the mapper falls back to the label rather than
+  // requiring a detail.
+  it('records an unsupported approval pause as failed, using the label when no detail is present', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        event: {
+          id: 'run-event-unsupported-approval',
+          kind: 'run.failed',
+          label: 'Tool approval required',
+          metadata: { actionRequired: true, missingToolCallId: true, resumeSupported: false },
+          status: 'failed',
+          timestamp: '2026-07-25T00:00:00.000Z',
+        },
+        type: 'run-event',
+      },
+      {
+        finishReason: 'error',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-unsupported-approval',
+      sessionId: 'unsupported-approval',
+    });
+
+    await readResponse(session.createResponse());
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: 'Tool approval required',
       status: 'failed',
     });
   });

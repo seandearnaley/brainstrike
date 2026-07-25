@@ -266,6 +266,45 @@ function makeRunEventChunk(
   };
 }
 
+/**
+ * A `run.failed` chunk that also carries a SPECIFIC `detail`.
+ *
+ * The three stream terminations all use the same generic label ("Assistant run
+ * failed"), which is fine for the run-event timeline but useless as durable
+ * failure text: `data-stream-mapper` derives `thread_runs.error` from this
+ * event, so without a detail every provider failure, stall, and tool-input
+ * timeout persists the same signal-free string, and the debug bundle's Failure
+ * summary cannot say WHY a run failed.
+ *
+ * Deliberately a separate helper rather than another optional parameter on
+ * `makeRunEventChunk`: that function's trailing optionals are `metadata` and
+ * `timestamp`, and `detail`/`timestamp` are both `string`, so a positional
+ * mistake between them would type-check cleanly while silently writing a
+ * timestamp into the detail field.
+ */
+function makeRunFailedChunk(
+  label: string,
+  detail: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk {
+  // Built directly rather than by spreading `makeRunEventChunk(...)`: its return
+  // type is the `StreamChunk` union, so `chunk.event` is not accessible without
+  // narrowing and the spread widens the result off the union. The small overlap
+  // with that function's body is the price of staying type-safe here.
+  return {
+    event: {
+      detail,
+      id: `run-event-${generateUUID()}`,
+      kind: 'run.failed',
+      label,
+      status: 'failed',
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    },
+    type: 'run-event',
+  };
+}
+
 function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined {
   const p = asMastraStreamPart(part);
   const metadata: AssistantRunEventMetadata = {};
@@ -1302,7 +1341,7 @@ function makeProviderErrorTermination(
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
       { type: 'text-delta', value: `The model request failed: ${visibleDetail}` },
-      makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', runMetadata),
+      makeRunFailedChunk('Assistant run failed', visibleDetail, runMetadata),
       makeErrorFinishChunk(),
     ],
     finished: true,
@@ -1343,7 +1382,7 @@ function makeStreamStalledTermination(
       type: 'text-delta',
       value: visibleMessage,
     },
-    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
+    makeRunFailedChunk('Assistant run failed', visibleMessage, {
       code: error.code,
       ...diagnosticContext,
     }),
@@ -1378,10 +1417,11 @@ function makeToolCallInputTimeoutTermination(
       type: 'text-delta',
       value: `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`,
     },
-    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
-      code: error.code,
-      ...diagnosticContext,
-    }),
+    makeRunFailedChunk(
+      'Assistant run failed',
+      `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms.`,
+      { code: error.code, ...diagnosticContext }
+    ),
     makeErrorFinishChunk(),
   ];
 }

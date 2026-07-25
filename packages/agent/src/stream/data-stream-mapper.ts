@@ -428,7 +428,14 @@ export class DataStreamMapper {
 
   private *handleRunEvent(chunk: StreamChunkRunEvent): Generator<EncodedChunk> {
     if (chunk.event.kind === 'run.failed') {
-      this.runFailedEventText = chunk.event.label;
+      // Prefer `detail` over `label`: all three stream terminations use the same
+      // generic label ("Assistant run failed"), so the label alone would persist
+      // a signal-free string into `thread_runs.error` — correct status, useless
+      // forensics. `detail` carries the specific reason (clamped provider text,
+      // the stall's inactivity window, the tool-input timeout). Falls back to
+      // the label for run.failed events that carry no detail, such as the
+      // unsupported approval/suspend pause.
+      this.runFailedEventText = chunk.event.detail ?? chunk.event.label;
     }
     const encoded = {
       code: DataStreamCode.auiDataPart,
@@ -806,6 +813,15 @@ export class DataStreamMapper {
       //
       // Deliberately NOT setting `pendingRunErrorText`: that drives the visible
       // fallback text, which would duplicate the helper's text-delta.
+      //
+      // KNOWN REMAINING GAP: `finishReason: 'unknown'` still has the same
+      // split — `makeTerminalRunEvent` emits `run.failed` for it while this
+      // branch leaves the outcome `completed`. It is deliberately NOT handled
+      // here: `resolveFinishReason` also returns 'unknown' when a provider
+      // simply omits `finishReason` on an otherwise-normal final chunk, so
+      // sweeping it in would mark healthy runs failed. The two sides genuinely
+      // disagree about what 'unknown' means and that needs reconciling in one
+      // place, not a reflex here. Tracked separately.
       this.terminalFailureText = this.runFailedEventText ?? ERROR_FINISH_FALLBACK_TEXT;
     }
     const stepBeforeFinalize = this.currentStep;
