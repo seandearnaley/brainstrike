@@ -69,8 +69,6 @@ function logDatabaseError(message: string, error: unknown): void {
  * read only inside the functions below.
  */
 type ClearableRelation =
-  | (typeof MASTRA_MEMORY_TABLES)[keyof typeof MASTRA_MEMORY_TABLES]
-  | typeof MASTRA_VECTOR_TABLE
   | typeof MASTRA_WORKFLOW_TABLE
   | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_thread_groups'
@@ -84,6 +82,11 @@ type ClearableRelation =
   | 'file_chunks'
   | 'file_records'
   | 'job_queue'
+  | 'mastra_messages'
+  | 'mastra_observational_memory'
+  | 'mastra_resources'
+  | 'mastra_threads'
+  | 'mastra_vectors'
   | 'prompt_items'
   | 'roots'
   | 'selection_snapshot_files'

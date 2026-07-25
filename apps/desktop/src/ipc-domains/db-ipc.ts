@@ -81,8 +81,6 @@ interface PGliteLiveQuerySurface {
 }
 
 type OptionalRelationTable =
-  | (typeof MASTRA_MEMORY_TABLES)[keyof typeof MASTRA_MEMORY_TABLES]
-  | typeof MASTRA_VECTOR_TABLE
   | typeof MASTRA_WORKFLOW_TABLE
   | 'brainstrike_assistant_edit_checkpoints'
   | 'brainstrike_assistant_message_parents'
@@ -98,6 +96,11 @@ type OptionalRelationTable =
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
+  | 'mastra_messages'
+  | 'mastra_observational_memory'
+  | 'mastra_resources'
+  | 'mastra_threads'
+  | 'mastra_vectors'
   | 'prompt_items'
   | 'roots'
   | 'selection_snapshot_files'
