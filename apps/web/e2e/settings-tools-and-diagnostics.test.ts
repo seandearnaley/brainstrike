@@ -39,9 +39,12 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toBeVisible();
 
+    // readWorkspaceContext is 'deferred': the canonical 'critical' partition is
+    // exactly the eight primitives pinned by tool-discovery-contract.test.ts.
     await page.getByTestId('tier-filter').click();
-    await page.getByRole('option', { name: 'Critical' }).click();
+    await page.getByRole('option', { name: 'Deferred' }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
+    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
 
     await page.getByTestId('tool-group-menu-native').click();
     await page.getByTestId('disable-all-action').click();

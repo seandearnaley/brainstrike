@@ -38,8 +38,10 @@ test.describe('AI Tools settings (desktop)', () => {
     await openToolsSettings(homePage, settingsPage);
 
     await window.getByTestId('search-input').fill('readWorkspaceContext');
+    // readWorkspaceContext is 'deferred': the canonical 'critical' partition is
+    // exactly the eight primitives pinned by tool-discovery-contract.test.ts.
     await window.getByTestId('tier-filter').click();
-    await window.getByRole('option', { name: 'Critical' }).click();
+    await window.getByRole('option', { name: 'Deferred' }).click();
     await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
 
     await window.getByTestId('tool-group-menu-native').click();
