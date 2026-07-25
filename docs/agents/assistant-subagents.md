@@ -87,7 +87,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `subagent.failed` (status `cancelled`) event via
   `createDelegationLifecycleTracker` (drained on the generator's abort paths),
   so a cancelled parent never leaves an orphaned `subagent.started`.
-- **Stream → run events (D9):** `processMastraStreamPart` (agent-runtime.ts)
+- **Stream → run events (D9):** `processMastraStreamPart` (agent-streaming.ts)
   threads `runtime.delegationToolPersonas` (`agent-<key>` → personaId). A parent
   `tool-call`/`tool-result`/`tool-error` for a delegation tool ALSO emits
   `subagent.started`/`.finished`/`.failed` (the generic `tool.*` timeline stays
