@@ -212,7 +212,7 @@ test('the app overrides mirror what each vite config declares before the registr
   const overridesFor = (configPath) => readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
 
   for (const [configPath, expected] of [
-    ['apps/web/vite.config.mts', ['file-explorer/dist', 'file-tree-worker/src/vite.ts', 'workers']],
+    ['apps/web/vite.config.mts', ['file-tree-worker/src/vite.ts', 'workers']],
     ['apps/desktop/vite.config.mts', ['file-tree-worker/src/vite.ts', 'workers']],
   ]) {
     const source = overridesFor(configPath);
@@ -225,6 +225,20 @@ test('the app overrides mirror what each vite config declares before the registr
       );
     }
   }
+
+  // The one deliberate divergence, pinned so it stays deliberate. apps/web pins
+  // @brainstrike/file-explorer to dist for a RUNTIME worker-artifact reason;
+  // this guard must NOT mirror it, because dist is compiled output (wrong input
+  // for a source-cycle guard) and only exists after a build — mirroring it made
+  // the guard pass locally and fail in CI's Static job, which does not build.
+  assert.ok(
+    readFileSync(path.join(REPO_ROOT, 'apps/web/vite.config.mts'), 'utf8').includes(
+      'file-explorer/dist'
+    ),
+    'apps/web no longer pins @brainstrike/file-explorer to dist. The guard deliberately does not ' +
+      'mirror that pin; if the pin is gone, delete this assertion and the explanation beside ' +
+      'RENDERER_APPS so the divergence is not documented as live when it no longer is.'
+  );
 });
 
 // --- instrument controls (BST-836) ------------------------------------------

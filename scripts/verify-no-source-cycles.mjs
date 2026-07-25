@@ -72,13 +72,22 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
  * its own `vite.config.mts`. `scripts/__tests__/verify-no-source-cycles.test.mjs`
  * asserts parity with those configs, so an override added there and forgotten
  * here fails loudly instead of quietly changing which modules are analyzed.
+ *
+ * ONE DELIBERATE DIVERGENCE: `apps/web` pins `@brainstrike/file-explorer` to
+ * `dist`, and this guard does NOT mirror that. Two reasons, both decisive.
+ * First, `dist` is COMPILED OUTPUT — analyzing it would make a *source*-cycle
+ * guard report on generated JavaScript. Second, it only exists after a build,
+ * so mirroring it made the guard pass locally (where dist was present) and fail
+ * in CI's Static job, which does not build. The web pin exists so the emitted
+ * worker artifact is available to a module Worker at RUNTIME; that is not a
+ * module-structure concern. Desktop already analyzes this package's source, so
+ * using source for both is the consistent and correct choice.
  */
 const RENDERER_APPS = Object.freeze([
   {
     entrypoint: 'apps/web/src/main.tsx',
     name: 'web',
     overrides: [
-      ['@brainstrike/file-explorer', 'packages/file-explorer/dist'],
       ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
       ['@brainstrike/workers', 'packages/workers'],
     ],
