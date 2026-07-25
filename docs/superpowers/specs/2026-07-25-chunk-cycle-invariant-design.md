@@ -203,7 +203,10 @@ Instrument controls
   chunk. The accurate invariant is "acyclic chunk graph AND acyclic
   source-module graph ⇒ safe"; only the first conjunct is enforced. This
   guard removes the cross-chunk form (the shape behind all four recorded
-  scars) but does not detect an intra-chunk source cycle.
+  scars) but does not detect an intra-chunk source cycle. Tracked as
+  **BST-890**, which also notes that the three existing `codeSplitting.groups`
+  pins are safe only because those source graphs happen to be acyclic —
+  nothing currently verifies that.
 
 ## Verification plan
 

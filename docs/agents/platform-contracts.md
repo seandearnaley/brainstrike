@@ -185,6 +185,7 @@ rolldown in an arbitrary order, which can throw the identical
 `ReferenceError` at init while the chunk graph — which has only one node for
 that pair — reports no cycle. The accurate statement is "acyclic chunk graph
 AND acyclic source-module graph ⇒ safe"; only the first conjunct is enforced.
+The second conjunct is tracked as **BST-890**.
 `scripts/verify-no-cross-chunk-cycles.mjs` asserts the first conjunct on the
 emitted bundle and runs inside `apps/web`'s `build` and `apps/desktop`'s
 `build:renderer`, so it cannot be bypassed by a code path that still runs the
