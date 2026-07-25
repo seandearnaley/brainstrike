@@ -388,8 +388,8 @@ these tests in the same change.
 
 | Ruling | Guard |
 | --- | --- |
-| R1 | no `@mastra/{hono,express,fastify,koa,nestjs,deployer,server}` in the lockfile; constructed Mastra config carries no `server` key |
-| R2 | `apps/web/vite.config.mts` externals still include `@mastra/core` and `/^@mastra\//` |
+| R1 | no `@mastra/{hono,express,fastify,koa,nestjs,deployer,server}` in the lockfile; constructed Mastra config carries no `server`/`observability`/`scorers` key in **any** literal form (`key:`, quoted, or bare shorthand — `storage,` in that object is already shorthand), and no opaque spread that would make the scan unverifiable |
+| R2 | **both** browser bundles — `apps/web/vite.config.mts` **and** `apps/desktop/vite.config.mts` (the Electron renderer build, `outDir: 'dist/renderer'`) — keep `@mastra/core` and `/^@mastra\//` in their vite externals |
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
 | R8 | `@mastra/observability` and `@mastra/evals` absent (informational — R8 permits adding evals deliberately) |
 

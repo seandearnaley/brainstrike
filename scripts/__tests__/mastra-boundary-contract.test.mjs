@@ -171,30 +171,41 @@ test('R1/R4/R7: no forbidden Mastra package is resolved in the lockfile', () => 
   }
 });
 
-test('R2: apps/web keeps every @mastra/* package out of the browser bundle', () => {
-  // @mastra/core statically imports node builtins (fs, child_process, os, ...)
-  // from a chunk shared by /agent, /mastra and /workspace. Bundling it for the
-  // browser does not fail the build — it fails at runtime in the user's tab.
-  const configPath = path.join(repoRoot, 'apps', 'web', 'vite.config.mts');
-  const source = readFileSync(configPath, 'utf8');
+/**
+ * BOTH browser bundles, not just the web one. apps/desktop's renderer build
+ * (`outDir: 'dist/renderer'`, `pino/browser.js` aliased in) is every bit as much
+ * a browser context as apps/web, and it carries the byte-identical externals
+ * line. Guarding only the web config would leave the surface that actually
+ * ships to desktop users unprotected — and R2's whole point is that the break
+ * is silent at build time. Caught in review on #1976.
+ */
+const BROWSER_BUNDLE_CONFIGS = ['apps/web/vite.config.mts', 'apps/desktop/vite.config.mts'];
 
-  assert.match(
-    source,
-    /external\s*:\s*\[[^\]]*'@mastra\/core'/,
-    'apps/web/vite.config.mts no longer externalizes @mastra/core. @mastra/core has NO browser-safe entry ' +
-      'point — its shared chunk statically imports fs, fs/promises, child_process, os, path, module, url, ' +
-      'stream and crypto. Bundling it produces no build error and explodes at runtime in the browser. ' +
-      'See R2 in docs/agents/mastra-boundary.md.'
-  );
+for (const rel of BROWSER_BUNDLE_CONFIGS) {
+  test(`R2: ${rel} keeps every @mastra/* package out of the browser bundle`, () => {
+    // @mastra/core statically imports node builtins (fs, child_process, os, ...)
+    // from a chunk shared by /agent, /mastra and /workspace. Bundling it for the
+    // browser does not fail the build — it fails at runtime in the user's tab.
+    const source = readFileSync(path.join(repoRoot, ...rel.split('/')), 'utf8');
 
-  assert.match(
-    source,
-    /external\s*:\s*\[[^\]]*\/\^@mastra\\\/\//,
-    'apps/web/vite.config.mts no longer externalizes the /^@mastra\\// pattern. The explicit @mastra/core ' +
-      'entry alone does not cover subpath-importing sibling packages, so a future @mastra/* dependency would ' +
-      'silently enter the browser bundle. See R2 in docs/agents/mastra-boundary.md.'
-  );
-});
+    assert.match(
+      source,
+      /external\s*:\s*\[[^\]]*'@mastra\/core'/,
+      `${rel} no longer externalizes @mastra/core. @mastra/core has NO browser-safe entry point — its ` +
+        'shared chunk statically imports fs, fs/promises, child_process, os, path, module, url, stream ' +
+        'and crypto. Bundling it produces no build error and explodes at runtime in the browser. ' +
+        'See R2 in docs/agents/mastra-boundary.md.'
+    );
+
+    assert.match(
+      source,
+      /external\s*:\s*\[[^\]]*\/\^@mastra\\\/\//,
+      `${rel} no longer externalizes the /^@mastra\\// pattern. The explicit @mastra/core entry alone does ` +
+        'not cover subpath-importing sibling packages, so a future @mastra/* dependency would silently ' +
+        'enter the browser bundle. See R2 in docs/agents/mastra-boundary.md.'
+    );
+  });
+}
 
 test('R1: the scoped Mastra instance registers no server, observability, or scorers', () => {
   // The instance is a registration seam: one agent, storage, an optional
@@ -230,10 +241,27 @@ test('R1: the scoped Mastra instance registers no server, observability, or scor
   assert.notEqual(objectEnd, -1, 'Could not find the end of the new Mastra({...}) config object.');
   const config = source.slice(objectStart, objectEnd + 1);
 
+  // A spread of an opaque identifier (`...opts`) would hide any option from a
+  // syntactic scan entirely. The existing spread is an INLINE ternary of object
+  // literals, whose contents this scan still sees. Anything else is
+  // unanalyzable, so fail loudly rather than report a green we cannot justify.
+  assert.doesNotMatch(
+    config,
+    /\.\.\.\s*[A-Za-z_$][\w$]*\s*[,}]/,
+    'The new Mastra({...}) config spreads an opaque identifier, so this guard can no longer prove which ' +
+      'options are registered. Inline the object (or extend this guard to resolve the spread) rather than ' +
+      'leaving R1 unverifiable.'
+  );
+
   for (const key of ['server', 'observability', 'scorers']) {
+    // Match the key as a property in EVERY form the object literal can use:
+    // `server:`, `'server':`/`"server":`, and bare shorthand `server,`. The
+    // shorthand case is not hypothetical — `storage,` in this very object is
+    // already written that way, so a colon-only regex would miss `server,`
+    // entirely. Caught in review on #1976.
     assert.doesNotMatch(
       config,
-      new RegExp(`(^|[{,\\s])${key}\\s*:`),
+      new RegExp(`(^|[{,\\s])['"\`]?${key}['"\`]?\\s*[:,}]`),
       `The scoped Mastra instance now registers "${key}". docs/agents/mastra-boundary.md R1 keeps Mastra an ` +
         'embedded library runtime: Brainstrike owns every assistant HTTP surface, and R8 keeps Pino logs, ' +
         'durable run events and the usage ledger as the observability source of truth. Update the doc in the ' +
