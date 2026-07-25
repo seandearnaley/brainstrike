@@ -39,6 +39,7 @@
     "@babel/plugin-transform-runtime": "catalog:",
     "@babel/runtime": "catalog:",
     "@biomejs/biome": "2.5.2",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
