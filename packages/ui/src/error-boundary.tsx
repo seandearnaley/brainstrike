@@ -1,8 +1,17 @@
-import { Button, ScrollArea } from '@brainstrike/ui';
+// Sibling components below are imported by RELATIVE path (`./button`,
+// `./scroll-area`), never from this package's own `@brainstrike/ui` barrel.
+// The barrel re-exports this module, so importing it from here closes a source
+// cycle: rolldown concatenates a cycle's modules into one chunk in arbitrary
+// order, which can throw `Cannot access 'X' before initialization` at startup.
+// The chunk-cycle guard cannot see it — one chunk has no cross-chunk edge to
+// flag — so `scripts/verify-no-source-cycles.mjs` enforces it instead (BST-890).
+
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Button } from './button';
+import { ScrollArea } from './scroll-area';
 
 const boundaryLogger = createLogger('ErrorBoundary');
 

@@ -220,7 +220,30 @@ rolldown in an arbitrary order, which can throw the identical
 `ReferenceError` at init while the chunk graph — which has only one node for
 that pair — reports no cycle. The accurate statement is "acyclic chunk graph
 AND acyclic source-module graph ⇒ safe"; only the first conjunct is enforced.
-The second conjunct is tracked as **BST-890**.
+The second conjunct is now enforced too (**BST-890**):
+`scripts/verify-no-source-cycles.mjs` walks the renderer SOURCE graph from both
+app entrypoints and fails the lint lane on any circular dependency. It needs no
+build, so it lives on the lint lane rather than inside `build`.
+
+Resolution deliberately does NOT go through tsconfig, which points
+`@brainstrike/*` at `packages/*/dist/*.d.ts` and made a first attempt see only
+139 modules. It composes the repo's own helpers instead — `workspaceSrcAliases`
+(`packages/test-utils/workspace-src-aliases.mjs`) plus
+`createAgentBrowserSafeAliasEntries`, the same pair `apps/web/vite.config.mts`
+uses — and reaches 813 modules. Static, non-type imports only: `import type` is
+erased and dynamic `import()` creates no init-order dependency, while a bare
+side-effect `import '…'` does and is counted.
+
+The bundler will not do this for you: a genuine source cycle planted in
+`apps/web/src` built successfully, emitted ZERO rolldown circular-dependency
+warnings, and left the chunk guard clean. "No circular warnings in the build
+log" is a blind instrument.
+
+On its first run this guard found a real cycle: `error-boundary.tsx`,
+`theme-settings.tsx` and `theme-toggle.tsx` in `packages/ui` imported their OWN
+`@brainstrike/ui` barrel, which re-exports them. **Import the sibling module
+directly** — a package must never import its own barrel. That is the same
+no-barrel/TDZ ruling as BST-742, and it is now enforced rather than advisory.
 `scripts/verify-no-cross-chunk-cycles.mjs` asserts the first conjunct on the
 emitted bundle and runs inside `apps/web`'s `build` and `apps/desktop`'s
 `build:renderer`, so it cannot be bypassed by a code path that still runs the

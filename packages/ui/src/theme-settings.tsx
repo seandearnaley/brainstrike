@@ -1,5 +1,10 @@
-import { Button, Label } from '@brainstrike/ui';
+// Sibling components below use relative paths, never this package's own
+// `@brainstrike/ui` barrel — that would close a source cycle. See the fuller
+// note in error-boundary.tsx (BST-890).
+
 import { Monitor, Moon, Sun } from 'lucide-react';
+import { Button } from './button';
+import { Label } from './label';
 import { useTheme } from './theme-provider';
 
 export function ThemeSettings() {
