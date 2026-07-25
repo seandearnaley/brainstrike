@@ -146,6 +146,22 @@ a clear starts; unlike the bare catches above, `clearOptionalRelation` already
 rethrows everything that is not a missing-relation error, so it cannot mask a
 genuine failure.
 
+Two honest caveats on that paragraph, both raised in review (BST-558):
+
+- It does NOT cover every remaining catch. The selection-snapshot block in
+  `apps/desktop/src/ipc-domains/db-ipc.ts` (~`:750-757`) still swallows
+  everything — it only *logs* non-missing-relation errors and never rethrows,
+  the exact pattern removed from `purgeTablesTx`. It does not produce a false
+  success on desktop (the next unwrapped `DELETE` raises `25P02` and the handler
+  returns `success: false`), but the surfaced message is the misleading
+  aborted-transaction error rather than the real cause. Not yet converted.
+- A narrowed catch around a `DELETE` inside a transaction still cannot *tolerate*
+  a missing relation, only report it more honestly: the tolerated `42P01` has
+  already aborted the transaction, so the next statement fails `25P02` and the
+  clear dies anyway. `clearMigratedRelation`'s warn branch therefore means "this
+  is why the reset is about to fail", not "the reset continued". Probing with
+  `to_regclass` is the only form that actually tolerates absence.
+
 Add tests when changing reset behavior — and note that a mocked `tx.query`
 CANNOT reproduce aborted-transaction semantics. Reset changes that depend on
 them need a real-PGlite `*.integration.test.*`

@@ -33,6 +33,23 @@ import { fileURLToPath } from 'node:url';
  * So the literal stays and this test carries the guarantee instead. It is the
  * same protection with no runtime import edge. `apps/desktop/src/ipc-domains/db-ipc.ts`
  * is Electron MAIN, not renderer, and keeps the real import.
+ *
+ * SCOPE — this is a STOPGAP, and the residual hazard is repo-wide (raised in
+ * review, BST-558). The underlying defect is NOT in this file: it is that
+ * `packages/app-shell/src/assistant-memory-repository.ts` dereferences
+ * `MASTRA_MEMORY_TABLES.threads` in MODULE-SCOPE template literals (`:639`, `:666`),
+ * evaluated at chunk-init time. Any import edge that reorders chunk init kills the
+ * renderer; `db-provider.tsx` is merely the file that happened to trip it.
+ *
+ * This guard covers ONE file and ONE syntax form. Each of the following would
+ * reintroduce the crash and stay invisible outside E2E:
+ *   - `export { … } from '@brainstrike/assistant-contract/…'` in this file
+ *   - `await import('@brainstrike/assistant-contract/…')` in this file
+ *   - the same static import added from any OTHER renderer-side module
+ *
+ * The durable fix is to make those module-scope literals lazy so no import order
+ * can leave them undefined. Tracked separately — do not mistake this test for
+ * repo-wide coverage.
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

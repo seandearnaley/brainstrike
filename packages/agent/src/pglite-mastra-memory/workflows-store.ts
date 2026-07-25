@@ -103,8 +103,20 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
  * the debug bundle, so the row cannot vanish unnoticed the way a batched warn
  * (which waits on the 2s/32-event window) could.
  *
- * DO NOT RELITIGATE — the ERROR record is emitted ONCE PER RUN PER PROCESS,
- * guarded by `reportedMalformedRuns`. A corrupt row is PERMANENT in production
+ * The ERROR record is emitted once per corrupt row PER STORE INSTANCE, guarded
+ * by `reportedMalformedRuns`. NOT once per process — review (BST-558) established
+ * that `createPgliteMastraMemory` constructs a fresh `PgliteWorkflowsStore` on
+ * every call (`memory-factory.ts:137`) and that desktop DELIBERATELY bypasses the
+ * shared memory cache for run-scoped instances (`apps/desktop/src/assistant-server.ts:2652`),
+ * so a new `Set` is created roughly once per assistant run. Within one store the
+ * guard holds; across stores the same permanent corrupt row is re-reported.
+ *
+ * Closing that fully needs the registry to live in a process-lived owner rather
+ * than the store — deliberately NOT done here, because it changes ownership of
+ * state this PR does not otherwise touch. Tracked separately; do not describe the
+ * current behaviour as a per-process guarantee.
+ *
+ * A corrupt row is PERMANENT in production
  * (`deleteWorkflowRunById` has no production caller), while this listing runs on
  * every renderer reload AND on every `readResumedApprovalToolCall` during tool
  * approval. Without the guard, each of those writes another eagerly flushed
