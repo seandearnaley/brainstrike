@@ -59,6 +59,35 @@ beforeEach(() => {
 });
 
 describe('useAssistantThreadGroupsStore', () => {
+  it('does not let an in-flight load repopulate the live mirror after reset', async () => {
+    let resolveStaleGroups!: (groups: readonly AssistantThreadGroup[]) => void;
+    const staleRepository = makeRepository();
+    vi.mocked(staleRepository.listGroups).mockReturnValue(
+      new Promise((resolve) => {
+        resolveStaleGroups = resolve;
+      })
+    );
+    const staleLoad = useAssistantThreadGroupsStore
+      .getState()
+      .ensureGroups(staleRepository, RESOURCE_ID);
+
+    useAssistantThreadGroupsStore.getState().reset();
+
+    const freshRepository = makeRepository({
+      groups: [makeGroup({ id: 'group-fresh', rank: 'a0' })],
+    });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(freshRepository, RESOURCE_ID);
+
+    resolveStaleGroups([makeGroup({ id: 'group-stale', rank: 'a0' })]);
+    await staleLoad;
+
+    expect(
+      useAssistantThreadGroupsStore
+        .getState()
+        .groupsByResourceId[RESOURCE_ID]?.map((group) => group.id)
+    ).toEqual(['group-fresh']);
+  });
+
   it('loads groups and placements on ensureGroups', async () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],

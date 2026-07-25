@@ -105,6 +105,7 @@ interface AssistantThreadGroupsState {
 }
 
 const resourceGroupsLoadPromises = new Map<string, Promise<void>>();
+let resourceGroupsLoadGeneration = 0;
 
 function sortGroups(groups: readonly AssistantThreadGroup[]): AssistantThreadGroup[] {
   return [...groups].sort((left, right) =>
@@ -291,6 +292,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           return;
         }
 
+        const loadGeneration = resourceGroupsLoadGeneration;
         const loadPromise = (async () => {
           set((state) => ({
             loadStateByResourceId: {
@@ -303,6 +305,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
               repository.listGroups(resourceId),
               repository.listPlacements(resourceId),
             ]);
+            if (loadGeneration !== resourceGroupsLoadGeneration) {
+              return;
+            }
             set((state) => ({
               groupsByResourceId: {
                 ...state.groupsByResourceId,
@@ -320,6 +325,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
               },
             }));
           } catch (error) {
+            if (loadGeneration !== resourceGroupsLoadGeneration) {
+              throw error;
+            }
             const message = error instanceof Error ? error.message : String(error);
             set((state) => ({
               loadStateByResourceId: {
@@ -329,7 +337,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             }));
             throw error;
           } finally {
-            resourceGroupsLoadPromises.delete(resourceId);
+            if (loadGeneration === resourceGroupsLoadGeneration) {
+              resourceGroupsLoadPromises.delete(resourceId);
+            }
           }
         })();
 
@@ -516,6 +526,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         }));
       },
       reset: () => {
+        resourceGroupsLoadGeneration += 1;
         resourceGroupsLoadPromises.clear();
         set({
           ...DEFAULT_VIEW_STATE,

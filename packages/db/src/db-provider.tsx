@@ -73,6 +73,8 @@ type ClearableRelation =
   | typeof MASTRA_VECTOR_TABLE
   | typeof MASTRA_WORKFLOW_TABLE
   | 'brainstrike_assistant_run_outcomes'
+  | 'brainstrike_assistant_thread_groups'
+  | 'brainstrike_assistant_thread_placements'
   | 'brainstrike_assistant_tool_output_artifacts'
   | 'brainstrike_diagnostic_events'
   | 'brainstrike_thread_message_index'
@@ -884,6 +886,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
+      // Thread grouping is Brainstrike-owned assistant presentation state.
+      // Delete placements before groups, and both before Mastra threads.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
       // Mastra memory tables are lazy, database-owned assistant persistence.
       // Delete children before their logical parents even though the current
       // schema does not declare foreign keys. Vectors are deliberately cleared
@@ -945,6 +951,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // turn any single failure into a pile of `25P02`s.
     await clearRelationIfPresent(tx, 'prompt_items');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.threads);

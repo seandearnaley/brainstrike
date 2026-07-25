@@ -65,6 +65,12 @@ const SENTINEL_INSERTS = [
   // Cleared BEFORE mastra_workflow_snapshot in both paths.
   `INSERT INTO prompt_items (id, kind, title, content)
      VALUES ('sentinel-prompt', 'prompt', 'sentinel', 'sentinel')`,
+  `INSERT INTO brainstrike_assistant_thread_groups
+     (id, resource_id, name, rank)
+     VALUES ('sentinel-group', 'sentinel-resource', 'sentinel', 'a')`,
+  `INSERT INTO brainstrike_assistant_thread_placements
+     (thread_id, resource_id, group_id, rank)
+     VALUES ('sentinel-thread', 'sentinel-resource', 'sentinel-group', 'a')`,
   // Cleared AFTER it (clearThreadSearchIndexIfPresent) — the first statement
   // that would observe an aborted transaction.
   `INSERT INTO brainstrike_diagnostic_events
@@ -114,6 +120,8 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
 
   async function assertSentinelsCleared(): Promise<void> {
     expect(await countRows('prompt_items')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   }
 

@@ -80,7 +80,11 @@ the assistant-ui carousel/branch topology companion store (migration 055), and
 `brainstrike_assistant_tool_output_artifacts`, the complete-result store
 (migration 068). The artifact relation is independently retained and has no
 Mastra FK, so both direct-PGlite reset and desktop `db:clearAll` must delete it
-explicitly; only a pre-068 missing relation is tolerated.
+explicitly; only a pre-068 missing relation is tolerated. It also includes
+`brainstrike_assistant_thread_groups` and
+`brainstrike_assistant_thread_placements`, the durable thread grouping and
+manual-order presentation state (migration 054). Every table-enumerating reset
+deletes placements before groups, then deletes both before Mastra threads.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -94,11 +98,12 @@ ALL SIX:
 
 Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 `db-ipc.ts`, direct-PGlite `clearViaPGlite`, and direct-PGlite factory reset's
-`purgeTablesTx` in `db-provider.tsx`. Keep those three lists in parity. Desktop
-factory reset is deliberately different: `resetLocalDatabase` closes the
-database and recursively deletes the active profile directory, so it removes
-the relations with the whole database rather than issuing table-by-table
-`DELETE`s. Do not add a redundant SQL purge to that directory-delete path.
+`purgeTablesTx` in `db-provider.tsx`. Keep the Mastra six in parity across those
+three lists; the rest intentionally differs. Desktop factory reset is
+deliberately different: `resetLocalDatabase` closes the database and recursively
+deletes the active profile directory, so it removes the relations with the whole
+database rather than issuing table-by-table `DELETE`s. Do not add a redundant
+SQL purge to that directory-delete path.
 
 These relations are application-created lazily rather than guaranteed by the
 numbered migration runner: the memory store creates threads, messages,

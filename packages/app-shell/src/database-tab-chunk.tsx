@@ -1,6 +1,8 @@
 import { DatabaseDemoPanel } from '@brainstrike/db-explorer/database-demo-panel';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
+import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { resetAssistantThreadStore } from './assistant-thread-store';
 
 interface DatabaseTabProps {
   readonly chunkingMode?: 'host-proxy' | 'local';
@@ -23,6 +25,11 @@ interface DatabaseTabProps {
   embeddingQueue?: QueueAdapter | null;
 }
 
+function resetAssistantStateAfterDatabaseClear(): void {
+  resetAssistantThreadStore();
+  useAssistantThreadGroupsStore.getState().reset();
+}
+
 /**
  * Database tab chunk component showing database demo panel.
  *
@@ -38,7 +45,10 @@ export function DatabaseTab({
       {/* Pass embeddingQueue to DatabaseDemoPanel for import operations.
           ChunkingWorkerProvider now lives at the app root so background sync
           and DB import share the same canonical worker lifecycle. */}
-      <DatabaseDemoPanel embeddingQueue={embeddingQueue} />
+      <DatabaseDemoPanel
+        embeddingQueue={embeddingQueue}
+        onDatabaseCleared={resetAssistantStateAfterDatabaseClear}
+      />
     </div>
   );
 }

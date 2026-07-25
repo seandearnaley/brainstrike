@@ -47,6 +47,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
+  'brainstrike_assistant_thread_groups',
+  'brainstrike_assistant_thread_placements',
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',
   'brainstrike_diagnostic_events',
@@ -99,6 +101,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     // Sentinels on both sides of the lazily-created relation in the handler's
     // delete order: prompt_items is cleared BEFORE it, diagnostic events AFTER.
     await db.exec("INSERT INTO prompt_items (id) VALUES ('sentinel')");
+    await db.exec("INSERT INTO brainstrike_assistant_thread_groups (id) VALUES ('sentinel-group')");
+    await db.exec(
+      "INSERT INTO brainstrike_assistant_thread_placements (id) VALUES ('sentinel-placement')"
+    );
     await db.exec("INSERT INTO brainstrike_diagnostic_events (id) VALUES ('sentinel')");
     getDatabaseMock.mockReturnValue(db as unknown as ReturnType<typeof getDatabaseMock>);
   });
@@ -119,6 +125,8 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     // A poisoned transaction rolls back, so a surviving sentinel proves the
     // clear silently undid itself rather than merely reporting an error.
     expect(await countRows('prompt_items')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 
@@ -145,6 +153,8 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
 
     expect(result).toMatchObject({ message: 'Database cleared successfully', success: true });
     expect(await countRows('prompt_items')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 
@@ -199,6 +209,8 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     for (const table of LAZY_MASTRA_RELATIONS) {
       expect(await countRows(table)).toBe(0);
     }
+    expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 });

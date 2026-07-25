@@ -89,6 +89,8 @@ type OptionalRelationTable =
   | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
+  | 'brainstrike_assistant_thread_groups'
+  | 'brainstrike_assistant_thread_placements'
   | 'brainstrike_assistant_tool_output_artifacts'
   | 'brainstrike_diagnostic_events'
   | 'brainstrike_thread_message_index'
@@ -774,6 +776,11 @@ export function registerDatabaseIpcHandlers(
             // pre-migration-068 database may omit this table; any other delete
             // failure remains visible through clearOptionalRelation.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
+            // Brainstrike-owned thread grouping is durable assistant
+            // presentation state. Clear placements before their logical group
+            // parents, and clear both before the Mastra threads they organize.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_thread_placements');
+            await clearOptionalRelation(tx, 'brainstrike_assistant_thread_groups');
             // Mastra creates all of its memory relations lazily, so a fresh
             // profile can legitimately omit any of them. Probe first, then wipe
             // every durable assistant-memory store so no conversation,

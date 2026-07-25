@@ -907,7 +907,19 @@ eligible for the current Main root. A terminal database initialization error
 always outranks the transient loading reason so a failed capability cannot
 remain disguised as pending hydration.
 
+The non-reloading Database Explorer **Clear Database** path deletes
+`mastra_threads`, so its app-shell composition must synchronously reset the
+thread store and thread-groups store immediately after the database clear
+succeeds and before collection reloads begin. `DatabaseDemoPanel` requires and
+preflights that post-clear callback; capability absence blocks the clear
+visibly instead of leaving persisted selection pointed at a deleted thread.
+`resetAssistantThreadStore` clears every persisted selection/tab/draft map,
+every loaded thread map, and the resource-load promise registry. Both thread
+stores invalidate in-flight hydration generations during reset so a stale
+completion cannot repopulate deleted rows into the live mirrors.
+
 Paired tests: `assistant-thread-store.test.ts`,
+`database-tab-chunk.test.tsx`, `database-demo-panel.test.tsx`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
 `assistant-thread-tabs-workspace.test.tsx`,
 `assistant-ui-panel-wrapper-runtime.test.ts`, and
