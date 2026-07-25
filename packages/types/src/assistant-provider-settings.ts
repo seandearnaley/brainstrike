@@ -106,15 +106,19 @@ export interface AssistantProviderSettings {
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
   /**
-   * Cross-provider "show me the thinking" switch. Defaults to `true` — when a
-   * model reasons, the reasoning comes back and the disclosure has something
-   * to reveal.
+   * "Show me the thinking" switch, defaulting to `true` — when a model
+   * reasons, the reasoning comes back and the disclosure has something to
+   * reveal.
    *
    * DELIBERATELY orthogonal to reasoning DEPTH (`reasoningEffort`,
    * `anthropicEffort`, `googleThinkingLevel`, ...). Depth is a budget concern;
    * visibility is a UX concern. Conflating them is what made every provider
-   * behave differently. The provider-specific keys above remain valid escape
-   * hatches and win when explicitly set.
+   * behave differently.
+   *
+   * Uniform in MEANING across providers, but stored per provider like every
+   * key here (`providerSettings[providerId]`) — turning it off for OpenAI
+   * leaves Anthropic visible. The provider-specific keys above remain valid
+   * escape hatches and win when explicitly set.
    */
   reasoningVisible?: boolean;
   workingMemoryEnabled?: boolean;

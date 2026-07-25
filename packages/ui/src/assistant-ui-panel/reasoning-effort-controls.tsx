@@ -229,11 +229,17 @@ export function buildThinkingToggleModel(
       ANTHROPIC_THINKING_MAX
     );
     return {
-      // Parity with AnthropicReasoningSection's thinking-budget switch.
-      buildUpdate: (checked) => ({
-        anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
-      }),
-      checked: typeof settings.anthropicThinkingBudgetTokens === 'number',
+      // The toggle is authoritative for "is Claude thinking at all". An effort
+      // alone now implies adaptive thinking, so switching off must clear the
+      // effort too — otherwise the runtime keeps requesting thinking while the
+      // switch reads unchecked.
+      buildUpdate: (checked) =>
+        checked
+          ? { anthropicThinkingBudgetTokens: thinkingValue }
+          : { anthropicEffort: undefined, anthropicThinkingBudgetTokens: undefined },
+      checked:
+        typeof settings.anthropicThinkingBudgetTokens === 'number' ||
+        Boolean(settings.anthropicEffort),
     };
   }
 

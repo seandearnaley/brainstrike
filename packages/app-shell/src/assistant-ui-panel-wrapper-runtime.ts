@@ -1252,17 +1252,17 @@ function buildOpenRouterOptions(
       : undefined;
   const resolvedReasoningEffort = reasoningEffort ?? autoEffort;
   const reasoningOff = resolvedReasoningEffort === 'none';
-  // Only ask for a summary of reasoning that will actually happen — requesting
-  // one alongside `enabled: false` is an incoherent request, not a harmless
-  // one. When reasoning IS on, visibility supplies the summary the disclosure
-  // needs.
-  const summary = reasoningOff
-    ? undefined
-    : settings.reasoningSummary || (resolveReasoningVisible(settings) ? 'auto' : undefined);
+  // OpenRouter already RETURNS reasoning whenever reasoning is on, so the
+  // visible path adds nothing — critical under `require_parameters`, which
+  // narrows routing to endpoints supporting every supplied parameter. Only an
+  // explicit opt-out adds the documented `exclude`, and never alongside
+  // reasoning that is already switched off.
+  const exclude = reasoningOff || resolveReasoningVisible(settings) ? undefined : true;
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
     ['enabled', reasoningOff ? false : undefined],
     ['effort', reasoningOff ? undefined : resolvedReasoningEffort],
-    ['summary', summary],
+    ['exclude', exclude],
+    ['summary', settings.reasoningSummary || undefined],
   ]);
   return {
     provider: {

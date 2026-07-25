@@ -862,13 +862,13 @@ describe('assistant runtime helpers', () => {
     ).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { effort: 'max', summary: 'auto' },
+        reasoning: { effort: 'max' },
       },
     });
     expect(buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {})).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { effort: 'low', summary: 'auto' },
+        reasoning: { effort: 'low' },
       },
     });
     expect(buildProviderOptions('openrouter', 'z-ai/glm-5.2', {})).toEqual({
@@ -929,7 +929,7 @@ describe('assistant runtime helpers', () => {
     ).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { effort: 'low', summary: 'auto' },
+        reasoning: { effort: 'low' },
       },
     });
     expect(
@@ -949,7 +949,7 @@ describe('assistant runtime helpers', () => {
     ).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { effort: 'high', summary: 'auto' },
+        reasoning: { effort: 'high' },
       },
     });
     const partialKimiMetadata = {
@@ -1483,20 +1483,36 @@ describe('reasoning visibility is consistent across providers', () => {
     });
   });
 
-  it('asks OpenRouter for a reasoning summary whenever reasoning is on', () => {
+  it('adds nothing to a visible OpenRouter request — reasoning already returns', () => {
+    // `provider.require_parameters` narrows routing to endpoints supporting
+    // every supplied parameter, so the default path must not grow a field.
     expect(
       buildProviderOptions('openrouter', 'moonshotai/kimi-k3', { reasoningEffort: 'high' })
     ).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { effort: 'high', summary: 'auto' },
+        reasoning: { effort: 'high' },
       },
     });
   });
 
-  it('never requests a summary for OpenRouter reasoning that is switched off', () => {
-    // No reasoning means nothing to summarize; asking anyway would be an
-    // incoherent request, not a harmless one.
+  it('suppresses OpenRouter reasoning with the documented exclude on opt-out', () => {
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high', exclude: true },
+      },
+    });
+  });
+
+  it('never excludes reasoning that is already switched off', () => {
+    // Suppressing output for reasoning that will not happen is an incoherent
+    // request, not a harmless one.
     const options = buildProviderOptions('openrouter', 'z-ai/glm-5.2', {
       reasoningEffort: 'none',
     });
@@ -1535,7 +1551,10 @@ describe('reasoning visibility is consistent across providers', () => {
         reasoningVisible: false,
       })
     ).toEqual({
-      openrouter: { provider: { require_parameters: true }, reasoning: { effort: 'high' } },
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high', exclude: true },
+      },
     });
   });
 

@@ -413,6 +413,35 @@ describe('ComposerModelMenu', () => {
       await user.click(within(menu).getByRole('switch', { name: 'Toggle thinking' }));
 
       expect(onProviderSettingsChange).toHaveBeenCalledWith('anthropic', {
+        anthropicEffort: undefined,
+        anthropicThinkingBudgetTokens: undefined,
+      });
+    });
+
+    it('reads as on when only an anthropic effort is set, and clears it when toggled off', async () => {
+      // An effort alone now implies adaptive thinking, so the toggle must both
+      // reflect that and be able to switch it off — otherwise the runtime keeps
+      // requesting thinking while the switch reads unchecked.
+      const user = setup();
+      const onProviderSettingsChange = vi.fn();
+      render(
+        <ComposerModelMenu
+          {...baseProps}
+          onModelChange={vi.fn()}
+          onProviderSettingsChange={onProviderSettingsChange}
+          providerSettings={{ anthropic: { anthropicEffort: 'high' } }}
+          selectedModel="anthropic::claude-sonnet-5"
+          selectedProvider="anthropic"
+        />
+      );
+
+      const menu = await openMenu(user);
+      const toggle = within(menu).getByRole('switch', { name: 'Toggle thinking' });
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+      await user.click(toggle);
+      expect(onProviderSettingsChange).toHaveBeenCalledWith('anthropic', {
+        anthropicEffort: undefined,
         anthropicThinkingBudgetTokens: undefined,
       });
     });

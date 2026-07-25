@@ -41,6 +41,15 @@ export interface OpenRouterProviderOptions extends RuntimeJsonObject {
   reasoning?: {
     enabled?: boolean;
     effort?: OpenAiReasoningEffort;
+    /**
+     * OpenRouter RETURNS reasoning by default; `exclude: true` is the
+     * documented way to suppress it. Visibility therefore only ever adds a
+     * field on explicit opt-out — never on the default path. That matters
+     * because `provider.require_parameters` narrows routing to endpoints
+     * supporting every supplied parameter, so an unconditional extra field
+     * would shrink the eligible upstream pool for every request.
+     */
+    exclude?: boolean;
     summary?: OpenAiReasoningSummary;
   };
 }

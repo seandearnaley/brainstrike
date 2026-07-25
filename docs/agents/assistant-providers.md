@@ -233,18 +233,40 @@
   `packages/assistant-contract/src/reasoning-visibility.ts` (defaults to
   visible). Each provider projects it onto its own wire field:
   `openai.reasoningSummary`, `anthropic.thinking.display`,
-  `google.thinkingConfig.includeThoughts`, `openrouter.reasoning.summary`.
-  Two hard rules: visibility only ever MODIFIES a reasoning request that is
-  already being made (cleared settings must still produce NO provider options),
-  and a summary is never requested alongside reasoning that is switched off.
+  `google.thinkingConfig.includeThoughts`, `openrouter.reasoning.exclude`.
+  Three hard rules: visibility only ever MODIFIES a reasoning request that is
+  already being made (cleared settings must still produce NO provider options);
+  output is never suppressed/summarized for reasoning that is switched off; and
+  the OpenRouter VISIBLE path adds NO field at all, because OpenRouter already
+  returns reasoning and `provider.require_parameters` narrows routing to
+  endpoints supporting every supplied parameter — an unconditional extra field
+  would shrink the eligible upstream pool on every request. Only the OpenRouter
+  opt-out adds `exclude: true`. Do NOT reintroduce a default
+  `openrouter.reasoning.summary`: it is not part of OpenRouter's documented
+  reasoning object (`effort`, `max_tokens`, `exclude`, `enabled`).
   Provider-specific keys remain valid escape hatches and win when explicitly
-  set.
+  set — and each one's control must render the RESOLVED value, not the raw key,
+  or it reports stale state (the Google include-thoughts switch and the
+  OpenAI/OpenRouter summary select both do this).
+- The Anthropic Thinking toggle is AUTHORITATIVE for "is Claude thinking".
+  Because a bare `anthropicEffort` now implies the adaptive thinking form,
+  switching the toggle off clears the effort as well as the budget; otherwise
+  the runtime keeps requesting thinking while the switch reads unchecked.
 - Anthropic thinking mirrors the installed `@ai-sdk/anthropic` discriminated
   union: `adaptive` (carries `display`, whose provider-side default is
   `omitted`), legacy `enabled` + `budgetTokens`, and `disabled`. An explicit
   budget pins the legacy form; otherwise a chosen effort emits `adaptive`.
-  `effort` spans `low|medium|high|xhigh|max` — keep it in step with the SDK
-  enum, not a narrower hand-maintained subset.
+  The `AnthropicEffort` TYPE spans `low|medium|high|xhigh|max`, in step with
+  the SDK enum, and is declared identically in BOTH
+  `packages/assistant-contract/src/runtime-data.ts` and
+  `packages/agent/src/types.ts` (the latter is what actually hands
+  `providerOptions` to the SDK, and the boundary is structural — a narrower
+  type there diverges SILENTLY). `ANTHROPIC_REASONING_EFFORTS`, the OFFERED
+  list, stays deliberately narrower at `low|medium|high`:
+  `resolveReasoningControlsAvailability` returns it for every Anthropic model
+  with no per-model lookup, so widening it would offer efforts a given model
+  may reject. Widen only once the registry carries per-model
+  `reasoning.supportedEfforts` for Anthropic.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.

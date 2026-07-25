@@ -1,6 +1,9 @@
 /**
- * Cross-provider resolution of "should the provider return the model's
- * reasoning?".
+ * Shared resolution of "should the provider return the model's reasoning?".
+ *
+ * The MEANING is uniform across providers; the storage is not — like every
+ * assistant setting this lives under `providerSettings[providerId]`, so it is
+ * set independently per provider.
  *
  * Reasoning has two independent dimensions, and conflating them is what made
  * every provider behave differently:
