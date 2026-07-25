@@ -400,9 +400,13 @@ once P2 surfaces sink health.
 (`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,
 oldest-first `DELETE ... WHERE id IN (SELECT ... ORDER BY occurred_at ASC
 LIMIT n)` past 30 days (`DIAGNOSTIC_RETENTION_MAX_AGE_MS`) OR past 20,000 rows
-(`DIAGNOSTIC_RETENTION_MAX_ROWS`), capped at 500 rows per purge call. It is
-invoked once on `DiagnosticSinkBridge` mount — never an unbounded `DELETE`,
-never a trigger.
+(`DIAGNOSTIC_RETENTION_MAX_ROWS`), capped at `DIAGNOSTIC_EVENTS_PURGE_LIMIT`
+(500) rows per delete. It is invoked once on `DiagnosticSinkBridge` mount —
+never an unbounded `DELETE`, never a trigger. Those two constants are only
+the DEFAULTS: since P2b the mount-time purge reads the user's configured
+values from `diagnostics-retention-store` (below), and the 500-row cap
+applies INDEPENDENTLY to each of the two deletes (aged rows, over-cap rows),
+so one `purge()` call can return up to 1000 and may still leave a backlog.
 
 **Factory reset**: new persistence under this table must stay wired in BOTH
 paths — desktop `db-ipc.ts` `OptionalRelationTable` list
@@ -650,3 +654,74 @@ choke points feeding the sink),
 `packages/app-shell/src/__tests__/durable-log-source.test.ts`,
 `packages/app-shell/src/__tests__/use-durable-log-source.test.tsx`,
 `packages/preferences/src/settings/system/logging-settings-section.test.tsx`.
+
+### P2b: status chip, retention preferences, sink health
+
+**Unseen-error status chip** (`DiagnosticsStatusItem`,
+`packages/app-shell/src/status-items/diagnostics-status-item.tsx`, mounted in
+`app-layout.tsx`'s `rightContent` before `IndexingStatusItem`) backed by
+`useUnseenDiagnosticsCount` (`.../diagnostics/use-unseen-diagnostics-count.ts`):
+a `usePGliteLiveQuery` `COUNT(*)` over rows newer than the watermark. The
+query carries NO severity predicate on purpose — the table's CHECK constraint
+already guarantees every row is warn+, so a redundant filter would just invite
+someone to "fix" it later. The chip renders `null` at count 0 (no chrome when
+nothing is wrong) and, on a query error, renders in a "Diagnostics
+unavailable" state rather than the honest-looking `0`. Clicking marks all
+seen, opens settings, and routes to `#settings/logging`.
+
+The watermark (`diagnostics-seen-store.ts`) is **session-scoped, seeded to
+`Date.now()` at module load, and deliberately NOT persisted**: a persisted
+watermark would replay up to 20,000 retained rows as unread on every launch,
+so the chip means "warn+ events since this launch," not "since you last
+looked." Do not "fix" this by adding `persist`.
+
+**Retention preferences** (`packages/preferences/src/stores/diagnostics-retention-store.ts`,
+persisted): `maxAgeDays` / `maxRows`, chosen from
+`DIAGNOSTICS_RETENTION_DAY_OPTIONS` / `DIAGNOSTICS_RETENTION_ROW_OPTIONS`.
+Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
+behavior is unchanged until a user edits them (a test asserts the equality by
+importing both, rather than hardcoding the numbers twice). Setters **throw**
+on a value outside the option list and `migrate` sanitizes an unknown
+persisted payload back to defaults — malformed config is loud, never coerced.
+
+**Purge path**: the settings card's "Purge now" reaches the repository through
+an `onPurgeNow?: () => Promise<number>` **callback prop**, never a repository
+import — `app-shell` already depends on `preferences`, so that direction is
+circular (same precedent as `onExportDurableNdjson`). Both apps build it from
+`useDiagnosticsPurge()` (`packages/app-shell/src/diagnostics/use-diagnostics-purge.ts`),
+gated on a db handle. Because a single `purge()` is per-call bounded, a
+returned count at or above the per-call limit toasts "more may remain" instead
+of implying a full drain; `logging-settings-section.tsx` mirrors that limit as
+`DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD` (it must not import `@brainstrike/db`
+at runtime) and the section test imports the REAL exported
+`DIAGNOSTIC_EVENTS_PURGE_LIMIT`, so drift fails RED rather than silently
+under-warning.
+
+**Sink health** (`diagnostic-sink-health-store.ts` → `sinkHealthReason` prop →
+amber banner at the top of the logging settings section): the writer's
+`onDisabled` callback is the **ONLY** signal a broken sink can ever emit,
+because the `DIAGNOSTIC_SINK_SCOPE` loop guard keeps the sink's own failures
+out of the table — a disabled sink otherwise renders as an empty Persistent
+view, which reads as "no errors happened" rather than "errors are no longer
+being recorded". It travels through a module-level store rather than React
+context because `DiagnosticSinkBridge` mounts inside `<DbProvider>` but
+OUTSIDE `RootLayoutContent`, so no shared provider spans both. `markDisabled`
+is idempotent — first reason wins, so a later failure racing the disable
+cannot overwrite the root cause shown to the user.
+
+**Factory reset (all three P2b stores)**: the two session stores
+(`resetDiagnosticsSeenStore`, `resetDiagnosticSinkHealthStore`) are registered
+in `packages/app-shell/src/register-factory-reset-session-stores.ts`; the
+persisted `resetDiagnosticsRetentionStoreToDefaults()` is called directly from
+`clearBrowserStorage()` in
+`packages/preferences/src/settings/system/factory-reset-helpers.ts`, alongside
+its sibling persisted stores.
+
+**Paired tests**: `packages/preferences/src/__tests__/diagnostics-retention-store.test.ts`,
+`packages/app-shell/src/__tests__/diagnostics-seen-store.test.ts`,
+`.../diagnostic-sink-health-store.test.ts`,
+`.../diagnostics-status-item.test.tsx`, `.../use-diagnostics-purge.test.tsx`,
+`.../diagnostic-sink-bridge.test.tsx` (the configured-retention startup purge
+and the writer-disables-populates-health-store cases),
+`packages/preferences/src/settings/system/logging-settings-section.test.tsx`
+(retention card + sink-health banner describes).
