@@ -4,10 +4,22 @@ import { showDatabaseDemoPanel, waitForDatabaseReady } from './utils/layout-help
 import { readResetProbeCounts, seedResetProbeRows } from './utils/reset-seed-helpers';
 
 /**
- * Guards PR #1978: a swallowed 42P01 inside `db.transaction(...)` left the
- * transaction aborted, the next statement raised 25P02, and the whole clear
- * rolled back behind a misleading message — while the unit tests stayed green
- * because they mock `tx.query` with `vi.fn()`.
+ * Guards the `clearLazilyCreatedRelation` call site in
+ * `apps/desktop/src/ipc-domains/db-ipc.ts` against regressing back to
+ * PR #1978's bug class: a stale table name, a removed/no-op call, or any
+ * change that reintroduces a swallowed statement error inside
+ * `db.transaction(...)` and rolls the whole clear back behind a misleading
+ * success message — while the unit tests stay green because they mock
+ * `tx.query` with `vi.fn()`.
+ *
+ * #1978's actual trigger — `DELETE FROM mastra_workflow_snapshot` raising
+ * 42P01 because the relation is ABSENT — is NOT reachable through this E2E
+ * path: on desktop, the assistant server initializes Mastra memory (which
+ * creates `mastra_workflow_snapshot` via `PgliteWorkflowsStore.initialize()`)
+ * at boot, before any test can run, so a fresh profile always has the
+ * relation present (confirmed empirically via `to_regclass` probe — see
+ * task-2b). That absent-relation case is covered instead by the real-PGlite
+ * integration tests around `clearLazilyCreatedRelation`.
  *
  * Asserts ROW COUNTS, never the success toast: the defect class is a FALSE
  * SUCCESS, so asserting the toast would reproduce the original blind spot.
