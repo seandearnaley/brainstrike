@@ -25,10 +25,14 @@ updates, and checkpoints. NOOP is success.
 First: read .night-shift/PROTOCOL.md. Read ALL .night-shift/*.md — Bolt's noise
 measurements and Warden's guard-outage notes frequently explain "flakes".
 
-Beat 1 — observe: pull the last 24h of runs for E2E and nightly workflows
-(derive the list from .github/workflows/, don't assume names). Collect
-failures and pass-on-retry events: test title, error text, phase, runner
-image, commit.
+Beat 1 — observe: fix your run window to [previous checkpoint, wake time]
+and pull the runs for E2E and nightly workflows inside it (derive the
+workflow list from .github/workflows/, don't assume names). Freeze the
+resulting run-ID set as this run's snapshot (PROTOCOL.md "Run
+boundaries") — a workflow that starts or finishes while you investigate
+belongs to tomorrow's window, and an unfrozen window is why a paginated
+read of "active" runs can never prove completeness. Collect failures and
+pass-on-retry events: test title, error text, phase, runner image, commit.
 
 Beat 2 — fingerprint & reconcile: fingerprint =
 watch:<workflow>:<test-title-slug>:<error-class>. For each, search Linear:

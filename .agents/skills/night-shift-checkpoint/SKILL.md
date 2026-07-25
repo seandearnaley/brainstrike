@@ -19,6 +19,24 @@ stderr; fix the line and re-validate. Never post a line the validator
 rejected, and never "fix" a rejection by editing a previously posted comment —
 checkpoints are append-only.
 
+## Second line in one run
+
+A run posts ONE checkpoint (PROTOCOL.md "Run boundaries"). If this run has
+already posted one and you believe a second is warranted, you must say so:
+
+```bash
+node .agents/skills/night-shift-checkpoint/scripts/validate-checkpoint.mjs \
+  --posted-this-run 2026-07-25T04:17:48Z \
+  "2026-07-25T04:21:27Z | watermark=none | status=PR | supersedes=2026-07-25T04:17:48Z status was misstated as NOOP"
+```
+
+With `--posted-this-run`, a line that lacks `supersedes=<that exact
+timestamp>` is rejected. This is deliberate: the only legitimate second line
+is a correction of a line that was WRONG WHEN POSTED. A PR head that moved, a
+run that finished, or a ticket that opened while you worked is the NEXT run's
+watched set — re-grading it now produces a checkpoint stream that Chronicle's
+wake accounting and Auditor's scoreboard both read as extra runs.
+
 ## Grammar
 
 `<UTC-ISO> | watermark=<kind>:<value> | status=<STATUS> | <one line>`
@@ -32,6 +50,9 @@ checkpoints are append-only.
 - Status: `NOOP | PR | READY | INCOMPLETE | BLOCKED`.
 - Message: non-empty, one line, max 300 characters. Pipes inside the message
   are allowed.
+- Optional `supersedes=<UTC-ISO>` token in the message: at most one, a real
+  second-precision UTC instant, strictly earlier than the line's own
+  timestamp. Required when `--posted-this-run` is passed.
 
 Checkpoints posted before this grammar existed parse as legacy — Chronicle
 exempts them; never rewrite them.

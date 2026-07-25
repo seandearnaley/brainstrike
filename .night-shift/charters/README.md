@@ -68,6 +68,17 @@ checkpoint-grammar validator; run it before posting any checkpoint).
   update this bullet — it is the fleet's single declared source of truth
   for the scheduler clock.
 
+- RUN BOUNDARIES (PROTOCOL.md). One wake = one frozen watched set = one
+  checkpoint. This was added after the fleet demonstrated both failure
+  modes: Assay posted four checkpoints in four minutes on 2026-07-25
+  (04:17:48 → 04:19:04 → 04:20:38 → 04:21:27), each superseding the last
+  because a PR head moved mid-run, and Chronicle scored the day
+  "20/12 expected checkpoints" as a result. Loops that already post a
+  correction line must now pass `--posted-this-run` to the checkpoint
+  validator, which rejects a second line that does not declare what it
+  corrects. The flag is optional, so single-checkpoint loops are
+  unaffected and no scheduler edit is required to adopt this.
+
 - PR stewardship (PROTOCOL.md) applies to every PR-authoring loop: at wake,
   an open PR is reconciled — checks + review threads — before any new work;
   every comment gets a reply, threads are resolved via gh once addressed,
@@ -77,29 +88,52 @@ checkpoint-grammar validator; run it before posting any checkpoint).
 - STEWARD WAKES (PROTOCOL.md "PR stewardship"). Discovery cadence and
   stewardship cadence are decoupled: every PR-authoring loop also gets a
   steward-only scheduled task so review comments and check failures that
-  land after a wake's opening burst are answered within hours, not at the
+  land after a wake's opening burst are answered promptly, not at the
   next weekly discovery wake. Scheduler prompt shape:
   `STEWARD WAKE for <Name>: read .night-shift/PROTOCOL.md (PR stewardship,
   steward-wake rules) and .night-shift/charters/<name>.md, then reconcile
-  your open PR only.` All run at hours 0,6,12,18 scheduler-local with offset minutes;
-  the protocol's newest-checkpoint-vs-budget guard prevents overlap with a
-  still-running discovery wake:
+  your open PR only.`
+
+  Cadence is **every 15 minutes**, offset by loop so the fleet never
+  stampedes one minute. Bot reviews land within ~15 minutes of a push, so
+  a 6-hourly steward wake meant a comment could sit for most of a day
+  while its PR looked stalled; matching the wake rate to the arrival rate
+  is what makes "every comment gets a reply" true in wall-clock terms
+  rather than only eventually.
+
+  This is affordable ONLY because of the protocol's steward-wake probe:
+  with no open PR — the overwhelmingly common state, since one-PR-per-loop
+  caps the fleet at a handful of open PRs — the wake exits on a single
+  `gh pr list` without reasoning or checkpointing. Steward wakes are a
+  poll, and a poll you cannot make cheap you must not make frequent.
 
   | loop | steward cron (scheduler-local) |
   | --- | --- |
-  | axiom | `3 0,6,12,18 * * *` |
-  | curator | `5 0,6,12,18 * * *` |
-  | scribe | `9 0,6,12,18 * * *` |
-  | forge | `11 0,6,12,18 * * *` |
-  | ledger | `15 0,6,12,18 * * *` |
-  | gauntlet | `17 0,6,12,18 * * *` |
-  | warden | `21 0,6,12,18 * * *` |
-  | pruner | `27 0,6,12,18 * * *` |
-  | quartermaster | `33 0,6,12,18 * * *` |
-  | bolt | `39 0,6,12,18 * * *` |
-  | sentinel | `45 0,6,12,18 * * *` |
-  | palette | `51 0,6,12,18 * * *` |
-  | librarian | `57 0,6,12,18 * * *` |
+  | axiom | `0-59/15 * * * *` |
+  | curator | `1-59/15 * * * *` |
+  | scribe | `2-59/15 * * * *` |
+  | forge | `3-59/15 * * * *` |
+  | ledger | `4-59/15 * * * *` |
+  | gauntlet | `5-59/15 * * * *` |
+  | warden | `6-59/15 * * * *` |
+  | pruner | `7-59/15 * * * *` |
+  | quartermaster | `8-59/15 * * * *` |
+  | bolt | `9-59/15 * * * *` |
+  | sentinel | `10-59/15 * * * *` |
+  | palette | `11-59/15 * * * *` |
+  | librarian | `12-59/15 * * * *` |
+
+  Each loop owns a distinct minute in 0–12, firing at that minute plus
+  15/30/45 — the offset-minute house style, preserved: no two loops ever
+  wake on the same minute, and minutes 13–14 stay free for a fourteenth
+  loop without reshuffling the table.
+
+  DEPLOYMENT: these crons mirror the scheduler; editing them here does not
+  reconfigure it (see the header note). Land this table and the scheduler
+  edit together, or stewardship latency stays at 6h regardless of what
+  this file says. The durable replacement remains event-driven triggers
+  (see the meta-tier backlog below) — polling every 15 minutes is the
+  interim, not the destination.
 
 - Cadences are pre-staggered (offset-minute house style). Monday's chain
   composes: axiom → scribe → ledger → warden each benefit from the previous
@@ -113,6 +147,15 @@ checkpoint-grammar validator; run it before posting any checkpoint).
   likeliest pair is pruner/quartermaster (24 minutes apart on Tuesdays). If
   the scheduler runs them concurrently, quartermaster skips any package
   pruner has an open PR against.
+- CATALOG VERIFICATION (curator.md v2). Models enter the catalog only with
+  per-field official-provider-doc citations AND live smoke-test evidence;
+  unverifiable models are tickets. Disabled-by-default was doing more work
+  than it can bear — it defers a bad row to the first user who enables it.
+  Backfill debt: the rows shipped under v1 (#1921's nine OpenRouter coding
+  models, #1933's Ling 3.0 Flash) were never smoke-tested; they need a
+  one-off audit against the v2 bar, which is a separate change from this
+  charter lift.
+
 - Assay owns the `review/*` label namespace; magnify owns findings comments;
   neither may approve, block, or merge — a bot that gates merges rebuilds the
   CI planner this repo explicitly retired (docs/agents/ci-quality.md).

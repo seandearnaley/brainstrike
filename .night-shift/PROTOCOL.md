@@ -34,8 +34,10 @@ protocol; their charters in charters/ are the deployed source of truth.
   only) — never a bare untyped value, never multi-line, never JSON.
   Before posting, validate the composed line with
   `node .agents/skills/night-shift-checkpoint/scripts/validate-checkpoint.mjs "<line>"`
-  ($night-shift-checkpoint); a rejected line is never posted. Checkpoints
-  predating this grammar are legacy — read them, never rewrite them.
+  ($night-shift-checkpoint); a rejected line is never posted. If this run
+  has ALREADY posted a checkpoint, pass `--posted-this-run <that-UTC-ISO>`
+  too — see "Run boundaries". Checkpoints predating this grammar are
+  legacy — read them, never rewrite them.
   Never edit the issue description or prior comments.
   PR = opened or still stewarding an open PR; READY = that PR is stable and
   ready to merge (see PR stewardship); INCOMPLETE = budget or cycle cap hit,
@@ -66,6 +68,34 @@ protocol; their charters in charters/ are the deployed source of truth.
   but an open PR of yours is ALWAYS part of your watched set: while it has
   failing checks, unreplied review comments, or unresolved threads, you are
   not idle (see PR stewardship).
+
+## Run boundaries
+
+A run is one wake: its inputs are frozen at the start, and its state issue
+gains exactly one line at the end. Both halves are load-bearing.
+
+- SNAPSHOT AT WAKE. Enumerate your watched set ONCE, at the start of the
+  run, and work that snapshot through to the end. Inputs that change while
+  you work — a PR head that moves, a workflow run that finishes, a ticket
+  that opens — belong to the NEXT run's watched set, not this one.
+  Re-deriving mid-run makes a run unbounded (each re-derivation can surface
+  fresh work, and the loop chases a moving queue until its budget expires)
+  and makes the watermark a lie: it names a set the run never actually
+  finished. Your watermark always hashes THE SNAPSHOT you opened with.
+- ONE TERMINAL CHECKPOINT. Post exactly one checkpoint per run, last,
+  describing that snapshot. A run that emits four checkpoints because the
+  world moved underneath it has not recorded four facts; it has recorded
+  one fact and three races. Downstream loops (Chronicle's wake accounting,
+  Auditor's scoreboard) read the checkpoint stream as one-line-per-run;
+  amplification silently corrupts every metric derived from it.
+- CORRECTIONS ARE FOR FACTS, NOT FOR TIME. A second checkpoint inside one
+  run is legitimate only when the first was WRONG WHEN POSTED — malformed
+  line, misstated status, wrong PR number. It carries
+  `supersedes=<UTC-ISO>` naming the exact timestamp of the line it
+  corrects, and you prove it with
+  `validate-checkpoint.mjs --posted-this-run <UTC-ISO> "<line>"`
+  ($night-shift-checkpoint), which rejects a second line that does not
+  declare its correction. "New information arrived" is never a correction.
 
 ## PR stewardship (any loop with an open PR)
 
@@ -114,12 +144,23 @@ costs the human triage time and poisons trust in every other loop's PRs.
   between discovery wakes (the scheduled prompt says "STEWARD WAKE").
   On a steward wake you run THIS SECTION and nothing else: no discovery,
   no new PRs, no ticket sweeps — even if your watermark shows new work;
-  discovery stays on your charter cadence. Guards: if you have no open
-  PR, exit silently (no checkpoint — steward wakes checkpoint only when
-  they act or find the PR unstable); if the newest checkpoint on your
-  state issue is younger than your charter's WALL_CLOCK_BUDGET, exit
-  silently — a discovery wake is likely still running and two hands on
-  one PR is worse than a late reply.
+  discovery stays on your charter cadence.
+  Steward wakes are FREQUENT (every 15 minutes, charters/README.md) and
+  therefore must be CHEAP by default. Their first act is a deterministic
+  probe, before any reasoning about the PR:
+  1. No open PR of yours → exit silently. No checkpoint, no digest, no
+     analysis. This is the overwhelmingly common case and it must cost
+     one `gh pr list` and nothing else.
+  2. Newest checkpoint on your state issue younger than your charter's
+     WALL_CLOCK_BUDGET → exit silently. A discovery wake is likely still
+     running, and two hands on one PR is worse than a late reply.
+  3. PR unchanged since your newest checkpoint — same head SHA, same
+     review-thread count, same check conclusions → exit silently. There
+     is nothing to answer.
+  Only when the probe reports an actual change do you spend the wake.
+  A steward wake that acts checkpoints once (Run boundaries); a steward
+  wake that exits on the probe never checkpoints — silent exits are not
+  events and must not appear in Chronicle's wake accounting.
 
 ## Findings & tickets (Linear)
 
