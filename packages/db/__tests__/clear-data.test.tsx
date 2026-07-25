@@ -179,6 +179,10 @@ describe('Database clearing functionality', () => {
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
+      // BST-558: suspended workflow snapshots have an unbounded lifetime (no
+      // production delete path), so the clear/reset must purge them or a
+      // pending approval's tool arguments survive a "true fresh start".
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
     });
 
     it('propagates a real prompt_items delete failure from direct clear', async () => {

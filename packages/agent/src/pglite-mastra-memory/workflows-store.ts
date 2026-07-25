@@ -84,12 +84,31 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
   };
 }
 
+/**
+ * Listing-only tolerance for a corrupt snapshot row (BST-558).
+ *
+ * NO SILENT FALLBACK: every targeted read (`loadWorkflowSnapshot`,
+ * `getWorkflowRunById`, `updateWorkflowResults`) throws, because the malformed
+ * row IS the answer the caller asked for — skipping it there would be a lie.
+ *
+ * Listing is deliberately different. `listWorkflowRuns` backs
+ * `agent.listSuspendedRuns`, which is how pending tool approvals are
+ * rediscovered after a restart or renderer reload. Throwing for the whole page
+ * would let ONE corrupt row make EVERY pending approval undiscoverable — a
+ * total outage traded for a partial one. So the intact rows are still served,
+ * and the corruption is surfaced at ERROR severity with a stable diagnostic
+ * code instead: per the DIAGNOSTIC EVENTS contract
+ * (docs/agents/platform-contracts.md) error-severity records are eagerly
+ * flushed into `brainstrike_diagnostic_events` (the Flight Recorder) and reach
+ * the debug bundle, so the row cannot vanish unnoticed the way a batched warn
+ * (which waits on the 2s/32-event window) could.
+ */
 function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefined {
   try {
     return workflowRunFromRow(row);
   } catch (error) {
-    logger.warn('Skipping malformed Mastra workflow snapshot while listing workflow runs', {
-      code: 'mastra_workflow_snapshot_list_skip_malformed',
+    logger.error('Malformed Mastra workflow snapshot excluded from workflow run listing', {
+      code: 'mastra_workflow_snapshot_malformed',
       error: error instanceof Error ? error.message : String(error),
       runId: row.runId,
       workflowName: row.workflowName,

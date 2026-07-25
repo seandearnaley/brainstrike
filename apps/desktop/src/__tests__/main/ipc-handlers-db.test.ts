@@ -1004,6 +1004,56 @@ describe('database IPC handlers', () => {
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
 
+    // BST-558: `mastra_workflow_snapshot` is the only assistant-owned durable
+    // store with an unbounded lifetime (its sole production writer is
+    // persistWorkflowSnapshot; nothing deletes rows). Per the FACTORY RESET
+    // CONTRACT it must be purged, otherwise suspended-approval snapshots — and
+    // their tool arguments — survive a "true fresh start".
+    it('clears the Mastra workflow snapshot store per the factory reset contract', async () => {
+      const handler = handlers.get('db:clearAll');
+      let queryMock: ReturnType<typeof vi.fn> | null = null;
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        queryMock = vi
+          .fn()
+          .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+          .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+          .mockResolvedValue(undefined);
+        return await callback({ query: queryMock });
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toMatchObject({ success: true });
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM mastra_workflow_snapshot');
+    });
+
+    it('tolerates a missing mastra_workflow_snapshot relation (assistant never used)', async () => {
+      const handler = handlers.get('db:clearAll');
+      const missingRelation = Object.assign(
+        new Error('relation "mastra_workflow_snapshot" does not exist'),
+        { code: '42P01' }
+      );
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const query = vi.fn(async (sql: string) => {
+          if (sql.startsWith('SELECT COUNT(*)')) {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'DELETE FROM mastra_workflow_snapshot') {
+            throw missingRelation;
+          }
+          return { rows: [] };
+        });
+        return await callback({ query });
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toMatchObject({ success: true });
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
     it('handles database errors gracefully', async () => {
       const handler = handlers.get('db:clearAll');
 

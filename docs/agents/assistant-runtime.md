@@ -890,6 +890,20 @@ untouched. Flow:
 - Restart proof extends the same spec: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
   to execution by a THIRD fresh runtime.
+- **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
+  TARGETED snapshot read in `PgliteWorkflowsStore`
+  (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
+  THROWS on a snapshot that is not an object or lacks `context`: the malformed
+  row is the answer the caller asked for, so skipping it would be a lie.
+  `listWorkflowRuns` — which backs `agent.listSuspendedRuns` and therefore this
+  rediscovery flow — is the ONE deliberate exception: it still returns the
+  intact rows, because throwing for the page would let a single corrupt row
+  make EVERY pending approval undiscoverable (a total outage traded for a
+  partial one). The corruption is not swallowed: each excluded row is logged at
+  ERROR severity with code `mastra_workflow_snapshot_malformed`, which the
+  DIAGNOSTIC EVENTS contract eagerly flushes into
+  `brainstrike_diagnostic_events` and surfaces in the debug bundle. Do not
+  downgrade it to a warn/debug log, and do not make listing throw.
 
 When changing this flow, update this section and the related tests.
 

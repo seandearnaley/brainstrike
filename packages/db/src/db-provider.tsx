@@ -135,6 +135,29 @@ async function clearToolOutputArtifactsIfPresent(tx: {
 }
 
 /**
+ * Suspended Mastra workflow snapshots (BST-558) have an UNBOUNDED lifetime:
+ * nothing deletes rows in production, and a suspended run retains its pending
+ * tool call and arguments. No FK cascades the table, so a clear/reset must
+ * delete it explicitly per the FACTORY RESET CONTRACT. The relation is created
+ * lazily by `PgliteWorkflowsStore.initialize()`, so a database where the
+ * assistant never ran legitimately lacks it — only that missing-relation case
+ * is tolerated; every other failure is surfaced.
+ */
+async function clearWorkflowSnapshotsIfPresent(tx: {
+  query: (sql: string) => Promise<unknown>;
+}): Promise<void> {
+  const table = 'mastra_workflow_snapshot';
+  try {
+    await tx.query(`DELETE FROM ${table}`);
+  } catch (error) {
+    if (!isMissingNamedRelationError(error, table)) {
+      throw error;
+    }
+    logger.warn(`[DbProvider] Skipped missing ${table} table during clear:`, error);
+  }
+}
+
+/**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
  * Direct mode: renderer owns a PGlite instance (must close on teardown).
@@ -902,6 +925,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         );
       }
       await clearToolOutputArtifactsIfPresent(tx);
+      await clearWorkflowSnapshotsIfPresent(tx);
       await clearThreadSearchIndexIfPresent(tx);
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
@@ -940,6 +964,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
     await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
     await clearToolOutputArtifactsIfPresent(tx);
+    await clearWorkflowSnapshotsIfPresent(tx);
     try {
       // Task Ledger outcome labels: web-writable (user verdicts), no FK —
       // clear explicitly per the FACTORY RESET CONTRACT (review #1693).

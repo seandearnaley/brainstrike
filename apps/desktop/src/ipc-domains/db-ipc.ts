@@ -88,6 +88,7 @@ type OptionalRelationTable =
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
+  | 'mastra_workflow_snapshot'
   | 'prompt_items'
   | 'roots';
 
@@ -756,6 +757,15 @@ export function registerDatabaseIpcHandlers(
             // pre-migration-068 database may omit this table; any other delete
             // failure remains visible through clearOptionalRelation.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_output_artifacts');
+            // Suspended Mastra workflow snapshots (BST-558): the only durable
+            // assistant store with an UNBOUNDED lifetime — nothing deletes rows
+            // in production, and a suspended run retains its pending tool call
+            // and arguments. No FK cascades it, so clear it explicitly per the
+            // FACTORY RESET CONTRACT. The table is created lazily by
+            // PgliteWorkflowsStore.initialize(), so a database where the
+            // assistant never ran legitimately lacks the relation; only that
+            // missing-relation case is tolerated by clearOptionalRelation.
+            await clearOptionalRelation(tx, 'mastra_workflow_snapshot');
             // Durable diagnostic events (Flight Recorder P1): warn+ error log.
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.

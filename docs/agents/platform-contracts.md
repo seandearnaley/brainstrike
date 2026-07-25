@@ -82,6 +82,21 @@ the assistant-ui carousel/branch topology companion store (migration 055), and
 Mastra FK, so both direct-PGlite reset and desktop `db:clearAll` must delete it
 explicitly; only a pre-068 missing relation is tolerated.
 
+Mastra's own `mastra_workflow_snapshot` is the one Mastra-owned table that must
+also be cleared explicitly (BST-558). It has an UNBOUNDED lifetime — its only
+deletes are `deleteWorkflowRunById` (no production caller) and
+`dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
+call and arguments, so it must not survive a "true fresh start". It is cleared
+in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
+'mastra_workflow_snapshot')`) and `db-provider.tsx`'s
+`clearWorkflowSnapshotsIfPresent` (used by direct-PGlite clear AND
+`purgeTablesTx`). The relation is created lazily by
+`PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
+never ran) is tolerated; every other delete failure stays visible. The
+remaining `mastra_*` tables (`mastra_threads`, `mastra_messages`,
+`mastra_vectors`, `mastra_observational_memory`, …) are still NOT in either
+list — a known gap, not a ruling.
+
 Add tests when changing reset behavior.
 
 ### Persistent command-session lifecycle
