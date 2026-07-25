@@ -82,6 +82,25 @@ describe('RotatingNdjsonSink', () => {
     expect(sink.disabled).toBe(false);
   });
 
+  it('derives the incoming byte count from the encoded line without a separate UTF-8 scan', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'errors.ndjson');
+    const sink = new RotatingNdjsonSink({ filePath });
+    const byteLengthSpy = vi.spyOn(Buffer, 'byteLength');
+    let byteLengthCalls = -1;
+
+    try {
+      sink.writeLine('unicode-\u00e9');
+      sink.close();
+      byteLengthCalls = byteLengthSpy.mock.calls.length;
+    } finally {
+      byteLengthSpy.mockRestore();
+    }
+
+    expect(byteLengthCalls).toBe(0);
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe('unicode-\u00e9\n');
+  });
+
   it('rotates once a write would exceed maxBytes, and the live file restarts small', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
