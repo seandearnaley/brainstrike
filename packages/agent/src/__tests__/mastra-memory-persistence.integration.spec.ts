@@ -32,6 +32,7 @@
 // types are declared against the DOM ReadableStream.
 import { createOpenAI } from '@ai-sdk/openai';
 import type {
+  EmbeddingModelV2,
   LanguageModelV2,
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
@@ -39,6 +40,8 @@ import type {
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite-pgvector';
+import type { MastraDBMessage } from '@mastra/core/memory';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -362,6 +365,14 @@ const OM_DISABLED_SETTINGS: RuntimeAssistantMemorySettings = {
   },
 };
 
+const SEMANTIC_RECALL_SETTINGS: RuntimeAssistantMemorySettings = {
+  ...OM_DISABLED_SETTINGS,
+  semanticRecall: {
+    ...OM_DISABLED_SETTINGS.semanticRecall,
+    enabled: true,
+  },
+};
+
 // Thresholds low enough that observational memory ACTIVATES during a tiny
 // test turn (mirrors long-running production threads where OM owns message
 // sealing mid-run).
@@ -521,6 +532,122 @@ describe('mastra memory persistence through the live stream path', () => {
   afterEach(async () => {
     await database.close();
   });
+
+  it('re-declares semantic recall index metadata before query and upsert after reset', async () => {
+    await database.close();
+    database = await PGlite.create({ extensions: { vector } });
+
+    const threadId = 'thread-semantic-recall-reset';
+    const resourceId = 'resource-memory-test';
+    const firstTurnText = 'The launch codename is indigo lighthouse.';
+    const secondTurnText = 'What was the launch codename?';
+    const embedder: EmbeddingModelV2<string> = {
+      doEmbed: ({ values }) =>
+        Promise.resolve({
+          embeddings: values.map(() => [1, 0, 0]),
+          usage: { tokens: values.length },
+        }),
+      maxEmbeddingsPerCall: undefined,
+      modelId: 'deterministic-semantic-recall-test',
+      provider: 'test',
+      specificationVersion: 'v2',
+      supportsParallelCalls: true,
+    };
+    const { memory } = await createPgliteMastraMemory({
+      database: database as unknown as PgliteDatabase,
+      embedder,
+      memorySettings: SEMANTIC_RECALL_SETTINGS,
+    });
+    await memory.saveThread({
+      thread: {
+        createdAt: new Date('2026-07-25T12:00:00Z'),
+        id: threadId,
+        resourceId,
+        title: 'Semantic recall reset',
+        updatedAt: new Date('2026-07-25T12:00:00Z'),
+      },
+    });
+
+    const createMessage = (id: string, content: string, createdAt: string): MastraDBMessage => ({
+      content: {
+        content,
+        format: 2,
+        parts: [{ text: content, type: 'text' }],
+      },
+      createdAt: new Date(createdAt),
+      id,
+      resourceId,
+      role: 'user',
+      threadId,
+      type: 'text',
+    });
+    await memory.saveMessages({
+      messages: [
+        createMessage('u-semantic-recall-before-reset', firstTurnText, '2026-07-25T12:00:01Z'),
+      ],
+    });
+
+    interface SemanticIndexMetadata {
+      dimension: number;
+      indexName: string;
+    }
+    const readSemanticIndexMetadata = (): Promise<{ rows: SemanticIndexMetadata[] }> =>
+      database.query<SemanticIndexMetadata>(
+        `SELECT dimension, index_name AS "indexName"
+         FROM mastra_vectors
+         WHERE id = '__index_metadata__'`
+      );
+    const expectedMetadata = [
+      {
+        dimension: 3,
+        indexName: 'memory_messages_3',
+      },
+    ];
+    const clearMastraVectors = async (): Promise<void> => {
+      // Make the sentinel deletion explicit, then mirror the blanket reset that
+      // removes every remaining embedding row from the same relation.
+      await database.query(
+        `DELETE FROM mastra_vectors
+         WHERE id = '__index_metadata__'`
+      );
+      await database.query('DELETE FROM mastra_vectors');
+    };
+    expect((await readSemanticIndexMetadata()).rows).toEqual(expectedMetadata);
+
+    await clearMastraVectors();
+    const deletedMetadata = await database.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM mastra_vectors
+       WHERE id = '__index_metadata__'`
+    );
+    expect(deletedMetadata.rows[0]?.count).toBe('0');
+
+    const recalled = await memory.recall({
+      resourceId,
+      threadConfig: { semanticRecall: true },
+      threadId,
+      vectorSearchString: secondTurnText,
+    });
+
+    expect(recalled.usage).toEqual({ tokens: 1 });
+    expect((await readSemanticIndexMetadata()).rows).toEqual(expectedMetadata);
+
+    await clearMastraVectors();
+    await memory.saveMessages({
+      messages: [
+        createMessage('u-semantic-recall-after-reset', secondTurnText, '2026-07-25T12:00:02Z'),
+      ],
+    });
+
+    expect((await readSemanticIndexMetadata()).rows).toEqual(expectedMetadata);
+    const indexedSecondTurn = await database.query<{ content: string }>(
+      `SELECT metadata->>'content' AS content
+       FROM mastra_vectors
+       WHERE id <> '__index_metadata__'
+         AND metadata->>'message_id' = 'u-semantic-recall-after-reset'`
+    );
+    expect(indexedSecondTurn.rows).toEqual([{ content: secondTurnText }]);
+  }, 30_000);
 
   it.each([
     ['observational memory enabled', DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS],

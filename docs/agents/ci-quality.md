@@ -126,12 +126,12 @@ The real fix is upstream commit `e62f6b6` (2026-07-16, unreleased as of
 `pnpm exec biome check .` (zero "Biome encountered an unexpected error")
 before landing.
 
-### Static and Unit run on arm64 (Series C R9b)
+### Static and the Unit fan-in run on arm64 (Series C R9b)
 
-`static` and `unit` in `test.yml` run on `ubuntu-24.04-arm`, not
-`ubuntu-latest` (x64). arm64 runners became available for private repos on
-2026-01-29 and cost 37% less per minute than x64. Probe P1 measured this
-specific: `pnpm install --frozen-lockfile` (the native-deps/node-gyp set,
+`static` and the lightweight `unit` fan-in in `test.yml` run on
+`ubuntu-24.04-arm`, not `ubuntu-latest` (x64). arm64 runners became available
+for private repos on 2026-01-29 and cost 37% less per minute than x64. Probe P1
+measured this specific: `pnpm install --frozen-lockfile` (the native-deps/node-gyp set,
 the main risk), lint, script tests, secret scan, and the 6 `cache: false`
 `test:integration` suites (real PGlite, embeddings — the heaviest,
 native-dependent work in the workflow) all genuinely ran and passed on
@@ -141,15 +141,24 @@ arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 
 ### Primary Linux x64 jobs run on Ubicloud (BST-765)
 
-`build`, `native-electron`, `web-e2e`, and `desktop-e2e` in `test.yml` run on
-`ubicloud-standard-4`. That runner preserves the 4-vCPU/16-GB class used for
-the x64 work while moving the four measured, dominant Linux x64 lanes to the
-connected Ubicloud runner fleet. The phase-one boundary is deliberate:
+`unit-shard`, `build`, `native-electron`, `web-e2e`, and `desktop-e2e` in
+`test.yml` run on `ubicloud-standard-4`. That runner preserves the
+4-vCPU/16-GB class used for the x64 work while moving the measured, dominant
+Linux x64 lanes to the connected Ubicloud runner fleet. The boundary is
+deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
-- Static, Unit shards, and the Unit fan-in remain on GitHub ARM
+- Static and the Unit fan-in remain on GitHub ARM
+- all three Unit shards use one fixed Ubicloud runner class
 - Native Windows remains on GitHub Windows
 - coverage, scheduled, review, and auxiliary workflows are unchanged
+
+The Unit matrix moved as a whole after GitHub's ARM pool terminated the
+`rest` shard without a failing test assertion on five consecutive attempts
+across two exact PR heads (runs 30158896583 and 30175303301 on 2026-07-25).
+Do not route individual shards to different providers: keeping one fixed
+runner contract avoids a provider-selection layer while preserving the exact
+partition, integration concurrency, and required `Unit` fan-in.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an

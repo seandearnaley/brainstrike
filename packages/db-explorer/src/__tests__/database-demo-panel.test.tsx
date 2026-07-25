@@ -23,10 +23,10 @@ import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import { SearchEmbedderProvider, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import React from 'react';
+import React, { type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
-import { DatabaseDemoPanel } from '../database-demo-panel';
+import { DatabaseDemoPanel as DatabaseDemoPanelImplementation } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
@@ -43,17 +43,30 @@ const withProviders = (ui: React.ReactElement) => (
 );
 const renderWithProviders = (ui: React.ReactElement) => render(withProviders(ui));
 
-const { dbProviderErrorMock, ensureStartedMock, useFileRecordRepositoryMock } = vi.hoisted(() => ({
-  dbProviderErrorMock: { current: null as Error | null },
-  ensureStartedMock: vi.fn(async () => ({
-    chunkBatch: vi.fn(),
-    chunkFile: vi.fn(),
-    isReady: vi.fn(() => true),
-    terminate: vi.fn(),
-    transportKind: 'local-worker' as const,
-  })),
-  useFileRecordRepositoryMock: vi.fn(),
-}));
+const { clearAllDataMock, dbProviderErrorMock, ensureStartedMock, useFileRecordRepositoryMock } =
+  vi.hoisted(() => ({
+    clearAllDataMock: vi.fn(async () => ({ deletedChunks: 0, deletedFiles: 0 })),
+    dbProviderErrorMock: { current: null as Error | null },
+    ensureStartedMock: vi.fn(async () => ({
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
+      isReady: vi.fn(() => true),
+      terminate: vi.fn(),
+      transportKind: 'local-worker' as const,
+    })),
+    useFileRecordRepositoryMock: vi.fn(),
+  }));
+
+const defaultOnDatabaseCleared = vi.fn();
+
+function DatabaseDemoPanel({
+  onDatabaseCleared = defaultOnDatabaseCleared,
+  ...props
+}: Omit<ComponentProps<typeof DatabaseDemoPanelImplementation>, 'onDatabaseCleared'> & {
+  onDatabaseCleared?: () => void;
+}): React.ReactElement {
+  return <DatabaseDemoPanelImplementation {...props} onDatabaseCleared={onDatabaseCleared} />;
+}
 
 // Mock all external dependencies at the top level
 const mockRepository = {
@@ -173,7 +186,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     },
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     migrations: [],
-    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedChunks: 0, deletedFiles: 0 })),
+    useClearAllData: () => clearAllDataMock,
     useDbProviderError: () => dbProviderErrorMock.current,
     useFactoryReset: () => null,
     useFileChunkRepository: () => mockChunkRepository,
@@ -442,6 +455,7 @@ describe('DatabaseDemoPanel', () => {
     __resetVectorStatusUIStoreForTests();
     resetEmbeddingQueueFactory();
     vi.clearAllMocks();
+    clearAllDataMock.mockResolvedValue({ deletedChunks: 0, deletedFiles: 0 });
     dbProviderErrorMock.current = null;
     ensureStartedMock.mockClear();
     useFileRecordRepositoryMock.mockReset();
@@ -709,6 +723,62 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Settings Panel', () => {
+    async function confirmDatabaseClear(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+      await user.click(screen.getByRole('button', { name: /Import Settings/ }));
+      await user.click(await screen.findByRole('button', { name: 'Clear Database' }));
+      await user.click(
+        await screen.findByRole('button', { hidden: false, name: 'Clear Database' })
+      );
+    }
+
+    it('invokes the required post-clear callback only after a successful database clear', async () => {
+      const order: string[] = [];
+      clearAllDataMock.mockImplementationOnce(async () => {
+        order.push('database');
+        return { deletedChunks: 0, deletedFiles: 0 };
+      });
+      const onDatabaseCleared = vi.fn(() => {
+        order.push('app-shell');
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanel onDatabaseCleared={onDatabaseCleared} />);
+
+      await confirmDatabaseClear(user);
+
+      await waitFor(() => {
+        expect(onDatabaseCleared).toHaveBeenCalledTimes(1);
+      });
+      expect(order).toEqual(['database', 'app-shell']);
+    });
+
+    it('does not invoke the post-clear callback when the database clear fails', async () => {
+      clearAllDataMock.mockRejectedValueOnce(new Error('clear failed'));
+      const onDatabaseCleared = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanel onDatabaseCleared={onDatabaseCleared} />);
+
+      await confirmDatabaseClear(user);
+
+      await waitFor(() => {
+        expect(clearAllDataMock).toHaveBeenCalledTimes(1);
+      });
+      expect(onDatabaseCleared).not.toHaveBeenCalled();
+    });
+
+    it('preflights the post-clear callback before mutating the database', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanelImplementation onDatabaseCleared={null} />);
+
+      await confirmDatabaseClear(user);
+
+      expect(clearAllDataMock).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Post-clear application state reset is not ready.',
+        title: 'Clear Function Not Available',
+        variant: 'destructive',
+      });
+    });
+
     it('shows settings panel when settings button is clicked', async () => {
       const user = userEvent.setup();
       renderWithProviders(<DatabaseDemoPanel />);

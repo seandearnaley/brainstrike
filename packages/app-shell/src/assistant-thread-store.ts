@@ -87,6 +87,7 @@ export interface AssistantThreadDraftRuntime {
 }
 
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();
+let resourceThreadLoadGeneration = 0;
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
   return {
@@ -298,6 +299,45 @@ function normalizeDraftRuntime(config: AssistantThreadDraftRuntime): AssistantTh
     ...(config.providerOptions ? { providerOptions: { ...config.providerOptions } } : {}),
     ...(providerSettings ? { providerSettings } : {}),
   };
+}
+
+async function loadResourceThreadsForGeneration(
+  repository: AssistantThreadRepository,
+  resourceId: string,
+  loadGeneration: number
+): Promise<AssistantMemoryThread[] | null> {
+  const loadedThreads = (await repository.listThreads(resourceId)).map(serializeThread);
+  if (loadGeneration !== resourceThreadLoadGeneration) {
+    return null;
+  }
+  const threads =
+    loadedThreads.length > 0
+      ? loadedThreads
+      : [serializeThread(await repository.createThread(resourceId))];
+  return loadGeneration === resourceThreadLoadGeneration ? threads : null;
+}
+
+function recordResourceThreadLoadError(
+  resourceId: string,
+  loadGeneration: number,
+  error: unknown
+): void {
+  if (loadGeneration !== resourceThreadLoadGeneration) {
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  useAssistantThreadStore.setState((state) => ({
+    loadStateByResourceId: {
+      ...state.loadStateByResourceId,
+      [resourceId]: { error: message, status: 'error' },
+    },
+  }));
+}
+
+function releaseResourceThreadLoad(resourceId: string, loadGeneration: number): void {
+  if (loadGeneration === resourceThreadLoadGeneration) {
+    resourceThreadLoadPromises.delete(resourceId);
+  }
 }
 
 export const useAssistantThreadStore = create<AssistantThreadState>()(
@@ -591,6 +631,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           return;
         }
 
+        const loadGeneration = resourceThreadLoadGeneration;
         const loadPromise = (async () => {
           set((state) => ({
             loadStateByResourceId: {
@@ -600,11 +641,14 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           }));
 
           try {
-            const loadedThreads = (await repository.listThreads(resourceId)).map(serializeThread);
-            const threads =
-              loadedThreads.length > 0
-                ? loadedThreads
-                : [serializeThread(await repository.createThread(resourceId))];
+            const threads = await loadResourceThreadsForGeneration(
+              repository,
+              resourceId,
+              loadGeneration
+            );
+            if (!threads) {
+              return;
+            }
             const selectedThreadId = selectExistingThread(
               get().activeThreadIdByResourceId[resourceId] ??
                 get().selectedThreadByResourceId[resourceId],
@@ -647,16 +691,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               },
             }));
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            set((state) => ({
-              loadStateByResourceId: {
-                ...state.loadStateByResourceId,
-                [resourceId]: { error: message, status: 'error' },
-              },
-            }));
+            recordResourceThreadLoadError(resourceId, loadGeneration, error);
             throw error;
           } finally {
-            resourceThreadLoadPromises.delete(resourceId);
+            releaseResourceThreadLoad(resourceId, loadGeneration);
           }
         })();
 
@@ -822,3 +860,17 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
     }
   )
 );
+
+export function resetAssistantThreadStore(): void {
+  resourceThreadLoadGeneration += 1;
+  resourceThreadLoadPromises.clear();
+  useAssistantThreadStore.setState({
+    activeThreadIdByResourceId: {},
+    draftRuntimeByThreadId: {},
+    loadStateByResourceId: {},
+    openThreadIdsByResourceId: {},
+    selectedThreadByResourceId: {},
+    threadIdsByResourceId: {},
+    threadsByResourceId: {},
+  });
+}

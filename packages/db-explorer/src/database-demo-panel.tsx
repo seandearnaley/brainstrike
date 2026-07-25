@@ -75,6 +75,7 @@ import { useImportFlow } from './use-import-flow';
 
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
+  onDatabaseCleared: (() => void) | null;
 }
 
 interface CreateCollectionDialogProps {
@@ -295,7 +296,10 @@ function DatabaseDemoSemanticSearchTestHookBridge() {
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
-export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
+export function DatabaseDemoPanel({
+  embeddingQueue = null,
+  onDatabaseCleared,
+}: DatabaseDemoPanelProps) {
   const repository = useFileRecordRepository();
   const dbChunkRepository = useFileChunkRepository();
   const dbInitError = useDbProviderError();
@@ -566,6 +570,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       });
       return;
     }
+    if (!onDatabaseCleared) {
+      toast({
+        description: 'Post-clear application state reset is not ready.',
+        title: 'Clear Function Not Available',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setShowClearDialog(false);
 
@@ -573,8 +585,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       [
         {
           critical: true,
-          name: 'Clear All Collections',
-          operation: async () => clearAllData(),
+          name: 'Clear Database',
+          operation: async () => {
+            const result = await clearAllData();
+            onDatabaseCleared();
+            return result;
+          },
         },
         {
           critical: false,
@@ -595,13 +611,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       ],
       setClearing,
       {
-        partialSuccessMessage: 'Collections were cleared but some data reload operations failed',
-        partialSuccessTitle: 'Collections Cleared',
-        successMessage: 'All collections data has been cleared and reloaded successfully',
-        successTitle: 'Collections Cleared',
+        partialSuccessMessage: 'The database was cleared but some data reload operations failed',
+        partialSuccessTitle: 'Database Cleared',
+        successMessage: 'The database has been cleared and collection data reloaded successfully',
+        successTitle: 'Database Cleared',
       }
     );
-  }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
+  }, [clearAllData, onDatabaseCleared, toast, loadRecords, loadChunks, errorBoundary]);
 
   // Collection management handlers
   const handleCollectionChange = useCallback(
@@ -879,7 +895,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         </Panel>
       </Group>
 
-      {/* Clear All Collections dialog - triggered from Import Settings */}
+      {/* Clear Database dialog - triggered from Import Settings */}
       <ClearDatabaseDialog
         chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}

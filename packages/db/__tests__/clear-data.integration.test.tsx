@@ -10,11 +10,11 @@
  * commands ignored until end of transaction block` until ROLLBACK. There are no
  * savepoints in this repo, so catching the original error does not undo that.
  *
- * `mastra_workflow_snapshot` is created LAZILY by
- * `PgliteWorkflowsStore.initialize()` and by NO migration, so "relation absent"
- * is the NORMAL state for a database whose owner never opened the assistant.
- * The fully migrated test snapshot therefore reproduces production exactly: it
- * has every other relation and not that one.
+ * Mastra's memory, vector, and workflow tables are created LAZILY and by NO
+ * migration, so "relation absent" is the NORMAL state for a database whose
+ * owner never opened the assistant. The fully migrated test snapshot therefore
+ * reproduces production exactly: it has every migrated Brainstrike relation
+ * and none of the lazy Mastra relations.
  *
  * Both reset paths named by the FACTORY RESET CONTRACT are covered here — the
  * direct-PGlite clear (`clearViaPGlite`) and the factory-reset purge
@@ -65,12 +65,31 @@ const SENTINEL_INSERTS = [
   // Cleared BEFORE mastra_workflow_snapshot in both paths.
   `INSERT INTO prompt_items (id, kind, title, content)
      VALUES ('sentinel-prompt', 'prompt', 'sentinel', 'sentinel')`,
+  `INSERT INTO brainstrike_assistant_thread_groups
+     (id, resource_id, name, rank)
+     VALUES ('sentinel-group', 'sentinel-resource', 'sentinel', 'a')`,
+  `INSERT INTO brainstrike_assistant_thread_placements
+     (thread_id, resource_id, group_id, rank)
+     VALUES ('sentinel-thread', 'sentinel-resource', 'sentinel-group', 'a')`,
   // Cleared AFTER it (clearThreadSearchIndexIfPresent) — the first statement
   // that would observe an aborted transaction.
   `INSERT INTO brainstrike_diagnostic_events
      (id, occurred_at, severity, source, message, fingerprint, session_id, app_version, platform)
      VALUES ('sentinel-diag', NOW(), 'warn', 'test', 'sentinel', 'fp', 'sess', '0.0.0', 'test')`,
 ];
+
+/**
+ * Test-owned literals are intentionally independent of the production schema
+ * constants. If a reset call site omits or misspells a table, importing the same
+ * constant there and here would let production and test drift together.
+ */
+const TEST_MASTRA_RESET_TABLES = [
+  'mastra_messages',
+  'mastra_observational_memory',
+  'mastra_threads',
+  'mastra_resources',
+  'mastra_vectors',
+] as const;
 
 describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
   let db: PGlite;
@@ -101,10 +120,56 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
 
   async function assertSentinelsCleared(): Promise<void> {
     expect(await countRows('prompt_items')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
+    expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   }
 
-  it('commits the direct clear when mastra_workflow_snapshot was never created', async () => {
+  async function assertMastraResetTablesAbsent(): Promise<void> {
+    for (const table of TEST_MASTRA_RESET_TABLES) {
+      const result = await db.query<{ present: boolean }>(
+        `SELECT to_regclass('${table}') IS NOT NULL AS present`
+      );
+      expect(result.rows[0]?.present, table).toBe(false);
+    }
+  }
+
+  async function seedMastraResetTables(): Promise<void> {
+    await db.exec(`
+      CREATE TABLE mastra_messages (id text PRIMARY KEY);
+      INSERT INTO mastra_messages (id) VALUES ('message-1');
+
+      CREATE TABLE mastra_observational_memory (id text PRIMARY KEY);
+      INSERT INTO mastra_observational_memory (id) VALUES ('observation-1');
+
+      CREATE TABLE mastra_threads (id text PRIMARY KEY);
+      INSERT INTO mastra_threads (id) VALUES ('thread-1');
+
+      CREATE TABLE mastra_resources (id text PRIMARY KEY);
+      INSERT INTO mastra_resources (id) VALUES ('resource-1');
+
+      CREATE TABLE mastra_vectors (
+        index_name text NOT NULL,
+        id text NOT NULL,
+        PRIMARY KEY (index_name, id)
+      );
+      INSERT INTO mastra_vectors (index_name, id)
+      VALUES
+        ('assistant-memory', 'vector-1'),
+        ('workspace-memory', 'vector-2'),
+        ('assistant-memory', '__index_metadata__');
+    `);
+  }
+
+  async function assertMastraResetTablesCleared(): Promise<void> {
+    for (const table of TEST_MASTRA_RESET_TABLES) {
+      expect(await countRows(table), table).toBe(0);
+    }
+  }
+
+  it('commits the direct clear when all lazy Mastra relations are absent', async () => {
+    await assertMastraResetTablesAbsent();
+
     const { result } = renderHook(
       () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
       { wrapper }
@@ -118,7 +183,9 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     await assertSentinelsCleared();
   });
 
-  it('commits the factory-reset purge when mastra_workflow_snapshot was never created', async () => {
+  it('commits the factory-reset purge when all lazy Mastra relations are absent', async () => {
+    await assertMastraResetTablesAbsent();
+
     const { result } = renderHook(
       () => ({ factoryReset: useFactoryReset(), repo: useFileRecordRepository() }),
       { wrapper }
@@ -131,6 +198,44 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     await act(async () => {
       await result.current.factoryReset?.();
     });
+    await assertSentinelsCleared();
+  });
+
+  it('direct clear empties every lazy Mastra memory table and every vector index', async () => {
+    await seedMastraResetTables();
+    expect(await countRows('mastra_vectors')).toBe(3);
+
+    const { result } = renderHook(
+      () => ({ clearData: useClearAllData(), repo: useFileRecordRepository() }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.clearData).not.toBeNull();
+    });
+
+    await expect(result.current.clearData?.()).resolves.toBeDefined();
+    await assertMastraResetTablesCleared();
+    await assertSentinelsCleared();
+  });
+
+  it('factory-reset purge empties every lazy Mastra memory table and every vector index', async () => {
+    await seedMastraResetTables();
+    expect(await countRows('mastra_vectors')).toBe(3);
+
+    const { result } = renderHook(
+      () => ({ factoryReset: useFactoryReset(), repo: useFileRecordRepository() }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.factoryReset).not.toBeNull();
+    });
+
+    await act(async () => {
+      await result.current.factoryReset?.();
+    });
+    await assertMastraResetTablesCleared();
     await assertSentinelsCleared();
   });
 

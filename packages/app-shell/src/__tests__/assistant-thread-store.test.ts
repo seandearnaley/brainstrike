@@ -3,7 +3,7 @@ import type {
   AssistantMemoryThread,
   AssistantThreadRepository,
 } from '../assistant-memory-repository';
-import { useAssistantThreadStore } from '../assistant-thread-store';
+import { resetAssistantThreadStore, useAssistantThreadStore } from '../assistant-thread-store';
 
 const workspaceId = '/tmp/workspace-a';
 
@@ -68,7 +68,38 @@ function createRepository(
 
 describe('useAssistantThreadStore tab sessions', () => {
   beforeEach(() => {
+    resetAssistantThreadStore();
+  });
+
+  it('resets every thread map and invalidates an in-flight resource load', async () => {
+    let resolveStaleThreads!: (threads: readonly AssistantMemoryThread[]) => void;
+    const staleRepository = createRepository([]);
+    vi.mocked(staleRepository.listThreads).mockReturnValue(
+      new Promise((resolve) => {
+        resolveStaleThreads = resolve;
+      })
+    );
+    const staleLoad = useAssistantThreadStore
+      .getState()
+      .ensureResourceThreads(staleRepository, workspaceId);
+
     useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-stale' },
+      draftRuntimeByThreadId: {
+        'thread-stale': { model: 'gpt-5.2', provider: 'openai' },
+      },
+      loadStateByResourceId: { [workspaceId]: { status: 'ready' } },
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-stale'] },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-stale' },
+      threadIdsByResourceId: { [workspaceId]: ['thread-stale'] },
+      threadsByResourceId: {
+        [workspaceId]: [makeThread('thread-stale', '2026-04-22T11:00:00Z')],
+      },
+    });
+
+    resetAssistantThreadStore();
+
+    expect(useAssistantThreadStore.getState()).toMatchObject({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
       loadStateByResourceId: {},
@@ -77,6 +108,17 @@ describe('useAssistantThreadStore tab sessions', () => {
       threadIdsByResourceId: {},
       threadsByResourceId: {},
     });
+
+    const freshRepository = createRepository([makeThread('thread-fresh', '2026-04-22T12:00:00Z')]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(freshRepository, workspaceId);
+    expect(freshRepository.listThreads).toHaveBeenCalledTimes(1);
+
+    resolveStaleThreads([makeThread('thread-stale', '2026-04-22T11:00:00Z')]);
+    await staleLoad;
+
+    expect(useAssistantThreadStore.getState().threadIdsByResourceId[workspaceId]).toEqual([
+      'thread-fresh',
+    ]);
   });
 
   it('deduplicates concurrent resource thread loads', async () => {

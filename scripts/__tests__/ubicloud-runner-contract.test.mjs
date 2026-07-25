@@ -4,11 +4,10 @@ import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
 
-const UBICLOUD_JOBS = ['build', 'native-electron', 'web-e2e', 'desktop-e2e'];
+const UBICLOUD_JOBS = ['unit-shard', 'build', 'native-electron', 'web-e2e', 'desktop-e2e'];
 const GITHUB_JOBS = new Map([
   ['admission', 'ubuntu-slim'],
   ['static', 'ubuntu-24.04-arm'],
-  ['unit-shard', 'ubuntu-24.04-arm'],
   ['unit', 'ubuntu-24.04-arm'],
   ['native-windows', 'windows-latest'],
 ]);
@@ -23,7 +22,7 @@ function jobBlock(jobId) {
   return nextJob === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + nextJob);
 }
 
-test('the phase-one Linux x64 jobs run on Ubicloud standard-4', () => {
+test('the measured Linux x64 jobs run on Ubicloud standard-4', () => {
   for (const jobId of UBICLOUD_JOBS) {
     assert.match(
       jobBlock(jobId),
@@ -39,7 +38,7 @@ test('admission, ARM, and Windows jobs remain on GitHub-hosted runners', () => {
   }
 });
 
-test('Ubicloud is limited to the four measured phase-one jobs', () => {
+test('Ubicloud is limited to the five measured jobs', () => {
   const ubicloudAssignments = [...workflow.matchAll(/^ {4}runs-on: (ubicloud-[a-z0-9-]+)$/gm)].map(
     (match) => match[1]
   );

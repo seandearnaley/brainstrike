@@ -14,15 +14,18 @@ describe('ClearDatabaseDialog', () => {
     showClearDialog: true,
   };
 
-  it('speaks about clearing collections data, not the database engine', () => {
+  it('discloses every destructive data category before clearing the database', () => {
     render(<ClearDatabaseDialog {...baseProps} />);
 
-    // Users act on collections (the surface named by the Library tab); the
-    // description still names the database as the storage being emptied.
-    expect(screen.getByRole('heading', { name: 'Clear All Collections' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear All Collections' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Clear Database' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear Database' })).toBeInTheDocument();
     expect(
       screen.getByText(/permanently delete all imported files \(3\) and chunks \(12\)/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /assistant conversations, working memory, semantic recall, suspended runs, prompts, run history, and diagnostics/
+      )
     ).toBeInTheDocument();
   });
 
@@ -30,6 +33,6 @@ describe('ClearDatabaseDialog', () => {
     render(<ClearDatabaseDialog {...baseProps} countsPending />);
 
     expect(screen.getByText(/Collection counts are still loading/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear All Collections' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear Database' })).toBeDisabled();
   });
 });

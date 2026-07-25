@@ -80,25 +80,56 @@ the assistant-ui carousel/branch topology companion store (migration 055), and
 `brainstrike_assistant_tool_output_artifacts`, the complete-result store
 (migration 068). The artifact relation is independently retained and has no
 Mastra FK, so both direct-PGlite reset and desktop `db:clearAll` must delete it
-explicitly; only a pre-068 missing relation is tolerated.
+explicitly; only a pre-068 missing relation is tolerated. It also includes
+`brainstrike_assistant_thread_groups` and
+`brainstrike_assistant_thread_placements`, the durable thread grouping and
+manual-order presentation state (migration 054). Every table-enumerating reset
+deletes placements before groups, then deletes both before Mastra threads.
 
-Mastra's own `mastra_workflow_snapshot` is the one Mastra-owned table that must
-also be cleared explicitly (BST-558). It has an UNBOUNDED lifetime — its only
-deletes are `deleteWorkflowRunById` (no production caller) and
-`dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
-call and arguments, so it must not survive a "true fresh start". It is cleared
-in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
-MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s `clearRelationIfPresent(tx,
-MASTRA_WORKFLOW_TABLE)` (used by direct-PGlite clear AND
-`purgeTablesTx`). The relation is created lazily by
-`PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
-never ran) is tolerated; every other delete failure stays visible. The
-remaining `mastra_*` tables (`mastra_threads`, `mastra_messages`,
-`mastra_vectors`, `mastra_observational_memory`, …) are still NOT in either
-list — a known gap, not a ruling.
+Mastra owns six assistant-persistence relations, and a true fresh start clears
+ALL SIX:
+
+- `mastra_threads`
+- `mastra_messages`
+- `mastra_resources`
+- `mastra_observational_memory`
+- `mastra_vectors`
+- `mastra_workflow_snapshot`
+
+Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
+`db-ipc.ts`, direct-PGlite `clearViaPGlite`, and direct-PGlite factory reset's
+`purgeTablesTx` in `db-provider.tsx`. Keep the Mastra six in parity across those
+three lists; the rest intentionally differs. Desktop factory reset is
+deliberately different: `resetLocalDatabase` closes the database and recursively
+deletes the active profile directory, so it removes the relations with the whole
+database rather than issuing table-by-table `DELETE`s. Do not add a redundant
+SQL purge to that directory-delete path.
+
+These relations are application-created lazily rather than guaranteed by the
+numbered migration runner: the memory store creates threads, messages,
+resources, and observational memory; the vector store creates vectors; and the
+workflow store creates workflow snapshots. A never-used assistant can therefore
+legitimately lack any or all of them. Every table-enumerating reset path must
+PROBE each relation before deleting it; absence is the only tolerated case, and
+every genuine probe or delete failure stays visible.
+
+`mastra_workflow_snapshot` has an UNBOUNDED lifetime — its only deletes are
+`deleteWorkflowRunById` (no production caller) and `dangerouslyClearAll`
+(tests) — and a suspended run retains its pending tool call and arguments, so it
+must never survive reset (BST-558).
+
+`mastra_vectors` receives an intentional blanket `DELETE`. Do not preserve its
+`__index_metadata__` sentinel rows: they describe logical indexes owned by the
+assistant session and are data, not durable schema. Mastra re-declares every
+logical index through `createEmbeddingIndex` or
+`createObservationEmbeddingIndex` immediately before each vector upsert/query
+path; `PgliteVectorStore.createIndex` recreates the missing sentinel row and
+ensures the physical per-dimension HNSW index before use. That self-healing
+declaration contract is what makes a blanket delete correct. Filtering out
+sentinel rows would let pre-reset logical index metadata survive a fresh start.
 
 **A relation that can legitimately be ABSENT must be PROBED, not
-deleted-and-caught.** Both reset paths run their whole body inside ONE
+deleted-and-caught.** Each table-enumerating path runs its whole body inside ONE
 transaction, and PGlite is real Postgres: a statement error puts the transaction
 into the ABORTED state, after which every command fails with `25P02 current
 transaction is aborted, commands ignored until end of transaction block` until
@@ -128,22 +159,26 @@ PERMANENT SILENT SKIP with every test still green. Both helpers therefore take a
 closed literal union (`OptionalRelationTable` / `ClearableRelation`), never a
 `string` parameter. Keep it that way.
 
-**The probed table name must come from `MASTRA_WORKFLOW_TABLE`
-(`@brainstrike/assistant-contract/mastra-memory-schema`), never a hand-copied
+**Every probed Mastra table name must come from the canonical schema exports
+(`MASTRA_MEMORY_TABLES`, `MASTRA_VECTOR_TABLE`, and
+`MASTRA_WORKFLOW_TABLE`) in
+`@brainstrike/assistant-contract/mastra-memory-schema`, never a hand-copied
 literal.** `to_regclass` on a stale name returns NULL, which makes the probe a
 PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by
 control: renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path
 held an unpinned literal left a suspended-run row alive through a full clear
 (`expected 1 to be +0`). Both production sites (desktop `db-ipc.ts` and renderer
-`db-provider.tsx`) now import the constant.
+`db-provider.tsx`) import the canonical exports.
 
 The renderer used to hold a pinned local literal instead, because that import
 reordered bundle chunk init and killed the app at startup. That is FIXED at the
 root, not worked around — see the next rule — and the stopgap guard that pinned
 the literal is deleted. Do not reintroduce a hand-copied literal here.
 
-**Import those constants freely, but read them only inside a function — never at
-module scope (BST-558).** Module-scope initializers run at bundle CHUNK
+**Import those canonical exports freely, but read their values only inside the
+function that executes the clear — never at module scope (BST-558).**
+Type-position reads in the closed relation unions are erased and remain safe.
+Module-scope value initializers run at bundle CHUNK
 INITIALIZATION, and the renderer's chunk graph does not guarantee the contract
 chunk has evaluated by then. `packages/app-shell/src/assistant-memory-repository.ts`
 used to build its bootstrap DDL in a module-scope template literal interpolating

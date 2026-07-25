@@ -35,11 +35,11 @@ export function ClearDatabaseDialog({
     <Dialog onOpenChange={setShowClearDialog} open={showClearDialog}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Clear All Collections</DialogTitle>
+          <DialogTitle>Clear Database</DialogTitle>
           <DialogDescription>
             {countsPending
               ? 'Collection counts are still loading. Wait for fresh counts before clearing data.'
-              : `This will permanently delete all imported files (${recordsCount}) and chunks (${chunksCount}) from the database. This action cannot be undone.`}
+              : `This will permanently delete all imported files (${recordsCount}) and chunks (${chunksCount}), plus assistant conversations, working memory, semantic recall, suspended runs, prompts, run history, and diagnostics from the database. Configuration profiles remain. This action cannot be undone.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -47,7 +47,7 @@ export function ClearDatabaseDialog({
             Cancel
           </Button>
           <Button disabled={clearing || countsPending} onClick={onClear} variant="destructive">
-            {clearing ? 'Clearing...' : 'Clear All Collections'}
+            {clearing ? 'Clearing...' : 'Clear Database'}
           </Button>
         </DialogFooter>
       </DialogContent>

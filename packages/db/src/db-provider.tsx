@@ -1,4 +1,8 @@
-import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  MASTRA_MEMORY_TABLES,
+  MASTRA_VECTOR_TABLE,
+  MASTRA_WORKFLOW_TABLE,
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
@@ -58,14 +62,17 @@ function logDatabaseError(message: string, error: unknown): void {
  * table and becomes a PERMANENT SILENT SKIP — no error, no warn, only a
  * `logger.debug`, with every test still green.
  *
- * `typeof MASTRA_WORKFLOW_TABLE` is a TYPE-position read, erased at compile
- * time, so it cannot participate in the module-scope chunk-init hazard that
- * `scripts/verify-mastra-schema-init-order.mjs` guards. The VALUE is still read
- * only inside the functions below.
+ * The `typeof` expressions over the imported Mastra schema constants are
+ * TYPE-position reads, erased at compile time, so they cannot participate in
+ * the module-scope chunk-init hazard that
+ * `scripts/verify-mastra-schema-init-order.mjs` guards. Their VALUES are still
+ * read only inside the functions below.
  */
 type ClearableRelation =
   | typeof MASTRA_WORKFLOW_TABLE
   | 'brainstrike_assistant_run_outcomes'
+  | 'brainstrike_assistant_thread_groups'
+  | 'brainstrike_assistant_thread_placements'
   | 'brainstrike_assistant_tool_output_artifacts'
   | 'brainstrike_diagnostic_events'
   | 'brainstrike_thread_message_index'
@@ -75,6 +82,11 @@ type ClearableRelation =
   | 'file_chunks'
   | 'file_records'
   | 'job_queue'
+  | 'mastra_messages'
+  | 'mastra_observational_memory'
+  | 'mastra_resources'
+  | 'mastra_threads'
+  | 'mastra_vectors'
   | 'prompt_items'
   | 'roots'
   | 'selection_snapshot_files'
@@ -877,6 +889,20 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
+      // Thread grouping is Brainstrike-owned assistant presentation state.
+      // Delete placements before groups, and both before Mastra threads.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
+      // Mastra memory tables are lazy, database-owned assistant persistence.
+      // Delete children before their logical parents even though the current
+      // schema does not declare foreign keys. Vectors are deliberately cleared
+      // without an index-name filter: every assistant-memory index belongs to
+      // the database being reset (BST-844).
+      await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
+      await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);
+      await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.threads);
+      await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.resources);
+      await clearRelationIfPresent(tx, MASTRA_VECTOR_TABLE);
       // Suspended Mastra workflow snapshots: unbounded lifetime, no FK, and they
       // retain the pending tool call and its arguments (BST-558).
       await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
@@ -928,6 +954,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // turn any single failure into a pile of `25P02`s.
     await clearRelationIfPresent(tx, 'prompt_items');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
+    await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
+    await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);
+    await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.threads);
+    await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.resources);
+    await clearRelationIfPresent(tx, MASTRA_VECTOR_TABLE);
     await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
     // Task Ledger outcome labels: web-writable (user verdicts), no FK —
     // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
