@@ -1,4 +1,3 @@
-import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
@@ -165,6 +164,13 @@ async function clearToolOutputArtifactsIfPresent(tx: {
 }
 
 /**
+ * Mirror of `MASTRA_WORKFLOW_TABLE`, kept as a local literal rather than an
+ * import — see the note on `clearWorkflowSnapshotsIfPresent` below. Pinned to the
+ * contract by `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`.
+ */
+const WORKFLOW_SNAPSHOT_TABLE = 'mastra_workflow_snapshot';
+
+/**
  * Suspended Mastra workflow snapshots (BST-558) have an UNBOUNDED lifetime:
  * nothing deletes rows in production, and a suspended run retains its pending
  * tool call and arguments. No FK cascades the table, so a clear/reset must
@@ -188,14 +194,26 @@ async function clearToolOutputArtifactsIfPresent(tx: {
  * `PgliteWorkflowsStore` only creates it. A genuine delete failure must surface
  * as itself.
  *
- * The table name comes from `MASTRA_WORKFLOW_TABLE`, never a local literal: a
- * stale name would make `to_regclass` return NULL forever, turning this into a
- * permanent SILENT skip rather than a visible error.
+ * `WORKFLOW_SNAPSHOT_TABLE` MUST equal `MASTRA_WORKFLOW_TABLE` from
+ * `@brainstrike/assistant-contract/mastra-memory-schema`: with `to_regclass`, a
+ * stale name returns NULL forever, turning this into a permanent SILENT skip
+ * rather than a visible error.
+ *
+ * It is a literal and NOT that import ON PURPOSE. This module is renderer-side,
+ * and importing the contract package here reorders bundle chunk init so
+ * `MASTRA_MEMORY_TABLES` is undefined when `assistant-memory-repository.ts`
+ * evaluates its module-scope SQL template literals — the renderer then dies with
+ * "Cannot read properties of undefined (reading 'threads')" and the app never
+ * becomes ready. Measured on this branch: commit 3e8d1b7fd added the import and
+ * turned Web + Desktop E2E red where the preceding commit was green, while
+ * type-check and every unit suite stayed green.
+ * `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs` pins the
+ * literal to the constant instead — same protection, no runtime import edge.
  */
 async function clearWorkflowSnapshotsIfPresent(tx: {
   query: (sql: string) => Promise<unknown>;
 }): Promise<void> {
-  const table = MASTRA_WORKFLOW_TABLE;
+  const table = WORKFLOW_SNAPSHOT_TABLE;
   const probe = (await tx.query(`SELECT to_regclass('${table}') IS NOT NULL AS present`)) as
     | { rows?: Array<{ present?: boolean }> }
     | undefined;
