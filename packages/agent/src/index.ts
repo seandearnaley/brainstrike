@@ -116,10 +116,12 @@ export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
   resolveStreamInactivityMs,
+  resolveToolCallInputMs,
   resolveToolTimeoutMs,
 } from './config/resilience-config';
 export {

@@ -3,7 +3,7 @@
 ```
 NAME=Sweep
 ROLE=nightly-noise janitor
-SCHEDULE="57 10 * * *"   # daily 10:57 UTC, after both nightlies settle
+SCHEDULE="57 10 * * *"   # daily 10:57 scheduler-local, after both nightlies settle
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=auto-close (tickets only; no PRs, no code, ever)

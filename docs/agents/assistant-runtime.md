@@ -35,12 +35,20 @@ below are LIVE.
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
-   The adjacent `withToolCallInputTimeout` wrapper applies the SAME configured
-   window as an absolute deadline from the first streamed tool-input marker to
-   its matching input end/complete call. `tool-call-delta` proves transport
-   activity and continues to render progress, but it never extends that
-   deadline: a provider cannot keep a run alive indefinitely by dribbling
-   incomplete JSON arguments. The wrapper ignores non-tool stream parts before
+   The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
+   `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
+   first streamed tool-input marker to its matching input end/complete call.
+   `tool-call-delta` proves transport activity and continues to render
+   progress, but it never extends that deadline: a provider cannot keep a run
+   alive indefinitely by dribbling incomplete JSON arguments. The two windows
+   are DELIBERATELY decoupled and must not be re-merged (BST-839): the
+   inactivity window asks "is the transport still delivering parts?", this one
+   asks "will this call ever become executable?". Reusing the 120s inactivity
+   window as the input budget false-positived on legitimate large argument
+   payloads — a model writing tens of KB of file content streams argument
+   deltas continuously for minutes on a slow upstream route (observed on
+   OpenRouter → GLM, which took >120s to stream one file-write input while the
+   transport was demonstrably healthy). The wrapper ignores non-tool stream parts before
    probing tool-call IDs, so ordinary text and reasoning deltas do not allocate
    identifier candidate arrays. Expiry uses the distinct
    `tool_call_input_streaming_timeout` terminal code and aborts before an
@@ -115,6 +123,48 @@ default truthfully; an unset override is not an unbounded or "Open" run.
 Output-limit finishes are terminal failures, not successful completions:
 `finishReason: length` emits `run.failed`, an error finish, and a failed durable
 run outcome.
+
+**EVERY error finish is a failed durable outcome, not just `length`.** All three
+parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
+`makeToolCallInputTimeoutTermination`. This was NOT true until 2026-07-25:
+`getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
+termination helpers already emit the human detail as a visible text-delta, so a
+message here would double-report it), and `terminalFailureText` was only ever
+assigned from that message, so an error finish fell through to
+`{status: 'completed', error: null}`. A provider failure therefore emitted a
+`run.failed` run event while `thread_runs` recorded the run as SUCCEEDED — the
+ledger contradicted its own events, and the debug bundle's Failure summary
+(which reads `thread_runs`) reported success for exactly the runs it exists to
+diagnose.
+
+`handleFinish` now sets `terminalFailureText` for an `'error'` finish without
+emitting a visible message, taking the text from the preceding `run.failed`
+event's label and falling back to `ERROR_FINISH_FALLBACK_TEXT`. Two paired tests
+in `data-stream-session.spec.ts` keep this honest: one pins the run-event-derived
+text, one pins the bare-finish fallback — either alone would pass without the
+other's mechanism working. Do not "simplify" this by making
+`getAbnormalFinishMessage` return a string for `'error'`; that reintroduces the
+duplicate visible message. `tool-calls` and `stop` correctly remain
+`completed` — they are intermediate/normal finishes, not terminals.
+
+The durable text comes from the `run.failed` event's **`detail`**, not its
+`label`: all three terminations share the generic label "Assistant run failed",
+so persisting the label alone yields a correct status with no forensic value.
+`makeRunFailedChunk` exists to carry that detail. It is a separate helper rather
+than another optional parameter on `makeRunEventChunk` because `detail` and
+`timestamp` are both `string`, so a positional slip between them would
+type-check cleanly while writing a timestamp into the detail field.
+
+**NOT closed by this: `finishReason: 'unknown'` still has the same split.**
+`makeTerminalRunEvent` emits `run.failed` for anything that is not
+`stop`/`tool-calls`, so `unknown` produces a `run.failed` event while the
+outcome stays `completed`. Do NOT simply add `'unknown'` to the error-finish
+condition: `resolveFinishReason` also returns `'unknown'` when a provider omits
+`finishReason` on an otherwise-normal final chunk, so that would mark healthy
+runs failed. The run-event side and the outcome side genuinely disagree about
+what `unknown` means; reconciling them needs one deliberate decision, not a
+reflex at either site.
 
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
@@ -284,14 +334,23 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
-- The same `BRAINSTRIKE_STREAM_INACTIVITY_MS` value is the maximum wall-clock
+- `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
+  Decoupled from — and never tighter than — the inactivity window (BST-839).
+  That invariant is enforced only when the value is EXPLICIT (env or override);
+  when it is left at its default it widens to the inactivity window instead of
+  throwing, so a deliberately long `BRAINSTRIKE_STREAM_INACTIVITY_MS` cannot
+  fail a run by naming a variable the operator never set. Widening a default is
+  not a silent fallback — nothing configured is overridden, and the documented
+  rule still holds.
 - A local-runtime inactivity termination includes the normalized provider and
   selected model in both the structured error log and visible run failure. Do
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity.
+- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
+  second comparison is enforced only against an explicitly configured input
+  budget; see above).
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
@@ -371,8 +430,14 @@ abort reason after the loop (an aborted run must never fabricate a successful
 finish). Completion wins only after the buffered terminal `complete` message
 has already been yielded: because that marker is deferred until decoder EOF, a
 superseding abort in the yield-to-iterator-EOF gap must not rewrite the finished
-run as cancelled. The usage/context-breakdown taps are abort-gated so a draining
-stream cannot report late usage. Real faults stay loud: pre-cancellation
+run as cancelled. That decision reads the flush-time flag surfaced by
+`deferMessageFinishUntilFlush`, NEVER the accumulated message's status:
+`AssistantMessageAccumulator.flush()` fabricates a terminal status for any
+stream that ends while still running, so message status is terminal on EVERY
+drained EOF and cannot distinguish "run finished" from "stream was cut" (using
+it marks every aborted run complete — proven by the abort-reason unit test,
+whose expected rejection then never fires). The usage/context-breakdown taps
+are abort-gated so a draining stream cannot report late usage. Real faults stay loud: pre-cancellation
 pipeline/transport errors propagate to the consumer, post-cancellation
 non-abort drain failures log with diagnostic context. Do NOT re-route the
 decoded pipeline around this boundary or pass raw `response.body` into the
@@ -808,7 +873,34 @@ bridges:
   resolves metadata under EITHER form: `get(name)` first, else a scan over
   `meta.originalName`.
 - `makeApprovalRequiredChunks` uses that lookup; the emitted chunk's `toolName`
-  is always the ORIGINAL name (via the runtime `toolNameMap`). A policy-driven
+  is always the ORIGINAL name — resolved as
+  `sanitizedNameMap?.get(raw) ?? denormalizeNativeToolName(raw)`, the SAME
+  MAP-WINS order as `resolveDiscoveredApprovalToolName`,
+  `listSuspendedMastraRuns` (below) and `ProjectionSafeToolCallFilter`
+  (`projection-safe-tool-call-filter.ts`). The runtime `toolNameMap` is
+  AUTHORITATIVE — it is the only layer that can bridge MCP names — and the
+  static native reverse map is only the fallback for a route whose runtime
+  registered no natives: `apps/desktop/src/ipc-agent.ts` streams with NO
+  `tools`, so a native pause there has no map entry and would otherwise label
+  the notice `brainstrike_executeCommand`.
+  **ORDER IS LOAD-BEARING, do not "simplify" it to
+  `denormalizeNativeToolName(map.get(raw) ?? raw)`** (settled on #1987 review):
+  `sanitizeTools` records `map.set(uniqueName, name)` UNCONDITIONALLY, including
+  the identity case, so a tool registered under the literal underscored id
+  `brainstrike_executeCommand` maps to ITSELF — denormalizing a successful hit
+  would rewrite that authoritative original to `brainstrike.executeCommand`,
+  mislabelling the notice and submitting the wrong id to per-tool grant
+  handling. (A colon/dot original like `brainstrike:executeCommand` is NOT
+  affected either way: the map VALUE is not a key of the reverse map.)
+  `makeUnsupportedApprovalChunks` (the malformed-pause termination, whose
+  tool-event `name` + `run.failed` `toolName` are the only names the user sees)
+  resolves identically. Proof in `mastra-streaming.spec.ts`: the two
+  "denormalizes a native … no sanitized name map entry exists" cases pin the
+  FALLBACK half, "keeps a MAPPED approval tool name authoritative even when it
+  looks like a sanitized native id" pins the ORDER, and "passes an underscored
+  NON-native approval tool name through unchanged" pins that the fallback never
+  fabricates a dotted name by blind `_`→`.` swap.
+  A policy-driven
   pause (non-empty `askTools`) whose tool resolves under NEITHER form still
   surfaces the pause but omits `riskCategory`/`policyDecision` (never
   fabricated) and logs `logger.error` code
@@ -890,6 +982,42 @@ untouched. Flow:
 - Restart proof extends the same spec: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
   to execution by a THIRD fresh runtime.
+- **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
+  TARGETED snapshot read in `PgliteWorkflowsStore`
+  (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
+  THROWS on a snapshot that is not an object or lacks `context`: the malformed
+  row is the answer the caller asked for, so skipping it would be a lie.
+  `listWorkflowRuns` — which backs `agent.listSuspendedRuns` and therefore this
+  rediscovery flow — is the ONE deliberate exception: it still returns the
+  intact rows, because throwing for the page would let a single corrupt row
+  make EVERY pending approval undiscoverable (a total outage traded for a
+  partial one). The corruption is not swallowed: each excluded row is logged at
+  ERROR severity with code `mastra_workflow_snapshot_malformed`, which the
+  DIAGNOSTIC EVENTS contract eagerly flushes into
+  `brainstrike_diagnostic_events` and surfaces in the debug bundle. Do not
+  downgrade it to a warn/debug log, and do not make listing throw.
+- **The ERROR record is emitted ONCE PER RUN PER PROCESS** (settled — do not
+  relitigate), guarded by `PgliteWorkflowsStore#reportedMalformedRuns`. A
+  corrupt row is PERMANENT in production (`deleteWorkflowRunById` has no
+  production caller) while the listing runs on every renderer reload AND on
+  every `readResumedApprovalToolCall` during tool approval — so an unguarded
+  ERROR would write another eagerly flushed `brainstrike_diagnostic_events` row
+  per approval, forever, for one unfixable condition, bounded only by retention
+  purge. Repeats carry no information: `computeDiagnosticFingerprint(code,
+  scope, message)` is identical every time. This is NOT a silent fallback — the
+  condition is reported at ERROR once, and suppressed repeats still emit a
+  `debug` record. Do not remove the guard, and do not re-report per call.
+- **`total` and `runs.length` may legitimately disagree** (settled — do not
+  relitigate). `total` comes from a separate `SELECT COUNT(*)` and is
+  AUTHORITATIVE for what matches the filter IN STORAGE — that is what keeps page
+  boundaries stable, so it must not shrink as corrupt rows are excluded page by
+  page. `runs` is what is SERVABLE; the invariant is `runs.length <= total`, and
+  the shortfall is exactly the excluded corrupt rows (genuinely unfetchable —
+  `getWorkflowRunById` throws for them by design). Excluding corrupt rows from
+  the COUNT would need a SQL predicate mirroring `parseWorkflowSnapshot`'s JS
+  predicate, and any drift between the two would silently miscount. No in-repo
+  consumer reads `total`: `agent.listSuspendedRuns` destructures `{ runs }`
+  only. The corruption signal is the ERROR diagnostic, not the arithmetic.
 
 When changing this flow, update this section and the related tests.
 

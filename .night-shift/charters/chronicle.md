@@ -3,7 +3,7 @@
 ```
 NAME=Chronicle
 ROLE=shift-report writer & fleet meta-monitor
-SCHEDULE="47 11 * * *"   # daily 11:47 UTC — after the overnight loops
+SCHEDULE="47 11 * * *"   # daily 11:47 scheduler-local — after the overnight loops
                          # (sentinel 04:07, bolt 08:29, watch 10:13,
                          # sweep 10:57) so the report covers a full shift
 MODEL=gpt-5.6-sol
@@ -47,6 +47,9 @@ Beat 2 — fleet health rules (each violation is an anomaly):
 - MISSED WAKE: a loop whose charter cadence implies >=1 wake in the
   window but whose state issue gained no checkpoint. Compute expected
   wakes from the roster's cron, allowing 90 minutes of scheduler slack.
+  Crons are SCHEDULER-LOCAL, not UTC (README "Timezones") — always pass
+  the README's declared `--schedule-timezone` to the collector; a UTC
+  reading shifts every wake by the DST offset and fabricates anomalies.
 - NO FOOTPRINT: a rostered loop with no state issue at all.
 - STALE BLOCKED: a BLOCKED checkpoint whose stated blocker is provably
   resolved (e.g. the blocking ticket closed) with no later checkpoint.

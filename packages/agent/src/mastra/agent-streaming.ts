@@ -25,6 +25,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
+import type { ChunkType } from '@mastra/core/stream';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
@@ -37,6 +38,7 @@ import type {
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
+import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import {
@@ -94,6 +96,111 @@ import {
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
+
+type DynamicMastraChunkType =
+  | `agent-execution-event-${string}`
+  | `data-${string}`
+  | `workflow-execution-event-${string}`;
+type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
+type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
+type MastraStaticChunkDisposition = 'ignored' | 'mapped';
+
+/**
+ * A complete disposition inventory for Mastra's exported static chunk union.
+ * `satisfies` makes a newly-added literal chunk type a type-check failure at
+ * upgrade time. `ignored` is a deliberate no-output decision; `mapped` means
+ * the switch below must consume the type. Dynamic chunk families remain
+ * observable at runtime because an unhandled member has no disposition.
+ */
+const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
+  abort: 'ignored',
+  'agent-execution-abort': 'ignored',
+  'agent-execution-approval': 'ignored',
+  'agent-execution-end': 'ignored',
+  'agent-execution-start': 'ignored',
+  'agent-execution-suspended': 'ignored',
+  'background-task-cancelled': 'ignored',
+  'background-task-completed': 'ignored',
+  'background-task-failed': 'ignored',
+  'background-task-output': 'ignored',
+  'background-task-progress': 'ignored',
+  'background-task-resumed': 'ignored',
+  'background-task-running': 'ignored',
+  'background-task-started': 'ignored',
+  'background-task-suspended': 'ignored',
+  error: 'mapped',
+  file: 'ignored',
+  finish: 'mapped',
+  goal: 'ignored',
+  'is-task-complete': 'ignored',
+  'network-execution-event-finish': 'ignored',
+  'network-execution-event-step-finish': 'ignored',
+  'network-object': 'ignored',
+  'network-object-result': 'ignored',
+  'network-validation-end': 'ignored',
+  'network-validation-start': 'ignored',
+  object: 'ignored',
+  'object-result': 'ignored',
+  raw: 'ignored',
+  'reasoning-delta': 'mapped',
+  'reasoning-end': 'ignored',
+  'reasoning-signature': 'ignored',
+  'reasoning-start': 'ignored',
+  'redacted-reasoning': 'ignored',
+  'response-metadata': 'ignored',
+  'routing-agent-abort': 'ignored',
+  'routing-agent-end': 'ignored',
+  'routing-agent-start': 'ignored',
+  'routing-agent-text-delta': 'ignored',
+  'routing-agent-text-start': 'ignored',
+  source: 'ignored',
+  start: 'mapped',
+  'step-finish': 'mapped',
+  'step-output': 'ignored',
+  'step-start': 'mapped',
+  'text-delta': 'mapped',
+  'text-end': 'ignored',
+  'text-start': 'ignored',
+  'tool-call': 'mapped',
+  'tool-call-approval': 'mapped',
+  'tool-call-delta': 'mapped',
+  'tool-call-input-streaming-end': 'mapped',
+  'tool-call-input-streaming-start': 'mapped',
+  'tool-call-suspended': 'mapped',
+  'tool-error': 'mapped',
+  'tool-execution-abort': 'ignored',
+  'tool-execution-approval': 'ignored',
+  'tool-execution-end': 'ignored',
+  'tool-execution-start': 'ignored',
+  'tool-execution-suspended': 'ignored',
+  'tool-output': 'mapped',
+  'tool-result': 'mapped',
+  tripwire: 'mapped',
+  watch: 'ignored',
+  'workflow-canceled': 'ignored',
+  'workflow-execution-abort': 'ignored',
+  'workflow-execution-end': 'ignored',
+  'workflow-execution-start': 'ignored',
+  'workflow-execution-suspended': 'ignored',
+  'workflow-finish': 'ignored',
+  'workflow-paused': 'ignored',
+  'workflow-start': 'ignored',
+  'workflow-step-finish': 'ignored',
+  'workflow-step-output': 'ignored',
+  'workflow-step-progress': 'ignored',
+  'workflow-step-result': 'ignored',
+  'workflow-step-start': 'ignored',
+  'workflow-step-suspended': 'ignored',
+  'workflow-step-waiting': 'ignored',
+} satisfies MastraChunkTypeMustStayLiteral &
+  Record<StaticMastraChunkType, MastraStaticChunkDisposition>;
+
+function readStaticMastraChunkDisposition(type: string): MastraStaticChunkDisposition | undefined {
+  if (!Object.hasOwn(MASTRA_STATIC_CHUNK_DISPOSITIONS, type)) {
+    return;
+  }
+  return MASTRA_STATIC_CHUNK_DISPOSITIONS[type as keyof typeof MASTRA_STATIC_CHUNK_DISPOSITIONS];
+}
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 interface MastraStreamPart {
@@ -271,6 +378,45 @@ function makeRunEventChunk(
   };
 }
 
+/**
+ * A `run.failed` chunk that also carries a SPECIFIC `detail`.
+ *
+ * The three stream terminations all use the same generic label ("Assistant run
+ * failed"), which is fine for the run-event timeline but useless as durable
+ * failure text: `data-stream-mapper` derives `thread_runs.error` from this
+ * event, so without a detail every provider failure, stall, and tool-input
+ * timeout persists the same signal-free string, and the debug bundle's Failure
+ * summary cannot say WHY a run failed.
+ *
+ * Deliberately a separate helper rather than another optional parameter on
+ * `makeRunEventChunk`: that function's trailing optionals are `metadata` and
+ * `timestamp`, and `detail`/`timestamp` are both `string`, so a positional
+ * mistake between them would type-check cleanly while silently writing a
+ * timestamp into the detail field.
+ */
+function makeRunFailedChunk(
+  label: string,
+  detail: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk {
+  // Built directly rather than by spreading `makeRunEventChunk(...)`: its return
+  // type is the `StreamChunk` union, so `chunk.event` is not accessible without
+  // narrowing and the spread widens the result off the union. The small overlap
+  // with that function's body is the price of staying type-safe here.
+  return {
+    event: {
+      detail,
+      id: `run-event-${generateUUID()}`,
+      kind: 'run.failed',
+      label,
+      status: 'failed',
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    },
+    type: 'run-event',
+  };
+}
+
 function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined {
   const p = asMastraStreamPart(part);
   const metadata: AssistantRunEventMetadata = {};
@@ -344,6 +490,24 @@ interface ToolLifecycleState {
   steppedPromptTokens: number;
   streamStartedAtMs: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+  warnedUnknownChunkTypes: Set<string>;
+}
+
+function warnForUnrecognizedMastraStreamPart(
+  type: string,
+  lifecycleState: ToolLifecycleState
+): void {
+  if (readStaticMastraChunkDisposition(type) === 'ignored') {
+    return;
+  }
+  if (lifecycleState.warnedUnknownChunkTypes.has(type)) {
+    return;
+  }
+  lifecycleState.warnedUnknownChunkTypes.add(type);
+  logger.warn('mastra emitted an unrecognized stream chunk', {
+    chunkType: formatDiagnosticChunkType(type),
+    code: 'mastra_agent_unrecognized_stream_chunk',
+  });
 }
 
 function makeLifecycleStepMetadata(
@@ -542,7 +706,13 @@ function makeUnsupportedApprovalChunks(
     readMastraStreamPartString(part, 'name') ??
     (upstreamToolCallId ? toolNames.get(upstreamToolCallId) : undefined) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // NAME-FORM CONTRACT: the runtime `toolNameMap` is AUTHORITATIVE (it is the only
+  // layer that can bridge MCP names) and the static native reverse map is only the
+  // fallback for a route whose runtime registered no natives. Order matters: a
+  // mapped original may ITSELF be a sanitized native id (`sanitizeTools` records
+  // an identity mapping for a tool registered as `brainstrike_executeCommand`), so
+  // denormalizing a successful hit would rewrite an authoritative name.
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
   const runId = readMastraStreamPartString(part, 'runId');
   const missingRunId = runId === undefined;
   const args = readMastraStreamPartValue(part, 'args');
@@ -685,7 +855,11 @@ function makeApprovalRequiredChunks(
     readMastraStreamPartString(part, 'name') ??
     toolNames.get(toolCallId) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // Same map-wins order as the unsupported branch (and as
+  // `resolveDiscoveredApprovalToolName` / `ProjectionSafeToolCallFilter`): the
+  // emitted `toolName` is the label the approval notice shows and the id
+  // per-tool grant handling submits, so a mapped original is never rewritten.
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
   // The Mastra approval part names the tool by its registered (sanitized) id
@@ -1194,6 +1368,7 @@ function processMastraStreamPart(
       return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
+      warnForUnrecognizedMastraStreamPart(p.type, lifecycleState);
       return { chunks: [], finished: false };
   }
 }
@@ -1385,7 +1560,7 @@ function makeProviderErrorTermination(
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
       { type: 'text-delta', value: `The model request failed: ${visibleDetail}` },
-      makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', runMetadata),
+      makeRunFailedChunk('Assistant run failed', visibleDetail, runMetadata),
       makeErrorFinishChunk(),
     ],
     finished: true,
@@ -1426,7 +1601,7 @@ function makeStreamStalledTermination(
       type: 'text-delta',
       value: visibleMessage,
     },
-    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
+    makeRunFailedChunk('Assistant run failed', visibleMessage, {
       code: error.code,
       ...diagnosticContext,
     }),
@@ -1461,10 +1636,11 @@ function makeToolCallInputTimeoutTermination(
       type: 'text-delta',
       value: `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`,
     },
-    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
-      code: error.code,
-      ...diagnosticContext,
-    }),
+    makeRunFailedChunk(
+      'Assistant run failed',
+      `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms.`,
+      { code: error.code, ...diagnosticContext }
+    ),
     makeErrorFinishChunk(),
   ];
 }
@@ -1897,6 +2073,7 @@ async function* streamChunksFromMastra({
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
     terminalToolCallStates: new Map(),
+    warnedUnknownChunkTypes: new Set(),
   };
 
   try {
@@ -1923,7 +2100,7 @@ async function* streamChunksFromMastra({
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
       rawSource,
-      runtime.resilienceConfig.streamInactivityMs,
+      runtime.resilienceConfig.toolCallInputMs,
       (error) => streamAbortContext.abort(error)
     );
     const source = withInactivityTimeout(

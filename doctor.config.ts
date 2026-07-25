@@ -56,6 +56,35 @@ export default {
     Security: 'off' as const,
   },
   deadCode: true,
+
+  ignore: {
+    // NOTE: `overrides` is the narrow, documented suppression tool (per file +
+    // rule). Do NOT add a sibling `ignore.files` key here — see the header: its
+    // mere presence flips lint file discovery and silently drops ~half the
+    // monorepo. Control-verified when this block was added: every package's
+    // finding count was unchanged except @brainstrike/db, which dropped by
+    // exactly the one suppressed finding.
+    overrides: [
+      {
+        // `clearViaPGlite` / `purgeTablesTx` issue 15 statements on ONE PGlite
+        // connection inside ONE transaction. `Promise.all` would race statements
+        // on a single connection, and once any statement fails the transaction
+        // is aborted, so the "parallel" remainder would only pile up `25P02
+        // current transaction is aborted` errors. Sequential is required for
+        // correctness, not an oversight — the rationale is also inline at the
+        // call site. See the FACTORY RESET CONTRACT in
+        // docs/agents/platform-contracts.md.
+        // Package-RELATIVE, not repo-relative: globs are matched against the
+        // scanned directory, which is each workspace package. A repo-relative
+        // 'packages/db/src/db-provider.tsx' silently matches nothing (verified —
+        // every finding count stayed identical). db-provider.tsx is unique in
+        // the repo, so this cannot over-match another package.
+        files: ['src/db-provider.tsx'],
+        rules: ['react-doctor/async-parallel'],
+      },
+    ],
+  },
+
   lint: true,
 
   // No data leaves the machine.

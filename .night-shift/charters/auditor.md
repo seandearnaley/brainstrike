@@ -3,7 +3,7 @@
 ```
 NAME=Auditor
 ROLE=outcome scoreboard & authority-promotion proposer
-SCHEDULE="43 9 * * 1"   # weekly, Monday 09:43 UTC — after the Monday chain
+SCHEDULE="43 9 * * 1"   # weekly, Monday 09:43 scheduler-local — after the Monday chain
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=report-only (scoreboard + proposal tickets; never edits charters)

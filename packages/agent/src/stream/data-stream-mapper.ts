@@ -8,6 +8,7 @@ import {
   type AssistantToolSuspendRequest,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import { createLogger } from '@brainstrike/utils';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -24,6 +25,7 @@ import type {
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
+import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
@@ -62,9 +64,16 @@ export interface DataStreamTerminalOutcome {
 
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
+/**
+ * Durable failure text for an error finish that carried no more specific
+ * signal. An error finish is always terminal, so the outcome must never fall
+ * through to `completed` merely because no message was attached.
+ */
+const ERROR_FINISH_FALLBACK_TEXT = 'Assistant run failed.';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
+const logger = createLogger('DataStreamMapper');
 
 function formatVisibleFailure(prefix: string, errorText: string): string {
   return `${prefix} ${errorText}`;
@@ -260,9 +269,18 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private pendingRunErrorText: string | null = null;
+  /**
+   * Label of the most recent `run.failed` run event, used as the durable
+   * failure text for an error finish. The termination helpers emit the human
+   * detail as a visible text-delta (already part of the message content), so
+   * the run event's label is the closest thing to a structured reason the
+   * mapper can see without reaching into assistant text.
+   */
+  private runFailedEventText: string | null = null;
   private terminalFailureText: string | null = null;
   private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
+  private readonly warnedUnknownChunkTypes = new Set<string>();
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
    * part is open CLOSE it downstream (assistant-stream's appendData ends the
@@ -315,8 +333,19 @@ export class DataStreamMapper {
       case 'message-finish':
         yield* this.handleFinish(chunk);
         return;
-      default:
+      default: {
+        const rawChunkType = (chunk as { type?: unknown }).type;
+        const warningKey = typeof rawChunkType === 'string' ? rawChunkType : '<non-string>';
+        if (this.warnedUnknownChunkTypes.has(warningKey)) {
+          return;
+        }
+        this.warnedUnknownChunkTypes.add(warningKey);
+        logger.warn('data stream mapper received an unrecognized chunk', {
+          chunkType: formatDiagnosticChunkType(rawChunkType),
+          code: 'data_stream_mapper_unrecognized_chunk',
+        });
         return;
+      }
     }
   }
 
@@ -413,6 +442,16 @@ export class DataStreamMapper {
   }
 
   private *handleRunEvent(chunk: StreamChunkRunEvent): Generator<EncodedChunk> {
+    if (chunk.event.kind === 'run.failed') {
+      // Prefer `detail` over `label`: all three stream terminations use the same
+      // generic label ("Assistant run failed"), so the label alone would persist
+      // a signal-free string into `thread_runs.error` — correct status, useless
+      // forensics. `detail` carries the specific reason (clamped provider text,
+      // the stall's inactivity window, the tool-input timeout). Falls back to
+      // the label for run.failed events that carry no detail, such as the
+      // unsupported approval/suspend pause.
+      this.runFailedEventText = chunk.event.detail ?? chunk.event.label;
+    }
     const encoded = {
       code: DataStreamCode.auiDataPart,
       value: {
@@ -796,6 +835,33 @@ export class DataStreamMapper {
       this.terminalFailureText = abnormalFinishMessage;
       this.markCurrentStepAsError();
       yield { code: DataStreamCode.error, value: abnormalFinishMessage } satisfies EncodedChunk;
+    } else if (finishReason === 'error' && !this.terminalFailureText) {
+      // An error finish is terminal by definition, but `getAbnormalFinishMessage`
+      // deliberately returns undefined for 'error' — the termination helpers have
+      // ALREADY emitted the human-readable detail as a visible text-delta, so
+      // returning a message here would double-report it to the user.
+      //
+      // The durable outcome still has to say `failed`. Without this branch a
+      // provider failure emitted `run.failed` + an error finish yet persisted
+      // `thread_runs.status = 'completed', error = NULL` — so the run ledger
+      // contradicted its own run events, and the debug bundle's Failure summary
+      // (which reads `thread_runs`) reported success for precisely the runs it
+      // exists to diagnose. `docs/agents/assistant-runtime.md` already requires
+      // a terminal failure to produce "run.failed, an error finish, and a failed
+      // durable run outcome"; this is the missing third part.
+      //
+      // Deliberately NOT setting `pendingRunErrorText`: that drives the visible
+      // fallback text, which would duplicate the helper's text-delta.
+      //
+      // KNOWN REMAINING GAP: `finishReason: 'unknown'` still has the same
+      // split — `makeTerminalRunEvent` emits `run.failed` for it while this
+      // branch leaves the outcome `completed`. It is deliberately NOT handled
+      // here: `resolveFinishReason` also returns 'unknown' when a provider
+      // simply omits `finishReason` on an otherwise-normal final chunk, so
+      // sweeping it in would mark healthy runs failed. The two sides genuinely
+      // disagree about what 'unknown' means and that needs reconciling in one
+      // place, not a reflex here. Tracked separately.
+      this.terminalFailureText = this.runFailedEventText ?? ERROR_FINISH_FALLBACK_TEXT;
     }
     const stepBeforeFinalize = this.currentStep;
     if (this.currentStep) {

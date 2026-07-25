@@ -87,7 +87,11 @@ test('merges pnpm and Dependabot advisories by GHSA and package', (t) => {
   const output = JSON.parse(result.stdout);
   assert.deepEqual(output.counts, { dependabot: 1, merged: 1, pnpmAudit: 1 });
   assert.deepEqual(output.advisories[0].sources, ['dependabot', 'pnpm-audit']);
-  assert.equal(output.advisories[0].fingerprint, 'vigil:advisory:GHSA-aaaa-bbbb-cccc:fixture-pkg');
+  assert.equal(output.advisories[0].fingerprint, 'vigil:advisory:fixture-pkg');
+  assert.equal(
+    output.advisories[0].legacyFingerprint,
+    'vigil:advisory:GHSA-aaaa-bbbb-cccc:fixture-pkg'
+  );
   assert.match(output.auditedCommit, /^[0-9a-f]{40}$/u);
 });
 

@@ -5,7 +5,12 @@ import {
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
-import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import {
+  createSystemDiagnosticsSettingsCategory,
+  useDiagnosticSinkHealthStore,
+  useDiagnosticsPurge,
+  useDurableLogSource,
+} from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -104,6 +109,10 @@ export default function SettingsPageContent() {
     };
   }, []);
 
+  const durableLogSource = useDurableLogSource();
+  const onPurgeNow = useDiagnosticsPurge();
+  const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
+
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
     // mid-lifecycle should reload or navigate to remount this settings view.
@@ -194,7 +203,20 @@ export default function SettingsPageContent() {
         title: 'Models & Providers',
       },
       {
-        content: <LoggingSettingsSection logSource={logSource} runtime="browser" />,
+        content: (
+          <LoggingSettingsSection
+            logSource={logSource}
+            runtime="browser"
+            sinkHealthReason={sinkHealthReason}
+            {...(durableLogSource === undefined
+              ? {}
+              : {
+                  durableLogSource,
+                  onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+                })}
+            {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
+          />
+        ),
         description: 'Control browser log verbosity and redaction for debugging.',
         icon: FileCog,
         id: 'logging',
@@ -223,6 +245,9 @@ export default function SettingsPageContent() {
     ];
   }, [
     logSource,
+    durableLogSource,
+    onPurgeNow,
+    sinkHealthReason,
     storedFolders.length,
     clearStoredHandles,
     devInlineFixtureEnabled,

@@ -39,6 +39,7 @@ export interface LogSourceAdapter {
 }
 
 interface LogViewerProps {
+  emptyStateText?: string;
   logSource: LogSourceAdapter | undefined;
   toast: ReturnType<typeof useToast>['toast'];
 }
@@ -349,7 +350,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
   }
 }
 
-export function LogViewer({ logSource, toast }: LogViewerProps) {
+export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
   const {
@@ -644,6 +645,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           rows={rows}
           table={table}
           wrapLines={wrapLines}
+          {...(emptyStateText === undefined ? {} : { emptyStateText })}
         />
         <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
       </CardContent>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auditor Automation"
+  short_description: "Run the Brainstrike Auditor outcome scoreboard"
+  default_prompt: "Use $auditor-automation to run the Brainstrike Auditor outcome-scoreboard charter."

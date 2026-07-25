@@ -82,7 +82,148 @@ the assistant-ui carousel/branch topology companion store (migration 055), and
 Mastra FK, so both direct-PGlite reset and desktop `db:clearAll` must delete it
 explicitly; only a pre-068 missing relation is tolerated.
 
-Add tests when changing reset behavior.
+Mastra's own `mastra_workflow_snapshot` is the one Mastra-owned table that must
+also be cleared explicitly (BST-558). It has an UNBOUNDED lifetime — its only
+deletes are `deleteWorkflowRunById` (no production caller) and
+`dangerouslyClearAll` (tests) — and a suspended run retains its pending tool
+call and arguments, so it must not survive a "true fresh start". It is cleared
+in BOTH reset paths: desktop `db-ipc.ts` (`clearOptionalRelation(tx,
+MASTRA_WORKFLOW_TABLE)`) and `db-provider.tsx`'s `clearRelationIfPresent(tx,
+MASTRA_WORKFLOW_TABLE)` (used by direct-PGlite clear AND
+`purgeTablesTx`). The relation is created lazily by
+`PgliteWorkflowsStore.initialize()`, so only a MISSING relation (assistant
+never ran) is tolerated; every other delete failure stays visible. The
+remaining `mastra_*` tables (`mastra_threads`, `mastra_messages`,
+`mastra_vectors`, `mastra_observational_memory`, …) are still NOT in either
+list — a known gap, not a ruling.
+
+**A relation that can legitimately be ABSENT must be PROBED, not
+deleted-and-caught.** Both reset paths run their whole body inside ONE
+transaction, and PGlite is real Postgres: a statement error puts the transaction
+into the ABORTED state, after which every command fails with `25P02 current
+transaction is aborted, commands ignored until end of transaction block` until
+ROLLBACK. Catching the original `42P01` does NOT undo that, and there are no
+savepoints anywhere in this repo — so a tolerated missing-relation error rolls
+the ENTIRE reset back and the user's Clear Database silently does nothing. Use
+`SELECT to_regclass('<table>') IS NOT NULL AS present`, which returns NULL
+instead of raising, and skip the `DELETE` when absent (BST-558 review).
+
+There is now exactly ONE clear helper per side and both probe: desktop
+`clearOptionalRelation` (`apps/desktop/src/ipc-domains/db-ipc.ts`) and renderer
+`clearRelationIfPresent` (`packages/db/src/db-provider.tsx`, used by BOTH
+`clearViaPGlite` and `purgeTablesTx`). Every call site is therefore safe by
+construction rather than by the coincidence that its table happens to be created
+by an already-run numbered migration. Do not reintroduce a delete-and-tolerate
+variant alongside them.
+
+A probed relation's `DELETE` is deliberately NOT wrapped in a catch: nothing in
+this repo ever DROPs these relations, so the probe/delete race is unreachable,
+and a tolerated `42P01` there could not recover anyway — it would leave the
+transaction aborted and resurface as a misleading `25P02`.
+
+Probing trades one hazard for another, and the TYPE SYSTEM is what closes the
+new one. With delete-and-catch a misspelled table raises a loud `42P01`; with
+`to_regclass` it returns NULL, indistinguishable from absence, so it becomes a
+PERMANENT SILENT SKIP with every test still green. Both helpers therefore take a
+closed literal union (`OptionalRelationTable` / `ClearableRelation`), never a
+`string` parameter. Keep it that way.
+
+**The probed table name must come from `MASTRA_WORKFLOW_TABLE`
+(`@brainstrike/assistant-contract/mastra-memory-schema`), never a hand-copied
+literal.** `to_regclass` on a stale name returns NULL, which makes the probe a
+PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by
+control: renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path
+held an unpinned literal left a suspended-run row alive through a full clear
+(`expected 1 to be +0`). Both production sites (desktop `db-ipc.ts` and renderer
+`db-provider.tsx`) now import the constant.
+
+The renderer used to hold a pinned local literal instead, because that import
+reordered bundle chunk init and killed the app at startup. That is FIXED at the
+root, not worked around — see the next rule — and the stopgap guard that pinned
+the literal is deleted. Do not reintroduce a hand-copied literal here.
+
+**Import those constants freely, but read them only inside a function — never at
+module scope (BST-558).** Module-scope initializers run at bundle CHUNK
+INITIALIZATION, and the renderer's chunk graph does not guarantee the contract
+chunk has evaluated by then. `packages/app-shell/src/assistant-memory-repository.ts`
+used to build its bootstrap DDL in a module-scope template literal interpolating
+`MASTRA_MEMORY_TABLES.threads`; adding ONE unrelated static import of
+`@brainstrike/assistant-contract/mastra-memory-schema` to `db-provider.tsx`
+reordered chunk init and the renderer died at startup with `Cannot read
+properties of undefined (reading 'threads')` — measured on PR #1978, commit
+`df953a2a8` green and `3e8d1b7fd` red. The failure is not always loud: a
+property access throws, but a bare interpolation such as `${MASTRA_VECTOR_TABLE}`
+splices the literal string `undefined` into the DDL, and in `db-provider.tsx` an
+undefined table name would make `to_regclass('undefined')` return NULL — the
+permanent silent skip described above. Build SQL inside the function that
+executes it (`buildAssistantThreadRunsSchemaSql`,
+`buildMastraVectorSchemaSql`).
+
+Nothing else catches this class: `tsc` types ESM live bindings identically
+either way, the schema module imports nothing so there is no source cycle to
+detect, and Vitest evaluates real modules in dependency order so unit tests
+always see a defined binding. Only a production build has a chunk graph, so only
+E2E observes it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
+(lint lane, paired test `scripts/__tests__/verify-mastra-schema-init-order.test.mjs`)
+enforces it statically instead. It scrapes the guarded names from the schema
+module rather than hand-listing them, matches on the imported name so re-export
+hops like `packages/agent/src/pglite-mastra-memory/sql.ts` are covered, and stops
+at every function boundary so the prescribed fix is not itself flagged. It
+supersedes a stopgap (`mastra-workflow-table-literal-contract.test.mjs`, deleted)
+that pinned one hand-copied literal in one file and could not see `export … from`,
+`await import()`, or the same import added from any other module.
+
+Known remaining instance of the same class, deliberately NOT changed here
+(**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
+interpolates the imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope
+`up` string. It is out of the guard's scope (a different constant family),
+intra-package, and fails LOUDLY (the DO block raises) rather than silently.
+Fixing it means moving `up` to the `MigrationCallback` form the `Migration` type
+already allows, which touches a dual-registered, fail-closed migration guarding
+against real BM25 data corruption — that needs explicit sign-off, not a
+drive-by.
+
+The guard is deliberately scoped to ONE constant family. The class itself has
+recurred twice in unrelated families — the context-action helpers (PR #1292,
+held today only by a `codeSplitting.groups` entry in `apps/web/vite.config.mts`)
+and these schema constants — so a family-scoped guard is a floor, not a ceiling.
+Generalizing it is **BST-861**; note that a naive "flag every module-scope read
+of an imported binding" rule returns 431 hits in `app-shell` + `db` alone and is
+useless. The chunk, not the file or the package, is the unit of risk.
+
+**No catch anywhere in a purge tolerates a missing relation — the probe does.**
+A bare `catch (err) { logger.warn(...) }` could never be a tolerance inside a
+transaction: the first genuine error aborts it, every later statement fails
+`25P02`, each of THOSE is swallowed too, the purge returns normally, and `COMMIT`
+on an aborted transaction degrades to `ROLLBACK` WITHOUT raising — factory reset
+reports SUCCESS having cleared nothing. This was measured, not reasoned: against
+real PGlite, an FK violation on `job_queue` with the old bare-catch tail made
+`useFactoryReset()` resolve while every table still held its rows, and an FK
+violation on `roots` in `clearViaPGlite` produced three consecutive
+"(table may not exist)" warnings before surfacing as a misleading `25P02`.
+
+Narrowing such a catch was only ever a half-measure — it makes the first real
+failure visible as itself, but still cannot let the clear CONTINUE past an
+absent relation, because the tolerated `42P01` has already aborted the
+transaction. Probing is the only form that actually tolerates absence, so the
+narrowed-catch helpers (`clearMigratedRelation`, `isMissingNamedRelationError`,
+`isMissingOptionalRelationError`, and the per-table `*IfPresent` variants) are
+GONE, collapsed into the two probe helpers above. Do not reintroduce a
+message-parsing matcher: asking the catalog is both simpler and correct.
+
+Historical debt now CLOSED (BST-558 follow-up), recorded so it is not
+re-litigated: the ~14 desktop `clearOptionalRelation` call sites and the
+selection-snapshot block in `db-ipc.ts` both delete-and-tolerated. On the desktop
+side the defect was latent rather than live — every one of those tables is
+created by a numbered migration that has already run by the time a clear starts —
+but it was a loaded gun, and the selection-snapshot block additionally only
+*logged* non-missing-relation errors without rethrowing. Both are converted.
+
+Add tests when changing reset behavior — and note that a mocked `tx.query`
+CANNOT reproduce aborted-transaction semantics. Reset changes that depend on
+them need a real-PGlite `*.integration.test.*`
+(`packages/db/__tests__/clear-data.integration.test.tsx`,
+`apps/desktop/src/__tests__/main/ipc-handlers-db-clear-all.integration.test.ts`).
 
 ### Persistent command-session lifecycle
 
@@ -179,6 +320,19 @@ and its nested `sessionData` path before any store or window is created. A
 missing path fails startup; it must never fall through to the production
 profile. This path isolation does not enable E2E runtime semantics: live
 provider, storage, and single-instance behavior remain production-equivalent.
+
+Each profile carries an `agent-devtools-owner.json` marker naming the owning
+launcher pid **and its detached process group**, so a later run can distinguish
+a profile abandoned by an abrupt kill from one still being written to. Because
+`pnpm dev` is spawned detached, a dead launcher pid alone does not mean the
+profile is idle — the tree survives SIGKILL of its launcher. The sweep never
+deletes a profile it cannot prove is dead, and never fails a launch. Full
+contract in `docs/agents/ci-quality.md`.
+
+Desktop E2E is a separate mechanism and not part of this contract: the
+Playwright fixture derives its own `brainstrike-test-user-data-*` path and owns
+its teardown. It must never adopt the `brainstrike-agent-devtools-` prefix,
+which would expose its profiles to the launcher's sweep.
 
 ---
 
@@ -316,9 +470,13 @@ once P2 surfaces sink health.
 (`packages/db/src/repositories/diagnostic-events-repository.ts`) is a bounded,
 oldest-first `DELETE ... WHERE id IN (SELECT ... ORDER BY occurred_at ASC
 LIMIT n)` past 30 days (`DIAGNOSTIC_RETENTION_MAX_AGE_MS`) OR past 20,000 rows
-(`DIAGNOSTIC_RETENTION_MAX_ROWS`), capped at 500 rows per purge call. It is
-invoked once on `DiagnosticSinkBridge` mount — never an unbounded `DELETE`,
-never a trigger.
+(`DIAGNOSTIC_RETENTION_MAX_ROWS`), capped at `DIAGNOSTIC_EVENTS_PURGE_LIMIT`
+(500) rows per delete. It is invoked once on `DiagnosticSinkBridge` mount —
+never an unbounded `DELETE`, never a trigger. Those two constants are only
+the DEFAULTS: since P2b the mount-time purge reads the user's configured
+values from `diagnostics-retention-store` (below), and the 500-row cap
+applies INDEPENDENTLY to each of the two deletes (aged rows, over-cap rows),
+so one `purge()` call can return up to 1000 and may still leave a backlog.
 
 **Factory reset**: new persistence under this table must stay wired in BOTH
 paths — desktop `db-ipc.ts` `OptionalRelationTable` list
@@ -370,3 +528,282 @@ push channel), `packages/ui/src/__tests__/error-boundary.test.tsx`,
 snapshot), `packages/app-shell/src/__tests__/secret-scrub.test.ts`,
 `packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
 `packages/app-shell/src/__tests__/use-debug-bundle.test.ts`.
+
+### P2a: NDJSON backstop + persistent Log Viewer source
+
+Design doc: `docs/error-observability-design-2026-07-23.md` §7 (desktop file)
+and §9 (UI surfaces). Wire format shared by both:
+`serializeDiagnosticEventLine`/`parseDiagnosticEventLine`/
+`serializeDiagnosticEventsNdjson`
+(`packages/utils/src/diagnostics/diagnostic-event-ndjson.ts`) write/read a
+`DiagnosticEvent` as one JSON line in a FIXED key order (`NDJSON_KEY_ORDER`,
+declared explicitly rather than derived from object literal order) so a
+`biome`/`ultracite` key-sort pass elsewhere in the codebase can never silently
+reorder the wire format. `parseDiagnosticEventLine` returns `null` — never a
+partial/coerced event — for a blank, malformed, or short-of-required-fields
+line; this is deliberate, since a process crash can truncate the last line
+written to the desktop file mid-write, and a tail-reader must skip that
+partial line without the whole read throwing.
+
+**Desktop NDJSON backstop** (`RotatingNdjsonSink`,
+`apps/desktop/src/diagnostics/rotating-ndjson-sink.ts`, wrapped by
+`createErrorLogSink`, `apps/desktop/src/diagnostics/error-log-sink.ts`):
+writes `${app.getPath('logs')}/brainstrike-errors.ndjson`, warn+ only,
+size-rotated at 10 MB × 5 files (the live file plus 4 rotated siblings,
+`.1`…`.4`; the highest slot is dropped and every other slot promoted one
+place on each rotation — drop-oldest, never unbounded growth). Skipped
+entirely under `BRAINSTRIKE_DISABLE_FILE_LOGS=1` (every desktop
+`test:e2e*` script sets this; the sink must not start writing files during
+Playwright lanes). `writeLine` never throws — an open/write/rotate failure
+(including a short `fs.writeSync` — a truncated line on disk is exactly the
+kind of silent corruption "no silent fallbacks" forbids) permanently
+self-disables the sink and reports the failure exactly once through an
+injected `onFailure` callback; every write after that is a silent no-op by
+design (the caller, a log listener, must never see the sink throw).
+Constructor guards (`maxFiles < 2`, `maxBytes < 1`) throw synchronously —
+malformed config fails setup immediately rather than surfacing later as a
+confusing runtime write failure.
+
+**Load-bearing ruling — do not relitigate**: the sink hangs off the two
+`logging-ipc.ts` choke points (the main-process `addLogListener` tap and the
+`logging:ingest-buffered-record` IPC handler, both already filtered to
+warn+ by `DURABLE_PUSH_LEVELS`), NOT a pino `customTransports` target. Pino
+transports run in a worker thread and only ever see main-process pino
+output; they would MISS every renderer/hidden-host record forwarded over IPC,
+which is most of what this backstop exists to catch. This is also why there
+is no new rotating-log dependency (`pino-roll` etc.) — the rotation logic is
+hand-rolled in `RotatingNdjsonSink` instead.
+
+**Recursion rule**: nothing in the sink path
+(`rotating-ndjson-sink.ts`, `error-log-sink.ts`) may import or call
+`@brainstrike/utils/logger` — the sink is fed BY a log listener, so logging
+from inside it would re-enter that listener and recurse without bound. The
+one deliberate exception is a raw `console.error` (`reportSinkFailure` in
+`error-log-sink.ts`), reused by both the sink's `onFailure` and the
+try/catch around `logRecordToDiagnosticEvent`/`serializeDiagnosticEventLine`
+in `recordLogRecord` (a BigInt anywhere in `record.args`/context throws out
+of `JSON.stringify`; the record is dropped and reported once rather than
+letting that throw escape into whatever code emitted the original log call).
+
+**Shutdown ordering** (`apps/desktop/src/main.ts`,
+`runGracefulShutdown`): the `error-log-sink` step is the LAST shutdown step,
+and it runs after the aggregate `if (failures.length > 0) logger.warn(...)`
+that logs every earlier step's failures — not merely after the `'database'`
+step. Reordering it (e.g. closing the sink alongside `'database'`, or before
+the aggregate warn) breaks the guarantee that the NDJSON file, "the last
+writer standing," captures a shutdown-step failure (a throwing
+`closeDatabase()`, say): closing the sink first makes `recordDurableLog` a
+no-op for that very warn call, and the backstop would contain no trace of
+it.
+
+**Known gaps, recorded honestly**: `main.ts` has Electron side effects at
+import time and no unit-test seam around `runGracefulShutdown`, so the
+shutdown ordering above and the `BRAINSTRIKE_DISABLE_FILE_LOGS` construction
+skip are inspection-verified only, not covered by an automated test. The
+NDJSON file's `sessionId` is a fresh per-launch `randomUUID()`, independent
+of the renderer's `getDiagnosticSessionId()` DB `session_id` — deliberately,
+since the NDJSON backstop and the PGlite-backed DB sink are meant to be
+independent failure domains — but it means a line in the file and a row in
+`brainstrike_diagnostic_events` cannot be joined on `sessionId` alone.
+
+**Shutdown-step failure reporting**: the `error-log-sink` step's result is
+deliberately NOT routed through the aggregate `failures` array/warn — that
+array's one consumer (the `if (failures.length > 0) logger.warn(...)` above)
+has already run by the time this LAST step executes, so pushing into it here
+would never be read by anything. A `close()` failure is instead logged
+directly (`logger.error('Failed to close the durable NDJSON error log', ...)`
+) — otherwise a real close failure (`RotatingNdjsonSink.close()` deliberately
+leaves `fs.closeSync` outside a try/catch; see its comment) would produce
+zero output anywhere, a direct "no silent fallbacks" violation in the one
+module whose entire job is loud failure reporting. The `errorLogSink` handle
+is always nulled from a `finally`, even when `close()` throws, so a partial
+failure can never leave a stale handle that a later `recordDurableLog` call
+treats as still open.
+
+**Reopen-after-close is real in `RotatingNdjsonSink` and now reachable in
+production via the factory-reset path**: `close()`'s doc comment describes
+(and the class actually implements) a `writeLine` call after `close()`
+transparently reopening the file rather than dropping the write. Two desktop
+callers exercise `close()` with two different intents:
+
+- Graceful shutdown (`main.ts`'s `error-log-sink` shutdown step) nulls its
+  `errorLogSink` handle in the SAME step that calls `close()`, so
+  `recordDurableLog` becomes a permanent no-op for the rest of the process's
+  life once that step runs — a forced-shutdown timeout logged later by
+  `scheduleForcedProcessExit` reaches console/`brainstrike.log` but never
+  this NDJSON file. This is a deliberate choice, not a bug: nulling the
+  handle keeps "the sink is torn down" simple and matches every other
+  shutdown step's teardown-then-forget pattern.
+- Factory reset (`main.ts`'s `error-log-sink` reset-runtime disposer, part
+  of the `runtimes` list passed to `createDesktopFactoryResetHandler`) calls
+  `close()` WITHOUT nulling `errorLogSink`. This runs before the purge below
+  (`stopBackgroundRuntimes` completes before `resetDesktopApplicationData`
+  deletes the files), specifically to avoid deleting a still-open file:
+  on POSIX that would unlink the path while the live fd kept writing to the
+  orphaned inode (records silently stop landing on disk until rotation or
+  process exit); on Windows the delete would fail outright while the fd held
+  the file open, yet reset would still report success. Leaving the handle
+  non-null means the very next warn+ record after the purge reopens (really:
+  recreates, since the file is gone) `brainstrike-errors.ndjson` from
+  scratch — this is the first production path that actually exercises the
+  reopen behavior; it was previously reachable only from this class's own
+  tests.
+
+**Factory reset purges the NDJSON mirror, not only the DB rows**: factory
+reset (`desktop-factory-reset.ts`) already wipes
+`brainstrike_diagnostic_events`. Without an explicit purge the NDJSON
+backstop would survive that reset intact: the file lives at
+`${app.getPath('logs')}/brainstrike-errors.ndjson`, and `logs` is in
+`PRESERVED_USER_DATA_ENTRY_NAMES` — the very folder factory reset otherwise
+leaves alone (it can also sit entirely outside `userDataPath`, e.g. on
+macOS). `resetDesktopApplicationData` takes an optional `errorLogFilePaths`
+list; `main.ts` passes
+`listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME))`
+(`error-log-sink.ts`) and the reset function best-effort `rm`s each path
+(live file + rotated siblings) in its own pass, independent of the userData
+entry loop that skips `logs` entirely. A purge failure is logged and
+tracked in the result's `pendingDeletionPaths` — reported, never swallowed —
+but does not fail the overall reset (the database + userData wipe that
+already succeeded matters more than one diagnostics mirror file).
+`brainstrike.log` (the full INFO log) is untouched by this purge and stays
+preserved, same as before. The purge itself always runs AFTER
+`stopBackgroundRuntimes` (see `resetDesktopApplicationData`'s call order),
+which is what guarantees the `error-log-sink` disposer above has already
+closed the fd by the time these `rm` calls execute.
+
+**Deferred from the design doc's §7/§9, recorded honestly**: §7's
+"`brainstrike.log` (full INFO) keeps existing behavior but gains the same
+rotation" was NOT delivered in P2a — only the new `brainstrike-errors.ndjson`
+file rotates; `brainstrike.log` still grows unbounded. §9's Log Viewer bullet
+promised filters for severity/source/code/time range, a row → detail view
+with cause chain, and per-row "Copy as JSON"; P2a delivered the second
+`LogSourceAdapter` ("Persistent errors") and severity filtering (via the
+viewer's existing level filter) but NOT the dedicated source/code filters,
+the time-range filter, a row-detail view, or per-row "Copy as JSON" — the
+cause chain is currently visible only as serialized text inside the
+args/context column, not a dedicated detail view.
+
+**Persistent Log Viewer source** (`createDurableLogSource` +
+`useDurableLogSource`,
+`packages/app-shell/src/diagnostics/durable-log-source.ts` and
+`use-durable-log-source.ts`, wired into the Session/Persistent switch in
+`packages/preferences/src/settings/system/logging-settings-section.tsx`):
+gated on `useOptionalPGliteDatabase()` returning a live db handle — NOT
+`hasDurableAssistantUsageCapability()` (that gate is desktop-only OM
+persistence; diagnostics are written on both web and desktop, so the correct
+gate is capability-by-composition, "is there a db handle," never a platform
+check). Polls every `DURABLE_LOG_SOURCE_POLL_MS` (5000ms; the viewer's
+existing Refresh button already covers on-demand re-fetch, so polling only
+needs to cover the gap between refreshes) for up to
+`DURABLE_LOG_SOURCE_MAX_ROWS` (2000) warn+ rows. Deliberately bypasses
+`DiagnosticEventsRepository.queryEvents` with direct SQL: that repository
+method hard-caps `limit` at 200 and its `severity` filter is equality (not a
+minimum), so it cannot serve a 2000-row warn-and-above view — the row
+mapping (`mapDiagnosticEventRow`) is still reused to avoid duplicating it.
+`subscribe()` guards against overlapping polls with a monotonic
+`latestRequestId` counter: only the result whose request id still matches
+the latest-issued poll is delivered, so a slow tick can never clobber a
+newer one that resolved first. The adapter returned by `createDurableLogSource`
+is a fresh object on every call by contract; `useDurableLogSource` memoizes
+it keyed on the db handle's identity so it stays referentially STABLE across
+re-renders — the Log Viewer's effect keys its subscribe/teardown on adapter
+identity, so an unstable adapter would restart polling on every render (the
+same hazard the desktop `forwardedRecords` prop hit in P1). The NDJSON
+export button (`onExportDurableNdjson` in `logging-settings-section.tsx`)
+and the viewer share the same bounded `loadEventsAscending` query as their
+single source of truth, and `exportNdjson()` deliberately has no try/catch —
+a rejected export must propagate so the caller can surface it visibly,
+rather than a swallowed failure rendering as a successful-but-empty file.
+
+**Paired tests**: `packages/utils/src/__tests__/diagnostic-event-ndjson.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/rotating-ndjson-sink.integration.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
+`apps/desktop/src/__tests__/logging-durable-record.test.ts` (the
+`recordDurableLog handler` describe block covers the two `logging-ipc.ts`
+choke points feeding the sink),
+`packages/app-shell/src/__tests__/durable-log-source.test.ts`,
+`packages/app-shell/src/__tests__/use-durable-log-source.test.tsx`,
+`packages/preferences/src/settings/system/logging-settings-section.test.tsx`.
+
+### P2b: status chip, retention preferences, sink health
+
+**Unseen-error status chip** (`DiagnosticsStatusItem`,
+`packages/app-shell/src/status-items/diagnostics-status-item.tsx`, mounted in
+`app-layout.tsx`'s `rightContent` before `IndexingStatusItem`) backed by
+`useUnseenDiagnosticsCount` (`.../diagnostics/use-unseen-diagnostics-count.ts`):
+a `usePGliteLiveQuery` `COUNT(*)` over rows newer than the watermark. The
+query carries NO severity predicate on purpose — the table's CHECK constraint
+already guarantees every row is warn+, so a redundant filter would just invite
+someone to "fix" it later. The chip renders `null` at count 0 (no chrome when
+nothing is wrong), but BOTH not-knowing states outrank the count, because
+this is the only always-visible diagnostics surface: a live-query error
+renders "Diagnostics unavailable" rather than the honest-looking `0`, and a
+non-null `disabledReason` renders "Diagnostics not recording" — outranking
+even a non-zero count, since that count is frozen and stale once the sink is
+dead. Without the latter, a disabled sink writes no rows, the count sits at 0
+forever, and the status bar silently claims "no errors" precisely when errors
+have stopped being recorded; the settings banner alone cannot cover that,
+because a user has no reason to open settings while the status bar looks
+clean. Clicking marks all seen, opens settings, and routes to
+`#settings/logging`.
+
+The watermark (`diagnostics-seen-store.ts`) is **session-scoped, seeded to
+`Date.now()` at module load, and deliberately NOT persisted**: a persisted
+watermark would replay up to 20,000 retained rows as unread on every launch,
+so the chip means "warn+ events since this launch," not "since you last
+looked." Do not "fix" this by adding `persist`.
+
+**Retention preferences** (`packages/preferences/src/stores/diagnostics-retention-store.ts`,
+persisted): `maxAgeDays` / `maxRows`, chosen from
+`DIAGNOSTICS_RETENTION_DAY_OPTIONS` / `DIAGNOSTICS_RETENTION_ROW_OPTIONS`.
+Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
+behavior is unchanged until a user edits them (a test asserts the equality by
+importing both, rather than hardcoding the numbers twice). Setters **throw**
+on a value outside the option list — malformed config is loud, never coerced.
+`migrate` sanitizes an unknown persisted payload back to defaults, but note
+the standard zustand caveat this repo's other preference stores share: it
+runs ONLY on a version mismatch, so a hand-edited payload written at the
+CURRENT version is shallow-merged unsanitized. The setter guard is the real
+enforcement; `migrate` covers version bumps only.
+
+**Purge path**: the settings card's "Purge now" reaches the repository through
+an `onPurgeNow?: () => Promise<number>` **callback prop**, never a repository
+import — `app-shell` already depends on `preferences`, so that direction is
+circular (same precedent as `onExportDurableNdjson`). Both apps build it from
+`useDiagnosticsPurge()` (`packages/app-shell/src/diagnostics/use-diagnostics-purge.ts`),
+gated on a db handle. Because a single `purge()` is per-call bounded, a
+returned count at or above the per-call limit toasts "more may remain" instead
+of implying a full drain; `logging-settings-section.tsx` mirrors that limit as
+`DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD` (it must not import `@brainstrike/db`
+at runtime) and the section test imports the REAL exported
+`DIAGNOSTIC_EVENTS_PURGE_LIMIT`, so drift fails RED rather than silently
+under-warning.
+
+**Sink health** (`diagnostic-sink-health-store.ts` → `sinkHealthReason` prop →
+amber banner at the top of the logging settings section): the writer's
+`onDisabled` callback is the **ONLY** signal a broken sink can ever emit,
+because the `DIAGNOSTIC_SINK_SCOPE` loop guard keeps the sink's own failures
+out of the table — a disabled sink otherwise renders as an empty Persistent
+view, which reads as "no errors happened" rather than "errors are no longer
+being recorded". It travels through a module-level store rather than React
+context because `DiagnosticSinkBridge` mounts inside `<DbProvider>` but
+OUTSIDE `RootLayoutContent`, so no shared provider spans both. `markDisabled`
+is idempotent — first reason wins, so a later failure racing the disable
+cannot overwrite the root cause shown to the user.
+
+**Factory reset (all three P2b stores)**: the two session stores
+(`resetDiagnosticsSeenStore`, `resetDiagnosticSinkHealthStore`) are registered
+in `packages/app-shell/src/register-factory-reset-session-stores.ts`; the
+persisted `resetDiagnosticsRetentionStoreToDefaults()` is called directly from
+`clearBrowserStorage()` in
+`packages/preferences/src/settings/system/factory-reset-helpers.ts`, alongside
+its sibling persisted stores.
+
+**Paired tests**: `packages/preferences/src/__tests__/diagnostics-retention-store.test.ts`,
+`packages/app-shell/src/__tests__/diagnostics-seen-store.test.ts`,
+`.../diagnostic-sink-health-store.test.ts`,
+`.../diagnostics-status-item.test.tsx`, `.../use-diagnostics-purge.test.tsx`,
+`.../diagnostic-sink-bridge.test.tsx` (the configured-retention startup purge
+and the writer-disables-populates-health-store cases),
+`packages/preferences/src/settings/system/logging-settings-section.test.tsx`
+(retention card + sink-health banner describes).

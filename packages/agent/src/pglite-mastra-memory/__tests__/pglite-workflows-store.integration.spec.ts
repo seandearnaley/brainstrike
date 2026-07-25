@@ -38,6 +38,23 @@ function createSnapshot(overrides: Partial<WorkflowRunState> = {}): WorkflowRunS
   };
 }
 
+/** Writes a snapshot row whose JSON parses but has no `context` key. */
+async function insertMalformedSnapshot(db: PGlite, runId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
+      (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+    [
+      'approval-workflow',
+      runId,
+      null,
+      JSON.stringify({ runId, status: 'running' }),
+      new Date('2026-05-29T11:00:00Z'),
+      new Date('2026-05-29T11:00:01Z'),
+    ]
+  );
+}
+
 describe('PgliteWorkflowsStore', () => {
   let db: PGlite;
   let database: PgliteDatabase;
@@ -282,19 +299,7 @@ describe('PgliteWorkflowsStore', () => {
   });
 
   it('reports stored workflow snapshots with missing context as malformed data', async () => {
-    await db.query(
-      `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
-        (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-      [
-        'approval-workflow',
-        'malformed-run',
-        null,
-        JSON.stringify({ runId: 'malformed-run', status: 'running' }),
-        new Date('2026-05-29T10:00:00Z'),
-        new Date('2026-05-29T10:00:01Z'),
-      ]
-    );
+    await insertMalformedSnapshot(db, 'malformed-run');
 
     await expect(
       store.loadWorkflowSnapshot({
@@ -304,7 +309,25 @@ describe('PgliteWorkflowsStore', () => {
     ).rejects.toThrow('Stored Mastra workflow snapshot for runId malformed-run is missing context');
   });
 
-  it('skips malformed workflow snapshots while listing and logs the skipped row', async () => {
+  // BST-558 (FIX 2): a targeted read is answered BY the malformed row, so
+  // returning null/skipping would be a lie. These lock in the strict path.
+  it('throws when a targeted workflow run read hits a malformed snapshot', async () => {
+    await insertMalformedSnapshot(db, 'malformed-run');
+
+    await expect(
+      store.getWorkflowRunById({ runId: 'malformed-run', workflowName: 'approval-workflow' })
+    ).rejects.toThrow('Stored Mastra workflow snapshot for runId malformed-run is missing context');
+    await expect(store.getWorkflowRunById({ runId: 'malformed-run' })).rejects.toThrow(
+      'Stored Mastra workflow snapshot for runId malformed-run is missing context'
+    );
+  });
+
+  // BST-558 (FIX 2): listing must keep serving the intact rows — one corrupt
+  // row must not make every pending approval undiscoverable — but the
+  // corruption itself must surface loudly through the coded diagnostic path
+  // (error severity, eagerly flushed to brainstrike_diagnostic_events), not
+  // vanish into a batched warn.
+  it('reports malformed workflow snapshots as coded errors while listing intact runs', async () => {
     const records: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       records.push(record);
@@ -317,30 +340,59 @@ describe('PgliteWorkflowsStore', () => {
         snapshot: createSnapshot({ runId: 'valid-run', status: 'running' }),
         workflowName: 'approval-workflow',
       });
-      await db.query(
-        `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
-          (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-        [
-          'approval-workflow',
-          'malformed-run',
-          null,
-          JSON.stringify({ runId: 'malformed-run', status: 'running' }),
-          new Date('2026-05-29T11:00:00Z'),
-          new Date('2026-05-29T11:00:01Z'),
-        ]
-      );
+      await insertMalformedSnapshot(db, 'malformed-run');
 
       const listed = await store.listWorkflowRuns({ workflowName: 'approval-workflow' });
 
       expect(listed.runs.map((run) => run.runId)).toEqual(['valid-run']);
       expect(records).toContainEqual(
         expect.objectContaining({
-          level: LogLevel.WARN,
-          message: 'Skipping malformed Mastra workflow snapshot while listing workflow runs',
+          args: [
+            'Malformed Mastra workflow snapshot excluded from workflow run listing',
+            expect.objectContaining({
+              code: 'mastra_workflow_snapshot_malformed',
+              runId: 'malformed-run',
+              workflowName: 'approval-workflow',
+            }),
+          ],
+          level: LogLevel.ERROR,
+          message: 'Malformed Mastra workflow snapshot excluded from workflow run listing',
           scope: 'PgliteWorkflowsStore',
         })
       );
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // BST-558 review: a corrupt row is PERMANENT in production, while this listing
+  // runs on every renderer reload AND every readResumedApprovalToolCall. An
+  // unguarded ERROR would write another eagerly flushed diagnostic row per tool
+  // approval, forever, for one unfixable condition. Report once per run per
+  // process; suppressed repeats stay visible at debug.
+  it('reports a malformed snapshot at error severity only once per run per process', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      await insertMalformedSnapshot(db, 'malformed-run');
+
+      for (let call = 0; call < 3; call += 1) {
+        const listed = await store.listWorkflowRuns({ workflowName: 'approval-workflow' });
+        // The row stays excluded on EVERY call — the guard suppresses the
+        // repeat REPORT, never the exclusion itself.
+        expect(listed.runs).toHaveLength(0);
+      }
+
+      const errors = records.filter(
+        (record) =>
+          record.level === LogLevel.ERROR &&
+          record.message === 'Malformed Mastra workflow snapshot excluded from workflow run listing'
+      );
+
+      expect(errors).toHaveLength(1);
     } finally {
       unsubscribe();
     }

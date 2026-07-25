@@ -18,6 +18,7 @@ import { execSync } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createTerminalIpcHandlers,
@@ -388,6 +389,52 @@ describe('terminal IPC handlers — structured errors', () => {
       expect(result.error).toMatch(/Failed to start terminal: boom/);
     }
     expect(liveTerminalCountForTest()).toBe(0);
+  });
+
+  // Privacy: docs/agents/platform-contracts.md forbids ever logging/persisting
+  // cwd. This branch's Flight Recorder P2a durable NDJSON backstop mirrors
+  // every warn+ `logger.*` call to a plaintext file on disk, so a raw `cwd`
+  // field here would have made a workspace root's real filesystem path
+  // durable and greppable. Assert the emitted record carries only
+  // non-reversible metadata (segment depth + a hash prefix), never the path.
+  it('never logs the raw cwd on a spawn failure — only depth + fingerprint', async () => {
+    const dir = await makeDir();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: (() => {
+        throw new Error('boom');
+      }) as never,
+    });
+
+    setLogLevel(LogLevel.ERROR);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      captured.push(record);
+    });
+    try {
+      await handlers.create(castOwner(new FakeWebContents(4)), { rootId: 'root-id' });
+
+      const spawnFailureRecord = captured.find(
+        (record) => record.message === 'Failed to spawn pty'
+      );
+      expect(spawnFailureRecord).toBeDefined();
+      const context = spawnFailureRecord?.args.find(
+        (arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null
+      );
+      expect(context).toEqual(
+        expect.objectContaining({
+          cwdDepth: expect.any(Number),
+          cwdSha256Prefix: expect.any(String),
+          error: 'boom',
+          shell: expect.any(String),
+        })
+      );
+      expect(context).not.toHaveProperty('cwd');
+      expect(JSON.stringify(captured)).not.toContain(dir);
+    } finally {
+      removeListener();
+      setLogLevel(LogLevel.WARN);
+    }
   });
 });
 

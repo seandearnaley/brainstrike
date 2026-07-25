@@ -89,7 +89,7 @@ export const dbUnitLaneDefinitions = [
       /^browser-first-run-bootstrap/,
       /^browser-pglite-storage/,
       /^chunking-config\.test\.ts$/,
-      /^clear-data\.test\.tsx$/,
+      /^clear-data(\.integration)?\.test\.tsx$/,
       /^collection-indexing-stats\.test\.ts$/,
       /^database-pressure-controller\.test\.ts$/,
       /^database-work-scheduler\.test\.ts$/,

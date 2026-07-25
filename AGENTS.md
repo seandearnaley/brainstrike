@@ -25,6 +25,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 | Persona subagents / delegation | `docs/agents/assistant-subagents.md` |
 | Message persistence & reload hydration, run notifications, context usage meter | `docs/agents/assistant-persistence.md` |
 | Providers/API keys, MCP transport selection, native tools + multi-registry, tool output budgets | `docs/agents/assistant-providers.md` |
+| Adding any `@mastra/*` package; Mastra Server/Workspace/Browser/RequestContext; stream-mapper ownership; Mastra observability or evals | `docs/agents/mastra-boundary.md` |
 | Embedding workers, local Gemma LLM, hidden hosts — **renderer-only inference is mandatory, never Electron main** | `docs/agents/local-inference.md` |
 | DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap | `docs/agents/database.md` |
 | Prompt workbench, workspace-instructions injection, user-defined /commands, edit-checkpoint undo | `docs/agents/workspace-context.md` |
@@ -40,6 +41,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 - Every PGlite construction site loads the full engine-extension set.
 - Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them.
 - Any new persistent store/state must be wired into factory reset.
+- `@mastra/core` is Node-only (its shared chunk statically imports `fs`/`child_process`/`os`) — it MUST stay externalized in browser bundles, and Mastra stays an embedded library runtime with no HTTP surface of its own.
 
 ## Stack & style
 

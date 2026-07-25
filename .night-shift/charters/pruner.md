@@ -3,7 +3,7 @@
 ```
 NAME=Pruner
 ROLE=dead-code burndown
-SCHEDULE="19 5 * * 2"   # weekly, Tuesday 05:19 UTC
+SCHEDULE="19 5 * * 2"   # weekly, Tuesday 05:19 scheduler-local
 MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (one small PR max per run)

@@ -3,7 +3,7 @@
 ```
 NAME=Ledger
 ROLE=migration-runner parity clerk
-SCHEDULE="51 6 * * 1"   # weekly, Monday 06:51 UTC
+SCHEDULE="51 6 * * 1"   # weekly, Monday 06:51 scheduler-local
 MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (registration lines ONLY)

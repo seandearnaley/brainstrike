@@ -63,6 +63,17 @@ export const OPENAI_FAMILY_DEFAULT_EFFORTS: readonly OpenAiReasoningEffort[] = [
   'xhigh',
 ];
 
+/**
+ * OFFERED efforts, deliberately narrower than the `AnthropicEffort` type.
+ *
+ * `resolveReasoningControlsAvailability` returns this list for EVERY Anthropic
+ * model — unlike the OpenAI family it has no per-model `supportedEfforts`
+ * lookup. The type mirrors the SDK's wire enum (which does include
+ * `xhigh`/`max`), but that is evidence about the protocol, not about what
+ * every catalogued model accepts. Offering an effort the API then rejects is a
+ * broken menu entry, so this stays at the verified set until the registry
+ * carries per-model `reasoning.supportedEfforts` for Anthropic.
+ */
 export const ANTHROPIC_REASONING_EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high'];
 
 const KNOWN_PROVIDER_IDS: ReadonlySet<string> = new Set<string>(

@@ -362,6 +362,54 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('records one diagnostic per unknown dynamic type and continues streaming', async () => {
+    setMockStreamParts([
+      { type: 'data-future-mastra-stream-chunk' },
+      { type: 'data-future-mastra-stream-chunk' },
+      { textDelta: 'still streaming', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual({ type: 'text-delta', value: 'still streaming' });
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+      );
+    } finally {
+      removeLogListener();
+    }
+
+    const diagnosticRecords = logRecords.filter((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') &&
+          (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
+      )
+    );
+    const diagnosticFields = diagnosticRecords[0]?.args.find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') &&
+        (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
+    );
+    expect(diagnosticRecords).toHaveLength(1);
+    expect(diagnosticRecords[0]?.level).toBe(LogLevel.WARN);
+    expect(diagnosticFields).toMatchObject({
+      chunkType: 'data-future-mastra-stream-chunk',
+      code: 'mastra_agent_unrecognized_stream_chunk',
+    });
+  });
+
   it('records bounded token diagnostics with actual provider prompt usage', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },
@@ -1415,8 +1463,10 @@ describe('mastra streaming integration', () => {
   it('terminates an incomplete streamed tool input even while argument deltas continue', async () => {
     const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousToolCallInput = process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '35';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '35';
     streamPartDelayMs = 5;
     setMockStreamParts([
       {
@@ -1454,6 +1504,13 @@ describe('mastra streaming integration', () => {
       expect(chunks).toContainEqual(
         expect.objectContaining({
           event: expect.objectContaining({
+            // `detail` carries the SPECIFIC reason. The label is the same
+            // generic "Assistant run failed" for every termination, and the
+            // mapper derives `thread_runs.error` from this event — so without a
+            // detail here a failed run persists a signal-free string. Pinned
+            // end-to-end because the mapper's own tests build this event by
+            // hand and would stay green if the helper stopped populating it.
+            detail: expect.stringMatching(/arguments within 35ms/i),
             kind: 'run.failed',
             metadata: expect.objectContaining({
               code: 'tool_call_input_streaming_timeout',
@@ -1477,6 +1534,77 @@ describe('mastra streaming integration', () => {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
         process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousToolCallInput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_CALL_INPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = previousToolCallInput;
+      }
+    }
+  });
+
+  it('lets a long streamed tool input finish past the inactivity window (BST-839)', async () => {
+    // A large file write streams argument deltas continuously for far longer
+    // than the inactivity window. Deltas keep the transport demonstrably alive,
+    // so the wider tool-call-input budget must govern — not the inactivity one.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousToolCallInput = process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    // This test asserts a NEGATIVE (no timeout), so slowness can only break it
+    // — the opposite direction from the timeout test above. Scaled for ~10x
+    // per-gap headroom against the inactivity watchdog: 20 deltas x 20ms is
+    // ~400ms of streaming, which still exceeds the 200ms window that the old
+    // coupled behaviour would have applied, so the regression proof holds.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '5000';
+    streamPartDelayMs = 20;
+    setMockStreamParts([
+      {
+        payload: { toolCallId: 'call-long-input' },
+        type: 'tool-call-input-streaming-start',
+      },
+      ...Array.from({ length: 20 }, () => ({
+        payload: { argsTextDelta: 'x', toolCallId: 'call-long-input' },
+        type: 'tool-call-delta',
+      })),
+      {
+        payload: { toolCallId: 'call-long-input' },
+        type: 'tool-call-input-streaming-end',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-long-input', parts: [{ text: 'write a big file', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(JSON.stringify(chunks)).not.toContain('tool_call_input_streaming_timeout');
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+      );
+    } finally {
+      streamPartDelayMs = 0;
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousToolCallInput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_CALL_INPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = previousToolCallInput;
       }
     }
   });
@@ -1802,6 +1930,194 @@ describe('mastra streaming integration', () => {
         usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
+  });
+
+  it('denormalizes a native approval tool name when no sanitized name map entry exists', async () => {
+    // NAME-FORM CONTRACT: the client-facing `toolName` is ALWAYS the original
+    // dotted name. The runtime `toolNameMap` is the primary bridge, but it only
+    // holds tools registered on THIS runtime — no `tools` are passed here, which
+    // mirrors the real no-tools stream route (apps/desktop/src/ipc-agent.ts).
+    // Without the static native reverse map the approval UI would label the
+    // pause with the raw sanitized id (`brainstrike_executeCommand`).
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-denormalize-1',
+          toolName: 'brainstrike_executeCommand',
+        },
+        runId: 'run-approval-denormalize-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
+      {
+        args: { command: 'echo hi' },
+        runId: 'run-approval-denormalize-1',
+        toolCallId: 'approval-denormalize-1',
+        toolName: 'brainstrike.executeCommand',
+        type: 'tool-approval-required',
+      },
+      {
+        finishReason: 'tool-calls',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      },
+    ]);
+  });
+
+  it('denormalizes a native tool name on an UNSUPPORTED approval pause with no sanitized name map entry', async () => {
+    // Same name-form contract on the malformed-pause branch: a pause missing the
+    // tool call id still terminates visibly, and the tool-event name + the
+    // `run.failed` metadata it carries are the ONLY names the user sees, so they
+    // must be dotted too.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolName: 'brainstrike_executeCommand',
+        },
+        runId: 'run-approval-denormalize-unsupported',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(expectLeadingContextBreakdown(chunks)).toEqual([
+      expect.objectContaining({
+        name: 'brainstrike.executeCommand',
+        status: 'error',
+        type: 'tool-event',
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          metadata: expect.objectContaining({ toolName: 'brainstrike.executeCommand' }),
+        }),
+        type: 'run-event',
+      }),
+      {
+        finishReason: 'error',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      },
+    ]);
+  });
+
+  it('keeps a MAPPED approval tool name authoritative even when it looks like a sanitized native id', async () => {
+    // ORDERING half of the two-layer contract: the runtime `toolNameMap` WINS and
+    // the static native reverse map is only a fallback. `sanitizeTools` records
+    // `map.set(uniqueName, name)` unconditionally, so a tool registered under the
+    // literal underscored id gets the IDENTITY mapping
+    // `brainstrike_executeCommand -> brainstrike_executeCommand`. Denormalizing a
+    // successful hit would rewrite that authoritative original to
+    // `brainstrike.executeCommand` and mislabel the notice / submit the wrong id
+    // to per-tool grant handling.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-mapped-native-lookalike',
+          toolName: 'brainstrike_executeCommand',
+        },
+        runId: 'run-approval-mapped-native-lookalike',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          brainstrike_executeCommand: {
+            description: 'Caller-owned tool whose original id is already underscored.',
+            id: 'brainstrike_executeCommand',
+          },
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        toolCallId: 'approval-mapped-native-lookalike',
+        toolName: 'brainstrike_executeCommand',
+        type: 'tool-approval-required',
+      })
+    );
+  });
+
+  it('passes an underscored NON-native approval tool name through unchanged', async () => {
+    // The static reverse map only reverses KNOWN native ids: an underscore in an
+    // unknown/MCP name could be original, so a blind `_`→`.` swap would fabricate
+    // a wrong dotted name (no-silent-fallbacks). No `tools` are registered here,
+    // so this exercises the fallback layer with a name it must NOT touch.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-unknown-underscored',
+          toolName: 'totally_unknown_tool',
+        },
+        runId: 'run-approval-unknown-underscored',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        toolCallId: 'approval-unknown-underscored',
+        toolName: 'totally_unknown_tool',
+        type: 'tool-approval-required',
+      })
+    );
   });
 
   it('resolves ask-tool risk metadata when the approval part carries the ORIGINAL dotted name (dual-form lookup)', async () => {

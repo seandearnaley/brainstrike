@@ -871,10 +871,12 @@ describe('assistant runtime helpers', () => {
         reasoning: { effort: 'low' },
       },
     });
+    // Auto now follows GLM's declared `defaultEffort` instead of being coerced
+    // to `none` because it advertises no low tier (BST-833).
     expect(buildProviderOptions('openrouter', 'z-ai/glm-5.2', {})).toEqual({
       openrouter: {
         provider: { require_parameters: true },
-        reasoning: { enabled: false },
+        reasoning: { effort: 'high' },
       },
     });
     expect(
@@ -1451,5 +1453,130 @@ describe('resolveComposerAttachmentsAvailability', () => {
         selectedModel: undefined,
       })
     ).toEqual({ state: 'enabled' });
+  });
+});
+
+describe('reasoning visibility is consistent across providers', () => {
+  // Reasoning DEPTH and reasoning VISIBILITY are orthogonal. Every provider
+  // used to default to silence for a different reason, so a thinking
+  // disclosure was empty on one provider and populated on another with no
+  // explanation the user could act on.
+
+  it('asks OpenAI for a reasoning summary by default', () => {
+    expect(buildProviderOptions('openai', 'gpt-5.6-terra', { reasoningEffort: 'high' })).toEqual({
+      openai: { reasoningEffort: 'high', reasoningSummary: 'auto' },
+    });
+  });
+
+  it('asks Anthropic to return adaptive thinking by default', () => {
+    expect(
+      buildProviderOptions('anthropic', 'claude-sonnet-5', { anthropicEffort: 'high' })
+    ).toEqual({
+      anthropic: { effort: 'high', thinking: { display: 'summarized', type: 'adaptive' } },
+    });
+  });
+
+  it('asks Google to include thoughts by default', () => {
+    const options = buildProviderOptions('google', 'gemini-3-pro-preview', {
+      googleThinkingLevel: 'high',
+    });
+    expect(options).toEqual({
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: 'high' } },
+    });
+  });
+
+  it('adds nothing to a visible OpenRouter request — reasoning already returns', () => {
+    // `provider.require_parameters` narrows routing to endpoints supporting
+    // every supplied parameter, so the default path must not grow a field.
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', { reasoningEffort: 'high' })
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high' },
+      },
+    });
+  });
+
+  it('suppresses OpenRouter reasoning with the documented exclude on opt-out', () => {
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high', exclude: true },
+      },
+    });
+  });
+
+  it('never excludes reasoning that is already switched off', () => {
+    // Suppressing output for reasoning that will not happen is an incoherent
+    // request, not a harmless one.
+    const options = buildProviderOptions('openrouter', 'z-ai/glm-5.2', {
+      reasoningEffort: 'none',
+    });
+    expect(options).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { enabled: false },
+      },
+    });
+  });
+
+  it('honours an explicit opt-out on every provider', () => {
+    expect(
+      buildProviderOptions('openai', 'gpt-5.6-terra', {
+        reasoningEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({ openai: { reasoningEffort: 'high' } });
+    expect(
+      buildProviderOptions('anthropic', 'claude-sonnet-5', {
+        anthropicEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({
+      anthropic: { effort: 'high', thinking: { display: 'omitted', type: 'adaptive' } },
+    });
+    expect(
+      buildProviderOptions('google', 'gemini-3-pro-preview', {
+        googleThinkingLevel: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({ google: { thinkingConfig: { includeThoughts: false, thinkingLevel: 'high' } } });
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({
+      openrouter: {
+        provider: { require_parameters: true },
+        reasoning: { effort: 'high', exclude: true },
+      },
+    });
+  });
+
+  it('lets a provider-specific setting win over the cross-provider default', () => {
+    expect(
+      buildProviderOptions('openai', 'gpt-5.6-terra', {
+        reasoningEffort: 'high',
+        reasoningSummary: 'detailed',
+      })
+    ).toEqual({ openai: { reasoningEffort: 'high', reasoningSummary: 'detailed' } });
+    expect(
+      buildProviderOptions('anthropic', 'claude-sonnet-5', {
+        anthropicThinkingBudgetTokens: 2048,
+      })
+    ).toEqual({ anthropic: { thinking: { budgetTokens: 2048, type: 'enabled' } } });
+    expect(
+      buildProviderOptions('google', 'gemini-3-pro-preview', {
+        googleIncludeThoughts: false,
+        googleThinkingLevel: 'high',
+      })
+    ).toEqual({ google: { thinkingConfig: { includeThoughts: false, thinkingLevel: 'high' } } });
   });
 });

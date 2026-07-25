@@ -41,15 +41,39 @@ export interface OpenRouterProviderOptions extends RuntimeJsonObject {
   reasoning?: {
     enabled?: boolean;
     effort?: OpenAiReasoningEffort;
+    /**
+     * OpenRouter RETURNS reasoning by default; `exclude: true` is the
+     * documented way to suppress it. Visibility therefore only ever adds a
+     * field on explicit opt-out — never on the default path. That matters
+     * because `provider.require_parameters` narrows routing to endpoints
+     * supporting every supplied parameter, so an unconditional extra field
+     * would shrink the eligible upstream pool for every request.
+     */
+    exclude?: boolean;
     summary?: OpenAiReasoningSummary;
   };
 }
 
-export type AnthropicEffort = 'low' | 'medium' | 'high';
+export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Mirrors the `thinking` discriminated union of the installed
+ * `@ai-sdk/anthropic` (4.0.8).
+ *
+ * `adaptive` is the modern form and the only one carrying `display`, which
+ * governs whether reasoning is RETURNED. `display` defaults to `omitted`
+ * provider-side on current models, so reasoning must be asked for explicitly —
+ * that silence was why Claude runs showed no thinking. `enabled` + an explicit
+ * `budgetTokens` remains supported for older models.
+ */
+export type AnthropicThinkingOptions =
+  | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
+  | { type: 'enabled'; budgetTokens: number }
+  | { type: 'disabled' };
 
 export interface AnthropicProviderOptions extends RuntimeJsonObject {
   effort?: AnthropicEffort;
-  thinking?: { type: 'enabled'; budgetTokens: number };
+  thinking?: AnthropicThinkingOptions;
 }
 
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';

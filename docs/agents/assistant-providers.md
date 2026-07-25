@@ -225,6 +225,48 @@
   cumulative, but its terminal provider metadata repeats only the final step, so
   every observed step must report cost; a missing or malformed reported cost
   fails visibly rather than silently undercounting.
+- Reasoning has two INDEPENDENT dimensions, and they must not be re-conflated
+  (BST-840). DEPTH is a budget concern (`reasoningEffort`, `anthropicEffort`,
+  `googleThinkingLevel`, the OpenRouter auto profile). VISIBILITY is a UX
+  concern — whether the provider returns the reasoning at all — and is owned by
+  the single cross-provider `reasoningVisible` setting, resolved by
+  `packages/assistant-contract/src/reasoning-visibility.ts` (defaults to
+  visible). Each provider projects it onto its own wire field:
+  `openai.reasoningSummary`, `anthropic.thinking.display`,
+  `google.thinkingConfig.includeThoughts`, `openrouter.reasoning.exclude`.
+  Three hard rules: visibility only ever MODIFIES a reasoning request that is
+  already being made (cleared settings must still produce NO provider options);
+  output is never suppressed/summarized for reasoning that is switched off; and
+  the OpenRouter VISIBLE path adds NO field at all, because OpenRouter already
+  returns reasoning and `provider.require_parameters` narrows routing to
+  endpoints supporting every supplied parameter — an unconditional extra field
+  would shrink the eligible upstream pool on every request. Only the OpenRouter
+  opt-out adds `exclude: true`. Do NOT reintroduce a default
+  `openrouter.reasoning.summary`: it is not part of OpenRouter's documented
+  reasoning object (`effort`, `max_tokens`, `exclude`, `enabled`).
+  Provider-specific keys remain valid escape hatches and win when explicitly
+  set — and each one's control must render the RESOLVED value, not the raw key,
+  or it reports stale state (the Google include-thoughts switch and the
+  OpenAI/OpenRouter summary select both do this).
+- The Anthropic Thinking toggle is AUTHORITATIVE for "is Claude thinking".
+  Because a bare `anthropicEffort` now implies the adaptive thinking form,
+  switching the toggle off clears the effort as well as the budget; otherwise
+  the runtime keeps requesting thinking while the switch reads unchecked.
+- Anthropic thinking mirrors the installed `@ai-sdk/anthropic` discriminated
+  union: `adaptive` (carries `display`, whose provider-side default is
+  `omitted`), legacy `enabled` + `budgetTokens`, and `disabled`. An explicit
+  budget pins the legacy form; otherwise a chosen effort emits `adaptive`.
+  The `AnthropicEffort` TYPE spans `low|medium|high|xhigh|max`, in step with
+  the SDK enum, and is declared identically in BOTH
+  `packages/assistant-contract/src/runtime-data.ts` and
+  `packages/agent/src/types.ts` (the latter is what actually hands
+  `providerOptions` to the SDK, and the boundary is structural — a narrower
+  type there diverges SILENTLY). `ANTHROPIC_REASONING_EFFORTS`, the OFFERED
+  list, stays deliberately narrower at `low|medium|high`:
+  `resolveReasoningControlsAvailability` returns it for every Anthropic model
+  with no per-model lookup, so widening it would offer efforts a given model
+  may reject. Widen only once the registry carries per-model
+  `reasoning.supportedEfforts` for Anthropic.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.
@@ -238,15 +280,23 @@
   provider-wide 4,096-token cap. The shared contract resolves its output limit
   as `min(model max completion, 32,000)` when live/static model metadata
   publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
-  ceiling. When live reasoning metadata says reasoning is enabled by default,
-  Auto prefers a supported completion-biased thinking effort (`minimal`, then
-  `low`) over disabling reasoning; `none` is selected only when neither is
-  available. An optional model whose available efforts are only
-  `medium`/`high`/`xhigh`/`max`, or which publishes no bounded effort, receives
-  `reasoning.enabled=false` in Auto; the user may still explicitly select every
-  supported effort. This prevents an unbounded
-  provider default from silently consuming the answer budget without claiming
-  an invented reasoning-to-answer token split. OpenRouter effort is a provider
+  ceiling. When reasoning metadata says reasoning is enabled by default, the
+  Auto effort is DECLARED, never inferred (BST-833): `reasoning.autoEffort`
+  from our catalog if recorded, else the vendor's `defaultEffort`. With neither
+  declared, Auto sends NO effort and the provider applies its own default —
+  inventing one would be a silent fallback.
+  Do NOT reintroduce the old rule, which scanned `supportedEfforts` for a
+  "completion-biased" effort (`minimal`/`low`) and substituted `none` when it
+  found none. That discarded the model's own declared default invisibly:
+  GLM-5.2 declares `defaultEffort: 'high'` and advertises no low tier, so it
+  lost reasoning entirely — for a reason unrelated to any measured budget risk,
+  and with nothing surfaced to the user.
+  A model that must reason less under Auto records `autoEffort` in the catalog
+  (`'none'` switches it off deliberately and greppably) — `moonshotai/kimi-k3`
+  does exactly this, because its `max` vendor default spends the whole output
+  budget reasoning. Recording a fact we cannot get from OpenRouter is preferred
+  over deriving it. The answer budget is protected by the output ceiling above,
+  which is independent of effort. OpenRouter effort is a provider
   hint, not a deterministic reservation. The resolved output value drives both
   Mastra `modelSettings` and the input-context reservation. Explicit reasoning
   choices remain authoritative, and output values above a known model maximum

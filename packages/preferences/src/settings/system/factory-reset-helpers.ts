@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from '../../stores/assistant-budget-preferences-store';
+import { resetDiagnosticsRetentionStoreToDefaults } from '../../stores/diagnostics-retention-store';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
@@ -388,6 +389,16 @@ function clearBrowserStorage(): void {
   } catch (error) {
     logger.warn('Failed to reset skills preferences store', { error });
   }
+
+  // Diagnostic-log retention (max age/rows) is a persisted preference; reset
+  // the live store too so an in-memory override never survives a reset
+  // without a reload (web path).
+  try {
+    resetDiagnosticsRetentionStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset diagnostics retention store', { error });
+  }
+
   // Drain externally-registered session-store resetters (see the registry doc
   // above). Each is guarded so one failure cannot abort the rest of the reset.
   for (const reset of sessionStoreResetters) {

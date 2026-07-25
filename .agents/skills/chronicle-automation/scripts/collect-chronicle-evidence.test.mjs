@@ -199,7 +199,7 @@ function createFixture() {
   return { bin, prs, repo, root };
 }
 
-function collect(fixture, start, end, extraEnvironment = {}) {
+function collect(fixture, start, end, extraEnvironment = {}, scheduleTimezone = 'UTC') {
   return spawnSync(
     process.execPath,
     [
@@ -212,6 +212,8 @@ function collect(fixture, start, end, extraEnvironment = {}) {
       start,
       '--window-end',
       end,
+      '--schedule-timezone',
+      scheduleTimezone,
     ],
     {
       encoding: 'utf8',
@@ -237,6 +239,7 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
   assert.deepEqual(evidence.window, {
     end: '2026-07-22T00:00:00.000Z',
     scheduleSlackMinutes: 90,
+    scheduleTimezone: 'UTC',
     start: '2026-07-21T00:00:00.000Z',
   });
   assert.deepEqual(evidence.roster, [
@@ -336,4 +339,73 @@ test('supports weekday cron ranges and fails closed on an inverted range', (cont
   const bad = collect(fixture, '2026-07-21T00:00:00Z', '2026-07-22T00:00:00Z');
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /unsupported cron day-of-week field: 5-1/u);
+});
+
+test('evaluates roster crons in the declared scheduler timezone, DST-aware', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
+  fs.rmSync(path.join(fixture.repo, '.night-shift/charters/weekly.md'));
+  write(fixture.repo, '.night-shift/charters/daily.md', charter('daily', '0 10 * * *'));
+  commitAll(fixture.repo, 'roster: single daily loop');
+
+  // July: America/New_York is UTC-4, so 10:00 local fires at 14:00Z.
+  const july = collect(
+    fixture,
+    '2026-07-21T00:00:00Z',
+    '2026-07-21T13:00:00Z',
+    {},
+    'America/New_York'
+  );
+  assert.equal(july.status, 0, july.stderr);
+  const julyEvidence = JSON.parse(july.stdout);
+  assert.equal(julyEvidence.window.scheduleTimezone, 'America/New_York');
+  assert.deepEqual(julyEvidence.roster, [
+    { cron: '0 10 * * *', expectedWakes: 0, name: 'daily', pendingWakes: 0 },
+  ]);
+  const julyHit = collect(
+    fixture,
+    '2026-07-21T00:00:00Z',
+    '2026-07-21T16:00:00Z',
+    {},
+    'America/New_York'
+  );
+  assert.equal(julyHit.status, 0, julyHit.stderr);
+  assert.deepEqual(JSON.parse(julyHit.stdout).roster, [
+    { cron: '0 10 * * *', expectedWakes: 1, name: 'daily', pendingWakes: 0 },
+  ]);
+
+  // January: same zone is UTC-5, so 10:00 local fires at 15:00Z — a fixed
+  // offset would put the wake inside this window; real DST handling must not.
+  const january = collect(
+    fixture,
+    '2026-01-20T00:00:00Z',
+    '2026-01-20T14:30:00Z',
+    {},
+    'America/New_York'
+  );
+  assert.equal(january.status, 0, january.stderr);
+  assert.deepEqual(JSON.parse(january.stdout).roster, [
+    { cron: '0 10 * * *', expectedWakes: 0, name: 'daily', pendingWakes: 0 },
+  ]);
+});
+
+test('fails closed on a missing or invalid schedule timezone', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
+  const invalid = collect(
+    fixture,
+    '2026-07-21T00:00:00Z',
+    '2026-07-22T00:00:00Z',
+    {},
+    'America/Springfield'
+  );
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /schedule-timezone/);
+  const missing = spawnSync(
+    process.execPath,
+    [SCRIPT_PATH, '--repo', fixture.repo, '--window-start', '2026-07-21T00:00:00Z'],
+    { encoding: 'utf8', env: { ...process.env, PATH: `${fixture.bin}:${process.env.PATH}` } }
+  );
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--schedule-timezone is required/);
 });

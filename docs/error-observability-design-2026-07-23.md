@@ -1,6 +1,6 @@
 # Error Observability & Debug Bundles ("Flight Recorder") — Design
 
-> 2026-07-23. Status: P1 + debug bundle IMPLEMENTED (this PR); P2/P3/P5 pending. Companion presentation:
+> 2026-07-23. Status: P1 + debug bundle + P2a (NDJSON backstop, persistent Log Viewer) + P2b (status chip, retention settings, sink-health banner) IMPLEMENTED; P3 / P5 pending. Companion presentation:
 > `docs/error-observability-presentation-2026-07-23.html`.
 >
 > Problem owner: Sean. Motivating pain: as model/provider support grows, threads

@@ -9,6 +9,19 @@
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 export const DEFAULT_STREAM_INACTIVITY_MS = 120_000;
 /**
+ * Absolute wall-clock budget for assembling ONE streamed tool-call input.
+ *
+ * DELIBERATELY decoupled from `DEFAULT_STREAM_INACTIVITY_MS` and much wider.
+ * The two windows answer different questions: inactivity asks "is the transport
+ * still delivering parts?", this one asks "will this call ever become
+ * executable?". Reusing the inactivity window here killed legitimate large
+ * argument payloads — a model writing tens of KB of file content streams
+ * argument deltas continuously for minutes on a slow upstream route, which is
+ * healthy progress, not a stalled call. The bound stays finite so a provider
+ * still cannot dribble incomplete JSON forever.
+ */
+export const DEFAULT_TOOL_CALL_INPUT_MS = 600_000;
+/**
  * Advisory age after which a rediscovered suspended approval is flagged `stale`
  * in the re-surfaced notice (24h). Deliberately generous and DECOUPLED from the
  * in-flight stream/tool timeouts above: a human approval may legitimately take
@@ -19,6 +32,7 @@ export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 
 export interface AssistantResilienceConfig {
   streamInactivityMs: number;
+  toolCallInputMs: number;
   toolTimeoutMs: number;
 }
 
@@ -59,20 +73,61 @@ export function resolveStreamInactivityMs(override?: number): number {
   );
 }
 
+export function resolveToolCallInputMs(override?: number): number {
+  return resolvePositiveIntMs(
+    'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
+    DEFAULT_TOOL_CALL_INPUT_MS,
+    override
+  );
+}
+
+/** Whether a value was actually supplied, rather than falling back to a default. */
+function hasExplicitValue(envName: string, override?: number): boolean {
+  if (typeof override === 'number') {
+    return true;
+  }
+  const raw = readEnv(envName);
+  return raw !== undefined && raw.trim() !== '';
+}
+
 export function resolveApprovalStaleMs(override?: number): number {
   return resolvePositiveIntMs('BRAINSTRIKE_APPROVAL_STALE_MS', DEFAULT_APPROVAL_STALE_MS, override);
 }
 
 export function resolveAssistantResilienceConfig(options?: {
   streamInactivityMs?: number;
+  toolCallInputMs?: number;
   toolTimeoutMs?: number;
 }): AssistantResilienceConfig {
   const toolTimeoutMs = resolveToolTimeoutMs(options?.toolTimeoutMs);
   const streamInactivityMs = resolveStreamInactivityMs(options?.streamInactivityMs);
+  const resolvedToolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
   if (toolTimeoutMs >= streamInactivityMs) {
     throw new Error(
       `BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${toolTimeoutMs}ms and ${streamInactivityMs}ms.`
     );
   }
-  return { streamInactivityMs, toolTimeoutMs };
+  // A tighter input budget than the inactivity window would fire before the
+  // inactivity watchdog could ever observe a genuine stall, turning healthy
+  // in-progress argument streaming into a false timeout.
+  //
+  // Two EXPLICIT values in that shape are contradictory, so they throw. But an
+  // unset input budget must not turn a long, deliberate inactivity window
+  // (a slow local route) into a hard failure naming a variable the user never
+  // set — the default simply resolves wide enough to satisfy the invariant.
+  // That is default resolution, not a silent degradation: the widened value
+  // still honours the documented rule, and nothing configured is overridden.
+  if (hasExplicitValue('BRAINSTRIKE_TOOL_CALL_INPUT_MS', options?.toolCallInputMs)) {
+    if (resolvedToolCallInputMs < streamInactivityMs) {
+      throw new Error(
+        `BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${resolvedToolCallInputMs}ms and ${streamInactivityMs}ms.`
+      );
+    }
+    return { streamInactivityMs, toolCallInputMs: resolvedToolCallInputMs, toolTimeoutMs };
+  }
+  return {
+    streamInactivityMs,
+    toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
+    toolTimeoutMs,
+  };
 }

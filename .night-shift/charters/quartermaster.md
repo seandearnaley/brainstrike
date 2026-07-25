@@ -3,7 +3,7 @@
 ```
 NAME=Quartermaster
 ROLE=dependency triage
-SCHEDULE="43 5 * * 2"   # weekly, Tuesday 05:43 UTC
+SCHEDULE="43 5 * * 2"   # weekly, Tuesday 05:43 scheduler-local
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (max 3 family PRs per run)

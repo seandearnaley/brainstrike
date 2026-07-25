@@ -114,25 +114,22 @@ export function createToolCallingEvalModel(args: {
   } as LanguageModelV2;
 }
 
-/**
- * Selects the forbidden tool when it is visible, otherwise the safe tool.
- * A plan-mode regression therefore turns into a deterministic gate failure.
- */
-export function createPlanModeInventoryEvalModel(args: {
+/** Selects the preferred tool when it is visible, otherwise the fallback tool. */
+export function createInventoryConditionalEvalModel(args: {
+  fallbackInput: string;
+  fallbackToolName: string;
   finalText: string;
-  forbiddenInput: string;
-  forbiddenToolName: string;
-  safeInput: string;
-  safeToolName: string;
+  preferredInput: string;
+  preferredToolName: string;
 }): LanguageModelV2 {
   function selection(options: LanguageModelV2CallOptions): {
     input: string;
     toolName: string;
   } {
-    if (toolNamesOf(options).includes(args.forbiddenToolName)) {
-      return { input: args.forbiddenInput, toolName: args.forbiddenToolName };
+    if (toolNamesOf(options).includes(args.preferredToolName)) {
+      return { input: args.preferredInput, toolName: args.preferredToolName };
     }
-    return { input: args.safeInput, toolName: args.safeToolName };
+    return { input: args.fallbackInput, toolName: args.fallbackToolName };
   }
 
   return {

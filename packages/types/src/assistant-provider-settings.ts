@@ -29,7 +29,12 @@ export type OpenAiReasoningEffort =
   | 'xhigh'
   | 'max';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
-export type AnthropicEffort = 'low' | 'medium' | 'high';
+/**
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8).
+ * `xhigh`/`max` are real wire values — omitting them made the picker offer a
+ * strictly narrower range than the provider accepts.
+ */
+export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 /** Thinking levels offered by the Gemini Flash line. */
@@ -100,6 +105,22 @@ export interface AssistantProviderSettings {
   memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
+  /**
+   * "Show me the thinking" switch, defaulting to `true` — when a model
+   * reasons, the reasoning comes back and the disclosure has something to
+   * reveal.
+   *
+   * DELIBERATELY orthogonal to reasoning DEPTH (`reasoningEffort`,
+   * `anthropicEffort`, `googleThinkingLevel`, ...). Depth is a budget concern;
+   * visibility is a UX concern. Conflating them is what made every provider
+   * behave differently.
+   *
+   * Uniform in MEANING across providers, but stored per provider like every
+   * key here (`providerSettings[providerId]`) — turning it off for OpenAI
+   * leaves Anthropic visible. The provider-specific keys above remain valid
+   * escape hatches and win when explicitly set.
+   */
+  reasoningVisible?: boolean;
   workingMemoryEnabled?: boolean;
 }
 
@@ -117,6 +138,7 @@ export const assistantProviderSettingKeys = [
   'memoryLastMessages',
   'reasoningEffort',
   'reasoningSummary',
+  'reasoningVisible',
   'workingMemoryEnabled',
 ] as const satisfies readonly (keyof AssistantProviderSettings)[];
 

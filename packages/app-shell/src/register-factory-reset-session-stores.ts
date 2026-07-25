@@ -7,6 +7,8 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
+import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
 import { resetThreadSearchStore } from './thread-search-store';
 
 /**
@@ -67,4 +69,20 @@ registerFactoryResetSessionStore(() => {
   // Thread search results/query are session-only; the durable index rows
   // (brainstrike_thread_message_index/_state) are cleared with the DB.
   resetThreadSearchStore();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The unseen-diagnostics watermark is seeded to "now" at launch (design
+  // §9) so the status-bar chip counts events since this session, not every
+  // retained row replayed as unread. Reset re-seeds it to "now" rather than
+  // restoring the original module-load value, matching that same contract.
+  resetDiagnosticsSeenStore();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The sink-health flag is the only channel `DiagnosticSinkBridge`'s
+  // onDisabled callback has to reach the settings UI (the bridge mounts
+  // outside RootLayoutContent, so React context can't carry it); it reflects
+  // in-memory writer state for this run and must not survive a reset.
+  resetDiagnosticSinkHealthStore();
 });

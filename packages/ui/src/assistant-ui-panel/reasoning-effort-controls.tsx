@@ -35,7 +35,9 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
 export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
   high: 'High',
   low: 'Low',
+  max: 'Max',
   medium: 'Medium',
+  xhigh: 'Extra',
 };
 
 export const GOOGLE_THINKING_LEVEL_LABELS: Record<GoogleThinkingLevel, string> = {
@@ -149,6 +151,90 @@ export function buildEffortControlModel(
   }
 }
 
+export interface EffortSliderStop {
+  /** The vendor's recommended effort for this model, if it declares one. */
+  isModelDefault: boolean;
+  label: string;
+  value: string;
+}
+
+export interface EffortSliderModel {
+  /** Byte-identical settings update for a track position. */
+  buildUpdateForIndex: (index: number) => AssistantProviderSettingsUpdate;
+  /** Track position currently in effect. */
+  index: number;
+  /** Ordered stops, `auto` pinned first so the track reads low -> high. */
+  stops: EffortSliderStop[];
+  /** Screen-reader announcement for the active stop. */
+  valueText: string;
+}
+
+/**
+ * Canonical weakest-to-strongest effort order.
+ *
+ * A slider is an ORDINAL axis: dragging right must mean "think harder". Menu
+ * sources are under no such obligation — OpenRouter's live model metadata lists
+ * efforts strongest-first, which as a radio list is merely a presentation
+ * choice but as a track silently inverts the control. Ranking here makes the
+ * axis correct no matter what order the resolver hands over.
+ *
+ * Unranked values sort last (before `auto`, which is pinned separately) rather
+ * than being dropped — an unknown effort still has to be reachable.
+ */
+const EFFORT_TRACK_ORDER: readonly string[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
+
+function effortRank(value: string): number {
+  const rank = EFFORT_TRACK_ORDER.indexOf(value);
+  return rank === -1 ? EFFORT_TRACK_ORDER.length : rank;
+}
+
+/**
+ * Project the family-normalized effort model onto a single ordered track.
+ *
+ * Effort is inherently ordinal, so a discrete slider expresses it in one
+ * gesture where the nested submenu needed open -> hover -> click. Stops are
+ * sorted weakest-to-strongest (see EFFORT_TRACK_ORDER) and `auto` is pinned at
+ * position 0 as the "let the vendor decide" end of the same axis rather than
+ * living in a separate control.
+ */
+export function buildEffortSliderModel(model: EffortControlModel): EffortSliderModel {
+  const ordered = model.options.toSorted(
+    (left, right) => effortRank(left.value) - effortRank(right.value)
+  );
+  const stops: EffortSliderStop[] = [
+    { isModelDefault: false, label: 'Auto', value: 'auto' },
+    ...ordered,
+  ];
+  const foundIndex = stops.findIndex((stop) => stop.value === model.currentValue);
+  // An unresolvable current value would silently mis-position the thumb, so
+  // fall back to `auto` — position 0 always exists.
+  const index = foundIndex >= 0 ? foundIndex : 0;
+  const active = stops[index];
+  const valueText = active?.isModelDefault
+    ? `${active.label} (recommended)`
+    : (active?.label ?? 'Auto');
+  return {
+    buildUpdateForIndex: (nextIndex) => {
+      const stop = stops[nextIndex];
+      if (!stop) {
+        throw new Error(`Effort slider index ${nextIndex} is outside the track.`);
+      }
+      return model.buildUpdate(stop.value);
+    },
+    index,
+    stops,
+    valueText,
+  };
+}
+
 export interface ThinkingToggleModel {
   buildUpdate: (checked: boolean) => AssistantProviderSettingsUpdate;
   checked: boolean;
@@ -173,11 +259,17 @@ export function buildThinkingToggleModel(
       ANTHROPIC_THINKING_MAX
     );
     return {
-      // Parity with AnthropicReasoningSection's thinking-budget switch.
-      buildUpdate: (checked) => ({
-        anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
-      }),
-      checked: typeof settings.anthropicThinkingBudgetTokens === 'number',
+      // The toggle is authoritative for "is Claude thinking at all". An effort
+      // alone now implies adaptive thinking, so switching off must clear the
+      // effort too — otherwise the runtime keeps requesting thinking while the
+      // switch reads unchecked.
+      buildUpdate: (checked) =>
+        checked
+          ? { anthropicThinkingBudgetTokens: thinkingValue }
+          : { anthropicEffort: undefined, anthropicThinkingBudgetTokens: undefined },
+      checked:
+        typeof settings.anthropicThinkingBudgetTokens === 'number' ||
+        Boolean(settings.anthropicEffort),
     };
   }
 

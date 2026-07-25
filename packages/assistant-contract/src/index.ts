@@ -24,6 +24,7 @@ export * from './openrouter-model-metadata.js';
 export * from './personas.js';
 export * from './provider-metadata.js';
 export * from './provider-registry.js';
+export * from './reasoning-visibility.js';
 export * from './run-events.js';
 export * from './runtime-data.js';
 export * from './secret-read-error.js';

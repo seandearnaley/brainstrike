@@ -9,6 +9,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import type { ScopedLogger } from '@brainstrike/utils';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict';
 import {
@@ -249,6 +250,24 @@ function blockReasonFor(hook: LoadedHook, result: HookResult): string {
   );
 }
 
+/** Non-reversible fingerprint for a hook command, for warn+ logs: this branch
+ * (Flight Recorder P2a) makes every warn+ log durable — mirrored into a
+ * plaintext NDJSON file on disk (`error-log-sink.ts`) — so the raw command
+ * text can no longer appear here (`docs/agents/platform-contracts.md`:
+ * "Never log or persist command text, cwd, environment, or retained
+ * output"). Length + a short sha256 prefix is still enough to correlate
+ * repeated occurrences of "the same hook" across log lines without
+ * reconstructing what the command actually was. */
+function fingerprintCommand(command: string): {
+  commandLength: number;
+  commandSha256Prefix: string;
+} {
+  return {
+    commandLength: command.length,
+    commandSha256Prefix: createHash('sha256').update(command).digest('hex').slice(0, 12),
+  };
+}
+
 type HookOutcome =
   | { readonly kind: 'continue'; readonly warning?: string }
   | { readonly kind: 'block'; readonly reason: string };
@@ -257,7 +276,13 @@ type HookOutcome =
 function classifyResult(hook: LoadedHook, result: HookResult, opts: RunHooksOptions): HookOutcome {
   if (result.timedOut) {
     const timeout = hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
-    opts.logger.warn('hook timed out', { command: hook.definition.command });
+    opts.logger.warn('hook timed out', {
+      ...fingerprintCommand(hook.definition.command),
+      ...(hook.definition.matcher?.tool_name === undefined
+        ? {}
+        : { matcher: hook.definition.matcher.tool_name }),
+      timeoutMs: timeout,
+    });
     return {
       kind: 'continue',
       warning: `Hook timed out after ${timeout}ms: ${hook.definition.command}`,
@@ -271,7 +296,7 @@ function classifyResult(hook: LoadedHook, result: HookResult, opts: RunHooksOpti
   if (result.exitCode !== 0) {
     const detail = result.stderr || `Hook exited with code ${result.exitCode}`;
     opts.logger.warn('hook exited non-zero', {
-      command: hook.definition.command,
+      ...fingerprintCommand(hook.definition.command),
       exitCode: result.exitCode,
     });
     return {

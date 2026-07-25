@@ -8,6 +8,7 @@ import {
   type HookTrustRequest,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
+  mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
@@ -16,6 +17,7 @@ import {
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
@@ -1185,9 +1187,17 @@ function resolveGoogleThinkingLevel(
 function buildOpenAiOptions(
   settings: AssistantProviderSettings
 ): OpenAiProviderOptions | undefined {
+  const reasoningEffort = settings.reasoningEffort || undefined;
+  // Without a summary the Responses API reasons silently and the disclosure
+  // has nothing to reveal, so visibility supplies `auto` when the user has not
+  // asked for a specific verbosity. Only ever MODIFIES a reasoning request
+  // that is already being made — cleared settings must still yield no options.
+  const reasoningSummary =
+    settings.reasoningSummary ||
+    (reasoningEffort && resolveReasoningVisible(settings) ? 'auto' : undefined);
   return buildOptionalOptions<OpenAiProviderOptions>([
-    ['reasoningEffort', settings.reasoningEffort || undefined],
-    ['reasoningSummary', settings.reasoningSummary || undefined],
+    ['reasoningEffort', reasoningEffort],
+    ['reasoningSummary', reasoningSummary],
   ]);
 }
 
@@ -1237,14 +1247,28 @@ function buildOpenRouterOptions(
   const autoEffort =
     reasoningEffort === undefined && modelName
       ? resolveOpenRouterAutoRuntimeProfile(
-          metadata?.id === modelName ? metadata : getLlmModelDefinition('openrouter', modelName),
+          // Live metadata cannot carry our catalog-only `autoEffort`, so it is
+          // merged back in rather than selected away (see
+          // mergeOpenRouterAutoProfileModel).
+          mergeOpenRouterAutoProfileModel(
+            metadata?.id === modelName ? metadata : undefined,
+            getLlmModelDefinition('openrouter', modelName)
+          ) ?? getLlmModelDefinition('openrouter', modelName),
           settings.maxOutputTokens
         ).reasoningEffort
       : undefined;
   const resolvedReasoningEffort = reasoningEffort ?? autoEffort;
+  const reasoningOff = resolvedReasoningEffort === 'none';
+  // OpenRouter already RETURNS reasoning whenever reasoning is on, so the
+  // visible path adds nothing — critical under `require_parameters`, which
+  // narrows routing to endpoints supporting every supplied parameter. Only an
+  // explicit opt-out adds the documented `exclude`, and never alongside
+  // reasoning that is already switched off.
+  const exclude = reasoningOff || resolveReasoningVisible(settings) ? undefined : true;
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
-    ['enabled', resolvedReasoningEffort === 'none' ? false : undefined],
-    ['effort', resolvedReasoningEffort === 'none' ? undefined : resolvedReasoningEffort],
+    ['enabled', reasoningOff ? false : undefined],
+    ['effort', reasoningOff ? undefined : resolvedReasoningEffort],
+    ['exclude', exclude],
     ['summary', settings.reasoningSummary || undefined],
   ]);
   return {
@@ -1261,15 +1285,26 @@ function buildOpenRouterOptions(
 function buildAnthropicOptions(
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
-  const thinking =
+  const effort = settings.anthropicEffort || undefined;
+  // An explicit budget pins the legacy `enabled` form (older models); it also
+  // carries no `display`, so it is left exactly as configured. Otherwise the
+  // modern adaptive form carries `display`, which defaults to `omitted`
+  // provider-side — the reason Claude runs showed no thinking at all. Only
+  // emitted alongside a chosen effort so cleared settings yield no options.
+  const thinking: AnthropicProviderOptions['thinking'] | undefined =
     typeof settings.anthropicThinkingBudgetTokens === 'number'
       ? {
           budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-          type: 'enabled' as const,
+          type: 'enabled',
         }
-      : undefined;
+      : effort
+        ? {
+            display: resolveReasoningVisible(settings) ? 'summarized' : 'omitted',
+            type: 'adaptive',
+          }
+        : undefined;
   return buildOptionalOptions<AnthropicProviderOptions>([
-    ['effort', settings.anthropicEffort || undefined],
+    ['effort', effort],
     ['thinking', thinking],
   ]);
 }
@@ -1279,10 +1314,15 @@ function buildGoogleOptions(
   settings: AssistantProviderSettings
 ): GoogleProviderOptions | undefined {
   const resolvedLevel = resolveGoogleThinkingLevel(modelName, settings.googleThinkingLevel);
+  // Gemini withholds thoughts unless asked; the flag was declared in the
+  // contract but never set, so thinking was invisible on every Google run.
+  // Tied to a resolved level so a dropped/absent level yields no options.
   const includeThoughts =
     typeof settings.googleIncludeThoughts === 'boolean'
       ? settings.googleIncludeThoughts
-      : undefined;
+      : resolvedLevel
+        ? resolveReasoningVisible(settings)
+        : undefined;
   const thinkingConfig = buildOptionalOptions<NonNullable<GoogleProviderOptions['thinkingConfig']>>(
     [
       ['thinkingLevel', resolvedLevel],

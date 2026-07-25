@@ -141,6 +141,27 @@ function isProjectPath(token) {
   );
 }
 
+const SOURCE_ANCHOR = /(?::\d+(?:-\d+)?)+$/;
+
+function stripSourceAnchor(token) {
+  return token.replace(SOURCE_ANCHOR, '');
+}
+
+function sourceAnchorEnd(token) {
+  const anchor = token.match(SOURCE_ANCHOR)?.[0];
+  if (!anchor) {
+    return;
+  }
+  const values = [...anchor.matchAll(/\d+(?:-(\d+))?/g)].map((match) =>
+    Number(match[1] ?? match[0])
+  );
+  return Math.max(...values);
+}
+
+function isContinuationAnchor(token) {
+  return /^:\d+(?:-\d+)?(?:\s*\([^)]*\))?$/.test(token);
+}
+
 // A backticked token that looks like a repository file but is not under a
 // known project directory (root files: AGENTS.md, db-test-lane-manifest.mjs,
 // secret-scan.config.json, …). Without this these fell through every branch
@@ -151,12 +172,16 @@ const FILE_TOKEN = /^[\w./-]+\.[A-Za-z0-9]+$/;
 const FILE_EXTENSION = /\.(?:md|mjs|cjs|mts|cts|jsonc?|ya?ml|toml|sh)$/i;
 
 function isFileToken(token) {
-  if (/[{}*\s]/.test(token) || isProjectPath(token) || !FILE_TOKEN.test(token)) {
+  const normalized = stripSourceAnchor(token);
+  if (/[{}*\s]/.test(normalized) || isProjectPath(normalized) || !FILE_TOKEN.test(normalized)) {
     return false;
   }
   // Known non-code file extension, or an explicit relative path with any
   // extension. Bare dotted tokens with code-ish extensions stay symbols.
-  return FILE_EXTENSION.test(token) || (token.includes('/') && /\.[A-Za-z0-9]+$/.test(token));
+  return (
+    FILE_EXTENSION.test(normalized) ||
+    (normalized.includes('/') && /\.[A-Za-z0-9]+$/.test(normalized))
+  );
 }
 
 // Found → ACCURATE (the mechanical win: previously these were invisible).
@@ -166,10 +191,11 @@ function isFileToken(token) {
 // not a mechanical certainty. DANGLING stays reserved for the unambiguous
 // classes (project paths, migration numbers).
 function classifyFileToken(token, allPaths) {
-  if (allPaths.has(token)) {
+  const normalized = stripSourceAnchor(token);
+  if (allPaths.has(normalized)) {
     return 'ACCURATE';
   }
-  const base = token.split('/').pop();
+  const base = normalized.split('/').pop();
   return [...allPaths].some((path) => path.split('/').pop() === base) ? 'ACCURATE' : 'MANUAL';
 }
 
@@ -177,7 +203,7 @@ function classifyProjectPath(token, allPaths) {
   if (token.includes('...')) {
     return 'MANUAL';
   }
-  const normalized = token.replace(/\/+$/, '');
+  const normalized = stripSourceAnchor(token).replace(/\/+$/, '');
   if (!normalized) {
     return 'MANUAL';
   }
@@ -186,15 +212,45 @@ function classifyProjectPath(token, allPaths) {
     : 'DANGLING';
 }
 
+function resolveFileTokenPath(token, allPaths) {
+  const normalized = stripSourceAnchor(token);
+  if (allPaths.has(normalized)) {
+    return normalized;
+  }
+  const base = normalized.split('/').pop();
+  const matches = [...allPaths].filter((path) => path.split('/').pop() === base);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function classifyAnchoredPath(token, allPaths, readLineCount) {
+  const status = classifyProjectPath(token, allPaths);
+  const anchorEnd = sourceAnchorEnd(token);
+  const normalized = stripSourceAnchor(token).replace(/\/+$/, '');
+  if (status !== 'ACCURATE' || anchorEnd === undefined || !allPaths.has(normalized)) {
+    return status;
+  }
+  return anchorEnd <= readLineCount(normalized) ? 'ACCURATE' : 'DANGLING';
+}
+
+function classifyAnchoredFile(token, allPaths, readLineCount) {
+  const status = classifyFileToken(token, allPaths);
+  const anchorEnd = sourceAnchorEnd(token);
+  if (status !== 'ACCURATE' || anchorEnd === undefined) {
+    return status;
+  }
+  const path = resolveFileTokenPath(token, allPaths);
+  return path && anchorEnd <= readLineCount(path) ? 'ACCURATE' : 'MANUAL';
+}
+
 function isCommand(token) {
   return /^(?:pnpm|node|npx)\s/.test(token.trim());
 }
 
 function isSymbol(token) {
-  return /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token);
+  return !/^[a-f\d]{7,40}$/i.test(token) && /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token);
 }
 
-function collectDocument(path, text, allPaths, packages) {
+function collectDocument(path, text, allPaths, packages, readLineCount) {
   const references = [];
   const migrations = new Set();
   const lines = text.split(/\r?\n/);
@@ -206,12 +262,19 @@ function collectDocument(path, text, allPaths, packages) {
       if (!token) {
         continue;
       }
-      if (isProjectPath(token)) {
+      if (isContinuationAnchor(token)) {
+        references.push({
+          kind: 'anchor',
+          location: location(path, lineNumber),
+          reference: token,
+          status: 'MANUAL',
+        });
+      } else if (isProjectPath(stripSourceAnchor(token))) {
         references.push({
           kind: 'path',
           location: location(path, lineNumber),
           reference: token,
-          status: classifyProjectPath(token, allPaths),
+          status: classifyAnchoredPath(token, allPaths, readLineCount),
         });
       } else if (isCommand(token)) {
         references.push({
@@ -225,7 +288,7 @@ function collectDocument(path, text, allPaths, packages) {
           kind: 'file',
           location: location(path, lineNumber),
           reference: token,
-          status: classifyFileToken(token, allPaths),
+          status: classifyAnchoredFile(token, allPaths, readLineCount),
         });
       } else if (isSymbol(token)) {
         references.push({
@@ -294,7 +357,16 @@ function markdown(result) {
   ].join('\n');
 }
 
-export { classifyCommand, classifyFileToken, classifyProjectPath, isFileToken };
+export {
+  classifyAnchoredPath,
+  classifyCommand,
+  classifyFileToken,
+  classifyProjectPath,
+  isFileToken,
+  isSymbol,
+  sourceAnchorEnd,
+  stripSourceAnchor,
+};
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -318,8 +390,21 @@ function main() {
     fail(`no direct Markdown contracts found in ${options.docs} at ${revision}`);
   }
   const packages = parsePackageScripts(options.repo, revision, [...allPaths]);
+  const lineCounts = new Map();
+  const readLineCount = (path) => {
+    if (!lineCounts.has(path)) {
+      lineCounts.set(path, readRevisionFile(options.repo, revision, path).split(/\r?\n/).length);
+    }
+    return lineCounts.get(path);
+  };
   const documents = documentPaths.map((path) =>
-    collectDocument(path, readRevisionFile(options.repo, revision, path), allPaths, packages)
+    collectDocument(
+      path,
+      readRevisionFile(options.repo, revision, path),
+      allPaths,
+      packages,
+      readLineCount
+    )
   );
   const findings = documents.flatMap((document) =>
     document.references.filter((reference) => reference.status === 'DANGLING')

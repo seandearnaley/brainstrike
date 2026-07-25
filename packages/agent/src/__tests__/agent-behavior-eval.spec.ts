@@ -20,6 +20,7 @@ describe('agent behavior evaluation (runEvals gates)', () => {
       { name: 'tool-selection', verdict: 'passed' },
       { name: 'error-free-run', verdict: 'passed' },
       { name: 'plan-mode-tool-filter', verdict: 'passed' },
+      { name: 'create-file-tool-reachability', verdict: 'passed' },
     ]);
     expect(report.passed).toBe(true);
   }, 120_000);
@@ -46,7 +47,8 @@ describe('agent behavior evaluation (runEvals gates)', () => {
       { name: 'plan-mode-tool-filter-control', verdict: 'failed' },
       { name: 'tool-error-control', verdict: 'failed' },
       { name: 'missing-tool-control', verdict: 'failed' },
+      { name: 'create-file-tool-reachability-control', verdict: 'failed' },
     ]);
-    expect(report.failures).toHaveLength(4);
+    expect(report.failures).toHaveLength(5);
   }, 120_000);
 });

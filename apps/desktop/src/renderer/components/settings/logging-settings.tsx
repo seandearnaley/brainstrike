@@ -1,4 +1,9 @@
 import {
+  useDiagnosticSinkHealthStore,
+  useDiagnosticsPurge,
+  useDurableLogSource,
+} from '@brainstrike/app-shell/diagnostics';
+import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
 } from '@brainstrike/preferences/settings/system/logging-settings-section';
@@ -79,6 +84,10 @@ export function DesktopLoggingSettings() {
       },
     };
   }, []);
+
+  const durableLogSource = useDurableLogSource();
+  const onPurgeNow = useDiagnosticsPurge();
+  const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
 
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
@@ -230,6 +239,14 @@ export function DesktopLoggingSettings() {
       onResetPreferences={resetPreferences}
       onSelectLogDestination={selectDestination}
       runtime="electron-renderer"
+      sinkHealthReason={sinkHealthReason}
+      {...(durableLogSource === undefined
+        ? {}
+        : {
+            durableLogSource,
+            onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+          })}
+      {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
     />
   );
 }

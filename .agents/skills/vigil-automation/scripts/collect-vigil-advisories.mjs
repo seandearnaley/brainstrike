@@ -298,7 +298,10 @@ function mergeAdvisories(pnpmAdvisories, dependabotAdvisories) {
   return [...byKey.values()]
     .map((advisory) => ({
       ...advisory,
-      fingerprint: `vigil:advisory:${advisory.id}:${advisory.package}`,
+      // Tickets are filed per PACKAGE (charter Beat 3); the legacy per-advisory
+      // fingerprint is kept so the sweep can find and fold pre-rule tickets.
+      fingerprint: `vigil:advisory:${advisory.package}`,
+      legacyFingerprint: `vigil:advisory:${advisory.id}:${advisory.package}`,
       sources: [...new Set(advisory.sources)].sort(),
     }))
     .sort(
