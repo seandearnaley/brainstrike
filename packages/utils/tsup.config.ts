@@ -4,6 +4,7 @@ export default defineConfig({
   clean: false,
   dts: false,
   entry: {
+    'background-indexing-policy': 'src/background-indexing-policy.ts',
     'browser-events': 'src/browser-events.ts',
     'bulk-operation-context': 'src/bulk-operation-context.ts',
     collator: 'src/collator.ts',
