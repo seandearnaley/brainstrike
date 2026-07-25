@@ -9,7 +9,7 @@ import {
   assertLoggingPreferences,
   LOGGING_API_CHANNELS,
 } from './platform/logging-api-contract';
-import { getWindowRoleByWebContentsId } from './window-role';
+import { getWindowRoleByWebContentsId, resolveSourceWindowRole } from './window-role';
 
 const logger = createLogger('LoggingIPC');
 
@@ -22,6 +22,11 @@ export interface LoggingIpcHandlers {
   getState: () => LoggingSettingsPayload;
   ingestBufferedLog: (senderId: number, record: LogRecord) => void;
   openDestination: (target: string | null) => Promise<boolean>;
+  /** Flight Recorder P2a Task 3: forwards the SAME warn+ records already
+   * gated by `DURABLE_PUSH_LEVELS` (no second level filter) into the
+   * rotating NDJSON backstop sink. Optional so callers that predate the
+   * backstop (or tests exercising only the renderer push) need not stub it. */
+  recordDurableLog?: (record: LogRecord) => void;
   selectDestination: () => Promise<string | null>;
   setPreferences: (
     preferences: LoggingPreferences
@@ -81,6 +86,7 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
       return;
     }
     pushDurableRecordToVisibleWindow(validated);
+    handlers.recordDurableLog?.(validated);
   });
 
   registry.registerInvoke('logging', LOGGING_API_CHANNELS.getPreferences, () =>
@@ -129,13 +135,15 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     handlers.ingestBufferedLog(event.sender.id, record);
 
     if (DURABLE_PUSH_LEVELS.has(record.level)) {
-      pushDurableRecordToVisibleWindow({
+      const enrichedRecord: LogRecord = {
         ...record,
         bindings: {
           ...record.bindings,
-          sourceWindowRole: getWindowRoleByWebContentsId(event.sender.id) ?? 'hidden-host',
+          sourceWindowRole: resolveSourceWindowRole(event.sender.id),
         },
-      });
+      };
+      pushDurableRecordToVisibleWindow(enrichedRecord);
+      handlers.recordDurableLog?.(enrichedRecord);
     }
   });
 

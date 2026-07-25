@@ -34,7 +34,7 @@ export interface DiagnosticEventsQueryFilter {
   readonly untilMs?: number;
 }
 
-interface DiagnosticEventRow {
+export interface DiagnosticEventRow {
   app_version: string;
   cause_chain: unknown;
   code: string | null;
@@ -59,7 +59,11 @@ function toMs(value: string | Date): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
-function mapRow(row: DiagnosticEventRow): DiagnosticEvent {
+/** Exported so consumers that need to bypass `queryEvents`'s hard-capped
+ * limit/equality-severity filter (e.g. the app-shell durable log source,
+ * which needs a `severity IN (...)` scan up to 2000 rows) can still reuse
+ * this row->event mapping instead of duplicating it. */
+export function mapDiagnosticEventRow(row: DiagnosticEventRow): DiagnosticEvent {
   return {
     appVersion: row.app_version,
     causeChain: Array.isArray(row.cause_chain)
@@ -170,7 +174,7 @@ export class DiagnosticEventsRepository {
         `SELECT * FROM ${TABLE} ${where} ORDER BY occurred_at DESC, id DESC LIMIT ${limit}`,
         params
       );
-      return result.rows.map(mapRow);
+      return result.rows.map(mapDiagnosticEventRow);
     } catch (error) {
       throw new DiagnosticEventsStorageError('query', error);
     }

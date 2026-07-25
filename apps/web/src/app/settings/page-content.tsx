@@ -5,7 +5,10 @@ import {
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
-import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import {
+  createSystemDiagnosticsSettingsCategory,
+  useDurableLogSource,
+} from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -104,6 +107,8 @@ export default function SettingsPageContent() {
     };
   }, []);
 
+  const durableLogSource = useDurableLogSource();
+
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
     // mid-lifecycle should reload or navigate to remount this settings view.
@@ -194,7 +199,18 @@ export default function SettingsPageContent() {
         title: 'Models & Providers',
       },
       {
-        content: <LoggingSettingsSection logSource={logSource} runtime="browser" />,
+        content: (
+          <LoggingSettingsSection
+            logSource={logSource}
+            runtime="browser"
+            {...(durableLogSource === undefined
+              ? {}
+              : {
+                  durableLogSource,
+                  onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+                })}
+          />
+        ),
         description: 'Control browser log verbosity and redaction for debugging.',
         icon: FileCog,
         id: 'logging',
@@ -223,6 +239,7 @@ export default function SettingsPageContent() {
     ];
   }, [
     logSource,
+    durableLogSource,
     storedFolders.length,
     clearStoredHandles,
     devInlineFixtureEnabled,

@@ -14,6 +14,15 @@ const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
 let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
+  /** Every on-disk path the durable NDJSON error-log backstop (Flight
+   * Recorder P2a, `error-log-sink.ts`'s `listErrorLogFilePaths`) can occupy —
+   * the live file plus rotated siblings. These live OUTSIDE `userDataPath`
+   * (`app.getPath('logs')` is a different directory on macOS) and the `logs`
+   * folder is preserved wholesale below, so without this the NDJSON mirror
+   * of `brainstrike_diagnostic_events` would survive a factory reset even
+   * though the DB rows it mirrors do not. Optional so callers/tests that
+   * don't exercise this behavior can omit it. */
+  errorLogFilePaths?: readonly string[];
   resetDatabaseProfile: () => Promise<void>;
   stopBackgroundRuntimes: () => Promise<void>;
   userDataPath: string;
@@ -99,7 +108,43 @@ async function stageUserDataEntryForDeletion({
   return { deletedPath: targetPath, stagedPath };
 }
 
+interface ErrorLogPurgeResult {
+  purgedPaths: string[];
+  purgeFailures: string[];
+}
+
+/**
+ * Best-effort delete of every durable NDJSON error-log path (live file +
+ * rotated siblings). `rm(..., { force: true })` treats an already-missing
+ * file as success (most rotated slots won't exist yet), so anything that
+ * throws here is a REAL failure (permission, lock, …) — reported the same
+ * way the trash-cleanup step below reports its failures: logged and tracked
+ * for the caller, never swallowed, but not fatal to the overall reset (the
+ * database + userData wipe that already succeeded matters far more than one
+ * diagnostics mirror file).
+ */
+async function purgeErrorLogFiles(
+  errorLogFilePaths: readonly string[]
+): Promise<ErrorLogPurgeResult> {
+  const purgedPaths: string[] = [];
+  const purgeFailures: string[] = [];
+  for (const filePath of errorLogFilePaths) {
+    try {
+      await rm(filePath, { force: true });
+      purgedPaths.push(filePath);
+    } catch (error) {
+      purgeFailures.push(filePath);
+      logger.warn(
+        'Desktop application data reset could not purge a durable NDJSON error log file',
+        { error, filePath }
+      );
+    }
+  }
+  return { purgedPaths, purgeFailures };
+}
+
 export async function resetDesktopApplicationData({
+  errorLogFilePaths,
   resetDatabaseProfile,
   stopBackgroundRuntimes,
   userDataPath,
@@ -186,6 +231,16 @@ export async function resetDesktopApplicationData({
         trashPath,
         userDataPath,
       });
+    }
+
+    // The durable NDJSON error-log backstop lives outside `userDataPath`
+    // (see `errorLogFilePaths` doc) and inside the preserved `logs` folder,
+    // so it needs its own purge pass — the userData entry loop above never
+    // touches it (it skips `logs` entirely as a preserved entry).
+    if (errorLogFilePaths && errorLogFilePaths.length > 0) {
+      const { purgeFailures, purgedPaths } = await purgeErrorLogFiles(errorLogFilePaths);
+      deletedPaths.push(...purgedPaths);
+      pendingDeletionPaths.push(...purgeFailures);
     }
 
     // Ensure Electron has a userData directory to write into on the next boot.

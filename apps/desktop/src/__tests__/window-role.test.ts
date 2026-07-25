@@ -5,6 +5,8 @@ import {
   getTrackedWindowsByRole,
   getWindowRole,
   getWindowRoleByWebContentsId,
+  resolveSourceWindowRole,
+  UNKNOWN_SOURCE_WINDOW_ROLE,
 } from '../window-role';
 
 interface FakeWindow {
@@ -92,5 +94,22 @@ describe('window-role', () => {
     clearWindowRoleByWebContentsId(31);
 
     expect(getTrackedWindowsByRole('visible-ui')).toEqual([second.window as never]);
+  });
+
+  describe('resolveSourceWindowRole', () => {
+    it('returns the tracked role for a known webContents id', () => {
+      const { window } = createFakeWindow(41);
+      assignWindowRole(window as never, 'chunking-host');
+
+      expect(resolveSourceWindowRole(41)).toBe('chunking-host');
+
+      clearWindowRoleByWebContentsId(41);
+    });
+
+    it('falls back to the shared unknown-role constant for an untracked webContents id', () => {
+      expect(getWindowRoleByWebContentsId(99_999)).toBeUndefined();
+      expect(resolveSourceWindowRole(99_999)).toBe(UNKNOWN_SOURCE_WINDOW_ROLE);
+      expect(UNKNOWN_SOURCE_WINDOW_ROLE).toBe('hidden-host');
+    });
   });
 });

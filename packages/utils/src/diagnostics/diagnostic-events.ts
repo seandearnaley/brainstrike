@@ -144,6 +144,25 @@ export interface DiagnosticEventEnv {
   readonly source: string;
 }
 
+/**
+ * Derives a `DiagnosticEvent.source` value from a `LogRecord`'s bindings.
+ * The SINGLE shared implementation for both places that convert a raw
+ * `LogRecord` into a `source` string: the Electron main-process durable
+ * NDJSON sink (`apps/desktop/src/diagnostics/error-log-sink.ts`) and the
+ * renderer `DiagnosticSinkBridge`'s main→renderer forwarded-record path
+ * (`packages/app-shell/src/diagnostics/diagnostic-sink-bridge.tsx`). Both
+ * previously carried a byte-identical copy of this function with only a
+ * comment asserting they mirror each other — moved here so there is exactly
+ * one implementation to diverge from, preserving the P2a "a grep hit in the
+ * NDJSON file and a DB row are the same object" contract.
+ */
+export function deriveDiagnosticRecordSource(record: LogRecord): string {
+  if (record.bindings['runtime'] === 'electron-main') {
+    return 'electron-main';
+  }
+  return String(record.bindings['sourceWindowRole'] ?? 'hidden-host');
+}
+
 interface ErrorArgFields {
   readonly cause: unknown;
   readonly message: string;

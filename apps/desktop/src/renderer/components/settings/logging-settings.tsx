@@ -1,3 +1,4 @@
+import { useDurableLogSource } from '@brainstrike/app-shell/diagnostics';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -79,6 +80,8 @@ export function DesktopLoggingSettings() {
       },
     };
   }, []);
+
+  const durableLogSource = useDurableLogSource();
 
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
@@ -230,6 +233,12 @@ export function DesktopLoggingSettings() {
       onResetPreferences={resetPreferences}
       onSelectLogDestination={selectDestination}
       runtime="electron-renderer"
+      {...(durableLogSource === undefined
+        ? {}
+        : {
+            durableLogSource,
+            onExportDurableNdjson: () => durableLogSource.exportNdjson(),
+          })}
     />
   );
 }

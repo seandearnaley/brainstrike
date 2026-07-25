@@ -104,6 +104,52 @@ describe('runHooksForEvent', () => {
     expect(result.warnings.some((w) => /timed out/i.test(w))).toBe(true);
   });
 
+  // Privacy: docs/agents/platform-contracts.md forbids ever logging/persisting
+  // command text. This branch's Flight Recorder P2a durable NDJSON backstop
+  // mirrors every warn+ `logger.*` call to a plaintext file on disk, so a raw
+  // `command` field here would have made a hook's command text durable and
+  // greppable. Assert the logged payload carries only non-reversible metadata
+  // (length + a hash prefix), never the command string itself.
+  it('never logs raw command text on hook timeout — only length + fingerprint', async () => {
+    const command = 'sleep 5 # secret-looking-command-text';
+    await runHooksForEvent([makeLoadedHook(command, { timeout: 50 })], () => toolStdin(), {
+      blocking: true,
+      logger,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'hook timed out',
+      expect.objectContaining({
+        commandLength: command.length,
+        commandSha256Prefix: expect.any(String),
+        timeoutMs: 50,
+      })
+    );
+    const emittedPayloads = JSON.stringify(logger.warn.mock.calls);
+    expect(emittedPayloads).not.toContain(command);
+    expect(emittedPayloads).not.toContain('secret-looking-command-text');
+  });
+
+  it('never logs raw command text when a hook exits non-zero — only length + fingerprint', async () => {
+    const command = 'echo secret-looking-command-text; exit 1';
+    await runHooksForEvent([makeLoadedHook(command)], () => toolStdin(), {
+      blocking: true,
+      logger,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'hook exited non-zero',
+      expect.objectContaining({
+        commandLength: command.length,
+        commandSha256Prefix: expect.any(String),
+        exitCode: 1,
+      })
+    );
+    const emittedPayloads = JSON.stringify(logger.warn.mock.calls);
+    expect(emittedPayloads).not.toContain(command);
+    expect(emittedPayloads).not.toContain('secret-looking-command-text');
+  });
+
   it('bounds the whole phase to aggregateTimeoutMs (pre-stream backstop)', async () => {
     // Two long hooks; the aggregate budget is far below their per-hook default.
     // The phase must abandon the in-flight hook at the budget and skip the rest,

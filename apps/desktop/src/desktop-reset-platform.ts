@@ -11,6 +11,11 @@ export interface DesktopResetLogger {
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
+  /** Every on-disk path the durable NDJSON error-log backstop (Flight
+   * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
+   * factory reset purges it alongside the database, even though it lives
+   * outside `userDataPath` and inside the otherwise-preserved `logs` folder. */
+  readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly resetLocalDatabase: () => Promise<void>;
   readonly runtimes: readonly DesktopResetRuntime[];
@@ -63,6 +68,7 @@ async function resetDesktopDatabaseProfile({
 
 export function createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown,
+  errorLogFilePaths,
   logger,
   resetLocalDatabase,
   runtimes,
@@ -73,6 +79,7 @@ export function createDesktopFactoryResetHandler({
   return async () => {
     try {
       await resetDesktopApplicationData({
+        ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
         resetDatabaseProfile: async () => {
           await resetDesktopDatabaseProfile({
             cleanupLiveSubscriptionsForShutdown,
