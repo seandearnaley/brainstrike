@@ -44,18 +44,41 @@ export class HomePage {
     await this.page.waitForTimeout(1000);
   }
 
+  /**
+   * Navigates to Settings, and is IDEMPOTENT: calling it while Settings is
+   * already open is a no-op rather than a 30s timeout.
+   *
+   * Settings is a Radix `Dialog` (`root-layout-content.tsx`, #1626). Radix marks
+   * every sibling of an open modal `aria-hidden`, which removes the
+   * `NavigationSidebar` — and the `AccountMenu` trigger inside it — from the
+   * ACCESSIBILITY TREE. The button is still painted on screen, but
+   * `getByRole('button', { name: 'Open profile menu' })` cannot resolve it, so a
+   * second call failed with `locator.click: Timeout 30000ms exceeded / waiting
+   * for getByRole(...)` — a locator wait, not an obscured-click error.
+   *
+   * That is why the guard reads the settings navigation rather than the trigger:
+   * the trigger is unobservable in exactly the state we need to detect.
+   *
+   * This is a navigation postcondition, not error tolerance — the method still
+   * ends by asserting Settings is open on BOTH paths, so a genuine failure to
+   * open remains a visible timeout.
+   */
   async openSettings() {
-    await this.page.getByRole('button', { name: 'Open profile menu' }).click();
-    await this.page.getByRole('menuitem', { name: 'Settings…' }).click();
+    const settingsNavigation = this.page.getByRole('navigation', {
+      name: 'Settings categories',
+    });
 
-    const settingsLoading = this.page.getByTestId('desktop-settings-page-loading');
-    if (await settingsLoading.isVisible().catch(() => false)) {
-      await settingsLoading.waitFor({ state: 'hidden', timeout: 10_000 });
+    if (!(await settingsNavigation.isVisible())) {
+      await this.page.getByRole('button', { name: 'Open profile menu' }).click();
+      await this.page.getByRole('menuitem', { name: 'Settings…' }).click();
+
+      const settingsLoading = this.page.getByTestId('desktop-settings-page-loading');
+      if (await settingsLoading.isVisible().catch(() => false)) {
+        await settingsLoading.waitFor({ state: 'hidden', timeout: 10_000 });
+      }
     }
 
-    await this.page
-      .getByRole('navigation', { name: 'Settings categories' })
-      .waitFor({ state: 'visible', timeout: 10_000 });
+    await settingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
   }
 
   async toggleTheme() {
