@@ -5,6 +5,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedResetProbeRows } from './utils/reset-seed-helpers';
 
 type ConfirmOverrideTarget = typeof globalThis & {
   confirm: () => boolean;
@@ -202,6 +203,19 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     fs.writeFileSync(sentinelFile, 'stale', 'utf8');
     fs.writeFileSync(diagnosticFile, 'keep', 'utf8');
     await seedBrowserPersistentState(window);
+
+    // Populate the database before resetting. PR #1978 made previously-swallowed
+    // purge errors visible, so a realistically-populated database is the case
+    // that can newly turn a working reset into a hard failure.
+    //
+    // Post-reset ROW COUNTS are deliberately NOT asserted here: desktop factory
+    // reset routes through db:resetLocal -> resetDesktopApplicationData, which
+    // wipes the database and userData wholesale. A count taken afterwards reads
+    // zero whether or not the purge did anything, so the assertion could not
+    // fail for the reason it appears to guard. That case is covered at the
+    // handler layer by
+    // apps/desktop/src/__tests__/main/ipc-handlers-db-clear-all.integration.test.ts.
+    await seedResetProbeRows(window);
 
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
