@@ -264,13 +264,14 @@ control. When persisting to disk, always encrypt user data at rest.
 
 All agent responses are streamed. The `streamMastraAgent()` helper wraps  
 Mastra’s `agent.stream()` and converts each Mastra part into one of the ten  
-`StreamChunk` variants declared in `src/types.ts` — including `text-delta`  
-(plain assistant text), `reasoning-delta`, `tool-event` progress/status  
-chunks, `run-event` (the durable-persistence discriminator),  
+`StreamChunk` variants declared in `src/types.ts` — `text-delta` (plain  
+assistant text), `reasoning-delta`, `tool-event` progress/status chunks,  
+`run-event` (the durable-persistence discriminator),  
 `tool-approval-required`, `tool-suspend-required`, `shell-output`,  
-`message-finish` and `finish` markers. A custom UI should iterate over the  
-returned `AsyncIterable` and render partials as they arrive. Remember to call  
-`runtime.dispose()` when the stream ends to free underlying resources.
+`context-breakdown`, `message-finish` and `finish` markers. A custom UI  
+should iterate over the returned `AsyncIterable` and render partials as they  
+arrive. Remember to call `runtime.dispose()` when the stream ends to free  
+underlying resources.
 
 That `StreamChunk` union — not Mastra's own stream output — is the authoritative  
 UI/persistence contract; see R6 in `docs/agents/mastra-boundary.md`.

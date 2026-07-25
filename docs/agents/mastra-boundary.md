@@ -69,10 +69,24 @@ Owned by Brainstrike, on both surfaces:
 ### Why not Mastra Server
 
 The historical framing — "adopting Mastra means adopting a generated Hono app" —
-is **false at 1.51**. `@mastra/core` contains no HTTP code: no `http.createServer`,
-no `Bun.serve`, no HTTP `.listen(`, and neither `hono` nor `express` is a runtime
-dependency. `Config.server` is inert configuration until a separate adapter package
-calls `mastra.setMastraServer(...)`.
+is **false at 1.51**. `@mastra/core` ships no HTTP server: its compiled output
+contains no `http.createServer`, no `Bun.serve`, and no HTTP `.listen(` (the only
+`.listen()` calls are an LSP connection, a voice provider, and an opt-in
+Unix-domain-socket pubsub subpath). `Config.server` is inert configuration until a
+separate adapter package calls `mastra.setMastraServer(...)`.
+
+Precisely, on the dependency question — the loose phrasing "hono and express are
+not dependencies" is wrong in both directions and was corrected in review:
+
+- `hono@4.12.27` **is** in the lockfile, but only via `@vercel/hono` and
+  `@hono/node-server` (Vercel CLI tooling). Nothing links it to Mastra.
+- `express@5.2.1` **is** resolved inside `@mastra/core`'s peer suffix, via
+  `@a2a-js/sdk@0.3.14` — a real dependency of core — where express is an
+  **optional** peer (`peerDependenciesMeta.express.optional: true`).
+
+Neither fact weakens R1: an optional peer that core never starts is not an HTTP
+surface. But the ruling rests on "core ships no server", not on "express is
+absent from the tree", and the guard tests assert the former.
 
 So there was never a cost to *not* adopting it, and adoption today would add a
 package while moving ownership of auth, CORS, secrets, and the desktop loopback
@@ -329,7 +343,7 @@ because a snapshot may cross a pubsub boundary.
 **replay-from-a-chosen-step with injected context**, not a read-only history
 browser. It is not a run-timeline substitute.
 
-The run timeline is the Brainstrike contract: 30 event kinds in
+The run timeline is the Brainstrike contract: 31 event kinds in
 `packages/assistant-contract/src/run-events.ts:3-35`, persisted by two writers with
 byte-identical SQL (`apps/desktop/src/assistant-server.ts:884-935`;
 `packages/app-shell/src/assistant-memory-repository.ts:2449-2502`), read by reload
@@ -390,8 +404,9 @@ these tests in the same change.
 | --- | --- |
 | R1 | no `@mastra/{hono,express,fastify,koa,nestjs,deployer,server}` in the lockfile; constructed Mastra config carries no `server`/`observability`/`scorers` key in **any** literal form (`key:`, quoted, or bare shorthand — `storage,` in that object is already shorthand), and no opaque spread that would make the scan unverifiable |
 | R2 | **both** browser bundles — `apps/web/vite.config.mts` **and** `apps/desktop/vite.config.mts` (the Electron renderer build, `outDir: 'dist/renderer'`) — keep `@mastra/core` and `/^@mastra\//` in their vite externals |
+| R4 | `@mastra/agent-browser` absent from every manifest and the lockfile |
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
-| R8 | `@mastra/observability` and `@mastra/evals` absent (informational — R8 permits adding evals deliberately) |
+| R8 | *(unguarded by design — R8 permits adding `@mastra/evals` on its own merits, so an absence assertion would encode a constraint this ruling explicitly retires)* |
 
 ## FOLLOW-UPS
 

@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
  * fs, fs/promises, child_process, os, path, module, url, stream, string_decoder
  * and crypto, and it is pulled in by @mastra/core/agent, /mastra AND /workspace.
  * There is no browser-safe entry point. apps/web keeps it out of the browser
- * bundle via vite `build.rollupOptions.external`. Dropping that externalization
+ * bundle via vite `build.rolldownOptions.external`. Dropping that externalization
  * produces NO build error — the failure is a runtime explosion in the browser,
  * which is precisely the class of break a contract test has to catch.
  *
@@ -224,7 +224,22 @@ test('R1: the scoped Mastra instance registers no server, observability, or scor
 
   // Balanced-brace scan of the config object literal, so a nested object in the
   // argument cannot truncate the region we assert over.
+  //
+  // The brace MUST be the call's own argument. `indexOf('{', start)` alone finds
+  // the next `{` anywhere after `new Mastra(` — which is the config literal only
+  // because the call site is currently `new Mastra({`. Refactored to
+  // `new Mastra(config)` (plausible once the config grows conditional branches),
+  // an unanchored scan would silently retarget the next unrelated block, find no
+  // `server:`, and report green — the guard would then be guarding nothing, which
+  // is the exact BST-836 failure mode the vacuity test above exists to prevent.
+  // Caught in review on #1976.
   const objectStart = source.indexOf('{', start);
+  assert.equal(
+    objectStart,
+    start + 'new Mastra('.length,
+    'new Mastra() is no longer called with an inline object literal, so the brace scan below would assert ' +
+      'over an unrelated block and pass vacuously. Point this guard at whatever now builds the config.'
+  );
   let depth = 0;
   let objectEnd = -1;
   for (let i = objectStart; i < source.length; i += 1) {
