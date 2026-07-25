@@ -18,8 +18,14 @@ import {
 } from '@brainstrike/ui';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import { Download, FolderOpen, RefreshCw } from 'lucide-react';
+import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
+import {
+  DIAGNOSTICS_RETENTION_DAY_OPTIONS,
+  DIAGNOSTICS_RETENTION_ROW_OPTIONS,
+  diagnosticsRetentionSelectors,
+  useDiagnosticsRetentionStore,
+} from '../../stores/diagnostics-retention-store';
 import { useLoggingPreferencesStore } from '../../stores/logging-preferences-store';
 import { type LogSourceAdapter, LogViewer } from './log-viewer-components/log-viewer';
 
@@ -76,9 +82,38 @@ export interface LoggingSettingsSectionProps {
    */
   onExportDurableNdjson?: () => Promise<DurableNdjsonExportResult>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
+  /**
+   * Purges diagnostic events past the user's configured retention limits
+   * (Flight Recorder P2b Task 4) and resolves with the deleted row count,
+   * for the Diagnostics Retention card's "Purge now" button. Threaded as a
+   * callback prop for the same reason as `onExportDurableNdjson` above:
+   * `app-shell` already depends on `preferences`, so a repository import
+   * here would be circular. Callers build this from
+   * `useDiagnosticsPurge()` (`@brainstrike/app-shell/diagnostics`), which
+   * wraps `DiagnosticEventsRepository.purge()` with the Task 1 store's
+   * `maxAgeDays`/`maxRows`. The card renders only when this prop is
+   * present.
+   */
+  onPurgeNow?: () => Promise<number>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   onSelectLogDestination?: () => Promise<string | null>;
   runtime: 'browser' | 'electron-renderer';
+  /**
+   * Why durable diagnostic capture stopped, or `null` while healthy (Flight
+   * Recorder P2b Task 5). Callers read
+   * `useDiagnosticSinkHealthStore(...)` from
+   * `@brainstrike/app-shell/diagnostics`.
+   *
+   * This prop is the ONLY way a broken sink can reach a user. The two
+   * `LogRecord` -> `DiagnosticEvent` converters skip records scoped to
+   * `DIAGNOSTIC_SINK_SCOPE` (a loop guard stopping the sink from logging its
+   * own failures back into itself), so a disabled sink never appears in the
+   * durable table or the Persistent log view — those would just look empty,
+   * which reads as "no errors happened" rather than "errors are no longer
+   * being recorded". Surfacing it is the design's §4.3 honest-degradation
+   * requirement.
+   */
+  sinkHealthReason?: string | null;
 }
 
 export type { LogSourceAdapter };
@@ -86,6 +121,31 @@ export type { LogSourceAdapter };
 type LogSourceMode = 'persistent' | 'session';
 
 const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
+
+/**
+ * Mirrors `DIAGNOSTIC_EVENTS_PURGE_LIMIT` in
+ * `packages/db/src/repositories/diagnostic-events-repository.ts` (500 rows
+ * per delete inside `purge()`). Hardcoded rather than imported for the same
+ * reason `diagnostics-retention-store.ts` hardcodes its own defaults: this
+ * file must not import `@brainstrike/db`'s heavy barrel (`onPurgeNow` is a
+ * callback prop precisely to avoid that). Used only as a heuristic for
+ * whether a purge may not have fully drained a large backlog. It is a
+ * deliberately IMPRECISE heuristic biased toward over-warning: `purge()`
+ * returns the SUM of its two independently-capped deletes (aged rows +
+ * over-cap rows), so a count at or above this threshold does not prove
+ * either delete actually hit its cap — 300 aged + 250 over-cap trips it
+ * with neither near the limit. Over-warning ("more may remain" when nothing
+ * does) costs the user one redundant click; under-warning would imply a
+ * full drain that did not happen, which is the failure this project bans.
+ * An exact signal would need `purge()` to return per-delete counts. Drift
+ * is caught test-side in BOTH directions:
+ * `logging-settings-section.test.tsx` resolves `onPurgeNow` with the REAL
+ * exported `DIAGNOSTIC_EVENTS_PURGE_LIMIT` (asserting the "may remain"
+ * copy, which catches a DROP below this threshold) and with `LIMIT - 1`
+ * (asserting the plain copy, which catches a RISE above it), so either
+ * divergence fails RED instead of silently mis-warning.
+ */
+const DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD = 500;
 
 function formatLogLevel(level: LogLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();
@@ -118,6 +178,8 @@ export function LoggingSettingsSection({
   logSource,
   durableLogSource,
   onExportDurableNdjson,
+  onPurgeNow,
+  sinkHealthReason,
 }: LoggingSettingsSectionProps) {
   const preferences = useLoggingPreferencesStore((state) => state.preferences);
   const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
@@ -126,6 +188,7 @@ export function LoggingSettingsSection({
   const [isSyncing, setIsSyncing] = useState(false);
   const [logSourceMode, setLogSourceMode] = useState<LogSourceMode>('session');
   const [isExportingDurableNdjson, setIsExportingDurableNdjson] = useState(false);
+  const [isPurgingNow, setIsPurgingNow] = useState(false);
   const { toast } = useToast();
   const updateTokenRef = useRef(0);
   const pending = busy || isSyncing;
@@ -276,6 +339,38 @@ export function LoggingSettingsSection({
     setIsSyncing(false);
   }, [commitPreferences, onResetPreferences, resetPreferences, setPreferences, toast]);
 
+  // Same shape as `handleReset` above: the catch branch never rethrows, so
+  // `setIsPurgingNow(false)` unconditionally after the try/catch is reached
+  // on both the success and failure paths — no `finally` needed (a
+  // `TryStatement` with a `finally` clause blocks React Compiler's automatic
+  // memoization for this whole component, react-doctor `react-hooks-js/todo`,
+  // error severity — the same rule that failed a required check on P2a's
+  // `handleExportDurableNdjson`).
+  const handlePurgeNow = useCallback(async () => {
+    if (!onPurgeNow) {
+      return;
+    }
+    setIsPurgingNow(true);
+    try {
+      const deletedCount = await onPurgeNow();
+      toast({
+        description:
+          deletedCount >= DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD
+            ? `Purged ${deletedCount} diagnostic events (more may remain; run again).`
+            : `Purged ${deletedCount} diagnostic events.`,
+        title: 'Diagnostics purged',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        description: message,
+        title: 'Failed to purge diagnostic events',
+        variant: 'destructive',
+      });
+    }
+    setIsPurgingNow(false);
+  }, [onPurgeNow, toast]);
+
   const fileDestinationLabel = useMemo(
     () =>
       deriveDestinationLabel(preferences.file.destination, fileCapabilities?.defaultDestination),
@@ -355,6 +450,7 @@ export function LoggingSettingsSection({
 
   return (
     <div className="space-y-6">
+      {sinkHealthReason ? <DiagnosticSinkHealthBanner reason={sinkHealthReason} /> : null}
       <GeneralLoggingCard
         applyUpdates={applyUpdates}
         logLevelItems={logLevelItems}
@@ -379,6 +475,13 @@ export function LoggingSettingsSection({
         pending={pending}
         preferences={preferences}
       />
+      {onPurgeNow ? (
+        <DiagnosticsRetentionCard
+          isPurgingNow={isPurgingNow}
+          onPurgeNow={handlePurgeNow}
+          pending={pending}
+        />
+      ) : null}
       {durableLogSource ? (
         <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
           <div>
@@ -708,6 +811,129 @@ function AdvancedLoggingCard({
           <Button disabled={pending} onClick={onReset} size="sm" type="button" variant="outline">
             <RefreshCw aria-hidden="true" className="mr-2 h-4 w-4" />
             Reset
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Flight Recorder P2b Task 5: the §4.3 honest-degradation surface for a
+ * diagnostic sink that gave up after repeated flush failures. Rendered at the
+ * TOP of the section because everything below it (the Persistent log source,
+ * the retention card) silently describes a store that is no longer being
+ * written to. Uses the same amber treatment as the file-logging warning
+ * already in this file.
+ */
+function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
+  return (
+    <div
+      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200"
+      data-testid="diagnostic-sink-health-banner"
+      role="alert"
+    >
+      <span className="font-medium">Durable diagnostic capture has stopped.</span> Warnings and
+      errors are no longer being written to the local database, so the Persistent log view and
+      exports will not include anything after this point. Reason: {reason}. Restarting the app
+      re-enables capture.
+    </div>
+  );
+}
+
+interface DiagnosticsRetentionCardProps {
+  isPurgingNow: boolean;
+  onPurgeNow: () => Promise<void>;
+  pending: boolean;
+}
+
+/** Flight Recorder P2b Task 4: retention thresholds (bound to the
+ * `diagnostics-retention-store` persisted store) plus an on-demand "Purge
+ * now" action. Rendered by the parent only when `onPurgeNow` is supplied. */
+function DiagnosticsRetentionCard({
+  isPurgingNow,
+  onPurgeNow,
+  pending,
+}: DiagnosticsRetentionCardProps) {
+  const maxAgeDays = useDiagnosticsRetentionStore(diagnosticsRetentionSelectors.maxAgeDays);
+  const maxRows = useDiagnosticsRetentionStore(diagnosticsRetentionSelectors.maxRows);
+  const setMaxAgeDays = useDiagnosticsRetentionStore((state) => state.setMaxAgeDays);
+  const setMaxRows = useDiagnosticsRetentionStore((state) => state.setMaxRows);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Diagnostics Retention</CardTitle>
+        <CardDescription>
+          Control how long warn+ diagnostic events stay in the local database before they're purged
+          automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="diagnostics-max-age-days">Keep Events For</Label>
+            <Select
+              disabled={pending}
+              onValueChange={(value) => setMaxAgeDays(Number(value))}
+              value={String(maxAgeDays)}
+            >
+              <SelectTrigger id="diagnostics-max-age-days">
+                <SelectValue placeholder="Select duration" />
+              </SelectTrigger>
+              <SelectContent>
+                {DIAGNOSTICS_RETENTION_DAY_OPTIONS.map((days) => (
+                  <SelectItem key={days} value={String(days)}>
+                    {days} days
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">
+              Diagnostic events older than this are purged automatically.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="diagnostics-max-rows">Maximum Events</Label>
+            <Select
+              disabled={pending}
+              onValueChange={(value) => setMaxRows(Number(value))}
+              value={String(maxRows)}
+            >
+              <SelectTrigger id="diagnostics-max-rows">
+                <SelectValue placeholder="Select row limit" />
+              </SelectTrigger>
+              <SelectContent>
+                {DIAGNOSTICS_RETENTION_ROW_OPTIONS.map((rows) => (
+                  <SelectItem key={rows} value={String(rows)}>
+                    {rows.toLocaleString()} events
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">
+              Oldest events beyond this count are purged automatically.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div>
+            <div className="font-medium text-sm">Purge Now</div>
+            <p className="text-muted-foreground text-xs">
+              Immediately delete diagnostic events past the limits above.
+            </p>
+          </div>
+          <Button
+            disabled={isPurgingNow}
+            onClick={onPurgeNow}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
+            Purge Now
           </Button>
         </div>
       </CardContent>

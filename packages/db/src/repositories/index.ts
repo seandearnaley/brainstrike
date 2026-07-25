@@ -9,6 +9,7 @@ export type {
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
 export {
+  DIAGNOSTIC_EVENTS_PURGE_LIMIT,
   DIAGNOSTIC_RETENTION_MAX_AGE_MS,
   DIAGNOSTIC_RETENTION_MAX_ROWS,
   type DiagnosticEventRow,

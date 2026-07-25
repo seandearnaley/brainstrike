@@ -1,5 +1,8 @@
 import { DiagnosticEventsRepository, useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import {
+  boundWithMarker,
+  DIAGNOSTIC_MESSAGE_MAX_CHARS,
   type DiagnosticEvent,
   DiagnosticEventWriter,
   deriveDiagnosticRecordSource,
@@ -7,9 +10,11 @@ import {
 } from '@brainstrike/utils/diagnostics';
 import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import { useEffect } from 'react';
+import { useDiagnosticSinkHealthStore } from './diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';
 
 const bridgeLogger = createLogger(DIAGNOSTIC_SINK_SCOPE);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function makeDroppedEvent(source: string) {
   return (droppedCount: number): DiagnosticEvent => ({
@@ -79,11 +84,18 @@ export function DiagnosticSinkBridge({
       ...(flushBatchSize === undefined ? {} : { flushBatchSize }),
       makeDroppedEvent: makeDroppedEvent(source),
       onDisabled: (cause) => {
+        const reason = boundWithMarker(
+          cause instanceof Error ? cause.message : String(cause),
+          DIAGNOSTIC_MESSAGE_MAX_CHARS
+        );
         // Loop guard: this scope is excluded from capture below, so the sink
         // failure is loud (console/file) without recursing into the sink.
         bridgeLogger.error('Diagnostic event sink disabled after repeated flush failures', {
-          cause: cause instanceof Error ? cause.message : String(cause),
+          cause: reason,
         });
+        // The health store is the ONLY channel this signal can reach the
+        // settings UI through — see diagnostic-sink-health-store.ts for why.
+        useDiagnosticSinkHealthStore.getState().markDisabled(reason);
       },
       sink: repository,
     });
@@ -125,7 +137,13 @@ export function DiagnosticSinkBridge({
         }
       }
     });
-    repository.purge().catch((cause: unknown) => {
+    // Read (not subscribe): a one-off value at mount time is correct here —
+    // the startup purge runs once per mount, so it should use whatever the
+    // user's retention preference was AT that moment, not re-run if the
+    // preference changes later in the same session (Task 4's "Purge now"
+    // button is the explicit re-run affordance for that).
+    const { maxAgeDays, maxRows } = useDiagnosticsRetentionStore.getState();
+    repository.purge({ maxAgeMs: maxAgeDays * MS_PER_DAY, maxRows }).catch((cause: unknown) => {
       bridgeLogger.error('Diagnostic retention purge failed', {
         cause: cause instanceof Error ? cause.message : String(cause),
       });

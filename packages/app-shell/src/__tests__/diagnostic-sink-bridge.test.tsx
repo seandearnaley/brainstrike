@@ -1,4 +1,8 @@
 import {
+  __resetDiagnosticsRetentionStoreForTests,
+  useDiagnosticsRetentionStore,
+} from '@brainstrike/preferences/stores/diagnostics-retention-store';
+import {
   LogLevel,
   type LogRecord,
   error as logError,
@@ -7,15 +11,28 @@ import {
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';
+import {
+  resetDiagnosticSinkHealthStore,
+  useDiagnosticSinkHealthStore,
+} from '../diagnostics/diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE } from '../diagnostics/diagnostic-sink-session';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Mock the db context to hand the bridge an in-memory query recorder.
 const queries: { sql: string; params?: unknown[] | undefined }[] = [];
+// Toggled by the "writer disables" test below to make every INSERT reject,
+// driving the writer's own failure/retry accounting. Left false for every
+// other test so their inserts continue to succeed unchanged.
+let rejectInserts = false;
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: () => ({
     query: async (sql: string, params?: unknown[]) => {
       queries.push({ params, sql });
+      if (rejectInserts && sql.includes('INSERT INTO brainstrike_diagnostic_events')) {
+        throw new Error('simulated sink insert failure');
+      }
       return { rows: [] };
     },
   }),
@@ -24,6 +41,9 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
 describe('DiagnosticSinkBridge', () => {
   beforeEach(() => {
     queries.length = 0;
+    rejectInserts = false;
+    resetDiagnosticSinkHealthStore();
+    __resetDiagnosticsRetentionStoreForTests();
   });
 
   it('captures a warn+ log record into the diagnostic events table', async () => {
@@ -85,6 +105,41 @@ describe('DiagnosticSinkBridge', () => {
         queries.some((entry) => entry.sql.includes('DELETE FROM brainstrike_diagnostic_events'))
       ).toBe(true);
     });
+  });
+
+  it("passes the user's CONFIGURED retention values to the startup purge, not the repository defaults", async () => {
+    useDiagnosticsRetentionStore.getState().setMaxAgeDays(7);
+    useDiagnosticsRetentionStore.getState().setMaxRows(5000);
+
+    render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await vi.waitFor(() => {
+      expect(
+        queries.some((entry) => entry.sql.includes('DELETE FROM brainstrike_diagnostic_events'))
+      ).toBe(true);
+    });
+
+    // The over-cap delete binds `maxRows` as its sole OFFSET param.
+    const overCapDelete = queries.find(
+      (entry) =>
+        entry.sql.includes('DELETE FROM brainstrike_diagnostic_events') &&
+        entry.sql.includes('OFFSET $1')
+    );
+    expect(overCapDelete?.params).toEqual([5000]);
+
+    // The aged-rows delete binds an ISO cutoff derived from maxAgeDays; the
+    // repository's untouched default would be 30 days out, so pinning to a
+    // window around the CONFIGURED 7-day cutoff (rather than the 30-day
+    // default) proves the store's value reached the purge call.
+    const agedDelete = queries.find(
+      (entry) =>
+        entry.sql.includes('DELETE FROM brainstrike_diagnostic_events') &&
+        entry.sql.includes('occurred_at <')
+    );
+    const cutoffIso = agedDelete?.params?.[0] as string;
+    const cutoffMs = new Date(cutoffIso).getTime();
+    const expectedCutoffMs = Date.now() - 7 * MS_PER_DAY;
+    expect(Math.abs(cutoffMs - expectedCutoffMs)).toBeLessThan(5000);
   });
 
   it('enqueues a forwarded record into the same writer with a derived source', async () => {
@@ -241,5 +296,59 @@ describe('DiagnosticSinkBridge', () => {
     unmount();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('populates the sink health store once the writer disables from repeated flush failures', async () => {
+    rejectInserts = true;
+    render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    const insertAttempts = () =>
+      queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))
+        .length;
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+
+    // The writer's default maxConsecutiveFailures is 5
+    // (packages/utils/src/diagnostics/diagnostic-event-writer.ts). With
+    // flushBatchSize=1, one logError call enqueues + eagerly flushes exactly
+    // one event per cycle. A failed flush's own cleanup (consecutiveFailures
+    // increment, requeue, clearing the in-flight guard) finishes a few
+    // microtask ticks AFTER `vi.waitFor` first observes the insert attempt,
+    // so a next logError fired too early would see the writer still
+    // "in flight" and its event would silently pile up in `pending` instead
+    // of starting a new attempt. The macrotask boundary below (a real
+    // `setTimeout`) forces that cleanup to fully settle before the next
+    // attempt, so this genuinely drives 5 CONSECUTIVE writer-level failures
+    // rather than asserting the health store directly.
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      logError(`bridge disable drive ${attempt}`, { code: 'bridge_disable_test' });
+      // Sequential await is required: each attempt must observably land
+      // before the next enqueue, or several events would bunch into one
+      // flush cycle and understate the failure count.
+      // `toBeGreaterThanOrEqual`, not `toBe`: if a slow runner ever let two
+      // enqueues bunch into one flush cycle, the counter would jump PAST
+      // `attempt` and a strict equality could never be satisfied — the
+      // waitFor would hard-timeout rather than retry. Nothing is lost by
+      // relaxing it, because the terminal `toBe(5)` below still pins the
+      // exact total.
+      await vi.waitFor(() => {
+        expect(insertAttempts()).toBeGreaterThanOrEqual(attempt);
+      });
+      // Forces the macrotask boundary described above between each attempt.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    await vi.waitFor(() => {
+      expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
+    });
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
+      'simulated sink insert failure'
+    );
+
+    // The writer is now disabled: further enqueues are no-ops, so no 6th
+    // insert attempt should ever appear.
+    logError('after disable, should not be attempted', { code: 'bridge_disable_test' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(insertAttempts()).toBe(5);
   });
 });
