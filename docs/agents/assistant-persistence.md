@@ -491,6 +491,53 @@ Runtime invariants:
 
 ---
 
+## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP (settled 2026-07-24 — do not relitigate)
+
+`brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
+created ONLY by the renderer's lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap
+(`packages/app-shell/src/assistant-memory-repository.ts`, memoized per DB handle
+in the `assistantThreadSchemaInitPromises` WeakMap and awaited by every
+repository method). They have NO numbered migration, and must not get one: both
+carry `ON DELETE CASCADE` FKs to parents no migration creates (the Mastra
+threads table, and the runs row itself). An FK-less migration would either
+break the bare-PGlite migration suite or permanently diverge fresh-vs-upgraded
+installs and leak orphan rows — the same trade-off `brainstrike_assistant_edit_checkpoints`
+resolved in the other direction by deliberately dropping its FKs for migration 052.
+
+Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
+migration-backed (062, registered in both runners) *and* mirrored in the
+bootstrap SQL.
+
+The desktop MAIN process writes into both relations without ever creating them
+(`recordDesktopAssistantRunEvent` and `recordDesktopAssistantHookRunOutcome` in
+`apps/desktop/src/assistant-server.ts`, both `INSERT … SELECT FROM
+brainstrike_assistant_thread_runs`). That is safe, and the reason is **runId
+provenance — NOT startup ordering**:
+
+- `memory.runId` has exactly ONE producer: `createAssistantThreadRunPromise`
+  (`assistant-ui-panel-wrapper-runtime.ts`) → `repository.createThreadRun`,
+  which awaits the schema bootstrap before it can return an id.
+- Every main-process write is gated on `if (runId)`, and `buildAssistantRequestData`
+  puts no `runId` on `data.memory`, so no stale or restored id can bypass the mint.
+- Desktop has ONE physical database: the renderer's handle is
+  `window.electronAPI.db`, whose `db:exec` resolves through the same `db-main`
+  `getDatabase()` the assistant server calls.
+
+Therefore do NOT add a defensive `CREATE TABLE IF NOT EXISTS` in main, and do
+not add an ordering handshake: both would be machinery for an unreachable state,
+and would mask a genuinely broken invariant if provenance ever changes.
+
+**The regression that WOULD make this real** is a second runId producer — a
+server-side background run, a cron/headless run, or subagent runs persisted
+under their own ids. Any such producer must bootstrap the schema itself.
+
+Failure stays loud either way: an un-bootstrapped write throws PG `42P01`, and
+`observeDesktopAssistantRunEvents` both `logger.error`s it and rethrows when it
+flushes its persistence queue. Paired test:
+`apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
+
+---
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.
