@@ -107,15 +107,15 @@ const ACCEPTED_DIVERGENCES = [
       'KNOWN GAP, not intentional. Migration 046. `packages/app-shell` is SHARED code and ' +
       'INSERTs into it (assistant-memory-repository.ts), so per-thread token/cost history ' +
       'survives a web clear/reset — a FACTORY RESET CONTRACT violation. Widening renderer ' +
-      'coverage is a behavioural change needing its own real-PGlite proof; tracked separately.',
+      'coverage is a behavioural change needing its own real-PGlite proof. Tracked as BST-862; ' +
+      'closing it means deleting this entry AND the three below.',
     side: 'desktop-only',
     table: 'brainstrike_assistant_run_usage',
   },
   {
     reason:
       'KNOWN GAP, not intentional. Migration 055. Also written by SHARED `packages/app-shell` ' +
-      'code, so assistant-ui branch topology survives a web clear/reset. Same tracking as ' +
-      'brainstrike_assistant_run_usage.',
+      'code, so assistant-ui branch topology survives a web clear/reset. BST-862.',
     side: 'desktop-only',
     table: 'brainstrike_assistant_message_parents',
   },
@@ -123,14 +123,14 @@ const ACCEPTED_DIVERGENCES = [
     reason:
       'KNOWN GAP, currently latent. Only desktop-side writers today ' +
       '(apps/desktop/src/assistant-server/task-list-repository.ts), so nothing writes it on ' +
-      'web yet. Becomes live the moment a shared writer appears.',
+      'web yet. Becomes live the moment a shared writer appears. BST-862.',
     side: 'desktop-only',
     table: 'brainstrike_assistant_task_lists',
   },
   {
     reason:
       'KNOWN GAP, currently latent. Rows are written by desktop-side journal/revert modules; ' +
-      'shared app-shell code only reads and deletes. Becomes live if a shared writer appears.',
+      'shared app-shell code only reads and deletes. Becomes live if a shared writer appears. BST-862.',
     side: 'desktop-only',
     table: 'brainstrike_assistant_edit_checkpoints',
   },
