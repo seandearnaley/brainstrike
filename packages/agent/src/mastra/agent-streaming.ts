@@ -537,7 +537,13 @@ function makeUnsupportedApprovalChunks(
     readMastraStreamPartString(part, 'name') ??
     (upstreamToolCallId ? toolNames.get(upstreamToolCallId) : undefined) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // NAME-FORM CONTRACT: the runtime `toolNameMap` is AUTHORITATIVE (it is the only
+  // layer that can bridge MCP names) and the static native reverse map is only the
+  // fallback for a route whose runtime registered no natives. Order matters: a
+  // mapped original may ITSELF be a sanitized native id (`sanitizeTools` records
+  // an identity mapping for a tool registered as `brainstrike_executeCommand`), so
+  // denormalizing a successful hit would rewrite an authoritative name.
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
   const runId = readMastraStreamPartString(part, 'runId');
   const missingRunId = runId === undefined;
   const args = readMastraStreamPartValue(part, 'args');
@@ -611,7 +617,11 @@ function makeApprovalRequiredChunks(
     readMastraStreamPartString(part, 'name') ??
     toolNames.get(toolCallId) ??
     'unknown-tool';
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  // Same map-wins order as the unsupported branch (and as
+  // `resolveDiscoveredApprovalToolName` / `ProjectionSafeToolCallFilter`): the
+  // emitted `toolName` is the label the approval notice shows and the id
+  // per-tool grant handling submits, so a mapped original is never rewritten.
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
   // The Mastra approval part names the tool by its registered (sanitized) id

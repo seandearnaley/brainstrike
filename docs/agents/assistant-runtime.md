@@ -825,7 +825,34 @@ bridges:
   resolves metadata under EITHER form: `get(name)` first, else a scan over
   `meta.originalName`.
 - `makeApprovalRequiredChunks` uses that lookup; the emitted chunk's `toolName`
-  is always the ORIGINAL name (via the runtime `toolNameMap`). A policy-driven
+  is always the ORIGINAL name — resolved as
+  `sanitizedNameMap?.get(raw) ?? denormalizeNativeToolName(raw)`, the SAME
+  MAP-WINS order as `resolveDiscoveredApprovalToolName`,
+  `listSuspendedMastraRuns` (below) and `ProjectionSafeToolCallFilter`
+  (`projection-safe-tool-call-filter.ts`). The runtime `toolNameMap` is
+  AUTHORITATIVE — it is the only layer that can bridge MCP names — and the
+  static native reverse map is only the fallback for a route whose runtime
+  registered no natives: `apps/desktop/src/ipc-agent.ts` streams with NO
+  `tools`, so a native pause there has no map entry and would otherwise label
+  the notice `brainstrike_executeCommand`.
+  **ORDER IS LOAD-BEARING, do not "simplify" it to
+  `denormalizeNativeToolName(map.get(raw) ?? raw)`** (settled on #1987 review):
+  `sanitizeTools` records `map.set(uniqueName, name)` UNCONDITIONALLY, including
+  the identity case, so a tool registered under the literal underscored id
+  `brainstrike_executeCommand` maps to ITSELF — denormalizing a successful hit
+  would rewrite that authoritative original to `brainstrike.executeCommand`,
+  mislabelling the notice and submitting the wrong id to per-tool grant
+  handling. (A colon/dot original like `brainstrike:executeCommand` is NOT
+  affected either way: the map VALUE is not a key of the reverse map.)
+  `makeUnsupportedApprovalChunks` (the malformed-pause termination, whose
+  tool-event `name` + `run.failed` `toolName` are the only names the user sees)
+  resolves identically. Proof in `mastra-streaming.spec.ts`: the two
+  "denormalizes a native … no sanitized name map entry exists" cases pin the
+  FALLBACK half, "keeps a MAPPED approval tool name authoritative even when it
+  looks like a sanitized native id" pins the ORDER, and "passes an underscored
+  NON-native approval tool name through unchanged" pins that the fallback never
+  fabricates a dotted name by blind `_`→`.` swap.
+  A policy-driven
   pause (non-empty `askTools`) whose tool resolves under NEITHER form still
   surfaces the pause but omits `riskCategory`/`policyDecision` (never
   fabricated) and logs `logger.error` code
