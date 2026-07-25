@@ -1889,6 +1889,94 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('keeps a MAPPED approval tool name authoritative even when it looks like a sanitized native id', async () => {
+    // ORDERING half of the two-layer contract: the runtime `toolNameMap` WINS and
+    // the static native reverse map is only a fallback. `sanitizeTools` records
+    // `map.set(uniqueName, name)` unconditionally, so a tool registered under the
+    // literal underscored id gets the IDENTITY mapping
+    // `brainstrike_executeCommand -> brainstrike_executeCommand`. Denormalizing a
+    // successful hit would rewrite that authoritative original to
+    // `brainstrike.executeCommand` and mislabel the notice / submit the wrong id
+    // to per-tool grant handling.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-mapped-native-lookalike',
+          toolName: 'brainstrike_executeCommand',
+        },
+        runId: 'run-approval-mapped-native-lookalike',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          brainstrike_executeCommand: {
+            description: 'Caller-owned tool whose original id is already underscored.',
+            id: 'brainstrike_executeCommand',
+          },
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        toolCallId: 'approval-mapped-native-lookalike',
+        toolName: 'brainstrike_executeCommand',
+        type: 'tool-approval-required',
+      })
+    );
+  });
+
+  it('passes an underscored NON-native approval tool name through unchanged', async () => {
+    // The static reverse map only reverses KNOWN native ids: an underscore in an
+    // unknown/MCP name could be original, so a blind `_`→`.` swap would fabricate
+    // a wrong dotted name (no-silent-fallbacks). No `tools` are registered here,
+    // so this exercises the fallback layer with a name it must NOT touch.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { command: 'echo hi' },
+          toolCallId: 'approval-unknown-underscored',
+          toolName: 'totally_unknown_tool',
+        },
+        runId: 'run-approval-unknown-underscored',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run a command', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        toolCallId: 'approval-unknown-underscored',
+        toolName: 'totally_unknown_tool',
+        type: 'tool-approval-required',
+      })
+    );
+  });
+
   it('resolves ask-tool risk metadata when the approval part carries the ORIGINAL dotted name (dual-form lookup)', async () => {
     // askTools is keyed by the SANITIZED registered id; a Mastra upgrade (or any
     // path that surfaces the pause under the ORIGINAL dotted name) must not
