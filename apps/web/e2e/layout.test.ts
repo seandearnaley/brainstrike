@@ -16,7 +16,6 @@ import {
   verifyDefaultLayout,
   waitForAppLoad,
   waitForContextExplorerPage,
-  waitForSettingsPage,
 } from './utils/layout-helpers';
 
 test.describe('Application Layout', () => {
@@ -33,29 +32,28 @@ test.describe('Application Layout', () => {
     await expect(home.settingsHeading).not.toBeVisible();
   });
 
-  test('should have working sidebar navigation', async ({ page }) => {
+  test('should open Settings from the profile menu and return to the workspace', async ({
+    page,
+  }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
 
-    // Ensure both buttons are present initially
+    // Settings is not a sidebar destination — it launches from the profile menu.
     await expect(home.contextExplorerNavButton).toBeVisible();
-    await expect(home.settingsNavButton).toBeVisible();
+    await expect(home.profileMenuButton).toBeVisible();
 
-    // Initial state: Context Explorer is active, Settings is not
+    // Initial state: Context Explorer is active, Settings is closed
     await expect(home.contextExplorerPageMarker).toBeVisible();
     await expect(home.settingsHeading).not.toBeVisible();
 
-    // Ensure Settings button is enabled, then click
-    await expect(home.settingsNavButton).toBeEnabled({ timeout: 10_000 });
-    await home.settingsNavButton.click();
+    await expect(home.profileMenuButton).toBeEnabled({ timeout: 10_000 });
+    await home.navigateToSettings();
 
-    // Verify the Settings page content is visible and Context Explorer is not
-    await waitForSettingsPage(page);
+    // Radix marks content outside the open dialog `aria-hidden`, so the sidebar's
+    // active-page marker drops out of the accessibility tree while Settings is up.
     await expect(home.contextExplorerPageMarker).not.toBeVisible();
 
-    // Ensure Context Explorer button is enabled, then click to navigate back
-    await expect(home.contextExplorerNavButton).toBeEnabled({ timeout: 10_000 });
-    await home.contextExplorerNavButton.click();
+    await home.closeSettings();
 
     // Verify Context Explorer is active again
     await waitForContextExplorerPage(page);

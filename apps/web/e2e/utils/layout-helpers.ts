@@ -453,6 +453,61 @@ export async function waitForContextExplorerPage(page: Page, timeout = 15_000): 
   await expect(contextExplorerActiveNavLocator(page)).toBeVisible({ timeout });
 }
 
+/**
+ * Single source of truth for how Settings is reached.
+ *
+ * Settings is a profile-launched modal: `RootLayoutContent` filters the
+ * `/settings` entry out of `navigationItems`, so there is no sidebar nav button
+ * for it. The account menu trigger is labelled "Open profile menu" and the entry
+ * inside renders as "Settings…" (with an ellipsis), hence the prefix match.
+ *
+ * Keep every Settings-launching path routed through these helpers so a future UI
+ * change only has to update one place.
+ */
+export function profileMenuButtonLocator(page: Page) {
+  return page.getByRole('button', { exact: true, name: 'Open profile menu' });
+}
+
+export function settingsMenuItemLocator(page: Page) {
+  return page.getByRole('menuitem', { name: /^Settings/ });
+}
+
+/**
+ * The modal's accessible title. Radix renders it as an `sr-only` heading, which
+ * Playwright still treats as visible, so it doubles as the open/closed signal.
+ */
+export function settingsModalHeadingLocator(page: Page) {
+  return page.getByRole('heading', { exact: true, name: 'Settings' });
+}
+
+export async function isSettingsModalOpen(page: Page): Promise<boolean> {
+  return settingsModalHeadingLocator(page).isVisible();
+}
+
+export async function openSettingsModal(page: Page): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const trigger = profileMenuButtonLocator(page);
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+
+  const settingsItem = settingsMenuItemLocator(page);
+  await expect(settingsItem).toBeVisible();
+  await settingsItem.click();
+}
+
+/**
+ * Dismiss the Settings modal and wait for it to unmount. Throws when the modal
+ * is not open so callers cannot silently drift out of sync with the UI.
+ */
+export async function closeSettingsModal(page: Page, timeout = 15_000): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const heading = settingsModalHeadingLocator(page);
+  await expect(heading).toBeVisible({ timeout });
+  await page.keyboard.press('Escape');
+  await expect(heading).not.toBeVisible({ timeout });
+}
+
 export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
   const loadingFallback = page.getByTestId('web-settings-page-loading');
@@ -461,7 +516,7 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
     await expect(loadingFallback).not.toBeVisible({ timeout });
   }
 
-  await expect(page.getByRole('heading', { exact: true, name: 'Settings' })).toBeVisible({
+  await expect(settingsModalHeadingLocator(page)).toBeVisible({
     timeout,
   });
 }
@@ -471,6 +526,21 @@ export async function activateSidebarNavigation(
   label: 'Context Explorer' | 'Settings'
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
+
+  if (label === 'Settings') {
+    await openSettingsModal(page);
+    return;
+  }
+
+  // While the Settings dialog is open Radix marks the rest of the app
+  // `aria-hidden`, so this role-based locator resolves to nothing. Fail with a
+  // useful message instead of an opaque "element(s) not found" timeout.
+  if (await isSettingsModalOpen(page)) {
+    throw new Error(
+      `activateSidebarNavigation(page, '${label}') was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — call closeSettingsModal(page) first.`
+    );
+  }
+
   const navigationButton = page.getByRole('button', { exact: true, name: label });
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();

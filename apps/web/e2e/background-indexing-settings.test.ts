@@ -1,8 +1,29 @@
+// Imported via the subpath rather than the `@brainstrike/utils` barrel: the barrel
+// re-exports `dev/hmr-utils`, whose top-level `import.meta` the Playwright runner
+// cannot parse ("Cannot use 'import.meta' outside a module").
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
+import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils/background-indexing-policy';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
+
+/**
+ * Resolves the settings copy rendered for a policy preset straight from the shared
+ * catalogue, so this suite can never drift from the product string.
+ *
+ * Deliberately not `getBackgroundIndexingPolicyOption`: that helper falls back to the
+ * first option, which would silently assert the balanced copy for a preset that no
+ * longer exists.
+ */
+function policyDescription(preset: BackgroundIndexingPolicyPreset): string {
+  const option = BACKGROUND_INDEXING_POLICY_OPTIONS.find((entry) => entry.value === preset);
+  if (!option) {
+    throw new Error(`No background indexing policy option registered for preset: ${preset}`);
+  }
+  return option.description;
+}
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
   await ensureRightPanelVisible(page);
@@ -61,16 +82,12 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await home.goto({ waitForDatabase: false });
     await openSearchIndexingSettings(page);
 
-    await expect(
-      page.getByText(/skipping common generated, cache, lock, and minified artifacts/i)
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(policyDescription('balanced'))).toBeVisible({ timeout: 15_000 });
 
     await page.getByLabel('Indexing policy').click();
     await page.getByRole('option', { name: /full root/i }).click();
 
-    await expect(
-      page.getByText(/indexes every non-binary text file under the selected root/i)
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(policyDescription('full-root'))).toBeVisible({ timeout: 15_000 });
   });
 
   test('surfaces Workspace Index setup state when enabled without a root folder', async ({
@@ -104,6 +121,7 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await openSearchIndexingSettings(page);
     await selectManagedCollection(page, collectionName);
 
+    await home.closeSettings();
     await home.navigateToHome();
     await ensureDatabasePanelVisible(page);
 

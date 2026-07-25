@@ -137,6 +137,11 @@
       "import": "./dist/browser-events.mjs",
       "require": "./dist/browser-events.js"
     },
+    "./background-indexing-policy": {
+      "types": "./dist/background-indexing-policy.d.ts",
+      "import": "./dist/background-indexing-policy.mjs",
+      "require": "./dist/background-indexing-policy.js"
+    },
     "./performance-measure-guard": {
       "types": "./dist/performance-measure-guard.d.ts",
       "import": "./dist/performance-measure-guard.mjs",

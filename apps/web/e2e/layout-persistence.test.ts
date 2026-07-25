@@ -5,6 +5,7 @@ import {
   CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
+  closeSettingsModal,
   contextExplorerActiveNavLocator,
   ensureRightPanelVisible,
   getContextExplorerRightResizeHandle,
@@ -360,6 +361,7 @@ test.describe('IDE Layout Persistence', () => {
       await waitForSettingsPage(page);
 
       // Navigate back to Context Explorer
+      await closeSettingsModal(page);
       await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
@@ -377,6 +379,7 @@ test.describe('IDE Layout Persistence', () => {
       await activateSidebarNavigation(page, 'Settings');
       await waitForSettingsPage(page);
 
+      await closeSettingsModal(page);
       await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
