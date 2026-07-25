@@ -132,6 +132,7 @@ function createCollectorFixture(
     installBinaryShims = false,
     installedLockfile = 'importers: {}\nlockfileVersion: "9.0"\n',
     manifestLockMismatch = false,
+    nestedWorktree = false,
   } = {}
 ) {
   const root = mkdtempSync(join(tmpdir(), 'pruner-runtime-preflight-'));
@@ -173,7 +174,13 @@ function createCollectorFixture(
   // frozen-lockfile manifests) passes while the runtime is not this
   // worktree's. Each variant links a different rung of the chain.
   if (crossWorktreeRuntime) {
-    const other = join(root, 'other-worktree');
+    // nestedWorktree places the foreign runtime UNDER the repo root, the way
+    // this repository nests sibling worktrees at .claude/worktrees/. Plain
+    // containment inside repoRoot passes there, so the gate has to resolve
+    // against repoRoot/node_modules instead.
+    const other = nestedWorktree
+      ? join(repo, '.claude/worktrees/other')
+      : join(root, 'other-worktree');
     writeFixtureFile(other, 'node_modules/.bin/knip', '');
     writeFixtureFile(other, 'node_modules/.bin/react-doctor', '');
     writeFixtureFile(other, 'node_modules/.pnpm/lock.yaml', installedLockfile);
@@ -314,10 +321,35 @@ for (const variant of ['node-modules', 'virtual-store', 'binary']) {
   });
 }
 
+// A nested worktree is INSIDE repoRoot, so plain repo containment accepts it.
+// This repository nests them at .claude/worktrees/, making it the realistic
+// shape rather than a hypothetical one.
+for (const variant of ['node-modules', 'virtual-store', 'binary']) {
+  test(`fails when the ${variant} runtime belongs to a worktree nested inside this one`, (t) => {
+    const fixture = createCollectorFixture(t, {
+      crossWorktreeRuntime: variant,
+      installBinaryShims: true,
+      nestedWorktree: true,
+    });
+    const result = collectFixture(fixture);
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /dependency runtime belongs to another worktree/u);
+    assert.match(result.stderr, /not inside/u);
+    assert.equal(
+      existsSync(fixture.invocationLog),
+      false,
+      'pnpm must not be invoked for a nested foreign runtime either'
+    );
+    assert.deepEqual(readdirSync(fixture.logsDir), []);
+  });
+}
+
 test('accepts a runtime that resolves entirely inside this worktree', (t) => {
   const fixture = createCollectorFixture(t, { installBinaryShims: true });
   const result = collectFixture(fixture);
 
+  assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /belongs to another worktree/u);
 });
 

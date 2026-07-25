@@ -219,7 +219,19 @@ function assertDependencyRuntimeAvailable(repoRoot) {
 // gitignoring the generated output: each of those hides the foreign runtime
 // instead of rejecting it, and a baseline computed against another worktree's
 // dependency graph is wrong in ways no downstream check can detect.
+// Containment inside the REPO ROOT would not be enough: this repository nests
+// sibling worktrees under .claude/worktrees/, so a link into one of those
+// resolves to a path that is inside repoRoot and still is not ours. The
+// runtime must resolve inside repoRoot/node_modules specifically — a nested
+// worktree's node_modules never does.
+//
+// This requires every REQUIRED_DEPENDENCY_BINARIES entry to be an external
+// dependency (pnpm links those through node_modules/.pnpm). A workspace
+// package's own bin resolves to packages/<name>/... and would be rejected
+// here — loudly, which is the correct direction: adding one to that list is a
+// decision that deserves a failing collector, not a widened check.
 function assertDependencyRuntimeLocal(repoRoot) {
+  const runtimeRoot = join(repoRoot, 'node_modules');
   const runtimePaths = [
     'node_modules',
     join('node_modules', '.pnpm'),
@@ -236,10 +248,16 @@ function assertDependencyRuntimeLocal(repoRoot) {
         }); run "pnpm install --frozen-lockfile" before collecting`
       );
     }
-    const pathFromRepo = relative(repoRoot, resolvedPath);
-    if (pathFromRepo === '' || pathFromRepo.startsWith('..') || isAbsolute(pathFromRepo)) {
+    const pathFromRuntimeRoot = relative(runtimeRoot, resolvedPath);
+    // '' means the entry IS runtimeRoot (the expected case for node_modules
+    // itself). isAbsolute covers Windows cross-drive paths; test:scripts does
+    // not run on native-windows, so treat it as unproven defence-in-depth.
+    const insideRuntimeRoot =
+      pathFromRuntimeRoot === '' ||
+      !(pathFromRuntimeRoot.startsWith('..') || isAbsolute(pathFromRuntimeRoot));
+    if (!insideRuntimeRoot) {
       fail(
-        `dependency runtime belongs to another worktree (${runtimePath} resolves to ${resolvedPath}, outside ${repoRoot}); run "pnpm install --frozen-lockfile" in THIS worktree before collecting`
+        `dependency runtime belongs to another worktree (${runtimePath} resolves to ${resolvedPath}, which is not inside ${runtimeRoot}); run "pnpm install --frozen-lockfile" in THIS worktree before collecting`
       );
     }
   }
