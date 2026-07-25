@@ -162,8 +162,9 @@ executes it (`buildAssistantThreadRunsSchemaSql`,
 Nothing else catches this class: `tsc` types ESM live bindings identically
 either way, the schema module imports nothing so there is no source cycle to
 detect, and Vitest evaluates real modules in dependency order so unit tests
-always see a defined binding. Only a production build has a chunk graph, so only
-E2E observes it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
+always see a defined binding. Only a production build has a chunk graph.
+Before the structural backstop below (BST-861) landed, E2E was the only thing
+that observed it — as an unexplained startup crash. `scripts/verify-mastra-schema-init-order.mjs`
 (lint lane, paired test `scripts/__tests__/verify-mastra-schema-init-order.test.mjs`)
 enforces it statically instead. It scrapes the guarded names from the schema
 module rather than hand-listing them, matches on the imported name so re-export
@@ -181,17 +182,21 @@ initialized before any module-scope read of it. `scripts/verify-no-cross-chunk-c
 asserts that on the emitted bundle and runs inside `apps/web`'s `build` and
 `apps/desktop`'s `build:renderer`, so it cannot be skipped. Measured at the time
 it landed: web 362 chunks / 1003 static edges / 0 cycles, desktop renderer 367 /
-1036 / 0.
+1036 / 0. Scope: this covers the two RENDERER bundles only —
+`apps/desktop`'s `build:main` (the Electron main bundle) is NOT covered.
 
-This is why the mastra-family AST guard above is NOT generalized: the cycle
-invariant already covers every constant family, including the three still held
-by `codeSplitting.groups` pins in both vite configs (context-actions #1292,
-browser-events BST-580, zustand). The AST guard is kept because it does
-something the cycle check cannot — enforce the coding rule at review time, in
-seconds, with a file and line number. A repo-wide AST rule was rejected on
-measurement: "flag every module-scope read of an imported binding" returns 431
-hits in `app-shell` + `db` alone, nearly all benign. The CHUNK, not the file or
-the package, is the unit of risk.
+The class had already recurred twice in unrelated families before this landed:
+the context-action helpers (PR #1292, held today only by a `codeSplitting.groups`
+entry in `apps/web/vite.config.mts`) and these schema constants. That recurrence
+is why **BST-861** generalizes the INVARIANT rather than the mastra-family AST
+guard above: the cycle check already covers every constant family, including the
+three still held by `codeSplitting.groups` pins in both vite configs
+(context-actions #1292, browser-events BST-580, zustand). The AST guard is kept
+anyway because it does something the cycle check cannot — enforce the coding
+rule at review time, in seconds, with a file and line number. A repo-wide AST
+rule was rejected on measurement: "flag every module-scope read of an imported
+binding" returns 431 hits in `app-shell` + `db` alone, nearly all benign. The
+CHUNK, not the file or the package, is the unit of risk.
 
 Known remaining instance of the same class, deliberately NOT changed here
 (**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
@@ -202,14 +207,6 @@ Fixing it means moving `up` to the `MigrationCallback` form the `Migration` type
 already allows, which touches a dual-registered, fail-closed migration guarding
 against real BM25 data corruption — that needs explicit sign-off, not a
 drive-by.
-
-The guard is deliberately scoped to ONE constant family. The class itself has
-recurred twice in unrelated families — the context-action helpers (PR #1292,
-held today only by a `codeSplitting.groups` entry in `apps/web/vite.config.mts`)
-and these schema constants — so a family-scoped guard is a floor, not a ceiling.
-Generalizing it is **BST-861**; note that a naive "flag every module-scope read
-of an imported binding" rule returns 431 hits in `app-shell` + `db` alone and is
-useless. The chunk, not the file or the package, is the unit of risk.
 
 **No catch anywhere in a purge tolerates a missing relation — the probe does.**
 A bare `catch (err) { logger.warn(...) }` could never be a tolerance inside a

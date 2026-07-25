@@ -119,10 +119,10 @@ test('MONEY TEST: each main() refuses to report success on a root it cannot veri
       let threw = false;
       try {
         // A generic bag, not a single key: most of these guards check the repo
-        // tree, but verify-tokenizer-asset-bundle checks a build artifact and
-        // takes a bundle `directory`. Supplying both keeps the control uniform —
-        // every guard is pointed at the same empty tree — without pretending the
-        // two kinds of guard share one root concept.
+        // tree, but verify-tokenizer-asset-bundle and verify-no-cross-chunk-cycles
+        // check a build artifact and take a bundle `directory`. Supplying both
+        // keeps the control uniform — every guard is pointed at the same empty
+        // tree — without pretending the two kinds of guard share one root concept.
         await main({ directory: bogusRoot, repoRoot: bogusRoot });
       } catch {
         // A throw is a legitimate refusal: an uncaught error out of main() exits

@@ -320,20 +320,43 @@ test('main() with no directory argument refuses instead of guessing', async () =
 // verify-tokenizer-asset-bundle.mjs (run inside chunking-worker and token-cache
 // builds). That makes it unskippable: it runs in the Build job, in both E2E jobs
 // (which build first), and locally, with no CI-only wiring that can drift.
+//
+// A substring match alone only proves the guard is INVOKED somewhere in the
+// script, not ENFORCED: `vite build; node …verify-no-cross-chunk-cycles.mjs
+// dist/assets || true` would still contain the invocation while swallowing its
+// exit code, and the build would never fail. Each regex below therefore pins
+// two things at once — the invocation is joined with `&&` (never `;`/`||`,
+// which would let a failing prior step or a neutralised guard exit code slip
+// through), and it sits at the literal END of the script (`$`), so no trailing
+// `|| true` (or any other suffix) can neutralise it after the fact.
 
-test('both renderer builds run the guard on their emitted bundle', () => {
+const WEB_BUILD_GUARD_RE =
+  /&&\s*node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/assets$/;
+const DESKTOP_RENDERER_GUARD_RE =
+  /&&\s*node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/renderer\/assets$/;
+// The renderer guard above is orphaned if `build` never reaches
+// `build:renderer` in the first place — check that edge too, and require the
+// same `&&` join so a broken-out `build:renderer` cannot be neutralised either.
+const DESKTOP_BUILD_INVOKES_RENDERER_RE = /(?:^|&&)\s*pnpm build:renderer(?:\s|&&|$)/;
+
+test('both renderer builds run the guard on their emitted bundle, enforced not just invoked', () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const read = (relative) =>
     JSON.parse(readFileSync(path.join(repoRoot, relative), 'utf8')).scripts;
 
   assert.match(
     read('apps/web/package.json').build,
-    /node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/assets/,
-    'apps/web must verify its bundle as part of `build`.'
+    WEB_BUILD_GUARD_RE,
+    'apps/web must run the guard `&&`-joined at the END of `build`, so its exit code cannot be swallowed by a trailing `|| true` or a `;` join.'
   );
   assert.match(
     read('apps/desktop/package.json')['build:renderer'],
-    /node \.\.\/\.\.\/scripts\/verify-no-cross-chunk-cycles\.mjs dist\/renderer\/assets/,
-    'apps/desktop must verify its renderer bundle as part of `build:renderer`.'
+    DESKTOP_RENDERER_GUARD_RE,
+    'apps/desktop must run the guard `&&`-joined at the END of `build:renderer`, so its exit code cannot be swallowed by a trailing `|| true` or a `;` join.'
+  );
+  assert.match(
+    read('apps/desktop/package.json').build,
+    DESKTOP_BUILD_INVOKES_RENDERER_RE,
+    "apps/desktop's `build` must actually invoke `build:renderer` — otherwise the renderer guard above is wired but never reached."
   );
 });
