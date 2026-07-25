@@ -1,6 +1,6 @@
 /**
  * Claude-style composer model menu: curated top-level rows (selected model +
- * recents) with taglines and capability icons, an Effort submenu, a primary
+ * recents) with taglines and capability icons, an inline Effort slider, a primary
  * Thinking toggle, and a "More models" drill-down over the full catalog.
  *
  * Selection is COMPOSITE-KEY ("provider::model") end-to-end — the menu never
@@ -46,6 +46,7 @@ import type { ProviderGroupConfig, ProviderRuntimeCategory } from './assistant-u
 import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import {
   buildEffortControlModel,
+  buildEffortSliderModel,
   buildThinkingToggleModel,
   type EffortControlModel,
   type ThinkingToggleModel,
@@ -232,7 +233,7 @@ const DenseModelRow = ({ option }: { option: ComposerModelOption }) => (
   </ModelMenuRadioItem>
 );
 
-const EffortSubmenu = ({
+const EffortSliderRow = ({
   disabled,
   effortModel,
   onPick,
@@ -240,39 +241,47 @@ const EffortSubmenu = ({
   disabled: boolean;
   effortModel: EffortControlModel;
   onPick: (updates: AssistantProviderSettingsUpdate) => void;
-}) => (
-  <DropdownMenuSub>
-    <DropdownMenuSubTrigger
-      className="text-sm"
-      data-testid="composer-effort-trigger"
+}) => {
+  const slider = buildEffortSliderModel(effortModel);
+  const maxIndex = slider.stops.length - 1;
+  return (
+    <DropdownMenuPrimitive.Item
+      className="relative flex cursor-default select-none flex-col gap-1.5 rounded-sm px-2 py-1.5 outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+      data-testid="composer-effort-row"
       disabled={disabled}
+      // Dragging the thumb must not dismiss the menu.
+      onSelect={(event) => event.preventDefault()}
     >
-      <span>Effort</span>
-      <span className="ml-auto text-muted-foreground text-xs">{effortModel.currentLabel}</span>
-    </DropdownMenuSubTrigger>
-    <DropdownMenuSubContent className="z-[60] w-72 p-1">
-      <p className="px-2 py-1.5 text-muted-foreground text-xs">
-        Higher effort means more thorough responses, but takes longer and uses more tokens.
-      </p>
-      <DropdownMenuRadioGroup
-        onValueChange={(value) => onPick(effortModel.buildUpdate(value))}
-        value={effortModel.currentValue}
-      >
-        <ModelMenuRadioItem value="auto">Auto (default)</ModelMenuRadioItem>
-        {effortModel.options.map((option) => (
-          <ModelMenuRadioItem key={option.value} value={option.value}>
-            <span>{option.label}</span>
-            {option.isModelDefault ? (
-              <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">
-                Default
-              </span>
-            ) : null}
-          </ModelMenuRadioItem>
+      <span className="flex items-baseline justify-between gap-3">
+        <span className="font-medium text-sm">Effort</span>
+        <span className="text-muted-foreground text-xs" data-testid="composer-effort-value">
+          {slider.valueText}
+        </span>
+      </span>
+      <input
+        aria-label="Reasoning effort"
+        aria-valuetext={slider.valueText}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary disabled:cursor-not-allowed"
+        data-testid="composer-effort-slider"
+        disabled={disabled}
+        max={maxIndex}
+        min={0}
+        onChange={(event) => onPick(slider.buildUpdateForIndex(Number(event.target.value)))}
+        step={1}
+        type="range"
+        value={slider.index}
+      />
+      <span aria-hidden="true" className="flex justify-between text-[10px] text-muted-foreground">
+        {slider.stops.map((stop) => (
+          <span className={stop.isModelDefault ? 'text-foreground' : undefined} key={stop.value}>
+            {stop.label}
+            {stop.isModelDefault ? '•' : ''}
+          </span>
         ))}
-      </DropdownMenuRadioGroup>
-    </DropdownMenuSubContent>
-  </DropdownMenuSub>
-);
+      </span>
+    </DropdownMenuPrimitive.Item>
+  );
+};
 
 const ThinkingToggleRow = ({
   disabled,
@@ -447,7 +456,7 @@ export const ComposerModelMenu = ({
       <>
         <DropdownMenuSeparator />
         {effortModel ? (
-          <EffortSubmenu
+          <EffortSliderRow
             disabled={!canUpdateSettings}
             effortModel={effortModel}
             onPick={handleSettingsUpdate}

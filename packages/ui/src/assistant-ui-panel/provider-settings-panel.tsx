@@ -5,6 +5,7 @@ import {
   type OpenRouterModelMetadataLookup,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveReasoningVisible,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
@@ -468,12 +469,17 @@ const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettin
         <span className="text-[10px] text-muted-foreground">Reasoning summary</span>
         <Select
           disabled={disabled}
+          // `reasoningSummary: undefined` no longer means "no summary" — the
+          // shared visibility default fills it in. Off must therefore write the
+          // explicit opt-out, or the option would render but do nothing.
           onValueChange={(value) =>
-            onUpdate({
-              reasoningSummary: value === 'off' ? undefined : (value as OpenAiReasoningSummary),
-            })
+            onUpdate(
+              value === 'off'
+                ? { reasoningSummary: undefined, reasoningVisible: false }
+                : { reasoningSummary: value as OpenAiReasoningSummary, reasoningVisible: true }
+            )
           }
-          value={settings.reasoningSummary ?? 'off'}
+          value={resolveReasoningVisible(settings) ? (settings.reasoningSummary ?? 'auto') : 'off'}
         >
           <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder="Auto" />
@@ -597,7 +603,11 @@ const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSetting
           <p className="text-[10px] text-muted-foreground">Stream internal reasoning (debug).</p>
         </div>
         <Switch
-          checked={Boolean(settings.googleIncludeThoughts)}
+          // Must show the RESOLVED value, not just the explicit one: with the
+          // key unset the shared default already includes thoughts, so a bare
+          // Boolean() would render off while they stream — and turning them
+          // off would take two clicks.
+          checked={settings.googleIncludeThoughts ?? resolveReasoningVisible(settings)}
           disabled={disabled}
           onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
         />
