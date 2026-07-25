@@ -11,7 +11,7 @@ import {
   responseExactMatchScorer,
 } from './agent-behavior-gates';
 import {
-  createPlanModeInventoryEvalModel,
+  createInventoryConditionalEvalModel,
   createTextOnlyEvalModel,
   createToolCallingEvalModel,
 } from './scripted-eval-models';
@@ -126,6 +126,20 @@ async function buildCreateFileReachabilityEvalAgent(
   return runtime.agent;
 }
 
+type CreateFileReachabilityAgent = Awaited<ReturnType<typeof buildCreateFileReachabilityEvalAgent>>;
+
+function runCreateFileReachabilityFlow(agent: CreateFileReachabilityAgent) {
+  return runEvals({
+    data: [{ input: 'Create a new index.html file in the workspace.' }],
+    gates: [
+      calledToolGate(MODEL_FACING_CREATE_TOOL_ID),
+      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
+      noToolErrorsGate(),
+    ],
+    target: agent,
+  });
+}
+
 async function buildErrorEvalAgent(model: LanguageModelV2) {
   const runtime = await createMastraAgentRuntime({
     modelOverride: model as unknown as MastraModelConfig,
@@ -208,12 +222,12 @@ export async function runAgentBehaviorEvaluation(): Promise<AgentBehaviorEvaluat
   });
 
   const planModeAgent = await buildPlanModeEvalAgent(
-    createPlanModeInventoryEvalModel({
+    createInventoryConditionalEvalModel({
+      fallbackInput: JSON.stringify({ city: 'Berlin' }),
+      fallbackToolName: WEATHER_TOOL_ID,
       finalText: 'I stayed read-only while planning.',
-      forbiddenInput: JSON.stringify({ content: 'unsafe', path: 'plan.txt' }),
-      forbiddenToolName: MODEL_FACING_WRITE_TOOL_ID,
-      safeInput: JSON.stringify({ city: 'Berlin' }),
-      safeToolName: WEATHER_TOOL_ID,
+      preferredInput: JSON.stringify({ content: 'unsafe', path: 'plan.txt' }),
+      preferredToolName: MODEL_FACING_WRITE_TOOL_ID,
     })
   );
   const planMode = await runEvals({
@@ -224,25 +238,19 @@ export async function runAgentBehaviorEvaluation(): Promise<AgentBehaviorEvaluat
 
   // BST-757 / PR #1935: smaller hosted models could not create a new file
   // because writeWorkspaceFile was absent from the initial tool inventory and
-  // they fell back to stringReplaceWorkspaceFile against a missing file.
+  // they fell back to stringReplaceWorkspaceFile against a missing file. This
+  // covers the hosted discovery-tier invariant; production tool registration
+  // is outside this deterministic package-level lane.
   const createFileAgent = await buildCreateFileReachabilityEvalAgent(
-    createPlanModeInventoryEvalModel({
+    createInventoryConditionalEvalModel({
+      fallbackInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      fallbackToolName: MODEL_FACING_WRITE_TOOL_ID,
       finalText: 'Created and verified index.html.',
-      forbiddenInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
-      forbiddenToolName: MODEL_FACING_CREATE_TOOL_ID,
-      safeInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
-      safeToolName: MODEL_FACING_WRITE_TOOL_ID,
+      preferredInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      preferredToolName: MODEL_FACING_CREATE_TOOL_ID,
     })
   );
-  const createFileReachability = await runEvals({
-    data: [{ input: 'Create a new index.html file in the workspace.' }],
-    gates: [
-      calledToolGate(MODEL_FACING_CREATE_TOOL_ID),
-      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
-      noToolErrorsGate(),
-    ],
-    target: createFileAgent,
-  });
+  const createFileReachability = await runCreateFileReachabilityFlow(createFileAgent);
 
   const flows = [
     toFlowResult('tool-selection', toolSelection as FlowOutcome),
@@ -300,12 +308,12 @@ export async function runMisbehavingControlEvaluation(): Promise<AgentBehaviorEv
   });
 
   const planModeControlAgent = await buildPlanModeEvalAgent(
-    createPlanModeInventoryEvalModel({
+    createInventoryConditionalEvalModel({
+      fallbackInput: JSON.stringify({ city: 'Berlin' }),
+      fallbackToolName: WEATHER_TOOL_ID,
       finalText: 'I modified the workspace.',
-      forbiddenInput: JSON.stringify({ content: 'unsafe', path: 'plan.txt' }),
-      forbiddenToolName: MODEL_FACING_WRITE_TOOL_ID,
-      safeInput: JSON.stringify({ city: 'Berlin' }),
-      safeToolName: WEATHER_TOOL_ID,
+      preferredInput: JSON.stringify({ content: 'unsafe', path: 'plan.txt' }),
+      preferredToolName: MODEL_FACING_WRITE_TOOL_ID,
     }),
     false
   );
@@ -345,24 +353,16 @@ export async function runMisbehavingControlEvaluation(): Promise<AgentBehaviorEv
   // create-capable tool. The same scripted decision falls back to replacement,
   // so the create reachability gate must read `failed`.
   const createFileControlAgent = await buildCreateFileReachabilityEvalAgent(
-    createPlanModeInventoryEvalModel({
+    createInventoryConditionalEvalModel({
+      fallbackInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      fallbackToolName: MODEL_FACING_WRITE_TOOL_ID,
       finalText: 'I could not create index.html.',
-      forbiddenInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
-      forbiddenToolName: MODEL_FACING_CREATE_TOOL_ID,
-      safeInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
-      safeToolName: MODEL_FACING_WRITE_TOOL_ID,
+      preferredInput: JSON.stringify({ content: '<main>Created</main>', path: 'index.html' }),
+      preferredToolName: MODEL_FACING_CREATE_TOOL_ID,
     }),
     false
   );
-  const createFileControlOutcome = await runEvals({
-    data: [{ input: 'Create a new index.html file in the workspace.' }],
-    gates: [
-      calledToolGate(MODEL_FACING_CREATE_TOOL_ID),
-      didNotCallToolGate(MODEL_FACING_WRITE_TOOL_ID),
-      noToolErrorsGate(),
-    ],
-    target: createFileControlAgent,
-  });
+  const createFileControlOutcome = await runCreateFileReachabilityFlow(createFileControlAgent);
 
   const flows = [
     toFlowResult('tool-selection-control', toolSelectionOutcome as FlowOutcome),
