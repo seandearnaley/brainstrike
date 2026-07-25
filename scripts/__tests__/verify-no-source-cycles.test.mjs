@@ -25,13 +25,14 @@
 // silently stopped counting an edge kind would still report "clean". They are
 // therefore tested directly over fixture source text.
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  deferredImportSpecifiers,
   findCycles,
   findSourceCycles,
   main,
@@ -79,12 +80,48 @@ test('EXCLUDES `export type … from` — erased', () => {
   assert.deepEqual(staticImportSpecifiers("export type { Props } from './types';"), []);
 });
 
-test('EXCLUDES dynamic import() — it creates no init-order dependency', () => {
-  // The false-positive control. Counting these would flag cycles that physically
-  // cannot fire, and this repo splits heavily on dynamic import to keep
-  // mermaid/shiki/katex/codemirror off the startup path.
+test('EXCLUDES a re-export whose every specifier is type-only', () => {
+  // Symmetry with the import branch. Review caught this asymmetry: the marker
+  // sits on each element rather than the statement, so an erased re-export was
+  // counted as a runtime edge — a false positive that would block the lint lane
+  // on a cycle that cannot fire.
+  assert.deepEqual(staticImportSpecifiers("export { type A, type B } from './types';"), []);
+});
+
+test('KEEPS a re-export carrying at least one value specifier', () => {
+  assert.deepEqual(staticImportSpecifiers("export { type A, b } from './mixed';"), ['./mixed']);
+});
+
+test('EXCLUDES dynamic import() from EDGES — it creates no init-order dependency', () => {
+  // The false-positive control. Counting these as edges would flag cycles that
+  // physically cannot fire, and this repo splits heavily on dynamic import to
+  // keep mermaid/shiki/katex/codemirror off the startup path.
   assert.deepEqual(staticImportSpecifiers("const m = await import('./lazy');"), []);
   assert.deepEqual(staticImportSpecifiers("void (() => import('./lazy'));"), []);
+});
+
+test('EXCLUDES a Vite `?worker&url` import from EDGES — it loads a separate bundle', () => {
+  assert.deepEqual(staticImportSpecifiers("import u from './embedding.worker.ts?worker&url';"), []);
+});
+
+// --- deferred specifiers: not edges, but traversal ROOTS --------------------
+
+test('collects dynamic import() as a traversal root', () => {
+  // Without this the entire subgraph behind a lazy boundary was never analyzed —
+  // a silent coverage hole, not a wrong answer. Controlled end-to-end by the
+  // planted lazy-only cycle described in the guard header.
+  assert.deepEqual(deferredImportSpecifiers("const m = await import('./lazy');"), ['./lazy']);
+  assert.deepEqual(deferredImportSpecifiers("void (() => import('./lazy'));"), ['./lazy']);
+});
+
+test('collects Vite query-suffixed imports as traversal roots', () => {
+  assert.deepEqual(deferredImportSpecifiers("import u from './x.worker.ts?worker&url';"), [
+    './x.worker.ts?worker&url',
+  ]);
+});
+
+test('a plain static import is NOT a deferred root — it is an edge', () => {
+  assert.deepEqual(deferredImportSpecifiers("import { a } from './a';"), []);
 });
 
 test('parses .tsx generics without tripping on JSX ambiguity', () => {
@@ -133,6 +170,20 @@ test('resolves a real source file, an extensionless path, and a directory index'
   assert.equal(resolveSourceFile(path.join(uiSrc, 'definitely-not-here')), null);
 });
 
+test('resolves an ESM `.js` specifier to the `.ts` file it names', () => {
+  // NodeNext specifiers name the EMITTED file, so TypeScript source is imported
+  // as `./thing.js`. packages/assistant-contract and packages/utils do this
+  // throughout; before this rewrite every such edge vanished from the graph
+  // while the guard still reported "clean". That is the dropped-edge failure
+  // this whole guard exists to prevent, so it is pinned here.
+  const contractSrc = path.join(REPO_ROOT, 'packages/assistant-contract/src');
+
+  assert.equal(
+    resolveSourceFile(path.join(contractSrc, 'tool-metadata.js')),
+    path.join(contractSrc, 'tool-metadata.ts')
+  );
+});
+
 // --- the real verdict --------------------------------------------------------
 
 test('VERDICT: the renderer source graph has no cycles', async () => {
@@ -146,9 +197,34 @@ test('VERDICT: the renderer source graph has no cycles', async () => {
       'uninitialized binding. Import the sibling module directly instead of the package barrel.'
   );
   assert.ok(
-    moduleCount > 400,
-    `Only ${moduleCount} modules reached; resolution has probably broken (was 813 when written).`
+    moduleCount > 1000,
+    `Only ${moduleCount} modules reached; resolution has probably broken (was 1258 when written).`
   );
+});
+
+test('the app overrides mirror what each vite config declares before the registry', () => {
+  // The guard resolves per app because the two renderers do NOT resolve
+  // @brainstrike/* identically — apps/web pins @brainstrike/file-explorer to
+  // dist, desktop does not. Review caught that a single shared alias set
+  // analysed a DIFFERENT module than the one that ships (file-tree-worker's
+  // Node entry instead of its browser-adapted src/vite.ts). This pins the
+  // mirror: an override added to a vite config and forgotten here fails.
+  const overridesFor = (configPath) => readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
+
+  for (const [configPath, expected] of [
+    ['apps/web/vite.config.mts', ['file-explorer/dist', 'file-tree-worker/src/vite.ts', 'workers']],
+    ['apps/desktop/vite.config.mts', ['file-tree-worker/src/vite.ts', 'workers']],
+  ]) {
+    const source = overridesFor(configPath);
+    for (const fragment of expected) {
+      assert.ok(
+        source.includes(fragment),
+        `${configPath} no longer declares an alias containing "${fragment}", but ` +
+          'RENDERER_APPS in verify-no-source-cycles.mjs still mirrors it. The guard would analyse ' +
+          'a different module than the app builds.'
+      );
+    }
+  }
 });
 
 // --- instrument controls (BST-836) ------------------------------------------
@@ -158,7 +234,7 @@ test('an unreadable tree refuses instead of reporting a clean graph', async () =
 
   await assert.rejects(
     () => findSourceCycles({ root: emptyRoot }),
-    /packagesDir does not exist|Could not resolve every renderer entrypoint/,
+    /Could not resolve the \w+ renderer entrypoint|packagesDir does not exist/,
     'An empty tree must throw. Returning zero cycles there would let this guard pass on any tree ' +
       'it failed to read.'
   );
@@ -166,8 +242,12 @@ test('an unreadable tree refuses instead of reporting a clean graph', async () =
 
 test('a missing entrypoint refuses rather than silently shrinking the graph', async () => {
   await assert.rejects(
-    () => findSourceCycles({ entrypoints: ['apps/web/src/does-not-exist.tsx'], root: REPO_ROOT }),
-    /Could not resolve every renderer entrypoint/
+    () =>
+      findSourceCycles({
+        apps: [{ entrypoint: 'apps/web/src/does-not-exist.tsx', name: 'bogus', overrides: [] }],
+        root: REPO_ROOT,
+      }),
+    /Could not resolve the bogus renderer entrypoint/
   );
 });
 

@@ -23,16 +23,28 @@
 // WHY RESOLUTION GOES THROUGH THE ALIAS REGISTRY, NOT tsconfig. Resolving
 // `@brainstrike/*` the TypeScript way reaches `packages/*/dist/*.d.ts`, so
 // cross-package SOURCE — where every recorded scar of this class lives — is
-// invisible. A first measurement built this way saw 139 modules; going through
-// `packages/test-utils/workspace-src-aliases.mjs` saw 768. That registry is the
-// repo's single source of truth for `@brainstrike/* -> src` and exists for the
-// same stale-dist incident class (#1066/#1207).
+// invisible. `packages/test-utils/workspace-src-aliases.mjs` is the repo's single
+// source of truth for `@brainstrike/* -> src` and exists for the same stale-dist
+// incident class (#1066/#1207).
 //
-// STATIC, NON-TYPE IMPORTS ONLY:
-//   - `import type` / type-only specifiers are erased and never affect init order.
-//   - dynamic `import()` creates no init-order dependency, so it cannot form this
-//     hazard; counting it would flag cycles that physically cannot fire.
-//   - a bare side-effect `import '…'` DOES affect init order and counts.
+// EVERY DROPPED EDGE IS A POTENTIAL HIDDEN CYCLE, so coverage was grown until
+// nothing in scope fails to resolve. The reachable-module count tells that
+// story, and each step was a real defect in this guard, not a tuning knob:
+//   139  tsconfig resolution — cross-package source invisible
+//   768  + the workspace src-alias registry
+//   813  + curated agent browser-safe subpaths and @brainstrike/workers
+//  1258  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
+//         `.js`-names-a-`.ts`-file rewrite
+// `EXPECTED_UNRESOLVED` is consequently EMPTY: every in-scope specifier resolves.
+//
+// EDGES vs ROOTS — the distinction the cycle definition rests on:
+//   - `import type` / type-only specifiers are erased; not edges, not roots.
+//   - a bare side-effect `import '…'` DOES affect init order; an EDGE.
+//   - dynamic `import()` and Vite `?worker`/`?url` imports create no init-order
+//     dependency, so they are NOT edges — counting them would flag cycles that
+//     physically cannot fire. But their targets are real modules with their own
+//     static graphs, so they ARE traversal roots. Treating them as neither left
+//     everything behind a lazy boundary unanalyzed.
 //
 // Full rationale: docs/superpowers/specs/2026-07-25-chunk-cycle-invariant-design.md
 
@@ -49,72 +61,129 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Renderer entrypoints. Their union is the graph this guard governs. */
-const ENTRYPOINTS = ['apps/web/src/main.tsx', 'apps/desktop/src/renderer/main.tsx'];
-
 /**
- * Anti-vacuous floor (BST-836: an instrument that cannot fail is not evidence).
- * Measured at 768 modules from the web entry alone. If a resolution change or a
- * bad entry path collapses the graph, that must fail loudly rather than report
- * "no cycles" forever.
- */
-const MIN_MODULES = 400;
-
-/**
- * `@brainstrike/*` specifiers that legitimately resolve to no source module.
+ * One graph PER APP, not a merged one: the two renderers do not resolve
+ * `@brainstrike/*` identically, so a single shared alias set would faithfully
+ * represent neither. `apps/web` pins `@brainstrike/file-explorer` to `dist` (its
+ * worker artifact must be prebuilt) while desktop takes the registry's source;
+ * a merged graph would silently analyze the wrong module for one of them.
  *
- * Stylesheets are not modules in the init-order sense, so they are not edges.
- * This is an exact set, not a tolerated count: a NEW unresolved specifier fails
- * loudly, because a silently dropped edge can hide a real cycle — which is the
- * one failure this guard must never have.
+ * `overrides` mirrors the entries each app places BEFORE the registry spread in
+ * its own `vite.config.mts`. `scripts/__tests__/verify-no-source-cycles.test.mjs`
+ * asserts parity with those configs, so an override added there and forgotten
+ * here fails loudly instead of quietly changing which modules are analyzed.
  */
-const EXPECTED_UNRESOLVED = Object.freeze([
-  '@brainstrike/app-shell/styles.css',
-  '@brainstrike/db-explorer/styles.css',
-  '@brainstrike/file-explorer-ui/styles.css',
-  '@brainstrike/ui/globals.css',
-  '@brainstrike/ui/styles.css',
-  '@brainstrike/workspace-search/styles.css',
+const RENDERER_APPS = Object.freeze([
+  {
+    entrypoint: 'apps/web/src/main.tsx',
+    name: 'web',
+    overrides: [
+      ['@brainstrike/file-explorer', 'packages/file-explorer/dist'],
+      ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
+      ['@brainstrike/workers', 'packages/workers'],
+    ],
+  },
+  {
+    entrypoint: 'apps/desktop/src/renderer/main.tsx',
+    name: 'desktop',
+    overrides: [
+      ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
+      ['@brainstrike/workers', 'packages/workers'],
+    ],
+  },
 ]);
 
 /**
- * `@brainstrike/workers` has no `src/` dir — its worker modules live at the
- * package root — so the shared registry skips it and every consumer aliases its
- * subpaths explicitly. Mirror that here rather than dropping the edges.
+ * Anti-vacuous floor (BST-836: an instrument that cannot fail is not evidence).
+ * Measured at 1258 modules for the larger of the two renderer graphs. If a
+ * resolution change or a bad entry path collapses the graph, that must fail
+ * loudly rather than report "no cycles" forever. Keep the headroom modest: an
+ * earlier 400 against ~813 was loose enough that losing half the graph would
+ * still have passed.
  */
-function workersAliasEntries(root) {
-  return [{ find: '@brainstrike/workers', replacement: path.join(root, 'packages/workers') }];
+const MIN_MODULES = 1000;
+
+/**
+ * In-scope specifiers excused from resolving.
+ *
+ * DELIBERATELY EMPTY. Stylesheets and third-party packages are filtered by
+ * `isOutOfScopeSpecifier` rather than excused here, so every remaining
+ * specifier — relative, workspace, or app-aliased — currently resolves to a real
+ * source file. Adding an entry means accepting a dropped edge, and a dropped
+ * edge can hide a cycle; do it only with a written reason.
+ *
+ * This is what caught the ESM `.js`-extension class: `packages/assistant-contract`
+ * and `packages/utils` import TypeScript source as `./thing.js`, and before
+ * `resolveSourceFile` learned that rewrite, dozens of edges were vanishing
+ * silently while the guard still reported "clean".
+ */
+const EXPECTED_UNRESOLVED = Object.freeze([]);
+
+/** Vite's asset/worker query suffixes: `./x.ts?worker&url`, `./y.svg?raw`. */
+const VITE_QUERY_SUFFIX = /\?.*$/;
+
+/** A stylesheet import is not a module edge, whatever shape the specifier takes. */
+function isStyleSheetSpecifier(specifier) {
+  return /\.(?:css|scss|sass|less)(?:\?.*)?$/.test(specifier);
 }
 
 /**
- * Resolution mirrors what the renderer builds actually do, composed from the
- * repo's own helpers rather than reinvented:
+ * Resolution mirrors what each renderer build actually does, composed from the
+ * repo's own helpers rather than reinvented, in the same first-match order the
+ * apps use:
  *
- * - `createAgentBrowserSafeAliasEntries` — `@brainstrike/agent` is deliberately
- *   excluded from the shared registry (its root and most subpaths pull Node-only
- *   Mastra deps), and the curated browser-safe subpaths are what a renderer may
- *   actually import. `apps/web/vite.config.mts` composes these two the same way.
- * - `workspaceSrcAliases` — every other `@brainstrike/*` package to SOURCE, not
- *   built `dist`.
- *
- * Order matters: exact agent subpaths first, then workers, then the registry,
- * matching the first-match semantics `resolveThroughAliases` simulates.
+ * 1. the app's own config-local overrides (see `RENDERER_APPS`), which exist
+ *    precisely because the registry would derive the WRONG target — e.g.
+ *    `@brainstrike/file-tree-worker`'s root export is a Node worker_threads
+ *    entry, while `src/vite.ts` is the browser-adapted implementation the
+ *    renderer actually loads;
+ * 2. `createAgentBrowserSafeAliasEntries` — `@brainstrike/agent` is deliberately
+ *    excluded from the shared registry (root and most subpaths pull Node-only
+ *    Mastra deps), so only the curated browser-safe subpaths resolve;
+ * 3. `workspaceSrcAliases` — every other `@brainstrike/*` package to SOURCE.
  */
-function rendererAliasEntries(root) {
+function rendererAliasEntries(root, overrides) {
   return [
+    ...overrides.map(([find, replacement]) => ({
+      find,
+      replacement: path.join(root, replacement),
+    })),
     ...createAgentBrowserSafeAliasEntries(path.join(root, 'packages/agent')),
-    ...workersAliasEntries(root),
     ...workspaceSrcAliases(path.join(root, 'packages')),
   ];
 }
 
 const RESOLVABLE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs'];
 
+/**
+ * ESM-style specifiers name the EMITTED file, so TypeScript source under
+ * NodeNext is imported as `./thing.js` while the file on disk is `./thing.ts`.
+ * Large parts of this repo do that — `packages/assistant-contract` and
+ * `packages/utils` throughout. Without this rewrite every such edge silently
+ * vanished from the graph, which is exactly the dropped-edge failure this guard
+ * exists to prevent.
+ */
+const EMITTED_TO_SOURCE_EXTENSIONS = Object.freeze({
+  '.cjs': ['.cts'],
+  '.js': ['.ts', '.tsx'],
+  '.jsx': ['.tsx'],
+  '.mjs': ['.mts'],
+});
+
 /** Probe a path as a file, then with each extension, then as a directory index. */
 export function resolveSourceFile(candidate) {
   if (existsSync(candidate) && statSync(candidate).isFile()) {
     return candidate;
   }
+
+  const emittedExtension = path.extname(candidate);
+  for (const sourceExtension of EMITTED_TO_SOURCE_EXTENSIONS[emittedExtension] ?? []) {
+    const sourceFile = candidate.slice(0, -emittedExtension.length) + sourceExtension;
+    if (existsSync(sourceFile)) {
+      return sourceFile;
+    }
+  }
+
   for (const extension of RESOLVABLE_EXTENSIONS) {
     if (existsSync(candidate + extension)) {
       return candidate + extension;
@@ -168,7 +237,12 @@ export function staticImportSpecifiers(sourceText, fileName = 'fixture.ts') {
           continue;
         }
       }
-      if (ts.isStringLiteral(statement.moduleSpecifier)) {
+      if (
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        // `./x.ts?worker&url` loads a SEPARATE bundle; it is a traversal root
+        // (see deferredImportSpecifiers), never an init-order edge here.
+        !VITE_QUERY_SUFFIX.test(statement.moduleSpecifier.text)
+      ) {
         specifiers.push(statement.moduleSpecifier.text);
       }
       continue;
@@ -178,6 +252,67 @@ export function staticImportSpecifiers(sourceText, fileName = 'fixture.ts') {
       statement.moduleSpecifier &&
       !statement.isTypeOnly &&
       ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      // Symmetric with the import branch above: `export type { A } from` is
+      // caught by `isTypeOnly`, but `export { type A, type B } from` puts the
+      // marker on each element instead, and is equally erased. Missing this
+      // counted an erased re-export as a runtime edge — a false positive that
+      // would block the lint lane on a cycle that cannot fire.
+      const named = statement.exportClause;
+      const everySpecifierIsTypeOnly =
+        named &&
+        ts.isNamedExports(named) &&
+        named.elements.length > 0 &&
+        named.elements.every((element) => element.isTypeOnly);
+      if (!everySpecifierIsTypeOnly) {
+        specifiers.push(statement.moduleSpecifier.text);
+      }
+    }
+  }
+
+  return specifiers;
+}
+
+/**
+ * Specifiers whose module is loaded, but NOT as part of this module's
+ * initialization: dynamic `import()` and Vite's `?worker` / `?url` / `?raw`
+ * asset forms.
+ *
+ * These are not EDGES — they create no init-order dependency, and counting them
+ * would flag cycles that physically cannot fire. But their targets are still
+ * real modules with their own static graphs, so they are traversal ROOTS.
+ * Without this, everything reachable only behind a lazy boundary (the whole
+ * `@brainstrike/app-shell/git-panel` subtree, every worker entry) was never
+ * analyzed at all — a large silent coverage hole rather than a wrong answer.
+ */
+export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    sourceText,
+    ts.ScriptTarget.ESNext,
+    true,
+    fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  const specifiers = [];
+
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length > 0 &&
+      ts.isStringLiteral(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      VITE_QUERY_SUFFIX.test(statement.moduleSpecifier.text)
     ) {
       specifiers.push(statement.moduleSpecifier.text);
     }
@@ -253,70 +388,163 @@ export function findCycles(graph) {
  * specifier fails to resolve — either means the graph this reports on is not the
  * graph that ships.
  */
-export async function findSourceCycles({ root = REPO_ROOT, entrypoints = ENTRYPOINTS } = {}) {
-  const aliases = rendererAliasEntries(root);
+/**
+ * Resolve one specifier to a source file, or `null`.
+ *
+ * `null` means one of three things, and the caller must distinguish them:
+ * a stylesheet (not a module), a bare third-party package (out of scope), or a
+ * genuine resolution FAILURE — which is a dropped edge that could hide a cycle.
+ */
+function resolveSpecifier({ specifier, fromFile, aliases }) {
+  const bare = specifier.replace(VITE_QUERY_SUFFIX, '');
+  if (bare.startsWith('.')) {
+    return resolveSourceFile(path.resolve(path.dirname(fromFile), bare));
+  }
+  if (bare.startsWith('@brainstrike/')) {
+    const aliased = resolveThroughAliases(bare, aliases);
+    return aliased === null ? null : resolveSourceFile(aliased);
+  }
+  if (bare.startsWith('@/') || bare.startsWith('@web/')) {
+    // Both apps alias `@`/`@web` to their own `src`. Unused today, but if such
+    // an import ever lands it must resolve or be reported — never vanish.
+    return null;
+  }
+  return null;
+}
+
+/** A specifier this guard is not expected to resolve: third-party, or a stylesheet. */
+function isOutOfScopeSpecifier(specifier) {
+  if (isStyleSheetSpecifier(specifier)) {
+    return true;
+  }
+  const bare = specifier.replace(VITE_QUERY_SUFFIX, '');
+  return !(
+    bare.startsWith('.') ||
+    bare.startsWith('@brainstrike/') ||
+    bare.startsWith('@/') ||
+    bare.startsWith('@web/')
+  );
+}
+
+/**
+ * Walk ONE app's renderer source graph and report its cycles.
+ *
+ * Traversal has two kinds of successor. STATIC imports are graph EDGES — they
+ * are what creates init order, and therefore what a cycle is made of. Dynamic
+ * `import()` and Vite `?worker`/`?url` imports are traversal ROOTS: they are not
+ * edges (they create no init-order dependency), but their targets are real
+ * modules whose own static graphs must still be analyzed. Skipping them
+ * entirely, as the first version did, left everything behind a lazy boundary
+ * unexamined.
+ */
+function walkAppGraph({ aliases, entryFile, root }) {
   const graph = new Map();
   const unresolved = new Set();
-
-  const queue = entrypoints
-    .map((entry) => resolveSourceFile(path.join(root, entry)))
-    .filter((entry) => entry !== null);
-  if (queue.length !== entrypoints.length) {
-    throw new Error(
-      `Could not resolve every renderer entrypoint under ${root}: expected ${entrypoints.length}, ` +
-        `resolved ${queue.length}. Entrypoints: ${entrypoints.join(', ')}. This guard cannot report ` +
-        'a meaningful verdict without them.'
-    );
-  }
+  const queue = [entryFile];
   const seen = new Set(queue);
+
+  const enqueue = (target) => {
+    if (target !== null && !seen.has(target)) {
+      seen.add(target);
+      queue.push(target);
+    }
+  };
 
   while (queue.length > 0) {
     const file = queue.pop();
+    const sourceText = readFileSync(file, 'utf8');
     const dependencies = new Set();
-    for (const specifier of staticImportSpecifiers(readFileSync(file, 'utf8'), file)) {
-      let target = null;
-      if (specifier.startsWith('.')) {
-        target = resolveSourceFile(path.resolve(path.dirname(file), specifier));
-      } else if (specifier.startsWith('@brainstrike/')) {
-        const aliased = resolveThroughAliases(specifier, aliases);
-        target = aliased === null ? null : resolveSourceFile(aliased);
-        if (target === null) {
-          unresolved.add(specifier);
+
+    for (const specifier of staticImportSpecifiers(sourceText, file)) {
+      const target = resolveSpecifier({ aliases, fromFile: file, specifier });
+      if (target === null) {
+        if (!isOutOfScopeSpecifier(specifier)) {
+          unresolved.add(`${specifier}  (in ${path.relative(root, file)})`);
         }
+        continue;
       }
-      if (target === null || target === file) {
+      if (target === file) {
         continue;
       }
       dependencies.add(target);
-      if (!seen.has(target)) {
-        seen.add(target);
-        queue.push(target);
-      }
+      enqueue(target);
     }
+
+    for (const specifier of deferredImportSpecifiers(sourceText, file)) {
+      const target = resolveSpecifier({ aliases, fromFile: file, specifier });
+      if (target === null) {
+        if (!isOutOfScopeSpecifier(specifier)) {
+          unresolved.add(`${specifier}  (in ${path.relative(root, file)})`);
+        }
+        continue;
+      }
+      // Root, not edge: reached at a later tick, so it cannot participate in
+      // this module's initialization order.
+      enqueue(target);
+    }
+
     graph.set(file, dependencies);
   }
 
-  if (graph.size < MIN_MODULES) {
+  return { graph, unresolved };
+}
+
+/**
+ * Walk every renderer app's source graph and report their cycles.
+ *
+ * THROWS rather than returning a clean verdict when the graph collapses below
+ * the floor, an entrypoint will not resolve, or ANY in-scope specifier fails to
+ * resolve — each means the graph reported on is not the graph that ships.
+ */
+export async function findSourceCycles({ apps = RENDERER_APPS, root = REPO_ROOT } = {}) {
+  const cycles = [];
+  const unresolved = new Set();
+  let moduleCount = 0;
+
+  for (const app of apps) {
+    const entryFile = resolveSourceFile(path.join(root, app.entrypoint));
+    if (entryFile === null) {
+      throw new Error(
+        `Could not resolve the ${app.name} renderer entrypoint (${app.entrypoint}) under ${root}. ` +
+          'This guard cannot report a meaningful verdict without it.'
+      );
+    }
+
+    const aliases = rendererAliasEntries(root, app.overrides);
+    const walked = walkAppGraph({ aliases, entryFile, root });
+    for (const specifier of walked.unresolved) {
+      unresolved.add(specifier);
+    }
+    moduleCount = Math.max(moduleCount, walked.graph.size);
+    for (const cycle of findCycles(walked.graph)) {
+      cycles.push(cycle);
+    }
+  }
+
+  if (moduleCount < MIN_MODULES) {
     throw new Error(
-      `Reached only ${graph.size} source module(s) from the renderer entrypoints, below the floor ` +
+      `Reached only ${moduleCount} source module(s) from the renderer entrypoints, below the floor ` +
         `of ${MIN_MODULES}. Module resolution has probably broken — without this check the guard ` +
         'would report every future tree as clean.'
     );
   }
 
   const unexpected = [...unresolved].filter(
-    (specifier) => !EXPECTED_UNRESOLVED.includes(specifier)
+    (entry) => !EXPECTED_UNRESOLVED.some((allowed) => entry.startsWith(allowed))
   );
   if (unexpected.length > 0) {
     throw new Error(
-      'These @brainstrike/* specifiers did not resolve to a source module, so their edges are ' +
-        `missing from the graph:\n- ${unexpected.join('\n- ')}\n` +
-        'A missing edge can hide a real cycle. Either teach the alias registry to resolve them, or ' +
-        'add them to EXPECTED_UNRESOLVED in this guard with a reason.'
+      'These specifiers did not resolve to a source module, so their edges are missing from the ' +
+        `graph:\n- ${unexpected.join('\n- ')}\n` +
+        'A missing edge can hide a real cycle. Either teach this guard to resolve them (an app-local ' +
+        'vite alias it does not yet mirror is the usual cause), or add them to EXPECTED_UNRESOLVED ' +
+        'with a reason.'
     );
   }
 
-  return { cycles: findCycles(graph), moduleCount: graph.size };
+  // The same cycle can surface from more than one app; report it once.
+  const deduped = [...new Map(cycles.map((cycle) => [cycle.join(' '), cycle])).values()];
+  return { cycles: deduped, moduleCount };
 }
 
 export async function main({ repoRoot = REPO_ROOT } = {}) {
