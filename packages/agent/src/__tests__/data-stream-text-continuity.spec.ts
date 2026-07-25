@@ -114,23 +114,27 @@ describe('unknown stream-chunk diagnostics', () => {
       expect([
         ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
       ]).toEqual([]);
+      expect([
+        ...mapper.handleChunk({ type: 'future-brainstrike-stream-chunk' } as StreamChunk),
+      ]).toEqual([]);
     } finally {
       removeLogListener();
     }
 
-    const diagnosticRecord = logRecords.find((record) =>
+    const diagnosticRecords = logRecords.filter((record) =>
       record.args.some(
         (arg) =>
           Boolean(arg && typeof arg === 'object') &&
           (arg as { code?: unknown }).code === 'data_stream_mapper_unrecognized_chunk'
       )
     );
-    const diagnosticFields = diagnosticRecord?.args.find(
+    const diagnosticFields = diagnosticRecords[0]?.args.find(
       (arg): arg is Record<string, unknown> =>
         Boolean(arg && typeof arg === 'object') &&
         (arg as { code?: unknown }).code === 'data_stream_mapper_unrecognized_chunk'
     );
-    expect(diagnosticRecord?.level).toBe(LogLevel.WARN);
+    expect(diagnosticRecords).toHaveLength(1);
+    expect(diagnosticRecords[0]?.level).toBe(LogLevel.WARN);
     expect(diagnosticFields).toMatchObject({
       chunkType: 'future-brainstrike-stream-chunk',
       code: 'data_stream_mapper_unrecognized_chunk',

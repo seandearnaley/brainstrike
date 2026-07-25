@@ -25,6 +25,7 @@ import type {
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
+import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
@@ -67,14 +68,6 @@ const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action 
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
 const logger = createLogger('DataStreamMapper');
-
-function getDiagnosticChunkType(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '<non-string>';
-  }
-  const maximumLength = 128;
-  return value.length <= maximumLength ? value : `${value.slice(0, maximumLength - 3)}...`;
-}
 
 function formatVisibleFailure(prefix: string, errorText: string): string {
   return `${prefix} ${errorText}`;
@@ -273,6 +266,7 @@ export class DataStreamMapper {
   private terminalFailureText: string | null = null;
   private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
+  private readonly warnedUnknownChunkTypes = new Set<string>();
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
    * part is open CLOSE it downstream (assistant-stream's appendData ends the
@@ -325,12 +319,19 @@ export class DataStreamMapper {
       case 'message-finish':
         yield* this.handleFinish(chunk);
         return;
-      default:
+      default: {
+        const rawChunkType = (chunk as { type?: unknown }).type;
+        const warningKey = typeof rawChunkType === 'string' ? rawChunkType : '<non-string>';
+        if (this.warnedUnknownChunkTypes.has(warningKey)) {
+          return;
+        }
+        this.warnedUnknownChunkTypes.add(warningKey);
         logger.warn('data stream mapper received an unrecognized chunk', {
-          chunkType: getDiagnosticChunkType((chunk as { type?: unknown }).type),
+          chunkType: formatDiagnosticChunkType(rawChunkType),
           code: 'data_stream_mapper_unrecognized_chunk',
         });
         return;
+      }
     }
   }
 

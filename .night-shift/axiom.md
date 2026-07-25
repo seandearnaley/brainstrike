@@ -8,4 +8,4 @@
 
 **Learning:** A local stream-part cast let newly introduced Mastra chunk types bypass Brainstrike's UI/persistence adapter and disappear without a diagnostic.
 
-**Action:** Keep the complete static `ChunkType` disposition inventory type-checked and retain coded warnings at all three stream dispatch defaults; dynamic chunk families remain observable at runtime.
+**Action:** Keep the static `ChunkType` inventory typed as explicit `mapped`/`ignored` decisions, reject a widened `string` union, and retain AST-anchored coded warnings at all three dispatch defaults. Unhandled dynamic-family members warn once per type per stream.

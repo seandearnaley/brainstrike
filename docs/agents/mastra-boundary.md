@@ -255,10 +255,22 @@ Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
 | `NetworkChunkType` (`:683`) | 27 | 0 |
 | `DataChunkType` (`:676`) | `data-${string}` | 2 Brainstrike-owned |
 
+The static inventory records an explicit `'mapped' | 'ignored'` disposition,
+not mere presence. An unhandled dynamic-family member has no disposition and
+therefore warns once per type per stream rather than once per chunk. A widened
+upstream `string` union is also a type-check failure.
+
+`processMastraStreamPart` is the live untyped Mastra boundary. The exhaustive
+`DataStreamMapper.handleChunk` and already-narrowed `mapMastraToolEvent`
+defaults are defensive backstops for runtime-unsound callers; their tests use
+casts deliberately. All three share the same bounded chunk-type formatter.
+
 `scripts/mastra-stream-chunk-contract.mjs` enforces the type import, the complete
-static `ChunkType` disposition inventory, and a coded diagnostic at each of the
-three dispatch defaults. Its paired control case proves a silently-dropping
-default fails. The decision is settled here, so it is no longer
+static disposition inventory, the widening assertion, and an AST-verified
+coded `logger.warn` on each named dispatch default path (the active Mastra
+boundary uses one pinned helper to keep the switch complexity bounded). Its
+paired control cases prove a silently-dropping default and a warning moved
+elsewhere both fail. The decision is settled here, so it is no longer
 architecture-gated.
 
 ## R7 MCP TRANSPORT AND CAPABILITIES

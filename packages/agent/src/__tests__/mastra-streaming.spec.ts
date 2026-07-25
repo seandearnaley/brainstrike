@@ -347,9 +347,10 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
-  it('records a diagnostic and continues when Mastra emits an unrecognized stream chunk', async () => {
+  it('records one diagnostic per unknown dynamic type and continues streaming', async () => {
     setMockStreamParts([
-      { type: 'future-mastra-stream-chunk' },
+      { type: 'data-future-mastra-stream-chunk' },
+      { type: 'data-future-mastra-stream-chunk' },
       { textDelta: 'still streaming', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ]);
@@ -374,21 +375,22 @@ describe('mastra streaming integration', () => {
       removeLogListener();
     }
 
-    const diagnosticRecord = logRecords.find((record) =>
+    const diagnosticRecords = logRecords.filter((record) =>
       record.args.some(
         (arg) =>
           Boolean(arg && typeof arg === 'object') &&
           (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
       )
     );
-    const diagnosticFields = diagnosticRecord?.args.find(
+    const diagnosticFields = diagnosticRecords[0]?.args.find(
       (arg): arg is Record<string, unknown> =>
         Boolean(arg && typeof arg === 'object') &&
         (arg as { code?: unknown }).code === 'mastra_agent_unrecognized_stream_chunk'
     );
-    expect(diagnosticRecord?.level).toBe(LogLevel.WARN);
+    expect(diagnosticRecords).toHaveLength(1);
+    expect(diagnosticRecords[0]?.level).toBe(LogLevel.WARN);
     expect(diagnosticFields).toMatchObject({
-      chunkType: 'future-mastra-stream-chunk',
+      chunkType: 'data-future-mastra-stream-chunk',
       code: 'mastra_agent_unrecognized_stream_chunk',
     });
   });

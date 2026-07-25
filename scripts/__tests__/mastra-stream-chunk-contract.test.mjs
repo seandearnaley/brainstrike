@@ -12,13 +12,42 @@ const TOOL_EVENT_MAPPER_FILE = 'packages/agent/src/mastra/tool-event-mapper.ts';
 
 const COMPLIANT_FILES = {
   [AGENT_STREAMING_FILE]: `import type { ChunkType } from '@mastra/core/stream';
+type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : true;
+const MASTRA_CHUNK_TYPE_MUST_STAY_LITERAL: MastraChunkTypeMustStayLiteral = true;
 type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
-const MASTRA_STATIC_CHUNK_TYPES = {} satisfies Record<StaticMastraChunkType, true>;
-logger.warn('unrecognized', { code: 'mastra_agent_unrecognized_stream_chunk', });
+type MastraStaticChunkDisposition = 'ignored' | 'mapped';
+const MASTRA_STATIC_CHUNK_DISPOSITIONS = {} satisfies Record<
+  StaticMastraChunkType,
+  MastraStaticChunkDisposition
+>;
+function warnForUnrecognizedMastraStreamPart() {
+  logger.warn('unrecognized', { code: 'mastra_agent_unrecognized_stream_chunk' });
+}
+function processMastraStreamPart(part) {
+  switch (part.type) {
+    default:
+      warnForUnrecognizedMastraStreamPart();
+      return;
+  }
+}
 `,
-  [DATA_STREAM_MAPPER_FILE]: `logger.warn('unrecognized', { code: 'data_stream_mapper_unrecognized_chunk', });
+  [DATA_STREAM_MAPPER_FILE]: `class DataStreamMapper {
+  handleChunk(chunk) {
+    switch (chunk.type) {
+      default:
+        logger.warn('unrecognized', { code: 'data_stream_mapper_unrecognized_chunk' });
+        return;
+    }
+  }
+}
 `,
-  [TOOL_EVENT_MAPPER_FILE]: `logger.warn('unrecognized', { code: 'mastra_tool_event_unrecognized_stream_chunk', });
+  [TOOL_EVENT_MAPPER_FILE]: `function mapMastraToolEvent(candidate) {
+  switch (candidate.type) {
+    default:
+      logger.warn('unrecognized', { code: 'mastra_tool_event_unrecognized_stream_chunk' });
+      return;
+  }
+}
 `,
 };
 
@@ -50,7 +79,7 @@ test('accepts the typed coverage and coded diagnostics in all three dispatch fil
 test('flags the deliberately silent default that the R6 policy forbids', async () => {
   const root = await writeFixture({
     ...COMPLIANT_FILES,
-    [AGENT_STREAMING_FILE]: `const MASTRA_STATIC_CHUNK_TYPES = {};
+    [AGENT_STREAMING_FILE]: `const MASTRA_STATIC_CHUNK_DISPOSITIONS = {};
 return { chunks: [], finished: false };
 `,
     [TOOL_EVENT_MAPPER_FILE]: 'return undefined;\n',
@@ -60,8 +89,34 @@ return { chunks: [], finished: false };
 
   assert.ok(reasons.some((reason) => reason.includes("ChunkType } from '@mastra/core/stream'")));
   assert.ok(reasons.some((reason) => reason.includes('StaticMastraChunkType')));
+  assert.ok(reasons.some((reason) => reason.includes('MastraChunkTypeMustStayLiteral')));
+  assert.ok(reasons.some((reason) => reason.includes('MastraStaticChunkDisposition')));
   assert.ok(reasons.some((reason) => reason.includes('mastra_agent_unrecognized_stream_chunk')));
   assert.ok(
     reasons.some((reason) => reason.includes('mastra_tool_event_unrecognized_stream_chunk'))
+  );
+});
+
+test('rejects coded warning text outside the protected dispatch default', async () => {
+  const root = await writeFixture({
+    ...COMPLIANT_FILES,
+    [TOOL_EVENT_MAPPER_FILE]: `logger.warn('elsewhere', {
+  code: 'mastra_tool_event_unrecognized_stream_chunk',
+});
+function mapMastraToolEvent(candidate) {
+  switch (candidate.type) {
+    default:
+      return;
+  }
+}
+`,
+  });
+  const { violations } = await findMastraStreamChunkContractViolations({ root });
+  assert.ok(
+    violations.some(
+      ({ filePath, reason }) =>
+        filePath === TOOL_EVENT_MAPPER_FILE &&
+        reason.includes('mastra_tool_event_unrecognized_stream_chunk')
+    )
   );
 });
