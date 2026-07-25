@@ -35,12 +35,20 @@ below are LIVE.
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
-   The adjacent `withToolCallInputTimeout` wrapper applies the SAME configured
-   window as an absolute deadline from the first streamed tool-input marker to
-   its matching input end/complete call. `tool-call-delta` proves transport
-   activity and continues to render progress, but it never extends that
-   deadline: a provider cannot keep a run alive indefinitely by dribbling
-   incomplete JSON arguments. The wrapper ignores non-tool stream parts before
+   The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
+   `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
+   first streamed tool-input marker to its matching input end/complete call.
+   `tool-call-delta` proves transport activity and continues to render
+   progress, but it never extends that deadline: a provider cannot keep a run
+   alive indefinitely by dribbling incomplete JSON arguments. The two windows
+   are DELIBERATELY decoupled and must not be re-merged (BST-839): the
+   inactivity window asks "is the transport still delivering parts?", this one
+   asks "will this call ever become executable?". Reusing the 120s inactivity
+   window as the input budget false-positived on legitimate large argument
+   payloads — a model writing tens of KB of file content streams argument
+   deltas continuously for minutes on a slow upstream route (observed on
+   OpenRouter → GLM, which took >120s to stream one file-write input while the
+   transport was demonstrably healthy). The wrapper ignores non-tool stream parts before
    probing tool-call IDs, so ordinary text and reasoning deltas do not allocate
    identifier candidate arrays. Expiry uses the distinct
    `tool_call_input_streaming_timeout` terminal code and aborts before an
@@ -284,14 +292,23 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
-- The same `BRAINSTRIKE_STREAM_INACTIVITY_MS` value is the maximum wall-clock
+- `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
+  Decoupled from — and never tighter than — the inactivity window (BST-839).
+  That invariant is enforced only when the value is EXPLICIT (env or override);
+  when it is left at its default it widens to the inactivity window instead of
+  throwing, so a deliberately long `BRAINSTRIKE_STREAM_INACTIVITY_MS` cannot
+  fail a run by naming a variable the operator never set. Widening a default is
+  not a silent fallback — nothing configured is overridden, and the documented
+  rule still holds.
 - A local-runtime inactivity termination includes the normalized provider and
   selected model in both the structured error log and visible run failure. Do
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity.
+- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
+  second comparison is enforced only against an explicitly configured input
+  budget; see above).
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately

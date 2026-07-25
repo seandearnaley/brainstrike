@@ -1830,7 +1830,7 @@ async function* streamChunksFromMastra({
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
       rawSource,
-      runtime.resilienceConfig.streamInactivityMs,
+      runtime.resilienceConfig.toolCallInputMs,
       (error) => streamAbortContext.abort(error)
     );
     const source = withInactivityTimeout(

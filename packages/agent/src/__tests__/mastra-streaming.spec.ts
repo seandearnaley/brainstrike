@@ -1400,8 +1400,10 @@ describe('mastra streaming integration', () => {
   it('terminates an incomplete streamed tool input even while argument deltas continue', async () => {
     const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousToolCallInput = process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '35';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '35';
     streamPartDelayMs = 5;
     setMockStreamParts([
       {
@@ -1462,6 +1464,77 @@ describe('mastra streaming integration', () => {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
         process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousToolCallInput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_CALL_INPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = previousToolCallInput;
+      }
+    }
+  });
+
+  it('lets a long streamed tool input finish past the inactivity window (BST-839)', async () => {
+    // A large file write streams argument deltas continuously for far longer
+    // than the inactivity window. Deltas keep the transport demonstrably alive,
+    // so the wider tool-call-input budget must govern — not the inactivity one.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousToolCallInput = process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    // This test asserts a NEGATIVE (no timeout), so slowness can only break it
+    // — the opposite direction from the timeout test above. Scaled for ~10x
+    // per-gap headroom against the inactivity watchdog: 20 deltas x 20ms is
+    // ~400ms of streaming, which still exceeds the 200ms window that the old
+    // coupled behaviour would have applied, so the regression proof holds.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '5000';
+    streamPartDelayMs = 20;
+    setMockStreamParts([
+      {
+        payload: { toolCallId: 'call-long-input' },
+        type: 'tool-call-input-streaming-start',
+      },
+      ...Array.from({ length: 20 }, () => ({
+        payload: { argsTextDelta: 'x', toolCallId: 'call-long-input' },
+        type: 'tool-call-delta',
+      })),
+      {
+        payload: { toolCallId: 'call-long-input' },
+        type: 'tool-call-input-streaming-end',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-long-input', parts: [{ text: 'write a big file', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(JSON.stringify(chunks)).not.toContain('tool_call_input_streaming_timeout');
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+      );
+    } finally {
+      streamPartDelayMs = 0;
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousToolCallInput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_CALL_INPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = previousToolCallInput;
       }
     }
   });
