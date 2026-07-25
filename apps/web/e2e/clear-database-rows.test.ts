@@ -202,7 +202,9 @@ async function clickClearAllCollections(page: Page): Promise<void> {
  * before any seed) confirmed the relation is ABSENT on web, so BOTH of
  * PR #1978's code paths are covered here:
  *   - the main test seeds the table itself (`seedResetProbeRows`, Task 3),
- *     exercising the PRESENT branch of `clearWorkflowSnapshotsIfPresent`.
+ *     exercising the PRESENT branch of `clearRelationIfPresent` (called with
+ *     `MASTRA_WORKFLOW_TABLE`; formerly `clearWorkflowSnapshotsIfPresent`,
+ *     renamed and consolidated by PR #1986).
  *   - the second test seeds only `file_records`/`file_chunks` and proves the
  *     table is genuinely absent first, exercising the branch PR #1978 broke:
  *     a swallowed 42P01 aborting the transaction so every later statement

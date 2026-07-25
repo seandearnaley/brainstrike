@@ -4,6 +4,14 @@ Date: 2026-07-25
 Status: approved, pending implementation plan
 Related: PR #1978 (BST-558 follow-up), `docs/agents/platform-contracts.md` (FACTORY RESET CONTRACT)
 
+> **Post-rebase note:** PR #1986 consolidated the clear helpers named throughout this
+> document into ONE PROBING HELPER PER SIDE — `clearLazilyCreatedRelation` was renamed
+> `clearOptionalRelation` (desktop, `db-ipc.ts`), and `clearWorkflowSnapshotsIfPresent`
+> and `clearMigratedRelation` were both replaced by a single `clearRelationIfPresent`
+> (renderer, `db-provider.tsx`). References to the old names below describe the code as
+> it existed when this spec was written and are preserved for historical accuracy
+> rather than silently renamed; the current names are noted inline where it matters.
+
 ## Problem
 
 PR #1978 fixed two defects in the database clear/reset paths:
@@ -59,7 +67,7 @@ The two bugs #1978 fixed therefore live on different platforms:
 
 | | Desktop | Web |
 | --- | --- | --- |
-| **Clear Database** | `db:clearAll` → `clearLazilyCreatedRelation` — **the 42P01/25P02 bug** | `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent` |
+| **Clear Database** | `db:clearAll` → `clearLazilyCreatedRelation` (superseded by #1986: renamed `clearOptionalRelation`) — **the 42P01/25P02 bug** | `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent` (superseded by #1986: renamed `clearRelationIfPresent`) |
 | **Factory Reset** | `db:resetLocal` → database + userData wipe | `purgeTablesTx` → **the false-success bug** |
 
 `purgeTablesTx` never executes on desktop.
@@ -130,8 +138,9 @@ Extend `WebE2ETestHooks` with two members following the existing shape:
 - `readResetRowCounts(): Promise<{ fileRecords: number; fileChunks: number; workflowSnapshots: number }>`
 
 New file `apps/web/e2e/clear-database-rows.test.ts` drives the same Clear All Collections
-button. This covers `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent`, a distinct
-implementation from desktop's `clearLazilyCreatedRelation` and the only one the web build
+button. This covers `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent` (now
+`clearRelationIfPresent`), a distinct implementation from desktop's
+`clearLazilyCreatedRelation` (now `clearOptionalRelation`) and the only one the web build
 ever runs.
 
 New tag plus a lane script mirroring `test:e2e:lane:destructive-reset` in
@@ -144,10 +153,12 @@ This is the only production-code change in the work.
 Extend the confirm-path test in each existing factory-reset spec rather than adding files.
 
 Seed the same three-table set *before* resetting, then assert the reset **completes** and
-the app reboots clean. This guards the strictness #1978 introduced: `clearMigratedRelation`
-now rethrows what a bare catch used to swallow, and `purgeAndCloseDirectDb` rethrows on
-purge failure, so a genuinely populated database can newly turn a working reset into a hard
-failure.
+the app reboots clean. This guards the strictness #1978 introduced, since hardened by #1986
+into a probe-before-delete design: `clearMigratedRelation` (now `clearRelationIfPresent`)
+no longer catches-and-rethrows at all — it probes each relation with `to_regclass` first
+and leaves the DELETE unwrapped, so a genuine failure surfaces directly — and
+`purgeAndCloseDirectDb` still rethrows on purge failure, so a genuinely populated database
+can newly turn a working reset into a hard failure.
 
 An in-test comment records why post-reset row counts are deliberately omitted (see verified
 premise 3), so the omission is not later "fixed" into an unfalsifiable assertion.
@@ -165,12 +176,16 @@ clears the database and restarts the app does not belong in that budget.
 
 - **Absent-relation end-to-end.** No renderer seam can drop the table (`db:query` blocks
   `DROP`). Stays with `clear-data.integration.test.tsx`.
-- **`docs/agents/platform-contracts.md:120-128`.** It states the probed table name must come
-  from `MASTRA_WORKFLOW_TABLE` and that "both production sites and every test import the
-  constant." `db-provider.tsx:166-212` deliberately uses a local literal pinned by
+- **`docs/agents/platform-contracts.md:120-128`.** At the time this spec was written, the
+  doc's claim that "both production sites and every test import the constant" was stale:
+  `db-provider.tsx:166-212` then deliberately used a local literal instead of importing
+  `MASTRA_WORKFLOW_TABLE`, pinned by
   `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`, because importing the
-  contract there reorders bundle chunk init and kills the renderer. The rule holds; the
-  doc's description of its enforcement is stale. Follow-up, not fixed in-band.
+  contract there reordered bundle chunk init and killed the renderer. **Resolved upstream by
+  PR #1988**, which introduced a lazy in-function read of `MASTRA_WORKFLOW_TABLE` instead of a
+  module-scope import — `db-provider.tsx` and `db-ipc.ts` now both import the constant,
+  matching the doc's description, and `scripts/verify-mastra-schema-init-order.mjs` enforces
+  the lazy-read constraint repo-wide. No longer a live follow-up.
 
 ## Open decision
 

@@ -96,7 +96,12 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     // false-success case is only observable INSIDE the transaction, which is
     // where packages/db/__tests__/clear-data.integration.test.tsx observes it.
     // What this seed does guard: that a realistically-populated database still
-    // completes a reset, now that clearMigratedRelation rethrows.
+    // completes a reset, now that `clearRelationIfPresent` (formerly
+    // `clearMigratedRelation`, renamed and consolidated by PR #1986) probes
+    // each relation with `to_regclass` before deleting it instead of
+    // deleting-and-catching. The DELETE itself is never wrapped in a
+    // try/catch, so a genuine failure surfaces directly rather than being
+    // swallowed as a tolerated absence.
     await seedProbeRows(page);
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');

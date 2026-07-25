@@ -10,6 +10,17 @@
 
 Spec: `docs/superpowers/specs/2026-07-25-clear-database-reset-e2e-design.md`
 
+> **Post-rebase note:** PR #1986 consolidated the clear helpers named throughout this
+> plan into ONE PROBING HELPER PER SIDE — `clearLazilyCreatedRelation` was renamed
+> `clearOptionalRelation` (desktop, `db-ipc.ts`), and `clearWorkflowSnapshotsIfPresent`
+> and `clearMigratedRelation` were both replaced by a single `clearRelationIfPresent`
+> (renderer, `db-provider.tsx`). This plan's task steps, code blocks, and commit-message
+> templates describe the code and the control tests as they existed when the tasks below
+> were executed — including several already-landed commits that use the old names — and
+> are preserved verbatim for historical accuracy. Narrative summary sentences are annotated
+> inline with the current names where the distinction matters for a reader relying on this
+> plan today.
+
 ## Global Constraints
 
 - TypeScript strict. Never `any` — prefer `unknown` + narrowing. Annotate params and return types.
@@ -227,7 +238,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Produces: nothing consumed by later tasks.
 
 This is the spec that covers the exact PR #1978 bug site: `db:clearAll` →
-`clearLazilyCreatedRelation(tx, MASTRA_WORKFLOW_TABLE)`.
+`clearLazilyCreatedRelation(tx, MASTRA_WORKFLOW_TABLE)` (renamed `clearOptionalRelation`
+by PR #1986; same call site, same `MASTRA_WORKFLOW_TABLE` argument).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -302,6 +314,10 @@ Expected: PASS. (The production fix already landed in #1978; this run only prove
 If it fails on the seed, the most likely cause is a `22P02` from a non-UUID id — confirm `crypto.randomUUID()` is used bare.
 
 - [ ] **Step 3: CONTROL — prove the test can fail**
+
+(superseded by #1986: `clearLazilyCreatedRelation` was renamed `clearOptionalRelation`
+after this control step was executed against the pre-rebase code below; the function name
+in this step is preserved as historical record of what was actually run.)
 
 Edit `apps/desktop/src/ipc-domains/db-ipc.ts`. Find `clearLazilyCreatedRelation` (~:333) and replace its `to_regclass` probe body with the pre-#1978 delete-and-catch form:
 
@@ -527,9 +543,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `seedResetProbeRows`, `readResetRowCounts` from Task 3.
 - Produces: nothing consumed by later tasks.
 
-Covers `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent`, a distinct
-implementation from desktop's `clearLazilyCreatedRelation` and the only one the
-web build runs.
+Covers `clearViaPGlite` → `clearWorkflowSnapshotsIfPresent` (now `clearRelationIfPresent`),
+a distinct implementation from desktop's `clearLazilyCreatedRelation` (now
+`clearOptionalRelation`) and the only one the web build runs.
 
 - [ ] **Step 1: Write the spec**
 
@@ -657,6 +673,11 @@ Expected: PASS.
 
 - [ ] **Step 5: CONTROL — prove the test can fail**
 
+(superseded by #1986: `clearWorkflowSnapshotsIfPresent` and `clearMigratedRelation` were
+both replaced by a single `clearRelationIfPresent` after this control step was executed
+against the pre-rebase code below; the function name in this step is preserved as
+historical record of what was actually run.)
+
 Edit `packages/db/src/db-provider.tsx`. In `clearWorkflowSnapshotsIfPresent` (~:216),
 change the table constant to a stale name to simulate the permanent-silent-skip
 failure the contract warns about:
@@ -705,9 +726,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `seedResetProbeRows` from Task 1.
 - Produces: nothing.
 
-Guards the strictness #1978 introduced: `clearMigratedRelation` now rethrows what a
-bare catch used to swallow, so a populated database can newly turn a working reset
-into a hard failure.
+Guards the strictness #1978 introduced, since hardened by #1986 into a
+probe-before-delete design: `clearMigratedRelation` (now `clearRelationIfPresent`) no
+longer catches-and-rethrows at all — it probes each relation with `to_regclass` first
+and leaves the DELETE unwrapped — so a populated database that trips a genuine failure
+can newly turn a working reset into a hard failure.
 
 - [ ] **Step 1: Import the seed helper**
 
@@ -790,6 +813,12 @@ async function seedProbeRows(page: Page): Promise<void> {
 In the `confirm path clears persisted state and reloads cleanly` test, immediately
 before `await settings.openCategory(/Factory Reset/i, 'factory-reset');` (~:80), add:
 
+(superseded by #1986: the committed comment was later corrected — see
+`apps/web/e2e/factory-reset-recovery.test.ts:90-99` — because `clearMigratedRelation`
+was replaced by `clearRelationIfPresent`, which probes with `to_regclass` before
+deleting and never wraps the DELETE in a try/catch, rather than catching-and-rethrowing.
+The block below is preserved as originally written for historical accuracy.)
+
 ```ts
     // Populate the database before resetting. This is the purgeTablesTx path —
     // the one that could report a SUCCESSFUL reset having cleared nothing.
@@ -870,10 +899,14 @@ skipping `factory-reset-recovery.test.ts`; and the two follow-ups below.
 Do not fix these in-band. Record them in the PR description:
 
 1. `docs/agents/platform-contracts.md:120-128` claims both production sites import
-   `MASTRA_WORKFLOW_TABLE`. `db-provider.tsx:166-212` deliberately uses a local
-   literal pinned by `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`,
-   because importing the contract there reorders bundle chunk init. The rule holds;
-   the doc's description of its enforcement is stale.
+   `MASTRA_WORKFLOW_TABLE`. At the time this plan was written, `db-provider.tsx:166-212`
+   deliberately used a local literal pinned by
+   `scripts/__tests__/mastra-workflow-table-literal-contract.test.mjs`, because importing
+   the contract there reordered bundle chunk init. The rule held; the doc's description of
+   its enforcement was stale. **Resolved upstream by PR #1988**, which added a lazy
+   in-function read of `MASTRA_WORKFLOW_TABLE` (not a module-scope import) — both
+   `db-provider.tsx` and `db-ipc.ts` now import the constant, matching the doc, enforced by
+   `scripts/verify-mastra-schema-init-order.mjs`. No longer a live follow-up.
 2. `apps/web/src/web-e2e-test-hooks.tsx:105-110` (`qualifyDatabaseExtensions`) inserts
    ids shaped `csp-file-${crypto.randomUUID()}`. Production `file_records.id` is a
    `uuid` column under the drizzle runner, so that raises `22P02`. It survives only
