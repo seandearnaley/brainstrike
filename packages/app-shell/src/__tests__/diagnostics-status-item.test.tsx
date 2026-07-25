@@ -73,13 +73,20 @@ describe('DiagnosticsStatusItem', () => {
 
   it('clicking advances the seen watermark, opens settings, and routes to the logging tab', async () => {
     mockLiveQueryResult([{ count: 3 }]);
-    const beforeClick = useDiagnosticsSeenStore.getState().lastSeenAtMs;
+    // Pin the pre-click watermark to a known PAST value rather than reading
+    // whatever `beforeEach` seeded. `resetDiagnosticsSeenStore()` seeds to
+    // `Date.now()` and the click lands microseconds later, so asserting
+    // against that seed would need `>=` — which passes even when the click
+    // writes nothing at all, making the test vacuous. An hour-old watermark
+    // makes strict `>` both meaningful AND immune to same-millisecond flake.
+    const beforeClick = Date.now() - 60 * 60 * 1000;
+    useDiagnosticsSeenStore.setState({ lastSeenAtMs: beforeClick });
     const user = userEvent.setup();
 
     render(<DiagnosticsStatusItem />);
     await user.click(screen.getByTestId('diagnostics-status-trigger'));
 
-    expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThanOrEqual(beforeClick);
+    expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThan(beforeClick);
     expect(usePanelLayoutStore.getState().settingsOpen).toBe(true);
     expect(window.location.hash).toBe('#settings/logging');
   });
