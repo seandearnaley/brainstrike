@@ -18,6 +18,9 @@ const PROCESS_TREE_TERM_GRACE_MS = 2000;
 const PROCESS_TREE_KILL_GRACE_MS = 2000;
 const PROFILE_REMOVAL_RETRIES = 3;
 const PROFILE_REMOVAL_RETRY_DELAY_MS = 150;
+const PROFILE_PREFIX = 'brainstrike-agent-devtools-';
+const OWNER_MARKER_FILENAME = 'agent-devtools-owner.json';
+const LEGACY_REPORT_LIMIT = 10;
 const MAC_AGENT_DEBUG_APP_NAME = 'BrainStrike Agent Debug';
 const MAC_AGENT_DEBUG_BUNDLE_ID = 'com.brainstrike.desktop.agent-debug';
 
@@ -272,15 +275,179 @@ async function pathExists(target) {
   }
 }
 
+/**
+ * Record which launcher owns a profile, so a later run can tell an abandoned
+ * profile from a concurrent session.
+ *
+ * The marker lives at the profile root, which is also `BRAINSTRIKE_DB_ROOT_PATH`.
+ * That is safe because the database only ever joins `<root>/profiles/<profile>`
+ * onto this path and never enumerates the root itself.
+ */
+export async function writeProfileOwnerMarker(userDataDir, pid = process.pid) {
+  const marker = { pid, startedAtMs: Date.now() };
+  await fs.writeFile(
+    path.join(userDataDir, OWNER_MARKER_FILENAME),
+    `${JSON.stringify(marker, null, 2)}\n`
+  );
+  return marker;
+}
+
+/**
+ * Read a profile's owner marker, or null when the profile cannot prove who owns
+ * it. A missing or malformed marker is not an error: profiles created before
+ * this marker existed are legitimately markerless, and a launcher killed
+ * between `mkdtemp` and the marker write leaves a half-built one. Both are
+ * reported rather than removed, because neither can be proven abandoned.
+ */
+export async function readProfileOwnerMarker(userDataDir) {
+  let raw;
+  try {
+    raw = await fs.readFile(path.join(userDataDir, OWNER_MARKER_FILENAME), 'utf8');
+  } catch {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Number.isInteger(parsed?.pid) || parsed.pid <= 0) {
+      return null;
+    }
+    return {
+      pid: parsed.pid,
+      startedAtMs: Number.isInteger(parsed?.startedAtMs) ? parsed.startedAtMs : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Probe whether a recorded owner is still running. Every uncertain answer must
+ * resolve to "alive" so the sweep can only ever under-delete: a recycled pid or
+ * a pid owned by another user (EPERM) protects a profile that might be live,
+ * where the cost is a retained directory rather than a destroyed session.
+ */
+export function isOwnerAlive(pid, kill = process.kill) {
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== 'ESRCH';
+  }
+}
+
+/**
+ * Reclaim sibling profiles whose owning launcher is provably gone.
+ *
+ * The in-process cleanup path covers every exit this launcher can observe, but
+ * SIGKILL, a panic, and loss of power cannot run a handler at all, and macOS
+ * does not reclaim `$TMPDIR` between reboots — profiles from an eleven-day-old
+ * boot were still present when this was written. Because the profile doubles as
+ * `BRAINSTRIKE_DB_ROOT_PATH`, each abandoned one holds an entire PGlite cluster,
+ * so the leak is measured in gigabytes rather than kilobytes.
+ *
+ * This is opportunistic hygiene, not the ownership guarantee. It removes only
+ * what it can prove is dead, and never fails a launch: the run's own profile
+ * stays fail-loud through `removeUserDataDir`, while anything found here that
+ * resists removal is reported to the caller and left alone.
+ */
+export async function sweepStaleProfiles(options = {}) {
+  const {
+    currentUserDataDir,
+    isOwnerAlive: ownerAlive = isOwnerAlive,
+    removeProfile = removeUserDataDir,
+    tempDirectory = os.tmpdir(),
+  } = options;
+  const result = { failed: [], legacy: [], removed: [], scanError: null, skippedLive: [] };
+
+  let entries;
+  try {
+    entries = await fs.readdir(tempDirectory, { withFileTypes: true });
+  } catch (error) {
+    result.scanError = error;
+    return result;
+  }
+
+  const owned = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(PROFILE_PREFIX))
+    .map((entry) => path.join(tempDirectory, entry.name))
+    .sort();
+
+  for (const userDataDir of owned) {
+    if (currentUserDataDir && path.resolve(userDataDir) === path.resolve(currentUserDataDir)) {
+      continue;
+    }
+
+    const marker = await readProfileOwnerMarker(userDataDir);
+    if (!marker) {
+      result.legacy.push(userDataDir);
+      continue;
+    }
+    if (ownerAlive(marker.pid)) {
+      result.skippedLive.push(userDataDir);
+      continue;
+    }
+
+    try {
+      await removeProfile(userDataDir);
+      result.removed.push(userDataDir);
+    } catch (error) {
+      result.failed.push({ error, userDataDir });
+    }
+  }
+
+  return result;
+}
+
+export function reportSweep(result, log = console.log, logError = console.error) {
+  if (result.scanError) {
+    logError('Agent DevTools could not scan for stale profiles:', result.scanError);
+  }
+  if (result.removed.length > 0) {
+    log(`Agent DevTools reclaimed ${result.removed.length} abandoned profile(s).`);
+  }
+  for (const { error, userDataDir } of result.failed) {
+    logError(`Agent DevTools could not reclaim abandoned profile ${userDataDir}:`, error);
+  }
+  if (result.legacy.length > 0) {
+    // These predate the owner marker, so staleness cannot be proven. Surface
+    // them for an explicit decision instead of guessing.
+    //
+    // Every path is listed in full and never collapsed to a `PROFILE_PREFIX*`
+    // glob: such a glob also matches the profile of any session running right
+    // now, so pasting it would destroy a live database. An exact list is the
+    // only form of this report that is safe to act on.
+    log(
+      `Agent DevTools found ${result.legacy.length} profile(s) with no ownership marker. ` +
+        'These predate ownership tracking, cannot be proven abandoned, and were left ' +
+        'untouched. Remove any you recognise as finished:'
+    );
+    for (const userDataDir of result.legacy.slice(0, LEGACY_REPORT_LIMIT)) {
+      log(`  ${userDataDir}`);
+    }
+    const remaining = result.legacy.length - LEGACY_REPORT_LIMIT;
+    if (remaining > 0) {
+      // A glob is safe to suggest for listing, never for removal.
+      log(
+        `  ...and ${remaining} more; list them all with:\n` +
+          `    ls -d ${path.join(os.tmpdir(), `${PROFILE_PREFIX}*`)}`
+      );
+    }
+  }
+}
+
 export async function createAgentDevtoolsProfile(options = {}) {
   const {
     electronExecutablePath,
     platform = process.platform,
     tempDirectory = os.tmpdir(),
   } = options;
-  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, 'brainstrike-agent-devtools-'));
+  const userDataDir = await fs.mkdtemp(path.join(tempDirectory, PROFILE_PREFIX));
 
   try {
+    // Claim ownership before anything else can fail, so a profile that outlives
+    // this launcher is always attributable to a pid a later sweep can probe.
+    await writeProfileOwnerMarker(userDataDir);
     const electronOverrideDistPath =
       platform === 'darwin'
         ? await createMacAgentDebugElectronDist({
@@ -543,6 +710,7 @@ async function main() {
 
   console.log(`Agent DevTools profile: ${userDataDir}`);
   console.log(`Agent DevTools endpoint: ${endpoint}`);
+  reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
   if (electronOverrideDistPath) {
     console.log(
       `Agent DevTools macOS identity: ${MAC_AGENT_DEBUG_APP_NAME} (${MAC_AGENT_DEBUG_BUNDLE_ID})`

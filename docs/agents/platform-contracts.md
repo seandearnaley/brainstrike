@@ -264,6 +264,17 @@ missing path fails startup; it must never fall through to the production
 profile. This path isolation does not enable E2E runtime semantics: live
 provider, storage, and single-instance behavior remain production-equivalent.
 
+Each profile carries an `agent-devtools-owner.json` marker naming the owning
+launcher pid, so a later run can distinguish a profile abandoned by an abrupt
+kill from a concurrent session and reclaim only the former. The sweep never
+deletes a profile it cannot prove is dead, and never fails a launch. Full
+contract in `docs/agents/ci-quality.md`.
+
+Desktop E2E is a separate mechanism and not part of this contract: the
+Playwright fixture derives its own `brainstrike-test-user-data-*` path and owns
+its teardown. It must never adopt the `brainstrike-agent-devtools-` prefix,
+which would expose its profiles to the launcher's sweep.
+
 ---
 
 ## FILE WATCHER SERVICE LIFECYCLE (BST-568)

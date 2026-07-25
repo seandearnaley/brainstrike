@@ -584,6 +584,36 @@ failures are visible fatal errors with a non-zero exit, never warning-only
 cleanup. The `Native Windows` required check builds and exercises the native
 addon with a late-writing orphan plus an unrelated-process survival assertion.
 
+#### Stale-profile sweep (abrupt-kill recovery)
+
+In-process cleanup covers every exit the launcher can observe, but SIGKILL, a
+panic, and loss of power run no handler at all, and macOS does not reclaim
+`$TMPDIR` between reboots. Because the profile is also
+`BRAINSTRIKE_DB_ROOT_PATH`, each abandoned profile retains a whole PGlite
+cluster, so the leak is measured in gigabytes.
+
+Each profile therefore records an `agent-devtools-owner.json` marker holding the
+owning launcher pid, written immediately after `mkdtemp` and before any other
+setup. On startup, after creating its own profile, the launcher sweeps sibling
+`brainstrike-agent-devtools-*` directories.
+
+This sweep is opportunistic hygiene, **not** the ownership guarantee, and the
+two must not be conflated:
+
+- It removes a sibling only when a marker proves the owning pid is **dead**.
+  Every uncertain liveness answer resolves to alive (`EPERM`, a recycled pid),
+  so the sweep can only under-delete. An age threshold is deliberately **not**
+  the deciding signal: a long-running agent-debug session is both old and live.
+- A profile with a missing or malformed marker cannot be proven stale. It is
+  reported with a copy-pasteable removal command and **never** auto-deleted.
+- Sweep failures are reported and non-fatal — a stale sibling must not block the
+  session the user asked for. The run's own profile stays fail-loud through
+  `removeUserDataDir`; do not make the sweep fatal to "match" it.
+
+The marker sits at the profile root, which is safe only because the database
+joins `<root>/profiles/<profile>` and never enumerates the root. Re-verify that
+before adding anything else there.
+
 Manual QA must cover both automation surfaces while another Electron app is
 running:
 
@@ -599,6 +629,10 @@ running:
    confirm the printed `brainstrike-agent-devtools-*` profile remains absent
    after a bounded post-exit observation. Keep unrelated Electron processes
    running throughout this check.
+5. Verify abrupt-kill recovery: start the launcher again, `kill -9` its pid, and
+   confirm the printed profile survives (no handler can run). Start a third
+   session and confirm it reports reclaiming that profile and that the directory
+   is gone, while a second concurrently running session's profile is untouched.
 
 ---
 

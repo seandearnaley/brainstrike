@@ -13,14 +13,18 @@ import {
   formatMcpConfig,
   initializeWindowsJob,
   parsePort,
+  readProfileOwnerMarker,
   removeUserDataDir,
+  reportSweep,
   resolveEndpoint,
   resolvePnpmSpawnOptions,
   rewriteMacAgentDebugInfoPlist,
   shutdownChildProcessTree,
   signalProcessGroup,
+  sweepStaleProfiles,
   waitForEndpoint,
   waitForEndpointOrChildExit,
+  writeProfileOwnerMarker,
 } from '../start-agent-devtools-session.mjs';
 
 const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
@@ -449,4 +453,289 @@ test('removeUserDataDir rethrows the underlying error when every attempt throws'
   );
 
   assert.equal(attempts, 3);
+});
+
+/**
+ * Build an isolated stand-in for the OS temp directory containing sibling
+ * profiles in a chosen ownership state, so a sweep can be exercised without
+ * touching the real tmpdir.
+ */
+async function createSiblingProfiles(siblings) {
+  const temp = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-sweep-test-'));
+  const created = {};
+  for (const [name, owner] of Object.entries(siblings)) {
+    const profile = path.join(temp, name);
+    await mkdir(path.join(profile, 'profiles', 'branch-main-wt-abc123', 'pgdata'), {
+      recursive: true,
+    });
+    if (owner !== 'legacy') {
+      await writeProfileOwnerMarker(profile, owner);
+    }
+    created[name] = profile;
+  }
+  return { profiles: created, temp };
+}
+
+test('sweepStaleProfiles reclaims a sibling profile whose owning launcher is gone', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-dead01': 4242,
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: (pid) => pid !== 4242,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-dead01']]);
+    await assert.rejects(stat(profiles['brainstrike-agent-devtools-dead01']), { code: 'ENOENT' });
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles never removes a concurrent session, however old it is', async () => {
+  // Age alone cannot decide this: an agent-debug session is routinely left
+  // running for hours. Only a live owning pid protects it.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-live01': 4242,
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: (pid) => pid === 4242,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.skippedLive, [profiles['brainstrike-agent-devtools-live01']]);
+    // Still fully intact, contents included.
+    await stat(path.join(profiles['brainstrike-agent-devtools-live01'], 'profiles'));
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles never removes the profile owned by this run', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-self01': process.pid,
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      currentUserDataDir: profiles['brainstrike-agent-devtools-self01'],
+      // Even if the liveness probe were wrong, our own profile is off limits.
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    await stat(profiles['brainstrike-agent-devtools-self01']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles reports markerless legacy profiles instead of deleting them', async () => {
+  // Profiles predating the owner marker cannot be proven stale, so the sweep
+  // surfaces them for an explicit human decision rather than guessing.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-legacy1': 'legacy',
+    'brainstrike-agent-devtools-legacy2': 'legacy',
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.legacy.sort(), [
+      profiles['brainstrike-agent-devtools-legacy1'],
+      profiles['brainstrike-agent-devtools-legacy2'],
+    ]);
+    await stat(profiles['brainstrike-agent-devtools-legacy1']);
+    await stat(profiles['brainstrike-agent-devtools-legacy2']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles treats an unreadable marker as legacy rather than crashing', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-broken': 4242,
+  });
+  await writeFile(
+    path.join(profiles['brainstrike-agent-devtools-broken'], 'agent-devtools-owner.json'),
+    '{ not json'
+  );
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.legacy, [profiles['brainstrike-agent-devtools-broken']]);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles ignores temp entries it does not own', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-dead01': 4242,
+  });
+  // The E2E fixture and unrelated tooling share this directory.
+  const foreign = path.join(temp, 'brainstrike-test-user-data-1-shard-0');
+  await mkdir(foreign, { recursive: true });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-dead01']]);
+    assert.deepEqual(result.legacy, []);
+    await stat(foreign);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles keeps going when one stale profile cannot be removed', async () => {
+  // Opportunistic hygiene must never block the session the user asked for, but
+  // the failure still has to be visible to the caller.
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-dead01': 4242,
+    'brainstrike-agent-devtools-stuck1': 4243,
+  });
+  const stuck = profiles['brainstrike-agent-devtools-stuck1'];
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      removeProfile: async (target) => {
+        if (target === stuck) {
+          throw Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+        }
+        await rm(target, { force: true, recursive: true });
+      },
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-devtools-dead01']]);
+    assert.deepEqual(
+      result.failed.map((entry) => entry.userDataDir),
+      [stuck]
+    );
+    assert.equal(result.failed[0].error.code, 'EBUSY');
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles tolerates a temp directory that cannot be scanned', async () => {
+  // A sweep is best-effort hygiene; an unreadable tmpdir must not stop a launch.
+  const result = await sweepStaleProfiles({ tempDirectory: '/fake/missing-temp-directory' });
+
+  assert.deepEqual(result.removed, []);
+  assert.deepEqual(result.legacy, []);
+  assert.ok(result.scanError);
+});
+
+test('reportSweep names legacy profiles individually instead of suggesting a wildcard', async () => {
+  // A `brainstrike-agent-devtools-*` glob would also match a concurrent
+  // session's profile, so the report must never hand one to the user.
+  const lines = [];
+  reportSweep(
+    {
+      failed: [],
+      legacy: [
+        '/tmp/brainstrike-agent-devtools-legacy1',
+        '/tmp/brainstrike-agent-devtools-legacy2',
+      ],
+      removed: [],
+      scanError: null,
+      skippedLive: [],
+    },
+    (line) => lines.push(line),
+    (line) => lines.push(line)
+  );
+
+  const report = lines.join('\n');
+  assert.ok(!report.includes('*'), `report must not suggest a glob:\n${report}`);
+  assert.ok(report.includes('/tmp/brainstrike-agent-devtools-legacy1'));
+  assert.ok(report.includes('/tmp/brainstrike-agent-devtools-legacy2'));
+});
+
+test('reportSweep bounds a long legacy list and only ever globs for listing', async () => {
+  const lines = [];
+  reportSweep(
+    {
+      failed: [],
+      legacy: Array.from(
+        { length: 121 },
+        (_, index) => `/tmp/brainstrike-agent-devtools-p${index}`
+      ),
+      removed: [],
+      scanError: null,
+      skippedLive: [],
+    },
+    (line) => lines.push(line),
+    (line) => lines.push(line)
+  );
+
+  const report = lines.join('\n');
+  assert.match(report, /found 121 profile\(s\)/);
+  assert.match(report, /\.\.\.and 111 more/);
+  // Bounded output: the header, ten paths, and the overflow note.
+  assert.equal(lines.length, 12);
+  // Any glob that survives must be read-only.
+  for (const line of lines.filter((entry) => entry.includes('*'))) {
+    assert.match(line, /ls -d/);
+    assert.ok(!line.includes('rm '), `glob must never be paired with rm: ${line}`);
+  }
+});
+
+test('createAgentDevtoolsProfile records an owner marker the sweep can verify', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-marker-test-'));
+
+  try {
+    const { userDataDir } = await createAgentDevtoolsProfile({
+      platform: 'linux',
+      tempDirectory: root,
+    });
+    const marker = await readProfileOwnerMarker(userDataDir);
+
+    assert.equal(marker.pid, process.pid);
+    assert.ok(Number.isInteger(marker.startedAtMs));
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('a profile whose owner was SIGKILLed is reclaimed by the next launch', async () => {
+  // The end-to-end case the sweep exists for: no exit handler can run, so the
+  // profile survives until a later launcher proves its owner is gone.
+  const temp = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-sigkill-test-'));
+  const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)']);
+  const abandoned = path.join(temp, 'brainstrike-agent-devtools-killed');
+  await mkdir(abandoned, { recursive: true });
+  await writeProfileOwnerMarker(abandoned, victim.pid);
+
+  try {
+    victim.kill('SIGKILL');
+    await new Promise((resolve) => victim.once('exit', resolve));
+
+    const result = await sweepStaleProfiles({ tempDirectory: temp });
+
+    assert.deepEqual(result.removed, [abandoned]);
+    await assert.rejects(stat(abandoned), { code: 'ENOENT' });
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
 });
