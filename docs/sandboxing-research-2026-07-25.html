@@ -176,9 +176,9 @@
       <td>Fixed binaries with controlled args: lower risk, but still unconfined.</td>
     </tr>
     <tr>
-      <td>Filesystem tools</td>
+      <td>Filesystem tools<br><span class="muted small">assistant-server/assistant-tools.ts, workspace-path.ts</span></td>
       <td>Electron main</td>
-      <td><code>@brainstrike/secure-fs-native</code>: descriptor‑relative (openat‑style) capability FS scoped to trusted roots. <span class="badge b-good">Already capability‑based</span></td>
+      <td><strong>Two different mechanisms, not one.</strong> The agent‑facing read/write/rename tools in <code>assistant-tools.ts</code> use Node <code>fsPromises</code> against paths resolved by <code>workspace-path.ts</code>, i.e. <em>path‑based</em> containment (<code>realpath</code> + <code>path.relative</code> root check). <span class="badge b-warn">Path‑based</span> The descriptor‑relative capability FS in <code>@brainstrike/secure-fs-native</code> backs only <code>skills-fs-deps.ts</code>, <code>ipc-user-commands-handlers.ts</code>, and <code>ipc-handlers.ts</code>. <span class="badge b-good">Capability‑based</span></td>
     </tr>
     <tr>
       <td>Web build</td>
@@ -189,7 +189,7 @@
 </table>
 </div>
 
-<p>Two assets matter for the roadmap: the <strong>permission engine</strong> (enforce‑on‑by‑default, per‑call <code>ask</code> suspension; see <span class="muted">docs/agents/assistant-runtime.md §PERMISSION ENGINE</span>) is a mature <em>policy</em> layer, and <strong>secure‑fs‑native</strong> already implements the filesystem half of a capability model. What's missing is the <em>enforcement</em> layer for arbitrary shell: once the user approves a command, nothing bounds what it (or anything it transitively spawns) can touch on disk or on the network.</p>
+<p>Two assets matter for the roadmap: the <strong>permission engine</strong> (enforce‑on‑by‑default, per‑call <code>ask</code> suspension; see <span class="muted">docs/agents/assistant-runtime.md §PERMISSION ENGINE</span>) is a mature <em>policy</em> layer, and <strong>secure‑fs‑native</strong> proves out a descriptor‑relative capability FS, though (per the row above) the agent‑facing file tools do not yet use it, so the filesystem half of the capability model is demonstrated rather than finished. What's missing entirely is the <em>enforcement</em> layer for arbitrary shell: once the user approves a command, nothing bounds what it (or anything it transitively spawns) can touch on disk or on the network.</p>
 
 <h2><span class="num">2</span>How the two reference implementations do it</h2>
 
@@ -331,7 +331,12 @@
 
 <div class="card tier">
   <div class="n">1</div>
-  <div><strong>Embed <code>@anthropic-ai/sandbox-runtime</code> in the Electron main process</strong> around <code>runShellCommand</code> (the single choke point that <code>execute_command</code>, and eventually hooks, flow through). Default policy: writes confined to workspace roots plus scratch/temp; reads broader but excluding credential paths (<code>~/.ssh</code>, <code>~/.aws</code>, keychains); network deny‑by‑default with a user‑editable domain allowlist (registry mirrors, package hosts) surfaced through the existing approval UI. This aligns with the <em>NO SILENT FALLBACKS</em> rule: sandbox violations should fail loudly with an actionable “allow this path/domain?” prompt.</div>
+  <div><strong>Embed <code>@anthropic-ai/sandbox-runtime</code> in the Electron main process</strong> around <code>runShellCommand</code> (the single choke point that <code>execute_command</code>, and eventually hooks, flow through). Default policy: writes confined to workspace roots plus scratch/temp; network deny‑by‑default with a user‑editable domain allowlist (registry mirrors, package hosts) surfaced through the existing approval UI. This aligns with the <em>NO SILENT FALLBACKS</em> rule: sandbox violations should fail loudly with an actionable “allow this path/domain?” prompt.</div>
+</div>
+
+<div class="card tier">
+  <div class="n">1b</div>
+  <div><strong>Reads must be an allow‑list, not a credential deny‑list.</strong> Calling this out as a direction decision rather than an implementation detail, because it is the weaker half of the containment story. A deny‑list enumerates badness and will always be incomplete: beyond <code>~/.ssh</code> and <code>~/.aws</code> there are <code>~/.netrc</code>, <code>~/.config/gh/hosts.yml</code>, <code>~/.docker/config.json</code>, <code>~/.npmrc</code>, <code>~/.gitconfig</code> credential helpers, browser cookie databases, and <code>.env</code> files in <em>other</em> checkouts. Broad reads composed with <em>any</em> reachable egress domain is a working exfiltration channel, and a package registry is reachable by design, so the allowlist that makes the toolchain work is also the one that carries data out. Recommend scoping reads to workspace roots plus resolved toolchain/runtime paths and system libraries, with credential‑path denies kept only as defense‑in‑depth. The sandbox's containment claim is bounded by whichever list is weaker.</div>
 </div>
 
 <div class="card tier">
@@ -341,7 +346,7 @@
 
 <div class="card tier">
   <div class="n">3</div>
-  <div><strong>Complementary, already‑owned pieces:</strong> extend <code>secure-fs-native</code> as the FS‑tool capability layer (it is philosophically identical to srt's FS scoping, at a different layer); keep worktree isolation for parallel agent runs; wire any new sandbox config store into factory reset per platform contract.</div>
+  <div><strong>Complementary, already‑owned pieces:</strong> migrate the agent‑facing file tools in <code>assistant-tools.ts</code> off path‑based <code>fsPromises</code> containment and onto <code>secure-fs-native</code>, which already backs the skills and user‑command paths (this is a real gap, not a rename: it closes TOCTOU races that <code>realpath</code> checks cannot); keep worktree isolation for parallel agent runs; wire any new sandbox config store into factory reset per platform contract.</div>
 </div>
 
 <div class="card tier">
