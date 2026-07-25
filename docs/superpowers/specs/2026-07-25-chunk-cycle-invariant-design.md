@@ -37,11 +37,23 @@ BST-861 assumed the answer was a cleverer AST heuristic, and warned that a naive
 `app-shell` + `db` alone, nearly all benign.
 
 That framing is beaten by a measurement: **a cross-chunk cycle is not a proxy
-for this hazard, it is the necessary precondition.** ESM evaluates a module's
-dependencies before its own body, so with an acyclic chunk graph a topological
-init order always exists and every imported binding is initialized before any
-module-scope read of it. A cycle is the only way to get an uninitialized binding
-at module scope.
+for this hazard, it is the necessary precondition — for the cross-chunk form of
+it.** ESM evaluates a module's dependencies before its own body, so with an
+acyclic chunk graph a topological init order always exists BETWEEN CHUNKS, and
+no chunk can observe another chunk's export before that chunk has finished
+initializing.
+
+> **Corrected during final review, 2026-07-25.** This section originally claimed
+> a cycle was "the only way to get an uninitialized binding at module scope".
+> That is false, and the correction is load-bearing enough to record rather than
+> quietly edit. Two source modules that are themselves circular and land in the
+> SAME chunk are concatenated in an arbitrary order, so one can read the other's
+> binding before it is initialized — and the chunk graph reports no cycle at all,
+> because there is only one node. Proved empirically against this repo's rolldown
+> with a throwaway fixture: `ReferenceError: Cannot access 'A' before
+> initialization`. The accurate statement is **acyclic chunk graph AND acyclic
+> source-module graph ⇒ safe**; this design enforces only the first conjunct.
+> All four recorded scars are the cross-chunk form, which is what this catches.
 
 Measured on `657cd3538`:
 
@@ -59,9 +71,11 @@ than aspirational.
 
 Properties this buys, which no AST rule can:
 
-- **Complete for the class.** Zero cycles ⇒ no instance can fire, regardless of
-  how many module-scope reads exist. Covers all four families above and every
-  future one.
+- **Complete for the CROSS-CHUNK form.** Zero chunk cycles ⇒ no cross-chunk
+  instance can fire, regardless of how many module-scope reads exist. Covers all
+  four recorded scars and every future family, because it never inspects source
+  at all. It does NOT cover an intra-chunk source cycle — see the corrected
+  premise above and the "Known remaining gap" note below.
 - **No allowlist, no registration.** Nothing to remember when adding a family —
   the 431-hit noise floor never arises, because source code is never inspected.
 - **Zero false positives by construction.** It reports on emitted artifacts, so
