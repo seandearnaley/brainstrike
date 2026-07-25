@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { classifyCommand, classifyFileToken, isFileToken } from './collect-scribe-references.mjs';
+import {
+  classifyCommand,
+  classifyFileToken,
+  classifyProjectPath,
+  isFileToken,
+} from './collect-scribe-references.mjs';
 
 const tree = new Set([
   'AGENTS.md',
@@ -22,6 +27,11 @@ test('an absent file token is MANUAL (a human-verify lead), never a fabricated D
   // docs cite filenames as examples/contrasts, so absent != mechanically dangling
   assert.equal(classifyFileToken('db-test-lane-manifsst.mjs', tree), 'MANUAL');
   assert.equal(classifyFileToken('docs/agents/ghost.md', tree), 'MANUAL');
+});
+
+test('project-path citations ignore a trailing source line or range', () => {
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:12', tree), 'ACCURATE');
+  assert.equal(classifyProjectPath('packages/db/src/repo.ts:12-24', tree), 'ACCURATE');
 });
 
 test('dotted code identifiers are not treated as file tokens at all', () => {

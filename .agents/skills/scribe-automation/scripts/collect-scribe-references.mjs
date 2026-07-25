@@ -177,7 +177,9 @@ function classifyProjectPath(token, allPaths) {
   if (token.includes('...')) {
     return 'MANUAL';
   }
-  const normalized = token.replace(/\/+$/, '');
+  // Contract citations commonly include a source range (`path/to/file.ts:12-24`).
+  // The range locates the evidence; it is not part of the repository path.
+  const normalized = token.replace(/:\d+(?:-\d+)?$/, '').replace(/\/+$/, '');
   if (!normalized) {
     return 'MANUAL';
   }
