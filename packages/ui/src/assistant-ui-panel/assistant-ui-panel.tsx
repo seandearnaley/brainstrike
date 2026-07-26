@@ -1617,18 +1617,14 @@ export const UserMessage = () => {
 // containing block once floating.
 //
 // Geometry, empirically verified in assistant-chat-polish.browser.test.tsx
-// (measured rects, not spec-assumed -- see that test for the readings):
-// col-end-2/row-end-3 are required, not decorative -- for an abspos item an
-// `auto` END line resolves to the grid CONTAINER's padding edge, not "span
-// 1" (CSS Grid Level 1 SS10.1), so without them the containing block
-// balloons past col 1/row 2 into the bubble and BranchPicker's row.
-// `justify-self-end`/`-stretch` were both tried and rejected: abspos
-// `justify-self: normal` computes to `start` (not `stretch`, unlike in-flow
-// grid items), and explicit `stretch` still measured shrink-to-fit width on
-// an abspos flex item in Chromium. `inset-x-0` (classic left:0/right:0
-// abspos sizing, engine-agnostic) is what actually reproduces the in-flow
-// box's width. No vertical override needed: block-axis `start` already
-// matches the in-flow `mt-2` top offset.
+// (measured rects, not spec-assumed): col-end-2/row-end-3 are required --
+// for an abspos item an `auto` END line resolves to the grid CONTAINER's
+// padding edge, not "span 1" (CSS Grid SS10.1), so without them the
+// containing block balloons past col 1/row 2. `justify-self-end`/`-stretch`
+// were tried and rejected (abspos `justify-self: normal` computes to
+// `start`, and explicit `stretch` still measured shrink-to-fit in
+// Chromium); `inset-x-0` is what reproduces the in-flow box's width. No
+// vertical override needed: block-axis `start` matches the in-flow `mt-2`.
 export const USER_ACTION_BAR_CLASSNAME =
   'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
 
