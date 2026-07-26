@@ -1,7 +1,11 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { MastraModelConfig } from '@mastra/core/llm';
+import {
+  type MastraModelConfig,
+  ModelRouterLanguageModel,
+  type OpenAICompatibleConfig,
+} from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
@@ -27,6 +31,15 @@ export type LocalLanguageModelFactory = (
 ) => unknown;
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
+
+export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
+const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'local',
+]);
 
 /**
  * Register the browser-only Transformers model factory.
@@ -215,6 +228,69 @@ export function createProvider(
         detail: `Unsupported provider: ${provider}`,
       });
   }
+}
+
+/**
+ * Resolve any supported provider configuration into a concrete language model.
+ *
+ * Mastra's agent runtime accepts model-router descriptors, but persistent
+ * memory must never receive one: a descriptor can defer credential lookup back
+ * to Mastra instead of using Brainstrike's explicit env/keychain resolution.
+ */
+export function createLanguageModelProvider(
+  provider: SupportedProvider | string,
+  apiKey?: string,
+  model?: string,
+  runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
+): ConcreteLanguageModel {
+  if (
+    !(isSupportedProvider(provider) && PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS.has(provider))
+  ) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider },
+      detail: `Persistent memory does not support provider: ${provider}`,
+    });
+  }
+  if (provider !== 'local' && !apiKey?.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { provider },
+      detail: `Persistent memory provider "${provider}" requires an explicit API key.`,
+    });
+  }
+
+  const modelConfig = createProvider(provider, apiKey, model, runtime);
+  if (isConcreteLanguageModel(modelConfig)) {
+    return modelConfig;
+  }
+  if (isOpenAICompatibleConfig(modelConfig)) {
+    return new ModelRouterLanguageModel(modelConfig);
+  }
+  throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+    context: { provider },
+    detail: `Persistent memory provider "${provider}" did not produce a concrete language model or an explicit router configuration.`,
+  });
+}
+
+function isConcreteLanguageModel(
+  modelConfig: MastraModelConfig
+): modelConfig is ConcreteLanguageModel {
+  return (
+    typeof modelConfig === 'object' &&
+    modelConfig !== null &&
+    'doGenerate' in modelConfig &&
+    'doStream' in modelConfig
+  );
+}
+
+function isOpenAICompatibleConfig(
+  modelConfig: MastraModelConfig
+): modelConfig is OpenAICompatibleConfig {
+  return (
+    typeof modelConfig === 'object' &&
+    modelConfig !== null &&
+    'id' in modelConfig &&
+    typeof modelConfig.id === 'string'
+  );
 }
 
 /**

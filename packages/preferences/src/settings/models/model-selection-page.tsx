@@ -1,3 +1,5 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
@@ -227,7 +229,15 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
   return downloadEmbeddingModel(model, deps);
 }
 
-export function ModelSelectionPage() {
+export interface ModelSelectionPageProps {
+  readonly assistantMemoryBackendAvailable: boolean;
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+}
+
+export function ModelSelectionPage({
+  assistantMemoryBackendAvailable,
+  providerKeySources,
+}: ModelSelectionPageProps) {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
@@ -424,7 +434,10 @@ export function ModelSelectionPage() {
         </Button>
       </div>
 
-      <AssistantMemorySettingsSection />
+      <AssistantMemorySettingsSection
+        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        {...(providerKeySources ? { providerKeySources } : {})}
+      />
 
       <ModelList
         downloadedModels={downloadedModels}

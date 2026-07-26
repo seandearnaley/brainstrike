@@ -322,7 +322,12 @@ export {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from './providers/native-web-search';
-export { createEmbeddingProvider, createProvider } from './providers/provider-factory';
+export {
+  type ConcreteLanguageModel,
+  createEmbeddingProvider,
+  createLanguageModelProvider,
+  createProvider,
+} from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
   getProviderDefaultModel,

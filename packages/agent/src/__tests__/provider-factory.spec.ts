@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 import {
   createEmbeddingProvider,
+  createLanguageModelProvider,
   createProvider,
   getDefaultModel,
 } from '../providers/provider-factory';
@@ -113,6 +114,35 @@ describe('provider-factory', () => {
       // Should not throw, will rely on environment variables
       const model = createProvider('openai');
       expect(model).toBeDefined();
+    });
+  });
+
+  describe('createLanguageModelProvider', () => {
+    it('returns the concrete hosted provider model unchanged', () => {
+      const model = createLanguageModelProvider('openai', 'test-key', 'gpt-5.4');
+
+      expect(model.modelId).toBe('gpt-5.4');
+      expect(model.doStream).toBeTypeOf('function');
+    });
+
+    it('materializes an explicit-key OpenRouter config as a concrete model', () => {
+      const model = createLanguageModelProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
+
+      expect(model.modelId).toBe('z-ai/glm-5.2');
+      expect(model.provider).toBe('openrouter');
+      expect(model.doStream).toBeTypeOf('function');
+    });
+
+    it('rejects a hosted router model without an explicit credential', () => {
+      expect(() => createLanguageModelProvider('openrouter', undefined, 'z-ai/glm-5.2')).toThrow(
+        /requires an explicit API key/i
+      );
+    });
+
+    it('rejects providers outside the persistent-memory model boundary', () => {
+      expect(() => createLanguageModelProvider('ollama', undefined, 'qwen3:latest')).toThrow(
+        /does not support provider: ollama/i
+      );
     });
   });
 

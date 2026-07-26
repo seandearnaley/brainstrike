@@ -5,6 +5,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
 import { useAssistantAvailability } from '@brainstrike/app-shell';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
@@ -76,10 +77,6 @@ function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
 }
 
-function EmbeddingModelsCategory() {
-  return <ModelSelectionPage />;
-}
-
 export default function SettingsPageContent() {
   const assistantAvailability = useAssistantAvailability();
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
@@ -132,6 +129,10 @@ export default function SettingsPageContent() {
     }
     return {};
   }, [assistantAvailability]);
+  const assistantProviderKeySources =
+    assistantAvailability.state === 'enabled'
+      ? assistantAvailability.providerKeySources
+      : undefined;
 
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
@@ -350,7 +351,14 @@ export default function SettingsPageContent() {
       createLocalRuntimeSettingsCategory(),
       createApiKeysSettingsCategory(apiKeyStatus),
       {
-        content: <EmbeddingModelsCategory />,
+        content: (
+          <ModelSelectionPage
+            assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()}
+            {...(assistantProviderKeySources
+              ? { providerKeySources: assistantProviderKeySources }
+              : {})}
+          />
+        ),
         description: 'Choose chat and embedding models, manage downloads, and configure providers.',
         icon: Layers,
         id: 'embedding-models',
@@ -389,6 +397,7 @@ export default function SettingsPageContent() {
   }, [
     accurateRuntimeAvailable,
     apiKeyStatus,
+    assistantProviderKeySources,
     devInlineFixtureEnabled,
     hookReviewRoots,
     setDevInlineFixtureEnabled,

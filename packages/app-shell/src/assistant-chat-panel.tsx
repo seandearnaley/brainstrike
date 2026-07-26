@@ -53,6 +53,9 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
             {...(status.providerErrors
               ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
               : {})}
+            {...(status.providerKeySources
+              ? { providerKeySources: status.providerKeySources }
+              : {})}
             {...(status.provider && status.model
               ? {
                   fixedProviderModels: { [status.provider]: [status.model] },

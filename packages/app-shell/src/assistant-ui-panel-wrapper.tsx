@@ -1,4 +1,8 @@
-import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import type {
+  AssistantRunEvent,
+  LocalLlmBackendFactory,
+  ProviderKeySource,
+} from '@brainstrike/assistant-contract';
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   isSupportedProvider,
@@ -145,6 +149,7 @@ export interface AssistantUiPanelWrapperProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
+  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   providerSeeds?: readonly SupportedProvider[];
 }
@@ -187,6 +192,7 @@ export function AssistantUiPanelWrapper({
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   providerReadErrors,
+  providerKeySources,
   providerSeeds,
 }: AssistantUiPanelWrapperProps) {
   const {
@@ -1264,6 +1270,8 @@ export function AssistantUiPanelWrapper({
         desktopAssistantBackendAvailable,
         memoryLoadState,
         memorySettings: runtimeMemorySettings,
+        ...(providerKeySources ? { providerKeySources } : {}),
+        ...(providerReadErrors ? { providerReadErrors } : {}),
         selectedMemoryThreadId,
         selectedProvider,
         workspaceRootPath,
@@ -1274,6 +1282,8 @@ export function AssistantUiPanelWrapper({
       dbInitializing,
       desktopAssistantBackendAvailable,
       memoryLoadState,
+      providerKeySources,
+      providerReadErrors,
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectedProvider,

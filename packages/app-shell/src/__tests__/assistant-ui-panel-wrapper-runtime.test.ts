@@ -88,6 +88,7 @@ const baseMemoryReasonArgs = {
   desktopAssistantBackendAvailable: true,
   memoryLoadState: { status: 'ready' as const },
   memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  providerKeySources: [{ provider: 'openai' as const, source: 'stored' as const }],
   selectedMemoryThreadId: 'thread-1',
   selectedProvider: 'openai' as const,
   workspaceRootPath: '/workspace',
@@ -227,6 +228,188 @@ describe('assistant runtime helpers', () => {
       })
     ).toBe(
       'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
+    );
+  });
+
+  it('blocks an enabled hosted observer whose provider has no configured key', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      })
+    ).toBe(
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.'
+    );
+  });
+
+  it('surfaces an observer credential read failure before missing-key guidance', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providerReadErrors: {
+          anthropic: 'The Anthropic API key could not be read from secure storage.',
+        },
+      })
+    ).toBe('The Anthropic API key could not be read from secure storage.');
+  });
+
+  it('prefers the hosted-web backend reason when key provenance is unavailable', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+          },
+        },
+        providerKeySources: undefined,
+      })
+    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+  });
+
+  it('does not treat unavailable key provenance as a validated empty key set', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+          },
+        },
+        providerKeySources: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  it('blocks enabled semantic recall when its hosted embedder has no configured key', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: true,
+          },
+        },
+        providerKeySources: [{ provider: 'google', source: 'stored' }],
+      })
+    ).toBe(
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.'
+    );
+  });
+
+  it('surfaces an embedder credential read failure before missing-key guidance', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'google/gemini-embedding-001',
+            enabled: true,
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providerReadErrors: {
+          google: 'The Google API key could not be read from secure storage.',
+        },
+      })
+    ).toBe('The Google API key could not be read from secure storage.');
+  });
+
+  it('allows enabled semantic recall with a keyless local embedder', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+            enabled: true,
+          },
+        },
+        providerKeySources: [],
+      })
+    ).toBeUndefined();
+  });
+
+  it('allows an enabled keyless local observer without a provider key source', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+          },
+        },
+        providerKeySources: [],
+      })
+    ).toBeUndefined();
+  });
+
+  it('blocks an enabled local observer when the desktop memory backend is unavailable', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+          },
+        },
+        providerKeySources: [],
+        selectedProvider: 'local',
+      })
+    ).toBe('Observational memory requires the desktop assistant backend.');
+  });
+
+  it('fails visibly when an enabled observer model target is malformed', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic',
+          },
+        },
+      })
+    ).toBe(
+      'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.'
     );
   });
 

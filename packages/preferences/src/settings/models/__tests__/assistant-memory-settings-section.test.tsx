@@ -10,7 +10,10 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '../../../stores/model-registry-store';
-import { AssistantMemorySettingsSection } from '../assistant-memory-settings-section';
+import {
+  AssistantMemorySettingsSection,
+  type AssistantMemorySettingsSectionProps,
+} from '../assistant-memory-settings-section';
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -71,6 +74,19 @@ function seedRegistry(): void {
         capabilities: { streaming: true, type: 'llm' },
         description: null,
         icon: null,
+        id: 'onnx-community/gemma-4-E2B-it-ONNX',
+        isEnabled: true,
+        name: 'Gemma 4 Local Observer',
+        parameters: null,
+        providerId: 'local',
+        sortOrder: 1,
+        tagline: null,
+      },
+      {
+        bestFor: null,
+        capabilities: { streaming: true, type: 'llm' },
+        description: null,
+        icon: null,
         id: 'openai/gpt-5.2',
         isEnabled: true,
         name: 'GPT-5.2 via OpenRouter',
@@ -105,15 +121,46 @@ function seedRegistry(): void {
         sortOrder: 1,
         tagline: null,
       },
+      {
+        bestFor: null,
+        capabilities: { defaultDimension: 384, type: 'embedding' },
+        description: null,
+        icon: null,
+        id: 'Xenova/all-MiniLM-L6-v2',
+        isEnabled: true,
+        name: 'MiniLM Local Embedder',
+        parameters: null,
+        providerId: 'local',
+        sortOrder: 2,
+        tagline: null,
+      },
     ],
     providers: [
       { icon: null, id: 'openai', isEnabled: true, name: 'OpenAI', sortOrder: 1 },
       { icon: null, id: 'anthropic', isEnabled: true, name: 'Anthropic', sortOrder: 2 },
       { icon: null, id: 'transformers', isEnabled: true, name: 'Local Models', sortOrder: 3 },
+      { icon: null, id: 'local', isEnabled: true, name: 'Built-in Local', sortOrder: 3 },
       { icon: null, id: 'openrouter', isEnabled: false, name: 'OpenRouter', sortOrder: 4 },
       { icon: null, id: 'cohere', isEnabled: true, name: 'Cohere', sortOrder: 5 },
     ],
   });
+}
+
+const hostedProviderKeySources = [
+  { provider: 'openai', source: 'stored' },
+  { provider: 'anthropic', source: 'stored' },
+] as const;
+
+function renderMemorySettings(
+  providerKeySources: AssistantMemorySettingsSectionProps['providerKeySources'] = hostedProviderKeySources,
+  assistantMemoryBackendAvailable = true
+): ReturnType<typeof render> {
+  return render(
+    <AssistantMemorySettingsSection
+      assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+      providerKeySources={providerKeySources}
+    />
+  );
 }
 
 describe('AssistantMemorySettingsSection', () => {
@@ -124,18 +171,82 @@ describe('AssistantMemorySettingsSection', () => {
   });
 
   it('lists only enabled hosted LLM models for observational memory', () => {
-    render(<AssistantMemorySettingsSection />);
+    renderMemorySettings();
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
+    expect(
+      within(select).getByRole('option', { name: /Gemma 4 Local Observer/i })
+    ).toBeInTheDocument();
     expect(within(select).queryByRole('option', { name: /Gemma 4 Built-in/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();
   });
 
+  it('filters hosted observer models by key presence while retaining keyless local options', () => {
+    renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
+
+    const select = screen.getByRole('combobox', { name: /observational memory model/i });
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
+    expect(
+      within(select).getByRole('option', { name: /Gemma 4 Local Observer/i })
+    ).toBeInTheDocument();
+  });
+
+  it('does not filter hosted memory models when credential provenance is unavailable', () => {
+    render(<AssistantMemorySettingsSection assistantMemoryBackendAvailable={true} />);
+
+    expect(
+      within(screen.getByRole('combobox', { name: /observational memory model/i })).getByRole(
+        'option',
+        { name: /GPT-5.4 Mini/i }
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('combobox', { name: /semantic recall embedding model/i })).getByRole(
+        'option',
+        { name: /Text Embedding 3 Small/i }
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('omits the local observer when the desktop memory backend is unavailable', () => {
+    renderMemorySettings(hostedProviderKeySources, false);
+
+    const select = screen.getByRole('combobox', { name: /observational memory model/i });
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Gemma 4 Local Observer/i })).toBeNull();
+  });
+
+  it('does not claim credentials are missing before the model registry loads', () => {
+    useModelRegistryStore.setState({ hasLoaded: false, models: [], providers: [] });
+
+    renderMemorySettings([]);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('disables observation activation and alerts when the selected hosted provider has no key', () => {
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      observationalMemory: {
+        ...state.observationalMemory,
+        modelTarget: 'anthropic/claude-haiku-4-5',
+      },
+    }));
+
+    renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
+
+    expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Configure its API key in Settings → LLM Provider Keys'
+    );
+  });
+
   it('persists selected observational memory settings', async () => {
     const user = userEvent.setup();
-    render(<AssistantMemorySettingsSection />);
+    renderMemorySettings();
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: /observational memory model/i }),
@@ -152,7 +263,7 @@ describe('AssistantMemorySettingsSection', () => {
 
   it('shows semantic recall as disabled until explicitly enabled with an embedding model', async () => {
     const user = userEvent.setup();
-    render(<AssistantMemorySettingsSection />);
+    renderMemorySettings();
 
     expect(screen.getByText(/Semantic recall is off/i)).toBeInTheDocument();
     await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
@@ -168,6 +279,29 @@ describe('AssistantMemorySettingsSection', () => {
     ).toBeNull();
   });
 
+  it('filters hosted semantic embedders by key presence while retaining keyless local options', () => {
+    renderMemorySettings([]);
+
+    const select = screen.getByRole('combobox', {
+      name: /semantic recall embedding model/i,
+    });
+    expect(within(select).queryByRole('option', { name: /Text Embedding 3 Small/i })).toBeNull();
+    expect(
+      within(select).getByRole('option', { name: /MiniLM Local Embedder/i })
+    ).toBeInTheDocument();
+  });
+
+  it('disables semantic recall activation when its selected hosted embedder has no key', () => {
+    renderMemorySettings([]);
+
+    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Configured semantic recall embedder openai\/text-embedding-3-small is not available/
+      )
+    ).toBeInTheDocument();
+  });
+
   it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {
     const user = userEvent.setup();
     useAssistantMemoryPreferencesStore.setState((state) => ({
@@ -178,7 +312,7 @@ describe('AssistantMemorySettingsSection', () => {
       },
     }));
 
-    render(<AssistantMemorySettingsSection />);
+    renderMemorySettings();
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Configured semantic recall embedder cohere/embed-english-v3.0 is not available'

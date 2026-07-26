@@ -8,27 +8,34 @@ import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
-const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
-  dbMocks: {
-    database: undefined as unknown,
-    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-    initializing: false,
-    providerError: null as Error | null,
-  },
-  fileExplorerMocks: {
-    rootDirectoryHandle: {
-      name: 'workspace-a',
-      path: '/tmp/workspace-a',
-    } as { name: string; path: string } | null,
-  },
-  mockDb: {
-    exec: vi.fn(() => Promise.resolve()),
-    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
-      () => Promise.resolve({ rows: [] })
-    ),
-  },
-  threadRows: [] as Record<string, unknown>[],
-}));
+const { assistantWrapperProps, dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(
+  () => ({
+    assistantWrapperProps: [] as Array<{
+      memoryResourceId?: string;
+      memoryThreadId?: string;
+      providerKeySources?: unknown;
+    }>,
+    dbMocks: {
+      database: undefined as unknown,
+      initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+      initializing: false,
+      providerError: null as Error | null,
+    },
+    fileExplorerMocks: {
+      rootDirectoryHandle: {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      } as { name: string; path: string } | null,
+    },
+    mockDb: {
+      exec: vi.fn(() => Promise.resolve()),
+      query: vi.fn<
+        (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
+      >(() => Promise.resolve({ rows: [] })),
+    },
+    threadRows: [] as Record<string, unknown>[],
+  })
+);
 
 vi.mock('@brainstrike/db', () => ({
   useDbInitializationStatus: () => dbMocks.initializationStatus,
@@ -48,12 +55,14 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop-auto-scroll/element', () => ({
 }));
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
-  AssistantUiPanelWrapper: ({
-    memoryThreadId,
-  }: {
+  AssistantUiPanelWrapper: (props: {
     memoryResourceId?: string;
     memoryThreadId?: string;
-  }) => <div data-testid="assistant-thread-wrapper">{memoryThreadId}</div>,
+    providerKeySources?: unknown;
+  }) => {
+    assistantWrapperProps.push(props);
+    return <div data-testid="assistant-thread-wrapper">{props.memoryThreadId}</div>;
+  },
 }));
 
 function renderWorkspace(): ReturnType<typeof createTestActionRegistry> {
@@ -76,6 +85,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
     dbMocks.providerError = null;
+    assistantWrapperProps.splice(0, assistantWrapperProps.length);
     threadRows.splice(
       0,
       threadRows.length,
@@ -140,6 +150,29 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
       'aria-selected',
       'true'
+    );
+  });
+
+  it('forwards validated provider key sources to every thread wrapper', async () => {
+    const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
+    const providerKeySources = [
+      { envVar: 'OPENAI_API_KEY', provider: 'openai' as const, source: 'env' as const },
+    ];
+    render(
+      <ActionRegistryProvider registry={actionRegistry.registry}>
+        <AssistantThreadTabsWorkspace
+          initialProviders={['openai']}
+          providerKeySources={providerKeySources}
+        />
+      </ActionRegistryProvider>
+    );
+
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    expect(assistantWrapperProps).toContainEqual(
+      expect.objectContaining({
+        providerKeySources,
+      })
     );
   });
 

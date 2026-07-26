@@ -12,7 +12,7 @@ below are LIVE.
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
    and rethrow (never swallows). A run rejected BEFORE any stream part (e.g.
-   memory-construction failure → HTTP 502) has zero message parts;
+   typed `memory_credential_missing` → HTTP 400) has zero message parts;
    `AssistantMessage` mounts `AssistantMessageError` (ErrorPrimitive) so that
    rejection renders as a visible error block — styling lives on the
    error-conditional `Message`, never on the always-rendered `Root` (a styled

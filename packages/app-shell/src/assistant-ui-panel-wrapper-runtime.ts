@@ -13,6 +13,7 @@ import {
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
+  type ProviderKeySource,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
@@ -68,6 +69,13 @@ import type {
 } from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
+const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'local',
+]);
 
 export interface AssistantOperatingRootBinding {
   readonly displayName: string;
@@ -164,26 +172,94 @@ export function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Tool: ${toolId}`;
 }
 
-function resolveSemanticRecallDisabledReason(
-  memorySettings: RuntimeAssistantMemorySettings
-): string | undefined {
+function resolveSemanticRecallDisabledReason(args: {
+  memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
+}): string | undefined {
   // Observational-memory vector retrieval embeds with the SAME configured
   // semantic-recall embedder, so its requirement applies even when the
   // semantic-recall toggle itself is off.
   const observationalVectorRetrieval =
-    memorySettings.observationalMemory.enabled &&
-    memorySettings.observationalMemory.retrievalMode === 'vector';
-  if (!(memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
+    args.memorySettings.observationalMemory.enabled &&
+    args.memorySettings.observationalMemory.retrievalMode === 'vector';
+  if (!(args.memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
     return;
   }
 
-  const providerId = memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
-  if (!(providerId && SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId))) {
-    return memorySettings.semanticRecall.enabled
+  const providerId = args.memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
+  if (
+    !(
+      providerId &&
+      isSupportedProvider(providerId) &&
+      SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId)
+    )
+  ) {
+    return args.memorySettings.semanticRecall.enabled
       ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
       : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
-  return;
+  const providerReadError = args.providerReadErrors?.[providerId];
+  if (providerReadError) {
+    return providerReadError;
+  }
+  if (
+    providerId === 'local' ||
+    args.providerKeySources === undefined ||
+    args.providerKeySources.some(({ provider }) => provider === providerId)
+  ) {
+    return;
+  }
+
+  const providerName = getProviderDefinition(providerId).displayName;
+  return args.memorySettings.semanticRecall.enabled
+    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.`
+    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
+}
+
+function resolveObservationalMemoryDisabledReason(args: {
+  desktopAssistantBackendAvailable: boolean;
+  memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
+}): string | undefined {
+  if (!args.memorySettings.observationalMemory.enabled) {
+    return;
+  }
+  if (!args.desktopAssistantBackendAvailable) {
+    return 'Observational memory requires the desktop assistant backend.';
+  }
+
+  const modelTarget = args.memorySettings.observationalMemory.modelTarget;
+  const separatorIndex = modelTarget.indexOf('/');
+  if (separatorIndex <= 0 || separatorIndex === modelTarget.length - 1) {
+    return 'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.';
+  }
+
+  const providerId = modelTarget.slice(0, separatorIndex);
+  if (
+    !(
+      isSupportedProvider(providerId) && SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(providerId)
+    )
+  ) {
+    return `Observational memory model target ${modelTarget} uses an unsupported provider. Reconfigure Assistant Memory settings.`;
+  }
+  const providerReadError = args.providerReadErrors?.[providerId];
+  if (providerReadError) {
+    return providerReadError;
+  }
+  if (providerId === 'local') {
+    return;
+  }
+  if (args.providerKeySources === undefined) {
+    return;
+  }
+  if (args.providerKeySources.some(({ provider }) => provider === providerId)) {
+    return;
+  }
+
+  const providerName = getProviderDefinition(providerId).displayName;
+  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.`;
 }
 
 export function resolveAssistantMemoryDisabledReason(args: {
@@ -192,6 +268,8 @@ export function resolveAssistantMemoryDisabledReason(args: {
   dbInitializing: boolean;
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors?: Partial<Record<SupportedProvider, string>> | undefined;
   memoryLoadState:
     | { readonly status: 'idle' }
     | { readonly status: 'loading' }
@@ -220,12 +298,25 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (!args.selectedMemoryThreadId) {
     return 'Assistant memory has no selected thread for this workspace.';
   }
-  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason(args.memorySettings);
-  if (semanticRecallDisabledReason) {
-    return semanticRecallDisabledReason;
-  }
   if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
     return 'Assistant memory for hosted providers requires the desktop assistant backend.';
+  }
+  const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
+    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
+    memorySettings: args.memorySettings,
+    providerKeySources: args.providerKeySources,
+    providerReadErrors: args.providerReadErrors,
+  });
+  if (observationalMemoryDisabledReason) {
+    return observationalMemoryDisabledReason;
+  }
+  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason({
+    memorySettings: args.memorySettings,
+    providerKeySources: args.providerKeySources,
+    providerReadErrors: args.providerReadErrors,
+  });
+  if (semanticRecallDisabledReason) {
+    return semanticRecallDisabledReason;
   }
   return;
 }

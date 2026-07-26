@@ -1123,6 +1123,7 @@ export const renderAssistantPanel = async (
     <AssistantUiPanelWrapper
       initialProviders={providers as SupportedProvider[]}
       loadLocalLlmBackend={loadTestLocalLlmBackend}
+      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
     />
   );
 
@@ -1144,6 +1145,7 @@ export const renderAssistantThreadPanel = async (
       loadLocalLlmBackend={loadTestLocalLlmBackend}
       memoryResourceId="/tmp/test-workspace"
       memoryThreadId={threadId}
+      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
     />
   );
 
