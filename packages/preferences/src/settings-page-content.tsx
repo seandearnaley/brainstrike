@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
-import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
+import { ApiKeysSettings, type ApiKeysSettingsProps } from './settings/secrets/api-keys-settings';
 import { SettingsSearchIcon } from './settings/settings-search-icon';
 import { SETTINGS_SEARCH_INPUT_STYLE } from './settings/settings-search-layout';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
@@ -449,9 +449,11 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
   };
 }
 
-export function createApiKeysSettingsCategory(): SettingsCategory {
+export function createApiKeysSettingsCategory(
+  options: ApiKeysSettingsProps = {}
+): SettingsCategory {
   return {
-    content: <ApiKeysSettings />,
+    content: <ApiKeysSettings {...options} />,
     description: 'Manage API keys for external LLM providers.',
     icon: Key,
     id: 'api-keys',

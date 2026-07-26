@@ -30,7 +30,8 @@ export function useAssistantAvailabilityWithLocal(
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
   const canRunLocalGemma = useMemo(() => getBestBuiltInLocalLlmDevice() === 'webgpu', []);
-  const shouldCheckLocalAvailability = serverStatus.state !== 'enabled' && canRunLocalGemma;
+  const shouldCheckLocalAvailability =
+    serverStatus.state !== 'enabled' && serverStatus.state !== 'error' && canRunLocalGemma;
   useEnsureModelRegistry({ enabled: shouldCheckLocalAvailability });
 
   // If server says enabled, use that immediately (hosted providers work)
@@ -40,8 +41,8 @@ export function useAssistantAvailabilityWithLocal(
 
   // If model registry has loaded and has local models, enable
   // This overrides a 'disabled' server status when browser-based models are available
-  if (hasLoaded && hasLocalModels && canRunLocalGemma) {
-    return { state: 'enabled' };
+  if (serverStatus.state === 'disabled' && hasLoaded && hasLocalModels && canRunLocalGemma) {
+    return { providers: ['local'], state: 'enabled' };
   }
 
   // If server is still loading, show loading

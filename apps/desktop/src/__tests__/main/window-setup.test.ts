@@ -48,6 +48,7 @@ const whenReadyMock = vi.fn(() => Promise.resolve());
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
   getAppMetrics: vi.fn(() => []),
+  getAppPath: vi.fn(() => '/mock/app'),
   getPath: vi.fn(),
   getVersion: vi.fn(() => '0.0.0-test'),
   isPackaged: false,

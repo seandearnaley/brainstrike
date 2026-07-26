@@ -14,12 +14,12 @@ import { fileURLToPath } from 'node:url';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export const MAIN_PROCESS_ENTRY_POINTS = [
-  'src/main.ts',
-  'src/preload.ts',
-  'src/db-host-entry.ts',
-  'src/parser-host-entry.ts',
-];
+export const MAIN_PROCESS_ENTRY_POINTS = {
+  'db-host-entry': 'src/db-host-entry.ts',
+  main: 'src/main-bootstrap.ts',
+  'parser-host-entry': 'src/parser-host-entry.ts',
+  preload: 'src/preload.ts',
+};
 
 export const MAIN_PROCESS_BUILD_OPTIONS = {
   absWorkingDir: appRoot,

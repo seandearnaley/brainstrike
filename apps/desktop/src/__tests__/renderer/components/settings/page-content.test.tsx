@@ -1,4 +1,6 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   __resetAssistantPreferencesStoreForTests,
   __resetNativeToolPreferencesStoreForTests,
@@ -48,7 +50,7 @@ interface SecretsApi {
   clearAll?: () => Promise<{ success: boolean; message?: string }>;
   deleteKey: (provider: string) => Promise<void>;
   getKey: (provider: string) => Promise<string | null>;
-  list: () => Promise<string[]>;
+  list: () => Promise<ProviderKeySource<SupportedProvider | 'tavily'>[]>;
   listStored: () => Promise<string[]>;
   saveKey: (provider: string, key: string) => Promise<{ ok?: boolean; error?: string } | undefined>;
 }

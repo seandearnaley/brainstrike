@@ -7,6 +7,7 @@ export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';
 export * from './database-panel';
 export * from './diagnostics';
+export * from './hooks/use-assistant-availability';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './root-layout-content';

@@ -49,7 +49,11 @@ describe('useAssistantAvailabilityWithLocal', () => {
   });
 
   it('returns enabled when server says enabled (hosted provider)', () => {
-    useAssistantAvailabilityMock.mockReturnValue({ state: 'enabled' });
+    useAssistantAvailabilityMock.mockReturnValue({
+      providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      providers: ['openai', 'local'],
+      state: 'enabled',
+    });
     setModelRegistryState({
       error: null,
       hasLoaded: false,
@@ -58,7 +62,11 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
 
-    expect(result.current).toEqual({ state: 'enabled' });
+    expect(result.current).toEqual({
+      providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      providers: ['openai', 'local'],
+      state: 'enabled',
+    });
   });
 
   it('returns enabled when local LLM models are available', () => {
@@ -81,7 +89,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
 
-    expect(result.current).toEqual({ state: 'enabled' });
+    expect(result.current).toEqual({ providers: ['local'], state: 'enabled' });
   });
 
   it('returns enabled when transformers provider models are available', () => {
@@ -104,7 +112,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
 
-    expect(result.current).toEqual({ state: 'enabled' });
+    expect(result.current).toEqual({ providers: ['local'], state: 'enabled' });
   });
 
   it('returns disabled when no local models and server disabled', () => {
@@ -311,6 +319,40 @@ describe('useAssistantAvailabilityWithLocal', () => {
     expect(result.current).toEqual({ message: 'Network error', state: 'error' });
   });
 
+  it('does not hide a server configuration error behind local model availability', () => {
+    useAssistantAvailabilityMock.mockReturnValue({
+      envFileFailures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev',
+          message: 'Desktop environment file dev is invalid.',
+        },
+      ],
+      message: 'Desktop environment configuration is invalid.',
+      state: 'error',
+    });
+    setModelRegistryState({
+      error: null,
+      hasLoaded: true,
+      models: [
+        {
+          capabilities: { type: 'llm' },
+          id: 'test-model',
+          isEnabled: true,
+          providerId: 'local',
+        },
+      ],
+    } as unknown as ReturnType<typeof useModelRegistryStore>);
+
+    const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
+
+    expect(result.current).toMatchObject({
+      envFileFailures: [{ file: 'dev' }],
+      state: 'error',
+    });
+    expect(useEnsureModelRegistryMock).toHaveBeenCalledWith({ enabled: false });
+  });
+
   it('updates when local models become available', () => {
     useAssistantAvailabilityMock.mockReturnValue({
       reason: 'missing_api_key',
@@ -344,6 +386,6 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     rerender();
 
-    expect(result.current).toEqual({ state: 'enabled' });
+    expect(result.current).toEqual({ providers: ['local'], state: 'enabled' });
   });
 });

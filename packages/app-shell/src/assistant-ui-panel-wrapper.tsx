@@ -124,6 +124,7 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
+import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useOpenRouterDefaults } from './hooks/use-openrouter-model-defaults';
@@ -140,11 +141,12 @@ import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
-  initialProviders?: SupportedProvider[];
+  initialProviders?: readonly SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
+  providerSeeds?: readonly SupportedProvider[];
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
@@ -185,11 +187,8 @@ export function AssistantUiPanelWrapper({
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   providerReadErrors,
+  providerSeeds,
 }: AssistantUiPanelWrapperProps) {
-  const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
-    () => initialProviders ?? []
-  );
-
   const {
     setModel,
     clearModel,
@@ -223,6 +222,12 @@ export function AssistantUiPanelWrapper({
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
+  const configuredProviders = useConfiguredAssistantProviders({
+    getAvailableProviders,
+    ...(initialProviders === undefined ? {} : { initialProviders }),
+    ...(providerSeeds === undefined ? {} : { providerSeeds }),
+    secretsVersion,
+  });
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -1066,30 +1071,6 @@ export function AssistantUiPanelWrapper({
     },
     [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadProviders = async () => {
-      if (initialProviders !== undefined) {
-        setConfiguredProviders(initialProviders);
-        return;
-      }
-
-      const providers = await getAvailableProviders();
-      if (cancelled) {
-        return;
-      }
-      setConfiguredProviders(providers);
-    };
-
-    void loadProviders();
-
-    return () => {
-      cancelled = true;
-    };
-    // secretsVersion triggers re-check when API keys are added/removed
-  }, [initialProviders, getAvailableProviders, secretsVersion]);
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>

@@ -1,11 +1,17 @@
+import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
+import type { DesktopEnvLoadFailure } from './desktop-env';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveProviderEnvKey } from './provider-api-key';
+import { resolveProviderEnvCredential } from './provider-api-key';
 import type { SecretsService } from './secrets';
+import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+const TAVILY_SECRET_PROVIDER = 'tavily' as const;
+type DesktopProviderKeyId = SupportedProvider | typeof TAVILY_SECRET_PROVIDER;
 
 function isTestMode(): boolean {
   const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
@@ -26,38 +32,89 @@ export function clearTestModeSecrets(): void {
   }
 }
 
-function appendTestModeProviders(target: Set<string>) {
+function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
+  return (
+    value === TAVILY_SECRET_PROVIDER || listAgentProviders().some((provider) => provider === value)
+  );
+}
+
+function appendTestModeProviders(
+  target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
+) {
   for (const [provider, value] of testModeSecrets.entries()) {
     const trimmedValue = typeof value === 'string' ? value.trim() : '';
-    if (trimmedValue.length === 0) {
+    if (trimmedValue.length === 0 || !isDesktopProviderKeyId(provider)) {
       continue;
     }
-    target.add(provider);
+    target.set(provider, { provider, source: 'stored' });
   }
 }
 
-async function appendStoredProviders(target: Set<string>, secrets: SecretsService) {
+function appendTestModeStoredProviderIds(target: Set<string>): void {
+  for (const [provider, value] of testModeSecrets.entries()) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      target.add(provider);
+    }
+  }
+}
+
+async function appendStoredProviders(
+  target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>,
+  secrets: SecretsService
+) {
   const storedProviders = await secrets.listProviders();
   for (const provider of storedProviders) {
     if (typeof provider !== 'string') {
       continue;
     }
     const trimmed = provider.trim();
-    if (trimmed.length === 0) {
+    if (trimmed.length === 0 || !isDesktopProviderKeyId(trimmed) || target.has(trimmed)) {
       continue;
     }
-    target.add(trimmed);
+    target.set(trimmed, { provider: trimmed, source: 'stored' });
   }
 }
 
-function appendEnvConfiguredProviders(target: Set<string>) {
-  const supportedProviders = listAgentProviders();
-  for (const provider of supportedProviders) {
-    const envValue = resolveProviderEnvKey(provider);
-    if (typeof envValue === 'string' && envValue.length > 0) {
-      target.add(provider);
+function resolveTavilyEnvVar(): string | undefined {
+  for (const envVar of TAVILY_ENV_KEYS) {
+    const value = process.env[envVar];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return envVar;
     }
   }
+  return;
+}
+
+function appendEnvConfiguredProviders(
+  target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
+) {
+  const supportedProviders = listAgentProviders();
+  for (const provider of supportedProviders) {
+    const credential = resolveProviderEnvCredential(provider);
+    if (credential) {
+      target.set(provider, {
+        envVar: credential.envVar,
+        provider,
+        source: 'env',
+      });
+    }
+  }
+
+  const tavilyEnvVar = resolveTavilyEnvVar();
+  if (tavilyEnvVar) {
+    target.set(TAVILY_SECRET_PROVIDER, {
+      envVar: tavilyEnvVar,
+      provider: TAVILY_SECRET_PROVIDER,
+      source: 'env',
+    });
+  }
+}
+
+function throwEnvFileFailures(failures: readonly DesktopEnvLoadFailure[]): void {
+  if (failures.length === 0) {
+    return;
+  }
+  throw new Error(failures.map((failure) => failure.message).join(' '));
 }
 
 /**
@@ -76,8 +133,12 @@ function appendEnvConfiguredProviders(target: Set<string>) {
  *
  * @param secrets - The platform-specific secrets storage service
  */
-export function registerSecretsIpcHandlers(secrets: SecretsService): () => void {
+export function registerSecretsIpcHandlers(
+  secrets: SecretsService,
+  options: { readonly envFileFailures?: readonly DesktopEnvLoadFailure[] } = {}
+): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const envFileFailures = options.envFileFailures ?? [];
 
   registry.registerInvoke(
     'preferences',
@@ -86,7 +147,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
       // In test mode, use in-memory storage
       if (isTestMode()) {
         testModeSecrets.set(provider, value);
-        return { ok: true } as const;
+        return true;
       }
 
       try {
@@ -121,7 +182,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
       // In test mode, remove from in-memory storage
       if (isTestMode()) {
         testModeSecrets.delete(provider);
-        return;
+        return true;
       }
 
       return await secrets.deleteKey(provider);
@@ -129,32 +190,43 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
   );
 
   registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
+    throwEnvFileFailures(envFileFailures);
+
     // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
-      const providers = new Set<string>();
+      const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
       appendTestModeProviders(providers);
-      return Array.from(providers);
+      return Array.from(providers.values());
     }
 
     // Merge environment-configured providers with stored secrets so renderer consumers
     // (assistant preferences, etc.) discover env-only setups.
     // Consumers that only want persisted secrets should call secrets:listStored.
-    const providers = new Set<string>();
+    const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
     appendEnvConfiguredProviders(providers);
     await appendStoredProviders(providers, secrets);
-    return Array.from(providers);
+    return Array.from(providers.values());
   });
 
   registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
     if (isTestMode()) {
       const providers = new Set<string>();
-      appendTestModeProviders(providers);
+      appendTestModeStoredProviderIds(providers);
       return Array.from(providers);
     }
 
-    const providers = new Set<string>();
-    await appendStoredProviders(providers, secrets);
-    return Array.from(providers);
+    const storedProviders = new Set<string>();
+    const providers = await secrets.listProviders();
+    for (const provider of providers) {
+      if (typeof provider !== 'string') {
+        continue;
+      }
+      const trimmed = provider.trim();
+      if (trimmed.length > 0) {
+        storedProviders.add(trimmed);
+      }
+    }
+    return Array.from(storedProviders);
   });
 
   registry.registerInvoke(

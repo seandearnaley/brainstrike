@@ -4,6 +4,7 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
+import { useAssistantAvailability } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
@@ -80,6 +81,7 @@ function EmbeddingModelsCategory() {
 }
 
 export default function SettingsPageContent() {
+  const assistantAvailability = useAssistantAvailability();
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
   const tokenCache = useOptionalTokenCacheContext();
   const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
@@ -118,6 +120,18 @@ export default function SettingsPageContent() {
     }
     return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
   }, [tokenCache]);
+  const apiKeyStatus = useMemo(() => {
+    if (assistantAvailability.state === 'enabled') {
+      return {
+        statusProviderKeySources: assistantAvailability.providerKeySources ?? [],
+      };
+    }
+    if (assistantAvailability.state === 'error') {
+      const failures = assistantAvailability.envFileFailures?.map(({ message }) => message) ?? [];
+      return failures.length > 0 ? { statusError: failures.join(' ') } : {};
+    }
+    return {};
+  }, [assistantAvailability]);
 
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
@@ -334,7 +348,7 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
-      createApiKeysSettingsCategory(),
+      createApiKeysSettingsCategory(apiKeyStatus),
       {
         content: <EmbeddingModelsCategory />,
         description: 'Choose chat and embedding models, manage downloads, and configure providers.',
@@ -374,6 +388,7 @@ export default function SettingsPageContent() {
     ];
   }, [
     accurateRuntimeAvailable,
+    apiKeyStatus,
     devInlineFixtureEnabled,
     hookReviewRoots,
     setDevInlineFixtureEnabled,

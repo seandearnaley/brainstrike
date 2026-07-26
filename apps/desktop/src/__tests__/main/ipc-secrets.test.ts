@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearCachedAgentClient } from '../../agent-client-loader';
+import type { DesktopEnvLoadFailure } from '../../desktop-env';
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -43,11 +44,13 @@ describe('registerSecretsIpcHandlers', () => {
     restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
     restoreEnvVar('ELECTRON_IS_E2E_TEST', ORIGINAL_ELECTRON_E2E);
     clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
     clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
   });
 
   afterEach(async () => {
     clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
     clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
     clearCachedAgentClient();
 
@@ -56,11 +59,17 @@ describe('registerSecretsIpcHandlers', () => {
     clearTestModeSecrets();
   });
 
-  async function bootstrap(secretsService: SecretsServiceMock) {
+  async function bootstrap(
+    secretsService: SecretsServiceMock,
+    envFileFailures: readonly DesktopEnvLoadFailure[] = []
+  ) {
     const { registerSecretsIpcHandlers } = await import('../../ipc-secrets');
     const { ipcMain } = await import('electron');
 
-    registerSecretsIpcHandlers(secretsService as unknown as import('../../secrets').SecretsService);
+    registerSecretsIpcHandlers(
+      secretsService as unknown as import('../../secrets').SecretsService,
+      { envFileFailures }
+    );
 
     const handleMock = ipcMain.handle as unknown as vi.Mock;
     const getHandler = (channel: string) => {
@@ -94,12 +103,56 @@ describe('registerSecretsIpcHandlers', () => {
     const listHandler = getHandler('secrets:list');
     expect(listHandler).toBeDefined();
 
-    const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+    const result = await listHandler!({} as IpcMainInvokeEvent);
 
     // Env + stored providers should be merged (with whitespace trimmed)
-    expect(result).toEqual(['openai', 'anthropic', 'custom']);
-    expect(result).toContain('openai');
+    expect(result).toEqual([
+      {
+        envVar: 'BRAINSTRIKE_OPENAI_API_KEY',
+        provider: 'openai',
+        source: 'env',
+      },
+      { provider: 'anthropic', source: 'stored' },
+    ]);
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports Tavily env credentials and keeps env authoritative over storage', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['BRAINSTRIKE_TAVILY_API_KEY'] = 'tvly-environment';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['tavily']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const listHandler = getHandler('secrets:list');
+
+    const result = (await listHandler!({} as IpcMainInvokeEvent)) as Array<{
+      envVar?: string;
+      provider: string;
+      source: 'env' | 'stored';
+    }>;
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        {
+          envVar: 'BRAINSTRIKE_TAVILY_API_KEY',
+          provider: 'tavily',
+          source: 'env',
+        },
+      ])
+    );
+    expect(result.filter(({ provider }) => provider === 'tavily')).toEqual([
+      {
+        envVar: 'BRAINSTRIKE_TAVILY_API_KEY',
+        provider: 'tavily',
+        source: 'env',
+      },
+    ]);
   });
 
   it('exposes stored providers-only list via secrets:listStored', async () => {
@@ -145,14 +198,36 @@ describe('registerSecretsIpcHandlers', () => {
     expect(listStoredHandler).toBeDefined();
 
     await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
-    const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+    const result = await listHandler!({} as IpcMainInvokeEvent);
     const storedResult = (await listStoredHandler!({} as IpcMainInvokeEvent)) as string[];
 
     // Test mode should only include in-memory secrets, NOT env vars
-    expect(result).toEqual(['anthropic']);
-    expect(result).not.toContain('google');
+    expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
     expect(storedResult).toEqual(['anthropic']);
     expect(storedResult).not.toContain('google');
+    expect(secretsService.listProviders).not.toHaveBeenCalled();
+  });
+
+  it('rejects credential inspection visibly when environment files failed to load', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const failure: DesktopEnvLoadFailure = {
+      code: 'env_file_invalid',
+      file: 'dev-local',
+      message: 'The development local environment file is malformed at line 3.',
+    };
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService, [failure]);
+    const listHandler = getHandler('secrets:list');
+
+    await expect(listHandler!({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'The development local environment file is malformed at line 3.'
+    );
     expect(secretsService.listProviders).not.toHaveBeenCalled();
   });
 
