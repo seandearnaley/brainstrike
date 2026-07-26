@@ -35,26 +35,37 @@ describes the general EXTERNAL-STATE shape; for this loop the coverage
 flag lives INSIDE the set, which is what lets Beat 1 select from it.
 
 Beat 0 — PROBE, before reading anything beyond the protocol and this
-charter. Run the bundled collector ($magnify-automation). Exit NOOP only
-when no eligible risk-3/risk-4 PR lacks a current-HEAD report — the
-collector answers that directly (`noop` is true exactly when nothing
-uncovered remains; `deferredByRunLimit` names what was left over).
-TEST ELIGIBILITY, NEVER SET EQUALITY. An unchanged watched-set hash can
-still hold uncovered work: Beat 1 caps at 2 PRs per run while your
-watermark hashes the WHOLE snapshot (PROTOCOL.md "Run boundaries"), so a
-third eligible PR would sit unreviewed until some head SHA happened to
-move — turning the 2-PR cap from a throttle into a silent drop. The same
-hole swallows a run that ended INCOMPLETE before reporting, and a human
-dismissal reply, neither of which moves a head SHA.
+charter. Run the bundled collector ($magnify-automation). Checkpoint
+NOOP and exit only when no eligible risk-3/risk-4 PR lacks a
+current-HEAD report — the collector answers that directly (`noop` is
+true exactly when nothing uncovered remains; `deferredByRunLimit` names
+what was left over). This wake DOES checkpoint: it is a discovery wake,
+and Chronicle's accounting is the measurement this change was built on.
+TEST THE COVERAGE FLAG, NOT SET EQUALITY — this is the per-item
+processed flag PROTOCOL.md "Watermark discipline" requires of any loop
+that caps its per-run work. An unchanged watched-set hash can still hold
+uncovered PRs: Beat 1 caps at 2 per run while your watermark hashes the
+WHOLE snapshot, so a third eligible PR would sit unreviewed until some
+head SHA happened to move, turning the cap from a throttle into a silent
+drop. A run that ended INCOMPLETE before reporting leaves the same
+shape. The hash is still what you WRITE as the watermark; it is just not
+what you decide on.
 If your newest checkpoint is INCOMPLETE or BLOCKED, run its stated next
 action instead of exiting.
+Dismissal replies are NOT rescued by this test, and the charter does not
+claim they are: a dismissal lands on a PR whose current HEAD already
+carries your report, so `currentHeadCovered` stays true and this probe
+exits. They are not lost — the collector retains full `discussion`
+history, so the next run at an uncovered HEAD reconstructs them before
+Beat 4 re-litigates anything. That is the design, not an accident.
 Do NOT read docs/agents contracts, open a diff, or spawn a subagent
 before this probe clears. On the observed cadence, 17 of 21 wakes ended
 `eligible open risk-3/risk-4 PRs=0`: reading contracts before selection
 spends the expensive part of four wakes in five on nothing. The probe is
-one collector run and a hash compare — it must stay that cheap, because
-the cadence that makes deep review timely is only affordable if the
-empty case costs almost nothing.
+ONE collector run and a coverage-flag read — it must stay that cheap,
+because the cadence that makes deep review timely is only affordable if
+the empty case costs almost nothing. (The hash compare is not part of
+the exit test; it only composes the watermark you checkpoint.)
 
 Beat 1 — select from the Beat 0 watched set (frozen at wake per
 PROTOCOL.md "Run boundaries"): open PRs carrying risk-3/risk-4 labels,

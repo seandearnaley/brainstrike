@@ -39,8 +39,11 @@ First: read .night-shift/PROTOCOL.md, then run the bundled collector
 ($porter-automation) — it emits the evidence table; you never re-derive
 check or thread state by hand.
 
-You are an EXTERNAL-STATE loop. Watched set = open night-shift/* PR
-(number, head-sha) pairs + kill-switch states. Watermark = hash: of it.
+You are an EXTERNAL-STATE loop. Watched set = the open PR (number,
+head-sha) pairs eligible AT YOUR AUTHORITY_LEVEL, plus kill-switch
+states. At L1 that is the night-shift/* PRs, which is also all the
+collector currently emits (see Beat 0b's collector dependency).
+Watermark = hash: of it.
 
 Beat 0 — kill switches, checked before anything:
 - `.night-shift/HOLD` committed on main (the collector reads it LIVE via
@@ -55,16 +58,33 @@ Beat 0 — kill switches, checked before anything:
 Beat 0b — PROBE, immediately after the kill switches and before any
 eligibility reasoning. Kill switches come first because a HOLD must be
 honored even on a quiet wake; the probe comes second because everything
-after it is expensive. From the same collector run: if your watched set
-AT THE CURRENT AUTHORITY_LEVEL is empty — at L1 that is open
-night-shift/* PRs, and a lift widens it — run Beat 3, then checkpoint
-NOOP and exit. No eligibility walk, no check or thread analysis, no
-evidence table.
+after it is expensive. If your newest checkpoint is INCOMPLETE, run its stated next action
+FIRST. A run that expired between the squash-merge and Beat 2's cleanup
+(dependentPrs re-verify, branch delete, merge-SHA comment on the owning
+loop's state issue) leaves exactly that — and the merged PR is already
+closed, so the watched set is empty and this probe would otherwise NOOP
+straight past it, overwriting the line that recorded the next action.
+Then: if your watched set AT THE CURRENT AUTHORITY_LEVEL is empty — at
+L1 that is open night-shift/* PRs, and a lift widens it — run Beat 3,
+then checkpoint PER BEAT 4 and exit. No eligibility walk, no check or
+thread analysis, no evidence table.
+The status of that checkpoint is whatever Beat 3 found: NOOP if it found
+nothing, BLOCKED with breaker=open if it tripped the breaker, PR if it
+opened a revert. NEVER a flat NOOP. Run boundaries allows ONE checkpoint
+per run and Beat 0's breaker test reads your NEWEST checkpoint, so a
+NOOP posted over a breaker trip tells the next wake the breaker is clear
+and resumes merging into a red main — discarding the safety net one line
+after protecting it.
 Derive the watched set from AUTHORITY_LEVEL rather than hard-coding the
 L1 shape: at L2 the eligible PRs are human branches, so a hard-coded
 `night-shift/*` probe would NOOP-exit every wake whose only work is
 newly authorized. The ladder promises a lift is a one-line bump; a
 probe that silently voids it is the degradation class AGENTS.md forbids.
+COLLECTOR DEPENDENCY, stated so a lift PR carries it: $porter-automation
+filters to `night-shift/*` client-side and emits only that subset, so
+TODAY the watched set is the L1 shape regardless of this paragraph. Any
+lift past L1 must widen that filter in the SAME PR. You author no code
+PRs, so you cannot do it yourself — flag it on the proposal instead.
 BEAT 3 IS NOT SKIPPABLE, and this is the exit that would skip it. A PR
 you merge becomes CLOSED, so it leaves the watched set immediately —
 meaning an EMPTY watched set is precisely the state in which a red main
