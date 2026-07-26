@@ -101,7 +101,9 @@
     lookup before constructing Mastra memory. A completed lookup with no key
     returns HTTP 400 `memory_credential_missing` with the bounded provider and
     `observational_memory` or `semantic_recall` feature. A `SecretReadError`
-    remains `api_key_unreadable`.
+    remains `api_key_unreadable`. Renderer memory gates must prefer the matching
+    validated `providerErrors` repair message over generic missing-key guidance;
+    another healthy provider must never mask an unreadable memory credential.
     The renderer and Settings consume the validated configured-provider signal
     from assistant status. A hosted observer or embedder without a configured
     key is excluded from selectable memory models, prevents its feature toggle,
@@ -112,6 +114,11 @@
     validated empty list. Hosted Web therefore retains its server-owned model
     surface and reports the host capability boundary before desktop-only
     credential guidance.
+    Built-in local observational memory additionally requires the desktop
+    assistant-server bridge. Web's in-renderer local chat does not construct
+    PGlite/Mastra observational memory, so Settings excludes the local observer
+    unless that capability is positively present and the runtime blocks a
+    persisted local observer with an explicit desktop-backend reason.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

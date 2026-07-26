@@ -250,6 +250,26 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  it('surfaces an observer credential read failure before missing-key guidance', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providerReadErrors: {
+          anthropic: 'The Anthropic API key could not be read from secure storage.',
+        },
+      })
+    ).toBe('The Anthropic API key could not be read from secure storage.');
+  });
+
   it('prefers the hosted-web backend reason when key provenance is unavailable', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
@@ -302,6 +322,26 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  it('surfaces an embedder credential read failure before missing-key guidance', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'google/gemini-embedding-001',
+            enabled: true,
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providerReadErrors: {
+          google: 'The Google API key could not be read from secure storage.',
+        },
+      })
+    ).toBe('The Google API key could not be read from secure storage.');
+  });
+
   it('allows enabled semantic recall with a keyless local embedder', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
@@ -334,6 +374,25 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [],
       })
     ).toBeUndefined();
+  });
+
+  it('blocks an enabled local observer when the desktop memory backend is unavailable', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+          },
+        },
+        providerKeySources: [],
+        selectedProvider: 'local',
+      })
+    ).toBe('Observational memory requires the desktop assistant backend.');
   });
 
   it('fails visibly when an enabled observer model target is malformed', () => {

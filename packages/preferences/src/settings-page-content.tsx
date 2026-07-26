@@ -429,9 +429,15 @@ export function createFactoryResetSettingsCategory(
   };
 }
 
-export function createModelRegistrySettingsCategory(): SettingsCategory {
+export function createModelRegistrySettingsCategory(options: {
+  assistantMemoryBackendAvailable: boolean;
+}): SettingsCategory {
   return {
-    content: <ModelSelectionPage />,
+    content: (
+      <ModelSelectionPage
+        assistantMemoryBackendAvailable={options.assistantMemoryBackendAvailable}
+      />
+    ),
     description: 'Choose chat and embedding models, manage downloads, and configure providers.',
     icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
     id: 'models',

@@ -152,9 +152,15 @@ const hostedProviderKeySources = [
 ] as const;
 
 function renderMemorySettings(
-  providerKeySources: AssistantMemorySettingsSectionProps['providerKeySources'] = hostedProviderKeySources
+  providerKeySources: AssistantMemorySettingsSectionProps['providerKeySources'] = hostedProviderKeySources,
+  assistantMemoryBackendAvailable = true
 ): ReturnType<typeof render> {
-  return render(<AssistantMemorySettingsSection providerKeySources={providerKeySources} />);
+  return render(
+    <AssistantMemorySettingsSection
+      assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+      providerKeySources={providerKeySources}
+    />
+  );
 }
 
 describe('AssistantMemorySettingsSection', () => {
@@ -189,7 +195,7 @@ describe('AssistantMemorySettingsSection', () => {
   });
 
   it('does not filter hosted memory models when credential provenance is unavailable', () => {
-    render(<AssistantMemorySettingsSection />);
+    render(<AssistantMemorySettingsSection assistantMemoryBackendAvailable={true} />);
 
     expect(
       within(screen.getByRole('combobox', { name: /observational memory model/i })).getByRole(
@@ -203,6 +209,14 @@ describe('AssistantMemorySettingsSection', () => {
         { name: /Text Embedding 3 Small/i }
       )
     ).toBeInTheDocument();
+  });
+
+  it('omits the local observer when the desktop memory backend is unavailable', () => {
+    renderMemorySettings(hostedProviderKeySources, false);
+
+    const select = screen.getByRole('combobox', { name: /observational memory model/i });
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Gemma 4 Local Observer/i })).toBeNull();
   });
 
   it('does not claim credentials are missing before the model registry loads', () => {

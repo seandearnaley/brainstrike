@@ -230,10 +230,14 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
 }
 
 export interface ModelSelectionPageProps {
+  readonly assistantMemoryBackendAvailable: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
-export function ModelSelectionPage({ providerKeySources }: ModelSelectionPageProps = {}) {
+export function ModelSelectionPage({
+  assistantMemoryBackendAvailable,
+  providerKeySources,
+}: ModelSelectionPageProps) {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
@@ -430,7 +434,10 @@ export function ModelSelectionPage({ providerKeySources }: ModelSelectionPagePro
         </Button>
       </div>
 
-      <AssistantMemorySettingsSection {...(providerKeySources ? { providerKeySources } : {})} />
+      <AssistantMemorySettingsSection
+        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        {...(providerKeySources ? { providerKeySources } : {})}
+      />
 
       <ModelList
         downloadedModels={downloadedModels}

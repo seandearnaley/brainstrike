@@ -4,6 +4,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import {
   createSystemDiagnosticsSettingsCategory,
@@ -84,7 +85,7 @@ function getToolDescription(toolId: string): string {
 function ModelSelectionCategory() {
   return (
     <div className="space-y-4">
-      <ModelSelectionPage />
+      <ModelSelectionPage assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
 import { useAssistantAvailability } from '@brainstrike/app-shell';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
@@ -352,6 +353,7 @@ export default function SettingsPageContent() {
       {
         content: (
           <ModelSelectionPage
+            assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()}
             {...(assistantProviderKeySources
               ? { providerKeySources: assistantProviderKeySources }
               : {})}

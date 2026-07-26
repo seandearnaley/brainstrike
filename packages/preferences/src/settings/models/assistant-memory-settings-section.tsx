@@ -46,10 +46,12 @@ function parseNumberInput(value: string): number {
 }
 
 export interface AssistantMemorySettingsSectionProps {
+  readonly assistantMemoryBackendAvailable: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
 export function AssistantMemorySettingsSection({
+  assistantMemoryBackendAvailable,
   providerKeySources,
 }: AssistantMemorySettingsSectionProps) {
   const db = usePGliteDatabase();
@@ -73,6 +75,7 @@ export function AssistantMemorySettingsSection({
   } = useAssistantMemoryPreferencesStore();
 
   const observationOptions = listObservationalMemoryModelOptions({
+    assistantMemoryBackendAvailable,
     models,
     ...(providerKeySources ? { providerKeySources } : {}),
     providers,

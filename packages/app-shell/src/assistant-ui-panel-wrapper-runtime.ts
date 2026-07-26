@@ -175,6 +175,7 @@ export function getToolDescription(toolId: string): string {
 function resolveSemanticRecallDisabledReason(args: {
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
 }): string | undefined {
   // Observational-memory vector retrieval embeds with the SAME configured
   // semantic-recall embedder, so its requirement applies even when the
@@ -198,6 +199,10 @@ function resolveSemanticRecallDisabledReason(args: {
       ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
       : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
+  const providerReadError = args.providerReadErrors?.[providerId];
+  if (providerReadError) {
+    return providerReadError;
+  }
   if (
     providerId === 'local' ||
     args.providerKeySources === undefined ||
@@ -213,11 +218,16 @@ function resolveSemanticRecallDisabledReason(args: {
 }
 
 function resolveObservationalMemoryDisabledReason(args: {
+  desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
 }): string | undefined {
   if (!args.memorySettings.observationalMemory.enabled) {
     return;
+  }
+  if (!args.desktopAssistantBackendAvailable) {
+    return 'Observational memory requires the desktop assistant backend.';
   }
 
   const modelTarget = args.memorySettings.observationalMemory.modelTarget;
@@ -233,6 +243,10 @@ function resolveObservationalMemoryDisabledReason(args: {
     )
   ) {
     return `Observational memory model target ${modelTarget} uses an unsupported provider. Reconfigure Assistant Memory settings.`;
+  }
+  const providerReadError = args.providerReadErrors?.[providerId];
+  if (providerReadError) {
+    return providerReadError;
   }
   if (providerId === 'local') {
     return;
@@ -255,6 +269,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providerReadErrors?: Partial<Record<SupportedProvider, string>> | undefined;
   memoryLoadState:
     | { readonly status: 'idle' }
     | { readonly status: 'loading' }
@@ -287,8 +302,10 @@ export function resolveAssistantMemoryDisabledReason(args: {
     return 'Assistant memory for hosted providers requires the desktop assistant backend.';
   }
   const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
+    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
     memorySettings: args.memorySettings,
     providerKeySources: args.providerKeySources,
+    providerReadErrors: args.providerReadErrors,
   });
   if (observationalMemoryDisabledReason) {
     return observationalMemoryDisabledReason;
@@ -296,6 +313,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
   const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason({
     memorySettings: args.memorySettings,
     providerKeySources: args.providerKeySources,
+    providerReadErrors: args.providerReadErrors,
   });
   if (semanticRecallDisabledReason) {
     return semanticRecallDisabledReason;

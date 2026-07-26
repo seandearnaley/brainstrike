@@ -60,6 +60,7 @@ function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOpt
 }
 
 export function listObservationalMemoryModelOptions(args: {
+  assistantMemoryBackendAvailable: boolean;
   models: readonly DbModel[];
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providers: readonly DbProvider[];
@@ -73,6 +74,7 @@ export function listObservationalMemoryModelOptions(args: {
       const provider = providers.get(model.providerId);
       return (
         OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(model.providerId) &&
+        (model.providerId !== 'local' || args.assistantMemoryBackendAvailable) &&
         (args.providerKeySources === undefined ||
           model.providerId === 'local' ||
           providersWithKeys.has(model.providerId)) &&

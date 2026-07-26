@@ -234,6 +234,9 @@ vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
 }));
 
 interface DesktopTestWindow extends Window {
+  assistant?: {
+    url: string;
+  };
   mcp?: {
     createSampleConfig?: () => Promise<{ path: string; success: boolean }>;
     disableTools?: (ids: string[]) => Promise<void>;
@@ -278,6 +281,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     assistantAvailability.current = { state: 'loading' };
 
     const desktopWindow = getDesktopWindow();
+    desktopWindow.assistant = undefined;
     desktopWindow.mcp = {
       createSampleConfig: vi.fn(async () => ({ path: '/tmp/sample.json', success: true })),
       disableTools: vi.fn(async () => {}),
@@ -407,6 +411,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('passes status provider key sources into assistant memory model settings', async () => {
+    getDesktopWindow().assistant = { url: 'http://127.0.0.1:4111' };
     assistantAvailability.current = {
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
       providers: ['openai', 'local'],
@@ -420,6 +425,7 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     expect(modelSelectionPageMock).toHaveBeenCalledWith(
       {
+        assistantMemoryBackendAvailable: true,
         providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
       },
       undefined

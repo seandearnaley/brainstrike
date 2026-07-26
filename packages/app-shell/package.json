@@ -57,6 +57,10 @@
       "types": "./dist/connected-prompt-manager-lazy.d.ts",
       "import": "./dist/connected-prompt-manager-lazy.js"
     },
+    "./assistant-durable-usage-capability": {
+      "types": "./dist/assistant-durable-usage-capability.d.ts",
+      "import": "./dist/assistant-durable-usage-capability.js"
+    },
     "./cost-tracking": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
