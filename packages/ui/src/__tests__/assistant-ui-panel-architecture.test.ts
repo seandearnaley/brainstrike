@@ -239,8 +239,8 @@ describe('assistant UI panel architecture', () => {
     const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
     const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought =');
-    const collapsedHistoryStart = source.indexOf('const COLLAPSED_HISTORY_VISIBLE_MESSAGES');
-    const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
+    const dataRendererStart = source.indexOf('const AssistantDataRendererRegistration =');
+    const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, dataRendererStart);
 
     expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
     // The tool-components map (by_name + Fallback) is extracted to
@@ -259,6 +259,47 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('@media (forced-colors: active)');
     expect(cssSource).toContain('-webkit-text-fill-color: CanvasText');
     expect(cssSource).not.toContain('--aui-content: "|"');
+  });
+
+  it('owns thread scrolling with a stick-to-bottom viewport and a floating jump-to-latest button (BST-896)', () => {
+    const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    // Persistence contract (docs/agents/assistant-persistence.md): reopening a
+    // thread restores its scroll position — it must never jump on initialize
+    // or when a run starts.
+    expect(panelSource).toContain('scrollToBottomOnInitialize={false}');
+    expect(panelSource).toContain('scrollToBottomOnRunStart={false}');
+
+    // The button is a SIBLING of the scroller inside the positioned scroll
+    // region, so it stays put instead of scrolling away with the messages.
+    const regionStart = panelSource.indexOf('<div className="bs-thread-scroll-region">');
+    const viewportStart = panelSource.indexOf('<ThreadPrimitive.Viewport');
+    const buttonStart = panelSource.indexOf('<ThreadScrollToBottom />');
+    expect(regionStart).toBeGreaterThan(-1);
+    expect(regionStart).toBeLessThan(viewportStart);
+    expect(buttonStart).toBeGreaterThan(panelSource.indexOf('</ThreadPrimitive.Viewport>'));
+    expect(panelSource).toContain('ThreadPrimitive.ScrollToBottom');
+    expect(panelSource).toContain('data-testid="assistant-scroll-to-bottom"');
+
+    // JS owns the scroll position; browser scroll anchoring must not add a
+    // second adjustment on top of it.
+    expect(cssSource).toContain('overflow-anchor: none');
+    expect(cssSource).toContain('.bs-thread-scroll-region');
+    expect(cssSource).toContain('.bs-scroll-to-bottom');
+
+    // The buggy collapsed-history toggle it replaces is gone for good.
+    for (const removed of [
+      'COLLAPSED_HISTORY_VISIBLE_MESSAGES',
+      'ThreadHistoryControl',
+      'data-history-collapsed',
+      'assistant-history-toggle',
+    ]) {
+      expect(panelSource).not.toContain(removed);
+    }
+    for (const removed of ['bs-history-control', 'data-history-collapsed', 'nth-last-child']) {
+      expect(cssSource).not.toContain(removed);
+    }
   });
 
   it('only animates the chain-of-thought pill while reasoning is running', () => {

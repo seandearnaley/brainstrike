@@ -32,6 +32,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
+  ArrowDownIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -646,9 +647,6 @@ const AssistantDataRendererRegistration = () => {
   return null;
 };
 
-// Keep this in sync with the collapsed-history nth-last-child selector in overrides.css.
-const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
-
 // Stable empty default for the optional slashCommands prop. A literal `[]`
 // default would create a new array each render, breaking memoization in the
 // adapter/icon-map derivations downstream (react-doctor: empty default prop).
@@ -658,42 +656,30 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 // rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 
-const ThreadHistoryControl = ({
-  controlsId,
-  expanded,
-  hiddenMessageCount,
-  onExpandedChange,
-}: {
-  controlsId: string;
-  expanded: boolean;
-  hiddenMessageCount: number;
-  onExpandedChange: (expanded: boolean) => void;
-}) => {
-  if (hiddenMessageCount <= 0) {
-    return null;
-  }
-
-  return (
-    <div aria-live="polite" className="bs-history-control" data-testid="assistant-history-control">
-      <button
-        aria-controls={controlsId}
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${hiddenMessageCount} previous messages`}
-        className="bs-history-control-button"
-        data-testid="assistant-history-toggle"
-        onClick={() => onExpandedChange(!expanded)}
-        type="button"
-      >
-        {expanded ? (
-          <ChevronUpIcon aria-hidden="true" className="size-3.5" />
-        ) : (
-          <ChevronDownIcon aria-hidden="true" className="size-3.5" />
-        )}
-        <span>{hiddenMessageCount} previous messages</span>
-      </button>
-    </div>
-  );
-};
+/**
+ * Floating "jump to latest" affordance (BST-896).
+ *
+ * BEHAVIOR is entirely the library primitive's: `ThreadPrimitive.ScrollToBottom`
+ * reads the viewport store's `isAtBottom` and renders itself DISABLED while the
+ * thread is pinned at the bottom (overrides.css then fades it out), otherwise it
+ * scrolls to the latest message — which re-engages auto-follow.
+ *
+ * MOUNT SITE matters: it renders inside `.bs-thread-scroll-region` as a SIBLING
+ * of the scroller, never inside it, so it stays anchored above the composer
+ * instead of scrolling away with the messages. That works outside the viewport
+ * element because `AssistantRuntimeProvider` mounts an outer viewport store that
+ * mirrors `isAtBottom` up and forwards `scrollToBottom` down.
+ */
+export const ThreadScrollToBottom = () => (
+  <ThreadPrimitive.ScrollToBottom
+    aria-label="Scroll to latest messages"
+    behavior="smooth"
+    className="bs-scroll-to-bottom"
+    data-testid="assistant-scroll-to-bottom"
+  >
+    <ArrowDownIcon aria-hidden="true" />
+  </ThreadPrimitive.ScrollToBottom>
+);
 
 // Shared props for inner chat components
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
@@ -1141,13 +1127,8 @@ const ChatThreadUI = ({
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }) => {
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-  const messageCount = useAuiState((state) => state.thread.messages.length);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
-  const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
-  const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
-  const messagesRegionId = useId();
 
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
   // app-passed commands during render (no setState-in-effect). The adapter hook
@@ -1183,10 +1164,7 @@ const ChatThreadUI = ({
   );
 
   return (
-    <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col"
-      data-history-collapsed={historyCollapsed ? 'true' : undefined}
-    >
+    <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
       <AssistantDataRendererRegistration />
       <ComposerDraftCommandBridge
         composerDraftCommand={composerDraftCommand}
@@ -1211,42 +1189,46 @@ const ChatThreadUI = ({
        * All layout constraints are handled in overrides.css with !important declarations
        * to override the library's defaults.
        *
+       * SCROLL REGION: the wrapper below is the viewport's positioning context.
+       * It takes over the viewport's flex role so the floating jump-to-latest
+       * button can overlay the messages without scrolling away with them, and
+       * without being a child of the scroller. Auto-follow while pinned at the
+       * bottom is the library's (`autoScroll`); the two `scrollToBottomOn*`
+       * opt-outs are the reload-hydration contract — reopening a thread must
+       * restore its position, never jump to the newest message.
+       *
        * See: packages/ui/src/assistant-ui-panel/overrides.css
        */}
-      <ThreadPrimitive.Viewport
-        aria-atomic="false"
-        aria-live="polite"
-        autoScroll
-        className="aui-thread-viewport"
-        data-testid="assistant-ui-viewport"
-        id={messagesRegionId}
-        scrollToBottomOnInitialize={false}
-        scrollToBottomOnRunStart={false}
-      >
-        {disabledReason && (
-          <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
-            {disabledReason}
-          </p>
-        )}
-        <ThreadHistoryControl
-          controlsId={messagesRegionId}
-          expanded={historyExpanded}
-          hiddenMessageCount={hiddenMessageCount}
-          onExpandedChange={setHistoryExpanded}
-        />
-        <AssistantThreadStateProvider>
-          <ThreadPrimitive.Messages
-            components={{
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              AssistantMessage,
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              EditComposer,
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              UserMessage,
-            }}
-          />
-        </AssistantThreadStateProvider>
-      </ThreadPrimitive.Viewport>
+      <div className="bs-thread-scroll-region">
+        <ThreadPrimitive.Viewport
+          aria-atomic="false"
+          aria-live="polite"
+          autoScroll
+          className="aui-thread-viewport"
+          data-testid="assistant-ui-viewport"
+          scrollToBottomOnInitialize={false}
+          scrollToBottomOnRunStart={false}
+        >
+          {disabledReason && (
+            <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
+              {disabledReason}
+            </p>
+          )}
+          <AssistantThreadStateProvider>
+            <ThreadPrimitive.Messages
+              components={{
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+                AssistantMessage,
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+                EditComposer,
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+                UserMessage,
+              }}
+            />
+          </AssistantThreadStateProvider>
+        </ThreadPrimitive.Viewport>
+        <ThreadScrollToBottom />
+      </div>
 
       {/**
        * Composer: Fixed at bottom of thread

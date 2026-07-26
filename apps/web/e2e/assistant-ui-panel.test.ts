@@ -445,7 +445,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(toolCard.getByText('Result:')).toBeVisible();
   });
 
-  test('keeps composer controls in the input shell and reveals collapsed history', async ({
+  test('keeps composer controls in the input shell and jumps back to the latest message', async ({
     page,
   }) => {
     const elements = getPanelElements(page);
@@ -482,7 +482,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
 
     const longPrompt = [
-      'history collapse turn 1',
+      'thread scroll turn 1',
       'You are improving unit test coverage on the BrainStrike project.',
       'Priority targets include local-runtime-adapter, database setup, and assistant panel tests.',
       'Write a careful implementation plan that preserves renderer-only local LLM execution.',
@@ -490,7 +490,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       ...Array.from(
         { length: 8 },
         (_, index) =>
-          `Detailed verification note ${index + 1}: keep the chat message tall enough to exercise the collapsed-message affordance across responsive assistant layouts.`
+          `Detailed verification note ${index + 1}: keep the chat message tall enough to exercise the expandable-message affordance across responsive assistant layouts.`
       ),
     ].join('\n\n');
 
@@ -503,7 +503,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     const longUserMessage = viewport
       .getByTestId('assistant-user-message-content')
-      .filter({ hasText: 'history collapse turn 1' })
+      .filter({ hasText: 'thread scroll turn 1' })
       .first();
     const messageBody = longUserMessage.locator('.bs-expandable-message-body');
     const messageContent = longUserMessage.locator('.bs-expandable-message-content');
@@ -599,23 +599,39 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     expect(recollapsedGeometry.bodyHeight).toBeLessThan(recollapsedGeometry.contentHeight);
 
     for (let turn = 2; turn <= 5; turn += 1) {
-      await input.fill(`history collapse turn ${turn}`);
+      await input.fill(`thread scroll turn ${turn}`);
       await composerShell.getByRole('button', { name: 'Send' }).click();
       await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(turn, {
         timeout: 15_000,
       });
     }
 
-    await expect(page.getByTestId('assistant-history-control')).toHaveAttribute(
-      'aria-live',
-      'polite'
-    );
-    const historyToggle = page.getByTestId('assistant-history-toggle');
-    await expect(historyToggle).toContainText('2 previous messages');
-    await expect(longUserMessage).toBeHidden();
-
-    await historyToggle.click();
+    // BST-896: 10 messages (well past the 8 the old collapsed-history toggle
+    // hid) and EVERY one of them still renders — no toggle, nothing hidden.
+    await expect(page.getByTestId('assistant-history-toggle')).toHaveCount(0);
     await expect(longUserMessage).toBeVisible();
+
+    // Sending pins the thread at the bottom, so the jump affordance is hidden.
+    const scrollToBottom = page.getByTestId('assistant-scroll-to-bottom');
+    await expect(scrollToBottom).toBeDisabled();
+
+    const viewportOverflow = await viewport.evaluate((el) => el.scrollHeight - el.clientHeight);
+    expect(viewportOverflow).toBeGreaterThan(0);
+
+    // Scrolling up disengages auto-follow and offers the jump button …
+    await viewport.evaluate((el) => {
+      el.scrollTo({ behavior: 'instant', top: 0 });
+    });
+    await expect(scrollToBottom).toBeEnabled();
+
+    // … clicking it returns to the latest message and hides itself again.
+    await scrollToBottom.click();
+    await expect(scrollToBottom).toBeDisabled();
+    await expect
+      .poll(async () =>
+        viewport.evaluate((el) => Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight))
+      )
+      .toBeLessThanOrEqual(1);
   });
 
   test('deletes assistant thread history without loading errors', async ({ page }) => {

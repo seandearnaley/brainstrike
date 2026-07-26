@@ -286,6 +286,19 @@ vi.mock('@assistant-ui/react', () => {
         return Assistant ? <Assistant /> : null;
       },
       Root: Primitive,
+      // Jump-to-latest (BST-896): the real primitive renders a button that is
+      // DISABLED whenever the viewport sits at the bottom — which is the
+      // resting state of these render-shape tests.
+      ScrollToBottom: ({
+        behavior: _behavior,
+        children,
+        asChild: _asChild,
+        ...props
+      }: ButtonPrimitiveProps & { behavior?: string }) => (
+        <button disabled type="button" {...props}>
+          {children}
+        </button>
+      ),
       Viewport: Primitive,
     },
     unstable_useSlashCommandAdapter: () => ({
