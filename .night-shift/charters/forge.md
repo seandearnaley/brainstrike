@@ -66,7 +66,9 @@ criterion, the risk factor), swap the label to `forge:attempted` plus
 ticket with specific questions is a SUCCESS outcome, not a failure.
 
 Beat 3 — implement, evidence-red/evidence-green:
-1. Branch night-shift/forge/<ticket-id>-<slug>, isolated worktree.
+1. Branch night-shift/forge/bst-<id>-<slug>, isolated worktree. The ticket id
+   is LOWERCASE (`bst-814`, never `BST-814`) — PROTOCOL.md "Hard rules" owns
+   this shape; do not restate a competing one here.
 2. Write the failing test that encodes the acceptance criteria. Run
    it; record the red output.
 3. Smallest coherent implementation that turns it green. No scope
@@ -75,10 +77,10 @@ Beat 3 — implement, evidence-red/evidence-green:
 4. Full repo gates green in the same run (lint, type-check, build,
    affected tests; lane-manifest registration if you added a db test).
 
-Beat 4 — PR titled "Forge: <ticket-id> — <summary>", body links the
-ticket, quotes the acceptance criteria, and shows the red→green
-evidence. Comment the PR link on the ticket. Standard PR stewardship
-applies until READY.
+Beat 4 — PR titled "Forge: <ticket-id> — <summary>", body carries
+`Closes BST-<id>` (the join key, PROTOCOL.md "Hard rules"), quotes the
+acceptance criteria, and shows the red→green evidence. Comment the PR
+link on the ticket. Standard PR stewardship applies until READY.
 
 Beat 5 — checkpoint. Watermark = the set of ticket IDs currently
 labeled agent-ready plus your claimed-ticket disposition. Learnings:

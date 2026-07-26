@@ -35,7 +35,11 @@ node .agents/skills/watch-automation/scripts/collect-watch-evidence.mjs \
   --pretty > "$watch_logs/evidence.json"
 ```
 
-`--window-start` is REQUIRED and is the UTC timestamp of your previous checkpoint — the charter fixes the run window to `[previous checkpoint, wake time]` (PROTOCOL.md "Run boundaries"). The collector will not infer it; window guessing is intentionally disabled, exactly like watermark guessing.
+`--window-start` is REQUIRED. The collector will not infer it; window guessing is intentionally disabled, exactly like watermark guessing.
+
+Pass the PREVIOUS RUN'S `window.until`, taken from its evidence JSON — not the timestamp its checkpoint comment was written at. Those are different instants: `window.until` is captured when collection starts, while the checkpoint is written at the END of the run, up to a full wall-clock budget later. Using the checkpoint time leaves a gap the width of an entire run in which a nightly E2E can land and belong to NO window — this run fetched runs before its `until`, and the next starts after the checkpoint, so the watermark comparison never sees it and the failure is silently dropped rather than deferred to tomorrow as the charter promises. Consecutive `window.until` values abut exactly, and it is still a fact the caller holds rather than one the collector infers.
+
+Record that `window.until` in your checkpoint line so the next wake can read it back.
 
 Omit both watermark arguments only for a proven first run or the documented one-time migration. When prior memory records an explicitly empty set, pass `--watermark none` with its matching `--checkpoint-watermark` instead of omitting either flag; empty prior state and first run are distinct.
 

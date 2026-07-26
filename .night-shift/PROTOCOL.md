@@ -277,6 +277,10 @@ the re-probe than on re-narration.
   over a join that does not exist. Your PR body therefore carries
   `Closes BST-<id>`, or an explicit `No ticket: <reason>` line. Neither is
   optional; a PR with no ticket and no stated reason is incomplete.
+  Already-open PRs are GRANDFATHERED on their existing branch name — never
+  re-branch an in-flight PR to satisfy this, since that discards its review
+  history. Add the `Closes BST-<id>` line to the body instead; the closing
+  keyword links it without a rename. The branch shape binds new branches only.
 - Re-derive every command, path, and enumeration from the repo at wake.
   Anything memorized in a charter or learning is a hint, not a fact.
 - Labels on GitHub PRs: only the `review/*` namespace (owned by Assay) and
