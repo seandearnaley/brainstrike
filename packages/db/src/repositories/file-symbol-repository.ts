@@ -2,11 +2,14 @@
  * Persistence for the symbol graph (migration 075, BST-919).
  *
  * Symbols and refs share the chunk lifecycle: extracted at chunking time,
- * hard-deleted on managed-cache REPLACE, cascaded on file deletion. The refs'
- * `fromSymbolId` must point into the SAME insert batch — that intra-batch
- * invariant is what keeps enclosing-definition edges safe under re-index churn
- * (cross-file edges are name-joined at query time instead; see the design
- * ruling in `075-file-symbols.ts`).
+ * hard-deleted on managed-cache REPLACE, cascaded on file deletion. Rows are
+ * keyed by composite (file_record_id, seq) — a MEASURED decision: v1's text
+ * ids (`${fileRecordId}_sym_${n}`) plus per-column secondary indexes cost
+ * ~98% of raw source bytes on this monorepo; see `075-file-symbols.ts`.
+ *
+ * A ref's `fromSymbolSeq` must point into the SAME insert batch — that
+ * intra-batch invariant is what keeps enclosing-definition edges safe under
+ * re-index churn (cross-file edges are name-joined at query time instead).
  */
 
 export type FileSymbolKind =
@@ -26,9 +29,9 @@ export interface FileSymbolInsert {
   readonly endOffset: number;
   readonly exported: boolean;
   readonly fileRecordId: string;
-  readonly id: string;
   readonly kind: FileSymbolKind;
   readonly name: string;
+  readonly seq: number;
   readonly startLine: number;
   readonly startOffset: number;
 }
@@ -36,15 +39,15 @@ export interface FileSymbolInsert {
 export interface FileSymbolRefInsert {
   readonly embeddingSetId?: string;
   readonly fileRecordId: string;
-  /** Enclosing definition; MUST be an id from the same insert batch (or a
-   * symbol already present for the same file). NULL = module-level code. */
-  readonly fromSymbolId?: string;
-  readonly id: string;
+  /** Enclosing definition's seq; MUST come from the same insert batch.
+   * Absent = module-level code. */
+  readonly fromSymbolSeq?: number;
   readonly kind: FileSymbolRefKind;
   readonly line: number;
   /** For imports: the source module specifier. */
   readonly module?: string;
   readonly name: string;
+  readonly seq: number;
 }
 
 /**
@@ -112,8 +115,8 @@ export class FileSymbolRepository {
     }
 
     const symbolValues = symbols.flatMap((row) => [
-      row.id,
       row.fileRecordId,
+      row.seq,
       row.embeddingSetId ?? null,
       row.name,
       row.kind,
@@ -124,31 +127,32 @@ export class FileSymbolRepository {
       row.endOffset,
     ]);
     const refValues = refs.flatMap((row) => [
-      row.id,
       row.fileRecordId,
+      row.seq,
       row.embeddingSetId ?? null,
-      row.fromSymbolId ?? null,
+      row.fromSymbolSeq ?? null,
       row.name,
       row.kind,
       row.module ?? null,
       row.line,
     ]);
 
+    const symbolInsert = `INSERT INTO file_symbols
+        (file_record_id, seq, embedding_set_id, name, kind, exported,
+         start_line, end_line, start_offset, end_offset)`;
+    const refInsert = `INSERT INTO file_symbol_refs
+        (file_record_id, seq, embedding_set_id, from_symbol_seq, name, kind, module, line)`;
+
     if (refs.length === 0) {
       await this.db.query(
-        `INSERT INTO file_symbols
-           (id, file_record_id, embedding_set_id, name, kind, exported,
-            start_line, end_line, start_offset, end_offset)
-         VALUES ${placeholders(symbols.length, SYMBOL_COLUMNS, 0)}`,
+        `${symbolInsert} VALUES ${placeholders(symbols.length, SYMBOL_COLUMNS, 0)}`,
         symbolValues
       );
       return;
     }
     if (symbols.length === 0) {
       await this.db.query(
-        `INSERT INTO file_symbol_refs
-           (id, file_record_id, embedding_set_id, from_symbol_id, name, kind, module, line)
-         VALUES ${placeholders(refs.length, REF_COLUMNS, 0)}`,
+        `${refInsert} VALUES ${placeholders(refs.length, REF_COLUMNS, 0)}`,
         refValues
       );
       return;
@@ -156,14 +160,9 @@ export class FileSymbolRepository {
 
     await this.db.query(
       `WITH inserted_symbols AS (
-         INSERT INTO file_symbols
-           (id, file_record_id, embedding_set_id, name, kind, exported,
-            start_line, end_line, start_offset, end_offset)
-         VALUES ${placeholders(symbols.length, SYMBOL_COLUMNS, 0)}
+         ${symbolInsert} VALUES ${placeholders(symbols.length, SYMBOL_COLUMNS, 0)}
        )
-       INSERT INTO file_symbol_refs
-         (id, file_record_id, embedding_set_id, from_symbol_id, name, kind, module, line)
-       VALUES ${placeholders(refs.length, REF_COLUMNS, symbolValues.length)}`,
+       ${refInsert} VALUES ${placeholders(refs.length, REF_COLUMNS, symbolValues.length)}`,
       [...symbolValues, ...refValues]
     );
   }

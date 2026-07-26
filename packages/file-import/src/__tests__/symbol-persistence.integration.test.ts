@@ -137,21 +137,19 @@ describe('symbol persistence seam', () => {
     });
     expect(results[0]?.chunksCreated).toBeGreaterThan(0);
 
-    const symbols = await db.query<{ exported: boolean; id: string; name: string }>(
-      'SELECT id, name, exported FROM file_symbols WHERE file_record_id = $1',
+    const symbols = await db.query<{ exported: boolean; name: string; seq: number }>(
+      'SELECT seq, name, exported FROM file_symbols WHERE file_record_id = $1',
       [fileId]
     );
-    expect(symbols.rows).toEqual([
-      { exported: true, id: `${fileId}_sym_0`, name: 'startEmbeddingWorker' },
-    ]);
+    expect(symbols.rows).toEqual([{ exported: true, name: 'startEmbeddingWorker', seq: 0 }]);
 
-    // The enclosing index must have become the enclosing symbol's minted id —
-    // the exact mapping the traversal's from_symbol_id join depends on.
-    const refs = await db.query<{ from_symbol_id: string; name: string }>(
-      'SELECT name, from_symbol_id FROM file_symbol_refs WHERE file_record_id = $1',
+    // The enclosing index must have become the enclosing symbol's seq — the
+    // exact mapping the traversal's from_symbol_seq join depends on.
+    const refs = await db.query<{ from_symbol_seq: number; name: string }>(
+      'SELECT name, from_symbol_seq FROM file_symbol_refs WHERE file_record_id = $1',
       [fileId]
     );
-    expect(refs.rows).toEqual([{ from_symbol_id: `${fileId}_sym_0`, name: 'acquireLease' }]);
+    expect(refs.rows).toEqual([{ from_symbol_seq: 0, name: 'acquireLease' }]);
   });
 
   it('indexes chunks exactly as before when no symbolRepository is provided', async () => {

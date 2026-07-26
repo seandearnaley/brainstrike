@@ -168,11 +168,11 @@ export function toFileChunkInserts(
 /**
  * Convert extracted symbols/refs to database inserts (BST-919).
  *
- * Ids are assigned HERE — `${fileRecordId}_sym_${n}` / `_ref_${n}` — so the
- * extractor stays persistence-free, and a ref's `enclosingSymbolIndex` becomes
- * the enclosing symbol's freshly minted id. Indexes out of range are a
- * contract violation from the worker and throw rather than inserting an edge
- * attributed to the wrong definition.
+ * `seq` IS the extraction-order index — the same number the extractor already
+ * used for `enclosingSymbolIndex`, so the enclosing edge maps through without
+ * translation. An out-of-range enclosing index is a contract violation from
+ * the worker and throws rather than inserting an edge attributed to the wrong
+ * definition.
  */
 export function toFileSymbolInserts(
   fileRecordId: string,
@@ -185,33 +185,30 @@ export function toFileSymbolInserts(
     endOffset: symbol.endOffset,
     exported: symbol.exported,
     fileRecordId,
-    id: `${fileRecordId}_sym_${index}`,
     kind: symbol.kind,
     name: symbol.name,
+    seq: index,
     startLine: symbol.startLine,
     startOffset: symbol.startOffset,
     ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
   }));
 
   const refInserts: FileSymbolRefInsert[] = refs.map((ref, index) => {
-    let fromSymbolId: string | undefined;
-    if (ref.enclosingSymbolIndex !== undefined) {
-      const enclosing = symbolInserts[ref.enclosingSymbolIndex];
-      if (!enclosing) {
-        throw new Error(
-          `Symbol ref ${index} references enclosing symbol index ${ref.enclosingSymbolIndex}, ` +
-            `but only ${symbolInserts.length} symbols were extracted.`
-        );
-      }
-      fromSymbolId = enclosing.id;
+    if (ref.enclosingSymbolIndex !== undefined && !symbolInserts[ref.enclosingSymbolIndex]) {
+      throw new Error(
+        `Symbol ref ${index} references enclosing symbol index ${ref.enclosingSymbolIndex}, ` +
+          `but only ${symbolInserts.length} symbols were extracted.`
+      );
     }
     return {
       fileRecordId,
-      id: `${fileRecordId}_ref_${index}`,
       kind: ref.kind,
       line: ref.line,
       name: ref.name,
-      ...(fromSymbolId === undefined ? {} : { fromSymbolId }),
+      seq: index,
+      ...(ref.enclosingSymbolIndex === undefined
+        ? {}
+        : { fromSymbolSeq: ref.enclosingSymbolIndex }),
       ...(ref.module === undefined ? {} : { module: ref.module }),
       ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
     };

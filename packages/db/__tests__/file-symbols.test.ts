@@ -55,9 +55,9 @@ describe('file symbol graph', () => {
       endOffset: 400,
       exported: false,
       fileRecordId,
-      id: `${fileRecordId}_sym_${n}`,
       kind: 'function',
       name,
+      seq: n,
       startLine: 10,
       startOffset: 200,
       ...overrides,
@@ -72,10 +72,10 @@ describe('file symbol graph', () => {
   ): FileSymbolRefInsert {
     return {
       fileRecordId,
-      id: `${fileRecordId}_ref_${n}`,
       kind: 'call',
       line: 12,
       name,
+      seq: n,
       ...overrides,
     };
   }
@@ -86,15 +86,14 @@ describe('file symbol graph', () => {
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'file_symbols' ORDER BY column_name`
       );
       expect(symbols.rows.map((row) => row.column_name)).toEqual([
-        'created_at',
         'embedding_set_id',
         'end_line',
         'end_offset',
         'exported',
         'file_record_id',
-        'id',
         'kind',
         'name',
+        'seq',
         'start_line',
         'start_offset',
       ]);
@@ -103,31 +102,32 @@ describe('file symbol graph', () => {
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'file_symbol_refs' ORDER BY column_name`
       );
       expect(refs.rows.map((row) => row.column_name)).toEqual([
-        'created_at',
         'embedding_set_id',
         'file_record_id',
-        'from_symbol_id',
-        'id',
+        'from_symbol_seq',
         'kind',
         'line',
         'module',
         'name',
+        'seq',
       ]);
     });
 
     it('indexes the traversal join columns', async () => {
       // The name join IS the graph — without these indexes the recursive CTE
       // seq-scans per recursion level and the planner cost explodes past the
-      // querySelf ceiling on a large workspace.
+      // querySelf ceiling on a large workspace. The composite PKs double as
+      // the per-file lookup index (deletion path), so file_record_id needs no
+      // secondary index — a MEASURED decision (storage section of the
+      // migration docstring).
       const result = await db.query<{ indexdef: string }>(
         `SELECT indexdef FROM pg_indexes WHERE tablename IN ('file_symbols', 'file_symbol_refs')`
       );
       const defs = result.rows.map((row) => row.indexdef).join('\n');
       expect(defs).toContain('file_symbols USING btree (name)');
       expect(defs).toContain('file_symbol_refs USING btree (name)');
-      expect(defs).toContain('file_symbols USING btree (file_record_id)');
-      expect(defs).toContain('file_symbol_refs USING btree (file_record_id)');
-      expect(defs).toContain('file_symbol_refs USING btree (from_symbol_id)');
+      expect(defs).toContain('file_symbols USING btree (file_record_id, seq)');
+      expect(defs).toContain('file_symbol_refs USING btree (file_record_id, seq)');
     });
 
     it('is readable by the querySelf sandbox role', async () => {
@@ -151,7 +151,7 @@ describe('file symbol graph', () => {
           symbol('file-a', 1, 'helper'),
         ],
         [
-          ref('file-a', 0, 'acquireLease', { fromSymbolId: 'file-a_sym_0' }),
+          ref('file-a', 0, 'acquireLease', { fromSymbolSeq: 0 }),
           ref('file-a', 1, 'node:worker_threads', {
             kind: 'import',
             module: 'node:worker_threads',
@@ -160,19 +160,19 @@ describe('file symbol graph', () => {
       );
 
       const symbols = await db.query<{ exported: boolean; name: string }>(
-        `SELECT name, exported FROM file_symbols WHERE file_record_id = 'file-a' ORDER BY id`
+        `SELECT name, exported FROM file_symbols WHERE file_record_id = 'file-a' ORDER BY seq`
       );
       expect(symbols.rows).toEqual([
         { exported: true, name: 'startEmbeddingWorker' },
         { exported: false, name: 'helper' },
       ]);
 
-      const refs = await db.query<{ from_symbol_id: string | null; kind: string; name: string }>(
-        `SELECT name, kind, from_symbol_id FROM file_symbol_refs WHERE file_record_id = 'file-a' ORDER BY id`
+      const refs = await db.query<{ from_symbol_seq: number | null; kind: string; name: string }>(
+        `SELECT name, kind, from_symbol_seq FROM file_symbol_refs WHERE file_record_id = 'file-a' ORDER BY seq`
       );
       expect(refs.rows).toEqual([
-        { from_symbol_id: 'file-a_sym_0', kind: 'call', name: 'acquireLease' },
-        { from_symbol_id: null, kind: 'import', name: 'node:worker_threads' },
+        { from_symbol_seq: 0, kind: 'call', name: 'acquireLease' },
+        { from_symbol_seq: null, kind: 'import', name: 'node:worker_threads' },
       ]);
     });
 
@@ -187,7 +187,7 @@ describe('file symbol graph', () => {
       await expect(
         repository.insertMany(
           [symbol('file-a', 0, 'fn')],
-          [ref('file-a', 0, 'other', { fromSymbolId: 'file-ZZZ_sym_9' })]
+          [ref('file-a', 0, 'other', { fromSymbolSeq: 99 })]
         )
       ).rejects.toThrow();
 
@@ -224,7 +224,7 @@ describe('file symbol graph', () => {
       await seedFileRecord('file-a', 'src/a.ts');
       await repository.insertMany(
         [symbol('file-a', 0, 'fn')],
-        [ref('file-a', 0, 'x', { fromSymbolId: 'file-a_sym_0' })]
+        [ref('file-a', 0, 'x', { fromSymbolSeq: 0 })]
       );
 
       await db.query(`DELETE FROM file_records WHERE id = 'file-a'`);
@@ -309,34 +309,35 @@ describe('file symbol graph', () => {
       );
       await repository.insertMany(
         [symbol('file-run', 0, 'run', { exported: true })],
-        [ref('file-run', 0, 'startEmbeddingWorker', { fromSymbolId: 'file-run_sym_0' })]
+        [ref('file-run', 0, 'startEmbeddingWorker', { fromSymbolSeq: 0 })]
       );
       await repository.insertMany(
         [symbol('file-main', 0, 'main')],
-        [ref('file-main', 0, 'run', { fromSymbolId: 'file-main_sym_0' })]
+        [ref('file-main', 0, 'run', { fromSymbolSeq: 0 })]
       );
       await repository.insertMany(
         [symbol('file-unrelated', 0, 'other')],
-        [ref('file-unrelated', 0, 'somethingElse', { fromSymbolId: 'file-unrelated_sym_0' })]
+        [ref('file-unrelated', 0, 'somethingElse', { fromSymbolSeq: 0 })]
       );
 
       // The exact statement documented as the querySelf worked example: UNION
       // (dedup) + join-terminated + explicit depth bound — the shape the
       // recursion guard preserves (pinned in agent-sql-service.test.ts).
       const result = await db.query<{ depth: number; name: string; path: string }>(
-        `WITH RECURSIVE callers(id, name, depth) AS (
-           SELECT s.id, s.name, 0 FROM file_symbols s WHERE s.name = 'startEmbeddingWorker'
+        `WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
+           SELECT s.file_record_id, s.seq, s.name, 0
+           FROM file_symbols s WHERE s.name = 'startEmbeddingWorker'
            UNION
-           SELECT encl.id, encl.name, c.depth + 1
+           SELECT encl.file_record_id, encl.seq, encl.name, c.depth + 1
            FROM callers c
            JOIN file_symbol_refs r ON r.name = c.name AND r.kind = 'call'
-           JOIN file_symbols encl ON encl.id = r.from_symbol_id
+           JOIN file_symbols encl
+             ON encl.file_record_id = r.file_record_id AND encl.seq = r.from_symbol_seq
            WHERE c.depth < 10
          )
          SELECT fr.path, c.name, c.depth
          FROM callers c
-         JOIN file_symbols s ON s.id = c.id
-         JOIN file_records fr ON fr.id = s.file_record_id
+         JOIN file_records fr ON fr.id = c.file_record_id
          ORDER BY c.depth, fr.path`
       );
 

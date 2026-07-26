@@ -34,22 +34,22 @@ import type { Migration } from './migration-runner';
  * The `brainstrike_agent_readonly` role reads these tables via migration 074's
  * `ALTER DEFAULT PRIVILEGES`; `file-symbols.test.ts` pins that instead of
  * assuming it.
+ *
+ * STORAGE SHAPE IS MEASURED, NOT GUESSED. v1 of this migration used text ids
+ * (`${fileRecordId}_sym_${n}`) with per-column secondary indexes; measured on
+ * this monorepo (3,337 TS files, 22,920 symbols, 109,297 refs) the graph cost
+ * 28.2 MB — ~98% of raw source bytes — with the text PKs and redundant
+ * indexes as the dominant cost. This shape replaces them with composite
+ * integer PKs: (file_record_id, seq). The PK's leading column doubles as the
+ * per-file lookup index (deletion path), and embedding-set scoping joins
+ * through file_records exactly like root scoping does for file_chunks —
+ * `file_chunks` has no root_id column either. Re-measured: see the PR.
  */
 export const migration075FileSymbols: Migration = {
   down: `
-    DROP INDEX IF EXISTS idx_file_symbol_refs_from_symbol_id;
-    --> statement-breakpoint
-    DROP INDEX IF EXISTS idx_file_symbol_refs_file_record_id;
-    --> statement-breakpoint
-    DROP INDEX IF EXISTS idx_file_symbol_refs_embedding_set_id;
-    --> statement-breakpoint
     DROP INDEX IF EXISTS idx_file_symbol_refs_name;
     --> statement-breakpoint
     DROP TABLE IF EXISTS file_symbol_refs;
-    --> statement-breakpoint
-    DROP INDEX IF EXISTS idx_file_symbols_embedding_set_id;
-    --> statement-breakpoint
-    DROP INDEX IF EXISTS idx_file_symbols_file_record_id;
     --> statement-breakpoint
     DROP INDEX IF EXISTS idx_file_symbols_name;
     --> statement-breakpoint
@@ -58,8 +58,8 @@ export const migration075FileSymbols: Migration = {
   name: 'file_symbols',
   up: `
     CREATE TABLE IF NOT EXISTS file_symbols (
-      id               text PRIMARY KEY,
       file_record_id   text NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
+      seq              integer NOT NULL,
       embedding_set_id text,
       name             text NOT NULL,
       kind             text NOT NULL CHECK (kind IN ('function','class','method','variable','interface','type','enum')),
@@ -68,34 +68,26 @@ export const migration075FileSymbols: Migration = {
       end_line         integer NOT NULL,
       start_offset     integer NOT NULL,
       end_offset       integer NOT NULL,
-      created_at       timestamptz NOT NULL DEFAULT NOW()
+      PRIMARY KEY (file_record_id, seq)
     );
     --> statement-breakpoint
     CREATE INDEX IF NOT EXISTS idx_file_symbols_name ON file_symbols (name);
     --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbols_file_record_id ON file_symbols (file_record_id);
-    --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbols_embedding_set_id ON file_symbols (embedding_set_id);
-    --> statement-breakpoint
     CREATE TABLE IF NOT EXISTS file_symbol_refs (
-      id               text PRIMARY KEY,
       file_record_id   text NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
+      seq              integer NOT NULL,
       embedding_set_id text,
-      from_symbol_id   text REFERENCES file_symbols(id) ON DELETE CASCADE,
+      from_symbol_seq  integer,
       name             text NOT NULL,
       kind             text NOT NULL CHECK (kind IN ('call','import','extends','implements')),
       module           text,
       line             integer NOT NULL,
-      created_at       timestamptz NOT NULL DEFAULT NOW()
+      PRIMARY KEY (file_record_id, seq),
+      FOREIGN KEY (file_record_id, from_symbol_seq)
+        REFERENCES file_symbols (file_record_id, seq) ON DELETE CASCADE
     );
     --> statement-breakpoint
     CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_name ON file_symbol_refs (name);
-    --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_file_record_id ON file_symbol_refs (file_record_id);
-    --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_embedding_set_id ON file_symbol_refs (embedding_set_id);
-    --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_from_symbol_id ON file_symbol_refs (from_symbol_id);
   `,
   version: 75,
 };

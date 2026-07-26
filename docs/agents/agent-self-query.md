@@ -381,7 +381,7 @@ initial sync and the edit-reindex path converge there):
   web — same fields); Python via tree-sitter name captures.
 - `file_symbol_refs` — name-based references: kind
   (`call|import|extends|implements`), `module` for imports, and
-  `from_symbol_id` = the ENCLOSING definition (always intra-file).
+  `from_symbol_seq` = the ENCLOSING definition's seq (always intra-file).
 
 **Refs store names, not resolved symbol ids — a settled ruling.** Symbol rows
 share the chunk lifecycle (hard-deleted and re-inserted on every edit), so a
@@ -396,20 +396,27 @@ The headline traversal — transitive callers — is one statement, and its shap
 recursion guard admits:
 
 ```sql
-WITH RECURSIVE callers(id, name, depth) AS (
-  SELECT s.id, s.name, 0 FROM file_symbols s WHERE s.name = 'startEmbeddingWorker'
+WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
+  SELECT s.file_record_id, s.seq, s.name, 0
+  FROM file_symbols s WHERE s.name = 'startEmbeddingWorker'
   UNION
-  SELECT encl.id, encl.name, c.depth + 1
+  SELECT encl.file_record_id, encl.seq, encl.name, c.depth + 1
   FROM callers c
   JOIN file_symbol_refs r ON r.name = c.name AND r.kind = 'call'
-  JOIN file_symbols encl ON encl.id = r.from_symbol_id
+  JOIN file_symbols encl
+    ON encl.file_record_id = r.file_record_id AND encl.seq = r.from_symbol_seq
   WHERE c.depth < 10
 )
 SELECT DISTINCT fr.path, c.name, c.depth
-FROM callers c JOIN file_symbols s ON s.id = c.id
-JOIN file_records fr ON fr.id = s.file_record_id
+FROM callers c JOIN file_records fr ON fr.id = c.file_record_id
 ORDER BY c.depth, fr.path;
 ```
+
+Rows are keyed by composite `(file_record_id, seq)` — measured, not guessed:
+v1 text ids cost ~98% of raw source bytes on this monorepo; the composite
+shape brings the whole graph (22,920 symbols + 109,297 refs from 3,337 TS
+files) to ~27 MB, with sub-250 ms cold traversals. `from_symbol_seq` is
+always intra-file, so the enclosing join carries the file id along.
 
 Lifecycle: a managed-cache REPLACE deletes a file's symbol rows explicitly
 (the `file_records` row survives an edit, so FK CASCADE cannot do it); file
