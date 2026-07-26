@@ -1,3 +1,8 @@
+import {
+  NATIVE_TOOL_ID,
+  QUERY_SELF_EXAMPLE_QUERIES,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
@@ -275,6 +280,25 @@ describe('AgentSqlService sandbox', () => {
 
       const after = await db.query<{ n: number }>('SELECT 1::int AS n');
       expect(after.rows[0]?.n).toBe(1);
+    });
+  });
+
+  describe('the tool description stays true to the schema', () => {
+    it('executes every example query embedded in the model-facing description', {
+      timeout: 120_000,
+    }, async () => {
+      // A broken example in a tool description is worse than no example: it
+      // teaches the model a column that does not exist and costs it a turn.
+      // This is the regression guard for a migration renaming something the
+      // description references.
+      expect(QUERY_SELF_EXAMPLE_QUERIES.length).toBeGreaterThan(0);
+
+      for (const example of QUERY_SELF_EXAMPLE_QUERIES) {
+        // Every example must be in the shipped description, so the constant
+        // cannot drift into being tested-but-not-shown.
+        expect(TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf]).toContain(example);
+        await expect(service.query(example)).resolves.toBeDefined();
+      }
     });
   });
 

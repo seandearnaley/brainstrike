@@ -47,7 +47,11 @@ export {
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from './tool-categories.js';
-export { getNativeToolDescription, TOOL_DESCRIPTIONS } from './tool-descriptions.js';
+export {
+  getNativeToolDescription,
+  QUERY_SELF_EXAMPLE_QUERIES,
+  TOOL_DESCRIPTIONS,
+} from './tool-descriptions.js';
 export {
   isToolRiskCategory,
   resolveToolRiskCategory,

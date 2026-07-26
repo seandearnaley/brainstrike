@@ -1,5 +1,20 @@
 import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
 
+/**
+ * Worked example queries embedded in the `querySelf` description.
+ *
+ * Exported as a constant rather than prose so a test can EXECUTE them against a
+ * migrated database (`packages/db/__tests__/agent-sql-service.test.ts`). A
+ * broken example is worse than none — it teaches the model a column that does
+ * not exist and costs it a turn — and this makes drift a build failure the day a
+ * migration renames something, instead of a silent regression.
+ *
+ * Keep them short: this text is paid for on every request that loads the tool.
+ */
+export const QUERY_SELF_EXAMPLE_QUERIES: readonly string[] = [
+  'SELECT path, count(*) AS reverts FROM brainstrike_assistant_edit_checkpoints WHERE reverted_at IS NOT NULL GROUP BY path ORDER BY reverts DESC',
+];
+
 export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.askUser]:
     'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question',
@@ -29,8 +44,7 @@ export const TOOL_DESCRIPTIONS = {
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   [NATIVE_TOOL_ID.queryEmbeddingSpace]:
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
-  [NATIVE_TOOL_ID.querySelf]:
-    'Run ONE read-only SQL SELECT against Brainstrike\'s own local PostgreSQL database, which holds this assistant\'s history (run outcomes, edit checkpoints, token usage and cost, tool/queue metrics) alongside the workspace code index (file_records, file_chunks with embeddings and full-text vectors). Use it for questions that would otherwise take many tool calls: aggregates, joins, counts, and trends over past runs or index state. Call with describe:true FIRST to list tables, then describe:\'<table>\' for its columns, then send sql. Examples — files with chunks but no embedding: "SELECT f.path, count(*) AS n FROM file_chunks c JOIN file_records f ON f.id = c.file_record_id WHERE c.embedding IS NULL GROUP BY f.path ORDER BY n DESC"; most-reverted files: "SELECT path, count(*) AS reverts FROM brainstrike_assistant_edit_checkpoints WHERE reverted_at IS NOT NULL GROUP BY path ORDER BY reverts DESC"; run verdicts by source: "SELECT source, verdict, count(*) FROM brainstrike_assistant_run_outcomes GROUP BY source, verdict". SELECT only — writes, DDL, and multiple statements are rejected. Very expensive query plans are refused with the estimated cost; add a WHERE, a LIMIT, or an aggregate and retry',
+  [NATIVE_TOOL_ID.querySelf]: `Run ONE read-only SQL SELECT over Brainstrike's own local Postgres: this assistant's history (run outcomes, edit checkpoints, token usage and cost, queue metrics) plus the workspace code index (file_records, file_chunks with embeddings and tsvectors). Best for aggregates, joins, counts, and trends that would otherwise take many tool calls. Call describe:true first to list tables, then describe:'<table>' for columns, then sql. Example: ${QUERY_SELF_EXAMPLE_QUERIES[0]}. SELECT only; writes, DDL, and multiple statements are rejected. Costly plans are refused with the estimate — add WHERE/LIMIT or aggregate and retry`,
   [NATIVE_TOOL_ID.readToolOutputArtifact]:
     'Read the next bounded page of a durable oversized tool result using the exact opaque cursor from the prior result. Copy the cursor byte-for-byte; never decode, pad, edit, or recreate it. The artifact is restricted to the current thread; malformed, changed, expired, or unavailable cursors fail visibly',
   [NATIVE_TOOL_ID.readWorkspaceContext]:

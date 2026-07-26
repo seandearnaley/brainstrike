@@ -27,7 +27,21 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(),
 }));
 
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 7900;
+// Raised 7900 → 8250 for `brainstrike.querySelf` (BST-913). The prior ceiling
+// had ONE token of headroom (the surface measured 7899), so it correctly forced
+// this to be a deliberate decision rather than a silent accretion.
+//
+// What was done before raising it: querySelf was trimmed from 435 to 305 tokens
+// by cutting its description to a single worked example (the `describe` mode
+// means the model discovers the schema itself rather than reading it here) and
+// shortening the parameter prose. The remainder is the genuine cost of a new
+// capability.
+//
+// The 46-token headroom is deliberate: enough that a wording fix does not fail
+// CI, far too little for another whole tool (200-500 tokens) to slip in
+// unnoticed. If you are here because you added a tool, trim it first and only
+// then raise this — and say in the comment what you traded away.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8250;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -353,8 +367,10 @@ describe('desktop native tool provider prompt budget', () => {
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
-      eagerDefinitionTokens: 7215,
-      eagerToolCount: 30,
+      // +304 / +1 for the deferred `querySelf` (BST-913); the critical request
+      // is unchanged, since it is not a critical-tier tool.
+      eagerDefinitionTokens: 7519,
+      eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
         brainstrike_manageCommandSession: 482,

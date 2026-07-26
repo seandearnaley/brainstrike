@@ -75,24 +75,15 @@ export const QuerySelfInputSchema = z
     describe: z
       .union([z.literal(true), z.string().min(1).max(128)])
       .optional()
-      .describe(
-        'Schema discovery: true lists readable tables; a table name returns its columns. Mutually exclusive with sql'
-      ),
+      .describe('true lists tables; a table name lists its columns. Not with sql'),
     maxRows: z
       .number()
       .int()
       .min(1)
       .max(200)
       .optional()
-      .describe('Maximum rows to return (default 50); the result flags truncation'),
-    sql: z
-      .string()
-      .min(1)
-      .max(4000)
-      .optional()
-      .describe(
-        'A single read-only SQL SELECT. Writes, DDL, and multiple statements are rejected. Mutually exclusive with describe'
-      ),
+      .describe('Max rows (default 50); truncation is flagged'),
+    sql: z.string().min(1).max(4000).optional().describe('One read-only SELECT. Not with describe'),
   })
   .strict()
   .refine(
