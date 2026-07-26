@@ -1,8 +1,16 @@
+import {
+  AssistantRuntimeProvider,
+  type ChatModelAdapter,
+  type ThreadMessageLike,
+  ThreadPrimitive,
+  useLocalRuntime,
+} from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { AssistantActivityGroup } from '../assistant-ui-panel/assistant-activity-group';
+import { UserMessage } from '../assistant-ui-panel/assistant-ui-panel';
 import type { ToolActivitySummary } from '../assistant-ui-panel/tool-activity';
 import { CodeBlockBody } from '../code-block/code-block-body';
 import { CodeBlockHeader } from '../code-block/code-block-header';
@@ -395,5 +403,162 @@ describe('AssistantActivityGroup (real browser)', () => {
     const group = screen.getByTestId('assistant-activity-group');
     expect(group).toHaveAttribute('data-failed', 'true');
     expect(screen.getByText('Activity failed')).toBeVisible();
+  });
+});
+
+/**
+ * BST-898: hovering a non-last user message must not grow its row and shift
+ * every message below it. This package's OWN tests never compile Tailwind
+ * (globals.css deliberately omits `@import "tailwindcss"` -- it ships utility
+ * classNames for the CONSUMING app's Tailwind build to compile, see the
+ * comment at the top of globals.css), so real CSS Grid / absolute-positioning
+ * behavior for those utility classes is invisible here by default. The same
+ * way PREFLIGHT_RESET above hand-translates Tailwind's preflight reset, this
+ * hand-translates ONLY the utility classes the UserMessage subtree actually
+ * uses -- real CSS Grid layout in real Chromium then proves (or disproves)
+ * the fix's geometry, independent of the consuming app's Tailwind build.
+ */
+const USER_MESSAGE_LAYOUT_SHIM = `
+  .aui-user-message-root {
+    display: grid;
+    width: 100%;
+    grid-auto-rows: auto;
+    grid-template-columns: minmax(48px, 1fr) auto;
+    row-gap: 0.5rem;
+    padding-block: 0.5rem;
+  }
+  /* Translated the same way as every other utility below (not hardcoded on
+     .aui-user-message-root) so dropping \`relative\` from MessagePrimitive.Root
+     actually fails this test -- it is half of the containing-block fix. */
+  [class~="relative"] { position: relative; }
+  [class~="col-start-1"] { grid-column-start: 1; }
+  [class~="col-start-2"] { grid-column-start: 2; }
+  [class~="col-end-2"] { grid-column-end: 2; }
+  [class~="row-start-2"] { grid-row-start: 2; }
+  [class~="row-end-3"] { grid-row-end: 3; }
+  [class~="flex"] { display: flex; }
+  [class~="flex-col"] { flex-direction: column; }
+  [class~="items-end"] { align-items: flex-end; }
+  [class~="mt-2"] { margin-top: 0.5rem; }
+  [class~="mr-3"] { margin-right: 0.75rem; }
+  [class~="data-[floating]:absolute"][data-floating] { position: absolute; }
+  [class~="data-[floating]:inset-x-0"][data-floating] { left: 0px; right: 0px; }
+  /* Button/icon Tailwind classes (size-6, size-4, ...) aren't compiled here
+     either, and this test isn't about Button's own chrome -- only the grid/
+     float geometry -- so fix a deterministic 24x24 footprint by aria-label
+     instead of hand-translating the whole Button + icon class chain. */
+  button[aria-label="Copy message"],
+  button[aria-label="Edit message"] {
+    display: block;
+    width: 24px;
+    height: 24px;
+  }
+`;
+
+describe('user action bar float-on-hover (real browser, BST-898)', () => {
+  beforeAll(() => {
+    const style = document.createElement('style');
+    style.id = 'bst-898-user-message-layout-shim';
+    style.textContent = USER_MESSAGE_LAYOUT_SHIM;
+    document.head.append(style);
+  });
+
+  afterAll(() => {
+    document.getElementById('bst-898-user-message-layout-shim')?.remove();
+  });
+
+  const twoUserMessageModel: ChatModelAdapter = {
+    run: () => Promise.resolve({ content: [], status: { reason: 'stop', type: 'complete' } }),
+  };
+
+  function TwoUserMessagesHarness() {
+    const initialMessages: readonly ThreadMessageLike[] = [
+      { content: [{ text: 'First message', type: 'text' }], role: 'user' },
+      { content: [{ text: 'Second message', type: 'text' }], role: 'user' },
+    ];
+    const runtime = useLocalRuntime(twoUserMessageModel, { initialMessages });
+
+    return (
+      <TooltipProvider>
+        <AssistantRuntimeProvider runtime={runtime}>
+          <div className="assistant-ui-panel">
+            <div className="bs-thread">
+              <div className="aui-thread-viewport">
+                <ThreadPrimitive.Messages
+                  components={{
+                    AssistantMessage: () => null,
+                    UserMessage,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </AssistantRuntimeProvider>
+      </TooltipProvider>
+    );
+  }
+
+  test('hovering the NON-LAST user message floats its action bar at the same spot the in-flow bar occupies on the last message, without growing the row', async () => {
+    render(<TwoUserMessagesHarness />);
+
+    // initialMessages hydrate asynchronously (see user-action-bar-copy.test.tsx);
+    // the LAST message's bar is always mounted (autohide="not-last" never
+    // hides it), so waiting for its Edit button confirms hydration settled.
+    await screen.findByRole('button', { name: 'Edit message' });
+
+    const roots = document.querySelectorAll<HTMLElement>('.aui-user-message-root');
+    expect(roots).toHaveLength(2);
+    const [nonLastRoot, lastRoot] = roots;
+    if (!(nonLastRoot && lastRoot)) {
+      throw new Error('expected both user message roots');
+    }
+
+    // Reference geometry: the LAST message's bar is always mounted IN FLOW
+    // (Normal status -- autohide="not-last" never hides it, so it never
+    // floats either) -- this is the exact, unambiguous "beside the bubble"
+    // spot with no absolute positioning involved at all.
+    const lastBar = lastRoot.querySelector<HTMLElement>('[data-testid="user-action-bar"]');
+    if (!lastBar) {
+      throw new Error('expected the last message bar to be mounted in flow');
+    }
+    expect(lastBar).not.toHaveAttribute('data-floating');
+    const inFlowRect = lastBar.getBoundingClientRect();
+    const inFlowTopOffset = inFlowRect.top - lastRoot.getBoundingClientRect().top;
+
+    // Not hovering yet: autohide="not-last" + not hovering => unmounted.
+    expect(nonLastRoot.querySelector('[data-testid="user-action-bar"]')).toBeNull();
+    const heightBeforeHover = nonLastRoot.getBoundingClientRect().height;
+
+    fireEvent.mouseEnter(nonLastRoot);
+
+    const floatingBar = await waitFor(() => {
+      const bar = nonLastRoot.querySelector<HTMLElement>('[data-testid="user-action-bar"]');
+      if (!bar) {
+        throw new Error('action bar not mounted yet');
+      }
+      return bar;
+    });
+
+    // The fix: it floats (data-floating) instead of mounting in flow, so it
+    // never contributes to row 2's auto-sized height.
+    expect(floatingBar).toHaveAttribute('data-floating', 'true');
+    const heightAfterHover = nonLastRoot.getBoundingClientRect().height;
+    expect(heightAfterHover).toBe(heightBeforeHover);
+
+    // Both message roots share identical column geometry (same grid
+    // template, same-width thread), so the floating bar's rect must match
+    // the in-flow reference bar's rect -- same visual spot, it just no
+    // longer contributes to row 2's height. Pins BOTH axes: an abspos grid
+    // item with only its START lines definite resolves its END lines (and
+    // therefore its containing block) to the grid container's padding
+    // edge, not to the col-1/row-2 grid area (CSS Grid Level 1 SS10.1) --
+    // that would move this bar horizontally (and, depending on
+    // justify-self/stretch, vertically) without necessarily changing
+    // nonLastRoot's height, so the height assertion alone cannot catch it.
+    const floatingRect = floatingBar.getBoundingClientRect();
+    const floatingTopOffset = floatingRect.top - nonLastRoot.getBoundingClientRect().top;
+    expect(floatingRect.left).toBe(inFlowRect.left);
+    expect(floatingRect.right).toBe(inFlowRect.right);
+    expect(floatingTopOffset).toBe(inFlowTopOffset);
   });
 });

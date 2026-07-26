@@ -1555,7 +1555,11 @@ export const AssistantUiPanel = ({
 
 // ===== Message Components =====
 
-const UserMessage = () => {
+// Exported (rather than kept module-private) so tests can mount it directly
+// against a real assistant-ui local runtime -- see
+// __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
+// geometry) alongside __tests__/user-action-bar-copy.test.tsx.
+export const UserMessage = () => {
   // Approval action messages ("Approved <tool>.") are transport bookkeeping —
   // kept in thread state (outcome locking + resume runConfig ride on them,
   // and they are excluded from every outbound payload at the transport seam)
@@ -1574,7 +1578,7 @@ const UserMessage = () => {
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
       <ExpandableMessageContent
@@ -1594,6 +1598,28 @@ const UserMessage = () => {
     </MessagePrimitive.Root>
   );
 };
+
+// BST-898: floats on hover instead of mounting in flow (BranchPicker is a
+// SEPARATE row -- row-start-3 -- so unlike AssistantActionBar there's no
+// branch count where in-flow mounting is "free"; `autohideFloat="always"`,
+// not "single-branch"). `relative` on the UserMessage root makes it the
+// containing block once floating.
+//
+// Geometry, empirically verified in assistant-chat-polish.browser.test.tsx
+// (measured rects, not spec-assumed -- see that test for the readings):
+// col-end-2/row-end-3 are required, not decorative -- for an abspos item an
+// `auto` END line resolves to the grid CONTAINER's padding edge, not "span
+// 1" (CSS Grid Level 1 SS10.1), so without them the containing block
+// balloons past col 1/row 2 into the bubble and BranchPicker's row.
+// `justify-self-end`/`-stretch` were both tried and rejected: abspos
+// `justify-self: normal` computes to `start` (not `stretch`, unlike in-flow
+// grid items), and explicit `stretch` still measured shrink-to-fit width on
+// an abspos flex item in Chromium. `inset-x-0` (classic left:0/right:0
+// abspos sizing, engine-agnostic) is what actually reproduces the in-flow
+// box's width. No vertical override needed: block-axis `start` already
+// matches the in-flow `mt-2` top offset.
+export const USER_ACTION_BAR_CLASSNAME =
+  'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
 
 // Exported (rather than kept module-private like AssistantActionBar) so
 // tests can mount it directly against a real assistant-ui local runtime --
@@ -1634,7 +1660,9 @@ export const UserActionBar = () => {
   return (
     <ActionBarPrimitive.Root
       autohide="not-last"
-      className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
+      autohideFloat="always"
+      className={USER_ACTION_BAR_CLASSNAME}
+      data-testid="user-action-bar"
       hideWhenRunning
     >
       <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>

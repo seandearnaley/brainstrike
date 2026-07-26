@@ -725,14 +725,6 @@
   margin-bottom: 0.75rem; /* Consistent with assistant last-message spacing */
 }
 
-/**
- * ACTION BAR STYLING: Enhanced action bars with proper hover and autohide behavior
- */
-.aui-assistant-action-bar-root,
-.aui-user-action-bar-root {
-  transition: opacity 0.2s ease-in-out;
-}
-
 /* Branch picker styling */
 .aui-branch-picker {
   padding: 0.25rem 0;
