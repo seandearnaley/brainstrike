@@ -114,20 +114,53 @@ hold:
 1. it sits beneath a **draining** parent (`Aggregate`, `Sort`, `Hash`, …) that
    must consume the whole input before emitting a row, so the row cap cannot
    help; **and**
-2. its recursive term (`WorkTable Scan`) carries **no `Filter`** at all — the
-   planner records any termination predicate there:
+2. its recursive term carries **no bounding condition** anywhere between the
+   `Recursive Union` and the `WorkTable Scan`.
+
+A `Filter` on the work table is only ONE way a recursion terminates, and
+treating it as the only one rejected exactly the traversal this guard exists to
+preserve. The canonical graph query terminates by running out of edges, and its
+bound is a JOIN condition ABOVE the work table:
 
 ```
-bounded    WorkTable Scan  Filter="(n < 20)"
-unbounded  WorkTable Scan                      ← nothing stops it
+Recursive Union
+  Seq Scan     Filter="(source = 1)"
+  Hash Join    Hash Cond="(r.id = e.source)"   ← this is the bound
+    WorkTable Scan                              ← no Filter at all
 ```
 
-**Honest limit, stated because it matters:** a `Filter` is not a *proof* of
+`RECURSION_BOUND_KEYS` therefore covers `Filter`, `Hash Cond`, `Merge Cond`,
+`Index Cond`, `Join Filter`, and `Recheck Cond`. Verified for both `UNION ALL`
+and `UNION` (dedup) recursion on PGlite 0.5.3.
+
+**Honest limit, stated because it matters:** a bound is not a *proof* of
 termination — `WHERE n > 0` on an incrementing counter still runs forever. This
 catches the accidental and the obvious case, which is the realistic failure
 mode. It is a heuristic layered on the row cap, not a decidability result, and
 `DRAINING_PLAN_NODE_TYPES` is deliberately conservative so an unrecognised
 blocking node fails CLOSED.
+
+### ⚠️ `analyze` uses a DIFFERENT predicate, and this is load-bearing
+
+The "recursion under a pipelining parent is safe" argument depends ENTIRELY on
+`query()`'s `LIMIT n+1` wrapper. `explain()` has no wrapper — `EXPLAIN` is
+invalid inside a FROM subquery — and `ANALYZE` runs the statement to completion.
+
+So under `analyze` the parent shape is irrelevant: **any** unbounded recursive
+term is unstoppable, draining parent or not. Measured before the guard existed:
+
+```sql
+EXPLAIN (ANALYZE) WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r)
+SELECT n FROM r      -- still running after 10s (killed)
+```
+
+That is why `findUnboundableRecursion` takes `requireDrainingParent`: `true` for
+`query()`, `false` for `explain(analyze)`. Both call the SAME
+`AgentSqlService.admit()`, so a future guard cannot apply to one path and not the
+other — the original duplication is exactly how this regression got in.
+
+Note also that `analyze` has the cost ceiling but NO row bound, where `query()`
+has both.
 
 ### Verified NOT a concern
 

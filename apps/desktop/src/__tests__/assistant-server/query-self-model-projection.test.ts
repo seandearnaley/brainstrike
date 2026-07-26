@@ -237,6 +237,33 @@ describe('querySelf model projection', () => {
     expect(projection.value).toContain('more plan line(s) omitted');
   });
 
+  it('keeps the plan head AND the trailing timings when truncating', () => {
+    // Plans are not uniform items: the costliest nodes are deepest (bottom) and
+    // EXPLAIN ANALYZE ends with Planning/Execution Time — the numbers the model
+    // asked for. Tail-dropping would remove exactly those.
+    const body = Array.from(
+      { length: 400 },
+      (_unused, index) =>
+        `  ->  Nested Loop ${index}  (cost=0.00..${index}.00 rows=${index} width=8)`
+    );
+    const plan = [
+      'Aggregate  (cost=1.00..2.00 rows=1 width=8)',
+      ...body,
+      'Planning Time: 0.412 ms',
+      'Execution Time: 1843.9 ms',
+    ];
+
+    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toContain('Aggregate');
+    expect(projection.value).toContain('Planning Time: 0.412 ms');
+    expect(projection.value).toContain('Execution Time: 1843.9 ms');
+    expect(projection.value).toContain('more plan line(s) omitted');
+  });
+
   it('rejects a malformed result rather than projecting nonsense', () => {
     expect(() => projectQuerySelfModelOutput({ nope: true })).toThrow(TypeError);
   });

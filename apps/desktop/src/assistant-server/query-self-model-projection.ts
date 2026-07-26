@@ -32,6 +32,10 @@ const CELL_SEPARATOR = '\t';
  * rows always have room. */
 const MAX_COLUMN_LINE_CHARS = 1200;
 
+/** Trailing plan lines always preserved: EXPLAIN ANALYZE ends with `Planning
+ * Time` and `Execution Time`, which are the numbers the model came for. */
+const PLAN_TAIL_LINES = 3;
+
 /**
  * Escapes the two characters that carry structure in this format.
  *
@@ -150,11 +154,34 @@ function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): 
  * so it is passed through structurally, only budget-fitted.
  */
 function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string[] {
-  return fitLines(
-    `plan | analyzed=${result.analyzed}`,
-    result.plan.map(escapeCell),
-    (dropped) => `…${dropped} more plan line(s) omitted to fit the output budget`
-  );
+  const lines = result.plan.map(escapeCell);
+  const header = `plan | analyzed=${result.analyzed}`;
+
+  if (serializedChars([header, ...lines]) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    return [header, ...lines];
+  }
+
+  // Plans are NOT uniform items, so plain tail-dropping is wrong here: the
+  // deepest (usually costliest) nodes are at the bottom, and `Planning Time` /
+  // `Execution Time` are the last two lines of EXPLAIN ANALYZE. Keep the head
+  // AND the trailing summary, and drop from the middle.
+  const tail = lines.slice(-PLAN_TAIL_LINES);
+  const head = lines.slice(0, Math.max(0, lines.length - PLAN_TAIL_LINES));
+
+  let kept = head.length;
+  for (;;) {
+    const dropped = head.length - kept;
+    const candidate = [
+      header,
+      ...head.slice(0, kept),
+      ...(dropped > 0 ? [`…${dropped} more plan line(s) omitted to fit the output budget`] : []),
+      ...tail,
+    ];
+    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET || kept === 0) {
+      return candidate;
+    }
+    kept -= 1;
+  }
 }
 
 function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string[] {

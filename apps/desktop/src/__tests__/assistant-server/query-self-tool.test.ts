@@ -213,6 +213,34 @@ describe('runQuerySelf', () => {
     expect((error as Error).message).toMatch(/termination|drain/i);
   });
 
+  it('refuses analyze outside explain instead of silently dropping it', async () => {
+    // NO SILENT FALLBACKS: analyze means "execute it for real timings". Ignoring
+    // it while reporting success would discard the model's stated intent.
+    getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
+
+    const error = await runQuerySelf(
+      { analyze: true, mode: 'query', sql: 'SELECT 1' },
+      undefined
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ToolInputError);
+    expect((error as Error).message).toMatch(/only meaningful with mode="explain"/i);
+  });
+
+  it('tolerates analyze:false outside explain, which strict mode emits by default', async () => {
+    // Providers force every declared property to be emitted, so `analyze: false`
+    // arrives on ordinary queries. Rejecting THAT would repeat the outage.
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) =>
+        sql.startsWith('EXPLAIN') ? explainRows(1) : { fields: [{ name: 'n' }], rows: [[1]] }
+      )
+    );
+
+    await expect(
+      runQuerySelf({ analyze: false, mode: 'query', sql: 'SELECT 1 AS n' }, undefined)
+    ).resolves.toMatchObject({ kind: 'rows' });
+  });
+
   it('returns a query plan for explain mode', async () => {
     getDatabaseMock.mockResolvedValue(
       fakeDatabase((sql) =>

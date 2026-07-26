@@ -36,6 +36,8 @@ const logger = createLogger('AssistantQuerySelfTool');
 export const QUERY_SELF_TOOL_ID = NATIVE_TOOL_ID.querySelf;
 
 export const QUERY_SELF_ERROR_MESSAGES = {
+  analyzeOutsideExplain:
+    'analyze is only meaningful with mode="explain". Set mode="explain" to execute the statement for real timings, or drop analyze.',
   missingSql: 'mode="query" and mode="explain" require a sql statement.',
   missingTable: 'mode="describeTable" requires a table name. Use mode="listTables" to see them.',
   queryFailed: 'Self-query failed. Please try again.',
@@ -167,6 +169,16 @@ export async function runQuerySelf(
   _runtimeData: RuntimeData | undefined
 ): Promise<QuerySelfResult> {
   try {
+    // NO SILENT FALLBACKS: `analyze` means "execute it and give me real
+    // timings". Ignoring it outside explain would discard the model's stated
+    // intent while still reporting success — unlike `maxRows`/`table`, where a
+    // mismatch is harmless. Enforced HERE rather than as a schema refinement on
+    // purpose: cross-field refinements are invisible in the emitted JSON Schema
+    // and broke 100% of calls once already (see QuerySelfInputSchema).
+    if (input.analyze === true && input.mode !== 'explain') {
+      throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.analyzeOutsideExplain);
+    }
+
     const db = await getDatabase();
     const service = new AgentSqlService(db);
 
@@ -261,6 +273,6 @@ export function toQuerySelfInputError(error: unknown): Error {
     .join('; ');
 
   return new ToolInputError(
-    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query"; pass sql for mode="query", table for mode="describeTable".`
+    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query" | "explain"; pass sql for mode="query" or "explain", table for mode="describeTable".`
   );
 }
