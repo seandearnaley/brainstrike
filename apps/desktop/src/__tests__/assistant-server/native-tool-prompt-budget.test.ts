@@ -367,9 +367,12 @@ describe('desktop native tool provider prompt budget', () => {
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
-      // +304 / +1 for the deferred `querySelf` (BST-913); the critical request
-      // is unchanged, since it is not a critical-tier tool.
-      eagerDefinitionTokens: 7519,
+      // +349 / +1 for the deferred `querySelf` (BST-913); the critical request
+      // is unchanged, since it is not a critical-tier tool. The description
+      // carries a stats-flush warning because PGlite's pg_stat_* counters read
+      // ZERO until flushed — without it the model reports "no index is ever
+      // used", and a confidently wrong tuning answer is worse than a missing one.
+      eagerDefinitionTokens: 7564,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,

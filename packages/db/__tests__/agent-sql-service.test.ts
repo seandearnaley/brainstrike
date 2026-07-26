@@ -348,6 +348,49 @@ describe('AgentSqlService sandbox', () => {
     });
   });
 
+  /**
+   * The sandbox is deliberately NOT limited to application tables — reading the
+   * catalog and statistics views is what makes real index/schema tuning
+   * possible. These pin that surface so a future narrowing of the role is a
+   * conscious decision rather than an accident.
+   */
+  describe('database tuning surface', () => {
+    it.each([
+      ['index usage', 'SELECT relname, seq_scan, idx_scan FROM pg_stat_user_tables'],
+      ['unused indexes', 'SELECT indexrelname, idx_scan FROM pg_stat_user_indexes'],
+      [
+        'index definitions',
+        `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'`,
+      ],
+      [
+        'relation sizes',
+        `SELECT relname, pg_relation_size(oid) AS bytes, relpages FROM pg_class WHERE relnamespace = 'public'::regnamespace`,
+      ],
+      [
+        'planner column stats',
+        `SELECT attname, n_distinct, correlation FROM pg_stats WHERE schemaname = 'public'`,
+      ],
+      ['server settings', `SELECT name, setting FROM pg_settings WHERE name = 'work_mem'`],
+      [
+        'constraints and keys',
+        `SELECT conname, contype FROM pg_constraint c JOIN pg_class r ON r.oid = c.conrelid WHERE r.relnamespace = 'public'::regnamespace`,
+      ],
+    ])('can read %s', { timeout: 120_000 }, async (_label, sql) => {
+      await expect(service.query(sql)).resolves.toBeDefined();
+    });
+
+    it('can flush statistics so counters are not silently zero', { timeout: 120_000 }, async () => {
+      // PGlite never flushes stats on its own within a session, so pg_stat_*
+      // views read 0 despite track_counts being on. An agent that skips this
+      // concludes "no index is ever used" — a confidently WRONG tuning answer,
+      // which is worse than an error. The flush must therefore be reachable
+      // from inside the sandbox (it is a stats flush, not a data write).
+      await expect(
+        service.query('SELECT pg_stat_force_next_flush() IS NULL AS flushed')
+      ).resolves.toBeDefined();
+    });
+  });
+
   describe('schema description', () => {
     it('lists real application tables', { timeout: 120_000 }, async () => {
       const tables = await service.describeTables();

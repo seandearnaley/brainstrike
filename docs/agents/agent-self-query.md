@@ -226,6 +226,54 @@ real columns and are the first thing to update if a migration renames one.
 
 ---
 
+## Using it for database tuning
+
+The sandbox is deliberately not restricted to application tables — the role can
+read the catalog and statistics views, which makes real tuning work possible.
+Verified reachable under the restricted role, inside the read-only transaction:
+
+| Question | Source |
+| --- | --- |
+| Which tables are seq-scanned vs index-scanned? | `pg_stat_user_tables` (`seq_scan`, `idx_scan`, `n_live_tup`, `n_dead_tup`) |
+| Which indexes are never used? | `pg_stat_user_indexes` (`idx_scan = 0`) |
+| What indexes exist, exactly? | `pg_indexes.indexdef` |
+| How big is each table/index? | `pg_class` + `pg_relation_size(oid)`, `relpages`, `reltuples` |
+| Is a column worth indexing? | `pg_stats` (`n_distinct`, `correlation`, MCVs) |
+| What are the live GUCs? | `pg_settings` |
+| Relations, FKs, constraint design | `pg_constraint`, `information_schema` |
+
+### ⚠️ Statistics counters read ZERO until they are flushed
+
+**This is a trap, and the failure mode is a confidently wrong answer rather than
+an error.** PostgreSQL accumulates stats per backend and flushes them
+periodically; in PGlite's single-connection WASM environment that flush does not
+happen on its own within a session. Measured after a workload of 12 indexed
+lookups and 2 sequential scans:
+
+```sql
+SELECT relname, seq_scan, idx_scan FROM pg_stat_user_tables;   -- t, 0, 0   ← wrong
+SELECT pg_stat_force_next_flush();                             -- allowed in the sandbox
+SELECT relname, seq_scan, idx_scan FROM pg_stat_user_tables;   -- t, 2, 12  ← correct
+```
+
+`track_counts` is `on`, so the data is real — it is just unflushed. An agent that
+skips the flush will read all-zeros and conclude "no index is ever used", which
+is exactly the kind of silent wrongness this codebase forbids. **Always call
+`SELECT pg_stat_force_next_flush()` before reading any `pg_stat_*` view.** It
+works under the restricted role inside the read-only transaction (it is a stats
+flush, not a data write).
+
+### Not available
+
+- **`EXPLAIN` is not reachable by the model.** The `LIMIT` wrapper makes the
+  statement a FROM-subquery, and `EXPLAIN` is not valid there — it fails with a
+  syntax error. The service uses `EXPLAIN` internally for the cost gate, so the
+  capability exists but is not exposed. Without it the model can see statistics
+  but never a query plan, which is the single biggest gap for tuning work.
+  Tracked as BST-923.
+- **`pg_stat_statements` is not installed** (not in the PGlite extension set), so
+  there is no per-query workload profile to rank by total time.
+
 ## Paired tests
 
 - `packages/db/__tests__/agent-sql-service.test.ts` — all four layers, the
