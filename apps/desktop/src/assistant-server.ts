@@ -989,11 +989,19 @@ async function recordDesktopAssistantRunEvent(
   if (!runError) {
     return;
   }
-  await new AssistantRunErrorRepository(database).record({
-    ...runError,
-    occurredAt: new Date(event.timestamp),
-    runId,
-  });
+  try {
+    await new AssistantRunErrorRepository(database).record({
+      ...runError,
+      occurredAt: new Date(event.timestamp),
+      runId,
+    });
+  } catch (error) {
+    logger.error('Failed to persist assistant provider failure forensics', {
+      error,
+      eventId: event.id,
+      runId,
+    });
+  }
 }
 
 interface PreparedAssistantPostRequest {

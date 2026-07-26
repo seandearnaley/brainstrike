@@ -63,6 +63,31 @@ describe('provider error metadata', () => {
     });
   });
 
+  it('reads allow-listed response evidence from a native Headers instance', () => {
+    expect(
+      extractProviderRunError({
+        message: 'The provider rejected the request.',
+        response: {
+          headers: new Headers({
+            Authorization: 'Bearer response-secret',
+            'Retry-After': '9',
+            'X-Request-Id': 'req-native-headers',
+          }),
+          status: 429,
+        },
+      })
+    ).toEqual({
+      code: PROVIDER_RUN_ERROR_FALLBACK_CODE,
+      httpStatus: 429,
+      message: 'The provider rejected the request.',
+      providerRequestId: 'req-native-headers',
+      responseHeaders: {
+        'retry-after': '9',
+        'x-request-id': 'req-native-headers',
+      },
+    });
+  });
+
   it('promotes only explicitly stable provider codes from AI SDK data envelopes', () => {
     expect(
       extractProviderRunError({

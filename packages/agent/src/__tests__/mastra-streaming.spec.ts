@@ -445,8 +445,7 @@ describe('mastra streaming integration', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code ===
-            'mastra_agent_stream_provider_error:mastra_agent_stream_provider_error:503'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:503'
       )
     );
     expect(providerErrorLog).toBeDefined();
@@ -462,7 +461,7 @@ describe('mastra streaming integration', () => {
       source: 'electron-main',
     });
     expect(event).toMatchObject({
-      code: 'mastra_agent_stream_provider_error:mastra_agent_stream_provider_error:503',
+      code: 'mastra_agent_stream_provider_error:503',
       resourceId: 'resource-a',
       rootId: 'root-a',
       runId: 'run-a',

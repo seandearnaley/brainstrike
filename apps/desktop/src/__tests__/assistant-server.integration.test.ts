@@ -3657,6 +3657,96 @@ describe('assistant-server', () => {
       );
     });
 
+    it('logs missing-parent provider forensics without replacing the provider failure stream', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            event: {
+              detail: 'The provider rejected the request.',
+              id: 'event-provider-missing-parent',
+              kind: 'run.failed',
+              label: 'Assistant run failed',
+              metadata: {
+                runError: {
+                  code: 'mastra_agent_stream_provider_error',
+                  httpStatus: 503,
+                  message: 'The provider rejected the request.',
+                },
+              },
+              status: 'failed',
+              timestamp: '2026-07-26T19:00:00.000Z',
+            },
+            type: 'run-event',
+          };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              body: null,
+              headers: new Headers(),
+              status: 200,
+            })),
+            getTerminalOutcome: vi.fn(() => ({
+              error: 'The provider rejected the request.',
+              status: 'failed',
+            })),
+            whenClosed: vi.fn(() => Promise.resolve()),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // Drain the original provider-failure stream.
+        }
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              resourceId: 'workspace-a',
+              runId: 'run-provider-missing-parent',
+              threadId: 'thread-1',
+            },
+            provider: 'openai',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(200);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Failed to persist assistant provider failure forensics',
+        expect.objectContaining({
+          eventId: 'event-provider-missing-parent',
+          runId: 'run-provider-missing-parent',
+        })
+      );
+    });
+
     it('streams run-event chunks before desktop persistence settles', async () => {
       const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
         await import('@brainstrike/agent');

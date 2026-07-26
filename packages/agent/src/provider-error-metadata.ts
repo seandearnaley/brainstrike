@@ -308,12 +308,22 @@ function readHttpStatus(records: readonly Record<string, unknown>[]): number | u
   return;
 }
 
-function readHeaderRecords(record: Record<string, unknown>): readonly Record<string, unknown>[] {
+function readHeaderEntries(value: unknown): readonly (readonly [string, unknown])[] {
+  if (value instanceof Headers) {
+    return [...value.entries()];
+  }
+  const record = readRecord(value);
+  return record ? Object.entries(record) : [];
+}
+
+function readHeaderCollections(
+  record: Record<string, unknown>
+): readonly (readonly (readonly [string, unknown])[])[] {
   const response = readNestedRecord(record, 'response');
   return [
-    readRecord(readProperty(record, 'responseHeaders')),
-    readRecord(readProperty(response, 'headers')),
-  ].filter((headers): headers is Record<string, unknown> => headers !== undefined);
+    readHeaderEntries(readProperty(record, 'responseHeaders')),
+    readHeaderEntries(readProperty(response, 'headers')),
+  ].filter((entries) => entries.length > 0);
 }
 
 function readResponseHeaders(
@@ -321,8 +331,8 @@ function readResponseHeaders(
 ): ProviderRunErrorResponseHeaders | undefined {
   const responseHeaders: ProviderRunErrorResponseHeaders = {};
   for (const record of records) {
-    for (const headers of readHeaderRecords(record)) {
-      for (const [rawName, rawValue] of Object.entries(headers)) {
+    for (const entries of readHeaderCollections(record)) {
+      for (const [rawName, rawValue] of entries) {
         const name = rawName.toLowerCase();
         if (!RESPONSE_HEADER_NAME_SET.has(name)) {
           continue;

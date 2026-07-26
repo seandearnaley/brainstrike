@@ -587,6 +587,13 @@ terminal writers are first-terminal-wins and can never overwrite the original
 classification. An already-stored orphan is not accepted as a successful
 duplicate.
 
+Desktop catches that loud repository failure at the stream integration boundary
+and records `Failed to persist assistant provider failure forensics` with the
+run and event ids. The failure MUST remain observable, but it MUST NOT replace
+the original provider-failure stream (for example when a thread is deleted
+mid-run). The run-event timeline write immediately before it retains its
+existing flush semantics.
+
 The row contains `code`, nullable `message`, nullable array-shaped
 `cause_chain`, nullable `http_status`, nullable `provider_request_id`, nullable
 object-shaped allowlisted `response_headers`, and `occurred_at`. It has NO

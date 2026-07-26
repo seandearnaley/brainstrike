@@ -1498,6 +1498,9 @@ function makeVisibleRunFailureTermination(
 
 function buildProviderErrorDiagnosticCode(runError: ProviderRunError): string {
   const httpStatus = runError.httpStatus === undefined ? 'no_status' : String(runError.httpStatus);
+  if (runError.code === PROVIDER_RUN_ERROR_FALLBACK_CODE) {
+    return `${PROVIDER_RUN_ERROR_FALLBACK_CODE}:${httpStatus}`;
+  }
   return `mastra_agent_stream_provider_error:${runError.code}:${httpStatus}`;
 }
 

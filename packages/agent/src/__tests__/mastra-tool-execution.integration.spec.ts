@@ -1584,8 +1584,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code ===
-            'mastra_agent_stream_provider_error:mastra_agent_stream_provider_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     expect(providerErrorLog).toBeDefined();
@@ -1826,8 +1825,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code ===
-            'mastra_agent_stream_provider_error:mastra_agent_stream_provider_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     const loggedDetail = providerErrorLog?.args.find(
