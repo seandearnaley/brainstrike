@@ -205,17 +205,29 @@ describe('frontier model refresh (2026-07)', () => {
         contextWindow: 1_048_576,
         vision: 'supported',
       });
-      // Thinking Machines publishes no reasoning-effort parameter for Inkling.
-      // Absence is never guessed as support: leaving this undeclared keeps the
-      // capability badge at a visible "unverified" instead of a silent yes.
-      expect(inkling?.reasoning).toBeUndefined();
       // Provider figures: native 1M context, 128K max output. Guards against
-      // reintroducing the 1_048_756 transposition or the aggregator's 262_144.
+      // reintroducing the 1_048_756 transposition or the unsourced 262_144.
       expect(longcat).toMatchObject({
         contextWindow: 1_000_000,
         maxOutputTokens: 131_072,
         vision: 'unsupported',
       });
+
+      // These providers publish no reasoning-effort parameter, so the audit
+      // left every one of these rows undeclared. `toMatchObject` above ignores
+      // extra keys, so assert absence explicitly: without this, reintroducing a
+      // fabricated effort ladder on any of them would pass untouched.
+      for (const undeclared of [
+        inkling,
+        longcat,
+        getLlmModelDefinition('openrouter', 'poolside/laguna-s-2.1'),
+        getLlmModelDefinition('openrouter', 'poolside/laguna-xs-2.1'),
+        getLlmModelDefinition('openrouter', 'kwaipilot/kat-coder-air-v2.5'),
+        getLlmModelDefinition('openrouter', 'kwaipilot/kat-coder-pro-v2.5'),
+        ling,
+      ]) {
+        expect(undeclared?.reasoning).toBeUndefined();
+      }
       expect(grok).toMatchObject({
         contextWindow: 500_000,
         reasoning: {
