@@ -572,6 +572,50 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
+
+Scroll position is owned by @assistant-ui's viewport store, never by panel
+state. `ThreadPrimitive.Viewport` runs with `autoScroll`, so a thread pinned at
+the bottom follows streaming growth; the moment the user scrolls up,
+`isAtBottom` flips false and the library stops writing `scrollTop` — streaming
+can never steal the reading position back. Re-engaging is an explicit user act.
+
+- **Jump-to-latest** (`ThreadScrollToBottom`, assistant-ui-panel.tsx) wraps
+  `ThreadPrimitive.ScrollToBottom`: the primitive is the behavior (DISABLED
+  while at bottom, scroll + re-engage when clicked), we only style it
+  (`.bs-scroll-to-bottom`, hidden via `:disabled { opacity: 0 }` — no layout
+  shift either way). It mounts inside `ThreadScrollRegion` as a SIBLING of the
+  scroller, not a child, so it stays anchored ~1rem above the composer instead
+  of scrolling away; that works outside the viewport element because
+  `AssistantRuntimeProvider` mounts an outer viewport store which mirrors
+  `isAtBottom` up and forwards `scrollToBottom` down.
+- **No explicit `behavior`.** An explicit option bypasses CSS
+  `scroll-behavior`, and therefore the global `prefers-reduced-motion` override
+  in globals.css. The default routes through the store's `'auto'`, which defers
+  to CSS (library `smooth`, forced to `auto` under reduced motion). It would be
+  inert regardless — the outer→inner viewport forwarding drops the option.
+- **`overflow-anchor: none` is SCOPED to the pinned state** via `data-pinned`
+  on `.bs-thread-scroll-region` (mirroring `isAtBottom`). Pinned, JS owns
+  `scrollTop` and native scroll anchoring would double-adjust. Scrolled up, the
+  library writes nothing, so native anchoring is the ONLY thing holding the
+  reader's text still when content ABOVE the fold resizes (async markdown/Shiki,
+  images resolving, tool cards or chain-of-thought folds collapsing, edit
+  composers swapping in). Disabling it unconditionally makes the text jump —
+  do not "simplify" this back to a blanket rule.
+- **`scrollToBottomOnInitialize` / `scrollToBottomOnRunStart` stay `false`** —
+  that is the reload-hydration stance in assistant-persistence.md: reopening a
+  thread restores its position instead of jumping to the newest message.
+- There is deliberately NO collapsed-history affordance (removed in BST-896):
+  every message renders. Virtualization is a separate, later slice.
+
+Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
+(real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
+ABOVE the reading position, anchor scoping) and the BST-896 case in
+`assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
+absent `behavior`, and the scoped CSS rule.
+
+---
+
 ## POST-EDIT LSP DIAGNOSTICS (report R2 Phase A)
 
 After a successful workspace edit, a language server runs over the edited file

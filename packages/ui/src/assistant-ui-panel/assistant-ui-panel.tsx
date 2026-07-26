@@ -19,6 +19,7 @@ import {
   // Fast Refresh signature and throws "Rendered fewer hooks" -- crashing ChatThreadUI
   // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
   unstable_useSlashCommandAdapter as useSlashCommandAdapter,
+  useThreadViewport,
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -657,12 +658,40 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 
 /**
+ * Positioning context for the scroller + its floating affordance, and the one
+ * place that publishes the viewport's pinned state to CSS (BST-896).
+ *
+ * `data-pinned` mirrors the viewport store's `isAtBottom`, which is what scopes
+ * `overflow-anchor: none` in overrides.css: JS only writes scrollTop while the
+ * thread is pinned, so native scroll anchoring must stay ON everywhere else —
+ * it is the only thing holding the reading position still when content ABOVE
+ * the viewport resizes (markdown/Shiki resolving, images loading, tool cards
+ * folding). Reading it here rather than in ChatThreadUI keeps the pin
+ * transition from re-rendering the whole thread subtree.
+ */
+export const ThreadScrollRegion = ({ children }: { children: ReactNode }) => {
+  const isAtBottom = useThreadViewport((state) => state.isAtBottom);
+
+  return (
+    <div className="bs-thread-scroll-region" data-pinned={isAtBottom ? 'true' : undefined}>
+      {children}
+    </div>
+  );
+};
+
+/**
  * Floating "jump to latest" affordance (BST-896).
  *
  * BEHAVIOR is entirely the library primitive's: `ThreadPrimitive.ScrollToBottom`
  * reads the viewport store's `isAtBottom` and renders itself DISABLED while the
  * thread is pinned at the bottom (overrides.css then fades it out), otherwise it
  * scrolls to the latest message — which re-engages auto-follow.
+ *
+ * NO explicit `behavior`: an explicit option would bypass CSS `scroll-behavior`
+ * and therefore also bypass the global `prefers-reduced-motion` override in
+ * globals.css. The default routes through the store's `'auto'`, which defers to
+ * CSS (library `smooth`, forced to `auto` under reduced motion). It would be
+ * inert anyway — the outer→inner viewport forwarding drops the behavior option.
  *
  * MOUNT SITE matters: it renders inside `.bs-thread-scroll-region` as a SIBLING
  * of the scroller, never inside it, so it stays anchored above the composer
@@ -673,7 +702,6 @@ const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 export const ThreadScrollToBottom = () => (
   <ThreadPrimitive.ScrollToBottom
     aria-label="Scroll to latest messages"
-    behavior="smooth"
     className="bs-scroll-to-bottom"
     data-testid="assistant-scroll-to-bottom"
   >
@@ -1192,14 +1220,15 @@ const ChatThreadUI = ({
        * SCROLL REGION: the wrapper below is the viewport's positioning context.
        * It takes over the viewport's flex role so the floating jump-to-latest
        * button can overlay the messages without scrolling away with them, and
-       * without being a child of the scroller. Auto-follow while pinned at the
+       * without being a child of the scroller, and it publishes the pinned
+       * state that scopes `overflow-anchor`. Auto-follow while pinned at the
        * bottom is the library's (`autoScroll`); the two `scrollToBottomOn*`
        * opt-outs are the reload-hydration contract — reopening a thread must
        * restore its position, never jump to the newest message.
        *
        * See: packages/ui/src/assistant-ui-panel/overrides.css
        */}
-      <div className="bs-thread-scroll-region">
+      <ThreadScrollRegion>
         <ThreadPrimitive.Viewport
           aria-atomic="false"
           aria-live="polite"
@@ -1228,7 +1257,7 @@ const ChatThreadUI = ({
           </AssistantThreadStateProvider>
         </ThreadPrimitive.Viewport>
         <ThreadScrollToBottom />
-      </div>
+      </ThreadScrollRegion>
 
       {/**
        * Composer: Fixed at bottom of thread

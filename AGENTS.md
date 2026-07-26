@@ -21,7 +21,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 
 | Touching… | Read first |
 | --- | --- |
-| Assistant stream/tool chain: guards, watchdog, error processors, tool approval / permission engine, lifecycle hooks, plan mode & tool suspension | `docs/agents/assistant-runtime.md` |
+| Assistant stream/tool chain: guards, watchdog, error processors, tool approval / permission engine, lifecycle hooks, plan mode & tool suspension, thread viewport scrolling | `docs/agents/assistant-runtime.md` |
 | Persona subagents / delegation | `docs/agents/assistant-subagents.md` |
 | Message persistence & reload hydration, run notifications, context usage meter | `docs/agents/assistant-persistence.md` |
 | Providers/API keys, MCP transport selection, native tools + multi-registry, tool output budgets | `docs/agents/assistant-providers.md` |

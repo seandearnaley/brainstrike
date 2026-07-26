@@ -289,12 +289,7 @@ vi.mock('@assistant-ui/react', () => {
       // Jump-to-latest (BST-896): the real primitive renders a button that is
       // DISABLED whenever the viewport sits at the bottom — which is the
       // resting state of these render-shape tests.
-      ScrollToBottom: ({
-        behavior: _behavior,
-        children,
-        asChild: _asChild,
-        ...props
-      }: ButtonPrimitiveProps & { behavior?: string }) => (
+      ScrollToBottom: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
         <button disabled type="button" {...props}>
           {children}
         </button>
@@ -323,6 +318,10 @@ vi.mock('@assistant-ui/react', () => {
       text: 'Reasoning text',
       type: 'reasoning' as const,
     }),
+    // The scroll region reads the viewport store's isAtBottom to publish
+    // `data-pinned`; a freshly rendered thread is pinned (BST-896).
+    useThreadViewport: <T,>(selector: (state: { isAtBottom: boolean }) => T) =>
+      selector({ isAtBottom: true }),
   };
 });
 

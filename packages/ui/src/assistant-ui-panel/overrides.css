@@ -214,10 +214,6 @@
   max-height: 100%; /* Constrain to parent height */
   overflow-y: auto; /* Enable scrolling (override library's scroll) */
   overflow-x: hidden; /* Prevent horizontal scroll */
-  /* JS owns the scroll position (assistant-ui's stick-to-bottom auto-scroll);
-     Chrome/Firefox scroll anchoring would apply a SECOND adjustment on top of
-     it while messages stream in, fighting the follow logic. */
-  overflow-anchor: none;
 }
 
 /**
@@ -226,7 +222,8 @@
  * A positioned wrapper that takes over the viewport's flex role (the viewport
  * itself keeps `flex: 1 1 0` INSIDE it) so the floating jump-to-latest button
  * can overlay the messages as a SIBLING of the scroller — inside it, the button
- * would scroll away with the content.
+ * would scroll away with the content. It also carries `data-pinned`, mirroring
+ * the viewport store's `isAtBottom`.
  */
 .bs-thread-scroll-region {
   display: flex;
@@ -234,6 +231,22 @@
   flex-direction: column;
   min-height: 0;
   position: relative;
+}
+
+/**
+ * SCOPED SCROLL-ANCHOR OPT-OUT: only while PINNED at the bottom.
+ *
+ * Pinned, JS owns the scroll position (assistant-ui's stick-to-bottom
+ * auto-scroll) and browser scroll anchoring would apply a SECOND adjustment on
+ * top of it as messages stream in. Scrolled UP, the library never writes
+ * scrollTop — native anchoring is then the ONLY thing holding the reading
+ * position still when content ABOVE the viewport resizes (async markdown/Shiki,
+ * images resolving, tool cards or chain-of-thought folds collapsing, edit
+ * composers swapping in). Disabling it unconditionally would make the text jump
+ * under the reader, so it stays ON in that state.
+ */
+.bs-thread-scroll-region[data-pinned="true"] .aui-thread-viewport {
+  overflow-anchor: none;
 }
 
 /* Jump-to-latest: circular, floating just above the composer boundary. The
@@ -270,6 +283,12 @@
 .bs-scroll-to-bottom:hover {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
+}
+
+/* globals.css strips UA outlines, so the keyboard ring is ours to draw. */
+.bs-scroll-to-bottom:focus-visible {
+  outline: 1.5px solid hsl(var(--foreground) / 0.4);
+  outline-offset: 2px;
 }
 
 .bs-scroll-to-bottom:disabled {

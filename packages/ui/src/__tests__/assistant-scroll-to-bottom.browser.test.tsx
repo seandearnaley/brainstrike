@@ -9,7 +9,7 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
-import { ThreadScrollToBottom } from '../assistant-ui-panel/assistant-ui-panel';
+import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel/assistant-ui-panel';
 import '../globals.css';
 import '../assistant-ui-panel/overrides.css';
 
@@ -51,14 +51,23 @@ const TallMessage = () => (
   />
 );
 
+const GROWTH_HEIGHT_PX = 400;
+
 /**
- * Mirrors the panel's thread layout: the scroll region is a positioned SIBLING
- * wrapper around the scroller, so the button never scrolls away with content.
- * The two `scrollToBottomOn*` props are the persistence contract (reopening a
- * thread restores position instead of jumping) and are pinned here too.
+ * Mirrors the panel's thread layout, using the panel's OWN scroll region (which
+ * publishes `data-pinned`) and button. The two `scrollToBottomOn*` props are the
+ * persistence contract (reopening a thread restores position instead of
+ * jumping) and are pinned here too.
+ *
+ * `growth` injects a block either BELOW the messages (streaming a reply) or
+ * ABOVE them (async markdown/Shiki, images, folding tool cards) — the two
+ * directions have different correct behaviors while the user is scrolled up.
  */
-function ScrollHarness({ extraContent }: { extraContent: boolean }) {
+function ScrollHarness({ growth }: { growth: 'above' | 'below' | 'none' }) {
   const runtime = useLocalRuntime(idleModel, { initialMessages });
+  const growthBlock = (
+    <div data-testid="growth" style={{ flexShrink: 0, height: GROWTH_HEIGHT_PX }} />
+  );
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -72,7 +81,7 @@ function ScrollHarness({ extraContent }: { extraContent: boolean }) {
             width: 420,
           }}
         >
-          <div className="bs-thread-scroll-region">
+          <ThreadScrollRegion>
             <ThreadPrimitive.Viewport
               autoScroll
               className="aui-thread-viewport"
@@ -80,22 +89,21 @@ function ScrollHarness({ extraContent }: { extraContent: boolean }) {
               scrollToBottomOnInitialize={false}
               scrollToBottomOnRunStart={false}
             >
+              {growth === 'above' ? growthBlock : null}
               <ThreadPrimitive.Messages
                 components={{ AssistantMessage: TallMessage, UserMessage: TallMessage }}
               />
-              {extraContent ? (
-                <div data-testid="streamed-growth" style={{ flexShrink: 0, height: 400 }} />
-              ) : null}
+              {growth === 'below' ? growthBlock : null}
             </ThreadPrimitive.Viewport>
             <ThreadScrollToBottom />
-          </div>
+          </ThreadScrollRegion>
         </div>
       </div>
     </AssistantRuntimeProvider>
   );
 }
 
-function GrowingScrollHarness() {
+function GrowingScrollHarness({ direction }: { direction: 'above' | 'below' }) {
   const [grown, setGrown] = useState(false);
 
   return (
@@ -103,7 +111,7 @@ function GrowingScrollHarness() {
       <button data-testid="grow" onClick={() => setGrown(true)} type="button">
         grow
       </button>
-      <ScrollHarness extraContent={grown} />
+      <ScrollHarness growth={grown ? direction : 'none'} />
     </>
   );
 }
@@ -153,7 +161,7 @@ afterEach(() => {
 
 describe('jump-to-latest button (real browser, BST-896)', () => {
   test('stays hidden while the thread is pinned at the bottom', async () => {
-    render(<ScrollHarness extraContent={false} />);
+    render(<ScrollHarness growth="none" />);
     await waitForPinnedThread();
 
     const button = getButton();
@@ -165,7 +173,7 @@ describe('jump-to-latest button (real browser, BST-896)', () => {
   });
 
   test('appears once the user scrolls up', async () => {
-    render(<ScrollHarness extraContent={false} />);
+    render(<ScrollHarness growth="none" />);
     const viewport = await waitForPinnedThread();
 
     await scrollUpTo(viewport, 0);
@@ -181,7 +189,7 @@ describe('jump-to-latest button (real browser, BST-896)', () => {
   });
 
   test('clicking it returns the viewport to the bottom and hides itself again', async () => {
-    render(<ScrollHarness extraContent={false} />);
+    render(<ScrollHarness growth="none" />);
     const viewport = await waitForPinnedThread();
 
     await scrollUpTo(viewport, 0);
@@ -202,7 +210,7 @@ describe('jump-to-latest button (real browser, BST-896)', () => {
   });
 
   test('content growth while scrolled up never steals the viewport', async () => {
-    render(<GrowingScrollHarness />);
+    render(<GrowingScrollHarness direction="below" />);
     const viewport = await waitForPinnedThread();
 
     await scrollUpTo(viewport, MESSAGE_HEIGHT_PX);
@@ -221,5 +229,61 @@ describe('jump-to-latest button (real browser, BST-896)', () => {
     // … and the reading position is untouched, with the affordance still offered.
     expect(viewport.scrollTop).toBe(MESSAGE_HEIGHT_PX);
     expect(button).toBeEnabled();
+  });
+});
+
+/**
+ * `overflow-anchor: none` is scoped to the PINNED state on purpose. Pinned, JS
+ * owns scrollTop and native anchoring would double-adjust; scrolled up, the
+ * library never writes scrollTop, so native anchoring is the only thing keeping
+ * the reader's text still when content ABOVE the viewport resizes.
+ */
+describe('scroll-anchor scoping (real browser, BST-896)', () => {
+  test('anchoring is off only while pinned, and back on once the user scrolls up', async () => {
+    render(<ScrollHarness growth="none" />);
+    const viewport = await waitForPinnedThread();
+
+    await waitFor(() => {
+      expect(getComputedStyle(viewport).overflowAnchor).toBe('none');
+    });
+
+    await scrollUpTo(viewport, MESSAGE_HEIGHT_PX);
+
+    await waitFor(() => {
+      expect(getComputedStyle(viewport).overflowAnchor).toBe('auto');
+    });
+  });
+
+  test('growth ABOVE the reading position keeps the visible text still', async () => {
+    render(<GrowingScrollHarness direction="above" />);
+    const viewport = await waitForPinnedThread();
+
+    // Park mid-thread so there is real content above AND below the fold.
+    await scrollUpTo(viewport, MESSAGE_HEIGHT_PX * 4);
+    await waitFor(() => {
+      expect(getButton()).toBeEnabled();
+    });
+
+    const readingAnchor = screen.getAllByTestId('thread-message')[7];
+    if (!readingAnchor) {
+      throw new Error('expected a mid-thread message to use as the reading anchor');
+    }
+    const offsetBefore =
+      readingAnchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+    const scrollHeightBefore = viewport.scrollHeight;
+
+    fireEvent.click(screen.getByTestId('grow'));
+    await waitFor(() => {
+      expect(viewport.scrollHeight).toBeGreaterThan(scrollHeightBefore);
+    });
+
+    // Native anchoring absorbs the inserted height: scrollTop moves DOWN by it,
+    // so the text the reader is looking at does not move on screen.
+    await waitFor(() => {
+      const offsetAfter =
+        readingAnchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      expect(Math.abs(offsetAfter - offsetBefore)).toBeLessThanOrEqual(1);
+    });
+    expect(viewport.scrollTop).toBe(MESSAGE_HEIGHT_PX * 4 + GROWTH_HEIGHT_PX);
   });
 });
