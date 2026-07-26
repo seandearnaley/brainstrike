@@ -10,6 +10,7 @@ import {
   ensureRightPanelVisible,
   getContextExplorerRightResizeHandle,
   getPanelElements,
+  openSettingsModal,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -343,6 +344,18 @@ test.describe('IDE Layout Persistence', () => {
       await expect(elements.showRightPanelShim).toBeVisible();
     });
 
+    // NOTE (honest scope): this test and its sibling below no longer exercise
+    // cross-page persistence. Settings became a dialog rendered OVER the
+    // explorer (PR #1626), so the Context Explorer subtree never unmounts and
+    // the panel-visibility assertions hold regardless of what the persistence
+    // layer does. Routing through a different sidebar destination (Notes) would
+    // NOT restore the old coverage either: `RootLayoutContent` keeps every
+    // route mounted and only toggles `hidden`/`aria-hidden` on it (see
+    // packages/app-shell/src/root-layout-content.tsx — `mountedTabs` plus the
+    // `explorer-route`/`notes-route` wrappers), so no route switch remounts the
+    // explorer. What these two tests actually assert today is that opening and
+    // dismissing the Settings modal leaves the explorer panel state untouched.
+    // Real reload-based persistence coverage lives in the describe blocks above.
     test('should handle navigation between pages while preserving layout', async ({ page }) => {
       // Start with panel visible (default state)
       const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
@@ -356,8 +369,8 @@ test.describe('IDE Layout Persistence', () => {
       await page.getByTestId('show-explorer-panel').click();
       await expect(rightPanel).toBeVisible();
 
-      // Navigate to Settings
-      await activateSidebarNavigation(page, 'Settings');
+      // Open Settings (a modal over the explorer, not a route)
+      await openSettingsModal(page);
       await waitForSettingsPage(page);
 
       // Navigate back to Context Explorer
@@ -376,7 +389,7 @@ test.describe('IDE Layout Persistence', () => {
       await page.getByTestId('hide-explorer-panel').click();
       await expect(rightPanel).not.toBeVisible();
 
-      await activateSidebarNavigation(page, 'Settings');
+      await openSettingsModal(page);
       await waitForSettingsPage(page);
 
       await closeSettingsModal(page);

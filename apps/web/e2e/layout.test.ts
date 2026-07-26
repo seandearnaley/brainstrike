@@ -32,9 +32,9 @@ test.describe('Application Layout', () => {
     await expect(home.settingsHeading).not.toBeVisible();
   });
 
-  test('should open Settings from the profile menu and return to the workspace', async ({
-    page,
-  }) => {
+  test('should open Settings from the profile menu and return to the workspace', {
+    tag: '@web-smoke',
+  }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
 

@@ -480,12 +480,76 @@ export function settingsModalHeadingLocator(page: Page) {
   return page.getByRole('heading', { exact: true, name: 'Settings' });
 }
 
+/**
+ * `DialogContent` renders its own close affordance with the accessible name
+ * "Close" (an `sr-only` span next to the X icon — see `packages/ui/src/dialog.tsx`).
+ * Scope it to the dialog that owns the Settings title so a second dialog can never
+ * satisfy this locator.
+ *
+ * Matched by role and accessible name rather than `data-slot`: the slot attributes
+ * are internal styling hooks, so renaming one would leave the `packages/ui` unit
+ * tests (which assert the accessible name) green while silently reintroducing the
+ * opaque close-timeout this helper exists to prevent.
+ */
+export function settingsModalCloseButtonLocator(page: Page) {
+  return page
+    .getByRole('dialog')
+    .filter({ has: settingsModalHeadingLocator(page) })
+    .getByRole('button', { exact: true, name: 'Close' });
+}
+
+type SettingsModalState = 'closed' | 'occluded' | 'open';
+
+/**
+ * Reads the Settings dialog straight from the DOM instead of the accessibility
+ * tree. While a Radix Select or Popover is open *inside* the dialog, Radix marks
+ * the dialog `aria-hidden="true"` with `pointer-events: none` (measured, not
+ * assumed), so every role-based locator resolves to zero matches and the modal
+ * reports as CLOSED while it is open and merely occluded. `data-slot` is the only
+ * handle that survives that state.
+ */
+async function readSettingsModalState(page: Page): Promise<SettingsModalState> {
+  return page.evaluate(() => {
+    const dialog = Array.from(document.querySelectorAll('[data-slot="dialog-content"]')).find(
+      (node) => node.querySelector('[data-slot="dialog-title"]')?.textContent?.trim() === 'Settings'
+    );
+    if (!dialog) {
+      return 'closed';
+    }
+    return dialog.getAttribute('aria-hidden') === 'true' ? 'occluded' : 'open';
+  });
+}
+
 export async function isSettingsModalOpen(page: Page): Promise<boolean> {
-  return settingsModalHeadingLocator(page).isVisible();
+  return (await readSettingsModalState(page)) !== 'closed';
+}
+
+/**
+ * Shared guard for every helper that queries the app shell by role. Radix marks
+ * everything outside an open dialog `aria-hidden`, which removes the sidebar
+ * from the accessibility tree `getByRole` walks, so those locators resolve to
+ * zero matches and die on a bare visibility timeout. Fail with the real cause.
+ */
+export async function assertSettingsModalClosed(page: Page, caller: string): Promise<void> {
+  if (await isSettingsModalOpen(page)) {
+    throw new Error(
+      `${caller} was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — close the modal first (closeSettingsModal(page), or HomePage.closeSettings()).`
+    );
+  }
 }
 
 export async function openSettingsModal(page: Page): Promise<void> {
   const expect = await getPlaywrightExpect();
+
+  // The profile menu trigger lives in the app shell, which sits behind the
+  // dialog's `aria-hidden` once Settings is open. Calling this twice would
+  // otherwise resolve to zero matches and surface as an opaque timeout.
+  if (await isSettingsModalOpen(page)) {
+    throw new Error(
+      'openSettingsModal(page) was called while the Settings modal is already open. The profile menu trigger is hidden from the accessibility tree behind the dialog — call closeSettingsModal(page) first, or drop the redundant open.'
+    );
+  }
+
   const trigger = profileMenuButtonLocator(page);
   await expect(trigger).toBeVisible();
   await expect(trigger).toBeEnabled();
@@ -499,12 +563,43 @@ export async function openSettingsModal(page: Page): Promise<void> {
 /**
  * Dismiss the Settings modal and wait for it to unmount. Throws when the modal
  * is not open so callers cannot silently drift out of sync with the UI.
+ *
+ * Click the dialog's own close button rather than pressing Escape: Radix routes
+ * Escape to the topmost `DismissableLayer`, so any Select or Popover open inside
+ * Settings swallows the keypress and the dialog stays put — surfacing a whole
+ * timeout later as a generic "expected to be hidden" with no hint of the cause.
+ *
+ * Clicking is NOT immune to that same nested layer. Measured: with a Select open
+ * inside Settings the dialog carries `aria-hidden="true"` and
+ * `pointer-events: none`, so the close button is neither queryable by role nor
+ * clickable. What the state probe buys is a named, actionable failure instead of
+ * a bare "Settings heading not visible", which reads as "the modal is closed"
+ * when it is open and merely covered.
+ *
+ * The inner layer is deliberately NOT auto-dismissed. Swallowing it would let a
+ * test that lost track of its own UI state keep passing.
  */
 export async function closeSettingsModal(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
+
+  const state = await readSettingsModalState(page);
+  if (state === 'closed') {
+    throw new Error(
+      'closeSettingsModal(page) was called while the Settings modal is not open. Remove the redundant close, or open Settings first.'
+    );
+  }
+  if (state === 'occluded') {
+    throw new Error(
+      'closeSettingsModal(page) found the Settings modal covered by a nested overlay — a Select, Popover or Combobox is still open inside Settings. Radix marks the dialog aria-hidden with pointer-events:none while that layer is up, so the close button is neither queryable by role nor clickable. Dismiss the inner layer first (choose an option, or press Escape once).'
+    );
+  }
+
   const heading = settingsModalHeadingLocator(page);
   await expect(heading).toBeVisible({ timeout });
-  await page.keyboard.press('Escape');
+
+  const closeButton = settingsModalCloseButtonLocator(page);
+  await expect(closeButton).toBeVisible({ timeout });
+  await closeButton.click({ timeout });
   await expect(heading).not.toBeVisible({ timeout });
 }
 
@@ -521,25 +616,21 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
   });
 }
 
+/**
+ * Activate a sidebar navigation destination.
+ *
+ * `label` is deliberately the single literal 'Context Explorer': Settings is not
+ * a sidebar destination — `RootLayoutContent` filters `/settings` out of
+ * `navigationItems` — so accepting it here would encode a false model of the UI.
+ * Use {@link openSettingsModal} for Settings.
+ */
 export async function activateSidebarNavigation(
   page: Page,
-  label: 'Context Explorer' | 'Settings'
+  label: 'Context Explorer'
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
 
-  if (label === 'Settings') {
-    await openSettingsModal(page);
-    return;
-  }
-
-  // While the Settings dialog is open Radix marks the rest of the app
-  // `aria-hidden`, so this role-based locator resolves to nothing. Fail with a
-  // useful message instead of an opaque "element(s) not found" timeout.
-  if (await isSettingsModalOpen(page)) {
-    throw new Error(
-      `activateSidebarNavigation(page, '${label}') was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — call closeSettingsModal(page) first.`
-    );
-  }
+  await assertSettingsModalClosed(page, `activateSidebarNavigation(page, '${label}')`);
 
   const navigationButton = page.getByRole('button', { exact: true, name: label });
   await expect(navigationButton).toBeVisible();
