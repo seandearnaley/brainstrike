@@ -204,7 +204,9 @@ Instrument controls
   source-module graph ⇒ safe"; only the first conjunct is enforced. This
   guard removes the cross-chunk form (the shape behind all four recorded
   scars) but does not detect an intra-chunk source cycle. Tracked as
-  **BST-890**, which also notes that the three existing `codeSplitting.groups`
+  **BST-890 — now closed** by `scripts/verify-no-source-cycles.mjs` on the lint
+  lane, which found and fixed a real `packages/ui` self-barrel cycle on its
+  first run. The ticket also notes that the three existing `codeSplitting.groups`
   pins are safe only because those source graphs happen to be acyclic —
   nothing currently verifies that.
 
