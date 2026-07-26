@@ -85,14 +85,19 @@ export function listObservationalMemoryModelOptions(args: {
 
 export function listSemanticRecallEmbeddingModelOptions(args: {
   models: readonly DbModel[];
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
   providers: readonly DbProvider[];
 }): readonly AssistantMemoryModelOption[] {
   const providers = providerById(args.providers);
+  const providersWithKeys = new Set<string>(
+    args.providerKeySources.map(({ provider }) => provider)
+  );
   return args.models
     .filter((model) => {
       const provider = providers.get(model.providerId);
       return (
         SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(model.providerId) &&
+        (model.providerId === 'local' || providersWithKeys.has(model.providerId)) &&
         isEnabledProvider(provider) &&
         model.isEnabled &&
         model.capabilities.type === 'embedding' &&

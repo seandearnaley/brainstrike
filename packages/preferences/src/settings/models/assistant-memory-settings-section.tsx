@@ -77,7 +77,11 @@ export function AssistantMemorySettingsSection({
     providerKeySources,
     providers,
   });
-  const embeddingOptions = listSemanticRecallEmbeddingModelOptions({ models, providers });
+  const embeddingOptions = listSemanticRecallEmbeddingModelOptions({
+    models,
+    providerKeySources,
+    providers,
+  });
   const hasObservationModel = observationOptions.some(
     (option) => option.target === observationalMemory.modelTarget
   );

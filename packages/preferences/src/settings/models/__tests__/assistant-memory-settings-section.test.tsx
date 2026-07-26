@@ -121,6 +121,19 @@ function seedRegistry(): void {
         sortOrder: 1,
         tagline: null,
       },
+      {
+        bestFor: null,
+        capabilities: { defaultDimension: 384, type: 'embedding' },
+        description: null,
+        icon: null,
+        id: 'Xenova/all-MiniLM-L6-v2',
+        isEnabled: true,
+        name: 'MiniLM Local Embedder',
+        parameters: null,
+        providerId: 'local',
+        sortOrder: 2,
+        tagline: null,
+      },
     ],
     providers: [
       { icon: null, id: 'openai', isEnabled: true, name: 'OpenAI', sortOrder: 1 },
@@ -224,6 +237,29 @@ describe('AssistantMemorySettingsSection', () => {
         screen.getByRole('combobox', { name: /semantic recall embedding model/i })
       ).queryByRole('option', { name: /Cohere Embed English/i })
     ).toBeNull();
+  });
+
+  it('filters hosted semantic embedders by key presence while retaining keyless local options', () => {
+    renderMemorySettings([]);
+
+    const select = screen.getByRole('combobox', {
+      name: /semantic recall embedding model/i,
+    });
+    expect(within(select).queryByRole('option', { name: /Text Embedding 3 Small/i })).toBeNull();
+    expect(
+      within(select).getByRole('option', { name: /MiniLM Local Embedder/i })
+    ).toBeInTheDocument();
+  });
+
+  it('disables semantic recall activation when its selected hosted embedder has no key', () => {
+    renderMemorySettings([]);
+
+    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Configured semantic recall embedder openai\/text-embedding-3-small is not available/
+      )
+    ).toBeInTheDocument();
   });
 
   it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {

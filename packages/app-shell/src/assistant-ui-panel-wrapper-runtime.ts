@@ -172,26 +172,43 @@ export function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Tool: ${toolId}`;
 }
 
-function resolveSemanticRecallDisabledReason(
-  memorySettings: RuntimeAssistantMemorySettings
-): string | undefined {
+function resolveSemanticRecallDisabledReason(args: {
+  memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+}): string | undefined {
   // Observational-memory vector retrieval embeds with the SAME configured
   // semantic-recall embedder, so its requirement applies even when the
   // semantic-recall toggle itself is off.
   const observationalVectorRetrieval =
-    memorySettings.observationalMemory.enabled &&
-    memorySettings.observationalMemory.retrievalMode === 'vector';
-  if (!(memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
+    args.memorySettings.observationalMemory.enabled &&
+    args.memorySettings.observationalMemory.retrievalMode === 'vector';
+  if (!(args.memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
     return;
   }
 
-  const providerId = memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
-  if (!(providerId && SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId))) {
-    return memorySettings.semanticRecall.enabled
+  const providerId = args.memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
+  if (
+    !(
+      providerId &&
+      isSupportedProvider(providerId) &&
+      SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId)
+    )
+  ) {
+    return args.memorySettings.semanticRecall.enabled
       ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
       : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
-  return;
+  if (
+    providerId === 'local' ||
+    args.providerKeySources.some(({ provider }) => provider === providerId)
+  ) {
+    return;
+  }
+
+  const providerName = getProviderDefinition(providerId).displayName;
+  return args.memorySettings.semanticRecall.enabled
+    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.`
+    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
 }
 
 function resolveObservationalMemoryDisabledReason(args: {
@@ -269,7 +286,10 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (observationalMemoryDisabledReason) {
     return observationalMemoryDisabledReason;
   }
-  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason(args.memorySettings);
+  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason({
+    memorySettings: args.memorySettings,
+    providerKeySources: args.providerKeySources ?? [],
+  });
   if (semanticRecallDisabledReason) {
     return semanticRecallDisabledReason;
   }

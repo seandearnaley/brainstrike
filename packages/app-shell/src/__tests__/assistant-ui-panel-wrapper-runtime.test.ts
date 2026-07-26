@@ -250,6 +250,42 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  it('blocks enabled semantic recall when its hosted embedder has no configured key', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: true,
+          },
+        },
+        providerKeySources: [{ provider: 'google', source: 'stored' }],
+      })
+    ).toBe(
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.'
+    );
+  });
+
+  it('allows enabled semantic recall with a keyless local embedder', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+            enabled: true,
+          },
+        },
+        providerKeySources: [],
+      })
+    ).toBeUndefined();
+  });
+
   it('allows an enabled keyless local observer without a provider key source', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
