@@ -124,7 +124,7 @@ describe('AssistantChatPanel', () => {
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialProviders: ['openai', 'local'],
+        providerSeeds: ['openai', 'local'],
       }),
       undefined
     );

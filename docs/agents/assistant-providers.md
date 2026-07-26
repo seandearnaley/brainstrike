@@ -449,6 +449,12 @@ Desktop status may omit both fields, in which case its encrypted-key discovery
 remains authoritative. The pair is atomic, and incomplete or unknown runtime
 metadata fails visibly.
 
+Desktop's non-fixed `providers` list is a validated seed, not an exhaustive
+renderer catalog. The app shell must merge it with renderer provider discovery
+so settings-owned, reachable or force-enabled Ollama and LM Studio runtimes
+remain selectable. Hosted Web's fixed provider/model pair stays authoritative
+and must continue to skip renderer discovery.
+
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and
 the safe repair message). One unreadable credential never hides other working
