@@ -45,8 +45,10 @@ vi.mock('../../db-main', () => ({
 // shortening the parameter prose. The remainder is the genuine cost of a new
 // capability.
 //
-// Raised 8300 → 8350 for the hybrid one-statement idioms (BST-935). The 44
-// added tokens are the two search-arm operator forms — content <@>
+// Raised 8300 → 8350 for the hybrid one-statement idioms (BST-935). The 43
+// added tokens (8299 → 8342 authored; +44 on the eager surface, which is a
+// different concatenation and legitimately differs by one) are the two
+// search-arm operator forms — content <@>
 // to_bm25query('terms','idx_file_chunks_content_bm25') and embedding <=> a
 // stored embedding — which are NOT discoverable through describeTable (an
 // operator and an index name appear in no column listing), so a model asked to

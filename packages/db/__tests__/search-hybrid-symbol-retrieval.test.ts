@@ -1,5 +1,7 @@
+import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { BM25_CONTENT_INDEX_NAME, bm25RankExpression } from '../src/repositories/_shared.js';
 import { AgentSqlService } from '../src/search/agent-sql-service.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
@@ -21,8 +23,13 @@ import { createMigratedTestDb } from './helpers/migrated-test-db.js';
  * whole statement is expressible by the model with no out-of-band computation.
  */
 
-/** The canonical statement, kept in sync with docs/agents/agent-self-query.md
- * and the querySelf tool description example. */
+/** The canonical statement, kept in sync with the § "hybrid one-statement
+ * query" subsection of docs/agents/agent-self-query.md. The querySelf tool
+ * description carries only the two operator fragments, not this whole
+ * statement. Both arms carry a match predicate and a per-arm LIMIT so the
+ * enshrined shape is the one that stays admissible at scale — ROW_NUMBER
+ * alone would hand RRF mass to zero-relevance chunks and rank every
+ * reachable chunk twice. */
 const HYBRID_ONE_STATEMENT = `
 WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
   SELECT s.file_record_id, s.seq, s.name, 0
@@ -37,10 +44,12 @@ WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
 ),
 reachable AS (SELECT DISTINCT file_record_id FROM callers),
 seed_embedding AS (
-  SELECT ch.embedding
+  SELECT ch.embedding, ch.embedding_set_id
   FROM file_chunks ch
   JOIN file_symbols s ON s.file_record_id = ch.file_record_id
-  WHERE s.name = 'startEmbeddingWorker' AND ch.embedding IS NOT NULL
+  WHERE s.name = 'startEmbeddingWorker'
+    AND ch.start_line <= s.start_line AND ch.end_line >= s.start_line
+    AND ch.embedding IS NOT NULL
   ORDER BY ch.id LIMIT 1
 ),
 bm25_arm AS (
@@ -51,6 +60,10 @@ bm25_arm AS (
   ) AS position
   FROM file_chunks ch
   JOIN reachable rf ON rf.file_record_id = ch.file_record_id
+  WHERE ch.content_tsvector IS NOT NULL
+    AND ch.content_tsvector @@ websearch_to_tsquery('english', 'embedding worker lease')
+  ORDER BY 2
+  LIMIT 50
 ),
 vector_arm AS (
   SELECT ch.id, ROW_NUMBER() OVER (
@@ -59,6 +72,9 @@ vector_arm AS (
   FROM file_chunks ch
   JOIN reachable rf ON rf.file_record_id = ch.file_record_id
   WHERE ch.embedding IS NOT NULL
+    AND ch.embedding_set_id IS NOT DISTINCT FROM (SELECT embedding_set_id FROM seed_embedding)
+  ORDER BY 2
+  LIMIT 50
 )
 SELECT fr.path, ch.id AS chunk_id,
        sum(1.0 / (60 + arm.position))::float8 AS rrf_score
@@ -124,23 +140,41 @@ describe('hybrid one-statement retrieval through the querySelf sandbox', () => {
     // so it wins the BM25 arm outright rather than by a length tiebreak.
     const seedContent =
       '/** embedding worker lease: acquires the embedding worker lease */ export function startEmbeddingWorker() {}';
-    const chunks: [string, string, string, string][] = [
-      ['chunk-worker', 'file-worker', seedContent, '[1,0,0]'],
+    const chunks: [string, string, string, string, string][] = [
+      ['chunk-worker', 'file-worker', seedContent, '[1,0,0]', 'set-a'],
       [
         'chunk-run',
         'file-run',
         'the run loop starts the embedding worker and holds its lease',
         '[0.9,0.1,0]',
+        'set-a',
       ],
-      ['chunk-main', 'file-main', 'main entrypoint wires configuration and telemetry', '[0,1,0]'],
+      [
+        'chunk-main',
+        'file-main',
+        'main entrypoint wires configuration and telemetry',
+        '[0,1,0]',
+        'set-a',
+      ],
       // Bait: identical content AND embedding to the seed chunk.
-      ['chunk-other', 'file-other', seedContent, '[1,0,0]'],
+      ['chunk-other', 'file-other', seedContent, '[1,0,0]', 'set-a'],
+      // A REACHABLE chunk embedded in a DIFFERENT set with different
+      // dimensions. `file_chunks.embedding` is deliberately dimensionless, so
+      // without set scoping the vector arm compares this 5-D vector against
+      // the 3-D seed and the whole statement aborts (#2033 review).
+      ['chunk-run-alt', 'file-run', 'unrelated notes about scheduling', '[1,0,0,0,0]', 'set-b'],
     ];
-    for (const [id, fileRecordId, content, embedding] of chunks) {
+    // start/end lines make each of these the chunk CONTAINING its file's
+    // symbol definition (symbols are seeded at start_line 1) — the anchor the
+    // canonical seed_embedding CTE selects by line containment.
+    for (const [
+      index,
+      [id, fileRecordId, content, embedding, embeddingSetId],
+    ] of chunks.entries()) {
       await db.query(
-        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding)
-         VALUES ($1, $2, 0, $3, $4::vector)`,
-        [id, fileRecordId, content, embedding]
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding, embedding_set_id, start_line, end_line)
+         VALUES ($1, $2, $3, $4, $5::vector, $6, 1, 30)`,
+        [id, fileRecordId, index, content, embedding, embeddingSetId]
       );
     }
   });
@@ -170,6 +204,60 @@ describe('hybrid one-statement retrieval through the querySelf sandbox', () => {
     }
     // Descending fusion order.
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it('the set scoping is load-bearing: without it, mixed dimensions abort', {
+    timeout: 120_000,
+  }, async () => {
+    // Pins that the mixed-dimension fixture actually exercises the failure
+    // the scoping exists for. If this stops failing, the fixture has gone
+    // uniform again and the main test is no longer proving set safety.
+    const unscoped = HYBRID_ONE_STATEMENT.replace(
+      'AND ch.embedding_set_id IS NOT DISTINCT FROM (SELECT embedding_set_id FROM seed_embedding)',
+      ''
+    );
+    expect(unscoped).not.toBe(HYBRID_ONE_STATEMENT);
+    await expect(service.query(unscoped)).rejects.toThrow(/different vector dimensions/);
+  });
+
+  it('stays admitted at thousand-chunk scale, well under the cost ceiling', {
+    timeout: 120_000,
+  }, async () => {
+    // The 5-chunk fixture cannot support a "far under the cost ceiling"
+    // claim (#2033 review). Seed 2,000 filler chunks across the reachable
+    // files — most matching the BM25 terms, all in the seed's embedding
+    // set — so both arms genuinely rank at scale and the per-arm LIMITs
+    // are what keep the statement's emitted work bounded.
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding, embedding_set_id, start_line, end_line)
+         SELECT 'bulk-' || i,
+                (ARRAY['file-worker','file-run','file-main'])[1 + (i % 3)],
+                100 + i,
+                'filler block ' || i || ' embedding worker notes',
+                ('[' || (i % 7) || ',' || (i % 11) || ',1]')::vector,
+                'set-a',
+                1000 + i, 1030 + i
+         FROM generate_series(1, 2000) AS g(i)`
+    );
+
+    const result = await service.query(HYBRID_ONE_STATEMENT);
+    // Measured 2026-07-26 at this fixture size: estimatedCost ≈ 472.
+    expect(result.estimatedCost).toBeLessThan(50_000);
+    // The seed chunk matches every BM25 term and is vector-distance zero to
+    // itself, so it must still win fusion over 2,000 partial matches.
+    expect(result.rows[0]?.[0]).toBe('src/worker.ts');
+  });
+
+  it('the tool description carries the REAL BM25 index name', { timeout: 120_000 }, async () => {
+    // assistant-contract cannot depend on db, so the index-name idiom in the
+    // querySelf description is a hardcoded copy of BM25_CONTENT_INDEX_NAME.
+    // This is the tripwire tying them together: the index has already been
+    // dropped and recreated twice (migrations 065/066), and a rename would
+    // otherwise leave the model an idiom that errors at runtime.
+    expect(TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf]).toContain(BM25_CONTENT_INDEX_NAME);
+    await expect(
+      service.query(`SELECT id FROM file_chunks ORDER BY ${bm25RankExpression("'x'")} DESC LIMIT 1`)
+    ).resolves.toBeDefined();
   });
 
   it('the SAME statement survives EXPLAIN ANALYZE admission', { timeout: 120_000 }, async () => {
