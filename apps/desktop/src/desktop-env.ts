@@ -45,6 +45,16 @@ class DesktopEnvParseError extends Error {
 }
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const SUPPORTED_VARIABLE_NAMES = new Set([
+  'ANTHROPIC_API_KEY',
+  'BRAINSTRIKE_OPENAI_API_KEY',
+  'BRAINSTRIKE_TAVILY_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOOGLE_GENERATIVE_AI_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'TAVILY_API_KEY',
+]);
 let bootstrapResult: DesktopEnvLoadResult | undefined;
 
 export function isDesktopEnvFileLoadingDisabled(
@@ -220,19 +230,28 @@ function parseDesktopEnvLine(line: string, lineNumber: number, entries: Map<stri
   if (trimmedStart.length === 0 || trimmedStart.startsWith('#')) {
     return;
   }
+  if (trimmedStart !== line) {
+    throw new DesktopEnvParseError(lineNumber, 'boundary whitespace.');
+  }
 
-  const declaration = stripExportPrefix(trimmedStart);
+  const declaration = stripExportPrefix(line);
   const equalsIndex = declaration.indexOf('=');
   if (equalsIndex < 0) {
     throw new DesktopEnvParseError(lineNumber, 'expected "=".');
   }
 
-  const name = declaration.slice(0, equalsIndex).trim();
+  const name = declaration.slice(0, equalsIndex);
   if (!VARIABLE_NAME_PATTERN.test(name)) {
     throw new DesktopEnvParseError(lineNumber, 'invalid variable name.');
   }
+  if (!SUPPORTED_VARIABLE_NAMES.has(name)) {
+    throw new DesktopEnvParseError(lineNumber, 'unsupported variable name.');
+  }
 
-  const rawValue = declaration.slice(equalsIndex + 1).trimStart();
+  const rawValue = declaration.slice(equalsIndex + 1);
+  if (rawValue !== rawValue.trimStart()) {
+    throw new DesktopEnvParseError(lineNumber, 'boundary whitespace.');
+  }
   entries.set(name, parseDesktopEnvValue(rawValue, lineNumber));
 }
 
@@ -250,7 +269,7 @@ function stripExportPrefix(line: string): string {
 function parseDesktopEnvValue(rawValue: string, lineNumber: number): string {
   const quote = rawValue[0];
   if (!(quote === '"' || quote === "'" || quote === '`')) {
-    return parseUnquotedValue(rawValue);
+    return parseUnquotedValue(rawValue, lineNumber);
   }
 
   const closingQuoteIndex = findClosingQuote(rawValue, quote);
@@ -258,8 +277,11 @@ function parseDesktopEnvValue(rawValue: string, lineNumber: number): string {
     throw new DesktopEnvParseError(lineNumber, 'unterminated quote.');
   }
 
-  const suffix = rawValue.slice(closingQuoteIndex + 1).trimStart();
-  if (suffix.length > 0 && !suffix.startsWith('#')) {
+  const suffix = rawValue.slice(closingQuoteIndex + 1);
+  if (suffix.trim().length === 0 && suffix.length > 0) {
+    throw new DesktopEnvParseError(lineNumber, 'boundary whitespace.');
+  }
+  if (suffix.length > 0 && !/^[ \t]+#/u.test(suffix)) {
     throw new DesktopEnvParseError(lineNumber, 'unexpected content after quoted value.');
   }
 
@@ -286,10 +308,15 @@ function findClosingQuote(value: string, quote: '"' | "'" | '`'): number {
   return -1;
 }
 
-function parseUnquotedValue(rawValue: string): string {
-  const commentIndex = rawValue.indexOf('#');
-  const value = commentIndex < 0 ? rawValue : rawValue.slice(0, commentIndex);
-  return value.trim();
+function parseUnquotedValue(rawValue: string, lineNumber: number): string {
+  const commentMatch = /[ \t]+#/u.exec(rawValue);
+  if (commentMatch?.index !== undefined) {
+    return rawValue.slice(0, commentMatch.index);
+  }
+  if (rawValue !== rawValue.trimEnd()) {
+    throw new DesktopEnvParseError(lineNumber, 'boundary whitespace.');
+  }
+  return rawValue;
 }
 
 function collectAssignments(

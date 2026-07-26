@@ -40,20 +40,17 @@ describe('loadDesktopEnvironment', () => {
     const layout = createEnvironmentLayout();
     fs.writeFileSync(
       path.join(layout.appRoot, '.env.local'),
-      ['CASCADE=dev-local', 'LOCAL_ONLY=local'].join('\n')
+      ['OPENAI_API_KEY=dev-local', 'ANTHROPIC_API_KEY=local'].join('\n')
     );
     fs.writeFileSync(
       path.join(layout.appRoot, '.env'),
-      ['CASCADE=dev', 'BASE_OVER_USER=dev', 'DEV_ONLY=base'].join('\n')
+      ['OPENAI_API_KEY=dev', 'GOOGLE_API_KEY=dev', 'OPENROUTER_API_KEY=base'].join('\n')
     );
     const env: NodeJS.ProcessEnv = {
-      CASCADE: 'inherited',
-      EMPTY_IS_STILL_EXISTING: '',
+      OPENAI_API_KEY: 'inherited',
+      TAVILY_API_KEY: '',
     };
-    fs.appendFileSync(
-      path.join(layout.appRoot, '.env.local'),
-      '\nEMPTY_IS_STILL_EXISTING=replacement'
-    );
+    fs.appendFileSync(path.join(layout.appRoot, '.env.local'), '\nTAVILY_API_KEY=replacement');
 
     const result = load(layout, { env });
 
@@ -64,11 +61,11 @@ describe('loadDesktopEnvironment', () => {
       skipped: false,
     });
     expect(env).toMatchObject({
-      BASE_OVER_USER: 'dev',
-      CASCADE: 'inherited',
-      DEV_ONLY: 'base',
-      EMPTY_IS_STILL_EXISTING: '',
-      LOCAL_ONLY: 'local',
+      ANTHROPIC_API_KEY: 'local',
+      GOOGLE_API_KEY: 'dev',
+      OPENAI_API_KEY: 'inherited',
+      OPENROUTER_API_KEY: 'base',
+      TAVILY_API_KEY: '',
     });
   });
 
@@ -76,7 +73,7 @@ describe('loadDesktopEnvironment', () => {
     const layout = createEnvironmentLayout();
     fs.mkdirSync(path.join(layout.appRoot, '.env.local'));
     fs.mkdirSync(path.join(layout.appRoot, '.env'));
-    fs.writeFileSync(path.join(layout.userDataPath, '.env'), 'PACKAGED_ONLY=user');
+    fs.writeFileSync(path.join(layout.userDataPath, '.env'), 'ANTHROPIC_API_KEY=user');
     const env: NodeJS.ProcessEnv = {};
 
     const result = load(layout, { env, isPackaged: true });
@@ -87,7 +84,7 @@ describe('loadDesktopEnvironment', () => {
       loadedFiles: ['user-data'],
       skipped: false,
     });
-    expect(env).toEqual({ PACKAGED_ONLY: 'user' });
+    expect(env).toEqual({ ANTHROPIC_API_KEY: 'user' });
   });
 
   it('supports comments, export declarations, quoted values, and CRLF', () => {
@@ -96,11 +93,11 @@ describe('loadDesktopEnvironment', () => {
       path.join(layout.appRoot, '.env'),
       [
         '\uFEFF# provider credentials',
-        'export OPENAI_API_KEY = "line-one\\nline-two"',
+        'export OPENAI_API_KEY="line-one\\nline-two"',
         "ANTHROPIC_API_KEY='literal # value'",
         'OPENROUTER_API_KEY=value # trailing comment',
         'GOOGLE_API_KEY=with=equals',
-        'BACKTICK_VALUE=`literal # backtick`',
+        'BRAINSTRIKE_TAVILY_API_KEY=`literal # backtick`',
       ].join('\r\n')
     );
     const env: NodeJS.ProcessEnv = {};
@@ -111,7 +108,7 @@ describe('loadDesktopEnvironment', () => {
     expect(result.loadedFiles).toEqual(['dev']);
     expect(env).toEqual({
       ANTHROPIC_API_KEY: 'literal # value',
-      BACKTICK_VALUE: 'literal # backtick',
+      BRAINSTRIKE_TAVILY_API_KEY: 'literal # backtick',
       GOOGLE_API_KEY: 'with=equals',
       OPENAI_API_KEY: 'line-one\nline-two',
       OPENROUTER_API_KEY: 'value',
@@ -151,10 +148,10 @@ describe('loadDesktopEnvironment', () => {
 
   it('rejects all candidate files atomically when one file is malformed', () => {
     const layout = createEnvironmentLayout();
-    fs.writeFileSync(path.join(layout.appRoot, '.env.local'), 'LOCAL_ONLY=local-secret');
+    fs.writeFileSync(path.join(layout.appRoot, '.env.local'), 'ANTHROPIC_API_KEY=local-secret');
     fs.writeFileSync(
       path.join(layout.appRoot, '.env'),
-      ['VALID_BEFORE_FAILURE=base-secret', 'MALFORMED_LINE'].join('\n')
+      ['OPENAI_API_KEY=base-secret', 'MALFORMED_LINE'].join('\n')
     );
     const env: NodeJS.ProcessEnv = {};
 
@@ -172,6 +169,57 @@ describe('loadDesktopEnvironment', () => {
     ]);
     expect(env).toEqual({});
     expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('rejects unsupported variables atomically instead of mutating the process environment', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['OPENAI_API_KEY=provider-secret', 'NODE_OPTIONS=--require ./inject.cjs'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result).toEqual({
+      appliedVariableCount: 0,
+      failures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev',
+          message:
+            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+        },
+      ],
+      loadedFiles: [],
+      skipped: false,
+    });
+    expect(env).toEqual({});
+    expect(JSON.stringify(result)).not.toContain('NODE_OPTIONS');
+  });
+
+  it.each([
+    ['leading assignment whitespace', ' OPENAI_API_KEY=provider-secret'],
+    ['whitespace before the value', 'OPENAI_API_KEY= provider-secret'],
+    ['trailing unquoted whitespace', 'OPENAI_API_KEY=provider-secret '],
+    ['trailing quoted whitespace', 'OPENAI_API_KEY="provider-secret" '],
+  ])('rejects %s instead of silently changing the value', (_label, source) => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(path.join(layout.appRoot, '.env'), source);
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result.appliedVariableCount).toBe(0);
+    expect(result.failures).toEqual([
+      {
+        code: 'env_file_invalid',
+        file: 'dev',
+        message: 'Desktop environment file "dev" is invalid at line 1: boundary whitespace.',
+      },
+    ]);
+    expect(env).toEqual({});
+    expect(JSON.stringify(result)).not.toContain('provider-secret');
   });
 
   it('rejects unterminated quotes without exposing the value', () => {

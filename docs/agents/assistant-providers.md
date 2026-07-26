@@ -74,7 +74,11 @@
     even when an existing value is empty. Every candidate file is read and
     validated before any value is applied, so an unreadable or malformed file
     applies nothing and surfaces through both the assistant status probe and
-    Settings. Missing files are valid. `NODE_ENV=test`,
+    Settings. Files may set only the credential names documented in
+    `apps/desktop/.env.example`; arbitrary process variables are rejected so a
+    packaged user-data file cannot alter child-process execution. Assignment
+    boundary whitespace is rejected rather than silently trimming a credential
+    value. Missing files are valid. `NODE_ENV=test`,
     `ELECTRON_IS_E2E_TEST=true`, and `--test-mode` disable environment-file
     loading entirely; directly injected launch variables retain their existing
     runtime semantics.
