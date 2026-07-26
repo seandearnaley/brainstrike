@@ -88,6 +88,7 @@ const baseMemoryReasonArgs = {
   desktopAssistantBackendAvailable: true,
   memoryLoadState: { status: 'ready' as const },
   memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  providerKeySources: [{ provider: 'openai' as const, source: 'stored' as const }],
   selectedMemoryThreadId: 'thread-1',
   selectedProvider: 'openai' as const,
   workspaceRootPath: '/workspace',
@@ -227,6 +228,60 @@ describe('assistant runtime helpers', () => {
       })
     ).toBe(
       'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
+    );
+  });
+
+  it('blocks an enabled hosted observer whose provider has no configured key', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+          },
+        },
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      })
+    ).toBe(
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.'
+    );
+  });
+
+  it('allows an enabled keyless local observer without a provider key source', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+          },
+        },
+        providerKeySources: [],
+      })
+    ).toBeUndefined();
+  });
+
+  it('fails visibly when an enabled observer model target is malformed', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+            modelTarget: 'anthropic',
+          },
+        },
+      })
+    ).toBe(
+      'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.'
     );
   });
 

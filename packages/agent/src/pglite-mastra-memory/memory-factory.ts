@@ -5,7 +5,7 @@ import {
   type RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import type { AgentMemoryOption } from '@mastra/core/agent';
-import type { MastraModelConfig } from '@mastra/core/llm';
+import type { MastraModelConfig, OpenAICompatibleConfig } from '@mastra/core/llm';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
@@ -16,6 +16,7 @@ import { PgliteVectorStore } from './vector-store';
 import { PgliteWorkflowsStore } from './workflows-store';
 
 type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
+type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 
 export interface PgliteMastraMemoryOptions {
   database: PgliteDatabase;
@@ -24,7 +25,7 @@ export interface PgliteMastraMemoryOptions {
   id?: string;
   memoryOptions?: MastraRuntimeMemoryOptions;
   memorySettings?: RuntimeAssistantMemorySettings;
-  observationalMemoryModel?: MastraModelConfig;
+  observationalMemoryModel?: ConcreteLanguageModel;
   runId?: string;
   /** @deprecated Use memorySettings.semanticRecall.enabled. */
   semanticRecall?: boolean;
@@ -40,14 +41,17 @@ export interface PgliteMastraMemoryResult {
 
 function buildObservationalMemoryOption(
   settings: RuntimeAssistantMemorySettings['observationalMemory'],
-  model?: MastraModelConfig
+  model: ConcreteLanguageModel | undefined
 ) {
   if (!settings.enabled) {
     return false;
   }
+  if (!model) {
+    throw new Error('PGlite Mastra observational memory requires an explicit model.');
+  }
 
   return {
-    model: model ?? settings.modelTarget,
+    model,
     scope: settings.scope,
     ...(settings.retrievalMode === 'messages' ? { retrieval: { scope: settings.scope } } : {}),
     ...(settings.retrievalMode === 'vector'
@@ -87,7 +91,7 @@ function buildMastraMemoryOptions({
 }: {
   memoryOptions: MastraRuntimeMemoryOptions | undefined;
   memorySettings: RuntimeAssistantMemorySettings;
-  observationalMemoryModel: MastraModelConfig | undefined;
+  observationalMemoryModel: ConcreteLanguageModel | undefined;
   semanticRecall: boolean;
 }): MastraRuntimeMemoryOptions {
   return {
@@ -126,6 +130,9 @@ export async function createPgliteMastraMemory({
     memorySettings.observationalMemory.retrievalMode === 'vector';
   if (observationalVectorRetrievalEnabled && !embedder) {
     throw new Error('PGlite Mastra observational vector retrieval requires an explicit embedder.');
+  }
+  if (memorySettings.observationalMemory.enabled && !observationalMemoryModel) {
+    throw new Error('PGlite Mastra observational memory requires an explicit model.');
   }
 
   const store = new PgliteMemoryStore({

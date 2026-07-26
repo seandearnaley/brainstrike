@@ -6,6 +6,24 @@ const resetToolsMock = vi.hoisted(() => vi.fn());
 const createToolsSettingsCategoryMock = vi.hoisted(() => vi.fn());
 const createTokenCountingSettingsCategoryMock = vi.hoisted(() => vi.fn());
 const createHooksSettingsCategoryMock = vi.hoisted(() => vi.fn());
+const modelSelectionPageMock = vi.hoisted(() =>
+  vi.fn(() => <div data-testid="model-selection-page" />)
+);
+const assistantAvailability = vi.hoisted(
+  (): {
+    current:
+      | { state: 'loading' }
+      | {
+          providerKeySources: readonly [
+            { envVar: 'OPENAI_API_KEY'; provider: 'openai'; source: 'env' },
+          ];
+          providers: readonly ['openai', 'local'];
+          state: 'enabled';
+        };
+  } => ({
+    current: { state: 'loading' },
+  })
+);
 
 interface FileExplorerMockState {
   activeRootIds: string[];
@@ -79,6 +97,10 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   }),
 }));
 
+vi.mock('@brainstrike/app-shell', () => ({
+  useAssistantAvailability: () => assistantAvailability.current,
+}));
+
 vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
   createCostTrackingSettingsCategory: () => ({
     content: <div data-testid="cost-tracking-category" />,
@@ -104,7 +126,7 @@ vi.mock('@brainstrike/preferences/settings/models/model-runtime-services', () =>
 }));
 
 vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
-  ModelSelectionPage: () => <div data-testid="model-selection-page" />,
+  ModelSelectionPage: modelSelectionPageMock,
 }));
 
 vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
@@ -179,7 +201,7 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     categories,
     defaultCategoryId,
   }: {
-    categories: Array<{ id: string; title: string }>;
+    categories: Array<{ content: React.ReactNode; id: string; title: string }>;
     defaultCategoryId: string;
   }) => (
     <div data-default-category-id={defaultCategoryId} data-testid="settings-layout">
@@ -188,6 +210,7 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
           {category.title}
         </span>
       ))}
+      {categories.find(({ id }) => id === 'embedding-models')?.content}
     </div>
   ),
 }));
@@ -252,6 +275,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       rootDescriptors: {},
       setDevInlineFixtureEnabled: () => {},
     };
+    assistantAvailability.current = { state: 'loading' };
 
     const desktopWindow = getDesktopWindow();
     desktopWindow.mcp = {
@@ -379,6 +403,26 @@ describe('desktop SettingsPageContent tool operations', () => {
     });
     await expect(capturedOperations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
       'Failed to set MCP config path'
+    );
+  });
+
+  it('passes status provider key sources into assistant memory model settings', async () => {
+    assistantAvailability.current = {
+      providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+      providers: ['openai', 'local'],
+      state: 'enabled',
+    };
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+
+    render(<SettingsPageContent />);
+
+    expect(modelSelectionPageMock).toHaveBeenCalledWith(
+      {
+        providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+      },
+      undefined
     );
   });
 

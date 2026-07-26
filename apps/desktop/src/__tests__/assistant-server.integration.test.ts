@@ -63,7 +63,7 @@ vi.mock('../openai-api-key', () => ({
 
 const mockSecretsService = {
   deleteKey: vi.fn(),
-  getKey: vi.fn(() => Promise.resolve('test-api-key')),
+  getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
 };
@@ -115,7 +115,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       provider,
       type: 'embedding-model',
     })),
-    createProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
+    createLanguageModelProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
       apiKey,
       model,
       provider,
@@ -1936,11 +1936,11 @@ describe('assistant-server', () => {
         url: '/',
       });
 
-      const { createProvider } = await import('@brainstrike/agent');
+      const { createLanguageModelProvider } = await import('@brainstrike/agent');
 
       // Once for workspace-roots enrichment, once for PGlite Mastra memory init.
       expect(getDatabase).toHaveBeenCalledTimes(2);
-      expect(createProvider).toHaveBeenCalledWith(
+      expect(createLanguageModelProvider).toHaveBeenCalledWith(
         'anthropic',
         'test-api-key',
         'claude-haiku-4-5',
@@ -2029,10 +2029,109 @@ describe('assistant-server', () => {
       });
     });
 
-    it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
-      const { createProvider, toAiSdkStyleStream, convertAssistantUiMessages } = await import(
-        '@brainstrike/agent'
+    it('surfaces an actionable missing observational-memory credential', async () => {
+      mockSecretsService.getKey.mockImplementation((provider: string) =>
+        Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
       );
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  messageTokens: 20_000,
+                  modelTarget: 'openai/gpt-5.4-mini',
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                  scope: 'thread',
+                },
+                semanticRecall: {
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  enabled: false,
+                  messageRange: 2,
+                  scope: 'resource',
+                  topK: 5,
+                },
+              },
+              resourceId: 'workspace-memory-key-missing',
+              threadId: 'thread-memory-key-missing',
+            },
+            provider: 'anthropic',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'memory_credential_missing',
+        feature: 'observational_memory',
+        message:
+          'Observational memory requires an API key for "openai". Add the key in Settings, then retry.',
+        provider: 'openai',
+      });
+      expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
+      expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'openai');
+    });
+
+    it('surfaces an actionable missing semantic-recall credential', async () => {
+      mockSecretsService.getKey.mockImplementation((provider: string) =>
+        Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
+      );
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              memorySettings: {
+                observationalMemory: {
+                  enabled: false,
+                  messageTokens: 20_000,
+                  modelTarget: 'openai/gpt-5.4-mini',
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                  scope: 'thread',
+                },
+                semanticRecall: {
+                  embeddingModelTarget: 'google/text-embedding-004',
+                  enabled: true,
+                  messageRange: 2,
+                  scope: 'resource',
+                  topK: 5,
+                },
+              },
+              resourceId: 'workspace-recall-key-missing',
+              threadId: 'thread-recall-key-missing',
+            },
+            provider: 'anthropic',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'memory_credential_missing',
+        feature: 'semantic_recall',
+        message:
+          'Semantic recall requires an API key for "google". Add the key in Settings, then retry.',
+        provider: 'google',
+      });
+      expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
+      expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'google');
+    });
+
+    it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
+      const { createLanguageModelProvider, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
       const { streamResponse } = await import('../assistant-server/http');
 
@@ -2098,7 +2197,7 @@ describe('assistant-server', () => {
       );
       // The OM model resolved through the local provider with no API key and
       // the proxy client present on the runtime.
-      expect(createProvider).toHaveBeenCalledWith(
+      expect(createLanguageModelProvider).toHaveBeenCalledWith(
         'local',
         '',
         'onnx-community/gemma-4-E2B-it-ONNX',

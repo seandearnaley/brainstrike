@@ -1,7 +1,9 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
 } from '@brainstrike/assistant-contract/memory-settings';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
@@ -43,7 +45,13 @@ function parseNumberInput(value: string): number {
   return Number(value);
 }
 
-export function AssistantMemorySettingsSection() {
+export interface AssistantMemorySettingsSectionProps {
+  readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+}
+
+export function AssistantMemorySettingsSection({
+  providerKeySources,
+}: AssistantMemorySettingsSectionProps) {
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
 
@@ -64,7 +72,11 @@ export function AssistantMemorySettingsSection() {
     setSemanticRecallTopK,
   } = useAssistantMemoryPreferencesStore();
 
-  const observationOptions = listObservationalMemoryModelOptions({ models, providers });
+  const observationOptions = listObservationalMemoryModelOptions({
+    models,
+    providerKeySources,
+    providers,
+  });
   const embeddingOptions = listSemanticRecallEmbeddingModelOptions({ models, providers });
   const hasObservationModel = observationOptions.some(
     (option) => option.target === observationalMemory.modelTarget
@@ -74,6 +86,8 @@ export function AssistantMemorySettingsSection() {
     embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
   const hasUnavailableEmbeddingModel =
     semanticRecall.embeddingModelTarget !== null && !hasEmbeddingModel;
+  const hasUnavailableObservationModel = !hasObservationModel;
+  const canToggleObservations = hasObservationModel || observationalMemory.enabled;
   const canToggleSemanticRecall = hasEmbeddingModel || semanticRecall.enabled;
 
   return (
@@ -87,7 +101,7 @@ export function AssistantMemorySettingsSection() {
           </div>
           <p className="text-muted-foreground text-sm">
             Choose the explicit models Mastra uses for observations and semantic memory. Built-in
-            Gemma stays renderer-only and is not used for background observation jobs.
+            Gemma remains on-device through the desktop renderer host.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -95,6 +109,7 @@ export function AssistantMemorySettingsSection() {
           <Switch
             aria-label="Enable observational memory"
             checked={observationalMemory.enabled}
+            disabled={!canToggleObservations}
             id="assistant-memory-observational-enabled"
             onCheckedChange={setObservationalMemoryEnabled}
           />
@@ -120,9 +135,17 @@ export function AssistantMemorySettingsSection() {
             ))}
           </select>
           <p className="text-muted-foreground text-xs">
-            Observers and reflectors use Mastra model routing strings like{' '}
-            <span className="font-mono">openai/gpt-5.4-mini</span>.
+            The target identifies a provider/model such as{' '}
+            <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
+            before constructing the observer.
           </p>
+          {hasUnavailableObservationModel && (
+            <p className="text-destructive text-xs" role="alert">
+              Configured observational memory model {observationalMemory.modelTarget} is not
+              available with the current provider credentials. Configure its API key in Settings →
+              LLM Provider Keys, choose a keyless local observer, or turn observations off.
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">

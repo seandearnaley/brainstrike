@@ -1,8 +1,7 @@
 import { DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES } from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
-import type { MastraModelConfig } from '@mastra/core/llm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPgliteMastraMemory } from '../memory-factory';
+import { createPgliteMastraMemory, type PgliteMastraMemoryOptions } from '../memory-factory';
 import type { PgliteDatabase } from '../types';
 
 const memoryConstructorCalls: unknown[] = [];
@@ -34,44 +33,37 @@ describe('createPgliteMastraMemory', () => {
     await db.close();
   });
 
-  it('passes explicit observational memory settings into Mastra Memory', async () => {
-    await createPgliteMastraMemory({
-      database,
-      memorySettings: {
-        observationalMemory: {
-          enabled: true,
-          messageTokens: 18_000,
-          modelTarget: 'anthropic/claude-haiku-4-5',
-          observationTokens: 36_000,
-          retrievalMode: 'messages',
-          scope: 'resource',
+  it('throws instead of resolving observational memory from a serialized model target', async () => {
+    await expect(
+      createPgliteMastraMemory({
+        database,
+        memorySettings: {
+          observationalMemory: {
+            enabled: true,
+            messageTokens: 18_000,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+            observationTokens: 36_000,
+            retrievalMode: 'messages',
+            scope: 'resource',
+          },
+          semanticRecall: {
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: false,
+            messageRange: 2,
+            scope: 'resource',
+            topK: 5,
+          },
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
-      },
-    });
-
-    expect(memoryConstructorCalls).toHaveLength(1);
-    expect(memoryConstructorCalls[0]).toMatchObject({
-      options: {
-        observationalMemory: {
-          model: 'anthropic/claude-haiku-4-5',
-          observation: { messageTokens: 18_000, threadTitle: true },
-          reflection: { observationTokens: 36_000 },
-          retrieval: { scope: 'resource' },
-          scope: 'resource',
-        },
-        semanticRecall: false,
-      },
-    });
+      })
+    ).rejects.toThrow('PGlite Mastra observational memory requires an explicit model.');
   });
 
   it('opts into observer thread-title extraction whenever observational memory is enabled', async () => {
+    const observationalMemoryModel = {
+      modelId: 'gpt-5.4-mini',
+      provider: 'openai',
+    } as unknown as NonNullable<PgliteMastraMemoryOptions['observationalMemoryModel']>;
+
     await createPgliteMastraMemory({
       database,
       memorySettings: {
@@ -91,6 +83,7 @@ describe('createPgliteMastraMemory', () => {
           topK: 5,
         },
       },
+      observationalMemoryModel,
     });
 
     const options = (memoryConstructorCalls[0] as { options: { observationalMemory: unknown } })
@@ -164,7 +157,7 @@ describe('createPgliteMastraMemory', () => {
     const observationalMemoryModel = {
       modelId: 'gpt-5.4-mini',
       provider: 'openai',
-    } as unknown as MastraModelConfig;
+    } as unknown as NonNullable<PgliteMastraMemoryOptions['observationalMemoryModel']>;
 
     await createPgliteMastraMemory({
       database,

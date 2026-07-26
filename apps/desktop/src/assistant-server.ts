@@ -28,8 +28,8 @@ import {
   buildNativeToolRiskMap,
   convertAssistantUiMessagesWithFinalInput,
   createEmbeddingProvider,
+  createLanguageModelProvider,
   createLocalHostEmbeddingModel,
-  createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasAssistantPromptContent,
   isSupportedProvider,
@@ -113,9 +113,12 @@ interface AgentStreamSuccess {
 interface AgentStreamFailure {
   ok: false;
   payload: {
+    code?: string;
     correlationId?: string;
     error: string;
+    feature?: DesktopMemoryFeature;
     message: string;
+    provider?: string;
     stage?: AgentStreamInitializationStage;
   };
   status: number;
@@ -248,14 +251,41 @@ interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTa
   readonly cacheKey: string;
 }
 
+type DesktopMemoryFeature = 'observational_memory' | 'semantic_recall';
+
+type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTargetDescriptor> =
+  | { readonly kind: 'disabled' }
+  | {
+      readonly descriptor: T;
+      readonly kind: 'needs_async_resolution';
+    }
+  | {
+      readonly kind: 'resolved';
+      readonly target: T & { readonly apiKey: string; readonly cacheKey: string };
+    };
+
 type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
 interface DesktopMastraMemoryCacheState {
   readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
-  readonly observationalMemoryDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
-  readonly observationalMemoryTarget?: DesktopObservationalMemoryModelTarget | undefined;
-  readonly semanticRecallEmbeddingDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
-  readonly semanticRecallEmbeddingTarget?: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+  readonly observationalMemoryResolution: DesktopMemoryModelTargetResolution<DesktopMemoryModelTargetDescriptor>;
+  readonly semanticRecallEmbeddingResolution: DesktopMemoryModelTargetResolution<DesktopMemoryModelTargetDescriptor>;
+}
+
+class DesktopMemoryCredentialMissingError extends Error {
+  readonly feature: DesktopMemoryFeature;
+  readonly provider: SupportedProvider;
+
+  constructor(feature: DesktopMemoryFeature, target: DesktopMemoryModelTargetDescriptor) {
+    const featureLabel =
+      feature === 'observational_memory' ? 'Observational memory' : 'Semantic recall';
+    super(
+      `${featureLabel} requires an API key for "${target.provider}". Add the key in Settings, then retry.`
+    );
+    this.name = 'DesktopMemoryCredentialMissingError';
+    this.feature = feature;
+    this.provider = target.provider;
+  }
 }
 
 export interface AssistantServerOptions {
@@ -1751,6 +1781,7 @@ function respondJson(
     code?: string;
     correlationId?: string;
     error: string;
+    feature?: DesktopMemoryFeature;
     message: string;
     provider?: string;
     reason?: string;
@@ -2220,6 +2251,18 @@ function buildAgentStreamInitializationFailure(
       status: 400,
     };
   }
+  if (error instanceof DesktopMemoryCredentialMissingError) {
+    return {
+      ok: false,
+      payload: {
+        error: 'memory_credential_missing',
+        feature: error.feature,
+        message: error.message,
+        provider: error.provider,
+      },
+      status: 400,
+    };
+  }
   const correlationId = randomUUID();
   logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
   return {
@@ -2542,8 +2585,12 @@ async function getDesktopMastraMemory(
     const resolutionKey = buildDesktopMastraMemoryResolutionKey({
       memoryOptions,
       memorySettings,
-      observationalMemoryDescriptor: cacheState.observationalMemoryDescriptor,
-      semanticRecallEmbeddingDescriptor: cacheState.semanticRecallEmbeddingDescriptor,
+      observationalMemoryDescriptor: getDesktopMemoryModelTargetDescriptor(
+        cacheState.observationalMemoryResolution
+      ),
+      semanticRecallEmbeddingDescriptor: getDesktopMemoryModelTargetDescriptor(
+        cacheState.semanticRecallEmbeddingResolution
+      ),
     });
     const pendingResolution = desktopMastraMemoryResolutionPromises.get(resolutionKey);
     if (pendingResolution) {
@@ -2593,46 +2640,44 @@ function createDesktopMastraMemoryCacheState({
     resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
   const semanticRecallEmbeddingDescriptor =
     resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
-  const observationalMemoryTarget = resolveRuntimeMemoryModelTarget(
+  const observationalMemoryResolution = resolveRuntimeMemoryModelTarget(
     observationalMemoryDescriptor,
     runtimeData
   );
-  const semanticRecallEmbeddingTarget = resolveRuntimeMemoryModelTarget(
+  const semanticRecallEmbeddingResolution = resolveRuntimeMemoryModelTarget(
     semanticRecallEmbeddingDescriptor,
     runtimeData
   );
   if (
     runId ||
-    (observationalMemoryDescriptor && !observationalMemoryTarget) ||
-    (semanticRecallEmbeddingDescriptor && !semanticRecallEmbeddingTarget)
+    observationalMemoryResolution.kind === 'needs_async_resolution' ||
+    semanticRecallEmbeddingResolution.kind === 'needs_async_resolution'
   ) {
     return {
-      observationalMemoryDescriptor,
-      observationalMemoryTarget,
-      semanticRecallEmbeddingDescriptor,
-      semanticRecallEmbeddingTarget,
+      observationalMemoryResolution,
+      semanticRecallEmbeddingResolution,
     };
   }
 
   const cacheKey = buildDesktopMastraMemoryCacheKey({
     memoryOptions,
     memorySettings,
-    observationalMemoryTarget,
-    semanticRecallEmbeddingTarget,
+    observationalMemoryTarget: getResolvedDesktopMemoryModelTarget(observationalMemoryResolution),
+    semanticRecallEmbeddingTarget: getResolvedDesktopMemoryModelTarget(
+      semanticRecallEmbeddingResolution
+    ),
   });
   return {
     cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
-    observationalMemoryDescriptor,
-    observationalMemoryTarget,
-    semanticRecallEmbeddingDescriptor,
-    semanticRecallEmbeddingTarget,
+    observationalMemoryResolution,
+    semanticRecallEmbeddingResolution,
   };
 }
 
 function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheState): boolean {
-  return Boolean(
-    (cacheState.observationalMemoryDescriptor && !cacheState.observationalMemoryTarget) ||
-      (cacheState.semanticRecallEmbeddingDescriptor && !cacheState.semanticRecallEmbeddingTarget)
+  return (
+    cacheState.observationalMemoryResolution.kind === 'needs_async_resolution' ||
+    cacheState.semanticRecallEmbeddingResolution.kind === 'needs_async_resolution'
   );
 }
 
@@ -2654,24 +2699,14 @@ async function createDesktopMastraMemoryFromCacheState({
   readonly runtimeData: RuntimeData | undefined;
 }): Promise<DesktopMastraMemoryResult> {
   const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-  const observationalMemoryTarget =
-    cacheState.observationalMemoryTarget ??
-    (cacheState.observationalMemoryDescriptor
-      ? await resolveDesktopMemoryModelTarget(
-          cacheState.observationalMemoryDescriptor,
-          runtimeData,
-          'Observational memory model'
-        )
-      : undefined);
-  const semanticRecallEmbeddingTarget =
-    cacheState.semanticRecallEmbeddingTarget ??
-    (cacheState.semanticRecallEmbeddingDescriptor
-      ? await resolveDesktopMemoryModelTarget(
-          cacheState.semanticRecallEmbeddingDescriptor,
-          runtimeData,
-          'Semantic recall embedding model'
-        )
-      : undefined);
+  const observationalMemoryTarget = await resolveDesktopMemoryModelTargetResolution(
+    cacheState.observationalMemoryResolution,
+    'observational_memory'
+  );
+  const semanticRecallEmbeddingTarget = await resolveDesktopMemoryModelTargetResolution(
+    cacheState.semanticRecallEmbeddingResolution,
+    'semantic_recall'
+  );
   const { embedder, observationalMemoryModel } = createDesktopMastraMemoryProviderBindings({
     memoryDependencies,
     observationalMemoryTarget,
@@ -2760,6 +2795,33 @@ function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
   return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
 }
 
+function getDesktopMemoryModelTargetDescriptor<T extends DesktopMemoryModelTargetDescriptor>(
+  resolution: DesktopMemoryModelTargetResolution<T>
+): DesktopMemoryModelTargetDescriptor | undefined {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  const target = resolution.kind === 'resolved' ? resolution.target : resolution.descriptor;
+  return {
+    model: target.model,
+    provider: target.provider,
+  };
+}
+
+function getResolvedDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  resolution: DesktopMemoryModelTargetResolution<T>
+): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  if (resolution.kind === 'resolved') {
+    return resolution.target;
+  }
+  throw new Error(
+    `Desktop memory target "${resolution.descriptor.provider}/${resolution.descriptor.model}" requires async resolution before cache lookup.`
+  );
+}
+
 /**
  * The built-in local provider needs no API key: its memory models are proxied
  * to the hidden llm-host, so the cache key carries a fixed marker instead of
@@ -2777,21 +2839,15 @@ function resolveLocalMemoryModelTarget<T extends DesktopMemoryModelTargetDescrip
 
 async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
   target: T,
-  runtimeData: RuntimeData | undefined,
-  label: string
+  feature: DesktopMemoryFeature
 ): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
   const { model, provider } = target;
   if (provider === 'local') {
     return resolveLocalMemoryModelTarget(target);
   }
-  const runtimeProvider = resolveRequestedProvider(runtimeData);
-  const runtimeApiKey =
-    runtimeProvider === provider && runtimeData?.apiKey?.trim()
-      ? runtimeData.apiKey.trim()
-      : undefined;
-  const apiKey = runtimeApiKey ?? (await resolveProviderApiKey(provider));
+  const apiKey = await resolveProviderApiKey(provider);
   if (!apiKey) {
-    throw new Error(`${label} "${provider}/${model}" requires a configured ${provider} API key.`);
+    throw new DesktopMemoryCredentialMissingError(feature, target);
   }
 
   return {
@@ -2801,15 +2857,33 @@ async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTarge
   };
 }
 
+async function resolveDesktopMemoryModelTargetResolution<
+  T extends DesktopMemoryModelTargetDescriptor,
+>(
+  resolution: DesktopMemoryModelTargetResolution<T>,
+  feature: DesktopMemoryFeature
+): Promise<(T & { readonly apiKey: string; readonly cacheKey: string }) | undefined> {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  if (resolution.kind === 'resolved') {
+    return resolution.target;
+  }
+  return resolveDesktopMemoryModelTarget(resolution.descriptor, feature);
+}
+
 function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
   target: T | undefined,
   runtimeData: RuntimeData | undefined
-): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
+): DesktopMemoryModelTargetResolution<T> {
   if (!target) {
-    return;
+    return { kind: 'disabled' };
   }
   if (target.provider === 'local') {
-    return resolveLocalMemoryModelTarget(target);
+    return {
+      kind: 'resolved',
+      target: resolveLocalMemoryModelTarget(target),
+    };
   }
   const runtimeProvider = resolveRequestedProvider(runtimeData);
   const apiKey =
@@ -2817,12 +2891,18 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
       ? runtimeData.apiKey.trim()
       : undefined;
   if (!apiKey) {
-    return;
+    return {
+      descriptor: target,
+      kind: 'needs_async_resolution',
+    };
   }
   return {
-    ...target,
-    apiKey,
-    cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
+    kind: 'resolved',
+    target: {
+      ...target,
+      apiKey,
+      cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
+    },
   };
 }
 
@@ -2886,17 +2966,17 @@ function createDesktopMastraMemoryProviderBindings({
   readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
 }): {
   readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
-  readonly observationalMemoryModel: ReturnType<typeof createProvider> | undefined;
+  readonly observationalMemoryModel: ReturnType<typeof createLanguageModelProvider> | undefined;
 } {
   if (observationalMemoryTarget?.provider === 'local' && !runtimeData?.localLlmHostClient) {
-    // Without the injected client, createProvider would construct the
+    // Without the injected client, createLanguageModelProvider would construct the
     // in-process browser backend, which cannot run in Electron main.
     throw new Error(
       'Local observational memory model requires the llm-host proxy client on the runtime.'
     );
   }
   const observationalMemoryModel = observationalMemoryTarget
-    ? createProvider(
+    ? createLanguageModelProvider(
         observationalMemoryTarget.provider,
         observationalMemoryTarget.apiKey,
         observationalMemoryTarget.model,

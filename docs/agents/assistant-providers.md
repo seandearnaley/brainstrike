@@ -95,6 +95,19 @@
     healthy provider availability. Saving, replacing, or deleting a provider
     secret must re-probe assistant status so an unreadable-key error cannot
     remain latched after the credential is repaired.
+    Provider-backed memory follows the same authority chain. Observational
+    memory and semantic recall distinguish `disabled`, request-key `resolved`,
+    and `needs_async_resolution` states; the latter performs the env/keychain
+    lookup before constructing Mastra memory. A completed lookup with no key
+    returns HTTP 400 `memory_credential_missing` with the bounded provider and
+    `observational_memory` or `semantic_recall` feature. A `SecretReadError`
+    remains `api_key_unreadable`.
+    The renderer and Settings consume the validated configured-provider signal
+    from assistant status. A hosted observer or embedder without a configured
+    key is excluded from selectable memory models, prevents its feature toggle,
+    and blocks the next run with actionable guidance; built-in local models
+    remain keyless. The serialized model target is never sufficient evidence
+    that a credential exists.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

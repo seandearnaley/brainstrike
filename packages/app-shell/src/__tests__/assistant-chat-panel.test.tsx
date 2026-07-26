@@ -156,6 +156,30 @@ describe('AssistantChatPanel', () => {
     );
   });
 
+  it('passes validated provider key sources to assistant memory gating', async () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      providerKeySources: [
+        { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { provider: 'anthropic', source: 'stored' },
+      ],
+      providers: ['openai', 'anthropic'],
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKeySources: [
+          { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+          { provider: 'anthropic', source: 'stored' },
+        ],
+      }),
+      undefined
+    );
+  });
+
   it('seeds the model picker with the provider advertised by Hosted Web', async () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
       model: 'gpt-5.6-terra',

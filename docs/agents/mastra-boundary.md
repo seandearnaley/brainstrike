@@ -202,6 +202,23 @@ Migrating class 1 is permitted but unmotivated; it buys nothing today.
 > Tickets and docs saying "RuntimeContext" are naming a symbol that is not a
 > Mastra export.
 
+### Memory-model credential boundary
+
+Serialized memory settings may name an observational model target, but that
+target is configuration only. `PgliteMastraMemoryOptions` requires a concrete
+`LanguageModel` whenever observational memory is enabled and throws before
+storage initialization when it is absent. It must never hand Mastra the bare
+routing string from settings: doing so would let Mastra resolve credentials
+from its own environment or gateway and bypass Brainstrike's env/keychain
+contract.
+
+Desktop resolves the provider credential first, then
+`createLanguageModelProvider` materializes any model-router descriptor (including
+OpenRouter) into a concrete model carrying that explicit credential. Request
+state distinguishes `disabled`, `resolved`, and `needs_async_resolution`; only
+the last state may consult the desktop credential resolver. An absent credential
+after that lookup is a typed failure, never an implicit provider fallback.
+
 ## R6 STREAM MAPPER OWNERSHIP
 
 **Brainstrike's typed `StreamChunk` union is the UI and persistence contract.

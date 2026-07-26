@@ -1,4 +1,6 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import type { DbModel, DbProvider } from '../../stores/model-registry-store';
 
 export interface AssistantMemoryModelOption {
@@ -59,14 +61,19 @@ function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOpt
 
 export function listObservationalMemoryModelOptions(args: {
   models: readonly DbModel[];
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
   providers: readonly DbProvider[];
 }): readonly AssistantMemoryModelOption[] {
   const providers = providerById(args.providers);
+  const providersWithKeys = new Set<string>(
+    args.providerKeySources.map(({ provider }) => provider)
+  );
   return args.models
     .filter((model) => {
       const provider = providers.get(model.providerId);
       return (
         OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(model.providerId) &&
+        (model.providerId === 'local' || providersWithKeys.has(model.providerId)) &&
         isEnabledProvider(provider) &&
         model.isEnabled &&
         model.capabilities.type === 'llm'

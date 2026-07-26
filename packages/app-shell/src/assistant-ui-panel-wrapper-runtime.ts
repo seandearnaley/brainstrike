@@ -13,6 +13,7 @@ import {
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
+  type ProviderKeySource,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
@@ -68,6 +69,13 @@ import type {
 } from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
+const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'local',
+]);
 
 export interface AssistantOperatingRootBinding {
   readonly displayName: string;
@@ -186,12 +194,46 @@ function resolveSemanticRecallDisabledReason(
   return;
 }
 
+function resolveObservationalMemoryDisabledReason(args: {
+  memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+}): string | undefined {
+  if (!args.memorySettings.observationalMemory.enabled) {
+    return;
+  }
+
+  const modelTarget = args.memorySettings.observationalMemory.modelTarget;
+  const separatorIndex = modelTarget.indexOf('/');
+  if (separatorIndex <= 0 || separatorIndex === modelTarget.length - 1) {
+    return 'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.';
+  }
+
+  const providerId = modelTarget.slice(0, separatorIndex);
+  if (
+    !(
+      isSupportedProvider(providerId) && SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(providerId)
+    )
+  ) {
+    return `Observational memory model target ${modelTarget} uses an unsupported provider. Reconfigure Assistant Memory settings.`;
+  }
+  if (providerId === 'local') {
+    return;
+  }
+  if (args.providerKeySources.some(({ provider }) => provider === providerId)) {
+    return;
+  }
+
+  const providerName = getProviderDefinition(providerId).displayName;
+  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.`;
+}
+
 export function resolveAssistantMemoryDisabledReason(args: {
   assistantThreadRepository: AssistantThreadRepository | null;
   dbError: Error | null;
   dbInitializing: boolean;
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
+  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   memoryLoadState:
     | { readonly status: 'idle' }
     | { readonly status: 'loading' }
@@ -219,6 +261,13 @@ export function resolveAssistantMemoryDisabledReason(args: {
   }
   if (!args.selectedMemoryThreadId) {
     return 'Assistant memory has no selected thread for this workspace.';
+  }
+  const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
+    memorySettings: args.memorySettings,
+    providerKeySources: args.providerKeySources ?? [],
+  });
+  if (observationalMemoryDisabledReason) {
+    return observationalMemoryDisabledReason;
   }
   const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason(args.memorySettings);
   if (semanticRecallDisabledReason) {

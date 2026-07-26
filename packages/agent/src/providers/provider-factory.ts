@@ -1,7 +1,11 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { MastraModelConfig } from '@mastra/core/llm';
+import {
+  type MastraModelConfig,
+  ModelRouterLanguageModel,
+  type OpenAICompatibleConfig,
+} from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
@@ -27,6 +31,8 @@ export type LocalLanguageModelFactory = (
 ) => unknown;
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
+
+export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 
 /**
  * Register the browser-only Transformers model factory.
@@ -215,6 +221,33 @@ export function createProvider(
         detail: `Unsupported provider: ${provider}`,
       });
   }
+}
+
+/**
+ * Resolve any supported provider configuration into a concrete language model.
+ *
+ * Mastra's agent runtime accepts model-router descriptors, but persistent
+ * memory must never receive one: a descriptor can defer credential lookup back
+ * to Mastra instead of using Brainstrike's explicit env/keychain resolution.
+ */
+export function createLanguageModelProvider(
+  provider: SupportedProvider | string,
+  apiKey?: string,
+  model?: string,
+  runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
+): ConcreteLanguageModel {
+  const modelConfig = createProvider(provider, apiKey, model, runtime);
+  if (
+    typeof modelConfig === 'object' &&
+    modelConfig !== null &&
+    'doGenerate' in modelConfig &&
+    'doStream' in modelConfig
+  ) {
+    return modelConfig as ConcreteLanguageModel;
+  }
+  return new ModelRouterLanguageModel(
+    modelConfig as ConstructorParameters<typeof ModelRouterLanguageModel>[0]
+  );
 }
 
 /**
