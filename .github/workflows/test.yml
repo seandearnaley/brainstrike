@@ -431,6 +431,11 @@ jobs:
   # report those checks as `skipped` and grey out the merge box (measured on
   # PR #1664). See the header comment in coverage.yml for the full rationale.
   # Coverage is advisory; nightly-coverage.yml remains the threshold gate.
+  # This is enforced, not just asserted: the ruleset requires only Static, Unit,
+  # Build, Web E2E and Desktop E2E, so Codecov statuses cannot block a merge, and
+  # codecov.yml marks them `informational` to stop them rendering a misleading
+  # red X. scripts/verify-codecov-status-contract.mjs guards that pairing; see
+  # docs/agents/ci-quality.md § "Codecov statuses are non-gating".
 
   build:
     name: Build

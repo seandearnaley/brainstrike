@@ -214,6 +214,43 @@ per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
 `synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
 per-PR coverage is advisory Codecov patch signal only.
 
+#### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
+
+The ruleset requires exactly five contexts — `Static`, `Unit`, `Build`,
+`Web E2E`, `Desktop E2E` — all produced by `test.yml`. `codecov/patch` and
+`codecov/project` are NOT among them, so a failing Codecov status can never
+block a merge; it only renders a red X and an `UNSTABLE` merge box.
+
+`codecov.yml` nonetheless carried the comment *"Keep patch coverage blocking
+instead"*, contradicting both `test.yml` and this document. Two sources plus the
+ruleset agreed; `codecov.yml` was the outlier and was simply wrong. Resolved by
+making the config match reality in Codecov's own documented way:
+`coverage.status.patch.default.informational: true` — the status still posts and
+still shows the percentage, it just never fails
+(<https://docs.codecov.com/docs/commit-status>). `target`/`threshold` are kept
+deliberately so the number remains visible.
+
+Two independent reasons patch coverage must not gate here, both measured:
+
+- **PR uploads are affected-only**, so patch % is systematically understated. On
+  PR #2024 Codecov reported **27.86%** while the three changed source files
+  measured **97.5% / 98.07% / 98.21%** locally.
+- **A stacked PR has no BASE report**, so Codecov cannot compare at all and says
+  so: *"Please upload report for BASE"*. `codecov.allow_pseudo_compare` (default
+  true) does not rescue this — it substitutes a parent commit for skipped-CI and
+  merge-commit bases, not for a branch that never uploaded a report.
+
+The authoritative gate is unchanged: `nightly-coverage.yml` →
+`pnpm coverage:enforce` (`scripts/enforce-coverage.mjs`), full unfiltered
+coverage with ratcheted per-package thresholds, which opens an issue on failure.
+
+`scripts/verify-codecov-status-contract.mjs` (run by `pnpm test:scripts` in the
+Static job) fails if any Codecov status is enabled without `informational: true`,
+and fails loudly rather than vacuously if the `coverage.status` block or the file
+disappears. **Re-gating is a two-part change**: PR uploads must become complete
+AND the context must be added to the ruleset. Doing one without the other
+re-creates the contradiction.
+
 Nightly package coverage uses six static GitHub Actions matrix shards plus a
 separate DB job. Five package shards isolate the measured heavyweight lanes;
 the sixth is a negative-filter remainder, so a new package with a
