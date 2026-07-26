@@ -309,9 +309,10 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
         default: 'files',
         description:
           "'files' (default) lists matching file paths with match counts; 'content' returns line-level matches with context",
+        enumValues: ['files', 'content'],
         name: 'outputMode',
         required: false,
-        type: 'string',
+        type: 'enum',
       },
       {
         default: 0,
@@ -692,6 +693,21 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
         type: 'number',
       },
       {
+        description: 'Maximum chunks to pack into the result, independent of the candidate limit',
+        max: 100,
+        min: 1,
+        name: 'maxChunks',
+        required: false,
+        type: 'number',
+      },
+      {
+        description: 'Optional selection snapshot id to retrieve against a pinned selection',
+        minLength: 1,
+        name: 'selectionSnapshotId',
+        required: false,
+        type: 'string',
+      },
+      {
         default: 0.3,
         description: 'Minimum similarity threshold',
         max: 1,
@@ -726,14 +742,14 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     parameters: [
       {
         description:
-          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql. Fields the chosen mode does not use are ignored",
+          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan. Fields the chosen mode does not use are ignored",
         enumValues: ['query', 'listTables', 'describeTable', 'explain'],
         name: 'mode',
         required: true,
         type: 'enum',
       },
       {
-        description: 'A single SQL SELECT. Required for mode=query',
+        description: 'A single SQL SELECT. Required for mode=query and mode=explain',
         maxLength: 4000,
         name: 'sql',
         required: false,
@@ -1140,6 +1156,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       {
         description: 'Optional folder id for multi-root workspaces',
         name: 'folderId',
+        required: false,
+        type: 'string',
+      },
+      {
+        description:
+          'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.',
+        name: 'root',
         required: false,
         type: 'string',
       },

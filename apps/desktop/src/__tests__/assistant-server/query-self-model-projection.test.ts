@@ -264,6 +264,34 @@ describe('querySelf model projection', () => {
     expect(projection.value).toContain('more plan line(s) omitted');
   });
 
+  it('fits a plan whose INDIVIDUAL lines are enormous', () => {
+    // Dropping lines cannot help when one surviving line is itself over budget:
+    // the head/tail loop preserves the last PLAN_TAIL_LINES unconditionally, so
+    // a single huge line reached `assertProjectionFits` and threw a RangeError —
+    // from inside `toModelOutput`, OUTSIDE `runQuerySelf`'s catch, so the model
+    // saw an opaque failure rather than a usable plan.
+    //
+    // Not hypothetical: a `Filter` on a long IN-list or a wide row-type
+    // expression renders as one very long line of EXPLAIN text.
+    const plan = [
+      `Seq Scan on wide  (cost=0.00..1.00 rows=1 width=8)  Filter: (${'x'.repeat(9000)})`,
+      `  ->  Nested Loop  Join Filter: (${'y'.repeat(9000)})`,
+      'Planning Time: 0.412 ms',
+      `Execution Time: 1843.9 ms  (${'z'.repeat(9000)})`,
+    ];
+
+    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    // The clip is stated, and the informative prefix of each line survives.
+    expect(projection.value).toContain('Seq Scan on wide');
+    expect(projection.value).toContain('Planning Time: 0.412 ms');
+    expect(projection.value).toContain('Execution Time: 1843.9 ms');
+    expect(projection.value).toMatch(/more characters clipped/);
+  });
+
   it('rejects a malformed result rather than projecting nonsense', () => {
     expect(() => projectQuerySelfModelOutput({ nope: true })).toThrow(TypeError);
   });

@@ -89,32 +89,29 @@ export class AgentSqlCostRejectedError extends Error {
 }
 
 /**
- * Plan node types that must CONSUME their entire input before producing a row.
+ * Plan node types that pass the row cap's demand straight through to their
+ * child: each emits at most one row per input row and never buffers.
  *
- * A `Recursive Union` beneath one of these cannot be bounded by the row cap:
- * the parent drains the recursion first, so an unterminated CTE runs until
- * memory is exhausted. Beneath a pipelining parent (`CTE Scan`) the same
- * recursion stops as soon as the LIMIT is satisfied.
+ * An ALLOWLIST, not a denylist, and that direction is the whole point. The
+ * previous version listed DRAINING parents (`Sort`, `Aggregate`, …) and treated
+ * everything else as safe — which is fail-open, and two distinct shapes walked
+ * through it: a `CTE Scan` carrying a row-suppressing `Filter` (the cap never
+ * fills, so the recursion never stops), and node types that simply were not on
+ * the list. Two entries on that list — `HashAggregate` and `GroupAggregate` —
+ * were not even real values: PostgreSQL emits `"Node Type": "Aggregate"` with
+ * `"Strategy": "Hashed"`. Anything unrecognised now fails CLOSED.
  *
- * Measured, not assumed (PGlite 0.5.3):
- *   LIMIT over a pipelined unbounded recursion -> 51 rows in 869ms
- *   count(*) over the same recursion           -> still running after 10s
- *
- * Deliberately conservative: an unrecognised blocking node should fail CLOSED,
- * so add to this set rather than narrowing it.
+ * Measured on PGlite 0.5.3 / PG 18.3:
+ *   Limit -> CTE Scan -> Recursive Union            -> 51 rows in 869ms
+ *   Limit -> CTE Scan (Filter) -> Recursive Union   -> still running after 10s
+ *   Limit -> Aggregate -> Recursive Union           -> still running after 10s
  */
-const DRAINING_PLAN_NODE_TYPES: ReadonlySet<string> = new Set([
-  'Aggregate',
-  'GroupAggregate',
-  'Group',
-  'Hash',
-  'HashAggregate',
-  'Materialize',
-  'Memoize',
-  'SetOp',
-  'Sort',
-  'Unique',
-  'WindowAgg',
+const PASS_THROUGH_PLAN_NODE_TYPES: ReadonlySet<string> = new Set([
+  'CTE Scan',
+  // `OFFSET` plans as a nested `Limit`; both still propagate row demand down.
+  'Limit',
+  'Result',
+  'Subquery Scan',
 ]);
 
 const RECURSIVE_UNION_NODE_TYPE = 'Recursive Union';
@@ -131,18 +128,19 @@ const WORKTABLE_SCAN_NODE_TYPE = 'WorkTable Scan';
  */
 export class AgentSqlUnboundedRecursionError extends Error {
   constructor() {
-    // Deliberately covers BOTH rejection paths without naming a cause that may
-    // not apply: query() rejects only when a draining parent defeats the row
-    // cap, while explain(analyze) rejects any unbounded recursion because it has
-    // no row cap at all. A message asserting "an aggregate or sort" would be
-    // wrong on the analyze path.
+    // Deliberately names no single cause. There are four, and asserting the
+    // wrong one teaches the model to make the wrong edit: a draining parent
+    // (aggregate/sort), a predicate above the CTE that suppresses every row so
+    // the cap never fills, a second recursion in the same plan, or EXPLAIN
+    // ANALYZE, which has no row cap at all.
     super(
       'Query refused: this recursive CTE has no termination condition the planner can see, and ' +
-        'nothing here can bound it — either it feeds an aggregate/sort that must drain it before ' +
-        'returning a row, or it is running under EXPLAIN ANALYZE, which has no row cap. An ' +
-        'unterminated recursion would exhaust memory. Add a termination condition to the ' +
-        'recursive term (for example WHERE depth < 10, or a join that runs out of rows), or ' +
-        'select from the CTE directly instead of aggregating or ordering it.'
+        'nothing in this statement can bound it — it feeds an aggregate or sort that must drain ' +
+        'it, a WHERE clause above it suppresses the rows the row cap counts, another recursion ' +
+        'shares the plan, or it is running under EXPLAIN ANALYZE. An unterminated recursion would ' +
+        'exhaust memory. Add a termination condition to the recursive term (for example ' +
+        'WHERE depth < 10, or a join that runs out of rows), and select from the CTE directly ' +
+        'rather than aggregating, ordering, or filtering it from outside.'
     );
     this.name = 'AgentSqlUnboundedRecursionError';
   }
@@ -236,8 +234,10 @@ interface ExplainPlanNode {
   'Join Filter'?: string;
   'Merge Cond'?: string;
   'Node Type'?: string;
+  'One-Time Filter'?: string;
   Plans?: ExplainPlanNode[];
   'Recheck Cond'?: string;
+  'TID Cond'?: string;
   'Total Cost'?: number;
 }
 
@@ -263,8 +263,26 @@ const RECURSION_BOUND_KEYS = [
   'Index Cond',
   'Join Filter',
   'Merge Cond',
+  'One-Time Filter',
   'Recheck Cond',
+  'TID Cond',
 ] as const satisfies readonly (keyof ExplainPlanNode)[];
+
+/**
+ * True when a node forwards the row cap's demand to its child unchanged.
+ *
+ * A pass-through NODE TYPE is not sufficient — the same keys that BOUND a
+ * recursive term (above) SUPPRESS rows when they sit above one. `CTE Scan` with
+ * `Filter="(n < 0)"` pipelines perfectly and still emits nothing, so `LIMIT 51`
+ * is never satisfied and the recursion below runs forever.
+ */
+function isPassThrough(node: ExplainPlanNode): boolean {
+  const nodeType = node['Node Type'];
+  if (nodeType === undefined || !PASS_THROUGH_PLAN_NODE_TYPES.has(nodeType)) {
+    return false;
+  }
+  return !RECURSION_BOUND_KEYS.some((key) => typeof node[key] === 'string');
+}
 
 /**
  * True when a `Recursive Union`'s recursive term has NO restriction anywhere
@@ -286,36 +304,72 @@ function hasUnboundedRecursiveTerm(recursiveUnion: ExplainPlanNode): boolean {
   return walk(recursiveUnion, false);
 }
 
+interface RecursiveUnionSite {
+  /** True when EVERY node between the plan root and this one is pass-through. */
+  reachedByRowCap: boolean;
+  unboundedTerm: boolean;
+}
+
+/**
+ * Collects EVERY `Recursive Union` in the plan, with whether the row cap's
+ * demand actually reaches it.
+ *
+ * Collects rather than short-circuits because a traversal that stopped at the
+ * first `Recursive Union` never examined the rest. PostgreSQL plans two CTEs as
+ * SIBLINGS under one `CTE Scan` (verified on PGlite 0.5.3), so a bounded
+ * recursion encountered first hid an unbounded one beside it — fail-open.
+ *
+ * Descends THROUGH a `Recursive Union` as well: its own subplans may contain
+ * further recursion.
+ */
+function collectRecursiveUnions(
+  plan: ExplainPlanNode,
+  reachedByRowCap: boolean,
+  found: RecursiveUnionSite[] = []
+): RecursiveUnionSite[] {
+  const isRecursiveUnion = plan['Node Type'] === RECURSIVE_UNION_NODE_TYPE;
+  if (isRecursiveUnion) {
+    found.push({ reachedByRowCap, unboundedTerm: hasUnboundedRecursiveTerm(plan) });
+  }
+  const childReach = !isRecursiveUnion && reachedByRowCap && isPassThrough(plan);
+  for (const child of plan.Plans ?? []) {
+    collectRecursiveUnions(child, childReach, found);
+  }
+  return found;
+}
+
 /**
  * Finds a recursion this call cannot bound.
  *
- * `requireDrainingParent` is the load-bearing difference between the two
- * callers, and getting it wrong reopens the hang through a different door:
+ * `boundedByRowCap` is the load-bearing difference between the two callers, and
+ * getting it wrong reopens the hang through a different door:
  *
- * - `query()` wraps the statement in `LIMIT n+1`, so a recursion feeding a
- *   PIPELINING parent stops as soon as the cap is satisfied (measured: 51 rows
- *   in 869ms). Only a DRAINING parent defeats the cap, so the draining
- *   condition is required there.
+ * - `query()` wraps the statement in `LIMIT n+1`. That cap stops a recursion
+ *   only when every node above it forwards the demand AND emits its input
+ *   (measured: 51 rows in 869ms). A draining parent OR a row-suppressing
+ *   predicate defeats it.
  * - `explain(analyze)` has NO wrapper — `EXPLAIN` is invalid inside a FROM
  *   subquery — and `ANALYZE` runs the statement to completion. The parent shape
  *   is therefore irrelevant: ANY unbounded recursive term is unstoppable.
  *   Measured: `EXPLAIN ANALYZE … SELECT n FROM r` was still running after 10s.
+ *
+ * When several recursions coexist, an unbounded one is refused unconditionally:
+ * the plan tree does not record which parent drains which sibling CTE, so there
+ * is no sound way to clear it. Fail closed.
  */
 function findUnboundableRecursion(
   plan: ExplainPlanNode,
-  options: { requireDrainingParent: boolean },
-  drainingAbove = false
+  options: { boundedByRowCap: boolean }
 ): boolean {
-  const nodeType = plan['Node Type'];
-  if (nodeType === RECURSIVE_UNION_NODE_TYPE) {
-    if (!options.requireDrainingParent || drainingAbove) {
-      return hasUnboundedRecursiveTerm(plan);
-    }
+  const sites = collectRecursiveUnions(plan, options.boundedByRowCap);
+  const unbounded = sites.filter((site) => site.unboundedTerm);
+  if (unbounded.length === 0) {
     return false;
   }
-  const draining =
-    drainingAbove || (nodeType !== undefined && DRAINING_PLAN_NODE_TYPES.has(nodeType));
-  return (plan.Plans ?? []).some((child) => findUnboundableRecursion(child, options, draining));
+  if (!options.boundedByRowCap || sites.length > 1) {
+    return true;
+  }
+  return !unbounded[0]?.reachedByRowCap;
 }
 
 function readPlanRoot(rows: ExplainRow[]): { cost: number; plan: ExplainPlanNode } {
@@ -353,13 +407,13 @@ export class AgentSqlService {
    * the same read-plan → recursion-guard → cost-ceiling sequence. That is the
    * exact divergence this codebase keeps getting bitten by: the next guard
    * added to one path would silently not apply to the other. The ONLY
-   * difference between the callers is `requireDrainingParent`, and it is now a
-   * named argument rather than an accident.
+   * difference between the callers is `boundedByRowCap`, and it is now a named
+   * argument rather than an accident.
    */
   private async admit(
     tx: AgentSqlTransaction,
     statement: string,
-    options: { requireDrainingParent: boolean }
+    options: { boundedByRowCap: boolean }
   ): Promise<number> {
     const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${statement}`);
     const { cost, plan } = readPlanRoot(explained.rows);
@@ -410,9 +464,9 @@ export class AgentSqlService {
       await tx.exec('SET TRANSACTION READ ONLY');
       await tx.exec(`SET LOCAL ROLE ${AGENT_READONLY_ROLE}`);
 
-      // requireDrainingParent: the LIMIT wrapper below bounds a recursion that
-      // feeds a pipelining parent, so only a draining parent is a problem here.
-      const estimatedCost = await this.admit(tx, wrapped, { requireDrainingParent: true });
+      // boundedByRowCap: the LIMIT wrapper above can stop a recursion, but only
+      // when every plan node between them forwards its demand AND emits rows.
+      const estimatedCost = await this.admit(tx, wrapped, { boundedByRowCap: true });
 
       const result = await tx.query<unknown[]>(wrapped, [], { rowMode: 'array' });
       const truncated = result.rows.length > maxRows;
@@ -459,13 +513,13 @@ export class AgentSqlService {
       await tx.exec(`SET LOCAL ROLE ${AGENT_READONLY_ROLE}`);
 
       if (analyze) {
-        // requireDrainingParent: FALSE — and this is the whole reason the flag
+        // boundedByRowCap: FALSE — and this is the whole reason the flag
         // exists. There is no LIMIT wrapper on this path (EXPLAIN is invalid
         // inside a FROM subquery), so ANALYZE runs the statement to completion
         // and the parent shape is irrelevant: any unbounded recursive term
         // hangs the single connection. Measured before this guard existed:
         // `EXPLAIN ANALYZE … SELECT n FROM r` was still running after 10s.
-        await this.admit(tx, statement, { requireDrainingParent: false });
+        await this.admit(tx, statement, { boundedByRowCap: false });
       }
 
       // TEXT rather than JSON: it is the format every Postgres operator reads,

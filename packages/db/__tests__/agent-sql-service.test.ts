@@ -190,6 +190,26 @@ describe('AgentSqlService sandbox', () => {
     it('rejects empty sql', { timeout: 120_000 }, async () => {
       await expect(service.query('   ')).rejects.toBeInstanceOf(AgentSqlInputError);
     });
+
+    /**
+     * `explain()` does NOT use the subquery wrapper (EXPLAIN is invalid inside a
+     * FROM clause), so it loses the parse-level barrier that stops multi-statement
+     * text on the `query()` path. Nothing pinned that the extended protocol still
+     * refuses it on its own — this does, on both explain modes.
+     */
+    it('rejects multi-statement input through explain, which has no wrapper', {
+      timeout: 120_000,
+    }, async () => {
+      await expect(service.explain('SELECT 1; DROP TABLE file_records;')).rejects.toThrow();
+      await expect(
+        service.explain('SELECT 1; DROP TABLE file_records;', { analyze: true })
+      ).rejects.toThrow();
+
+      const still = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'file_records'`
+      );
+      expect(still.rows[0]?.n).toBe(1);
+    });
   });
 
   /**
@@ -433,6 +453,60 @@ describe('AgentSqlService sandbox', () => {
         'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 20) SELECT count(*)::int AS c FROM r'
       );
       expect(Number(result.rows[0]?.[0])).toBe(20);
+    });
+
+    /**
+     * The row cap bounds EMITTED rows, not PRODUCED ones.
+     *
+     * A draining parent is not the only way to defeat `LIMIT n+1`. A predicate
+     * that never matches suppresses every row, so the cap is never satisfied and
+     * the recursion runs forever underneath a parent that pipelines perfectly:
+     *
+     *   Limit
+     *     CTE Scan  Filter="(n < 0)"   <- emits nothing, so LIMIT never fills
+     *       Recursive Union            <- runs forever
+     *
+     * Measured on PGlite 0.5.3 before the fix: still running after 10s (killed).
+     *
+     * This is why the admission rule is an ALLOWLIST of pass-through parents
+     * rather than a denylist of draining ones — a denylist is fail-open, and
+     * this shape walked straight through two previous versions of the guard.
+     *
+     * Asserted as a rejection on purpose: a regression hangs the db lane instead
+     * of failing, which is itself the signal.
+     */
+    it('refuses recursion whose rows a filter suppresses', { timeout: 120_000 }, async () => {
+      await expect(
+        service.query(`${UNBOUNDED} SELECT n FROM r WHERE n < 0`)
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    /**
+     * Two `Recursive Union` nodes appear as SIBLINGS under one `CTE Scan`
+     * (verified on PGlite 0.5.3), and the plan tree does not say which parent
+     * drains which. A traversal that stopped at the first `Recursive Union` —
+     * bounded, therefore "safe" — never examined the second, which is unbounded
+     * and drained by an `Aggregate`. That is fail-open, so a plan carrying an
+     * unbounded recursion alongside any other recursion is refused outright.
+     */
+    it('refuses an unbounded recursion hidden beside a bounded one', {
+      timeout: 120_000,
+    }, async () => {
+      await expect(
+        service.query(
+          `WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3),
+                          b(m) AS (SELECT 1 UNION ALL SELECT m + 1 FROM b)
+             SELECT a.n, (SELECT count(*) FROM b) AS c FROM a`
+        )
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('ALLOWS an OFFSET above a pipelined recursion', { timeout: 120_000 }, async () => {
+      // The allowlist must not over-reject: `OFFSET` plans as a second `Limit`
+      // node, which still propagates the outer cap's row demand downward.
+      const result = await service.query(`${UNBOUNDED} SELECT n FROM r OFFSET 5`, { maxRows: 3 });
+      expect(result.rows).toHaveLength(3);
+      expect(Number(result.rows[0]?.[0])).toBe(6);
     });
   });
 

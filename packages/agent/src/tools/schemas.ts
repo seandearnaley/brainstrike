@@ -95,7 +95,13 @@ export const QuerySelfInputSchema = z
       .describe(
         "What to do: 'listTables' lists tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan"
       ),
-    sql: z.string().max(4000).optional().describe('The read-only SELECT. Required for mode=query'),
+    sql: z
+      .string()
+      .max(4000)
+      .optional()
+      // "read-only SELECT" is already stated twice in the tool description;
+      // the scarce prompt budget buys the mode list instead.
+      .describe('Required for mode=query and mode=explain'),
     table: z.string().max(128).optional().describe('Table name. Required for mode=describeTable'),
   })
   .strict();

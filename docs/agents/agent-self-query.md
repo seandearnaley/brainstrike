@@ -106,16 +106,46 @@ The distinction is measured, not assumed:
 | --- | --- | --- |
 | `LIMIT` over a pipelined recursion | `Limit → CTE Scan → Recursive Union` | 51 rows in **869 ms** — the row cap bounds it |
 | `count(*)` over the same recursion | `Limit → Aggregate → Recursive Union` | **still running after 10 s** (killed) |
+| `WHERE n < 0` over the same recursion | `Limit → CTE Scan (Filter) → Recursive Union` | **still running after 10 s** (killed) |
 
 So recursion is NOT banned — banning it would break the symbol-graph traversal
-in BST-919, a headline use case. A `Recursive Union` is refused only when BOTH
-hold:
+in BST-919, a headline use case. But the admission rule is an **allowlist of
+pass-through parents**, not a denylist of draining ones, and that direction is
+load-bearing.
 
-1. it sits beneath a **draining** parent (`Aggregate`, `Sort`, `Hash`, …) that
-   must consume the whole input before emitting a row, so the row cap cannot
-   help; **and**
-2. its recursive term carries **no bounding condition** anywhere between the
-   `Recursive Union` and the `WorkTable Scan`.
+A denylist is fail-open, and it failed open twice. The row cap bounds **emitted**
+rows, not **produced** ones, so `Limit → CTE Scan (Filter) → Recursive Union`
+pipelines perfectly, emits nothing, never satisfies `LIMIT n+1`, and runs
+forever — under a parent the denylist called safe. Two of the denylist's own
+entries were not even real values: PostgreSQL emits `"Node Type": "Aggregate"`
+with `"Strategy": "Hashed"`, never `"HashAggregate"` or `"GroupAggregate"`.
+
+A `Recursive Union` with an unbounded recursive term is therefore admitted ONLY
+when all three hold:
+
+1. the row cap exists at all (`query()`, not `explain(analyze)`);
+2. every node between the plan root and it is in
+   `PASS_THROUGH_PLAN_NODE_TYPES` (`Limit`, `CTE Scan`, `Subquery Scan`,
+   `Result`) **and** carries no row-suppressing qual; and
+3. it is the ONLY `Recursive Union` in the plan.
+
+Condition 3 is not paranoia. PostgreSQL plans two CTEs as SIBLINGS under one
+`CTE Scan`, and the plan tree does not record which parent drains which sibling,
+so an unbounded recursion beside a bounded one cannot be soundly cleared:
+
+```
+Limit
+  CTE Scan
+    Recursive Union      ← a: bounded (WorkTable Scan has a Filter)
+    Recursive Union      ← b: UNBOUNDED
+    Aggregate            ← drains b, but nothing in the tree says so
+      CTE Scan
+```
+
+A traversal that stopped at the first `Recursive Union` never examined `b`.
+`collectRecursiveUnions` visits every one, and descends THROUGH them.
+
+### What counts as a bound
 
 A `Filter` on the work table is only ONE way a recursion terminates, and
 treating it as the only one rejected exactly the traversal this guard exists to
@@ -130,15 +160,18 @@ Recursive Union
 ```
 
 `RECURSION_BOUND_KEYS` therefore covers `Filter`, `Hash Cond`, `Merge Cond`,
-`Index Cond`, `Join Filter`, and `Recheck Cond`. Verified for both `UNION ALL`
-and `UNION` (dedup) recursion on PGlite 0.5.3.
+`Index Cond`, `Join Filter`, `One-Time Filter`, `Recheck Cond`, and `TID Cond`.
+Verified for both `UNION ALL` and `UNION` (dedup) recursion on PGlite 0.5.3.
+
+The SAME key set does double duty: above a `Recursive Union` these predicates
+SUPPRESS rows (defeating the cap), below one they BOUND the recursion. That is
+why `isPassThrough` rejects a pass-through node type that carries any of them.
 
 **Honest limit, stated because it matters:** a bound is not a *proof* of
 termination — `WHERE n > 0` on an incrementing counter still runs forever. This
 catches the accidental and the obvious case, which is the realistic failure
 mode. It is a heuristic layered on the row cap, not a decidability result, and
-`DRAINING_PLAN_NODE_TYPES` is deliberately conservative so an unrecognised
-blocking node fails CLOSED.
+an unrecognised node type now fails CLOSED by construction.
 
 ### ⚠️ `analyze` uses a DIFFERENT predicate, and this is load-bearing
 
@@ -154,7 +187,7 @@ EXPLAIN (ANALYZE) WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r)
 SELECT n FROM r      -- still running after 10s (killed)
 ```
 
-That is why `findUnboundableRecursion` takes `requireDrainingParent`: `true` for
+That is why `findUnboundableRecursion` takes `boundedByRowCap`: `true` for
 `query()`, `false` for `explain(analyze)`. Both call the SAME
 `AgentSqlService.admit()`, so a future guard cannot apply to one path and not the
 other — the original duplication is exactly how this regression got in.
