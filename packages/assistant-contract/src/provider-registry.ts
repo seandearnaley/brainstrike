@@ -677,10 +677,17 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
-        contextWindow: 1_048_756,
+        // Native 1M context, 128K max output — attributed to Meituan's LongCat
+        // API Platform in the 2026-06-30 release coverage. First-party docs
+        // (longcat.ai/docs) 404'd at audit time, so this is secondary sourcing:
+        // re-confirm against Meituan's console before treating it as settled.
+        // Replaces a 1_048_756 context (a transposition of 2^20 matching no
+        // published limit) and a 262_144 output ceiling of unknown origin —
+        // double the provider figure, and absent from OpenRouter's listing too.
+        contextWindow: 1_000_000,
         id: 'meituan/longcat-2.0',
         label: 'LongCat 2.0 (OpenRouter)',
-        maxOutputTokens: 262_144,
+        maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
         supportsStreaming: true,
         type: 'llm',
@@ -690,12 +697,15 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         contextWindow: 1_048_576,
         id: 'thinkingmachines/inkling',
         label: 'Inkling (OpenRouter)',
+        // Thinking Machines' model card documents reasoning benchmarks but
+        // publishes no effort-level parameter, so nothing is declared here:
+        // absence is never guessed as support, and the shipped entry's full
+        // effort enum turned the deliberate `unknown` badge into a silent yes.
+        // This places Inkling in the same undeclared bucket as 32 of the 38
+        // OpenRouter rows (including the default openai/gpt-5.6-terra), where
+        // efforts resolve from live OpenRouter metadata rather than this table.
+        // Declare efforts here only once the provider publishes them.
         pricing: { inputPerMTok: 1, outputPerMTok: 4.05 },
-        reasoning: {
-          defaultEffort: 'high',
-          mandatory: false,
-          supportedEfforts: ['max', 'high', 'medium', 'low', 'minimal', 'none'],
-        },
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
