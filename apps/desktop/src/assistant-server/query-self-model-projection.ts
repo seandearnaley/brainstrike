@@ -131,7 +131,12 @@ function projectTables(result: Extract<QuerySelfResult, { kind: 'tables' }>): st
     const estimate = table.estimatedRows < 0 ? '?' : String(Math.round(table.estimatedRows));
     return `${escapeCell(table.name)}${CELL_SEPARATOR}~${estimate}`;
   });
-  body.push('next: call querySelf with describe="<table>" for columns, then with sql');
+  // Model-facing next-step guidance MUST reference fields the .strict() schema
+  // accepts: the pre-BST-923 wording said `describe="<table>"`, so a model that
+  // followed its own tool output got a ZodError on the very next call.
+  body.push(
+    'next: call querySelf with mode="describeTable" table="<name>", then mode="query" with sql'
+  );
   return fitLines(
     `tables | count=${result.tables.length}`,
     body,
@@ -143,7 +148,7 @@ function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): 
   if (result.columns.length === 0) {
     return [
       `columns | table=${singleLine(result.table)} | not_found`,
-      'no such table in the public schema; call describe=true to list readable tables',
+      'no such table in the public schema; call mode="listTables" to list readable tables',
     ];
   }
   const body = result.columns.map(

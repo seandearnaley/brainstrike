@@ -1,4 +1,4 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET, QuerySelfInputSchema } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
 import { projectQuerySelfModelOutput } from '../../assistant-server/query-self-model-projection';
 
@@ -82,13 +82,36 @@ describe('querySelf model projection', () => {
     expect(projection.value).not.toContain('~0');
   });
 
-  it('teaches the describe → query sequence in table mode', () => {
+  /**
+   * Every `field="…"` token a hint mentions must be a real key of the
+   * .strict() input schema, checked against the SCHEMA ITSELF rather than a
+   * hand-written string list. The pre-BST-923 hint said `describe="<table>"` —
+   * a removed field — so a model that followed its own tool output got a
+   * ZodError on the very next call, and the old assertion PINNED the broken
+   * string. Deriving from the schema turns any future field rename into a
+   * failure here instead of only the one stale spelling we already know.
+   */
+  function expectHintFieldsExistInSchema(value: string): void {
+    const schemaKeys = new Set(Object.keys(QuerySelfInputSchema.shape));
+    const tokens = [...value.matchAll(/(\w+)="/gu)].map((match) => match[1] ?? '');
+    expect(tokens.length).toBeGreaterThan(0);
+    for (const token of tokens) {
+      expect(schemaKeys.has(token), `hint references '${token}', not a schema field`).toBe(true);
+    }
+  }
+
+  it('teaches the describeTable → query sequence with FIELDS THE SCHEMA ACCEPTS', () => {
     const projection = projectQuerySelfModelOutput({
       kind: 'tables',
       tables: [{ estimatedRows: 1, name: 'roots' }],
     });
 
-    expect(projection.value).toContain('describe="<table>"');
+    expect(projection.value).toContain('mode="describeTable"');
+    expectHintFieldsExistInSchema(projection.value);
+    // And the exact call the hint teaches must actually parse.
+    expect(QuerySelfInputSchema.safeParse({ mode: 'describeTable', table: 'roots' }).success).toBe(
+      true
+    );
   });
 
   it('projects column descriptions with nullability', () => {
@@ -113,7 +136,9 @@ describe('querySelf model projection', () => {
     });
 
     expect(projection.value).toContain('not_found');
-    expect(projection.value).toContain('describe=true');
+    expect(projection.value).toContain('mode="listTables"');
+    expectHintFieldsExistInSchema(projection.value);
+    expect(QuerySelfInputSchema.safeParse({ mode: 'listTables' }).success).toBe(true);
   });
 
   it('fits a very wide column list inside the budget', () => {
