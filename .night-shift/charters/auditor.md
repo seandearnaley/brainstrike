@@ -4,7 +4,7 @@
 NAME=Auditor
 ROLE=outcome scoreboard & authority-promotion proposer
 SCHEDULE="43 9 * * 1"   # weekly, Monday 09:43 scheduler-local — after the Monday chain
-MODEL=gpt-5.6-sol
+MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=report-only (scoreboard + proposal tickets; never edits charters)
 CHARTER_VERSION=1

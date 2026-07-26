@@ -21,9 +21,11 @@ const FAILURE_CONCLUSIONS = new Set([
 
 function usage() {
   return [
-    'Usage: collect-watch-evidence.mjs --repo <path> [options]',
+    'Usage: collect-watch-evidence.mjs --repo <path> --window-start <iso> [options]',
     '',
     'Options:',
+    '  --window-start <iso>       REQUIRED. ISO-8601 UTC of your previous checkpoint; the',
+    '                             charter fixes the run window to [previous checkpoint, wake time]',
     '  --watermark <key[,key...]>  Completed-run keys from automation memory, each <runId>@<attempt>;',
     '                             pass "none" for an explicitly empty prior set',
     '  --checkpoint-watermark <hash:...>',
@@ -42,6 +44,7 @@ export function parseArgs(argv) {
   let pretty = false;
   let watermarkSupplied = false;
   let checkpointWatermark;
+  let windowStart;
   const watermark = [];
   const preflightPorts = [];
 
@@ -95,6 +98,25 @@ export function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (argument === '--window-start') {
+      windowStart = argv[index + 1];
+      // Match collect-chronicle-evidence.mjs's parseUtcIso: require the Z.
+      // Date.parse treats an offsetless date-time as LOCAL time and a bare
+      // date as UTC, so both would pass a parseability-only check and shift
+      // the window by the host's offset — silently, since the collector then
+      // reports it back as a confident `...Z`. Values like `0` and
+      // `07/26/2026` also parse. Enforce the shape, not just parseability.
+      if (
+        !(windowStart && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(windowStart)) ||
+        Number.isNaN(Date.parse(windowStart))
+      ) {
+        throw new Error(
+          '--window-start requires an ISO-8601 UTC timestamp ending in Z (e.g. 2026-07-26T00:00:00Z)'
+        );
+      }
+      index += 1;
+      continue;
+    }
     if (argument === '--pretty') {
       pretty = true;
       continue;
@@ -108,6 +130,14 @@ export function parseArgs(argv) {
 
   if (!repo) {
     throw new Error('--repo is required');
+  }
+
+  // The charter fixes the run window to [previous checkpoint, wake time]; the
+  // start of that window is a fact the caller holds, never one to infer here.
+  if (!windowStart) {
+    throw new Error(
+      '--window-start is required (ISO-8601 UTC of your previous checkpoint); window guessing is intentionally disabled'
+    );
   }
 
   const invalidWatermark = watermark.find((value) => !/^\d+@\d+$/.test(value));
@@ -135,6 +165,7 @@ export function parseArgs(argv) {
     repo,
     watermark: normalizedWatermark,
     watermarkSupplied,
+    windowStart: new Date(windowStart).toISOString(),
   };
 }
 
@@ -215,17 +246,18 @@ function assignment(charter, name) {
 }
 
 export function deriveCharter(charter) {
-  const lookbackMatch = charter.match(/last\s+(\d+)h\s+of runs/i);
   const fingerprintMatch = charter.match(
     /fingerprint\s*=\s*\n?\s*watch:<workflow>:<test-title-slug>:<error-class>/i
   );
-  if (!lookbackMatch) {
-    throw new Error('Could not derive the workflow lookback from Watch charter');
+  if (!/fix\s+your\s+run\s+window\s+to\s*\[previous\s+checkpoint,\s+wake\s+time\]/i.test(charter)) {
+    throw new Error('Could not derive the checkpoint-anchored run window from Watch charter');
   }
   if (!fingerprintMatch) {
     throw new Error('Could not derive the fingerprint shape from Watch charter');
   }
-  if (!/derive the list from \.github\/workflows\//i.test(charter)) {
+  // Charters are hand-wrapped prose: match across line breaks, never on a
+  // single-space literal. A wrap is not a contract change.
+  if (!/derive the\s+(?:workflow\s+)?list\s+from\s+\.github\/workflows\//i.test(charter)) {
     throw new Error('Watch charter no longer requires workflow derivation');
   }
   if (!/NEVER fix, skip, quarantine, retry-mask, or edit tests/i.test(charter)) {
@@ -235,7 +267,6 @@ export function deriveCharter(charter) {
   return {
     autonomy: assignment(charter, 'AUTONOMY'),
     fingerprintShape: 'watch:<workflow>:<test-title-slug>:<error-class>',
-    lookbackHours: Number.parseInt(lookbackMatch[1], 10),
     name: assignment(charter, 'NAME'),
     role: assignment(charter, 'ROLE'),
     stateIssue: assignment(charter, 'STATE_ISSUE'),
@@ -466,14 +497,25 @@ function normalizeRun(run, workflow) {
   };
 }
 
-function collectRunSnapshot(repo, repository, workflows, since) {
-  const created = encodeURIComponent(`>=${since}`);
+function collectRunSnapshot(repo, repository, workflows, since, until) {
+  const created = encodeURIComponent(`${since}..${until}`);
   const endpoint = `/repos/${repository}/actions/runs?per_page=100&created=${created}`;
   const workflowById = new Map(workflows.map((workflow) => [workflow.id, workflow]));
+  const sinceMs = Date.parse(since);
+  const untilMs = Date.parse(until);
   const runs = flattenObjectPages(apiPages(repo, endpoint), 'workflow_runs', endpoint)
     .filter((runItem) => workflowById.has(runItem.workflow_id))
     .map((runItem) => normalizeRun(runItem, workflowById.get(runItem.workflow_id)))
-    .filter((runItem) => Date.parse(runItem.createdAt) >= Date.parse(since));
+    // BOTH endpoints. The charter's window is [previous checkpoint, wake time]
+    // and PROTOCOL.md freezes it at wake: a run that starts after `until` —
+    // including one that appears between the two snapshot reads — belongs to
+    // the NEXT run's window. Filtering only the lower bound lets tomorrow's
+    // evidence into today's watermark, and it does so identically in both
+    // snapshots, so the stability check cannot catch it.
+    .filter((runItem) => {
+      const createdMs = Date.parse(runItem.createdAt);
+      return createdMs >= sinceMs && createdMs <= untilMs;
+    });
   return runs.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 }
 
@@ -1087,14 +1129,24 @@ async function main() {
   const derived = deriveWatchedWorkflows(repo);
   const workflows = resolveWorkflowMetadata(repo, identity.nameWithOwner, derived.watched);
   const until = new Date();
-  const since = new Date(until.getTime() - charter.lookbackHours * 60 * 60 * 1000);
+  const since = new Date(args.windowStart);
+  if (since > until) {
+    throw new Error('--window-start is in the future; the run window would be empty');
+  }
   const firstRunSnapshot = collectRunSnapshot(
     repo,
     identity.nameWithOwner,
     workflows,
-    since.toISOString()
+    since.toISOString(),
+    until.toISOString()
   );
-  const runs = collectRunSnapshot(repo, identity.nameWithOwner, workflows, since.toISOString());
+  const runs = collectRunSnapshot(
+    repo,
+    identity.nameWithOwner,
+    workflows,
+    since.toISOString(),
+    until.toISOString()
+  );
   assertStableRunSnapshots(firstRunSnapshot, runs);
   const watermark = compareWatermark({
     previousKeys: args.watermark,

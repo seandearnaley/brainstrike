@@ -17,7 +17,7 @@ Execute the repository-owned Watch charter without duplicating its policy. Use t
 6. Resolve the prior completed workflow-run keys from automation memory, each shaped `<runId>@<attempt>`. Pass those keys and the prior checkpoint hash to the collector together; it normalizes the keys with the same numeric-aware ordering used for output and fails unless their SHA-256 matches the checkpoint. The checkpoint hash is authority for the watched set; memory only preserves the per-run state needed for delta comparison. Never substitute a main SHA, date, remembered run list, or an unverified memory value. For the one-time migration from a legacy checkpoint that contains run IDs instead of a protocol-valid hash, treat that wake as a first run (omit both watermark arguments), rely on Linear fingerprint dedupe for the re-observed window, and write the new hash plus completed-run memory; do not invent `@1` suffixes for old IDs.
 7. Resolve conflicts in this order: repository instructions and subsystem contracts, protocol, Watch charter, this skill.
 
-Keep the live charter authoritative for the workflow lookback, fingerprint shape, investigation limit, ticket fields, quarantine recommendation, state title, labels, and schedule. Re-derive them every run.
+Keep the live charter authoritative for the run-window contract, fingerprint shape, investigation limit, ticket fields, quarantine recommendation, state title, labels, and schedule. Re-derive them every run. The window is `[previous checkpoint, wake time]`, not a fixed lookback — the charter stopped naming a duration and `deriveCharter` no longer returns one.
 
 Stay diagnose-only. Never edit code or tests, retry or cancel CI, weaken an assertion or timeout, add retry masking, create a branch or PR, merge, deploy, migrate, or touch live data.
 
@@ -29,16 +29,23 @@ Create a temporary output directory and run:
 watch_logs="$(mktemp -d)"
 node .agents/skills/watch-automation/scripts/collect-watch-evidence.mjs \
   --repo /absolute/path/to/brainstrike \
+  --window-start "$previous_checkpoint_utc" \
   --watermark "$completed_run_keys" \
   --checkpoint-watermark "$checkpoint_watermark" \
   --pretty > "$watch_logs/evidence.json"
 ```
 
+`--window-start` is REQUIRED. The collector will not infer it; window guessing is intentionally disabled, exactly like watermark guessing.
+
+Pass the PREVIOUS RUN'S `window.until`, taken from its evidence JSON — not the timestamp its checkpoint comment was written at. Those are different instants: `window.until` is captured when collection starts, while the checkpoint is written at the END of the run, up to a full wall-clock budget later. Using the checkpoint time leaves a gap the width of an entire run in which a nightly E2E can land and belong to NO window — this run fetched runs before its `until`, and the next starts after the checkpoint, so the watermark comparison never sees it and the failure is silently dropped rather than deferred to tomorrow as the charter promises. Consecutive `window.until` values abut exactly, and it is still a fact the caller holds rather than one the collector infers.
+
+Record that `window.until` in your checkpoint line so the next wake can read it back.
+
 Omit both watermark arguments only for a proven first run or the documented one-time migration. When prior memory records an explicitly empty set, pass `--watermark none` with its matching `--checkpoint-watermark` instead of omitting either flag; empty prior state and first run are distinct.
 
 The collector performs no repository or external writes. It:
 
-- validates the live Watch safety boundary and derives the lookback from the charter;
+- validates the live Watch safety boundary and the charter's checkpoint-anchored run window, then bounds collection by the `--window-start` you supplied;
 - derives scheduled E2E and nightly workflows from local workflow definitions, then requires an exact path-and-name match with GitHub; every scheduled workflow is emitted in `scheduledWorkflows` with an `included` marker and exclusion reason so watch coverage can be vetted each run;
 - verifies the prior completed-run keys reproduce the supplied checkpoint hash, then fetches every run of the watched workflows in the live window regardless of trigger event (scheduled and manually dispatched runs alike) with complete pagination and compares attempt-aware `<runId>@<attempt>` keys with that verified prior state;
 - stops before job/log collection only when the completed-run key set is unchanged and no run in the window is still pending; any pending run is listed in `watermark.pendingRuns` and forces collection;

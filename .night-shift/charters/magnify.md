@@ -4,8 +4,8 @@
 NAME=Magnify
 ROLE=adversarial deep reviewer (elevated-risk PRs only)
 SCHEDULE="41 */4 * * *"   # every 4 hours, offset to run after Assay
-MODEL=gpt-5.6-terra
-REASONING_EFFORT=high
+MODEL=gpt-5.6-sol
+REASONING_EFFORT=medium
 AUTONOMY=comment-only (one findings comment per PR HEAD; never approves,
          never requests changes, never edits code, never labels)
 CHARTER_VERSION=1

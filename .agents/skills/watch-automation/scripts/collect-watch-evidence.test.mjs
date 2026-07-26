@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -29,14 +29,14 @@ CHARTER_VERSION=2
 STATE_ISSUE="[automation-state] Watch"
 WALL_CLOCK_BUDGET=45 minutes
 NEVER fix, skip, quarantine, retry-mask, or edit tests
-pull the last 24h of runs (derive the list from .github/workflows/)
+fix your run window to [previous checkpoint, wake time] and pull the runs
+for E2E and nightly workflows inside it (derive the list from .github/workflows/)
 fingerprint =
 watch:<workflow>:<test-title-slug>:<error-class>
 `;
   assert.deepEqual(deriveCharter(charter), {
     autonomy: 'diagnose-only',
     fingerprintShape: 'watch:<workflow>:<test-title-slug>:<error-class>',
-    lookbackHours: 24,
     name: 'Watch',
     role: 'flake investigator',
     stateIssue: '[automation-state] Watch',
@@ -47,6 +47,23 @@ watch:<workflow>:<test-title-slug>:<error-class>
     () => deriveCharter(charter.replace('NEVER fix', 'Avoid fixing')),
     /safety boundary is missing/
   );
+  assert.throws(
+    () => deriveCharter(charter.replace('fix your run window to', 'look back a while for')),
+    /checkpoint-anchored run window/
+  );
+});
+
+// Regression guard for the #2008 class of failure: every assertion above runs
+// against an inline fixture, so a charter edit that breaks the real parser
+// leaves this suite green. Parse the COMMITTED charter too — that is the file
+// the loop actually reads at wake.
+test('deriveCharter parses the committed Watch charter on disk', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const live = readFileSync(path.join(repoRoot, '.night-shift/charters/watch.md'), 'utf8');
+  const derived = deriveCharter(live);
+  assert.equal(derived.name, 'Watch');
+  assert.match(derived.autonomy, /^diagnose-only\b/);
+  assert.equal(derived.fingerprintShape, 'watch:<workflow>:<test-title-slug>:<error-class>');
 });
 
 test('parseArgs validates watermark keys, empty watermark, and preflight ports', () => {
@@ -54,6 +71,8 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
   const parsed = parseArgs([
     '--repo',
     '/x',
+    '--window-start',
+    '2026-07-26T00:00:00Z',
     '--watermark',
     '124@2,123@1',
     '--checkpoint-watermark',
@@ -69,6 +88,8 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
   const explicitlyEmpty = parseArgs([
     '--repo',
     '/x',
+    '--window-start',
+    '2026-07-26T00:00:00Z',
     '--watermark',
     'none',
     '--checkpoint-watermark',
@@ -76,11 +97,19 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
   ]);
   assert.deepEqual(explicitlyEmpty.watermark, []);
   assert.equal(explicitlyEmpty.watermarkSupplied, true);
-  assert.equal(parseArgs(['--repo', '/x']).watermarkSupplied, false);
+  assert.equal(
+    parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00Z']).watermarkSupplied,
+    false
+  );
 
-  assert.throws(() => parseArgs(['--repo', '/x', '--watermark', '123']), /<runId>@<attempt>/);
   assert.throws(
-    () => parseArgs(['--repo', '/x', '--watermark', '123@1']),
+    () =>
+      parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00Z', '--watermark', '123']),
+    /<runId>@<attempt>/
+  );
+  assert.throws(
+    () =>
+      parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00Z', '--watermark', '123@1']),
     /must be supplied together/
   );
   assert.throws(
@@ -88,6 +117,8 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
       parseArgs([
         '--repo',
         '/x',
+        '--window-start',
+        '2026-07-26T00:00:00Z',
         '--watermark',
         '123@1',
         '--checkpoint-watermark',
@@ -97,6 +128,34 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
   );
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', '8080abc']), /integer/);
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', ' 8080']), /integer/);
+});
+
+test('parseArgs requires an explicit run-window start and never infers one', () => {
+  assert.throws(() => parseArgs(['--repo', '/x']), /--window-start is required/);
+  for (const rejected of [
+    'yesterday',
+    // Offsetless date-time: ES parses as LOCAL time, shifting the window by
+    // the host offset. Bare date and epoch-ish values parse too.
+    '2026-07-26T00:00:00',
+    '2026-07-26',
+    '0',
+    '07/26/2026',
+    '2026-07-26T00:00:00+00:00',
+  ]) {
+    assert.throws(
+      () => parseArgs(['--repo', '/x', '--window-start', rejected]),
+      /ending in Z/,
+      `expected --window-start to reject ${rejected}`
+    );
+  }
+  assert.equal(
+    parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00.500Z']).windowStart,
+    '2026-07-26T00:00:00.500Z'
+  );
+  assert.equal(
+    parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00Z']).windowStart,
+    '2026-07-26T00:00:00.000Z'
+  );
 });
 
 test('deriveWatchedWorkflows lists every scheduled workflow with inclusion markers', () => {

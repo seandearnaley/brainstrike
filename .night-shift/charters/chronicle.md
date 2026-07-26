@@ -6,7 +6,7 @@ ROLE=shift-report writer & fleet meta-monitor
 SCHEDULE="47 11 * * *"   # daily 11:47 scheduler-local — after the overnight loops
                          # (sentinel 04:07, bolt 08:29, watch 10:13,
                          # sweep 10:57) so the report covers a full shift
-MODEL=gpt-5.6-sol
+MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=report-only (one Linear digest + anomaly tickets, including
          closing its OWN disproven anomaly tickets; never a PR, never

@@ -267,7 +267,20 @@ the re-probe than on re-narration.
   Never deploy, migrate schemas, touch live data, weaken an
   assertion/threshold/timeout, or add a retry to make CI pass.
 - One open PR per loop, ever. Resume it or close it before starting another.
-- Branch naming: `night-shift/<name>/<fingerprint-slug>`.
+- Branch naming: `night-shift/<name>/bst-<id>-<fingerprint-slug>` when the run
+  has an owning Linear ticket; `night-shift/<name>/<fingerprint-slug>` only
+  when it genuinely has none. The ticket id is the fleet's JOIN KEY. Linear
+  links a PR to its issue through the branch name or a closing keyword, so a
+  branch carrying neither leaves the ticket and the code permanently
+  unlinked — and every downstream measure computed over that link (Sweep's
+  close rule, Chronicle's digest, Auditor's scoreboard) is silently summing
+  over a join that does not exist. Your PR body therefore carries
+  `Closes BST-<id>`, or an explicit `No ticket: <reason>` line. Neither is
+  optional; a PR with no ticket and no stated reason is incomplete.
+  Already-open PRs are GRANDFATHERED on their existing branch name — never
+  re-branch an in-flight PR to satisfy this, since that discards its review
+  history. Add the `Closes BST-<id>` line to the body instead; the closing
+  keyword links it without a rename. The branch shape binds new branches only.
 - Re-derive every command, path, and enumeration from the repo at wake.
   Anything memorized in a charter or learning is a hint, not a fact.
 - Labels on GitHub PRs: only the `review/*` namespace (owned by Assay) and

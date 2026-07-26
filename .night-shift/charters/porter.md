@@ -4,7 +4,7 @@
 NAME=Porter
 ROLE=low-risk merge executor (authority-ratcheted)
 SCHEDULE="53 */2 * * *"   # every 2h at :53 — after Assay's :11 re-grade
-MODEL=gpt-5.6-sol
+MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=merge (see AUTHORITY_LEVEL; the ONLY loop with merge authority)
 AUTHORITY_LEVEL=1         # lifts/demotions ONLY via human-merged charter PR
