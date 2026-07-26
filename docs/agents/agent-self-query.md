@@ -424,6 +424,34 @@ deletion cascades; re-extraction rides `chunks_processed_at = NULL` exactly
 like chunks. Symbol persistence failure degrades LOUDLY to
 chunks-without-symbols — it never fails the file import.
 
+### The hybrid one-statement query (BST-935) — PROVEN admitted
+
+The original BST-919 pitch — traverse the graph, then rank the reachable
+files' chunks with the BM25 and vector arms, fused, in ONE statement — runs
+through the sandbox **as-is**. Measured, not assumed: the bounded traversal
+(depth filter + join conds below the `Recursive Union`) is admitted by the
+recursion guard on BOTH paths — `query()`'s row-capped wrapper and
+`explain(analyze)`'s uncapped one — and the plan sits far under the cost
+ceiling. No sandbox change was needed; the guard's allowlist direction
+survives contact with its headline use case.
+
+Two idioms in the statement are NOT discoverable via `describe` (an operator
+and an index name appear in no column listing), which is why the tool
+description carries them:
+
+- BM25 arm: `content <@> to_bm25query('terms', 'idx_file_chunks_content_bm25')`
+  — raw score is ascending-better; the repositories negate it. english config
+  does not split camelCase identifiers.
+- Vector arm: `embedding <=> (SELECT embedding FROM file_chunks WHERE …)` —
+  a STORED chunk embedding as the query vector, so the whole statement needs
+  no out-of-band embedding computation.
+
+The canonical statement (traversal → `reachable` file set → both arms scoped
+to it → RRF fusion `sum(1.0 / (60 + position))`) is pinned executable in
+`packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, including the
+scoping proof: a bait chunk with content and embedding identical to the seed
+chunk, in an unreachable file, must not appear.
+
 ---
 
 ## Using it for database tuning
@@ -495,6 +523,8 @@ the model has seen most of.
   independent preamble proofs, result shaping, transaction hygiene, describe mode
 - `packages/db/__tests__/migration-074-agent-readonly-role.test.ts` — role
   attributes, idempotency, grant coverage tripwire
+- `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts` — the hybrid
+  one-statement query admitted end-to-end, arm scoping via the traversal
 - `packages/assistant-contract/src/__tests__/user-personas.test.ts` — persona
   exclusion
 - `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts` and
