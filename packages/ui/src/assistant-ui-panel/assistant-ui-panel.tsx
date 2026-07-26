@@ -19,7 +19,6 @@ import {
   // Fast Refresh signature and throws "Rendered fewer hooks" -- crashing ChatThreadUI
   // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
   unstable_useSlashCommandAdapter as useSlashCommandAdapter,
-  useThreadViewport,
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -33,7 +32,6 @@ import {
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
-  ArrowDownIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -72,7 +70,12 @@ import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
-import { AssistantThreadStateProvider } from './assistant-thread-state-context';
+import {
+  type ThreadMessageComponents,
+  ThreadMessagesRegion,
+  ThreadScrollRegion,
+  ThreadScrollToBottom,
+} from './assistant-thread-messages';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
@@ -657,58 +660,6 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 // rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 
-/**
- * Positioning context for the scroller + its floating affordance, and the one
- * place that publishes the viewport's pinned state to CSS (BST-896).
- *
- * `data-pinned` mirrors the viewport store's `isAtBottom`, which is what scopes
- * `overflow-anchor: none` in overrides.css: JS only writes scrollTop while the
- * thread is pinned, so native scroll anchoring must stay ON everywhere else —
- * it is the only thing holding the reading position still when content ABOVE
- * the viewport resizes (markdown/Shiki resolving, images loading, tool cards
- * folding). Reading it here rather than in ChatThreadUI keeps the pin
- * transition from re-rendering the whole thread subtree.
- */
-export const ThreadScrollRegion = ({ children }: { children: ReactNode }) => {
-  const isAtBottom = useThreadViewport((state) => state.isAtBottom);
-
-  return (
-    <div className="bs-thread-scroll-region" data-pinned={isAtBottom ? 'true' : undefined}>
-      {children}
-    </div>
-  );
-};
-
-/**
- * Floating "jump to latest" affordance (BST-896).
- *
- * BEHAVIOR is entirely the library primitive's: `ThreadPrimitive.ScrollToBottom`
- * reads the viewport store's `isAtBottom` and renders itself DISABLED while the
- * thread is pinned at the bottom (overrides.css then fades it out), otherwise it
- * scrolls to the latest message — which re-engages auto-follow.
- *
- * NO explicit `behavior`: an explicit option would bypass CSS `scroll-behavior`
- * and therefore also bypass the global `prefers-reduced-motion` override in
- * globals.css. The default routes through the store's `'auto'`, which defers to
- * CSS (library `smooth`, forced to `auto` under reduced motion). It would be
- * inert anyway — the outer→inner viewport forwarding drops the behavior option.
- *
- * MOUNT SITE matters: it renders inside `.bs-thread-scroll-region` as a SIBLING
- * of the scroller, never inside it, so it stays anchored above the composer
- * instead of scrolling away with the messages. That works outside the viewport
- * element because `AssistantRuntimeProvider` mounts an outer viewport store that
- * mirrors `isAtBottom` up and forwards `scrollToBottom` down.
- */
-export const ThreadScrollToBottom = () => (
-  <ThreadPrimitive.ScrollToBottom
-    aria-label="Scroll to latest messages"
-    className="bs-scroll-to-bottom"
-    data-testid="assistant-scroll-to-bottom"
-  >
-    <ArrowDownIcon aria-hidden="true" />
-  </ThreadPrimitive.ScrollToBottom>
-);
-
 // Shared props for inner chat components
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   /** Composer image-attachment availability (attach button, paste, previews). */
@@ -1207,57 +1158,19 @@ const ChatThreadUI = ({
       />
       <FollowUpQueueBridge threadKey={threadKey} />
       {/**
-       * Messages Viewport
-       *
-       * CRITICAL: className only includes "aui-thread-viewport" - NO additional Tailwind classes
-       *
-       * WHY: The @assistant-ui library applies its own classes via @apply in CSS.
-       * Adding Tailwind classes here (flex-1, overflow-y-auto, etc.) creates conflicts.
-       *
-       * All layout constraints are handled in overrides.css with !important declarations
-       * to override the library's defaults.
-       *
-       * SCROLL REGION: the wrapper below is the viewport's positioning context.
-       * It takes over the viewport's flex role so the floating jump-to-latest
-       * button can overlay the messages without scrolling away with them, and
-       * without being a child of the scroller, and it publishes the pinned
-       * state that scopes `overflow-anchor`. Auto-follow while pinned at the
-       * bottom is the library's (`autoScroll`); the two `scrollToBottomOn*`
-       * opt-outs are the reload-hydration contract — reopening a thread must
-       * restore its position, never jump to the newest message.
+       * Messages viewport + scroll region + jump-to-latest button, all owned by
+       * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
+       * between the CSS-containment tier and the end-anchored virtualized tier
+       * by message count and publishes the choice as `data-thread-render-tier`.
+       * Both tiers render THIS components map, so message markup never forks.
        *
        * See: packages/ui/src/assistant-ui-panel/overrides.css
        */}
-      <ThreadScrollRegion>
-        <ThreadPrimitive.Viewport
-          aria-atomic="false"
-          aria-live="polite"
-          autoScroll
-          className="aui-thread-viewport"
-          data-testid="assistant-ui-viewport"
-          scrollToBottomOnInitialize={false}
-          scrollToBottomOnRunStart={false}
-        >
-          {disabledReason && (
-            <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
-              {disabledReason}
-            </p>
-          )}
-          <AssistantThreadStateProvider>
-            <ThreadPrimitive.Messages
-              components={{
-                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                AssistantMessage,
-                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                EditComposer,
-                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                UserMessage,
-              }}
-            />
-          </AssistantThreadStateProvider>
-        </ThreadPrimitive.Viewport>
-        <ThreadScrollToBottom />
-      </ThreadScrollRegion>
+      <ThreadMessagesRegion
+        components={THREAD_MESSAGE_COMPONENTS}
+        {...(disabledReason ? { disabledReason } : {})}
+        {...(threadKey ? { threadKey } : {})}
+      />
 
       {/**
        * Composer: Fixed at bottom of thread
@@ -1874,5 +1787,21 @@ const ProviderModelHeader = ({
 };
 
 export { ProviderSettingsPanel } from './provider-settings-panel';
+/** Re-exported at their original home so consumers/tests keep one import path. */
+export { ThreadScrollRegion, ThreadScrollToBottom };
+
+/**
+ * The message components BOTH render tiers use (BST-897). Declared here, after
+ * the components themselves, so the static and virtualized lists cannot drift
+ * apart — the tier only decides WHICH messages mount, never HOW they render.
+ */
+const THREAD_MESSAGE_COMPONENTS: ThreadMessageComponents = {
+  /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+  AssistantMessage,
+  /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+  EditComposer,
+  /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+  UserMessage,
+};
 
 AssistantUiPanel.displayName = 'AssistantUiPanel';

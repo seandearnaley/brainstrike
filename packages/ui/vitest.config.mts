@@ -119,8 +119,25 @@ export default defineConfig({
         },
       },
       {
+        // Pre-bundle the React-dependent deps the browser suite mounts. Without
+        // this they are discovered mid-run and re-optimized into a SECOND
+        // dependency graph with its own React copy — the renderer then hits
+        // "Cannot read properties of null (reading 'useReducer')" the first time
+        // a virtualized thread mounts.
+        optimizeDeps: {
+          include: [
+            '@assistant-ui/react',
+            '@tanstack/react-virtual',
+            '@testing-library/jest-dom/vitest',
+            '@testing-library/react',
+            'react',
+            'react-dom',
+            'react-dom/client',
+          ],
+        },
         resolve: {
           alias: workspaceAliases,
+          dedupe: ['react', 'react-dom'],
         },
         test: {
           ...browserProject.test,

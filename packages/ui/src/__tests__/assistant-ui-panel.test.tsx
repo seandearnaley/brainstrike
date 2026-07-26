@@ -294,6 +294,13 @@ vi.mock('@assistant-ui/react', () => {
           {children}
         </button>
       ),
+      // Virtualized tier (BST-897) escape hatch. These render-shape tests use a
+      // handful of messages, so the renderer always resolves to the static tier
+      // and this branch never mounts — it exists so the module surface matches.
+      Unstable_MessageById: ({ components }: MessagesProps) => {
+        const Assistant = components?.AssistantMessage;
+        return Assistant ? <Assistant /> : null;
+      },
       Viewport: Primitive,
     },
     unstable_useSlashCommandAdapter: () => ({
@@ -301,6 +308,8 @@ vi.mock('@assistant-ui/react', () => {
       categoryItems: () => [],
       search: () => [],
     }),
+    // Drives the render-tier choice (BST-897); an empty thread stays static.
+    unstable_useThreadMessageIds: () => [],
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAttachment: () => ({ content: undefined, file: undefined, name: 'attachment' }),
     useAui: () => ({

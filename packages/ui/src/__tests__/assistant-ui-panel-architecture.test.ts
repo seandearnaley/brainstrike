@@ -263,29 +263,42 @@ describe('assistant UI panel architecture', () => {
 
   it('owns thread scrolling with a stick-to-bottom viewport and a floating jump-to-latest button (BST-896)', () => {
     const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    // BST-897 moved the scroll region itself into its own module (the two-tier
+    // renderer owns the viewport, the message list and the jump button); the
+    // panel keeps only the composition site. These invariants moved with it.
+    const regionSource = readSource('assistant-ui-panel/assistant-thread-messages.tsx');
     const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    expect(panelSource).toContain("from './assistant-thread-messages'");
+    expect(panelSource).toContain('<ThreadMessagesRegion');
 
     // Persistence contract (docs/agents/assistant-persistence.md): reopening a
     // thread restores its scroll position — it must never jump on initialize
     // or when a run starts.
-    expect(panelSource).toContain('scrollToBottomOnInitialize={false}');
-    expect(panelSource).toContain('scrollToBottomOnRunStart={false}');
+    expect(regionSource).toContain('scrollToBottomOnInitialize={false}');
+    expect(regionSource).toContain('scrollToBottomOnRunStart={false}');
 
     // The button is a SIBLING of the scroller inside the positioned scroll
     // region, so it stays put instead of scrolling away with the messages.
-    const regionStart = panelSource.indexOf('<ThreadScrollRegion>');
-    const viewportStart = panelSource.indexOf('<ThreadPrimitive.Viewport');
-    const buttonStart = panelSource.indexOf('<ThreadScrollToBottom />');
+    const regionStart = regionSource.indexOf('<ThreadScrollRegion>');
+    const viewportStart = regionSource.indexOf('<ThreadPrimitive.Viewport');
+    const buttonStart = regionSource.indexOf('<ThreadScrollToBottom');
     expect(regionStart).toBeGreaterThan(-1);
     expect(regionStart).toBeLessThan(viewportStart);
-    expect(buttonStart).toBeGreaterThan(panelSource.indexOf('</ThreadPrimitive.Viewport>'));
-    expect(panelSource).toContain('ThreadPrimitive.ScrollToBottom');
-    expect(panelSource).toContain('data-testid="assistant-scroll-to-bottom"');
+    expect(buttonStart).toBeGreaterThan(regionSource.indexOf('</ThreadPrimitive.Viewport>'));
+    expect(regionSource).toContain('ThreadPrimitive.ScrollToBottom');
+    // BST-897: the button's chrome (class, icon, label, test id) is declared
+    // ONCE and shared by both tiers — only the behaviour differs.
+    expect(regionSource).toContain("'data-testid': 'assistant-scroll-to-bottom'");
+    expect(regionSource.match(/JUMP_TO_LATEST_PROPS/g)?.length).toBeGreaterThanOrEqual(3);
 
     // Reduced motion: an explicit `behavior` option would bypass CSS
     // scroll-behavior and therefore globals.css's prefers-reduced-motion
-    // override, so the primitive must NOT carry one.
-    expect(panelSource).not.toContain('behavior="smooth"');
+    // override, so the primitive must NOT carry one. (BST-897's virtualized
+    // tier is the documented exception — there the behavior drives the
+    // virtualizer's scroll state machine, so it checks the media query itself.)
+    expect(regionSource).not.toContain('behavior="smooth"');
+    expect(regionSource).toContain('prefersReducedMotion()');
 
     // Scroll anchoring is opted OUT only while pinned (JS owns scrollTop
     // there); scrolled up it is the reader's only protection against content
@@ -293,7 +306,7 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain(
       '.bs-thread-scroll-region[data-pinned="true"] .aui-thread-viewport {\n  overflow-anchor: none;\n}'
     );
-    expect(panelSource).toContain("data-pinned={isAtBottom ? 'true' : undefined}");
+    expect(regionSource).toContain("data-pinned={isAtBottom ? 'true' : undefined}");
     expect(cssSource).toContain('.bs-scroll-to-bottom');
     expect(cssSource).toContain('.bs-scroll-to-bottom:focus-visible');
 
@@ -309,6 +322,40 @@ describe('assistant UI panel architecture', () => {
     for (const removed of ['bs-history-control', 'data-history-collapsed', 'nth-last-child']) {
       expect(cssSource).not.toContain(removed);
     }
+  });
+
+  it('renders threads through an explicit two-tier renderer (BST-897)', () => {
+    const regionSource = readSource('assistant-ui-panel/assistant-thread-messages.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    // The switch point is a single exported constant — never a magic number
+    // duplicated between the renderer and its tests.
+    expect(regionSource).toMatch(/export const THREAD_VIRTUALIZATION_THRESHOLD = \d+;/);
+    expect(regionSource).toContain('export const THREAD_MESSAGE_ESTIMATED_HEIGHT_PX');
+
+    // NO SILENT FALLBACKS: the active tier is observable in the DOM.
+    expect(regionSource).toContain('data-thread-render-tier={tier}');
+
+    // Tier 2 is the library's documented virtualization escape hatch: message
+    // ids drive the list, and the SAME components map renders both tiers.
+    expect(regionSource).toContain('unstable_useThreadMessageIds');
+    expect(regionSource).toContain('ThreadPrimitive.Unstable_MessageById');
+    expect(regionSource).toContain('getItemKey');
+    expect(regionSource).toContain("anchorTo: 'end'");
+    expect(regionSource).toContain('followOnAppend');
+
+    // One scroll owner per tier: the library auto-scrolls only on the static
+    // tier; on the virtual tier the virtualizer owns scrollTop outright.
+    expect(regionSource).toContain("autoScroll={tier === 'static'}");
+    expect(regionSource).toContain("scrollToBottomOnThreadSwitch={tier === 'static'}");
+
+    // Tier 1 containment: applied to message roots but NEVER to the last
+    // (streaming) row, and never on the virtualized tier.
+    expect(cssSource).toContain('content-visibility: auto');
+    expect(cssSource).toContain('contain-intrinsic-size: auto');
+    expect(cssSource).toContain('[data-thread-render-tier="static"]');
+    expect(cssSource).toContain(':not(:last-child)');
+    expect(cssSource).toContain('[data-thread-render-tier="virtual"]');
   });
 
   it('only animates the chain-of-thought pill while reasoning is running', () => {
