@@ -290,7 +290,7 @@ intent. It is a REQUIRED `mode` discriminator, so the model states what it wants
 and fields the mode does not use are ignored by contract:
 
 ```
-mode: 'listTables' | 'describeTable' | 'query'
+mode: 'listTables' | 'describeTable' | 'query' | 'explain'
 ```
 
 Rules for anyone extending this schema:
@@ -338,19 +338,22 @@ entire reason those errors are not sanitised.
 - **Oversized results truncate with a hint** rather than routing through durable
   artifact settlement. A SQL result is trivially re-narrowable by the model,
   unlike a fetched web page that cannot be re-fetched identically.
-- **`sql` and `describe` are mutually exclusive**, enforced by a Zod refinement.
-  A precedence rule would make a malformed call look like it worked.
+- **A REQUIRED `mode` discriminator, and NO cross-field refinement.** The
+  refinement this line used to describe was removed: it failed 100% of real
+  calls under strict function calling (see the section above). A precedence rule
+  would make a malformed call look like it worked, so the model must state its
+  mode and unused fields are ignored by contract.
 
 ---
 
 ## Schema discoverability
 
 A model handed "you may run SQL" against an unknown ~30-table schema
-hallucinates column names. `describe` mode is what makes the tool usable:
+hallucinates column names. The schema modes are what make the tool usable:
 
-- `describe: true` → readable tables with `pg_class.reltuples` estimates
+- `mode: 'listTables'` → readable tables with `pg_class.reltuples` estimates
   (rendered `?` when `-1`, i.e. never analyzed — never a fabricated `0`)
-- `describe: '<table>'` → columns, types, nullability
+- `mode: 'describeTable'` with `table` → columns, types, nullability
 
 It rides the same sandbox because it is just a SELECT: one tool, one permission
 surface, and the schema is derived from the live database rather than duplicated
