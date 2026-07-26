@@ -765,7 +765,8 @@
    Scoped to a DIRECT child of the scroller so it stays a "last message in the
    thread" rule. On the virtualized tier every root is the only child of its
    position wrapper, so an unscoped :last-child would fire on every row; that
-   tier gets its trailing gap from the virtualizer's paddingEnd instead. */
+   tier gets its trailing gap from `.bs-virtual-message[data-last-message]`
+   below, inside the measured box. */
 .aui-thread-viewport > .aui-assistant-message-root:last-child {
   margin-bottom: 0.75rem; /* Small margin, not 96px */
 }

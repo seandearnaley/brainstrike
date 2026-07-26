@@ -346,6 +346,47 @@ describe('virtualized tier (BST-897)', () => {
   });
 });
 
+describe('crossing the virtualization threshold mid-session (BST-897)', () => {
+  test('a reader pinned to the bottom on the static tier stays at the bottom after the switch', async () => {
+    render(<MutableThreadHarness initialCount={THREAD_VIRTUALIZATION_THRESHOLD - 1} />);
+    const viewport = await waitForOverflowingViewport();
+    expect(viewport).toHaveAttribute('data-thread-render-tier', 'static');
+    // The library pins a freshly opened thread; land there before crossing.
+    viewport.scrollTo({ behavior: 'instant', top: viewport.scrollHeight });
+    await waitForPinnedToEnd(viewport);
+
+    fireEvent.click(screen.getByTestId('append'));
+
+    await waitFor(() => {
+      expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
+    });
+    // Pinnedness must be read from BEFORE the swap: afterwards the viewport is
+    // sized by the virtualizer's estimates, not the static list's real height.
+    await waitForPinnedToEnd(viewport);
+    await waitFor(() => {
+      expect(getButton()).toBeDisabled();
+    });
+  });
+
+  test('a reader scrolled up on the static tier is not yanked by the switch', async () => {
+    render(<MutableThreadHarness initialCount={THREAD_VIRTUALIZATION_THRESHOLD - 1} />);
+    const viewport = await waitForOverflowingViewport();
+    await scrollTo(viewport, 0);
+
+    fireEvent.click(screen.getByTestId('append'));
+
+    await waitFor(() => {
+      expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
+    });
+    // Position is not preserved exactly across a re-layout onto estimated row
+    // heights, but the reader must NOT be thrown to the newest message.
+    await waitFor(() => {
+      expect(distanceFromBottom(viewport)).toBeGreaterThan(VIEWPORT_HEIGHT_PX);
+    });
+    expect(getButton()).toBeEnabled();
+  });
+});
+
 describe('thread renderer performance evidence (BST-897)', () => {
   test('reports mounted DOM rows and mount time for both tiers at N=1000', async () => {
     // Tier-1 baseline at the SAME thread size: the un-tiered list the renderer

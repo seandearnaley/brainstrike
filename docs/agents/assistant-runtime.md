@@ -661,7 +661,21 @@ viewport, not by thread length.
   virtual tier anchors to the newest message with `behavior: 'instant'` (never
   animated), but only when the reader was not already scrolled up — a thread
   crossing the threshold mid-session must not yank the viewport away. The
-  anchor re-arms when `threadKey` changes.
+  anchor re-arms when `threadKey` changes or when the thread drops back to the
+  static tier.
+- **Pinnedness at the switch is RECORDED, never measured.** The anchor effect
+  runs after the commit that already swapped the renderer, so the viewport is
+  sized by the virtualizer's ESTIMATES by then, not the static list's real row
+  heights; measuring `scrollHeight` there compares a stale `scrollTop` against a
+  size that just changed, and the verdict flips depending on whether the
+  estimate happens to run above or below the real height. The static tier's own
+  `isAtBottom` is recorded while it is still the truth and read back on the
+  swap.
+- **`aria-live` forks per tier.** Every insertion into a live region is an
+  announcement. Tier 1's only insertions are new messages, so the viewport stays
+  `aria-live="polite"`. Tier 2 mounts and unmounts rows as the user SCROLLS, so
+  the same setting would read out every row entering the overscan window; it is
+  `off` there until a dedicated new-message live region exists.
 - **Reduced motion, tier 2.** The no-explicit-`behavior` rule above is a tier-1
   rule. The virtualizer's behavior argument is not merely forwarded to
   `scrollTo`; it drives the instance's scroll state machine (a `'smooth'`

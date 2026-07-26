@@ -360,6 +360,16 @@ describe('assistant UI panel architecture', () => {
     expect(regionSource).toContain("autoScroll={tier === 'static'}");
     expect(regionSource).toContain("scrollToBottomOnThreadSwitch={tier === 'static'}");
 
+    // Live-region announcements fork per tier: on the virtual tier rows mount
+    // and unmount as the user SCROLLS, and each insertion would be announced.
+    expect(regionSource).toContain("aria-live={tier === 'static' ? 'polite' : 'off'}");
+
+    // Pinnedness at the tier switch is RECORDED from the library's own signal
+    // while the static tier is still mounted — measuring the viewport after the
+    // swap reads the virtualizer's estimated size, not the static geometry.
+    expect(regionSource).toContain('pinnedWhileStatic');
+    expect(regionSource).toContain('useThreadViewport((state) => state.isAtBottom)');
+
     // Tier 1 containment: applied to message roots but NEVER to the last
     // (streaming) row, and never on the virtualized tier.
     expect(cssSource).toContain('content-visibility: auto');

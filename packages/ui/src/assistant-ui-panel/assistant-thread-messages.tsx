@@ -219,6 +219,10 @@ export const ThreadMessagesRegion = ({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Pinnedness as the LIBRARY sees it. The DOM cannot answer this at swap time
+  // (see the anchor effect), so the static tier's own signal is recorded while
+  // it is still the truth.
+  const isAtBottom = useThreadViewport((state) => state.isAtBottom);
 
   // Anything rendered ABOVE the virtual list inside the scroller (the disabled
   // notice) offsets every item; `scrollMargin` is how the virtualizer accounts
@@ -286,20 +290,38 @@ export const ThreadMessagesRegion = ({
    * the newest message explicitly — but only when the user was not already
    * reading further up (a thread that crosses the threshold mid-session must
    * not yank the viewport away). `instant`: never animate an opening position.
+   *
+   * Pinnedness is RECORDED while the static tier is still mounted, never
+   * measured here. This effect runs after the commit that already swapped the
+   * renderer, so the viewport is sized by the virtualizer's ESTIMATES by now,
+   * not by the static list's real heights: measuring `scrollHeight` would
+   * compare a stale `scrollTop` against a size that just changed, and whether
+   * the reader looked "pinned" would depend on whether the estimate happened
+   * to run above or below the real row height.
    */
-  const anchorStateRef = useRef({ enteredVirtual: false, renderedStatic: false, threadKey });
+  const anchorStateRef = useRef({
+    enteredVirtual: false,
+    pinnedWhileStatic: true,
+    renderedStatic: false,
+    threadKey,
+  });
   useLayoutEffect(() => {
     const anchorState = anchorStateRef.current;
     if (anchorState.threadKey !== threadKey) {
       anchorState.threadKey = threadKey;
       anchorState.enteredVirtual = false;
       anchorState.renderedStatic = false;
+      anchorState.pinnedWhileStatic = true;
     }
 
     if (tier === 'static') {
+      anchorState.pinnedWhileStatic = isAtBottom;
       if (messageCount > 0) {
         anchorState.renderedStatic = true;
       }
+      // Re-arm: a thread that drops back under the threshold (branch switch,
+      // message deletion) must anchor again when it next crosses up.
+      anchorState.enteredVirtual = false;
       return;
     }
     if (messageCount === 0 || anchorState.enteredVirtual) {
@@ -307,16 +329,12 @@ export const ThreadMessagesRegion = ({
     }
     anchorState.enteredVirtual = true;
 
-    const viewport = viewportRef.current;
-    const wasPinned =
-      !anchorState.renderedStatic ||
-      (viewport !== null &&
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <=
-          THREAD_END_THRESHOLD_PX);
-    if (wasPinned) {
+    // A thread that opened straight into the virtual tier has no reading
+    // position to preserve — that is the restored-thread case.
+    if (!anchorState.renderedStatic || anchorState.pinnedWhileStatic) {
       virtualizer.scrollToEnd({ behavior: 'instant' });
     }
-  }, [messageCount, threadKey, tier, virtualizer]);
+  }, [isAtBottom, messageCount, threadKey, tier, virtualizer]);
 
   return (
     /**
@@ -333,7 +351,14 @@ export const ThreadMessagesRegion = ({
     <ThreadScrollRegion>
       <ThreadPrimitive.Viewport
         aria-atomic="false"
-        aria-live="polite"
+        // Every insertion into a live region is an announcement. On the static
+        // tier the only insertions are new messages, so "polite" reads them out
+        // as they arrive. On the virtual tier the virtualizer mounts and
+        // unmounts rows as the user SCROLLS, so the same setting would read out
+        // every row entering the overscan window — announcements the user did
+        // not ask for, drowning the ones they did. Off is the lesser loss until
+        // a dedicated new-message live region exists (see assistant-runtime.md).
+        aria-live={tier === 'static' ? 'polite' : 'off'}
         // ONE SCROLL OWNER: on tier 2 the virtualizer writes scrollTop, so
         // every library-driven scroll is switched off — two owners would
         // fight over the same element.
