@@ -424,6 +424,17 @@ async function applyManagedCacheReplacements(
   await tx.query('DELETE FROM file_chunks WHERE file_record_id::text = ANY($1::text[])', [
     replacementIds,
   ]);
+  // Symbol-graph rows share the chunk lifecycle but CANNOT ride the FK
+  // cascade here: a replace UPDATEs the file_records row rather than deleting
+  // it, so without these deletes the pre-edit parse would keep answering
+  // traversal queries forever. Refs first — module-level refs have no
+  // enclosing symbol to cascade from.
+  await tx.query('DELETE FROM file_symbol_refs WHERE file_record_id::text = ANY($1::text[])', [
+    replacementIds,
+  ]);
+  await tx.query('DELETE FROM file_symbols WHERE file_record_id::text = ANY($1::text[])', [
+    replacementIds,
+  ]);
 
   const placeholders = buildValuePlaceholders(replacements.length, REPLACE_VALUE_COLUMNS.length);
   const values = replacements.flatMap((record) => [

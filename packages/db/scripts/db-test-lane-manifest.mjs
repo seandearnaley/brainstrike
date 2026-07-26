@@ -48,6 +48,7 @@ export const dbUnitLaneDefinitions = [
       /^electron-view-filter-presets-repository\.test\.ts$/,
       /^embedding-sets-repository\.test\.ts$/,
       /^file-record-model\.test\.ts$/,
+      /^file-symbols\.test\.ts$/,
       /^managed-cache-batch\.test\.ts$/,
       /^repository-/,
       /^tool-output-artifact-repository\.test\.ts$/,

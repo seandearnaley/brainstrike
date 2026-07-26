@@ -225,6 +225,65 @@ export const fileChunks = pgTable(
 );
 
 // ============================================================================
+// SYMBOL GRAPH TABLES (migration 075, BST-919)
+// ============================================================================
+
+// DDL is owned by numbered migration 075 (+ its customMigrations entry) like
+// every other table here; these definitions exist for typed reads. Refs store
+// NAMES, not resolved symbol ids — cross-file edges are name-joined at query
+// time because symbol rows churn on every file edit. See 075-file-symbols.ts.
+export const fileSymbols = pgTable(
+  'file_symbols',
+  {
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    embeddingSetId: text('embedding_set_id'),
+    endLine: integer('end_line').notNull(),
+    endOffset: integer('end_offset').notNull(),
+    exported: boolean('exported').notNull().default(false),
+    fileRecordId: text('file_record_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
+    kind: text('kind')
+      .$type<'function' | 'class' | 'method' | 'variable' | 'interface' | 'type' | 'enum'>()
+      .notNull(),
+    name: text('name').notNull(),
+    startLine: integer('start_line').notNull(),
+    startOffset: integer('start_offset').notNull(),
+  },
+  (table) => [
+    index('idx_file_symbols_name').on(table.name),
+    index('idx_file_symbols_file_record_id').on(table.fileRecordId),
+    index('idx_file_symbols_embedding_set_id').on(table.embeddingSetId),
+  ]
+);
+
+export const fileSymbolRefs = pgTable(
+  'file_symbol_refs',
+  {
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    embeddingSetId: text('embedding_set_id'),
+    fileRecordId: text('file_record_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    fromSymbolId: text('from_symbol_id').references(() => fileSymbols.id, {
+      onDelete: 'cascade',
+    }),
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<'call' | 'import' | 'extends' | 'implements'>().notNull(),
+    line: integer('line').notNull(),
+    module: text('module'),
+    name: text('name').notNull(),
+  },
+  (table) => [
+    index('idx_file_symbol_refs_name').on(table.name),
+    index('idx_file_symbol_refs_file_record_id').on(table.fileRecordId),
+    index('idx_file_symbol_refs_embedding_set_id').on(table.embeddingSetId),
+    index('idx_file_symbol_refs_from_symbol_id').on(table.fromSymbolId),
+  ]
+);
+
+// ============================================================================
 // SELECTION SNAPSHOTS TABLES
 // ============================================================================
 
