@@ -60,36 +60,41 @@ export type HybridSearchInput = z.infer<typeof HybridSearchInputSchema>;
 // ============================================================================
 
 /**
- * `brainstrike.querySelf` — one read-only SQL statement against Brainstrike's
- * own database, or a schema-discovery request.
+ * `brainstrike.querySelf` — one read-only SQL statement, or a schema lookup.
  *
- * `sql` and `describe` are mutually EXCLUSIVE and exactly one is required. A
- * silent precedence rule ("sql wins") would make a malformed call look like it
- * worked, so both-or-neither is a validation error the model can correct.
+ * `mode` is REQUIRED and is the single source of truth for intent. This shape is
+ * deliberate and was learned the hard way: the first version used optional
+ * `sql`/`describe` fields made mutually exclusive by a `.refine()`, and it was
+ * BROKEN in production. Providers using strict function calling (OpenAI) force
+ * the model to emit EVERY declared property, so a real call arrived as
+ * `{sql: ". ", maxRows: 200, describe: true}` — both fields populated, `sql`
+ * filled with junk — and the refinement rejected every single call.
  *
- * Execution safety lives in `AgentSqlService`, not here — this schema only
- * bounds the shape. See docs/agents/agent-self-query.md.
+ * The fix is not a silent precedence rule ("describe wins"), which would guess
+ * at intent. It is an explicit discriminator: the model STATES what it wants,
+ * unused fields are ignored by contract, and nothing has to be inferred.
+ *
+ * Keep this union-free and refinement-free. Nested unions and cross-field
+ * refinements do not survive provider schema conversion.
  */
 export const QuerySelfInputSchema = z
   .object({
-    describe: z
-      .union([z.literal(true), z.string().min(1).max(128)])
-      .optional()
-      .describe('true lists tables; a table name lists its columns. Not with sql'),
     maxRows: z
       .number()
       .int()
       .min(1)
       .max(200)
       .optional()
-      .describe('Max rows (default 50); truncation is flagged'),
-    sql: z.string().min(1).max(4000).optional().describe('One read-only SELECT. Not with describe'),
+      .describe('Max rows for mode=query (default 50); truncation is flagged'),
+    mode: z
+      .enum(['query', 'listTables', 'describeTable'])
+      .describe(
+        "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql"
+      ),
+    sql: z.string().max(4000).optional().describe('The read-only SELECT. Required for mode=query'),
+    table: z.string().max(128).optional().describe('Table name. Required for mode=describeTable'),
   })
-  .strict()
-  .refine(
-    (value) => (value.sql === undefined) !== (value.describe === undefined),
-    'Provide exactly one of sql or describe.'
-  );
+  .strict();
 
 export type QuerySelfInput = z.infer<typeof QuerySelfInputSchema>;
 

@@ -726,23 +726,29 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     parameters: [
       {
         description:
-          'A single SQL SELECT statement. Writes, DDL, and multiple statements are rejected. Mutually exclusive with describe',
+          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql. Fields the chosen mode does not use are ignored",
+        enumValues: ['query', 'listTables', 'describeTable'],
+        name: 'mode',
+        required: true,
+        type: 'enum',
+      },
+      {
+        description: 'A single SQL SELECT. Required for mode=query',
         maxLength: 4000,
-        minLength: 1,
         name: 'sql',
         required: false,
         type: 'string',
       },
       {
-        description:
-          'Schema discovery: true lists the readable tables with row estimates; a table name returns that table’s columns. Mutually exclusive with sql',
-        name: 'describe',
+        description: 'Table name. Required for mode=describeTable',
+        maxLength: 128,
+        name: 'table',
         required: false,
         type: 'string',
       },
       {
         default: 50,
-        description: 'Maximum rows to return; the result flags truncation when more exist',
+        description: 'Maximum rows for mode=query; the result flags truncation when more exist',
         max: 200,
         min: 1,
         name: 'maxRows',
@@ -751,7 +757,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema mode returns table or column listings',
+      'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema modes return table or column listings',
     toolId: 'brainstrike.querySelf',
   },
 

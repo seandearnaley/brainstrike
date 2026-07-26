@@ -27,6 +27,14 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(),
 }));
 
+// Raised 8250 → 8300 when querySelf gained its required `mode` discriminator.
+// That was a CORRECTNESS fix, not a nicety: with optional mutually-exclusive
+// fields the tool failed 100% of real calls, because providers using strict
+// function calling force the model to emit every declared property. The prose
+// was trimmed twice first (8300 → 8266 → 8258); what remains — the mode
+// instruction, the verified example, and the pg_stat flush warning — all
+// changes model behaviour, so it was not cut further.
+//
 // Raised 7900 → 8250 for `brainstrike.querySelf` (BST-913). The prior ceiling
 // had ONE token of headroom (the surface measured 7899), so it correctly forced
 // this to be a deliberate decision rather than a silent accretion.
@@ -41,7 +49,7 @@ vi.mock('../../db-main', () => ({
 // CI, far too little for another whole tool (200-500 tokens) to slip in
 // unnoticed. If you are here because you added a tool, trim it first and only
 // then raise this — and say in the comment what you traded away.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8250;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8300;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -367,12 +375,12 @@ describe('desktop native tool provider prompt budget', () => {
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
-      // +349 / +1 for the deferred `querySelf` (BST-913); the critical request
+      // +358 / +1 for the deferred `querySelf` (BST-913); the critical request
       // is unchanged, since it is not a critical-tier tool. The description
       // carries a stats-flush warning because PGlite's pg_stat_* counters read
       // ZERO until flushed — without it the model reports "no index is ever
       // used", and a confidently wrong tuning answer is worse than a missing one.
-      eagerDefinitionTokens: 7564,
+      eagerDefinitionTokens: 7573,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,

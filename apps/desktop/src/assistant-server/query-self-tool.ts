@@ -31,7 +31,8 @@ const logger = createLogger('AssistantQuerySelfTool');
 export const QUERY_SELF_TOOL_ID = NATIVE_TOOL_ID.querySelf;
 
 export const QUERY_SELF_ERROR_MESSAGES = {
-  missingInput: 'Provide exactly one of sql or describe.',
+  missingSql: 'mode="query" requires a sql statement.',
+  missingTable: 'mode="describeTable" requires a table name. Use mode="listTables" to see them.',
   queryFailed: 'Self-query failed. Please try again.',
 } as const;
 
@@ -143,22 +144,27 @@ export async function runQuerySelf(
     const db = await getDatabase();
     const service = new AgentSqlService(db);
 
-    if (input.describe !== undefined) {
-      if (input.describe === true) {
-        const tables = await service.describeTables();
-        return { kind: 'tables', tables };
+    if (input.mode === 'listTables') {
+      const tables = await service.describeTables();
+      return { kind: 'tables', tables };
+    }
+
+    if (input.mode === 'describeTable') {
+      const table = input.table?.trim();
+      if (!table) {
+        // Actionable, not generic: the model can fix this on the next turn.
+        throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingTable);
       }
-      const columns = await service.describeTable(input.describe);
-      return { columns, kind: 'columns', table: input.describe };
+      const columns = await service.describeTable(table);
+      return { columns, kind: 'columns', table };
     }
 
-    if (input.sql === undefined) {
-      // Unreachable through the Zod refinement; kept as a fail-closed guard so a
-      // future schema edit cannot silently produce a no-op call.
-      throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingInput);
+    const sql = input.sql?.trim();
+    if (!sql) {
+      throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingSql);
     }
 
-    const result = await service.query(input.sql, {
+    const result = await service.query(sql, {
       ...(input.maxRows === undefined ? {} : { maxRows: input.maxRows }),
     });
 
@@ -193,4 +199,35 @@ export async function runQuerySelf(
   } catch (error) {
     handleQuerySelfError(error);
   }
+}
+
+/**
+ * Converts an input-schema validation failure into a message the model can act
+ * on.
+ *
+ * `parseToolExecuteInput` throws a `ZodError` before `runQuerySelf` is reached,
+ * and without this the model receives only the generic
+ * "The tool did not complete successfully" envelope. For a tool whose entire
+ * value is that the model authors the input, that is a dead end — observed
+ * live, the model retried the identical malformed call and then abandoned the
+ * task. The Zod issue text describes the model's own arguments, so it is safe
+ * to surface and is the only thing that lets it self-correct.
+ */
+export function toQuerySelfInputError(error: unknown): Error {
+  const issues = (error as { issues?: { message?: unknown; path?: unknown[] }[] } | null)?.issues;
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return error instanceof Error ? error : new Error(QUERY_SELF_ERROR_MESSAGES.queryFailed);
+  }
+
+  const detail = issues
+    .map((issue) => {
+      const path = Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.join('.') : null;
+      const message = typeof issue.message === 'string' ? issue.message : 'invalid value';
+      return path === null ? message : `${path}: ${message}`;
+    })
+    .join('; ');
+
+  return new ToolInputError(
+    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query"; pass sql for mode="query", table for mode="describeTable".`
+  );
 }

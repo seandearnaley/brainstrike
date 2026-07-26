@@ -20,7 +20,9 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   };
 });
 
-const { runQuerySelf } = await import('../../assistant-server/query-self-tool');
+const { runQuerySelf, toQuerySelfInputError } = await import(
+  '../../assistant-server/query-self-tool'
+);
 
 interface FakeQueryResult {
   fields?: { name: string }[];
@@ -74,7 +76,7 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ sql: 'SELECT path, n FROM t' }, undefined);
+    const result = await runQuerySelf({ mode: 'query', sql: 'SELECT path, n FROM t' }, undefined);
 
     expect(result).toEqual({
       columns: ['path', 'n'],
@@ -97,7 +99,10 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ sql: 'SELECT embedding FROM file_chunks' }, undefined);
+    const result = await runQuerySelf(
+      { mode: 'query', sql: 'SELECT embedding FROM file_chunks' },
+      undefined
+    );
 
     expect(result).toMatchObject({ rows: [{ cells: ['NULL'] }] });
   });
@@ -115,7 +120,10 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ maxRows: 2, sql: 'SELECT g FROM t' }, undefined);
+    const result = await runQuerySelf(
+      { maxRows: 2, mode: 'query', sql: 'SELECT g FROM t' },
+      undefined
+    );
 
     expect(result).toMatchObject({ kind: 'rows', rowCount: 2, truncated: true });
     expect((result as { hint?: string }).hint).toContain('LIMIT');
@@ -129,10 +137,10 @@ describe('runQuerySelf', () => {
       })
     );
 
-    await expect(runQuerySelf({ sql: 'SLECT 1' }, undefined)).rejects.toThrow(
+    await expect(runQuerySelf({ mode: 'query', sql: 'SLECT 1' }, undefined)).rejects.toThrow(
       /syntax error at or near "SLECT"/
     );
-    await expect(runQuerySelf({ sql: 'SLECT 1' }, undefined)).rejects.toBeInstanceOf(
+    await expect(runQuerySelf({ mode: 'query', sql: 'SLECT 1' }, undefined)).rejects.toBeInstanceOf(
       ToolInputError
     );
   });
@@ -144,9 +152,9 @@ describe('runQuerySelf', () => {
       })
     );
 
-    await expect(runQuerySelf({ sql: `SELECT pg_read_file('x')` }, undefined)).rejects.toThrow(
-      /permission denied for function pg_read_file/
-    );
+    await expect(
+      runQuerySelf({ mode: 'query', sql: `SELECT pg_read_file('x')` }, undefined)
+    ).rejects.toThrow(/permission denied for function pg_read_file/);
   });
 
   it('rejects an over-budget plan with the estimate and the ceiling', async () => {
@@ -159,7 +167,7 @@ describe('runQuerySelf', () => {
       })
     );
 
-    const error = await runQuerySelf({ sql: 'SELECT * FROM a, b' }, undefined).catch(
+    const error = await runQuerySelf({ mode: 'query', sql: 'SELECT * FROM a, b' }, undefined).catch(
       (caught: unknown) => caught
     );
 
@@ -172,7 +180,7 @@ describe('runQuerySelf', () => {
     // No SQLSTATE code => not a message about the model's own input.
     getDatabaseMock.mockRejectedValue(new Error('ENOENT /Users/someone/private/path'));
 
-    const error = await runQuerySelf({ sql: 'SELECT 1' }, undefined).catch(
+    const error = await runQuerySelf({ mode: 'query', sql: 'SELECT 1' }, undefined).catch(
       (caught: unknown) => caught
     );
 
@@ -196,7 +204,7 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ describe: true }, undefined);
+    const result = await runQuerySelf({ mode: 'listTables' }, undefined);
 
     expect(result).toEqual({
       kind: 'tables',
@@ -222,7 +230,7 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ describe: 'run_outcomes' }, undefined);
+    const result = await runQuerySelf({ mode: 'describeTable', table: 'run_outcomes' }, undefined);
 
     expect(result).toEqual({
       columns: [
@@ -231,6 +239,53 @@ describe('runQuerySelf', () => {
       ],
       kind: 'columns',
       table: 'run_outcomes',
+    });
+  });
+
+  describe('provider-shaped input (regressions found in a live run)', () => {
+    it('accepts a call where strict function calling filled every field', {
+      timeout: 30_000,
+    }, async () => {
+      // OpenAI strict mode forces the model to emit EVERY declared property. The
+      // first design used optional sql/describe made exclusive by a .refine(),
+      // and a real call arrived as {sql: ". ", maxRows: 200, describe: true} —
+      // rejecting every single call. `mode` is now the sole source of truth and
+      // fields the mode does not use are ignored by contract.
+      getDatabaseMock.mockResolvedValue(
+        fakeDatabase((sql) =>
+          sql.startsWith('EXPLAIN')
+            ? explainRows(1)
+            : { fields: [{ name: 'name' }, { name: 'estimated_rows' }], rows: [['roots', 3]] }
+        )
+      );
+
+      const result = await runQuerySelf(
+        { maxRows: 200, mode: 'listTables', sql: '. ', table: 'ignored' },
+        undefined
+      );
+
+      expect(result).toMatchObject({ kind: 'tables' });
+    });
+
+    it('tells the model what is missing instead of failing opaquely', async () => {
+      getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
+
+      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/requires a sql/i);
+      await expect(runQuerySelf({ mode: 'describeTable' }, undefined)).rejects.toThrow(
+        /requires a table name/i
+      );
+    });
+
+    it('converts a schema rejection into model-correctable text', () => {
+      // Observed live: a ZodError from parseToolExecuteInput surfaced as the
+      // generic "The tool did not complete successfully", so the model retried the
+      // identical malformed call and abandoned the task.
+      const zodLike = { issues: [{ message: 'Invalid input', path: ['mode'] }] };
+      const converted = toQuerySelfInputError(zodLike);
+
+      expect(converted).toBeInstanceOf(ToolInputError);
+      expect(converted.message).toContain('mode: Invalid input');
+      expect(converted.message).toContain('listTables');
     });
   });
 });

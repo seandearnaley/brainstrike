@@ -62,7 +62,7 @@ import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
 import { runManageTaskList } from './manage-task-list-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
-import { runQuerySelf } from './query-self-tool';
+import { runQuerySelf, toQuerySelfInputError } from './query-self-tool';
 import { runReadWorkspaceDirectory } from './read-workspace-directory-tool';
 import {
   type ReadWorkspaceFileCursorRegistry,
@@ -240,15 +240,23 @@ export function buildDesktopAssistantTools(
     [NATIVE_TOOL_ID.querySelf]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf],
       execute: async (input: ToolExecuteInput<QuerySelfInput>) => {
-        const resolvedInput = parseToolExecuteInput(
-          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
-          input
-        );
+        // Schema validation is INSIDE the try on purpose. For every other tool a
+        // malformed call is a bug; for this one the model is authoring the input
+        // freehand, so an opaque `tool_failed` leaves it no way to correct and it
+        // simply retries the same call. Observed live: a rejected input produced
+        // "The tool did not complete successfully" and the model gave up after
+        // two identical attempts. `toToolInputError` turns the validation
+        // message into text the model can act on.
+        let resolvedInput: QuerySelfInput | undefined;
         try {
+          resolvedInput = parseToolExecuteInput(
+            NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
+            input
+          );
           return await runQuerySelf(resolvedInput, runtimeData);
         } catch (error) {
-          logToolFailure('querySelf failed', error, resolvedInput);
-          throw error;
+          logToolFailure('querySelf failed', error, resolvedInput ?? {});
+          throw resolvedInput === undefined ? toQuerySelfInputError(error) : error;
         }
       },
       id: NATIVE_TOOL_ID.querySelf,
