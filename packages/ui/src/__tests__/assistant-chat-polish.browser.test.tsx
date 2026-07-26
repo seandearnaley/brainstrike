@@ -186,8 +186,8 @@ describe('message vertical rhythm (real browser)', () => {
 /**
  * Wide-panel real estate: .bs-thread is an inline-size container and message
  * ROOTS (not the viewport) cap at 48rem and center once the panel is wide.
- * Targeting the roots in place keeps the history-collapse
- * `:nth-last-child(n + 9)` selector matching direct viewport children.
+ * Targeting the roots in place (never wrapper divs) keeps them direct children
+ * of the scroller.
  */
 describe('container-aware message width (real browser)', () => {
   test('wide panel (960px): message roots cap at 48rem and center', () => {
