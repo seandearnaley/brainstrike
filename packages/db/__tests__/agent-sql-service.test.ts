@@ -122,6 +122,52 @@ describe('AgentSqlService sandbox', () => {
     });
   });
 
+  /**
+   * The cost gate is a PLANNER-cost gate: it catches statements expensive to
+   * PLAN, not statements cheap to plan and unbounded to EXECUTE. These close the
+   * two verified escapes of that class at the privilege layer instead, which is
+   * the only engine-enforced place they can be closed.
+   */
+  describe('cheap-to-plan, unbounded-to-execute escapes are revoked', () => {
+    it.each([
+      ['pg_sleep', 'SELECT pg_sleep(86400)'],
+      ['pg_sleep_for', `SELECT pg_sleep_for('1 day')`],
+      ['pg_sleep_until', `SELECT pg_sleep_until(now() + interval '1 day')`],
+    ])('rejects %s', { timeout: 120_000 }, async (_label, sql) => {
+      // Measured cost of the wrapped plan is 0.01 — six orders of magnitude
+      // below the ceiling — so ONLY the privilege revoke stops this. PGlite has
+      // no working statement_timeout and one connection, so admitting it would
+      // freeze the entire application for the requested duration.
+      await expect(service.query(sql)).rejects.toThrow(/permission denied for function pg_sleep/i);
+    });
+
+    it('rejects set_config, which can escape SET LOCAL', { timeout: 120_000 }, async () => {
+      await expect(
+        service.query(`SELECT set_config('role', '${AGENT_READONLY_ROLE}', false)`)
+      ).rejects.toThrow(/permission denied for function set_config/i);
+    });
+
+    it('leaves the shared connection usable after a GUC-escape attempt', {
+      timeout: 120_000,
+    }, async () => {
+      // The regression this pins: with is_local => false the session value
+      // survives the transaction, stranding the SHARED PGlite connection as
+      // the restricted role. Every later app write then fails permanently.
+      await expect(
+        service.query(`SELECT set_config('role', '${AGENT_READONLY_ROLE}', false)`)
+      ).rejects.toThrow();
+
+      const who = await db.query<{ current_user: string }>('SELECT current_user');
+      expect(who.rows[0]?.current_user).toBe('postgres');
+
+      await expect(
+        db.exec(
+          `INSERT INTO roots (id, kind, display_name, path) VALUES ('probe', 'path', 'probe', '/probe')`
+        )
+      ).resolves.toBeDefined();
+    });
+  });
+
   describe('layer 3: single statement only', () => {
     it('rejects multi-statement input', { timeout: 120_000 }, async () => {
       await expect(service.query('SELECT 1; SELECT 2')).rejects.toThrow();

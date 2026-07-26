@@ -38,9 +38,11 @@ runaway query does not merely make one tool call slow — it pins the database a
 therefore blocks live queries, the job queue, and the UI. An unbounded statement
 is a whole-app freeze.
 
-The `EXPLAIN` cost gate (layer 4) exists BECAUSE this timeout does not work. It
-is the only working admission control. Do not weaken it on the assumption that a
-timeout will catch the overrun.
+The `EXPLAIN` cost gate (layer 4) exists BECAUSE this timeout does not work. Do
+not weaken it on the assumption that a timeout will catch the overrun — and do
+not read it as complete coverage either: it bounds *planned* work only. See "The
+cost gate is a PLANNER-cost gate" below for what it cannot catch and what is
+closed at the privilege layer instead.
 
 ---
 
@@ -73,6 +75,42 @@ reached. This is real, but it is the OUTERMOST layer and the easiest to change
 by accident. `agent-sql-service.test.ts` therefore proves layers 1 and 2
 independently, by driving the transaction preamble directly — those tests are
 what stop a future change to the wrapper from silently becoming an escalation.
+
+### The cost gate is a PLANNER-cost gate — and what that does NOT cover
+
+This is the most important limitation of layer 4, and it is easy to misread the
+table above as "runaway execution is handled". It is not, on its own.
+
+`EXPLAIN` costs a statement's *plan*. A statement that is cheap to plan and
+unbounded to *execute* passes every layer. Two such escapes were found in review
+and are closed at the PRIVILEGE layer, which is the only engine-enforced place
+they can be closed (migration 074):
+
+| Escape | Measured plan cost | Why layers 1-3 admit it | Closed by |
+| --- | --- | --- | --- |
+| `SELECT pg_sleep(86400)` | 0.01 | not a write, not superuser-gated, one statement | `REVOKE EXECUTE ON FUNCTION pg_sleep/​pg_sleep_for/​pg_sleep_until FROM PUBLIC` |
+| `SELECT set_config('role', …, false)` | 0.01 | not a write — and `is_local => false` makes it a SESSION set that OUTLIVES the transaction | `REVOKE EXECUTE ON FUNCTION set_config(text, text, boolean) FROM PUBLIC` |
+
+The `set_config` one was the more dangerous of the two: measured, it left the
+shared PGlite connection stuck as the restricted role after the sandbox
+returned, so the application's own writes failed with `permission denied`
+permanently — from a tool marked `requiresApproval: false`, `riskCategory: 'read'`.
+
+**RESIDUAL RISK — not currently blocked.** A recursive CTE with no termination
+condition plans at trivial cost (measured: 3.35) and runs until memory is
+exhausted:
+
+```sql
+WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) SELECT count(*) FROM t
+```
+
+The planner uses a fixed row-estimate multiplier for the recursive term, so cost
+stays low, and the `LIMIT` wrapper cannot help because `count(*)` must drain the
+CTE. There is no clean engine-enforced block for this: recursive CTEs are a
+language construct, not a revocable function. Anyone extending this sandbox
+should know that the cost gate is a bound on *planned* work only, and that a
+genuinely terminable execution boundary is what would close this class properly.
+Tracked as a follow-up rather than silently omitted.
 
 ### Verified NOT a concern
 

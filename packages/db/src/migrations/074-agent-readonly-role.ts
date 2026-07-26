@@ -29,6 +29,25 @@ import type { Migration } from './migration-runner';
  * both the catch-up grant and the future-table grant rather than assuming
  * them — that test is the tripwire for a future migration that lands a table
  * the agent cannot read.
+ *
+ * THE REVOKES ARE LOAD-BEARING, not hardening theatre. Both close verified
+ * escapes that every other sandbox layer admits:
+ *
+ * - `pg_sleep` / `pg_sleep_for` / `pg_sleep_until` plan at cost 0.01, so the
+ *   EXPLAIN cost gate admits `SELECT pg_sleep(86400)`. PGlite does not enforce
+ *   `statement_timeout` and is a single connection, so that one statement
+ *   freezes the whole application for a day. Measured: it passed the gate and
+ *   held the connection for the full requested duration.
+ * - `set_config(text, text, boolean)` with `is_local => false` performs a
+ *   SESSION-level SET from inside the submitted statement. It is not a write,
+ *   so the read-only transaction allows it, and PostgreSQL applies the session
+ *   value once the transaction's `SET LOCAL ROLE` unwinds — leaving the shared
+ *   connection stuck as the restricted role AFTER the sandbox returns.
+ *   Measured: the application's own writes then failed with
+ *   `permission denied`, permanently, from a tool marked `read`.
+ *
+ * Revoking from PUBLIC (not just from the role) is correct: no application code
+ * calls these, and `postgres` retains access as superuser. Pinned by tests.
  */
 export const migration074AgentReadonlyRole: Migration = {
   down: `
@@ -58,6 +77,12 @@ export const migration074AgentReadonlyRole: Migration = {
 
     ALTER DEFAULT PRIVILEGES IN SCHEMA public
       GRANT SELECT ON TABLES TO brainstrike_agent_readonly;
+
+    REVOKE EXECUTE ON FUNCTION pg_sleep(double precision) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION pg_sleep_for(interval) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION pg_sleep_until(timestamp with time zone) FROM PUBLIC;
+
+    REVOKE EXECUTE ON FUNCTION set_config(text, text, boolean) FROM PUBLIC;
   `,
   version: 74,
 };

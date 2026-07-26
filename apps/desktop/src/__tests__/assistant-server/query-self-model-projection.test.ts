@@ -151,6 +151,61 @@ describe('querySelf model projection', () => {
     expect(lines[2]).toBe('tab\\there\\nand a newline\t7');
   });
 
+  it('reports clipped COLUMNS, not characters', () => {
+    // The dropped unit is columns; a code-point count would tell the model
+    // "430 columns clipped" for a 40-column table — a number it will reason with.
+    const columns = Array.from({ length: 300 }, (_unused, index) => `column_number_${index}`);
+
+    const projection = projectQuerySelfModelOutput({
+      columns,
+      estimatedCost: 1,
+      kind: 'rows',
+      rowCount: 0,
+      rows: [],
+      truncated: false,
+    });
+
+    const match = /\[(\d+) more columns\]/u.exec(projection.value);
+    expect(match).not.toBeNull();
+    expect(Number(match?.[1])).toBeLessThan(columns.length);
+  });
+
+  it('fits a huge table listing instead of throwing', () => {
+    // describeTables is capped at 200 rows; at that size an unbounded list blows
+    // the budget, and the RangeError would surface OUTSIDE runQuerySelf's catch
+    // as an opaque failure — breaking schema discovery exactly when it matters.
+    const tables = Array.from({ length: 200 }, (_unused, index) => ({
+      estimatedRows: index,
+      name: `a_table_with_a_fairly_long_name_number_${index}`,
+    }));
+
+    const projection = projectQuerySelfModelOutput({ kind: 'tables', tables });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toContain('more listed tables omitted');
+  });
+
+  it('fits a very wide table description instead of throwing', () => {
+    const columns = Array.from({ length: 400 }, (_unused, index) => ({
+      dataType: 'character varying',
+      name: `a_reasonably_long_column_name_${index}`,
+      nullable: index % 2 === 0,
+    }));
+
+    const projection = projectQuerySelfModelOutput({
+      columns,
+      kind: 'columns',
+      table: 'wide',
+    });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toContain('more columns omitted');
+  });
+
   it('rejects a malformed result rather than projecting nonsense', () => {
     expect(() => projectQuerySelfModelOutput({ nope: true })).toThrow(TypeError);
   });

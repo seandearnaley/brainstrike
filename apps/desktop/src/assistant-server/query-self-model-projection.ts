@@ -50,15 +50,47 @@ function escapeCell(value: string): string {
     .replace(/\n/gu, '\\n');
 }
 
-/** Clips on code points WITHOUT normalizing whitespace, so tab separators survive. */
-function clipPreservingTabs(value: string, maxChars: number): string {
-  const codePoints = Array.from(value);
-  if (codePoints.length <= maxChars) {
-    return value;
+/**
+ * Clips a tab-separated column list on WHOLE columns.
+ *
+ * Two things matter here. It must not normalize whitespace (the generic helper
+ * does, which would destroy the tab separators), and it must report a count the
+ * model can reason with: the dropped unit is COLUMNS, so counting code points
+ * would tell it "430 columns clipped" for a 40-column table.
+ */
+function clipColumnLine(columns: readonly string[], maxChars: number): string {
+  const joined = columns.join(CELL_SEPARATOR);
+  if (Array.from(joined).length <= maxChars) {
+    return joined;
   }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } columns clipped]`;
+  let kept = columns.length;
+  while (kept > 0 && Array.from(columns.slice(0, kept).join(CELL_SEPARATOR)).length > maxChars) {
+    kept -= 1;
+  }
+  return `${columns.slice(0, kept).join(CELL_SEPARATOR)}…[${columns.length - kept} more columns]`;
+}
+
+/**
+ * Drops trailing lines until the whole projection fits, appending a note that
+ * says how many were dropped.
+ *
+ * `projectRows` needs this, and so do the describe branches: without it they
+ * build an unbounded list and hit `assertProjectionFits`, whose `RangeError` is
+ * thrown inside `toModelOutput` — OUTSIDE `runQuerySelf`'s catch — so it reaches
+ * the model as an opaque failure with no hint. That would break schema
+ * discovery, the thing that makes this tool usable, precisely when the schema is
+ * largest.
+ */
+function fitLines(header: string, body: readonly string[], note: (dropped: number) => string) {
+  let kept = body.length;
+  for (;;) {
+    const dropped = body.length - kept;
+    const lines = [header, ...body.slice(0, kept), ...(dropped > 0 ? [note(dropped)] : [])];
+    if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET || kept === 0) {
+      return lines;
+    }
+    kept -= 1;
+  }
 }
 
 function assertProjectionFits(lines: readonly string[]): void {
@@ -78,15 +110,18 @@ function parseQuerySelfResult(output: unknown): QuerySelfResult {
 }
 
 function projectTables(result: Extract<QuerySelfResult, { kind: 'tables' }>): string[] {
-  const lines = [`tables | count=${result.tables.length}`];
-  for (const table of result.tables) {
+  const body = result.tables.map((table) => {
     // reltuples is -1 until a table has been analyzed; report that honestly as
     // "unknown" rather than printing a fabricated 0 row count.
     const estimate = table.estimatedRows < 0 ? '?' : String(Math.round(table.estimatedRows));
-    lines.push(`${escapeCell(table.name)}${CELL_SEPARATOR}~${estimate}`);
-  }
-  lines.push('next: call querySelf with describe="<table>" for columns, then with sql');
-  return lines;
+    return `${escapeCell(table.name)}${CELL_SEPARATOR}~${estimate}`;
+  });
+  body.push('next: call querySelf with describe="<table>" for columns, then with sql');
+  return fitLines(
+    `tables | count=${result.tables.length}`,
+    body,
+    (dropped) => `…${dropped} more listed tables omitted to fit the output budget`
+  );
 }
 
 function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): string[] {
@@ -96,15 +131,17 @@ function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): 
       'no such table in the public schema; call describe=true to list readable tables',
     ];
   }
-  const lines = [`columns | table=${singleLine(result.table)} | count=${result.columns.length}`];
-  for (const column of result.columns) {
-    lines.push(
+  const body = result.columns.map(
+    (column) =>
       `${escapeCell(column.name)}${CELL_SEPARATOR}${escapeCell(column.dataType)}${CELL_SEPARATOR}${
         column.nullable ? 'null' : 'not null'
       }`
-    );
-  }
-  return lines;
+  );
+  return fitLines(
+    `columns | table=${singleLine(result.table)} | count=${result.columns.length}`,
+    body,
+    (dropped) => `…${dropped} more columns omitted to fit the output budget`
+  );
 }
 
 function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string[] {
@@ -117,10 +154,7 @@ function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string
   // budget on its own. Clip it rather than throwing: a RangeError here reaches
   // the model as an opaque tool failure, whereas a clipped header still tells it
   // what happened and how to narrow.
-  const columnLine = clipPreservingTabs(
-    result.columns.map(escapeCell).join(CELL_SEPARATOR),
-    MAX_COLUMN_LINE_CHARS
-  );
+  const columnLine = clipColumnLine(result.columns.map(escapeCell), MAX_COLUMN_LINE_CHARS);
   const rowLines = result.rows.map((row) => row.cells.map(escapeCell).join(CELL_SEPARATOR));
 
   let kept = rowLines.length;

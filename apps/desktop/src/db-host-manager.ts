@@ -10,6 +10,7 @@ import type {
   DbHostRequest,
   DbHostRequestEnvelope,
   DbHostResponseEnvelope,
+  DbHostRowMode,
   DbHostSerializedError,
   DbHostToMainMessage,
   DbHostTransactionStartResult,
@@ -44,9 +45,16 @@ function createLiveQueryDiagnostics(payload: {
 
 export interface RemoteDbTransaction {
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  /**
+   * `options.rowMode: 'array'` returns positional rows plus `fields`. Callers
+   * that omit it get the default object-keyed rows, unchanged. Array mode
+   * exists for the agent SQL sandbox, which must preserve duplicate output
+   * column names that object rows collapse.
+   */
   readonly query: <TRecord = unknown>(
     sql: string,
-    params?: readonly unknown[]
+    params?: readonly unknown[],
+    options?: { readonly rowMode?: DbHostRowMode }
   ) => Promise<DbHostQueryResult<TRecord>>;
 }
 
@@ -626,11 +634,16 @@ class DefaultDbHostManager implements DbHostManager {
         exec: async (sql, params) =>
           await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
-      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
+      query: async <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[],
+        options?: { readonly rowMode?: DbHostRowMode }
+      ) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'query',
           sql,
           ...(params ? { params } : {}),
+          ...(options?.rowMode ? { rowMode: options.rowMode } : {}),
         }),
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
         await this.#transaction(fn),
@@ -696,12 +709,17 @@ class DefaultDbHostManager implements DbHostManager {
           transactionId,
           ...(params ? { params } : {}),
         }),
-      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
+      query: async <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[],
+        options?: { readonly rowMode?: DbHostRowMode }
+      ) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'transaction:query',
           sql,
           transactionId,
           ...(params ? { params } : {}),
+          ...(options?.rowMode ? { rowMode: options.rowMode } : {}),
         }),
     };
     try {

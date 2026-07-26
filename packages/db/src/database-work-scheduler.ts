@@ -60,8 +60,26 @@ export interface DatabaseWorkScheduler {
   readonly subscribe: (listener: (snapshot: DatabaseWorkSchedulerSnapshot) => void) => () => void;
 }
 
+/**
+ * Per-call query options understood by the underlying database handle.
+ *
+ * Typed rather than `unknown` so a caller that DOES pass options (the agent SQL
+ * sandbox asks for `rowMode: 'array'` to preserve duplicate output column
+ * names) stays assignable to this handle under `strictFunctionTypes`.
+ */
+export interface ScheduledDbQueryOptions {
+  readonly rowMode?: 'array';
+}
+
 export interface ScheduledDbHandle {
-  readonly exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  // `params` stays MUTABLE here: existing callers (db-provider's QueryExecutor)
+  // declare `unknown[]`, and widening to `readonly` makes them structurally
+  // incompatible under contravariance. Only `query` needed a typed options bag.
+  readonly exec?: (
+    sql: string,
+    params?: unknown[],
+    options?: ScheduledDbQueryOptions
+  ) => Promise<unknown>;
   readonly insertChunksAndEnqueueEmbeddingJobs?: (
     chunks: readonly never[],
     fileRecordId: string,
@@ -71,7 +89,7 @@ export interface ScheduledDbHandle {
   readonly query: <T = unknown>(
     sql: string,
     params?: unknown[],
-    options?: unknown
+    options?: ScheduledDbQueryOptions
   ) => Promise<{ rows: T[] }>;
   readonly raw?: unknown;
   readonly syncToFs?: () => Promise<void>;

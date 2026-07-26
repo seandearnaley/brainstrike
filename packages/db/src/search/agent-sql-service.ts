@@ -113,20 +113,28 @@ export interface AgentSqlColumnInfo {
 }
 
 interface QueryFieldLike {
-  name: string;
+  readonly name: string;
 }
 
 interface QueryResultLike<T> {
-  fields?: QueryFieldLike[];
-  rows: T[];
+  /**
+   * Output column descriptors, present when array row mode was requested.
+   *
+   * Readonly throughout so both PGlite (mutable arrays) and the desktop remote
+   * client (readonly arrays) satisfy this interface. Declaring it mutable made
+   * `RemoteDbClient` structurally incompatible and hid a production break behind
+   * tests that only ever ran against raw PGlite.
+   */
+  readonly fields?: readonly QueryFieldLike[];
+  readonly rows: T[];
 }
 
 interface AgentSqlTransaction {
   exec: (sql: string) => Promise<unknown>;
   query: <T>(
     sql: string,
-    params?: unknown[],
-    options?: { rowMode?: 'array' }
+    params?: readonly unknown[],
+    options?: { readonly rowMode?: 'array' }
   ) => Promise<QueryResultLike<T>>;
 }
 
