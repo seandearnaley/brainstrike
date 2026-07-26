@@ -62,12 +62,21 @@ protocol; their charters in charters/ are the deployed source of truth.
     `hash:<sha256>` of the sorted, serialized watched set — per-item state
     (which run, which ticket, which head) lives where the work lives (the
     tickets, the PR comments), never inside the watermark. Each loop exits
-    NOOP only when ITS own watched-set hash is unchanged since last run,
-    never on the main diff.
-  In all cases: an unchanged watched set means NOOP, and NOOP is success —
-  but an open PR of yours is ALWAYS part of your watched set: while it has
-  failing checks, unreplied review comments, or unresolved threads, you are
-  not idle (see PR stewardship).
+    NOOP only when ITS own watched set holds no unprocessed work, never on
+    the main diff.
+  UNCHANGED IS NOT THE SAME AS DONE. Hash equality is the cheap test, and
+  for a watched set whose items are either processed or gone it is also the
+  correct one. But a loop that CAPS how much it processes per run (Magnify:
+  2 PRs) leaves items it did not process inside a set whose watermark hashes
+  the whole snapshot — so for that loop an unchanged hash can equally mean
+  "nothing moved AND work is still pending", and exiting on it turns the cap
+  from a throttle into a silent drop. Such loops carry a per-item PROCESSED
+  flag inside the collector's watched set — never inside the watermark,
+  which stays a bare hash — and decide NOOP on that flag. Where no per-item
+  flag exists, an unchanged hash still means NOOP.
+  In all cases NOOP is success — but an open PR of yours is ALWAYS part of
+  your watched set: while it has failing checks, unreplied review comments,
+  or unresolved threads, you are not idle (see PR stewardship).
 
 ## Run boundaries
 

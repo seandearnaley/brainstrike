@@ -207,9 +207,25 @@ checkpoint-grammar validator; run it before posting any checkpoint).
     and drafts ONE PROTOCOL.md amendment PR with fleet-history evidence.
     Kept separate from Chronicle so the monitor never grades its own
     homework.
-  - Two-phase wake economics: Assay (2h) and Magnify (4h) mostly NOOP on
-    opus-class models; a deterministic cheap probe (collector + watermark
-    compare) should gate whether the expensive model wakes at all.
+  - Two-phase wake economics — IN-CHARTER PROBES LANDED, external gate
+    outstanding. Magnify's Beat 0 and Porter's Beat 0b exit before
+    reading contracts, opening diffs, spawning subagents, or walking
+    eligibility. Measured waste that motivated it: Magnify 17 NOOP of 21
+    wakes, Porter 21 of 23, both opus-class.
+    ASSAY — the third loop the original entry named — deliberately gets
+    NO probe. Its Beat 1 `work_key` cache already gates the expensive
+    per-PR grading, so an empty wake costs a PR enumeration, the
+    idempotent Beat 0 label check, and Beat 3b's one thread read per PR.
+    A probe in front of a cache is a second cache. Revisit only if the
+    enumeration itself becomes the cost; this is a ruling, not an
+    oversight.
+    Still outstanding, because it needs surfaces this repo does not own:
+    a deterministic probe run OUTSIDE the model, gating whether the
+    expensive model wakes at all. A charter probe makes the empty wake
+    cheap; only a scheduler-side gate makes it free. Prerequisite on our
+    side: Porter's collector does not emit a `watchedSet` the way
+    Magnify's does, so there is no uniform hash for an external gate to
+    compare — give every EXTERNAL-STATE collector that field first.
   - Event-driven steward triggers: a workflow on pull_request_review /
     check_suite events for night-shift/* branches pinging the scheduler,
     replacing polling steward wakes. Must never create a check run
