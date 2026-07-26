@@ -354,7 +354,7 @@ export function ApiKeysSettings({
   ]);
 
   const handleDelete = useCallback(async () => {
-    if (sourceState !== 'ready' || providerEnvironmentSource) {
+    if (sourceState !== 'ready' || providerKeySource?.source !== 'stored') {
       return;
     }
     const deleteKey = window.secrets?.deleteKey;
@@ -369,16 +369,7 @@ export function ApiKeysSettings({
       return;
     }
     try {
-      const deleted = await deleteKey(provider);
-      if (deleted === false) {
-        toast({
-          description: 'The credential store did not delete the key.',
-          title: 'Failed to delete key',
-          variant: 'destructive',
-        });
-        dispatch({ busy: false, type: 'SET_BUSY' });
-        return;
-      }
+      await deleteKey(provider);
     } catch {
       toast({
         description: 'The credential store rejected the delete operation.',
@@ -391,14 +382,7 @@ export function ApiKeysSettings({
     await refreshProviders();
     notifySecretsChanged();
     dispatch({ busy: false, type: 'SET_BUSY' });
-  }, [
-    provider,
-    providerEnvironmentSource,
-    refreshProviders,
-    sourceState,
-    notifySecretsChanged,
-    toast,
-  ]);
+  }, [provider, providerKeySource, refreshProviders, sourceState, notifySecretsChanged, toast]);
 
   const handleSaveTavily = useCallback(async () => {
     const trimmedKey = tavilyKey.trim();
@@ -454,7 +438,7 @@ export function ApiKeysSettings({
   ]);
 
   const handleDeleteTavily = useCallback(async () => {
-    if (sourceState !== 'ready' || tavilyEnvironmentSource) {
+    if (sourceState !== 'ready' || tavilyKeySource?.source !== 'stored') {
       return;
     }
     const deleteKey = window.secrets?.deleteKey;
@@ -469,16 +453,7 @@ export function ApiKeysSettings({
       return;
     }
     try {
-      const deleted = await deleteKey(TAVILY_SECRET_PROVIDER);
-      if (deleted === false) {
-        toast({
-          description: 'The credential store did not delete the key.',
-          title: 'Failed to delete key',
-          variant: 'destructive',
-        });
-        dispatch({ busy: false, type: 'SET_BUSY' });
-        return;
-      }
+      await deleteKey(TAVILY_SECRET_PROVIDER);
     } catch {
       toast({
         description: 'The credential store rejected the delete operation.',
@@ -491,7 +466,7 @@ export function ApiKeysSettings({
     await refreshProviders();
     notifySecretsChanged();
     dispatch({ busy: false, type: 'SET_BUSY' });
-  }, [refreshProviders, sourceState, tavilyEnvironmentSource, notifySecretsChanged, toast]);
+  }, [refreshProviders, sourceState, tavilyKeySource, notifySecretsChanged, toast]);
 
   const providerId = useId();
   const apiKeyId = useId();
@@ -575,7 +550,7 @@ export function ApiKeysSettings({
             </Button>
             <Button
               data-testid="delete-llm-key"
-              disabled={busy || sourceState !== 'ready' || Boolean(providerEnvironmentSource)}
+              disabled={busy || sourceState !== 'ready' || providerKeySource?.source !== 'stored'}
               onClick={handleDelete}
               variant="secondary"
             >
@@ -639,7 +614,7 @@ export function ApiKeysSettings({
             </Button>
             <Button
               data-testid="delete-tavily-key"
-              disabled={busy || sourceState !== 'ready' || Boolean(tavilyEnvironmentSource)}
+              disabled={busy || sourceState !== 'ready' || tavilyKeySource?.source !== 'stored'}
               onClick={handleDeleteTavily}
               variant="secondary"
             >

@@ -216,6 +216,8 @@ describe('ApiKeysSettings', () => {
       expect(screen.getByTestId('provider-key-status').textContent).toContain('Not configured');
     });
     expect((screen.getByTestId('save-llm-key') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId('delete-llm-key') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('delete-tavily-key') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('surfaces malformed provider key source payloads', async () => {
@@ -367,6 +369,25 @@ describe('ApiKeysSettings', () => {
     expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion);
   });
 
+  it('treats a raced already-absent provider key as successful convergence', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      deleteKey: vi.fn().mockResolvedValue(false),
+    });
+
+    render(<ApiKeysSettings />);
+    const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
+    fireEvent.click(screen.getByTestId('delete-llm-key'));
+
+    await waitFor(() => {
+      expect(window.secrets?.list).toHaveBeenCalledTimes(2);
+    });
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion + 1);
+  });
+
   it('renders provider-specific hint for google provider', async () => {
     listProvidersMock.mockReturnValue([{ displayName: 'Google', id: 'google' }]);
     render(<ApiKeysSettings />);
@@ -452,6 +473,15 @@ describe('ApiKeysSettings', () => {
   });
 
   it('deletes the Tavily key under the tavily secret id', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn().mockResolvedValue([
+        { provider: 'openai', source: 'stored' },
+        { provider: 'tavily', source: 'stored' },
+      ]),
+    });
+
     render(<ApiKeysSettings />);
     await waitForCredentialSources();
 
