@@ -2,6 +2,7 @@ import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
+import { TAVILY_ENV_KEYS } from '../tavily-env-keys';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';
 
 const logger = createLogger('AssistantWebSearchTool');
@@ -18,8 +19,8 @@ export { WEB_SEARCH_TOOL_ID };
  */
 export const TAVILY_SECRET_PROVIDER = 'tavily' as const;
 
-/** Env vars consulted before the encrypted keychain (env takes priority). */
-const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as const;
+// Env vars come from `tavily-env-keys.ts` so this reader can never drift from
+// the names the desktop env-file allowlist accepts.
 
 const DEFAULT_MAX_RESULTS = 5;
 const MAX_RESULTS_CAP = 10;

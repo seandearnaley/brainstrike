@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 export type DesktopEnvFile = 'dev' | 'dev-local' | 'user-data';
 
@@ -45,15 +47,26 @@ class DesktopEnvParseError extends Error {
 }
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
-const SUPPORTED_VARIABLE_NAMES = new Set([
-  'ANTHROPIC_API_KEY',
-  'BRAINSTRIKE_OPENAI_API_KEY',
-  'BRAINSTRIKE_TAVILY_API_KEY',
-  'GOOGLE_API_KEY',
-  'GOOGLE_GENERATIVE_AI_API_KEY',
-  'OPENAI_API_KEY',
-  'OPENROUTER_API_KEY',
-  'TAVILY_API_KEY',
+
+/**
+ * The ONLY variables a desktop `.env` file may set.
+ *
+ * This is a PRIVILEGE BOUNDARY, not hygiene: the main process environment is
+ * inherited wholesale by every child it spawns (execute-command-tool,
+ * command-session-manager, terminal-ipc-handlers, lsp-diagnostics,
+ * hooks/executor, run-skill-script-tool), so an unrestricted file would
+ * escalate a write to `<userData>/.env` into code execution and traffic
+ * interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
+ * NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set NODE_ENV /
+ * ELECTRON_IS_E2E_TEST to flip this process's own test-mode semantics.
+ *
+ * Derived from the shared provider registry plus the Tavily names rather than
+ * hand-copied: a hand-written list silently drifts from the registry, and a
+ * name the registry documents but this list omits rejects the WHOLE file.
+ */
+const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+  ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+  ...TAVILY_ENV_KEYS,
 ]);
 let bootstrapResult: DesktopEnvLoadResult | undefined;
 

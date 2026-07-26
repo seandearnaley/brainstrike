@@ -7,10 +7,10 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvCredential } from './provider-api-key';
 import type { SecretsService } from './secrets';
+import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const TAVILY_SECRET_PROVIDER = 'tavily' as const;
-const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as const;
 type DesktopProviderKeyId = SupportedProvider | typeof TAVILY_SECRET_PROVIDER;
 
 function isTestMode(): boolean {
