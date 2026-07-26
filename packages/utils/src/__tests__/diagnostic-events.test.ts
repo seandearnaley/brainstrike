@@ -184,4 +184,28 @@ describe('logRecordToDiagnosticEvent', () => {
     );
     expect(JSON.stringify(event?.context)).not.toContain('sk-secret');
   });
+
+  it('marks cyclic diagnostic context without dropping the event', () => {
+    const metadata: Record<string, unknown> = { operation: 'provider-request' };
+    metadata['self'] = metadata;
+
+    const event = logRecordToDiagnosticEvent(
+      {
+        args: ['m', metadata],
+        bindings: {},
+        level: LogLevel.WARN,
+        message: 'm',
+        timestamp: 1,
+      },
+      ENV
+    );
+
+    expect(event?.context).toEqual({
+      operation: 'provider-request',
+      self: {
+        operation: 'provider-request',
+        self: '[Circular]',
+      },
+    });
+  });
 });

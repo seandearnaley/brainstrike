@@ -556,6 +556,20 @@ message/stack/context (`DIAGNOSTIC_MESSAGE_MAX_CHARS`/`STACK`/`CONTEXT` =
 2000/8000/8000 chars, visibly marked via `boundWithMarker`, never silent) and
 runs `redactSensitiveLogValue` over context before it is queued.
 
+Hidden-renderer records cross `logging:ingest-buffered-record` through the
+transport normalizer in `apps/desktop/src/renderer/main.tsx`. Log listeners
+already receive key-redacted values from `redactSensitiveLogValue`; the
+normalizer retains that privacy boundary for any unexpected raw `Error`, then
+converts unsupported primitives and URLs for IPC. Its `WeakMap` memoizes arrays
+and objects before recursion so self- or mutually-referential Error cause graphs
+and bindings remain structured-cloneable instead of overflowing the listener
+and dropping the record. Diagnostic context serialization visibly replaces
+back-edges with `[Circular]`, preventing cyclic metadata from dropping the
+downstream event. The renderer forwarding listener, redaction,
+structured-clone topology, and bounded diagnostic conversion are paired in
+`apps/desktop/src/__tests__/renderer/main.test.tsx`; Electron preload/main IPC
+coverage remains in the desktop logging integration tests.
+
 **Writer** (`DiagnosticEventWriter`,
 `packages/utils/src/diagnostics/diagnostic-event-writer.ts`): batched
 (`flushBatchSize` 32 events, `flushIntervalMs` 2000ms), never awaited on the
@@ -643,7 +657,8 @@ specific set of secret shapes, not a general-purpose scanner.
 `packages/db/__tests__/diagnostic-events-repository.test.ts`,
 `packages/app-shell/src/__tests__/diagnostic-sink-bridge.test.tsx`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (durable-record
-push channel), `packages/ui/src/__tests__/error-boundary.test.tsx`,
+push channel), `apps/desktop/src/__tests__/renderer/main.test.tsx`
+(hidden-renderer transport normalization), `packages/ui/src/__tests__/error-boundary.test.tsx`,
 `packages/app-shell/src/__tests__/debug-bundle.test.ts` (includes a golden
 snapshot), `packages/app-shell/src/__tests__/secret-scrub.test.ts`,
 `packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
