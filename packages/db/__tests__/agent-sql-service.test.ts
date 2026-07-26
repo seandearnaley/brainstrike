@@ -399,6 +399,35 @@ describe('AgentSqlService sandbox', () => {
       expect(result.truncated).toBe(true);
     });
 
+    it('ALLOWS a traversal terminated by a JOIN rather than a WHERE', {
+      timeout: 120_000,
+    }, async () => {
+      // The canonical graph traversal — and the BST-919 shape this guard
+      // exists to preserve. It terminates by running out of edges, so its
+      // bound is a `Hash Cond` on the join ABOVE the work table, not a
+      // `Filter` on it. Treating absence-of-Filter as unbounded rejected
+      // exactly the case the design claims to protect.
+      const result = await service.query(
+        `WITH RECURSIVE reach(id) AS (
+             SELECT id FROM roots WHERE id = 'nope'
+             UNION ALL
+             SELECT r2.id FROM roots r2 JOIN reach r ON r2.id = r.id
+           ) SELECT count(*)::int AS c FROM reach`
+      );
+      expect(Number(result.rows[0]?.[0])).toBe(0);
+    });
+
+    it('ALLOWS a UNION-dedup terminated traversal', { timeout: 120_000 }, async () => {
+      const result = await service.query(
+        `WITH RECURSIVE reach(id) AS (
+             SELECT id FROM roots WHERE id = 'nope'
+             UNION
+             SELECT r2.id FROM roots r2 JOIN reach r ON r2.id = r.id
+           ) SELECT count(*)::int AS c FROM reach`
+      );
+      expect(Number(result.rows[0]?.[0])).toBe(0);
+    });
+
     it('ALLOWS a terminating recursion under an aggregate', { timeout: 120_000 }, async () => {
       const result = await service.query(
         'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 20) SELECT count(*)::int AS c FROM r'
@@ -438,6 +467,36 @@ describe('AgentSqlService sandbox', () => {
           { analyze: true }
         )
       ).rejects.toBeInstanceOf(AgentSqlCostRejectedError);
+    });
+
+    it('refuses a PIPELINED unbounded recursion under analyze, which query() allows', {
+      timeout: 120_000,
+    }, async () => {
+      // THE regression this guard exists for. explain() has no LIMIT wrapper,
+      // so the "pipelined recursion is bounded by the row cap" reasoning that
+      // query() relies on does not hold — ANALYZE runs it to completion.
+      // Measured before the fix: still running after 10s.
+      //
+      // Asserted as a REJECTION on purpose: if this guard regresses, this test
+      // hangs the db lane rather than failing, which is itself the signal.
+      await expect(
+        service.explain(
+          'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r',
+          {
+            analyze: true,
+          }
+        )
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('still ALLOWS the same pipelined shape through query(), which has the row cap', {
+      timeout: 120_000,
+    }, async () => {
+      const result = await service.query(
+        'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r',
+        { maxRows: 3 }
+      );
+      expect(result.rows).toHaveLength(3);
     });
 
     it('applies the recursion guard when analyzing', { timeout: 120_000 }, async () => {

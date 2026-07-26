@@ -131,12 +131,18 @@ const WORKTABLE_SCAN_NODE_TYPE = 'WorkTable Scan';
  */
 export class AgentSqlUnboundedRecursionError extends Error {
   constructor() {
+    // Deliberately covers BOTH rejection paths without naming a cause that may
+    // not apply: query() rejects only when a draining parent defeats the row
+    // cap, while explain(analyze) rejects any unbounded recursion because it has
+    // no row cap at all. A message asserting "an aggregate or sort" would be
+    // wrong on the analyze path.
     super(
-      'Query refused: a recursive CTE is consumed by an aggregate or sort, which must drain the ' +
-        'recursion before returning any row — so the row cap cannot bound it, and an unterminated ' +
-        'recursion would exhaust memory. Add a termination condition (for example ' +
-        'WHERE depth < 10) to the recursive term, or select from the CTE directly instead of ' +
-        'aggregating or ordering it.'
+      'Query refused: this recursive CTE has no termination condition the planner can see, and ' +
+        'nothing here can bound it — either it feeds an aggregate/sort that must drain it before ' +
+        'returning a row, or it is running under EXPLAIN ANALYZE, which has no row cap. An ' +
+        'unterminated recursion would exhaust memory. Add a termination condition to the ' +
+        'recursive term (for example WHERE depth < 10, or a join that runs out of rows), or ' +
+        'select from the CTE directly instead of aggregating or ordering it.'
     );
     this.name = 'AgentSqlUnboundedRecursionError';
   }
@@ -211,83 +217,120 @@ export interface AgentSqlDatabase {
   transaction: <T>(fn: (tx: AgentSqlTransaction) => Promise<T>) => Promise<T>;
 }
 
-interface ExplainPlanNode {
-  Filter?: string;
-  'Node Type'?: string;
-  Plans?: ExplainPlanNode[];
-  'Total Cost'?: number;
-}
-
-/**
- * True when a recursive term carries NO restriction at all.
- *
- * The recursive half of a `Recursive Union` is its `WorkTable Scan`, and the
- * planner records any termination predicate there as a `Filter`, so the two
- * cases are distinguishable without reading a line of SQL:
- *
- *   bounded    WorkTable Scan  Filter="(n < 20)"
- *   unbounded  WorkTable Scan                      <- nothing stops it
- *
- * HONEST LIMIT: a `Filter` is not a PROOF of termination — `WHERE n > 0` on an
- * incrementing counter still runs forever. This catches the accidental and
- * obvious case, which is the realistic failure mode. It is a heuristic layered
- * on top of the row cap, not a decidability result.
- */
-function lacksRecursionBound(node: ExplainPlanNode): boolean {
-  if (node['Node Type'] === WORKTABLE_SCAN_NODE_TYPE) {
-    return node.Filter === undefined;
-  }
-  return (node.Plans ?? []).some(lacksRecursionBound);
-}
-
-/**
- * True when a `Recursive Union` appears anywhere beneath a draining ancestor.
- *
- * Walks from the root carrying whether a draining node has been seen on the
- * path so far — the shape PostgreSQL actually emits is
- * `Limit -> Aggregate -> Recursive Union` for the dangerous case and
- * `Limit -> CTE Scan -> Recursive Union` for the safe one.
- */
-function hasUnboundableRecursion(plan: ExplainPlanNode, drainingAbove = false): boolean {
-  const nodeType = plan['Node Type'];
-  if (nodeType === RECURSIVE_UNION_NODE_TYPE && drainingAbove) {
-    // Both conditions are required. Under a PIPELINING parent the row cap stops
-    // the recursion (measured: 51 rows in 869ms), and a recursive term WITH a
-    // termination predicate is ordinary, useful SQL — graph traversal depends
-    // on it. Only the combination is unstoppable.
-    return lacksRecursionBound(plan);
-  }
-  const draining =
-    drainingAbove || (nodeType !== undefined && DRAINING_PLAN_NODE_TYPES.has(nodeType));
-  return (plan.Plans ?? []).some((child) => hasUnboundableRecursion(child, draining));
-}
-
 interface ExplainRow {
   'QUERY PLAN': unknown;
 }
 
 /**
- * Reads `Plan."Total Cost"` out of an `EXPLAIN (FORMAT JSON)` result.
+ * The subset of PostgreSQL's JSON plan node this service reads.
  *
- * PGlite returns the plan already parsed in some paths and as JSON text in
- * others, so both are handled. A shape we cannot read is a hard failure: an
- * unreadable plan means the cost gate did not run, and admitting a statement
- * whose cost is unknown would silently drop the only working admission control.
+ * The bound-condition keys are declared individually rather than via an index
+ * signature so a typo in `RECURSION_BOUND_KEYS` is a compile error instead of a
+ * silently-always-undefined lookup — which would quietly turn every recursion
+ * into "unbounded" and re-break the traversal case.
  */
-function readPlanRoot(rows: ExplainRow[]): ExplainPlanNode {
+interface ExplainPlanNode {
+  Filter?: string;
+  'Hash Cond'?: string;
+  'Index Cond'?: string;
+  'Join Filter'?: string;
+  'Merge Cond'?: string;
+  'Node Type'?: string;
+  Plans?: ExplainPlanNode[];
+  'Recheck Cond'?: string;
+  'Total Cost'?: number;
+}
+
+/**
+ * Plan attributes that restrict a recursive term.
+ *
+ * A `Filter` on the `WorkTable Scan` is only ONE way a recursion terminates.
+ * The canonical graph traversal terminates by running out of edges, and its
+ * bound is a JOIN condition above the work table, not a node-local predicate:
+ *
+ *   Recursive Union
+ *     Seq Scan     Filter="(source = 1)"
+ *     Hash Join    Hash Cond="(r.id = e.source)"   <- this is the bound
+ *       WorkTable Scan                              <- no Filter at all
+ *
+ * Treating absence-of-`Filter` as absence-of-bound rejected exactly the
+ * BST-919 symbol-graph traversal this guard exists to preserve. Verified on
+ * PGlite 0.5.3 for both `UNION ALL` and `UNION` (dedup) recursion.
+ */
+const RECURSION_BOUND_KEYS = [
+  'Filter',
+  'Hash Cond',
+  'Index Cond',
+  'Join Filter',
+  'Merge Cond',
+  'Recheck Cond',
+] as const satisfies readonly (keyof ExplainPlanNode)[];
+
+/**
+ * True when a `Recursive Union`'s recursive term has NO restriction anywhere
+ * between it and the work table.
+ *
+ * HONEST LIMIT: a bound is not a PROOF of termination — `WHERE n > 0` on an
+ * incrementing counter still runs forever. This catches the accidental and
+ * obvious case, which is the realistic failure mode. It is a heuristic layered
+ * on the row cap, not a decidability result.
+ */
+function hasUnboundedRecursiveTerm(recursiveUnion: ExplainPlanNode): boolean {
+  const walk = (node: ExplainPlanNode, boundAbove: boolean): boolean => {
+    const bound = boundAbove || RECURSION_BOUND_KEYS.some((key) => typeof node[key] === 'string');
+    if (node['Node Type'] === WORKTABLE_SCAN_NODE_TYPE) {
+      return !bound;
+    }
+    return (node.Plans ?? []).some((child) => walk(child, bound));
+  };
+  return walk(recursiveUnion, false);
+}
+
+/**
+ * Finds a recursion this call cannot bound.
+ *
+ * `requireDrainingParent` is the load-bearing difference between the two
+ * callers, and getting it wrong reopens the hang through a different door:
+ *
+ * - `query()` wraps the statement in `LIMIT n+1`, so a recursion feeding a
+ *   PIPELINING parent stops as soon as the cap is satisfied (measured: 51 rows
+ *   in 869ms). Only a DRAINING parent defeats the cap, so the draining
+ *   condition is required there.
+ * - `explain(analyze)` has NO wrapper — `EXPLAIN` is invalid inside a FROM
+ *   subquery — and `ANALYZE` runs the statement to completion. The parent shape
+ *   is therefore irrelevant: ANY unbounded recursive term is unstoppable.
+ *   Measured: `EXPLAIN ANALYZE … SELECT n FROM r` was still running after 10s.
+ */
+function findUnboundableRecursion(
+  plan: ExplainPlanNode,
+  options: { requireDrainingParent: boolean },
+  drainingAbove = false
+): boolean {
+  const nodeType = plan['Node Type'];
+  if (nodeType === RECURSIVE_UNION_NODE_TYPE) {
+    if (!options.requireDrainingParent || drainingAbove) {
+      return hasUnboundedRecursiveTerm(plan);
+    }
+    return false;
+  }
+  const draining =
+    drainingAbove || (nodeType !== undefined && DRAINING_PLAN_NODE_TYPES.has(nodeType));
+  return (plan.Plans ?? []).some((child) => findUnboundableRecursion(child, options, draining));
+}
+
+function readPlanRoot(rows: ExplainRow[]): { cost: number; plan: ExplainPlanNode } {
   const raw = rows[0]?.['QUERY PLAN'];
   const parsed: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
   const first = Array.isArray(parsed) ? (parsed[0] as { Plan?: ExplainPlanNode }) : undefined;
   const plan = first?.Plan;
+  const cost = plan?.['Total Cost'];
 
-  if (
-    plan === undefined ||
-    typeof plan['Total Cost'] !== 'number' ||
-    !Number.isFinite(plan['Total Cost'])
-  ) {
+  // Returning the already-validated cost keeps call sites free of an
+  // `as number` assertion on a value this function just proved is a number.
+  if (plan === undefined || typeof cost !== 'number' || !Number.isFinite(cost)) {
     throw new Error('Could not read a planner cost estimate; refusing to run the statement.');
   }
-  return plan;
+  return { cost, plan };
 }
 
 export interface AgentSqlServiceOptions {
@@ -301,6 +344,35 @@ export class AgentSqlService {
   constructor(db: AgentSqlDatabase, options: AgentSqlServiceOptions = {}) {
     this.db = db;
     this.costCeiling = options.costCeiling ?? DEFAULT_AGENT_SQL_COST_CEILING;
+  }
+
+  /**
+   * The single admission gate: plan the statement, then apply every guard.
+   *
+   * Extracted because `query()` and `explain(analyze)` previously hand-rolled
+   * the same read-plan → recursion-guard → cost-ceiling sequence. That is the
+   * exact divergence this codebase keeps getting bitten by: the next guard
+   * added to one path would silently not apply to the other. The ONLY
+   * difference between the callers is `requireDrainingParent`, and it is now a
+   * named argument rather than an accident.
+   */
+  private async admit(
+    tx: AgentSqlTransaction,
+    statement: string,
+    options: { requireDrainingParent: boolean }
+  ): Promise<number> {
+    const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${statement}`);
+    const { cost, plan } = readPlanRoot(explained.rows);
+
+    // Reported before a cost rejection when both would fire: this names a
+    // specific, fixable mistake, where the cost message is generic.
+    if (findUnboundableRecursion(plan, options)) {
+      throw new AgentSqlUnboundedRecursionError();
+    }
+    if (cost > this.costCeiling) {
+      throw new AgentSqlCostRejectedError(cost, this.costCeiling);
+    }
+    return cost;
   }
 
   /**
@@ -338,20 +410,9 @@ export class AgentSqlService {
       await tx.exec('SET TRANSACTION READ ONLY');
       await tx.exec(`SET LOCAL ROLE ${AGENT_READONLY_ROLE}`);
 
-      const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${wrapped}`);
-      const planRoot = readPlanRoot(explained.rows);
-
-      // Order matters only for message quality: the recursion guard names a
-      // specific, fixable mistake, so it is reported ahead of a generic cost
-      // rejection when both would fire.
-      if (hasUnboundableRecursion(planRoot)) {
-        throw new AgentSqlUnboundedRecursionError();
-      }
-
-      const estimatedCost = planRoot['Total Cost'] as number;
-      if (estimatedCost > this.costCeiling) {
-        throw new AgentSqlCostRejectedError(estimatedCost, this.costCeiling);
-      }
+      // requireDrainingParent: the LIMIT wrapper below bounds a recursion that
+      // feeds a pipelining parent, so only a draining parent is a problem here.
+      const estimatedCost = await this.admit(tx, wrapped, { requireDrainingParent: true });
 
       const result = await tx.query<unknown[]>(wrapped, [], { rowMode: 'array' });
       const truncated = result.rows.length > maxRows;
@@ -398,15 +459,13 @@ export class AgentSqlService {
       await tx.exec(`SET LOCAL ROLE ${AGENT_READONLY_ROLE}`);
 
       if (analyze) {
-        const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${statement}`);
-        const planRoot = readPlanRoot(explained.rows);
-        if (hasUnboundableRecursion(planRoot)) {
-          throw new AgentSqlUnboundedRecursionError();
-        }
-        const estimatedCost = planRoot['Total Cost'] as number;
-        if (estimatedCost > this.costCeiling) {
-          throw new AgentSqlCostRejectedError(estimatedCost, this.costCeiling);
-        }
+        // requireDrainingParent: FALSE — and this is the whole reason the flag
+        // exists. There is no LIMIT wrapper on this path (EXPLAIN is invalid
+        // inside a FROM subquery), so ANALYZE runs the statement to completion
+        // and the parent shape is irrelevant: any unbounded recursive term
+        // hangs the single connection. Measured before this guard existed:
+        // `EXPLAIN ANALYZE … SELECT n FROM r` was still running after 10s.
+        await this.admit(tx, statement, { requireDrainingParent: false });
       }
 
       // TEXT rather than JSON: it is the format every Postgres operator reads,

@@ -727,7 +727,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       {
         description:
           "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql. Fields the chosen mode does not use are ignored",
-        enumValues: ['query', 'listTables', 'describeTable'],
+        enumValues: ['query', 'listTables', 'describeTable', 'explain'],
         name: 'mode',
         required: true,
         type: 'enum',
@@ -755,9 +755,16 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
         required: false,
         type: 'number',
       },
+      {
+        default: false,
+        description: 'mode=explain only: execute the statement to collect real timings',
+        name: 'analyze',
+        required: false,
+        type: 'boolean',
+      },
     ],
     returns:
-      'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema modes return table or column listings',
+      'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema modes return table or column listings; explain returns the query plan',
     toolId: 'brainstrike.querySelf',
   },
 
