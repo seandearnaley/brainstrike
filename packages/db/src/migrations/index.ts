@@ -74,6 +74,7 @@ import { migration072OpenRouterLing3Flash } from './072-openrouter-ling-3-flash.
 import { migration073DiagnosticEvents } from './073-diagnostic-events.js';
 import { migration074AgentReadonlyRole } from './074-agent-readonly-role.js';
 import { migration075FileSymbols } from './075-file-symbols.js';
+import { migration076AssistantRunErrors } from './076-assistant-run-errors.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -154,6 +155,7 @@ export const migrations: Migration[] = [
   migration073DiagnosticEvents,
   migration074AgentReadonlyRole,
   migration075FileSymbols,
+  migration076AssistantRunErrors,
 ];
 
 // Export base migrations (without chunks table) for test environments

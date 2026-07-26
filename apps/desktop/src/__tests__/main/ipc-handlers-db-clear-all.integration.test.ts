@@ -43,6 +43,7 @@ const PRESENT_RELATIONS = [
   'embedding_sets',
   'job_queue',
   'brainstrike_assistant_run_usage',
+  'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_edit_checkpoints',
@@ -105,6 +106,7 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     await db.exec(
       "INSERT INTO brainstrike_assistant_thread_placements (id) VALUES ('sentinel-placement')"
     );
+    await db.exec("INSERT INTO brainstrike_assistant_run_errors (id) VALUES ('sentinel')");
     await db.exec("INSERT INTO brainstrike_diagnostic_events (id) VALUES ('sentinel')");
     getDatabaseMock.mockReturnValue(db as unknown as ReturnType<typeof getDatabaseMock>);
   });
@@ -127,6 +129,7 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     expect(await countRows('prompt_items')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
+    expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   });
 

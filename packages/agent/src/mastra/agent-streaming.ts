@@ -26,8 +26,14 @@ import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/ag
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
+import {
+  extractProviderRunError,
+  MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
+  PROVIDER_RUN_ERROR_FALLBACK_CODE,
+  type ProviderRunError,
+  providerRunErrorToEventMetadata,
+} from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
-import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
@@ -1342,17 +1348,19 @@ function processMastraStreamPart(
         providerError.detail,
         lifecycleState,
         part,
-        providerError.metadata
+        runtimeData,
+        providerError.runError
       );
     }
     case 'tripwire': {
       // Same rationale as `'error'`: surface tripwires (content policy
       // violations, etc.) as a visible message + terminal run-event so the user
       // sees the reason and the thread does not hang.
-      return makeProviderErrorTermination(
+      return makeTripwireTermination(
         readTripwireReason(part) ?? 'tripwire',
         lifecycleState,
-        part
+        part,
+        runtimeData
       );
     }
     case SHELL_OUTPUT_STREAM_PART_TYPE: {
@@ -1384,145 +1392,30 @@ function processMastraStreamPart(
  */
 /** Cap the provider error detail rendered as visible assistant text. Provider
  * error bodies can be verbose; the full detail is preserved in the log. */
-const MAX_VISIBLE_PROVIDER_ERROR_CHARS = 600;
-
-const OPENROUTER_TOKEN_ERROR_TYPES = new Set([
-  'context_length_exceeded',
-  'max_tokens_exceeded',
-  'token_limit_exceeded',
-]);
+const MAX_VISIBLE_PROVIDER_ERROR_CHARS = MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS;
+const PROVIDER_ERROR_TRUNCATION_MARKER = '… [truncated]';
 
 interface ResolvedProviderError {
   detail: string;
-  metadata?: AssistantRunEventMetadata;
-}
-
-interface OpenRouterTokenErrorMetadata extends AssistantRunEventMetadata {
-  errorType: string;
-  httpStatus?: number;
-  providerCode?: string;
-}
-
-function readObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return;
-  }
-  return value as Record<string, unknown>;
-}
-
-function readBoundedString(value: unknown, maximumLength: number): string | undefined {
-  if (typeof value !== 'string') {
-    return;
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return;
-  }
-  return trimmed.slice(0, maximumLength);
-}
-
-function readHttpStatus(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
-    ? value
-    : undefined;
-}
-
-/**
- * OpenRouter's documented canonical error type is carried in
- * `error.metadata.error_type` on Chat Completions, `error.error_type` on the
- * Anthropic skin, and top-level `error_type` on Responses. Mastra's official
- * OpenRouter router currently uses Chat Completions, but pre-stream failures
- * can be wrapped in an AI SDK `APICallError.data` envelope. Inspect only those
- * documented/wrapper locations and retain only the token-limit vocabulary this
- * runtime can act on; arbitrary provider metadata is never persisted.
- */
-function readOpenRouterTokenError(value: unknown): OpenRouterTokenErrorMetadata | undefined {
-  const root = readObject(value);
-  if (!root) {
-    return;
-  }
-
-  const data = readObject(root['data']);
-  const candidates = [
-    root,
-    readObject(root['error']),
-    data,
-    readObject(data?.['error']),
-    readObject(readObject(root['cause'])?.['data']),
-    readObject(readObject(readObject(root['cause'])?.['data'])?.['error']),
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    const providerMetadata = readObject(candidate['metadata']);
-    const errorType = readBoundedString(
-      providerMetadata?.['error_type'] ?? candidate['error_type'],
-      80
-    );
-    if (!(errorType && OPENROUTER_TOKEN_ERROR_TYPES.has(errorType))) {
-      continue;
-    }
-    const providerCode = readBoundedString(providerMetadata?.['provider_code'], 120);
-    const httpStatus =
-      readHttpStatus(candidate['code']) ??
-      readHttpStatus(root['statusCode']) ??
-      readHttpStatus(readObject(root['cause'])?.['statusCode']);
-    return {
-      errorType,
-      ...(httpStatus === undefined ? {} : { httpStatus }),
-      ...(providerCode ? { providerCode } : {}),
-    };
-  }
-  return;
+  runError: ProviderRunError;
 }
 
 function resolveProviderError(
   value: unknown,
   runtimeData: RuntimeData | undefined
 ): ResolvedProviderError {
-  const detail = extractErrorMessage(value) ?? 'agent_stream_error';
+  const runError = extractProviderRunError(value);
+  const extractedDetail = extractErrorMessage(value);
+  const detail =
+    extractedDetail && extractedDetail !== '[object Object]'
+      ? extractedDetail
+      : (runError.message ?? 'agent_stream_error');
   const provider = runtimeData?.provider?.trim().toLowerCase();
-  if (provider === 'local') {
-    const root = readObject(value);
-    const codeCandidates = [
-      root?.['code'],
-      readObject(root?.['error'])?.['code'],
-      readObject(root?.['cause'])?.['code'],
-      readObject(readObject(root?.['cause'])?.['cause'])?.['code'],
-    ];
-    const errorType = codeCandidates
-      .map((candidate) => readBoundedString(candidate, 80))
-      .find((candidate) => candidate === LOCAL_TOOL_CALL_ARGUMENTS_INVALID);
-    if (errorType) {
-      const model = runtimeData?.model?.trim() || getDefaultModel('local');
-      return {
-        detail,
-        metadata: {
-          errorType,
-          ...(model ? { model } : {}),
-          provider: 'local',
-        },
-      };
-    }
-    return { detail };
-  }
-  if (provider !== 'openrouter') {
-    return { detail };
-  }
-  const typedMetadata = readOpenRouterTokenError(value);
-  if (!typedMetadata) {
-    return { detail };
-  }
-  const model = runtimeData?.model?.trim() || getDefaultModel('openrouter');
+  const includeStableCode =
+    provider === 'openrouter' && runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE;
   return {
-    detail: `[${typedMetadata.errorType}] ${detail}`,
-    metadata: {
-      ...typedMetadata,
-      ...(model ? { model } : {}),
-      provider: 'openrouter',
-    },
+    detail: includeStableCode ? `[${runError.code}] ${detail}` : detail,
+    runError,
   };
 }
 
@@ -1530,7 +1423,8 @@ function makeProviderErrorTermination(
   detail: string,
   lifecycleState: ToolLifecycleState,
   part: unknown,
-  providerErrorMetadata?: AssistantRunEventMetadata
+  runtimeData: RuntimeData | undefined,
+  runError: ProviderRunError
 ): ProcessStreamPartResult {
   // Preserve the server-side breadcrumb. We terminate the run gracefully here
   // (visible message + run.failed) instead of throwing through
@@ -1541,29 +1435,99 @@ function makeProviderErrorTermination(
   // message. (Per AGENTS.md's observability working rule.) The FULL detail goes to
   // the log; the visible message is clamped below.
   logger.error('mastra stream terminated by provider error', {
-    code: 'mastra_agent_stream_provider_error',
+    code: buildProviderErrorDiagnosticCode(runError),
     detail,
+    ...buildProviderErrorDiagnosticCorrelation(runtimeData),
   });
+  return makeVisibleRunFailureTermination(
+    detail,
+    lifecycleState,
+    {
+      ...makeStepMetadata(part),
+      ...providerRunErrorToEventMetadata(runError),
+    },
+    'The model request failed'
+  );
+}
+
+function makeTripwireTermination(
+  detail: string,
+  lifecycleState: ToolLifecycleState,
+  part: unknown,
+  runtimeData: RuntimeData | undefined
+): ProcessStreamPartResult {
+  logger.error('mastra stream terminated by tripwire', {
+    code: 'mastra_agent_stream_tripwire',
+    detail,
+    ...buildProviderErrorDiagnosticCorrelation(runtimeData),
+  });
+  return makeVisibleRunFailureTermination(
+    detail,
+    lifecycleState,
+    makeStepMetadata(part),
+    'The request was stopped'
+  );
+}
+
+function makeVisibleRunFailureTermination(
+  detail: string,
+  lifecycleState: ToolLifecycleState,
+  runMetadata: AssistantRunEventMetadata | undefined,
+  messagePrefix: string
+): ProcessStreamPartResult {
   // Clamp the user-visible detail: provider error bodies can be arbitrarily long
   // (and occasionally echo request context), which reads poorly as persisted
   // assistant text. The full detail stays in the log breadcrumb above.
   const visibleDetail =
     detail.length > MAX_VISIBLE_PROVIDER_ERROR_CHARS
-      ? `${detail.slice(0, MAX_VISIBLE_PROVIDER_ERROR_CHARS)}…`
+      ? `${detail.slice(
+          0,
+          MAX_VISIBLE_PROVIDER_ERROR_CHARS - PROVIDER_ERROR_TRUNCATION_MARKER.length
+        )}${PROVIDER_ERROR_TRUNCATION_MARKER}`
       : detail;
-  const stepMetadata = makeStepMetadata(part);
-  const runMetadata =
-    stepMetadata || providerErrorMetadata
-      ? { ...stepMetadata, ...providerErrorMetadata }
-      : undefined;
   return {
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
-      { type: 'text-delta', value: `The model request failed: ${visibleDetail}` },
+      { type: 'text-delta', value: `${messagePrefix}: ${visibleDetail}` },
       makeRunFailedChunk('Assistant run failed', visibleDetail, runMetadata),
       makeErrorFinishChunk(),
     ],
     finished: true,
+  };
+}
+
+function buildProviderErrorDiagnosticCode(runError: ProviderRunError): string {
+  const httpStatus = runError.httpStatus === undefined ? 'no_status' : String(runError.httpStatus);
+  if (runError.code === PROVIDER_RUN_ERROR_FALLBACK_CODE) {
+    return `${PROVIDER_RUN_ERROR_FALLBACK_CODE}:${httpStatus}`;
+  }
+  return `mastra_agent_stream_provider_error:${runError.code}:${httpStatus}`;
+}
+
+interface ProviderErrorDiagnosticCorrelation {
+  readonly resourceId?: string;
+  readonly rootId?: string;
+  readonly runId?: string;
+  readonly threadId?: string;
+}
+
+/**
+ * Explicit request context for the provider-error diagnostic choke point.
+ *
+ * These identifiers must ride the structured log argument: the durable
+ * diagnostic converter promotes correlation from context keys, not logger
+ * bindings or ambient async state. The run id is the renderer-minted durable
+ * id carried in memory; the root is the server-validated thread binding.
+ */
+function buildProviderErrorDiagnosticCorrelation(
+  runtimeData: RuntimeData | undefined
+): ProviderErrorDiagnosticCorrelation {
+  const memory = runtimeData?.memory;
+  return {
+    ...(memory?.resourceId ? { resourceId: memory.resourceId } : {}),
+    ...(runtimeData?.boundWorkspaceRootId ? { rootId: runtimeData.boundWorkspaceRootId } : {}),
+    ...(memory?.runId ? { runId: memory.runId } : {}),
+    ...(memory?.threadId ? { threadId: memory.threadId } : {}),
   };
 }
 

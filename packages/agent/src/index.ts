@@ -256,6 +256,23 @@ export {
   convertAssistantUiMessagesWithFinalInput,
   toAiSdkStyleStream,
 } from './message-utils';
+export {
+  extractProviderRunError,
+  isProviderRunError,
+  MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS,
+  MAX_PROVIDER_RUN_ERROR_CAUSES,
+  MAX_PROVIDER_RUN_ERROR_HEADER_VALUE_CHARS,
+  MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
+  MAX_PROVIDER_RUN_ERROR_REQUEST_ID_CHARS,
+  PROVIDER_RUN_ERROR_FALLBACK_CODE,
+  PROVIDER_RUN_ERROR_METADATA_KEY,
+  PROVIDER_RUN_ERROR_RESPONSE_HEADER_NAMES,
+  type ProviderRunError,
+  type ProviderRunErrorResponseHeaderName,
+  type ProviderRunErrorResponseHeaders,
+  providerRunErrorToEventMetadata,
+  readProviderRunError,
+} from './provider-error-metadata';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,

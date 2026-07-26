@@ -59,6 +59,11 @@ export {
 export type { Migration } from './migrations/index.js';
 // New migration system
 export { MigrationRunner, migrations } from './migrations/index.js';
+export {
+  ASSISTANT_RUN_ERRORS_TABLE,
+  type AssistantRunErrorRecord,
+  type RecordAssistantRunErrorInput,
+} from './models/assistant-run-error.js';
 export type {
   EmbeddingDistance,
   EmbeddingSet,

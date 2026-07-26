@@ -1563,6 +1563,16 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       )
       .map((chunk) => chunk.event.kind);
     expect(runEventKinds).toContain('run.failed');
+    const failure = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failure?.event.metadata).toMatchObject({
+      runError: {
+        code: 'mastra_agent_stream_provider_error',
+        message: 'Not Found',
+      },
+    });
 
     const finish = chunks.find((chunk) => chunk.type === 'message-finish');
     expect(finish).toMatchObject({ finishReason: 'error' });
@@ -1574,7 +1584,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     expect(providerErrorLog).toBeDefined();
@@ -1639,11 +1649,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
     );
     expect(failure?.event.metadata).toMatchObject({
-      errorType: 'context_length_exceeded',
-      httpStatus: 400,
-      model: 'google/gemini-2.5-flash',
-      provider: 'openrouter',
-      providerCode: 'context_window_exceeded',
+      runError: {
+        code: 'context_length_exceeded',
+        httpStatus: 400,
+        message: 'The combined input and output exceed the context window.',
+      },
     });
     expect(chunks.find((chunk) => chunk.type === 'message-finish')).toMatchObject({
       finishReason: 'error',
@@ -1808,14 +1818,14 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     // Visible message is bounded (no arbitrary-length provider string in-thread).
     expect(visibleText.length).toBeLessThan(longDetail.length);
-    expect(visibleText).toContain('…');
+    expect(visibleText).toContain('… [truncated]');
     // ...but the full detail is preserved in the server-side log breadcrumb.
     const providerErrorLog = logRecords.find((record) =>
       record.args.some(
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     const loggedDetail = providerErrorLog?.args.find(

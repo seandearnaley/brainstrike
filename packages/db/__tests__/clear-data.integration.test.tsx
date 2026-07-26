@@ -76,6 +76,9 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_diagnostic_events
      (id, occurred_at, severity, source, message, fingerprint, session_id, app_version, platform)
      VALUES ('sentinel-diag', NOW(), 'warn', 'test', 'sentinel', 'fp', 'sess', '0.0.0', 'test')`,
+  `INSERT INTO brainstrike_assistant_run_errors
+     (run_id, thread_id, resource_id, code, occurred_at)
+     VALUES ('sentinel-run', 'sentinel-thread', 'sentinel-resource', 'provider_error', NOW())`,
 ];
 
 /**
@@ -122,6 +125,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('prompt_items')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
+    expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
   }
 

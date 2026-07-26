@@ -37,6 +37,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   type RediscoveredToolApproval,
+  readProviderRunError,
   readToolApprovalRunConfigAction,
   readToolResumeRunConfigAction,
   resolveApprovalStaleMs,
@@ -59,7 +60,7 @@ import {
   NATIVE_TOOL_ID,
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
-import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import { AssistantRunErrorRepository, ToolOutputArtifactRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import {
@@ -981,6 +982,26 @@ async function recordDesktopAssistantRunEvent(
       now,
     ]
   );
+  if (event.kind !== 'run.failed') {
+    return;
+  }
+  const runError = readProviderRunError(metadata);
+  if (!runError) {
+    return;
+  }
+  try {
+    await new AssistantRunErrorRepository(database).record({
+      ...runError,
+      occurredAt: new Date(event.timestamp),
+      runId,
+    });
+  } catch (error) {
+    logger.error('Failed to persist assistant provider failure forensics', {
+      error,
+      eventId: event.id,
+      runId,
+    });
+  }
 }
 
 interface PreparedAssistantPostRequest {

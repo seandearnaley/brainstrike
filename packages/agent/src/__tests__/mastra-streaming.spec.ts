@@ -1,4 +1,5 @@
 import { ReadableStream } from 'node:stream/web';
+import { logRecordToDiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -407,6 +408,70 @@ describe('mastra streaming integration', () => {
     expect(diagnosticFields).toMatchObject({
       chunkType: 'data-future-mastra-stream-chunk',
       code: 'mastra_agent_unrecognized_stream_chunk',
+    });
+  });
+
+  it('puts durable run, thread, resource, and root correlation in provider-error diagnostic context', async () => {
+    setMockStreamParts([{ error: { message: 'upstream failed', statusCode: 503 }, type: 'error' }]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-correlated-error', parts: [{ text: 'hi' }], role: 'user' }],
+        {
+          memory: { id: 'memory-instance' } as never,
+          runtime: {
+            apiKey: 'test-key',
+            boundWorkspaceRootId: 'root-a',
+            memory: {
+              resourceId: 'resource-a',
+              runId: 'run-a',
+              threadId: 'thread-a',
+            },
+            provider: 'openai',
+          },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Drain the provider-error termination.
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const providerErrorLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:503'
+      )
+    );
+    expect(providerErrorLog).toBeDefined();
+    if (!providerErrorLog) {
+      throw new Error('Expected the provider-error diagnostic log.');
+    }
+
+    const event = logRecordToDiagnosticEvent(providerErrorLog, {
+      appVersion: 'test',
+      makeId: () => 'diagnostic-a',
+      platform: 'test',
+      sessionId: 'session-a',
+      source: 'electron-main',
+    });
+    expect(event).toMatchObject({
+      code: 'mastra_agent_stream_provider_error:503',
+      resourceId: 'resource-a',
+      rootId: 'root-a',
+      runId: 'run-a',
+      threadId: 'thread-a',
+    });
+    expect(providerErrorLog.bindings).not.toMatchObject({
+      resourceId: 'resource-a',
+      rootId: 'root-a',
+      runId: 'run-a',
+      threadId: 'thread-a',
     });
   });
 

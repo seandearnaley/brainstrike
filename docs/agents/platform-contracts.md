@@ -85,6 +85,11 @@ explicitly; only a pre-068 missing relation is tolerated. It also includes
 `brainstrike_assistant_thread_placements`, the durable thread grouping and
 manual-order presentation state (migration 054). Every table-enumerating reset
 deletes placements before groups, then deletes both before Mastra threads.
+It also includes `brainstrike_assistant_run_errors` (migration 076), the
+FK-less terminal provider-forensics store: clear it before the lazy parent
+run/thread relations in desktop `db:clearAll`, renderer direct clear, and
+renderer factory-reset purge so error text and allowlisted response metadata
+cannot survive a fresh start.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -529,7 +534,10 @@ sanitization contract; do not relitigate).
 `custom-073-diagnostic-events`). NO foreign keys (same precedent as
 `run_usage` 046 / `run_outcomes` 062): correlation ids (`run_id`, `thread_id`,
 `resource_id`, `root_id`) are nullable text and orphans are inert. `severity`
-is a CHECK-constrained `warn | error | fatal`. `fingerprint` is computed at
+is a CHECK-constrained `warn | error | fatal`. Migration 076 adds the partial
+`bst_diagnostic_events_run_idx (run_id, occurred_at DESC)` because P3 makes
+the repository's existing run-id filter a hot correlation path.
+`fingerprint` is computed at
 write time (`computeDiagnosticFingerprint` in
 `packages/utils/src/diagnostics/diagnostic-events.ts`) — a dependency-free
 FNV-1a hash over `code|scope|normalized-message` with UUIDs/paths/hex/digits

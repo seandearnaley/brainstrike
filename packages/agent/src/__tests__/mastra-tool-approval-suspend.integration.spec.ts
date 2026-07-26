@@ -457,7 +457,8 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
         (chunk) =>
           chunk.type === 'run-event' &&
           chunk.event.kind === 'run.failed' &&
-          chunk.event.metadata?.['errorType'] === 'local_tool_call_arguments_invalid'
+          (chunk.event.metadata?.['runError'] as { code?: unknown } | null | undefined)?.code ===
+            'local_tool_call_arguments_invalid'
       )
     ).toBe(true);
 

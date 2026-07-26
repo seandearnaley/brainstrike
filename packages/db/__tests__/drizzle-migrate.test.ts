@@ -83,7 +83,16 @@ describe('Drizzle Migration Runner', () => {
         expect(tableNames).toContain('models');
         expect(tableNames).not.toContain('model_registry');
         expect(tableNames).toContain('brainstrike_assistant_run_outcomes');
+        expect(tableNames).toContain('brainstrike_assistant_run_errors');
         expect(tableNames).toContain('__drizzle_migrations');
+
+        const diagnosticRunIndex = await db.query<{ indexname: string }>(
+          `SELECT indexname
+           FROM pg_indexes
+           WHERE tablename = 'brainstrike_diagnostic_events'
+             AND indexname = 'bst_diagnostic_events_run_idx'`
+        );
+        expect(diagnosticRunIndex.rows).toEqual([{ indexname: 'bst_diagnostic_events_run_idx' }]);
       },
       MIGRATION_RUN_TIMEOUT_MS
     );
