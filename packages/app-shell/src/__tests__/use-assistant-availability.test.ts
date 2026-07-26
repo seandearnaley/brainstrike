@@ -304,6 +304,63 @@ describe('fetchAssistantStatusState', () => {
     ).rejects.toThrowError('Invalid assistant provider error');
   });
 
+  it('preserves validated provider credential sources from an enabled desktop status', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerSources: [
+          { envVar: 'BRAINSTRIKE_OPENAI_API_KEY', provider: 'openai', source: 'env' },
+          { provider: 'anthropic', source: 'stored' },
+        ],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      providerSources: [
+        { envVar: 'BRAINSTRIKE_OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { provider: 'anthropic', source: 'stored' },
+      ],
+      state: 'enabled',
+    });
+  });
+
+  it.each([
+    ['a non-array payload', { provider: 'openai', source: 'env' }],
+    ['an unknown provider', [{ provider: 'not-a-provider', source: 'env' }]],
+    ['an unknown source', [{ provider: 'openai', source: 'keychain' }]],
+    [
+      'a duplicate provider',
+      [
+        { provider: 'openai', source: 'stored' },
+        { provider: 'openai', source: 'stored' },
+      ],
+    ],
+    [
+      'a stored entry carrying an env var name',
+      [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'stored' }],
+    ],
+    ['an env entry without an env var name', [{ provider: 'openai', source: 'env' }]],
+    ['a blank env var name', [{ envVar: '  ', provider: 'openai', source: 'env' }]],
+  ])('rejects %s in provider sources instead of guessing', async (_label, providerSources) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, providerSources }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError(/provider credential source/i);
+  });
+
   it('rejects incomplete hosted runtime metadata', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({ enabled: true, provider: 'openai' }),

@@ -2,7 +2,7 @@ import type { WebExtractInput } from '@brainstrike/agent';
 import { WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
-import { TAVILY_SECRET_PROVIDER } from './web-search-tool';
+import { TAVILY_ENV_KEYS, TAVILY_SECRET_PROVIDER } from '../tavily-credentials';
 
 const logger = createLogger('AssistantWebExtractTool');
 
@@ -10,9 +10,8 @@ const logger = createLogger('AssistantWebExtractTool');
 // desktop registry and every other consumer agree on the id.
 export { WEB_EXTRACT_TOOL_ID };
 
-/** Env vars consulted before the encrypted keychain (env takes priority) —
- * the SAME key webSearch uses; Tavily /extract shares the account. */
-const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as const;
+// Env vars and secret id come from `tavily-credentials.ts` — the SAME
+// credential webSearch uses; Tavily /extract shares the account.
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';

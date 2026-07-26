@@ -43,11 +43,13 @@ describe('registerSecretsIpcHandlers', () => {
     restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
     restoreEnvVar('ELECTRON_IS_E2E_TEST', ORIGINAL_ELECTRON_E2E);
     clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
     clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
   });
 
   afterEach(async () => {
     clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
     clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
     clearCachedAgentClient();
 
@@ -153,6 +155,68 @@ describe('registerSecretsIpcHandlers', () => {
     expect(result).not.toContain('google');
     expect(storedResult).toEqual(['anthropic']);
     expect(storedResult).not.toContain('google');
+    expect(secretsService.listProviders).not.toHaveBeenCalled();
+  });
+
+  it('describes per-provider credential sources without exposing values', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
+    process.env['BRAINSTRIKE_TAVILY_API_KEY'] = 'tvly-environment';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', ' openai ']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const describeHandler = getHandler('secrets:describe');
+    expect(describeHandler).toBeDefined();
+
+    const result = (await describeHandler!({} as IpcMainInvokeEvent)) as {
+      entries: Array<{ envVar?: string; provider: string; source: string }>;
+      envFileErrors: unknown[];
+    };
+
+    expect(result.entries).toEqual(
+      expect.arrayContaining([
+        { envVar: 'BRAINSTRIKE_OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { envVar: 'BRAINSTRIKE_TAVILY_API_KEY', provider: 'tavily', source: 'env' },
+        { provider: 'anthropic', source: 'stored' },
+      ])
+    );
+    // An env credential is authoritative, so the stored openai entry never
+    // masquerades as the credential the runtime will use.
+    expect(result.entries.filter((entry) => entry.provider === 'openai')).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain('sk-environment');
+    expect(JSON.stringify(result)).not.toContain('tvly-environment');
+    expect(result.envFileErrors).toEqual([]);
+  });
+
+  it('stays environment-blind when describing sources in test mode', async () => {
+    process.env['NODE_ENV'] = 'test';
+    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      listProviders: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const saveHandler = getHandler('secrets:save');
+    const describeHandler = getHandler('secrets:describe');
+    expect(describeHandler).toBeDefined();
+
+    await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
+    const result = (await describeHandler!({} as IpcMainInvokeEvent)) as {
+      entries: Array<{ provider: string; source: string }>;
+      envFileErrors: unknown[];
+    };
+
+    expect(result.entries).toEqual([{ provider: 'anthropic', source: 'stored' }]);
     expect(secretsService.listProviders).not.toHaveBeenCalled();
   });
 

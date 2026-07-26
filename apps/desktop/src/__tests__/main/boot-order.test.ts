@@ -48,6 +48,9 @@ Object.assign(mockBrowserWindow, {
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
   getAppMetrics: vi.fn(() => []),
+  // Boot reads the app directory to resolve dev `.env` files (loader itself is
+  // inert under NODE_ENV=test).
+  getAppPath: vi.fn(() => '/tmp/brainstrike-test-app'),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),
   getVersion: vi.fn(() => '0.0.0-test'),
   isPackaged: false,

@@ -36,7 +36,33 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
     });
     expect(fetched).toBe('sk-test-123');
 
+    await expect(window.getByTestId('provider-key-status-openai')).toContainText(
+      'Saved in keychain'
+    );
+
     await window.getByTestId('delete-llm-key').click();
     await expect(window.getByTestId('saved-llm-providers')).not.toContainText('openai');
+  });
+
+  // The E2E harness injects BRAINSTRIKE_OPENAI_API_KEY, but a test-mode launch
+  // is deliberately environment-BLIND (ipc-secrets uses in-memory secrets and
+  // the .env loader is inert), so environment-sourced Settings state cannot be
+  // exercised here by design. Assert the invariant instead: no environment row
+  // and no inert-save warning ever appear under test mode. Dev/packaged
+  // behavior is pinned by the ipc-secrets and api-keys-settings unit tests.
+  test('keeps injected environment credentials invisible in test mode', async ({
+    window,
+    homePage,
+  }) => {
+    await homePage.openSettings();
+    await window
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: /API Keys/i })
+      .click();
+    await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
+
+    await expect(window.getByTestId('saved-llm-providers')).not.toContainText('Environment key');
+    await expect(window.getByTestId('provider-env-inert-warning')).toHaveCount(0);
+    await expect(window.getByTestId('env-file-errors')).toHaveCount(0);
   });
 });

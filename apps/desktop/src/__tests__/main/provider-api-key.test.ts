@@ -44,6 +44,7 @@ import {
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from '../../provider-api-key';
+import { SecretReadError } from '../../secrets';
 
 describe('provider-api-key', () => {
   const originalEnv = { ...process.env };
@@ -124,8 +125,49 @@ describe('provider-api-key', () => {
 
     await expect(inspectProviderKeys()).resolves.toEqual({
       configuredProviders: ['openai'],
+      providerSources: [{ envVar: 'OPENAI_KEY', provider: 'openai', source: 'env' }],
       readFailures: [],
     });
     expect(secrets.getKey).not.toHaveBeenCalled();
+  });
+
+  it('reports the credential source and env var name per provider', async () => {
+    mockListAgentProviders.mockReturnValue(['openai', 'anthropic']);
+    mockGetAgentProviderEnvKeys.mockImplementation((provider: string) =>
+      provider === 'openai' ? ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'] : ['ANTHROPIC_KEY']
+    );
+    process.env['OPENAI_API_KEY'] = 'env-openai';
+
+    const secrets = {
+      getKey: vi.fn().mockResolvedValue('stored-anthropic'),
+      listProviders: vi.fn().mockResolvedValue(['anthropic']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const inspection = await inspectProviderKeys();
+
+    expect(inspection.providerSources).toEqual([
+      { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+      { provider: 'anthropic', source: 'stored' },
+    ]);
+  });
+
+  it('omits a provider whose stored key is unreadable from the source list', async () => {
+    mockListAgentProviders.mockReturnValue(['openrouter']);
+    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENROUTER_API_KEY']);
+
+    const readError = new SecretReadError('encryption_unavailable', 'openrouter');
+    const secrets = {
+      getKey: vi.fn().mockRejectedValue(readError),
+      listProviders: vi.fn().mockResolvedValue(['openrouter']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const inspection = await inspectProviderKeys();
+
+    expect(inspection.providerSources).toEqual([]);
+    expect(inspection.readFailures).toHaveLength(1);
   });
 });

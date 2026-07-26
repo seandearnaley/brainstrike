@@ -2,24 +2,21 @@ import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
+import { TAVILY_ENV_KEYS, TAVILY_SECRET_PROVIDER } from '../tavily-credentials';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';
 
 const logger = createLogger('AssistantWebSearchTool');
 
 // Single source of truth lives in @brainstrike/assistant-contract so the desktop
 // registry and the agent runtime's provider-native swap agree on the id.
-export { WEB_SEARCH_TOOL_ID };
-
 /**
  * The secrets-store provider id under which the Tavily API key is stored. NOT a
  * `ProviderId` (Tavily is not an LLM/embedding provider, so it stays out of the
  * model registry); the secrets service keys by arbitrary string, so we reuse
- * that same encrypted-keychain path without polluting `ProviderId`.
+ * that same encrypted-keychain path without polluting `ProviderId`. Defined
+ * once in `tavily-credentials.ts` and re-exported here for existing consumers.
  */
-export const TAVILY_SECRET_PROVIDER = 'tavily' as const;
-
-/** Env vars consulted before the encrypted keychain (env takes priority). */
-const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as const;
+export { TAVILY_SECRET_PROVIDER, WEB_SEARCH_TOOL_ID };
 
 const DEFAULT_MAX_RESULTS = 5;
 const MAX_RESULTS_CAP = 10;

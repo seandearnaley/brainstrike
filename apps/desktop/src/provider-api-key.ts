@@ -14,6 +14,20 @@ function normalizeSecretValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * The environment variable NAME (never its value) that currently supplies this
+ * provider's credential, or undefined when no env var is set.
+ */
+export function resolveProviderEnvVarName(provider: SupportedProvider): string | undefined {
+  const envKeys = getAgentProviderEnvKeys(provider);
+  for (const envKey of envKeys) {
+    if (normalizeSecretValue(process.env[envKey])) {
+      return envKey;
+    }
+  }
+  return;
+}
+
 export function resolveProviderEnvKey(provider: SupportedProvider): string | undefined {
   const envKeys = getAgentProviderEnvKeys(provider);
   for (const envKey of envKeys) {
@@ -52,19 +66,34 @@ export interface ProviderKeyReadFailure {
   readonly provider: SupportedProvider;
 }
 
+/** Which credential store the runtime will actually use for this provider. */
+export type ProviderKeySource = 'env' | 'stored';
+
+export interface ProviderKeyOrigin {
+  /** Env var NAME when `source` is 'env'; absent for 'stored'. Never a value. */
+  readonly envVar?: string;
+  readonly provider: SupportedProvider;
+  readonly source: ProviderKeySource;
+}
+
 export interface ProviderKeyInspection {
   readonly configuredProviders: SupportedProvider[];
+  /** One entry per configured provider, in `configuredProviders` order. */
+  readonly providerSources: ProviderKeyOrigin[];
   readonly readFailures: ProviderKeyReadFailure[];
 }
 
 export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
   const configured = new Set<SupportedProvider>();
+  const providerSources: ProviderKeyOrigin[] = [];
   const readFailures: ProviderKeyReadFailure[] = [];
   const supportedProviders = listAgentProviders();
 
   for (const provider of supportedProviders) {
-    if (resolveProviderEnvKey(provider)) {
+    const envVar = resolveProviderEnvVarName(provider);
+    if (envVar) {
       configured.add(provider);
+      providerSources.push({ envVar, provider, source: 'env' });
     }
   }
 
@@ -82,6 +111,7 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
       const key = await secretsService.getKey(supported);
       if (normalizeSecretValue(key)) {
         configured.add(supported);
+        providerSources.push({ provider: supported, source: 'stored' });
       }
     } catch (error) {
       if (!(error instanceof SecretReadError)) {
@@ -101,6 +131,7 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
 
   return {
     configuredProviders: Array.from(configured.values()),
+    providerSources,
     readFailures,
   };
 }

@@ -19,6 +19,17 @@ export interface AssistantProviderReadError {
   readonly provider: SupportedProvider;
 }
 
+/**
+ * Which credential store desktop will use for one provider. Names only: the
+ * status payload never carries a key value, and `envVar` is the environment
+ * variable's NAME.
+ */
+export interface AssistantProviderKeySource {
+  readonly envVar?: string;
+  readonly provider: SupportedProvider;
+  readonly source: 'env' | 'stored';
+}
+
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
   | {
@@ -26,6 +37,7 @@ export type AssistantAvailabilityStatus =
       model?: string;
       provider?: SupportedProvider;
       providerErrors?: readonly AssistantProviderReadError[];
+      providerSources?: readonly AssistantProviderKeySource[];
     }
   | { state: 'disabled'; reason?: string }
   | { state: 'error'; message: string };
@@ -318,42 +330,10 @@ export async function fetchAssistantStatusState({
     throw new Error(`status ${response.status}`);
   }
 
-  const payload = (await response.json()) as {
-    enabled: boolean;
-    model?: string;
-    providerErrors?: unknown;
-    provider?: string;
-    reason?: string;
-  };
+  const payload = (await response.json()) as AssistantStatusPayload;
 
   if (payload.enabled) {
-    const providerErrors = parseAssistantProviderReadErrors(payload.providerErrors);
-    const hasProvider = payload.provider !== undefined;
-    const hasModel = payload.model !== undefined;
-    if (hasProvider !== hasModel) {
-      throw new Error('Assistant status must advertise provider and model together');
-    }
-    if (!(hasProvider && hasModel)) {
-      return {
-        ...(providerErrors ? { providerErrors } : {}),
-        state: 'enabled',
-      };
-    }
-    if (!isSupportedProvider(payload.provider)) {
-      throw new Error(`Unsupported assistant provider: ${payload.provider}`);
-    }
-    if (
-      typeof payload.model !== 'string' ||
-      !isValidModelForProvider(payload.provider, payload.model)
-    ) {
-      throw new Error(`Unsupported assistant model: ${payload.provider}/${String(payload.model)}`);
-    }
-    return {
-      model: payload.model,
-      ...(providerErrors ? { providerErrors } : {}),
-      provider: payload.provider,
-      state: 'enabled',
-    };
+    return parseEnabledAssistantStatus(payload);
   }
 
   if (payload.reason) {
@@ -361,6 +341,52 @@ export async function fetchAssistantStatusState({
   }
 
   return { state: 'disabled' };
+}
+
+interface AssistantStatusPayload {
+  enabled: boolean;
+  model?: string;
+  provider?: string;
+  providerErrors?: unknown;
+  providerSources?: unknown;
+  reason?: string;
+}
+
+/**
+ * Validates the enabled desktop/hosted status payload. Provider errors and
+ * credential sources are strictly parsed (a malformed entry throws), and the
+ * hosted runtime's provider/model pair stays atomic.
+ */
+function parseEnabledAssistantStatus(payload: AssistantStatusPayload): AssistantAvailabilityStatus {
+  const providerErrors = parseAssistantProviderReadErrors(payload.providerErrors);
+  const providerSources = parseAssistantProviderKeySources(payload.providerSources);
+  const extras = {
+    ...(providerErrors ? { providerErrors } : {}),
+    ...(providerSources ? { providerSources } : {}),
+  };
+  const hasProvider = payload.provider !== undefined;
+  const hasModel = payload.model !== undefined;
+  if (hasProvider !== hasModel) {
+    throw new Error('Assistant status must advertise provider and model together');
+  }
+  if (!(hasProvider && hasModel)) {
+    return { ...extras, state: 'enabled' };
+  }
+  if (!isSupportedProvider(payload.provider)) {
+    throw new Error(`Unsupported assistant provider: ${payload.provider}`);
+  }
+  if (
+    typeof payload.model !== 'string' ||
+    !isValidModelForProvider(payload.provider, payload.model)
+  ) {
+    throw new Error(`Unsupported assistant model: ${payload.provider}/${String(payload.model)}`);
+  }
+  return {
+    model: payload.model,
+    ...extras,
+    provider: payload.provider,
+    state: 'enabled',
+  };
 }
 
 function parseAssistantProviderReadErrors(
@@ -399,6 +425,53 @@ function parseAssistantProviderReadErrors(
       message: candidate['message'],
       provider,
     };
+  });
+}
+
+/**
+ * Strict validator for the desktop status payload's credential-source list.
+ * A malformed entry FAILS the probe: a protocol violation must never be
+ * silently dropped and shown to the user as a healthy configuration.
+ */
+function parseAssistantProviderKeySources(
+  value: unknown
+): readonly AssistantProviderKeySource[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant provider credential source list');
+  }
+
+  const providers = new Set<SupportedProvider>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object')) {
+      throw new Error('Invalid assistant provider credential source');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const source = candidate['source'];
+    const envVar = candidate['envVar'];
+    if (
+      typeof provider !== 'string' ||
+      !isSupportedProvider(provider) ||
+      providers.has(provider) ||
+      (source !== 'env' && source !== 'stored')
+    ) {
+      throw new Error('Invalid assistant provider credential source');
+    }
+    if (source === 'stored') {
+      if (envVar !== undefined) {
+        throw new Error('Invalid assistant provider credential source');
+      }
+      providers.add(provider);
+      return { provider, source };
+    }
+    if (typeof envVar !== 'string' || envVar.trim().length === 0) {
+      throw new Error('Invalid assistant provider credential source');
+    }
+    providers.add(provider);
+    return { envVar, provider, source };
   });
 }
 

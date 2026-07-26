@@ -53,6 +53,7 @@ const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabi
 const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions' as const;
 const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
 const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
+const SECRETS_DESCRIBE_CHANNEL = 'secrets:describe' as const;
 const SECRETS_GET_CHANNEL = 'secrets:get' as const;
 const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
 const SECRETS_LIST_STORED_CHANNEL = 'secrets:listStored' as const;
@@ -693,6 +694,7 @@ if (shouldExposeBridge('electronAPI')) {
 contextBridge.exposeInMainWorld('secrets', {
   clearAll: () => ipcRenderer.invoke(SECRETS_CLEAR_ALL_CHANNEL, SECRETS_CLEAR_CONFIRMATION_TOKEN),
   deleteKey: (provider: string) => ipcRenderer.invoke(SECRETS_DELETE_CHANNEL, provider),
+  describe: () => ipcRenderer.invoke(SECRETS_DESCRIBE_CHANNEL),
   getKey: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CHANNEL, provider),
   list: () => ipcRenderer.invoke(SECRETS_LIST_CHANNEL),
   listStored: () => ipcRenderer.invoke(SECRETS_LIST_STORED_CHANNEL),

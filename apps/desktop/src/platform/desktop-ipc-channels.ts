@@ -151,6 +151,7 @@ export const DESKTOP_IPC_CHANNELS = {
   secrets: {
     clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
+    describe: 'secrets:describe',
     get: 'secrets:get',
     list: 'secrets:list',
     listStored: 'secrets:listStored',

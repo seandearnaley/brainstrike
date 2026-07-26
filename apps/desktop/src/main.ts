@@ -60,6 +60,7 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { applyDesktopEnvFiles } from './env-file-loader';
 import { createDatabaseRootResolver } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -1345,6 +1346,19 @@ if (singleInstanceLockAcquired) {
           sessionId: randomUUID(),
         });
       }
+
+      // Provider credentials from `.env` files MUST be in process.env before
+      // anything reads them: the secrets IPC bridge below, the assistant
+      // server's provider resolution, and every agent bootstrap all start
+      // after this point. `userData` is only knowable once the app is ready
+      // (and after applyExplicitPathIsolation's app.setPath), so this is the
+      // earliest correct moment. Already-set variables always win; a malformed
+      // file is rejected whole and surfaced in Settings → API Keys.
+      applyDesktopEnvFiles({
+        appDirectory: app.getAppPath(),
+        isPackaged: app.isPackaged,
+        userDataDirectory: app.getPath('userData'),
+      });
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());

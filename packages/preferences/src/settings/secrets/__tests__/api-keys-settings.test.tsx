@@ -87,6 +87,10 @@ describe('ApiKeysSettings', () => {
   interface SecretsApi {
     clearAll: (confirmationToken?: string) => Promise<{ message?: string; success: boolean }>;
     deleteKey: (provider: string) => Promise<boolean>;
+    describe?: () => Promise<{
+      entries: Array<{ envVar?: string; provider: string; source: 'env' | 'stored' }>;
+      envFileErrors: Array<{ filePath: string; line: number | null; message: string }>;
+    }>;
     getKey: (provider: string) => Promise<string | null>;
     list: () => Promise<string[]>;
     listStored: () => Promise<string[]>;
@@ -244,6 +248,108 @@ describe('ApiKeysSettings', () => {
     await waitFor(() => {
       expect(window.secrets?.deleteKey).toHaveBeenCalledWith('tavily');
     });
+  });
+
+  it('labels each provider with the credential source the runtime will use', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      describe: vi.fn().mockResolvedValue({
+        entries: [
+          { envVar: 'BRAINSTRIKE_OPENAI_API_KEY', provider: 'openai', source: 'env' },
+          { provider: 'google', source: 'stored' },
+        ],
+        envFileErrors: [],
+      }),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status-openai').textContent).toContain(
+        'Environment key (BRAINSTRIKE_OPENAI_API_KEY)'
+      );
+    });
+    expect(screen.getByTestId('provider-key-status-google').textContent).toContain(
+      'Saved in keychain'
+    );
+    expect(window.secrets?.listStored).not.toHaveBeenCalled();
+  });
+
+  it('warns that a keychain key is inert while the selected provider is environment-sourced', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      describe: vi.fn().mockResolvedValue({
+        entries: [{ envVar: 'BRAINSTRIKE_OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+        envFileErrors: [],
+      }),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-env-inert-warning').textContent).toContain(
+        'BRAINSTRIKE_OPENAI_API_KEY'
+      );
+    });
+  });
+
+  it('shows no inert warning when every provider is keychain-backed', async () => {
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status-openai').textContent).toContain(
+        'Saved in keychain'
+      );
+    });
+    expect(screen.queryByTestId('provider-env-inert-warning')).toBeNull();
+  });
+
+  it('reports an environment-sourced Tavily key and its inert keychain save', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      describe: vi.fn().mockResolvedValue({
+        entries: [{ envVar: 'TAVILY_API_KEY', provider: 'tavily', source: 'env' }],
+        envFileErrors: [],
+      }),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tavily-key-status').textContent).toContain(
+        'Environment key (TAVILY_API_KEY)'
+      );
+    });
+    expect(screen.getByTestId('tavily-env-inert-warning')).toBeTruthy();
+  });
+
+  it('surfaces rejected environment files instead of swallowing them', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      describe: vi.fn().mockResolvedValue({
+        entries: [],
+        envFileErrors: [
+          {
+            filePath: '/repo/apps/desktop/.env',
+            line: 4,
+            message: 'Line 4 is not a KEY=VALUE assignment.',
+          },
+        ],
+      }),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('env-file-errors').textContent).toContain(
+        '/repo/apps/desktop/.env'
+      );
+    });
+    expect(screen.getByTestId('env-file-errors').textContent).toContain('not a KEY=VALUE');
   });
 
   it('reflects a configured Tavily key in its status line', async () => {

@@ -77,6 +77,47 @@
     healthy provider availability. Saving, replacing, or deleting a provider
     secret must re-probe assistant status so an unreadable-key error cannot
     remain latched after the credential is repaired.
+  - Desktop env-file loading (BST-900): `apps/desktop/src/env-file-loader.ts`
+    applies provider credentials from `apps/desktop/.env.local`, then
+    `apps/desktop/.env` (dev launches only — resolved from `app.getAppPath()`,
+    skipped when `app.isPackaged`), then `<userData>/.env` (every launch). It
+    runs at the TOP of `app.whenReady()` in `main.ts`, before the secrets IPC
+    bridge, the assistant server, and every agent bootstrap; `userData` is not
+    knowable earlier. Precedence: an already-set `process.env` variable ALWAYS
+    wins, then that file order. Nothing is ever overwritten. The parser is
+    hand-rolled and strict on purpose — `dotenv` is lenient by design, the
+    opposite of this contract — accepting only blank lines, `#` comment lines,
+    and `KEY=VALUE` with bare, single-quoted (literal), or double-quoted
+    (`\n`/`\r`/`\t`/`\\`/`\"`) values. `export` prefixes, spaces around `=`,
+    inline comments, unterminated quotes, unknown escapes, and duplicate keys
+    reject the WHOLE file: nothing from it is applied, never partially. Each
+    rejection is logged as a startup error (never with the value) and travels
+    through `secrets:describe` into Settings → API Keys as a visible error card.
+    The loader is INERT in test mode — `isDesktopTestMode()` in
+    `desktop-test-mode.ts` is the single definition shared with `ipc-secrets.ts`
+    — so a developer credential can never leak into an E2E run. Canonical names
+    are documented in `apps/desktop/.env.example`; `.env`/`.env.local` are
+    gitignored.
+  - Settings env visibility (BST-900): `inspectProviderKeys` reports
+    `providerSources` (`{provider, source: 'env' | 'stored', envVar?}`, env var
+    NAME only — never a value) alongside `configuredProviders`. That list
+    propagates in lockstep through `collectAvailableProviders` → the
+    `/assistant/status` payload → the strict `parseAssistantProviderKeySources`
+    validator in `use-assistant-availability.ts`, which FAILS the probe on an
+    unknown provider/source, a duplicate provider, a `stored` entry carrying an
+    `envVar`, or an `env` entry missing one. The renderer obtains the same data
+    through the `secrets:describe` IPC channel, which also covers Tavily (not a
+    `ProviderId`) via `tavily-credentials.ts` — the single definition of its
+    secret id and env names, shared by web-search and web-extract.
+    `secrets:describe` stays environment-blind in test mode and reports an
+    env-configured provider ONLY as `env`, mirroring runtime precedence;
+    `secrets:list` / `secrets:listStored` semantics are unchanged. Settings →
+    API Keys renders per-provider rows ("Environment key (`VAR`)" vs "Saved in
+    keychain") instead of a bare comma list, and warns inline that a keychain
+    save is INERT while an env var supplies that provider (Save stays enabled —
+    the key is retained for later, it simply is not used until the variable is
+    unset). The Tavily card carries the same env-aware status and warning. Every
+    mutation still calls `notifySecretsChanged()`.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

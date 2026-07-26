@@ -430,6 +430,19 @@ declare global {
       ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
       getKey: (provider: string) => Promise<string | null>;
       deleteKey: (provider: string) => Promise<boolean>;
+      /**
+       * Per-credential SOURCE listing (names only, never values): which store
+       * the runtime will use for each provider, plus any environment file this
+       * launch rejected. Environment-blind in test mode.
+       */
+      describe: () => Promise<{
+        entries: Array<{
+          envVar?: string;
+          provider: string;
+          source: 'env' | 'stored';
+        }>;
+        envFileErrors: Array<{ filePath: string; line: number | null; message: string }>;
+      }>;
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;

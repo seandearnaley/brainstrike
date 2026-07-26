@@ -1,16 +1,35 @@
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
+import { isDesktopTestMode } from './desktop-test-mode';
+import { getDesktopEnvFileLoadReport } from './env-file-loader';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveProviderEnvKey } from './provider-api-key';
+import { resolveProviderEnvKey, resolveProviderEnvVarName } from './provider-api-key';
 import type { SecretsService } from './secrets';
+import { resolveTavilyEnvVarName, TAVILY_SECRET_PROVIDER } from './tavily-credentials';
 
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
-function isTestMode(): boolean {
-  const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-  const nodeEnv = process.env['NODE_ENV'];
-  return process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
+const isTestMode = isDesktopTestMode;
+
+/**
+ * Which store supplies one credential, by NAME only. `envVar` carries the
+ * environment variable's name so Settings can name it; no value ever crosses
+ * this IPC boundary.
+ */
+export interface SecretSourceDescriptor {
+  readonly envVar?: string;
+  readonly provider: string;
+  readonly source: 'env' | 'stored';
+}
+
+export interface SecretsDescription {
+  readonly entries: SecretSourceDescriptor[];
+  readonly envFileErrors: Array<{
+    readonly filePath: string;
+    readonly line: number | null;
+    readonly message: string;
+  }>;
 }
 
 // In-memory storage for test mode
@@ -58,6 +77,38 @@ function appendEnvConfiguredProviders(target: Set<string>) {
       target.add(provider);
     }
   }
+}
+
+/**
+ * Env-sourced credentials, by name. Mirrors runtime precedence exactly: every
+ * LLM provider whose env var is set, plus Tavily (not a `ProviderId`, so it
+ * carries its own env names).
+ */
+function collectEnvSourceDescriptors(): SecretSourceDescriptor[] {
+  const descriptors: SecretSourceDescriptor[] = [];
+  for (const provider of listAgentProviders()) {
+    const envVar = resolveProviderEnvVarName(provider);
+    if (envVar) {
+      descriptors.push({ envVar, provider, source: 'env' });
+    }
+  }
+  const tavilyEnvVar = resolveTavilyEnvVarName();
+  if (tavilyEnvVar) {
+    descriptors.push({ envVar: tavilyEnvVar, provider: TAVILY_SECRET_PROVIDER, source: 'env' });
+  }
+  return descriptors;
+}
+
+function toStoredDescriptors(providers: Iterable<string>, claimed: Set<string>) {
+  const descriptors: SecretSourceDescriptor[] = [];
+  for (const provider of providers) {
+    if (claimed.has(provider)) {
+      continue;
+    }
+    claimed.add(provider);
+    descriptors.push({ provider, source: 'stored' });
+  }
+  return descriptors;
 }
 
 /**
@@ -156,6 +207,39 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);
   });
+
+  // Per-credential source listing for Settings. Env is authoritative at
+  // runtime, so an env-configured provider is reported ONLY as 'env' — a stored
+  // key for that provider is inert and must not be shown as the live source.
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.describe,
+    async (): Promise<SecretsDescription> => {
+      if (isTestMode()) {
+        const providers = new Set<string>();
+        appendTestModeProviders(providers);
+        return {
+          entries: toStoredDescriptors(providers, new Set<string>()),
+          envFileErrors: [],
+        };
+      }
+
+      const entries = collectEnvSourceDescriptors();
+      const claimed = new Set(entries.map((entry) => entry.provider));
+      const storedProviders = new Set<string>();
+      await appendStoredProviders(storedProviders, secrets);
+      entries.push(...toStoredDescriptors(storedProviders, claimed));
+
+      return {
+        entries,
+        envFileErrors: getDesktopEnvFileLoadReport().failures.map((failure) => ({
+          filePath: failure.filePath,
+          line: failure.line,
+          message: failure.message,
+        })),
+      };
+    }
+  );
 
   registry.registerInvoke(
     'preferences',

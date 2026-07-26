@@ -177,6 +177,7 @@ import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import {
   inspectProviderKeys,
+  type ProviderKeyOrigin,
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
@@ -1221,12 +1222,13 @@ function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
   try {
-    const { providerErrors, providers } = await collectAvailableProviders();
+    const { providerErrors, providerSources, providers } = await collectAvailableProviders();
     const enabled = providers.length > 0;
     const payload = enabled
       ? {
           enabled,
           ...(providerErrors.length > 0 ? { providerErrors } : {}),
+          ...(providerSources.length > 0 ? { providerSources } : {}),
           providers,
         }
       : { enabled, providers: [] as string[], reason: 'no_providers_configured' };
@@ -1580,6 +1582,9 @@ async function collectAvailableProviders(): Promise<{
     message: string;
     provider: SupportedProvider;
   }>;
+  // Names only: which store supplies each configured provider's credential,
+  // and (for env) the variable NAME. Values never cross this boundary.
+  providerSources: ProviderKeyOrigin[];
   providers: string[];
 }> {
   const inspection = await inspectProviderKeys();
@@ -1595,6 +1600,7 @@ async function collectAvailableProviders(): Promise<{
       message: failure.message,
       provider: failure.provider,
     })),
+    providerSources: inspection.providerSources,
     providers: Array.from(providers),
   };
 }

@@ -364,7 +364,11 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-credentials']).toBe('true');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
-      expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
+      expect(data).toEqual({
+        enabled: true,
+        providerSources: [{ provider: 'openai', source: 'stored' }],
+        providers: ['openai', 'local'],
+      });
     }, 10_000);
 
     it('reports an unreadable provider key without disabling other providers', async () => {

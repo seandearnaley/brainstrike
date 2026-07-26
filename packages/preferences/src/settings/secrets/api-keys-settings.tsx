@@ -35,7 +35,8 @@ const TAVILY_SECRET_PROVIDER = 'tavily';
 interface ApiKeysState {
   apiKey: string;
   busy: boolean;
-  providersWithSecrets: string[];
+  envFileErrors: SecretsEnvFileError[];
+  keySources: SecretSourceDescriptor[];
   rawProvider: string;
   tavilyKey: string;
 }
@@ -44,7 +45,11 @@ type ApiKeysAction =
   | { type: 'SET_PROVIDER'; provider: string }
   | { type: 'SET_API_KEY'; key: string }
   | { type: 'SET_TAVILY_KEY'; key: string }
-  | { type: 'SET_PROVIDERS_WITH_SECRETS'; providers: string[] }
+  | {
+      type: 'SET_KEY_SOURCES';
+      envFileErrors: SecretsEnvFileError[];
+      keySources: SecretSourceDescriptor[];
+    }
   | { type: 'SET_BUSY'; busy: boolean }
   | { type: 'SAVE_SUCCESS' }
   | { type: 'SAVE_TAVILY_SUCCESS' };
@@ -57,8 +62,8 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
       return { ...state, apiKey: action.key };
     case 'SET_TAVILY_KEY':
       return { ...state, tavilyKey: action.key };
-    case 'SET_PROVIDERS_WITH_SECRETS':
-      return { ...state, providersWithSecrets: action.providers };
+    case 'SET_KEY_SOURCES':
+      return { ...state, envFileErrors: action.envFileErrors, keySources: action.keySources };
     case 'SET_BUSY':
       return { ...state, busy: action.busy };
     case 'SAVE_SUCCESS':
@@ -68,6 +73,56 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
     default:
       return state;
   }
+}
+
+/** Names-only listing of stored providers, mapped to keychain-sourced rows. */
+function toStoredSources(providers: readonly string[]): SecretSourceDescriptor[] {
+  return providers.map((provider) => ({ provider, source: 'stored' as const }));
+}
+
+/**
+ * The source-aware desktop bridge, when present. Returns null when the bridge
+ * lacks `describe` (capability check, not a silent degrade) or the call fails,
+ * so the caller can fall back to the stored-only listings.
+ */
+async function readSecretsDescription(): Promise<{
+  envFileErrors: SecretsEnvFileError[];
+  keySources: SecretSourceDescriptor[];
+} | null> {
+  const describe = window.secrets?.describe;
+  if (!describe) {
+    return null;
+  }
+  try {
+    const description = await describe();
+    if (!Array.isArray(description?.entries)) {
+      return null;
+    }
+    return {
+      envFileErrors: Array.isArray(description.envFileErrors) ? description.envFileErrors : [],
+      keySources: description.entries,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Stored-only fallback: `listStored` first, then the merged `list`. */
+async function readStoredProviderList(): Promise<SecretSourceDescriptor[] | null> {
+  for (const listFn of [window.secrets?.listStored, window.secrets?.list]) {
+    if (!listFn) {
+      continue;
+    }
+    try {
+      const providers = await listFn();
+      if (Array.isArray(providers)) {
+        return toStoredSources(providers);
+      }
+    } catch {
+      // ignored — try the next listing, then report nothing configured.
+    }
+  }
+  return null;
 }
 
 /**
@@ -92,14 +147,15 @@ export function ApiKeysSettings() {
   const [state, dispatch] = useReducer(apiKeysReducer, {
     apiKey: '',
     busy: false,
-    providersWithSecrets: [],
+    envFileErrors: [],
+    keySources: [],
     rawProvider: providerOptions[0]?.id ?? 'openai',
     tavilyKey: '',
   });
-  const { rawProvider, apiKey, tavilyKey, providersWithSecrets, busy } = state;
-  const tavilyKeyConfigured = useMemo(
-    () => providersWithSecrets.includes(TAVILY_SECRET_PROVIDER),
-    [providersWithSecrets]
+  const { rawProvider, apiKey, tavilyKey, keySources, envFileErrors, busy } = state;
+  const tavilySource = useMemo(
+    () => keySources.find((entry) => entry.provider === TAVILY_SECRET_PROVIDER),
+    [keySources]
   );
 
   // Derive effective provider - always valid even if options change
@@ -112,6 +168,17 @@ export function ApiKeysSettings() {
     () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
     [providerOptions, provider]
   );
+  /** Provider credential rows, excluding Tavily (it owns the card below). */
+  const llmKeySources = useMemo(
+    () => keySources.filter((entry) => entry.provider !== TAVILY_SECRET_PROVIDER),
+    [keySources]
+  );
+  const selectedProviderEnvVar = useMemo(
+    () =>
+      keySources.find((entry) => entry.provider === provider && entry.source === 'env')?.envVar ??
+      null,
+    [keySources, provider]
+  );
   const providerKeyHint = useMemo(() => {
     if (provider === 'google') {
       return 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.';
@@ -119,29 +186,21 @@ export function ApiKeysSettings() {
     return null;
   }, [provider]);
 
+  /**
+   * Prefer the source-aware `describe` bridge so an environment credential is
+   * visible as the one the runtime will actually use. Older bridges without it
+   * (capability check, not a silent degrade) fall back to the stored-only
+   * listings, which can only ever report keychain entries.
+   */
   const refreshProviders = useCallback(async () => {
-    const listStored = window.secrets?.listStored;
-    const listFn = window.secrets?.list;
-    if (listStored) {
-      try {
-        const storedProviders = await listStored();
-        if (Array.isArray(storedProviders)) {
-          dispatch({ providers: storedProviders, type: 'SET_PROVIDERS_WITH_SECRETS' });
-          return;
-        }
-      } catch {
-        // ignored
-      }
+    const description = await readSecretsDescription();
+    if (description) {
+      dispatch({ ...description, type: 'SET_KEY_SOURCES' });
+      return;
     }
-    if (listFn) {
-      try {
-        const providers = await listFn();
-        if (Array.isArray(providers)) {
-          dispatch({ providers, type: 'SET_PROVIDERS_WITH_SECRETS' });
-        }
-      } catch {
-        // ignored
-      }
+    const stored = await readStoredProviderList();
+    if (stored) {
+      dispatch({ envFileErrors: [], keySources: stored, type: 'SET_KEY_SOURCES' });
     }
   }, []);
 
@@ -259,6 +318,27 @@ export function ApiKeysSettings() {
 
   return (
     <div className="space-y-4">
+      {envFileErrors.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Environment file rejected</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="space-y-1" data-testid="env-file-errors">
+              <p className="text-destructive text-xs">
+                None of the variables in these files were applied. Fix the file and restart
+                BrainStrike.
+              </p>
+              {envFileErrors.map((failure) => (
+                <div className="text-destructive text-xs" key={failure.filePath}>
+                  <span className="font-mono">{failure.filePath}</span>
+                  {failure.line === null ? '' : ` (line ${failure.line})`}: {failure.message}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Provider API Keys</CardTitle>
@@ -304,6 +384,17 @@ export function ApiKeysSettings() {
             </div>
           </div>
 
+          {selectedProviderEnvVar ? (
+            <p
+              className="text-amber-600 text-xs dark:text-amber-500"
+              data-testid="provider-env-inert-warning"
+            >
+              {selectedProviderName} reads its key from the environment variable{' '}
+              <span className="font-mono">{selectedProviderEnvVar}</span>, which always wins. A key
+              saved here stays in the keychain but will NOT be used until that variable is unset.
+            </p>
+          ) : null}
+
           <div className="flex gap-2">
             <Button
               data-testid="save-llm-key"
@@ -323,9 +414,27 @@ export function ApiKeysSettings() {
           </div>
 
           <div className="space-y-1">
-            <Label>Saved Providers</Label>
-            <div className="text-muted-foreground text-xs" data-testid="saved-llm-providers">
-              {providersWithSecrets.length === 0 ? 'None' : providersWithSecrets.join(', ')}
+            <Label>Configured Providers</Label>
+            <div
+              className="space-y-1 text-muted-foreground text-xs"
+              data-testid="saved-llm-providers"
+            >
+              {llmKeySources.length === 0
+                ? 'None'
+                : llmKeySources.map((entry) => (
+                    <div
+                      className="flex flex-wrap gap-x-2"
+                      data-testid={`provider-key-status-${entry.provider}`}
+                      key={entry.provider}
+                    >
+                      <span>{entry.provider}</span>
+                      <span>
+                        {entry.source === 'env'
+                          ? `Environment key (${entry.envVar})`
+                          : 'Saved in keychain'}
+                      </span>
+                    </div>
+                  ))}
             </div>
           </div>
         </CardContent>
@@ -354,6 +463,17 @@ export function ApiKeysSettings() {
             />
           </div>
 
+          {tavilySource?.source === 'env' ? (
+            <p
+              className="text-amber-600 text-xs dark:text-amber-500"
+              data-testid="tavily-env-inert-warning"
+            >
+              Tavily reads its key from the environment variable{' '}
+              <span className="font-mono">{tavilySource.envVar}</span>, which always wins. A key
+              saved here stays in the keychain but will NOT be used until that variable is unset.
+            </p>
+          ) : null}
+
           <div className="flex gap-2">
             <Button
               data-testid="save-tavily-key"
@@ -375,7 +495,11 @@ export function ApiKeysSettings() {
           <div className="space-y-1">
             <Label>Status</Label>
             <div className="text-muted-foreground text-xs" data-testid="tavily-key-status">
-              {tavilyKeyConfigured ? 'Configured' : 'Not configured'}
+              {tavilySource === undefined
+                ? 'Not configured'
+                : tavilySource.source === 'env'
+                  ? `Environment key (${tavilySource.envVar})`
+                  : 'Configured'}
             </div>
           </div>
         </CardContent>
