@@ -369,6 +369,56 @@ real columns and are the first thing to update if a migration renames one.
 
 ---
 
+## The symbol graph (migration 075, BST-919)
+
+The code index carries a queryable symbol graph, extracted at chunking time
+from the SAME parse that produces chunks (no separate walker — both the
+initial sync and the edit-reindex path converge there):
+
+- `file_symbols` — definitions: name, kind
+  (`function|class|method|variable|interface|type|enum`), `exported`,
+  line/offset ranges. JS/TS via the ESTree walker (oxc on desktop, Babel on
+  web — same fields); Python via tree-sitter name captures.
+- `file_symbol_refs` — name-based references: kind
+  (`call|import|extends|implements`), `module` for imports, and
+  `from_symbol_id` = the ENCLOSING definition (always intra-file).
+
+**Refs store names, not resolved symbol ids — a settled ruling.** Symbol rows
+share the chunk lifecycle (hard-deleted and re-inserted on every edit), so a
+stored cross-file id would dangle after every re-index of the target file.
+Cross-file edges are resolved at QUERY time by joining `refs.name =
+symbols.name`. Over-connection (two `render`s alias) is the correct failure
+direction for a retrieval index; exact resolution is the LSP pool's job, on
+demand, later.
+
+The headline traversal — transitive callers — is one statement, and its shape
+(`UNION` dedup + join-terminated + explicit depth bound) is exactly what the
+recursion guard admits:
+
+```sql
+WITH RECURSIVE callers(id, name, depth) AS (
+  SELECT s.id, s.name, 0 FROM file_symbols s WHERE s.name = 'startEmbeddingWorker'
+  UNION
+  SELECT encl.id, encl.name, c.depth + 1
+  FROM callers c
+  JOIN file_symbol_refs r ON r.name = c.name AND r.kind = 'call'
+  JOIN file_symbols encl ON encl.id = r.from_symbol_id
+  WHERE c.depth < 10
+)
+SELECT DISTINCT fr.path, c.name, c.depth
+FROM callers c JOIN file_symbols s ON s.id = c.id
+JOIN file_records fr ON fr.id = s.file_record_id
+ORDER BY c.depth, fr.path;
+```
+
+Lifecycle: a managed-cache REPLACE deletes a file's symbol rows explicitly
+(the `file_records` row survives an edit, so FK CASCADE cannot do it); file
+deletion cascades; re-extraction rides `chunks_processed_at = NULL` exactly
+like chunks. Symbol persistence failure degrades LOUDLY to
+chunks-without-symbols — it never fails the file import.
+
+---
+
 ## Using it for database tuning
 
 The sandbox is deliberately not restricted to application tables — the role can

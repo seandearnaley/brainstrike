@@ -383,7 +383,7 @@ describe('desktop native tool provider prompt budget', () => {
       // carries a stats-flush warning because PGlite's pg_stat_* counters read
       // ZERO until flushed — without it the model reports "no index is ever
       // used", and a confidently wrong tuning answer is worse than a missing one.
-      eagerDefinitionTokens: 7614,
+      eagerDefinitionTokens: 7613,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
