@@ -207,6 +207,8 @@ function sanitizeLogValue(
     // Log listeners normally receive already-redacted plain records. Keep the
     // same privacy boundary if a raw Error reaches this transport seam instead
     // of duplicating the logger's non-enumerable cause and sensitive-key rules.
+    // The redactor returns a detached plain graph and closes its own cycles, so
+    // recursion cannot revisit this raw Error before it is safe to memoize.
     const result = sanitizeLogValue(redactSensitiveLogValue(value), seen);
     seen.set(value, result);
     return result;

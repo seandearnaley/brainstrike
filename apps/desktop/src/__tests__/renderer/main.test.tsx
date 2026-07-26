@@ -271,8 +271,10 @@ describe('renderer main entry', () => {
       sessionId: 'session-test',
       source: 'llm-host',
     });
-    expect(cyclicEvent?.causeChain?.[0]?.message).toBe('cyclic provider failure');
-    expect(cyclicEvent?.causeChain).toHaveLength(5);
+    expect(cyclicEvent?.causeChain).toEqual([
+      { message: 'cyclic provider failure', name: 'Error' },
+      { message: '[Circular]', name: '[Circular]' },
+    ]);
 
     ingestMock.mockClear();
     const cyclicMetadata: Record<string, unknown> = { operation: 'provider-request' };

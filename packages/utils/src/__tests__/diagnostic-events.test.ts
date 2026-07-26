@@ -133,6 +133,27 @@ describe('logRecordToDiagnosticEvent', () => {
     expect(event?.context?.['errorMessage']).toContain('…[truncated');
   });
 
+  it('terminates cyclic Error cause chains with a visible marker', () => {
+    const error = new Error('cyclic cause');
+    error.cause = error;
+
+    const event = logRecordToDiagnosticEvent(
+      {
+        args: ['failed', error],
+        bindings: {},
+        level: LogLevel.ERROR,
+        message: 'failed',
+        timestamp: 1,
+      },
+      ENV
+    );
+
+    expect(event?.causeChain).toEqual([
+      { message: 'cyclic cause', name: 'Error' },
+      { message: '[Circular]', name: '[Circular]' },
+    ]);
+  });
+
   it('preserves stack + cause chain for a REAL logger call through the redaction pipeline', () => {
     // Regression for the bug where `emitLogRecord` fans args out through
     // `redactSensitiveLogValue` BEFORE listeners: since `Error.cause` is
@@ -207,5 +228,21 @@ describe('logRecordToDiagnosticEvent', () => {
         self: '[Circular]',
       },
     });
+  });
+
+  it('preserves shared acyclic context identity', () => {
+    const shared = { operation: 'provider-request' };
+    const event = logRecordToDiagnosticEvent(
+      {
+        args: ['m', { left: shared, right: shared }],
+        bindings: {},
+        level: LogLevel.WARN,
+        message: 'm',
+        timestamp: 1,
+      },
+      ENV
+    );
+
+    expect(event?.context?.['left']).toBe(event?.context?.['right']);
   });
 });

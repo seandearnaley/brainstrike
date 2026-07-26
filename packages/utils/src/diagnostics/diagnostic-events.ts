@@ -143,17 +143,23 @@ function causeEntryFrom(current: Error | ErrorShapedRecord): DiagnosticCauseEntr
  * legitimately mix both shapes since redaction is applied top-down. */
 function walkCauseChain(cause: unknown): DiagnosticCauseEntry[] {
   const chain: DiagnosticCauseEntry[] = [];
+  const visited = new WeakSet<object>();
   let current: unknown = cause;
   while (chain.length < MAX_CAUSE_DEPTH) {
-    if (current instanceof Error) {
-      chain.push(causeEntryFrom(current));
-      current = current.cause;
-    } else if (isErrorShapedRecord(current)) {
-      chain.push(causeEntryFrom(current));
-      current = current['cause'];
-    } else {
+    if (!(current instanceof Error || isErrorShapedRecord(current))) {
       break;
     }
+    if (visited.has(current)) {
+      chain.push({
+        message: CIRCULAR_REFERENCE_MARKER,
+        name: CIRCULAR_REFERENCE_MARKER,
+      });
+      break;
+    }
+
+    visited.add(current);
+    chain.push(causeEntryFrom(current));
+    current = current instanceof Error ? current.cause : current['cause'];
   }
   return chain;
 }
@@ -256,8 +262,17 @@ export function logRecordToDiagnosticEvent(
   );
 
   const redacted = redactSensitiveLogValue(context) as Record<string, unknown>;
-  const jsonSafeContext = markCircularReferences(redacted) as Record<string, unknown>;
-  const serialized = JSON.stringify(jsonSafeContext);
+  let jsonSafeContext = redacted;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(redacted);
+  } catch {
+    // Cyclic graphs are valid logger metadata, so replace their back-edges
+    // visibly. Unsupported non-cyclic JSON values still throw on this second
+    // serialization attempt instead of degrading silently.
+    jsonSafeContext = markCircularReferences(redacted) as Record<string, unknown>;
+    serialized = JSON.stringify(jsonSafeContext);
+  }
   const boundedContext =
     serialized.length > DIAGNOSTIC_CONTEXT_MAX_CHARS
       ? { truncatedContext: boundWithMarker(serialized, DIAGNOSTIC_CONTEXT_MAX_CHARS) }

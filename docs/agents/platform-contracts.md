@@ -564,8 +564,10 @@ converts unsupported primitives and URLs for IPC. Its `WeakMap` memoizes arrays
 and objects before recursion so self- or mutually-referential Error cause graphs
 and bindings remain structured-cloneable instead of overflowing the listener
 and dropping the record. Diagnostic context serialization visibly replaces
-back-edges with `[Circular]`, preventing cyclic metadata from dropping the
-downstream event. The renderer forwarding listener, redaction,
+back-edges with `[Circular]` only after direct JSON serialization detects a
+cycle, keeping acyclic context on the single redaction/serialization path.
+Cause-chain cycles terminate with a visible `[Circular]` entry instead of
+repeating to the depth cap. The renderer forwarding listener, redaction,
 structured-clone topology, and bounded diagnostic conversion are paired in
 `apps/desktop/src/__tests__/renderer/main.test.tsx`; Electron preload/main IPC
 coverage remains in the desktop logging integration tests.
