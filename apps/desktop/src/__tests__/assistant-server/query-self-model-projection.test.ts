@@ -82,13 +82,19 @@ describe('querySelf model projection', () => {
     expect(projection.value).not.toContain('~0');
   });
 
-  it('teaches the describe → query sequence in table mode', () => {
+  it('teaches the describeTable → query sequence with FIELDS THE SCHEMA ACCEPTS', () => {
     const projection = projectQuerySelfModelOutput({
       kind: 'tables',
       tables: [{ estimatedRows: 1, name: 'roots' }],
     });
 
-    expect(projection.value).toContain('describe="<table>"');
+    // The hint is model-facing next-step guidance, so it must reference the
+    // real .strict() schema. The pre-BST-923 version said `describe="<table>"`
+    // — a field that no longer exists — so a model that followed its own tool
+    // output got a ZodError on the very next call, and THIS test pinned the
+    // broken string, keeping the suite green through the API change.
+    expect(projection.value).toContain('mode="describeTable"');
+    expect(projection.value).not.toContain('describe=');
   });
 
   it('projects column descriptions with nullability', () => {
@@ -113,7 +119,8 @@ describe('querySelf model projection', () => {
     });
 
     expect(projection.value).toContain('not_found');
-    expect(projection.value).toContain('describe=true');
+    expect(projection.value).toContain('mode="listTables"');
+    expect(projection.value).not.toContain('describe=');
   });
 
   it('fits a very wide column list inside the budget', () => {
