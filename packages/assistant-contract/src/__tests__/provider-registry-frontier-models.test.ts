@@ -178,11 +178,12 @@ describe('frontier model refresh (2026-07)', () => {
       });
     });
 
-    it("declares Curator's July coding models with provider-published limits", () => {
+    it("declares Curator's July coding models with their audited limits", () => {
       const ling = getLlmModelDefinition('openrouter', 'inclusionai/ling-3.0-flash:free');
       const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.6-flash');
       const inkling = getLlmModelDefinition('openrouter', 'thinkingmachines/inkling');
       const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.5');
+      const longcat = getLlmModelDefinition('openrouter', 'meituan/longcat-2.0');
 
       expect(ling).toMatchObject({
         contextWindow: 262_144,
@@ -202,12 +203,18 @@ describe('frontier model refresh (2026-07)', () => {
       });
       expect(inkling).toMatchObject({
         contextWindow: 1_048_576,
-        reasoning: {
-          defaultEffort: 'high',
-          mandatory: false,
-          supportedEfforts: ['max', 'high', 'medium', 'low', 'minimal', 'none'],
-        },
         vision: 'supported',
+      });
+      // Thinking Machines publishes no reasoning-effort parameter for Inkling.
+      // Absence is never guessed as support: leaving this undeclared keeps the
+      // capability badge at a visible "unverified" instead of a silent yes.
+      expect(inkling?.reasoning).toBeUndefined();
+      // Provider figures: native 1M context, 128K max output. Guards against
+      // reintroducing the 1_048_756 transposition or the aggregator's 262_144.
+      expect(longcat).toMatchObject({
+        contextWindow: 1_000_000,
+        maxOutputTokens: 131_072,
+        vision: 'unsupported',
       });
       expect(grok).toMatchObject({
         contextWindow: 500_000,
