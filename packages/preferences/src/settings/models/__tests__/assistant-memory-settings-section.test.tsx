@@ -188,6 +188,32 @@ describe('AssistantMemorySettingsSection', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not filter hosted memory models when credential provenance is unavailable', () => {
+    render(<AssistantMemorySettingsSection />);
+
+    expect(
+      within(screen.getByRole('combobox', { name: /observational memory model/i })).getByRole(
+        'option',
+        { name: /GPT-5.4 Mini/i }
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('combobox', { name: /semantic recall embedding model/i })).getByRole(
+        'option',
+        { name: /Text Embedding 3 Small/i }
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('does not claim credentials are missing before the model registry loads', () => {
+    useModelRegistryStore.setState({ hasLoaded: false, models: [], providers: [] });
+
+    renderMemorySettings([]);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('disables observation activation and alerts when the selected hosted provider has no key', () => {
     useAssistantMemoryPreferencesStore.setState((state) => ({
       observationalMemory: {
@@ -199,7 +225,7 @@ describe('AssistantMemorySettingsSection', () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    expect(screen.getByRole('status')).toHaveTextContent(
       'Configure its API key in Settings → LLM Provider Keys'
     );
   });

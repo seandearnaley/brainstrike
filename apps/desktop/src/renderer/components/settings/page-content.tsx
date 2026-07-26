@@ -128,13 +128,10 @@ export default function SettingsPageContent() {
     }
     return {};
   }, [assistantAvailability]);
-  const assistantProviderKeySources = useMemo(
-    () =>
-      assistantAvailability.state === 'enabled'
-        ? (assistantAvailability.providerKeySources ?? [])
-        : [],
-    [assistantAvailability]
-  );
+  const assistantProviderKeySources =
+    assistantAvailability.state === 'enabled'
+      ? assistantAvailability.providerKeySources
+      : undefined;
 
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
@@ -353,7 +350,13 @@ export default function SettingsPageContent() {
       createLocalRuntimeSettingsCategory(),
       createApiKeysSettingsCategory(apiKeyStatus),
       {
-        content: <ModelSelectionPage providerKeySources={assistantProviderKeySources} />,
+        content: (
+          <ModelSelectionPage
+            {...(assistantProviderKeySources
+              ? { providerKeySources: assistantProviderKeySources }
+              : {})}
+          />
+        ),
         description: 'Choose chat and embedding models, manage downloads, and configure providers.',
         icon: Layers,
         id: 'embedding-models',

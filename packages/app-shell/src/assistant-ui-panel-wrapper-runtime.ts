@@ -174,7 +174,7 @@ export function getToolDescription(toolId: string): string {
 
 function resolveSemanticRecallDisabledReason(args: {
   memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
 }): string | undefined {
   // Observational-memory vector retrieval embeds with the SAME configured
   // semantic-recall embedder, so its requirement applies even when the
@@ -200,6 +200,7 @@ function resolveSemanticRecallDisabledReason(args: {
   }
   if (
     providerId === 'local' ||
+    args.providerKeySources === undefined ||
     args.providerKeySources.some(({ provider }) => provider === providerId)
   ) {
     return;
@@ -213,7 +214,7 @@ function resolveSemanticRecallDisabledReason(args: {
 
 function resolveObservationalMemoryDisabledReason(args: {
   memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
 }): string | undefined {
   if (!args.memorySettings.observationalMemory.enabled) {
     return;
@@ -236,6 +237,9 @@ function resolveObservationalMemoryDisabledReason(args: {
   if (providerId === 'local') {
     return;
   }
+  if (args.providerKeySources === undefined) {
+    return;
+  }
   if (args.providerKeySources.some(({ provider }) => provider === providerId)) {
     return;
   }
@@ -250,7 +254,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
   dbInitializing: boolean;
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
   memoryLoadState:
     | { readonly status: 'idle' }
     | { readonly status: 'loading' }
@@ -279,22 +283,22 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (!args.selectedMemoryThreadId) {
     return 'Assistant memory has no selected thread for this workspace.';
   }
+  if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
+    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
+  }
   const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
     memorySettings: args.memorySettings,
-    providerKeySources: args.providerKeySources ?? [],
+    providerKeySources: args.providerKeySources,
   });
   if (observationalMemoryDisabledReason) {
     return observationalMemoryDisabledReason;
   }
   const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason({
     memorySettings: args.memorySettings,
-    providerKeySources: args.providerKeySources ?? [],
+    providerKeySources: args.providerKeySources,
   });
   if (semanticRecallDisabledReason) {
     return semanticRecallDisabledReason;
-  }
-  if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
-    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
   }
   return;
 }

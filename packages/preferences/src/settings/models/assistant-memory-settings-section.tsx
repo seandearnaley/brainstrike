@@ -46,7 +46,7 @@ function parseNumberInput(value: string): number {
 }
 
 export interface AssistantMemorySettingsSectionProps {
-  readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[];
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
 export function AssistantMemorySettingsSection({
@@ -55,7 +55,7 @@ export function AssistantMemorySettingsSection({
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
 
-  const { models, providers } = useModelRegistryStore();
+  const { hasLoaded, models, providers } = useModelRegistryStore();
   const {
     observationalMemory,
     semanticRecall,
@@ -74,12 +74,12 @@ export function AssistantMemorySettingsSection({
 
   const observationOptions = listObservationalMemoryModelOptions({
     models,
-    providerKeySources,
+    ...(providerKeySources ? { providerKeySources } : {}),
     providers,
   });
   const embeddingOptions = listSemanticRecallEmbeddingModelOptions({
     models,
-    providerKeySources,
+    ...(providerKeySources ? { providerKeySources } : {}),
     providers,
   });
   const hasObservationModel = observationOptions.some(
@@ -89,8 +89,12 @@ export function AssistantMemorySettingsSection({
     semanticRecall.embeddingModelTarget !== null &&
     embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
   const hasUnavailableEmbeddingModel =
-    semanticRecall.embeddingModelTarget !== null && !hasEmbeddingModel;
-  const hasUnavailableObservationModel = !hasObservationModel;
+    providerKeySources !== undefined &&
+    hasLoaded &&
+    semanticRecall.embeddingModelTarget !== null &&
+    !hasEmbeddingModel;
+  const hasUnavailableObservationModel =
+    providerKeySources !== undefined && hasLoaded && !hasObservationModel;
   const canToggleObservations = hasObservationModel || observationalMemory.enabled;
   const canToggleSemanticRecall = hasEmbeddingModel || semanticRecall.enabled;
 
@@ -144,7 +148,14 @@ export function AssistantMemorySettingsSection({
             before constructing the observer.
           </p>
           {hasUnavailableObservationModel && (
-            <p className="text-destructive text-xs" role="alert">
+            <p
+              className={
+                observationalMemory.enabled
+                  ? 'text-destructive text-xs'
+                  : 'text-muted-foreground text-xs'
+              }
+              role={observationalMemory.enabled ? 'alert' : 'status'}
+            >
               Configured observational memory model {observationalMemory.modelTarget} is not
               available with the current provider credentials. Configure its API key in Settings →
               LLM Provider Keys, choose a keyless local observer, or turn observations off.

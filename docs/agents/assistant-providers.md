@@ -107,7 +107,11 @@
     key is excluded from selectable memory models, prevents its feature toggle,
     and blocks the next run with actionable guidance; built-in local models
     remain keyless. The serialized model target is never sufficient evidence
-    that a credential exists.
+    that a credential exists. An omitted `providerKeySources` field means the
+    host does not expose credential provenance; it is not equivalent to a
+    validated empty list. Hosted Web therefore retains its server-owned model
+    surface and reports the host capability boundary before desktop-only
+    credential guidance.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant

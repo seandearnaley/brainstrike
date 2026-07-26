@@ -233,7 +233,7 @@ export interface ModelSelectionPageProps {
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
-export function ModelSelectionPage({ providerKeySources = [] }: ModelSelectionPageProps = {}) {
+export function ModelSelectionPage({ providerKeySources }: ModelSelectionPageProps = {}) {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
@@ -430,7 +430,7 @@ export function ModelSelectionPage({ providerKeySources = [] }: ModelSelectionPa
         </Button>
       </div>
 
-      <AssistantMemorySettingsSection providerKeySources={providerKeySources} />
+      <AssistantMemorySettingsSection {...(providerKeySources ? { providerKeySources } : {})} />
 
       <ModelList
         downloadedModels={downloadedModels}

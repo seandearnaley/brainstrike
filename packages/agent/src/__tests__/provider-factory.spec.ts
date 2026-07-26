@@ -132,6 +132,18 @@ describe('provider-factory', () => {
       expect(model.provider).toBe('openrouter');
       expect(model.doStream).toBeTypeOf('function');
     });
+
+    it('rejects a hosted router model without an explicit credential', () => {
+      expect(() => createLanguageModelProvider('openrouter', undefined, 'z-ai/glm-5.2')).toThrow(
+        /requires an explicit API key/i
+      );
+    });
+
+    it('rejects providers outside the persistent-memory model boundary', () => {
+      expect(() => createLanguageModelProvider('ollama', undefined, 'qwen3:latest')).toThrow(
+        /does not support provider: ollama/i
+      );
+    });
   });
 
   describe('getDefaultModel', () => {

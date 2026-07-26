@@ -250,6 +250,39 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  it('prefers the hosted-web backend reason when key provenance is unavailable', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+          },
+        },
+        providerKeySources: undefined,
+      })
+    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+  });
+
+  it('does not treat unavailable key provenance as a validated empty key set', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: true,
+          },
+        },
+        providerKeySources: undefined,
+      })
+    ).toBeUndefined();
+  });
+
   it('blocks enabled semantic recall when its hosted embedder has no configured key', () => {
     expect(
       resolveAssistantMemoryDisabledReason({

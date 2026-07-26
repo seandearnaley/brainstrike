@@ -1270,7 +1270,7 @@ export function AssistantUiPanelWrapper({
         desktopAssistantBackendAvailable,
         memoryLoadState,
         memorySettings: runtimeMemorySettings,
-        providerKeySources: providerKeySources ?? [],
+        ...(providerKeySources ? { providerKeySources } : {}),
         selectedMemoryThreadId,
         selectedProvider,
         workspaceRootPath,

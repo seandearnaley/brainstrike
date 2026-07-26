@@ -33,6 +33,13 @@ export type LocalLanguageModelFactory = (
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
 
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
+const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'local',
+]);
 
 /**
  * Register the browser-only Transformers model factory.
@@ -236,17 +243,53 @@ export function createLanguageModelProvider(
   model?: string,
   runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
 ): ConcreteLanguageModel {
-  const modelConfig = createProvider(provider, apiKey, model, runtime);
   if (
+    !(isSupportedProvider(provider) && PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS.has(provider))
+  ) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider },
+      detail: `Persistent memory does not support provider: ${provider}`,
+    });
+  }
+  if (provider !== 'local' && !apiKey?.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { provider },
+      detail: `Persistent memory provider "${provider}" requires an explicit API key.`,
+    });
+  }
+
+  const modelConfig = createProvider(provider, apiKey, model, runtime);
+  if (isConcreteLanguageModel(modelConfig)) {
+    return modelConfig;
+  }
+  if (isOpenAICompatibleConfig(modelConfig)) {
+    return new ModelRouterLanguageModel(modelConfig);
+  }
+  throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+    context: { provider },
+    detail: `Persistent memory provider "${provider}" did not produce a concrete language model or an explicit router configuration.`,
+  });
+}
+
+function isConcreteLanguageModel(
+  modelConfig: MastraModelConfig
+): modelConfig is ConcreteLanguageModel {
+  return (
     typeof modelConfig === 'object' &&
     modelConfig !== null &&
     'doGenerate' in modelConfig &&
     'doStream' in modelConfig
-  ) {
-    return modelConfig as ConcreteLanguageModel;
-  }
-  return new ModelRouterLanguageModel(
-    modelConfig as ConstructorParameters<typeof ModelRouterLanguageModel>[0]
+  );
+}
+
+function isOpenAICompatibleConfig(
+  modelConfig: MastraModelConfig
+): modelConfig is OpenAICompatibleConfig {
+  return (
+    typeof modelConfig === 'object' &&
+    modelConfig !== null &&
+    'id' in modelConfig &&
+    typeof modelConfig.id === 'string'
   );
 }
 
