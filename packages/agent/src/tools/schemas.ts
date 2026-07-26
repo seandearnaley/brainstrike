@@ -56,6 +56,53 @@ export const HybridSearchInputSchema = z
 export type HybridSearchInput = z.infer<typeof HybridSearchInputSchema>;
 
 // ============================================================================
+// Query Self Tool Schema
+// ============================================================================
+
+/**
+ * `brainstrike.querySelf` — one read-only SQL statement against Brainstrike's
+ * own database, or a schema-discovery request.
+ *
+ * `sql` and `describe` are mutually EXCLUSIVE and exactly one is required. A
+ * silent precedence rule ("sql wins") would make a malformed call look like it
+ * worked, so both-or-neither is a validation error the model can correct.
+ *
+ * Execution safety lives in `AgentSqlService`, not here — this schema only
+ * bounds the shape. See docs/agents/agent-self-query.md.
+ */
+export const QuerySelfInputSchema = z
+  .object({
+    describe: z
+      .union([z.literal(true), z.string().min(1).max(128)])
+      .optional()
+      .describe(
+        'Schema discovery: true lists readable tables; a table name returns its columns. Mutually exclusive with sql'
+      ),
+    maxRows: z
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Maximum rows to return (default 50); the result flags truncation'),
+    sql: z
+      .string()
+      .min(1)
+      .max(4000)
+      .optional()
+      .describe(
+        'A single read-only SQL SELECT. Writes, DDL, and multiple statements are rejected. Mutually exclusive with describe'
+      ),
+  })
+  .strict()
+  .refine(
+    (value) => (value.sql === undefined) !== (value.describe === undefined),
+    'Provide exactly one of sql or describe.'
+  );
+
+export type QuerySelfInput = z.infer<typeof QuerySelfInputSchema>;
+
+// ============================================================================
 // Queue Status Tool Schema
 // ============================================================================
 
@@ -930,6 +977,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.manageCommandSession]: ManageCommandSessionInputSchema,
   [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
+  [NATIVE_TOOL_ID.querySelf]: QuerySelfInputSchema,
   [NATIVE_TOOL_ID.readToolOutputArtifact]: ReadToolOutputArtifactCursorInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceContext]: ReadWorkspaceContextInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,

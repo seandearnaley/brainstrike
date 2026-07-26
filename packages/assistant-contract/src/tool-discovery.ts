@@ -10,6 +10,7 @@ import {
 export type NativeToolDiscoveryNamespace =
   | 'artifacts'
   | 'context'
+  | 'database'
   | 'embeddings'
   | 'semantics'
   | 'sessions'
@@ -41,6 +42,11 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
       NATIVE_TOOL_ID.updateWorkspaceContextSelection,
       NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
     ],
+  },
+  database: {
+    summary:
+      "Run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
+    toolIds: [NATIVE_TOOL_ID.querySelf],
   },
   embeddings: {
     summary: 'Inspect and query configured embedding spaces.',

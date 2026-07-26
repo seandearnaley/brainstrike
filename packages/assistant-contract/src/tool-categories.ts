@@ -273,6 +273,20 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
   },
+  // Read-only SQL over Brainstrike's OWN local database (run outcomes, edit
+  // checkpoints, usage, queue metrics, the code index). `riskCategory` is
+  // PINNED rather than derived: the input is arbitrary SQL, so a reader must
+  // see the bucket asserted at the declaration site. `read` is justified by the
+  // four engine-enforced sandbox layers in `AgentSqlService` — read-only
+  // transaction, non-superuser role, single-statement protocol, and EXPLAIN
+  // cost gate. See docs/agents/agent-self-query.md before changing this.
+  [NATIVE_TOOL_ID.querySelf]: {
+    category: 'analysis',
+    estimatedTokens: 260,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   [NATIVE_TOOL_ID.readToolOutputArtifact]: {
     category: 'retrieval',
     estimatedTokens: 150,
