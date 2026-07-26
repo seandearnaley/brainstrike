@@ -128,10 +128,13 @@ export default function SettingsPageContent() {
     }
     return {};
   }, [assistantAvailability]);
-  const assistantProviderKeySources =
-    assistantAvailability.state === 'enabled'
-      ? (assistantAvailability.providerKeySources ?? [])
-      : [];
+  const assistantProviderKeySources = useMemo(
+    () =>
+      assistantAvailability.state === 'enabled'
+        ? (assistantAvailability.providerKeySources ?? [])
+        : [],
+    [assistantAvailability]
+  );
 
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
