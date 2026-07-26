@@ -615,26 +615,86 @@ async function buildLocalRuntimeEndpointConfig(
   };
 }
 
-async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]> {
+const TAVILY_ENV_KEYS = new Set(['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY']);
+
+function invalidProviderKeyMetadata(): Error {
+  return new Error('Secrets bridge returned invalid provider key metadata.');
+}
+
+function hasValidProviderKeySourceShape(
+  candidate: Record<string, unknown>,
+  provider: string,
+  source: 'env' | 'stored'
+): boolean {
+  if (source === 'stored') {
+    return Object.keys(candidate).length === 2 && !Object.hasOwn(candidate, 'envVar');
+  }
+
+  const envVar = candidate['envVar'];
+  if (
+    Object.keys(candidate).length !== 3 ||
+    typeof envVar !== 'string' ||
+    envVar.trim().length === 0
+  ) {
+    return false;
+  }
+  if (provider === 'tavily') {
+    return TAVILY_ENV_KEYS.has(envVar);
+  }
+  return providerEnvKeys(provider as SupportedProvider).includes(envVar);
+}
+
+function parseConfiguredProviderKeys(value: unknown): ReadonlySet<SupportedProvider> {
+  if (!Array.isArray(value)) {
+    throw invalidProviderKeyMetadata();
+  }
+
+  const configured = new Set<SupportedProvider>();
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!(entry && typeof entry === 'object')) {
+      throw invalidProviderKeyMetadata();
+    }
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const source = candidate['source'];
+    if (
+      typeof provider !== 'string' ||
+      seen.has(provider) ||
+      !(SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider) || provider === 'tavily') ||
+      (source !== 'env' && source !== 'stored')
+    ) {
+      throw invalidProviderKeyMetadata();
+    }
+    if (!hasValidProviderKeySourceShape(candidate, provider, source)) {
+      throw invalidProviderKeyMetadata();
+    }
+    seen.add(provider);
+    if (SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider)) {
+      configured.add(provider as SupportedProvider);
+    }
+  }
+  return configured;
+}
+
+async function getProvidersWithConfiguredKeys(): Promise<readonly SupportedProvider[]> {
   if (typeof window === 'undefined') {
     return [];
   }
 
-  const secretsBridge = (window as Window & { secrets?: { list?: () => Promise<string[]> } })
-    .secrets;
+  const secretsBridge = (
+    window as Window & {
+      secrets?: {
+        list?: () => Promise<Array<{ provider: string; source: 'env' | 'stored' }>>;
+      };
+    }
+  ).secrets;
   if (typeof secretsBridge?.list !== 'function') {
     return [];
   }
 
-  try {
-    const savedProviders = await secretsBridge.list();
-    if (!Array.isArray(savedProviders)) {
-      return [];
-    }
-    return SUPPORTED_PROVIDERS.filter((provider) => savedProviders.includes(provider));
-  } catch {
-    return [];
-  }
+  const configured = parseConfiguredProviderKeys(await secretsBridge.list());
+  return SUPPORTED_PROVIDERS.filter((provider) => configured.has(provider));
 }
 
 async function getDetectedRuntimeProviders(
@@ -985,12 +1045,12 @@ export const useAssistantPreferencesStore = create<Store>()(
 
         const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
         const { providerSettings } = get();
-        const [providersWithSavedKeys, detectedRuntimeProviders] = await Promise.all([
-          getProvidersWithSavedKeys(),
+        const [providersWithConfiguredKeys, detectedRuntimeProviders] = await Promise.all([
+          getProvidersWithConfiguredKeys(),
           getDetectedRuntimeProviders(providerSettings),
         ]);
 
-        for (const provider of providersWithSavedKeys) {
+        for (const provider of providersWithConfiguredKeys) {
           combined.add(provider);
         }
 

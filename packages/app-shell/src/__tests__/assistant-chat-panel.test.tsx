@@ -109,7 +109,10 @@ describe('AssistantChatPanel', () => {
   });
 
   it('shows assistant UI when enabled', async () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'enabled' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      providers: ['openai', 'local'],
+      state: 'enabled',
+    });
 
     render(<AssistantChatPanel />);
 
@@ -119,6 +122,12 @@ describe('AssistantChatPanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('MCP banner')).not.toBeInTheDocument();
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialProviders: ['openai', 'local'],
+      }),
+      undefined
+    );
   });
 
   it('passes provider read failures to the enabled assistant UI', async () => {
@@ -151,6 +160,26 @@ describe('AssistantChatPanel', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fixedProviderModels: { openai: ['gpt-5.6-terra'] },
+        initialProviders: ['openai'],
+      }),
+      undefined
+    );
+  });
+
+  it('prefers the status provider list while retaining a fixed Hosted Web model', async () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providers: ['openai'],
       state: 'enabled',
     });
 

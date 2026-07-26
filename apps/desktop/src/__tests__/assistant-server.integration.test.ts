@@ -364,7 +364,11 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-credentials']).toBe('true');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
-      expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
+      expect(data).toEqual({
+        enabled: true,
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providers: ['openai', 'local'],
+      });
     }, 10_000);
 
     it('reports an unreadable provider key without disabling other providers', async () => {
@@ -392,8 +396,46 @@ describe('assistant-server', () => {
             provider: 'openrouter',
           },
         ],
+        providerKeySources: [],
         providers: ['local'],
       });
+    });
+
+    it('surfaces environment-file failures without partial provider availability', async () => {
+      mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+
+      const response = await runRequest(
+        {
+          headers: { origin: desktopRendererOrigin },
+          method: 'GET',
+          url: '/assistant/status',
+        },
+        {
+          envFileFailures: [
+            {
+              code: 'env_file_invalid',
+              file: 'dev-local',
+              message: 'Desktop environment file dev-local is invalid at line 2.',
+            },
+          ],
+        }
+      );
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        enabled: false,
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file dev-local is invalid at line 2.',
+          },
+        ],
+        error: 'assistant_configuration_invalid',
+        message: 'Desktop environment configuration is invalid.',
+        providers: [],
+      });
+      expect(mockSecretsService.listProviders).not.toHaveBeenCalled();
     });
 
     it('should handle status route with query parameters', async () => {
@@ -840,7 +882,11 @@ describe('assistant-server', () => {
       expect(response.status).toBe(200);
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
-      expect(data).toEqual({ enabled: true, providers: ['local'] });
+      expect(data).toEqual({
+        enabled: true,
+        providerKeySources: [],
+        providers: ['local'],
+      });
     }, 10_000);
 
     it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
@@ -861,6 +907,7 @@ describe('assistant-server', () => {
             provider: 'openai',
           },
         ],
+        providerKeySources: [],
         providers: ['local'],
       });
     });

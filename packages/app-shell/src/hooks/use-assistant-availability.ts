@@ -1,11 +1,13 @@
 import {
   ASSISTANT_AUTH_HEADER_NAME,
   isSecretReadErrorCode,
+  type ProviderKeySource,
   type SecretReadErrorCode,
 } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   isValidModelForProvider,
+  providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
@@ -19,6 +21,12 @@ export interface AssistantProviderReadError {
   readonly provider: SupportedProvider;
 }
 
+export interface AssistantEnvironmentFileFailure {
+  readonly code: 'env_file_invalid' | 'env_file_unreadable';
+  readonly file: 'dev' | 'dev-local' | 'user-data';
+  readonly message: string;
+}
+
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
   | {
@@ -26,9 +34,15 @@ export type AssistantAvailabilityStatus =
       model?: string;
       provider?: SupportedProvider;
       providerErrors?: readonly AssistantProviderReadError[];
+      providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+      providers?: readonly SupportedProvider[];
     }
   | { state: 'disabled'; reason?: string }
-  | { state: 'error'; message: string };
+  | {
+      state: 'error';
+      envFileFailures?: readonly AssistantEnvironmentFileFailure[];
+      message: string;
+    };
 
 export type AssistantStatusFetcher = (signal: AbortSignal) => Promise<AssistantAvailabilityStatus>;
 
@@ -318,49 +332,275 @@ export async function fetchAssistantStatusState({
     throw new Error(`status ${response.status}`);
   }
 
-  const payload = (await response.json()) as {
-    enabled: boolean;
-    model?: string;
-    providerErrors?: unknown;
-    provider?: string;
-    reason?: string;
-  };
+  const rawPayload: unknown = await response.json();
+  if (!(rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload))) {
+    throw new Error('Invalid assistant status payload');
+  }
+  return parseAssistantStatusPayload(rawPayload as Record<string, unknown>);
+}
 
-  if (payload.enabled) {
-    const providerErrors = parseAssistantProviderReadErrors(payload.providerErrors);
-    const hasProvider = payload.provider !== undefined;
-    const hasModel = payload.model !== undefined;
-    if (hasProvider !== hasModel) {
-      throw new Error('Assistant status must advertise provider and model together');
-    }
-    if (!(hasProvider && hasModel)) {
-      return {
-        ...(providerErrors ? { providerErrors } : {}),
-        state: 'enabled',
-      };
-    }
-    if (!isSupportedProvider(payload.provider)) {
-      throw new Error(`Unsupported assistant provider: ${payload.provider}`);
-    }
-    if (
-      typeof payload.model !== 'string' ||
-      !isValidModelForProvider(payload.provider, payload.model)
-    ) {
-      throw new Error(`Unsupported assistant model: ${payload.provider}/${String(payload.model)}`);
-    }
+function parseAssistantStatusPayload(
+  payload: Record<string, unknown>
+): AssistantAvailabilityStatus {
+  if (payload['error'] !== undefined) {
+    return parseAssistantConfigurationError(payload);
+  }
+
+  assertOnlyKnownKeys(
+    payload,
+    ['enabled', 'model', 'provider', 'providerErrors', 'providerKeySources', 'providers', 'reason'],
+    'Invalid assistant status payload'
+  );
+  if (typeof payload['enabled'] !== 'boolean') {
+    throw new Error('Invalid assistant status payload');
+  }
+  return payload['enabled']
+    ? parseEnabledAssistantStatus(payload)
+    : parseDisabledAssistantStatus(payload);
+}
+
+function parseEnabledAssistantStatus(
+  payload: Record<string, unknown>
+): AssistantAvailabilityStatus {
+  if (payload['reason'] !== undefined) {
+    throw new Error('Enabled assistant status must not include a disabled reason');
+  }
+  const providerErrors = parseAssistantProviderReadErrors(payload['providerErrors']);
+  const providers = parseAssistantProviders(payload['providers']);
+  const providerKeySources = parseAssistantProviderKeySources(payload['providerKeySources']);
+  validateProviderStatusConsistency({ providerErrors, providerKeySources, providers });
+
+  const provider = payload['provider'];
+  const model = payload['model'];
+  const hasProvider = provider !== undefined;
+  const hasModel = model !== undefined;
+  if (hasProvider !== hasModel) {
+    throw new Error('Assistant status must advertise provider and model together');
+  }
+  if (!(hasProvider && hasModel)) {
     return {
-      model: payload.model,
       ...(providerErrors ? { providerErrors } : {}),
-      provider: payload.provider,
+      ...(providerKeySources ? { providerKeySources } : {}),
+      ...(providers ? { providers } : {}),
       state: 'enabled',
     };
   }
+  if (typeof provider !== 'string' || !isSupportedProvider(provider)) {
+    throw new Error(`Unsupported assistant provider: ${String(provider)}`);
+  }
+  if (typeof model !== 'string' || !isValidModelForProvider(provider, model)) {
+    throw new Error(`Unsupported assistant model: ${provider}/${String(model)}`);
+  }
+  if (providers && !providers.includes(provider)) {
+    throw new Error('Assistant status fixed provider is missing from providers');
+  }
+  return {
+    model,
+    ...(providerErrors ? { providerErrors } : {}),
+    ...(providerKeySources ? { providerKeySources } : {}),
+    ...(providers ? { providers } : {}),
+    provider,
+    state: 'enabled',
+  };
+}
 
-  if (payload.reason) {
-    return { reason: payload.reason, state: 'disabled' };
+function parseDisabledAssistantStatus(
+  payload: Record<string, unknown>
+): AssistantAvailabilityStatus {
+  if (
+    payload['provider'] !== undefined ||
+    payload['model'] !== undefined ||
+    payload['providerErrors'] !== undefined ||
+    payload['providerKeySources'] !== undefined
+  ) {
+    throw new Error('Disabled assistant status contains enabled-provider metadata');
+  }
+  const providers = parseAssistantProviders(payload['providers']);
+  if (providers && providers.length > 0) {
+    throw new Error('Disabled assistant status contains available providers');
+  }
+  const reason = payload['reason'];
+  if (reason !== undefined) {
+    if (typeof reason !== 'string' || reason.trim().length === 0) {
+      throw new Error('Invalid assistant disabled reason');
+    }
+    return { reason, state: 'disabled' };
   }
 
   return { state: 'disabled' };
+}
+
+function assertOnlyKnownKeys(
+  candidate: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  message: string
+): void {
+  const allowed = new Set(allowedKeys);
+  if (Object.keys(candidate).some((key) => !allowed.has(key))) {
+    throw new Error(message);
+  }
+}
+
+function hasExactOwnKeys(
+  candidate: Record<string, unknown>,
+  expectedKeys: readonly string[]
+): boolean {
+  const actualKeys = Object.keys(candidate);
+  return (
+    actualKeys.length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.hasOwn(candidate, key))
+  );
+}
+
+function parseAssistantProviders(value: unknown): readonly SupportedProvider[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant provider list');
+  }
+  const providers = new Set<SupportedProvider>();
+  for (const provider of value) {
+    if (typeof provider !== 'string' || !isSupportedProvider(provider) || providers.has(provider)) {
+      throw new Error('Invalid assistant provider list');
+    }
+    providers.add(provider);
+  }
+  return [...providers];
+}
+
+function parseAssistantProviderKeySources(
+  value: unknown
+): readonly ProviderKeySource<SupportedProvider>[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant provider key source list');
+  }
+
+  const providers = new Set<SupportedProvider>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object' && !Array.isArray(entry))) {
+      throw new Error('Invalid assistant provider key source');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const source = candidate['source'];
+    if (typeof provider !== 'string' || !isSupportedProvider(provider) || providers.has(provider)) {
+      throw new Error('Invalid assistant provider key source');
+    }
+
+    providers.add(provider);
+    if (source === 'stored') {
+      if (!hasExactOwnKeys(candidate, ['provider', 'source'])) {
+        throw new Error('Invalid assistant provider key source');
+      }
+      return { provider, source };
+    }
+    if (source === 'env') {
+      const envVar = candidate['envVar'];
+      if (
+        !hasExactOwnKeys(candidate, ['envVar', 'provider', 'source']) ||
+        typeof envVar !== 'string' ||
+        !providerEnvKeys(provider).includes(envVar)
+      ) {
+        throw new Error('Invalid assistant provider key source');
+      }
+      return { envVar, provider, source };
+    }
+    throw new Error('Invalid assistant provider key source');
+  });
+}
+
+function validateProviderStatusConsistency({
+  providerErrors,
+  providerKeySources,
+  providers,
+}: {
+  providerErrors: readonly AssistantProviderReadError[] | undefined;
+  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  providers: readonly SupportedProvider[] | undefined;
+}): void {
+  if (providers && providers.length === 0) {
+    throw new Error('Enabled assistant status must include an available provider');
+  }
+  const failedProviders = new Set(providerErrors?.map(({ provider }) => provider));
+  if (providers?.some((provider) => failedProviders.has(provider))) {
+    throw new Error('Assistant provider cannot be both available and unreadable');
+  }
+  const sourcedProviders = new Set(providerKeySources?.map(({ provider }) => provider));
+  if (
+    providerKeySources &&
+    providers?.some(
+      (provider) => providerEnvKeys(provider).length > 0 && !sourcedProviders.has(provider)
+    )
+  ) {
+    throw new Error('Assistant hosted provider is missing its key source');
+  }
+  for (const source of providerKeySources ?? []) {
+    if (failedProviders.has(source.provider)) {
+      throw new Error('Assistant provider cannot be both configured and unreadable');
+    }
+    if (providers && !providers.includes(source.provider)) {
+      throw new Error('Assistant provider key source is missing from providers');
+    }
+  }
+}
+
+function parseAssistantConfigurationError(
+  payload: Record<string, unknown>
+): AssistantAvailabilityStatus {
+  if (
+    !hasExactOwnKeys(payload, ['enabled', 'envFileFailures', 'error', 'message', 'providers']) ||
+    payload['enabled'] !== false ||
+    payload['error'] !== 'assistant_configuration_invalid' ||
+    typeof payload['message'] !== 'string' ||
+    payload['message'].trim().length === 0 ||
+    !Array.isArray(payload['providers']) ||
+    payload['providers'].length !== 0
+  ) {
+    throw new Error('Invalid assistant configuration error');
+  }
+  const envFileFailures = parseAssistantEnvironmentFileFailures(payload['envFileFailures']);
+  if (envFileFailures.length === 0) {
+    throw new Error('Invalid assistant configuration error');
+  }
+  return {
+    envFileFailures,
+    message: payload['message'],
+    state: 'error',
+  };
+}
+
+function parseAssistantEnvironmentFileFailures(
+  value: unknown
+): readonly AssistantEnvironmentFileFailure[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant environment file failure list');
+  }
+  const files = new Set<AssistantEnvironmentFileFailure['file']>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object' && !Array.isArray(entry))) {
+      throw new Error('Invalid assistant environment file failure');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const code = candidate['code'];
+    const file = candidate['file'];
+    const message = candidate['message'];
+    if (
+      !hasExactOwnKeys(candidate, ['code', 'file', 'message']) ||
+      (code !== 'env_file_invalid' && code !== 'env_file_unreadable') ||
+      (file !== 'dev' && file !== 'dev-local' && file !== 'user-data') ||
+      files.has(file) ||
+      typeof message !== 'string' ||
+      message.trim().length === 0
+    ) {
+      throw new Error('Invalid assistant environment file failure');
+    }
+    files.add(file);
+    return { code, file, message };
+  });
 }
 
 function parseAssistantProviderReadErrors(
@@ -375,7 +615,7 @@ function parseAssistantProviderReadErrors(
 
   const providers = new Set<SupportedProvider>();
   return value.map((entry: unknown) => {
-    if (!(entry && typeof entry === 'object')) {
+    if (!(entry && typeof entry === 'object' && !Array.isArray(entry))) {
       throw new Error('Invalid assistant provider error');
     }
     const candidate = entry as Record<string, unknown>;
@@ -385,6 +625,7 @@ function parseAssistantProviderReadErrors(
       typeof provider !== 'string' ||
       !isSupportedProvider(provider) ||
       providers.has(provider) ||
+      !hasExactOwnKeys(candidate, ['code', 'error', 'message', 'provider']) ||
       candidate['error'] !== 'api_key_unreadable' ||
       !isSecretReadErrorCode(code) ||
       typeof candidate['message'] !== 'string' ||

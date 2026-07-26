@@ -96,6 +96,7 @@
     "strictNullChecks": true
   },
   "include": [
+    "src/main-bootstrap.ts",
     "src/main.ts",
     "src/preload.ts",
     "src/db-host-entry.ts",

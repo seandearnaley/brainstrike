@@ -4,14 +4,25 @@ import { isSupportedProvider, resolveProviderApiKey } from '../providers/key-res
 
 describe('key-resolver', () => {
   const originalEnv = process.env;
+  const providerEnvKeys = [
+    'AI_ANTHROPIC_API_KEY',
+    'AI_GOOGLE_GENERATIVE_AI_API_KEY',
+    'AI_OPENAI_API_KEY',
+    'AI_OPENROUTER_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'GOOGLE_GENERATIVE_AI_API_KEY',
+    'OPENAI_API_KEY',
+    'OPENROUTER_API_KEY',
+  ] as const;
 
   beforeEach(() => {
-    // Clone env for each test
     process.env = { ...originalEnv };
+    for (const envKey of providerEnvKeys) {
+      delete process.env[envKey];
+    }
   });
 
   afterEach(() => {
-    // Restore original env
     process.env = originalEnv;
   });
 

@@ -17,12 +17,12 @@ import {
  */
 describe('main-process bundle config', () => {
   it('bundles exactly the four runtime entry points', () => {
-    expect(MAIN_PROCESS_ENTRY_POINTS).toEqual([
-      'src/main.ts',
-      'src/preload.ts',
-      'src/db-host-entry.ts',
-      'src/parser-host-entry.ts',
-    ]);
+    expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
+      'db-host-entry': 'src/db-host-entry.ts',
+      main: 'src/main-bootstrap.ts',
+      'parser-host-entry': 'src/parser-host-entry.ts',
+      preload: 'src/preload.ts',
+    });
   });
 
   it('bundles app code only, as flat CJS for the Electron main process', () => {

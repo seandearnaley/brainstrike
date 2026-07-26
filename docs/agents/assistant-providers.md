@@ -64,6 +64,20 @@
   - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
+    Desktop also loads provider credentials from environment files before any
+    provider/key inspection runs. `src/main-bootstrap.ts` is the packaged main
+    entry: it completes this load before dynamically importing the full
+    `src/main.ts` runtime graph, so eager module-level environment reads cannot
+    observe a partially initialized process. Unpackaged launches read
+    `apps/desktop/.env.local` before `apps/desktop/.env`; packaged launches may
+    read only `<userData>/.env`. The inherited process environment is authoritative
+    even when an existing value is empty. Every candidate file is read and
+    validated before any value is applied, so an unreadable or malformed file
+    applies nothing and surfaces through both the assistant status probe and
+    Settings. Missing files are valid. `NODE_ENV=test`,
+    `ELECTRON_IS_E2E_TEST=true`, and `--test-mode` disable environment-file
+    loading entirely; directly injected launch variables retain their existing
+    runtime semantics.
     Chat and model-metadata environment credentials remain authoritative when
     present. A stored-key `SecretReadError` must otherwise propagate as the typed
     `api_key_unreadable` chat/model-metadata failure (or the original typed
@@ -439,6 +453,25 @@ selected affected provider with the re-entry guidance; malformed or duplicate
 entries fail the availability probe instead of being guessed at. An environment
 credential remains authoritative and suppresses a stale stored-key read failure
 for that provider.
+
+Desktop status keeps keyless runtime availability in `providers` and reports
+credential provenance separately in `providerKeySources`. Each entry is exactly
+either `{provider,source:"stored"}` or
+`{provider,source:"env",envVar:<declared name>}`; values never cross HTTP or IPC.
+The renderer rejects duplicate providers, unknown sources, extra fields, and an
+environment-variable name not declared for that provider. `secrets:list`
+returns the same source metadata (including Tavily), while
+`secrets:listStored` remains the keychain-only string list. Test-mode Secrets
+IPC remains environment-blind. Settings merges status provenance with IPC
+metadata so an injected test/launch credential is visible without weakening
+that hermetic IPC boundary, and disables an inert Save action while an
+environment key is authoritative.
+
+An invalid desktop environment file leaves the assistant server reachable but
+makes `/assistant/status` return the typed
+`assistant_configuration_invalid` state with only safe logical-file failure
+metadata and no partial provider availability. The shared status validator
+maps that payload to a visible error state; it never falls back to stored keys.
 
 Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts

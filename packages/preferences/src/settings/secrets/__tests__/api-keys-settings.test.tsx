@@ -1,3 +1,5 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __resetSecretsStoreForTests, useSecretsStore } from '../../../stores/secrets-store';
@@ -10,9 +12,22 @@ const { listProvidersMock, toastMock } = vi.hoisted(() => ({
 
 vi.mock('@brainstrike/assistant-contract/provider-metadata', () => ({
   listProviders: listProvidersMock,
+  providerEnvKeys: (provider: string) =>
+    provider === 'openai'
+      ? ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']
+      : provider === 'google'
+        ? ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY']
+        : [],
 }));
 
 vi.mock('@brainstrike/ui', () => ({
+  Badge: ({
+    children,
+    'data-testid': testId,
+  }: {
+    children: React.ReactNode;
+    'data-testid'?: string;
+  }) => <span data-testid={testId}>{children}</span>,
   Button: ({
     children,
     disabled,
@@ -88,7 +103,7 @@ describe('ApiKeysSettings', () => {
     clearAll: (confirmationToken?: string) => Promise<{ message?: string; success: boolean }>;
     deleteKey: (provider: string) => Promise<boolean>;
     getKey: (provider: string) => Promise<string | null>;
-    list: () => Promise<string[]>;
+    list: () => Promise<ProviderKeySource<SupportedProvider | 'tavily'>[]>;
     listStored: () => Promise<string[]>;
     saveKey: (
       provider: string,
@@ -108,10 +123,18 @@ describe('ApiKeysSettings', () => {
     clearAll: vi.fn().mockResolvedValue({ success: true }),
     deleteKey: vi.fn().mockResolvedValue(true),
     getKey: vi.fn().mockResolvedValue(null),
-    list: vi.fn().mockResolvedValue(['openai']),
+    list: vi.fn().mockResolvedValue([{ provider: 'openai', source: 'stored' }]),
     listStored: vi.fn().mockResolvedValue(['openai']),
     saveKey: vi.fn().mockResolvedValue(true),
   });
+
+  const waitForCredentialSources = async (): Promise<void> => {
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status').textContent).not.toContain(
+        'Checking credential source'
+      );
+    });
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,38 +152,118 @@ describe('ApiKeysSettings', () => {
     delete (window as unknown as Record<string, unknown>)['secrets'];
   });
 
-  it('loads stored providers using listStored when available', async () => {
+  it('loads provider key sources from the metadata list', async () => {
     render(<ApiKeysSettings />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('saved-llm-providers').textContent).toContain('openai');
+      expect(screen.getByTestId('provider-key-status').textContent).toContain('Saved in keychain');
     });
 
-    expect(window.secrets?.listStored).toHaveBeenCalledTimes(1);
-    expect(window.secrets?.list).not.toHaveBeenCalled();
+    expect(window.secrets?.list).toHaveBeenCalledTimes(1);
+    expect(window.secrets?.listStored).not.toHaveBeenCalled();
   });
 
-  it('falls back to list() when listStored fails', async () => {
+  it('surfaces provider key source load failures without falling back', async () => {
     const base = createSecretsApi();
     setSecretsApi({
       ...base,
-      list: vi.fn().mockResolvedValue(['google']),
-      listStored: vi.fn().mockRejectedValue(new Error('keychain unavailable')),
+      list: vi.fn().mockRejectedValue(new Error('Environment file is malformed.')),
     });
 
     render(<ApiKeysSettings />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('saved-llm-providers').textContent).toContain('google');
+      expect(screen.getByTestId('provider-key-load-error').textContent).toContain(
+        'Environment file is malformed.'
+      );
     });
 
-    expect(window.secrets?.listStored).toHaveBeenCalledTimes(1);
     expect(window.secrets?.list).toHaveBeenCalledTimes(1);
+    expect(window.secrets?.listStored).not.toHaveBeenCalled();
+    expect(screen.getByTestId('provider-key-status').textContent).toContain(
+      'Credential status unavailable'
+    );
+    fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: 'sk-inert' } });
+    expect((screen.getByTestId('save-llm-key') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('keeps credential mutations disabled until source inspection completes', async () => {
+    let resolveList:
+      | ((sources: ProviderKeySource<SupportedProvider | 'tavily'>[]) => void)
+      | undefined;
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn(
+        () =>
+          new Promise<ProviderKeySource<SupportedProvider | 'tavily'>[]>((resolve) => {
+            resolveList = resolve;
+          })
+      ),
+    });
+
+    render(<ApiKeysSettings />);
+    fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: 'sk-wait' } });
+
+    expect(screen.getByTestId('provider-key-status').textContent).toContain(
+      'Checking credential source'
+    );
+    expect((screen.getByTestId('save-llm-key') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('delete-llm-key') as HTMLButtonElement).disabled).toBe(true);
+
+    resolveList?.([]);
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status').textContent).toContain('Not configured');
+    });
+    expect((screen.getByTestId('save-llm-key') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('surfaces malformed provider key source payloads', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi
+        .fn()
+        .mockResolvedValue([
+          { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'stored' },
+        ] as unknown as ProviderKeySource<SupportedProvider | 'tavily'>[]),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-load-error').textContent).toContain(
+        'invalid credential status'
+      );
+    });
+  });
+
+  it('rejects environment variables that do not belong to the reported provider', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn().mockResolvedValue([
+        {
+          envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+          provider: 'openai',
+          source: 'env',
+        },
+      ]),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-load-error').textContent).toContain(
+        'invalid credential status'
+      );
+    });
   });
 
   it('saves API keys and notifies dependent subscribers', async () => {
     render(<ApiKeysSettings />);
     const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
 
     fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: '  sk-test  ' } });
     fireEvent.click(screen.getByTestId('save-llm-key'));
@@ -183,6 +286,8 @@ describe('ApiKeysSettings', () => {
     });
 
     render(<ApiKeysSettings />);
+    const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
     fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: 'sk-test' } });
     fireEvent.click(screen.getByTestId('save-llm-key'));
 
@@ -195,11 +300,39 @@ describe('ApiKeysSettings', () => {
         })
       );
     });
+    expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion);
+    expect((screen.getByTestId('llm-api-key') as HTMLInputElement).value).toBe('sk-test');
+  });
+
+  it('surfaces a thrown save and does not report success', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      saveKey: vi.fn().mockRejectedValue(new Error('keychain locked')),
+    });
+
+    render(<ApiKeysSettings />);
+    const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
+    fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: 'sk-test' } });
+    fireEvent.click(screen.getByTestId('save-llm-key'));
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Failed to save key',
+          variant: 'destructive',
+        })
+      );
+    });
+    expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion);
+    expect((screen.getByTestId('llm-api-key') as HTMLInputElement).value).toBe('sk-test');
   });
 
   it('deletes API keys and notifies dependent subscribers', async () => {
     render(<ApiKeysSettings />);
     const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
 
     fireEvent.click(screen.getByTestId('delete-llm-key'));
 
@@ -211,6 +344,29 @@ describe('ApiKeysSettings', () => {
     });
   });
 
+  it('surfaces a thrown delete and does not notify dependent subscribers', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      deleteKey: vi.fn().mockRejectedValue(new Error('keychain locked')),
+    });
+
+    render(<ApiKeysSettings />);
+    const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
+    fireEvent.click(screen.getByTestId('delete-llm-key'));
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Failed to delete key',
+          variant: 'destructive',
+        })
+      );
+    });
+    expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion);
+  });
+
   it('renders provider-specific hint for google provider', async () => {
     listProvidersMock.mockReturnValue([{ displayName: 'Google', id: 'google' }]);
     render(<ApiKeysSettings />);
@@ -220,9 +376,68 @@ describe('ApiKeysSettings', () => {
     });
   });
 
+  it('renders an environment badge and prevents an inert provider save', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn().mockResolvedValue([
+        {
+          envVar: 'BRAINSTRIKE_OPENAI_API_KEY',
+          provider: 'openai',
+          source: 'env',
+        },
+      ]),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status').textContent).toContain(
+        'Environment key (BRAINSTRIKE_OPENAI_API_KEY)'
+      );
+    });
+    expect(screen.getByTestId('provider-env-key-warning').textContent).toContain(
+      'BRAINSTRIKE_OPENAI_API_KEY'
+    );
+
+    fireEvent.change(screen.getByTestId('llm-api-key'), { target: { value: 'inert-key' } });
+    expect((screen.getByTestId('save-llm-key') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('save-llm-key'));
+    expect(window.secrets?.saveKey).not.toHaveBeenCalled();
+  });
+
+  it('lets an environment source from status override stored IPC metadata', async () => {
+    render(
+      <ApiKeysSettings
+        statusProviderKeySources={[
+          {
+            envVar: 'OPENAI_API_KEY',
+            provider: 'openai',
+            source: 'env',
+          },
+        ]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-status').textContent).toContain(
+        'Environment key (OPENAI_API_KEY)'
+      );
+    });
+  });
+
+  it('surfaces the status probe error in the API keys card', async () => {
+    render(<ApiKeysSettings statusError="The user-data environment file is malformed." />);
+
+    expect(screen.getByTestId('provider-key-load-error').textContent).toContain(
+      'The user-data environment file is malformed.'
+    );
+  });
+
   it('saves the Tavily web-search key under the tavily secret id', async () => {
     render(<ApiKeysSettings />);
     const beforeVersion = useSecretsStore.getState().secretsVersion;
+    await waitForCredentialSources();
 
     fireEvent.change(screen.getByTestId('tavily-api-key'), { target: { value: '  tvly-abc  ' } });
     fireEvent.click(screen.getByTestId('save-tavily-key'));
@@ -238,6 +453,7 @@ describe('ApiKeysSettings', () => {
 
   it('deletes the Tavily key under the tavily secret id', async () => {
     render(<ApiKeysSettings />);
+    await waitForCredentialSources();
 
     fireEvent.click(screen.getByTestId('delete-tavily-key'));
 
@@ -250,13 +466,44 @@ describe('ApiKeysSettings', () => {
     const base = createSecretsApi();
     setSecretsApi({
       ...base,
-      listStored: vi.fn().mockResolvedValue(['openai', 'tavily']),
+      list: vi.fn().mockResolvedValue([
+        { provider: 'openai', source: 'stored' },
+        { provider: 'tavily', source: 'stored' },
+      ]),
     });
 
     render(<ApiKeysSettings />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('tavily-key-status').textContent).toContain('Configured');
+      expect(screen.getByTestId('tavily-key-status').textContent).toContain('Saved in keychain');
     });
+  });
+
+  it('gives Tavily the same environment-authority warning and disabled save', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn().mockResolvedValue([
+        {
+          envVar: 'BRAINSTRIKE_TAVILY_API_KEY',
+          provider: 'tavily',
+          source: 'env',
+        },
+      ]),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tavily-key-status').textContent).toContain(
+        'Environment key (BRAINSTRIKE_TAVILY_API_KEY)'
+      );
+    });
+    expect(screen.getByTestId('tavily-env-key-warning').textContent).toContain(
+      'BRAINSTRIKE_TAVILY_API_KEY'
+    );
+
+    fireEvent.change(screen.getByTestId('tavily-api-key'), { target: { value: 'inert-key' } });
+    expect((screen.getByTestId('save-tavily-key') as HTMLButtonElement).disabled).toBe(true);
   });
 });

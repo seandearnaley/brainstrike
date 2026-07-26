@@ -42,6 +42,7 @@ import {
   listConfiguredProviders,
   readProviderApiKey,
   readProviderSecretKey,
+  resolveProviderEnvCredential,
   resolveProviderEnvKey,
 } from '../../provider-api-key';
 
@@ -62,6 +63,10 @@ describe('provider-api-key', () => {
     process.env['KEY_TWO'] = '  token  ';
 
     expect(resolveProviderEnvKey('openai')).toBe('token');
+    expect(resolveProviderEnvCredential('openai')).toEqual({
+      envVar: 'KEY_TWO',
+      value: 'token',
+    });
   });
 
   it('reads provider secret key and preserves read failures', async () => {
@@ -106,6 +111,14 @@ describe('provider-api-key', () => {
 
     mockIsSupportedProvider.mockImplementation((value: string) => value === 'anthropic');
 
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [
+        { envVar: 'OPENAI_KEY', provider: 'openai', source: 'env' },
+        { provider: 'anthropic', source: 'stored' },
+      ],
+      readFailures: [],
+    });
+
     const providers = await listConfiguredProviders();
     expect(providers).toEqual(expect.arrayContaining(['openai', 'anthropic']));
   });
@@ -123,9 +136,28 @@ describe('provider-api-key', () => {
     mockIsSupportedProvider.mockReturnValue(true);
 
     await expect(inspectProviderKeys()).resolves.toEqual({
-      configuredProviders: ['openai'],
+      configuredProviders: [{ envVar: 'OPENAI_KEY', provider: 'openai', source: 'env' }],
       readFailures: [],
     });
     expect(secrets.getKey).not.toHaveBeenCalled();
+  });
+
+  it('reports one unreadable-key failure for duplicate stored provider ids', async () => {
+    mockListAgentProviders.mockReturnValue(['openrouter']);
+    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENROUTER_API_KEY']);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const { SecretReadError } = await import('../../secrets');
+    const secrets = {
+      getKey: vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'openrouter')),
+      listProviders: vi.fn().mockResolvedValue(['openrouter', 'openrouter']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+
+    await expect(inspectProviderKeys()).resolves.toMatchObject({
+      configuredProviders: [],
+      readFailures: [{ code: 'decrypt_failed', provider: 'openrouter' }],
+    });
+    expect(secrets.getKey).toHaveBeenCalledTimes(1);
   });
 });

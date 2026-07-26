@@ -57,6 +57,7 @@ import {
   ASSISTANT_STREAM_RESUME_PATH,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
+  type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -172,6 +173,7 @@ import {
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
+import type { DesktopEnvLoadFailure } from './desktop-env';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -264,6 +266,7 @@ export interface AssistantServerOptions {
    */
   auth?: AssistantServerAuth;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  envFileFailures?: readonly DesktopEnvLoadFailure[];
   host?: string;
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
@@ -356,7 +359,7 @@ export async function handleAssistantRequest(
 
   const route = resolveAssistantRoute(req);
   if (route === 'status') {
-    await handleAssistantStatus(res);
+    await handleAssistantStatus(res, options);
     return;
   }
 
@@ -1219,17 +1222,41 @@ function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown
   return false;
 }
 
-async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
+async function handleAssistantStatus(
+  res: http.ServerResponse,
+  options: AssistantServerOptions
+): Promise<void> {
   try {
-    const { providerErrors, providers } = await collectAvailableProviders();
+    if (options.envFileFailures && options.envFileFailures.length > 0) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.statusCode = 200;
+      res.end(
+        JSON.stringify({
+          enabled: false,
+          envFileFailures: options.envFileFailures,
+          error: 'assistant_configuration_invalid',
+          message: 'Desktop environment configuration is invalid.',
+          providers: [],
+        })
+      );
+      return;
+    }
+
+    const { providerErrors, providerKeySources, providers } = await collectAvailableProviders();
     const enabled = providers.length > 0;
     const payload = enabled
       ? {
           enabled,
           ...(providerErrors.length > 0 ? { providerErrors } : {}),
+          providerKeySources,
           providers,
         }
-      : { enabled, providers: [] as string[], reason: 'no_providers_configured' };
+      : {
+          enabled,
+          providers: [] as string[],
+          reason: 'no_providers_configured',
+        };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.statusCode = 200;
@@ -1580,10 +1607,11 @@ async function collectAvailableProviders(): Promise<{
     message: string;
     provider: SupportedProvider;
   }>;
+  providerKeySources: ProviderKeySource<SupportedProvider>[];
   providers: string[];
 }> {
   const inspection = await inspectProviderKeys();
-  const providers = new Set(inspection.configuredProviders);
+  const providers = new Set(inspection.configuredProviders.map(({ provider }) => provider));
 
   // Local provider is always available (runs in-browser, no API key needed)
   providers.add('local');
@@ -1595,6 +1623,7 @@ async function collectAvailableProviders(): Promise<{
       message: failure.message,
       provider: failure.provider,
     })),
+    providerKeySources: inspection.configuredProviders,
     providers: Array.from(providers),
   };
 }

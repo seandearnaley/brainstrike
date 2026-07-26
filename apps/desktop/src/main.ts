@@ -41,6 +41,7 @@ import {
   resetLocalDatabase,
 } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
+import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
@@ -114,6 +115,7 @@ import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
+const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
@@ -1346,8 +1348,14 @@ if (singleInstanceLockAcquired) {
         });
       }
 
+      for (const failure of desktopEnvLoadResult.failures) {
+        logger.error('Desktop environment file rejected', failure);
+      }
+
       logger.debug('Setting up IPC handlers that require app readiness...');
-      registerSecretsIpcHandlers(createSecretsService());
+      registerSecretsIpcHandlers(createSecretsService(), {
+        envFileFailures: desktopEnvLoadResult.failures,
+      });
       registerAgentIpcHandlers();
       unregisterMcpIpcHandlers = registerMcpIpcHandlers();
       registerToolsIpcHandlers({ embeddingHostManager });
@@ -1517,6 +1525,7 @@ if (singleInstanceLockAcquired) {
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
           embeddingHostManager,
+          envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
         });
         assistantUrl = url;

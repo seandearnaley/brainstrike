@@ -227,7 +227,10 @@ describe('assistant-preferences-store', () => {
       clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
-      list: vi.fn().mockResolvedValue(['openai', 'google', 'unknown-provider']),
+      list: vi.fn().mockResolvedValue([
+        { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { provider: 'google', source: 'stored' },
+      ]),
       listStored: vi.fn(),
       saveKey: vi.fn(),
     };
@@ -238,7 +241,7 @@ describe('assistant-preferences-store', () => {
     expect(providers).toEqual(expected);
   });
 
-  it('returns only no-key providers when secrets API fails', async () => {
+  it('surfaces secrets API failures instead of silently degrading to no-key providers', async () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
       checkedAt: 123,
       state: 'unavailable',
@@ -254,9 +257,32 @@ describe('assistant-preferences-store', () => {
       saveKey: vi.fn(),
     };
 
-    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
-    // 'local' doesn't require API keys, so it's still available when secrets API fails
-    expect(providers).toEqual(['local']);
+    await expect(useAssistantPreferencesStore.getState().getAvailableProviders()).rejects.toThrow(
+      'not allowed'
+    );
+  });
+
+  it('rejects malformed provider key metadata', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      checkedAt: 123,
+      state: 'unavailable',
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi
+        .fn()
+        .mockResolvedValue([{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'stored' }]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    await expect(useAssistantPreferencesStore.getState().getAvailableProviders()).rejects.toThrow(
+      'invalid provider key metadata'
+    );
   });
 
   it('includes detected local runtime providers only for available and stale states', async () => {

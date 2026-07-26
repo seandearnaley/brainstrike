@@ -1,8 +1,12 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
   listProviders,
   type ProviderDefinition,
+  providerEnvKeys,
+  type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -31,12 +35,16 @@ interface ProviderOption {
  * by this id and kept out of the provider dropdown/registry.
  */
 const TAVILY_SECRET_PROVIDER = 'tavily';
+const TAVILY_ENV_KEYS = new Set(['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY']);
+type SettingsProviderKeyId = SupportedProvider | typeof TAVILY_SECRET_PROVIDER;
 
 interface ApiKeysState {
   apiKey: string;
   busy: boolean;
-  providersWithSecrets: string[];
+  loadError: string | null;
+  providerKeySources: ProviderKeySource<SettingsProviderKeyId>[];
   rawProvider: string;
+  sourceState: 'error' | 'loading' | 'ready';
   tavilyKey: string;
 }
 
@@ -44,7 +52,12 @@ type ApiKeysAction =
   | { type: 'SET_PROVIDER'; provider: string }
   | { type: 'SET_API_KEY'; key: string }
   | { type: 'SET_TAVILY_KEY'; key: string }
-  | { type: 'SET_PROVIDERS_WITH_SECRETS'; providers: string[] }
+  | {
+      type: 'SOURCE_LOAD_SUCCEEDED';
+      sources: ProviderKeySource<SettingsProviderKeyId>[];
+    }
+  | { type: 'SOURCE_LOAD_FAILED'; message: string }
+  | { type: 'SOURCE_LOAD_STARTED' }
   | { type: 'SET_BUSY'; busy: boolean }
   | { type: 'SAVE_SUCCESS' }
   | { type: 'SAVE_TAVILY_SUCCESS' };
@@ -57,8 +70,17 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
       return { ...state, apiKey: action.key };
     case 'SET_TAVILY_KEY':
       return { ...state, tavilyKey: action.key };
-    case 'SET_PROVIDERS_WITH_SECRETS':
-      return { ...state, providersWithSecrets: action.providers };
+    case 'SOURCE_LOAD_STARTED':
+      return { ...state, loadError: null, sourceState: 'loading' };
+    case 'SOURCE_LOAD_SUCCEEDED':
+      return {
+        ...state,
+        loadError: null,
+        providerKeySources: action.sources,
+        sourceState: 'ready',
+      };
+    case 'SOURCE_LOAD_FAILED':
+      return { ...state, loadError: action.message, sourceState: 'error' };
     case 'SET_BUSY':
       return { ...state, busy: action.busy };
     case 'SAVE_SUCCESS':
@@ -70,13 +92,126 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
   }
 }
 
+function invalidCredentialStatus(): Error {
+  return new Error('The desktop returned invalid credential status metadata.');
+}
+
+function isAllowedProviderEnvVar(provider: SettingsProviderKeyId, envVar: string): boolean {
+  if (provider === TAVILY_SECRET_PROVIDER) {
+    return TAVILY_ENV_KEYS.has(envVar);
+  }
+  return providerEnvKeys(provider).includes(envVar);
+}
+
+function parseProviderKeySources(
+  value: unknown,
+  allowedProviders: ReadonlySet<string>
+): ProviderKeySource<SettingsProviderKeyId>[] {
+  if (!Array.isArray(value)) {
+    throw invalidCredentialStatus();
+  }
+
+  const seen = new Set<string>();
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object')) {
+      throw invalidCredentialStatus();
+    }
+
+    const candidate = entry as Record<string, unknown>;
+    const provider = candidate['provider'];
+    const source = candidate['source'];
+    if (
+      typeof provider !== 'string' ||
+      !allowedProviders.has(provider) ||
+      seen.has(provider) ||
+      (source !== 'env' && source !== 'stored')
+    ) {
+      throw invalidCredentialStatus();
+    }
+
+    seen.add(provider);
+    if (source === 'stored') {
+      if (Object.keys(candidate).length !== 2 || Object.hasOwn(candidate, 'envVar')) {
+        throw invalidCredentialStatus();
+      }
+      return { provider: provider as SettingsProviderKeyId, source };
+    }
+
+    const envVar = candidate['envVar'];
+    if (
+      Object.keys(candidate).length !== 3 ||
+      typeof envVar !== 'string' ||
+      envVar.trim().length === 0 ||
+      !isAllowedProviderEnvVar(provider as SettingsProviderKeyId, envVar)
+    ) {
+      throw invalidCredentialStatus();
+    }
+    return {
+      envVar,
+      provider: provider as SettingsProviderKeyId,
+      source,
+    };
+  });
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return 'Credential status could not be loaded.';
+}
+
+function KeySourceBadge({
+  source,
+  sourceState,
+  testId,
+}: {
+  source: ProviderKeySource<SettingsProviderKeyId> | undefined;
+  sourceState: ApiKeysState['sourceState'];
+  testId: string;
+}) {
+  if (!source) {
+    const label =
+      sourceState === 'loading'
+        ? 'Checking credential source'
+        : sourceState === 'error'
+          ? 'Credential status unavailable'
+          : 'Not configured';
+    return (
+      <Badge data-testid={testId} variant="outline">
+        {label}
+      </Badge>
+    );
+  }
+  if (source.source === 'env') {
+    return (
+      <Badge data-testid={testId} variant="secondary">
+        Environment key ({source.envVar})
+      </Badge>
+    );
+  }
+  return (
+    <Badge data-testid={testId} variant="secondary">
+      Saved in keychain
+    </Badge>
+  );
+}
+
+export interface ApiKeysSettingsProps {
+  readonly statusError?: string | undefined;
+  readonly statusProviderKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+}
+
 /**
  * Settings section for managing LLM provider API keys.
  * Uses the Electron `window.secrets` API for secure storage.
  *
  * @platform desktop
  */
-export function ApiKeysSettings() {
+export function ApiKeysSettings({
+  statusError,
+  statusProviderKeySources = [],
+}: ApiKeysSettingsProps = {}) {
   const { toast } = useToast();
   const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
   const providerDefinitions = useMemo(() => listProviders(), []);
@@ -92,15 +227,31 @@ export function ApiKeysSettings() {
   const [state, dispatch] = useReducer(apiKeysReducer, {
     apiKey: '',
     busy: false,
-    providersWithSecrets: [],
+    loadError: null,
+    providerKeySources: [],
     rawProvider: providerOptions[0]?.id ?? 'openai',
+    sourceState: 'loading',
     tavilyKey: '',
   });
-  const { rawProvider, apiKey, tavilyKey, providersWithSecrets, busy } = state;
-  const tavilyKeyConfigured = useMemo(
-    () => providersWithSecrets.includes(TAVILY_SECRET_PROVIDER),
-    [providersWithSecrets]
+  const { rawProvider, apiKey, tavilyKey, loadError, providerKeySources, sourceState, busy } =
+    state;
+  const allowedProviderKeyIds = useMemo(
+    () => new Set([...providerOptions.map((option) => option.id), TAVILY_SECRET_PROVIDER]),
+    [providerOptions]
   );
+  const mergedProviderKeySources = useMemo(() => {
+    const merged = new Map<SettingsProviderKeyId, ProviderKeySource<SettingsProviderKeyId>>();
+    for (const source of providerKeySources) {
+      merged.set(source.provider, source);
+    }
+    for (const source of statusProviderKeySources) {
+      const existing = merged.get(source.provider);
+      if (source.source === 'env' || !existing) {
+        merged.set(source.provider, source);
+      }
+    }
+    return merged;
+  }, [providerKeySources, statusProviderKeySources]);
 
   // Derive effective provider - always valid even if options change
   const provider = useMemo(() => {
@@ -118,32 +269,30 @@ export function ApiKeysSettings() {
     }
     return null;
   }, [provider]);
+  const providerKeySource = mergedProviderKeySources.get(provider as SettingsProviderKeyId);
+  const providerEnvironmentSource =
+    providerKeySource?.source === 'env' ? providerKeySource : undefined;
+  const tavilyKeySource = mergedProviderKeySources.get(TAVILY_SECRET_PROVIDER);
+  const tavilyEnvironmentSource = tavilyKeySource?.source === 'env' ? tavilyKeySource : undefined;
+  const visibleErrors = [...new Set([statusError, loadError].filter(Boolean))].join(' ');
 
   const refreshProviders = useCallback(async () => {
-    const listStored = window.secrets?.listStored;
+    dispatch({ type: 'SOURCE_LOAD_STARTED' });
     const listFn = window.secrets?.list;
-    if (listStored) {
-      try {
-        const storedProviders = await listStored();
-        if (Array.isArray(storedProviders)) {
-          dispatch({ providers: storedProviders, type: 'SET_PROVIDERS_WITH_SECRETS' });
-          return;
-        }
-      } catch {
-        // ignored
-      }
+    if (!listFn) {
+      dispatch({
+        message: 'Secure credential status is unavailable.',
+        type: 'SOURCE_LOAD_FAILED',
+      });
+      return;
     }
-    if (listFn) {
-      try {
-        const providers = await listFn();
-        if (Array.isArray(providers)) {
-          dispatch({ providers, type: 'SET_PROVIDERS_WITH_SECRETS' });
-        }
-      } catch {
-        // ignored
-      }
+    try {
+      const sources = parseProviderKeySources(await listFn(), allowedProviderKeyIds);
+      dispatch({ sources, type: 'SOURCE_LOAD_SUCCEEDED' });
+    } catch (error) {
+      dispatch({ message: toErrorMessage(error), type: 'SOURCE_LOAD_FAILED' });
     }
-  }, []);
+  }, [allowedProviderKeyIds]);
 
   useEffect(() => {
     void refreshProviders();
@@ -151,12 +300,17 @@ export function ApiKeysSettings() {
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKey.trim();
-    if (!trimmedKey) {
+    if (!trimmedKey || sourceState !== 'ready' || providerEnvironmentSource) {
       return;
     }
     const saveKey = window.secrets?.saveKey;
     dispatch({ busy: true, type: 'SET_BUSY' });
     if (!saveKey) {
+      toast({
+        description: 'Secure credential storage is unavailable.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
       dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
@@ -164,52 +318,101 @@ export function ApiKeysSettings() {
     try {
       saveResult = await saveKey(provider, trimmedKey);
     } catch {
-      // Errors are handled by the OS keychain, ignore
+      toast({
+        description: 'The credential store rejected the save operation.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
       dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
-    if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
+    if (saveResult !== true) {
       const resultObj = saveResult as { ok?: boolean; error?: string };
-      if (resultObj.ok === false) {
-        const code = resultObj.error;
-        toast({
-          description:
-            code === 'encryption_unavailable'
-              ? 'OS keychain encryption is unavailable on this system.'
-              : 'Unknown error occurred while saving the key.',
-          title: 'Failed to save key',
-          variant: 'destructive',
-        });
-      }
+      const code = resultObj?.error;
+      toast({
+        description:
+          code === 'encryption_unavailable'
+            ? 'OS keychain encryption is unavailable on this system.'
+            : 'Unknown error occurred while saving the key.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
     }
     dispatch({ type: 'SAVE_SUCCESS' });
     await refreshProviders();
     notifySecretsChanged();
-  }, [apiKey, provider, refreshProviders, toast, notifySecretsChanged]);
+  }, [
+    apiKey,
+    provider,
+    providerEnvironmentSource,
+    refreshProviders,
+    sourceState,
+    toast,
+    notifySecretsChanged,
+  ]);
 
   const handleDelete = useCallback(async () => {
+    if (sourceState !== 'ready' || providerEnvironmentSource) {
+      return;
+    }
     const deleteKey = window.secrets?.deleteKey;
     dispatch({ busy: true, type: 'SET_BUSY' });
-    if (deleteKey) {
-      try {
-        await deleteKey(provider);
-      } catch {
-        // Errors are handled at OS level, ignore
+    if (!deleteKey) {
+      toast({
+        description: 'Secure credential storage is unavailable.',
+        title: 'Failed to delete key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
+    }
+    try {
+      const deleted = await deleteKey(provider);
+      if (deleted === false) {
+        toast({
+          description: 'The credential store did not delete the key.',
+          title: 'Failed to delete key',
+          variant: 'destructive',
+        });
+        dispatch({ busy: false, type: 'SET_BUSY' });
+        return;
       }
+    } catch {
+      toast({
+        description: 'The credential store rejected the delete operation.',
+        title: 'Failed to delete key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
     }
     await refreshProviders();
     notifySecretsChanged();
     dispatch({ busy: false, type: 'SET_BUSY' });
-  }, [provider, refreshProviders, notifySecretsChanged]);
+  }, [
+    provider,
+    providerEnvironmentSource,
+    refreshProviders,
+    sourceState,
+    notifySecretsChanged,
+    toast,
+  ]);
 
   const handleSaveTavily = useCallback(async () => {
     const trimmedKey = tavilyKey.trim();
-    if (!trimmedKey) {
+    if (!trimmedKey || sourceState !== 'ready' || tavilyEnvironmentSource) {
       return;
     }
     const saveKey = window.secrets?.saveKey;
     dispatch({ busy: true, type: 'SET_BUSY' });
     if (!saveKey) {
+      toast({
+        description: 'Secure credential storage is unavailable.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
       dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
@@ -217,41 +420,78 @@ export function ApiKeysSettings() {
     try {
       saveResult = await saveKey(TAVILY_SECRET_PROVIDER, trimmedKey);
     } catch {
+      toast({
+        description: 'The credential store rejected the save operation.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
       dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
-    if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
+    if (saveResult !== true) {
       const resultObj = saveResult as { ok?: boolean; error?: string };
-      if (resultObj.ok === false) {
-        toast({
-          description:
-            resultObj.error === 'encryption_unavailable'
-              ? 'OS keychain encryption is unavailable on this system.'
-              : 'Unknown error occurred while saving the key.',
-          title: 'Failed to save key',
-          variant: 'destructive',
-        });
-      }
+      toast({
+        description:
+          resultObj?.error === 'encryption_unavailable'
+            ? 'OS keychain encryption is unavailable on this system.'
+            : 'Unknown error occurred while saving the key.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
     }
     dispatch({ type: 'SAVE_TAVILY_SUCCESS' });
     await refreshProviders();
     notifySecretsChanged();
-  }, [tavilyKey, refreshProviders, toast, notifySecretsChanged]);
+  }, [
+    tavilyKey,
+    tavilyEnvironmentSource,
+    refreshProviders,
+    sourceState,
+    toast,
+    notifySecretsChanged,
+  ]);
 
   const handleDeleteTavily = useCallback(async () => {
+    if (sourceState !== 'ready' || tavilyEnvironmentSource) {
+      return;
+    }
     const deleteKey = window.secrets?.deleteKey;
     dispatch({ busy: true, type: 'SET_BUSY' });
-    if (deleteKey) {
-      try {
-        await deleteKey(TAVILY_SECRET_PROVIDER);
-      } catch {
-        // Errors are handled at OS level, ignore
+    if (!deleteKey) {
+      toast({
+        description: 'Secure credential storage is unavailable.',
+        title: 'Failed to delete key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
+    }
+    try {
+      const deleted = await deleteKey(TAVILY_SECRET_PROVIDER);
+      if (deleted === false) {
+        toast({
+          description: 'The credential store did not delete the key.',
+          title: 'Failed to delete key',
+          variant: 'destructive',
+        });
+        dispatch({ busy: false, type: 'SET_BUSY' });
+        return;
       }
+    } catch {
+      toast({
+        description: 'The credential store rejected the delete operation.',
+        title: 'Failed to delete key',
+        variant: 'destructive',
+      });
+      dispatch({ busy: false, type: 'SET_BUSY' });
+      return;
     }
     await refreshProviders();
     notifySecretsChanged();
     dispatch({ busy: false, type: 'SET_BUSY' });
-  }, [refreshProviders, notifySecretsChanged]);
+  }, [refreshProviders, sourceState, tavilyEnvironmentSource, notifySecretsChanged, toast]);
 
   const providerId = useId();
   const apiKeyId = useId();
@@ -259,6 +499,15 @@ export function ApiKeysSettings() {
 
   return (
     <div className="space-y-4">
+      {visibleErrors ? (
+        <div
+          className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+          data-testid="provider-key-load-error"
+          role="alert"
+        >
+          {visibleErrors}
+        </div>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Provider API Keys</CardTitle>
@@ -301,20 +550,32 @@ export function ApiKeysSettings() {
                   {providerKeyHint}
                 </p>
               ) : null}
+              {providerEnvironmentSource ? (
+                <p className="text-amber-700 text-xs" data-testid="provider-env-key-warning">
+                  {providerEnvironmentSource.envVar} is authoritative for this provider. Saving a
+                  key here will not change the runtime until that environment variable is removed
+                  and the app is restarted.
+                </p>
+              ) : null}
             </div>
           </div>
 
           <div className="flex gap-2">
             <Button
               data-testid="save-llm-key"
-              disabled={busy || !apiKey.trim()}
+              disabled={
+                busy ||
+                sourceState !== 'ready' ||
+                !apiKey.trim() ||
+                Boolean(providerEnvironmentSource)
+              }
               onClick={handleSave}
             >
               Save
             </Button>
             <Button
               data-testid="delete-llm-key"
-              disabled={busy}
+              disabled={busy || sourceState !== 'ready' || Boolean(providerEnvironmentSource)}
               onClick={handleDelete}
               variant="secondary"
             >
@@ -323,10 +584,12 @@ export function ApiKeysSettings() {
           </div>
 
           <div className="space-y-1">
-            <Label>Saved Providers</Label>
-            <div className="text-muted-foreground text-xs" data-testid="saved-llm-providers">
-              {providersWithSecrets.length === 0 ? 'None' : providersWithSecrets.join(', ')}
-            </div>
+            <Label>Status</Label>
+            <KeySourceBadge
+              source={providerKeySource}
+              sourceState={sourceState}
+              testId="provider-key-status"
+            />
           </div>
         </CardContent>
       </Card>
@@ -352,19 +615,31 @@ export function ApiKeysSettings() {
               type="password"
               value={tavilyKey}
             />
+            {tavilyEnvironmentSource ? (
+              <p className="text-amber-700 text-xs" data-testid="tavily-env-key-warning">
+                {tavilyEnvironmentSource.envVar} is authoritative for Tavily. Saving a key here will
+                not change web retrieval until that environment variable is removed and the app is
+                restarted.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex gap-2">
             <Button
               data-testid="save-tavily-key"
-              disabled={busy || !tavilyKey.trim()}
+              disabled={
+                busy ||
+                sourceState !== 'ready' ||
+                !tavilyKey.trim() ||
+                Boolean(tavilyEnvironmentSource)
+              }
               onClick={handleSaveTavily}
             >
               Save
             </Button>
             <Button
               data-testid="delete-tavily-key"
-              disabled={busy}
+              disabled={busy || sourceState !== 'ready' || Boolean(tavilyEnvironmentSource)}
               onClick={handleDeleteTavily}
               variant="secondary"
             >
@@ -374,9 +649,11 @@ export function ApiKeysSettings() {
 
           <div className="space-y-1">
             <Label>Status</Label>
-            <div className="text-muted-foreground text-xs" data-testid="tavily-key-status">
-              {tavilyKeyConfigured ? 'Configured' : 'Not configured'}
-            </div>
+            <KeySourceBadge
+              source={tavilyKeySource}
+              sourceState={sourceState}
+              testId="tavily-key-status"
+            />
           </div>
         </CardContent>
       </Card>

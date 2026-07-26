@@ -1,0 +1,238 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { type LoadDesktopEnvironmentOptions, loadDesktopEnvironment } from '../../desktop-env';
+
+const temporaryDirectories: string[] = [];
+
+function createEnvironmentLayout(): { appRoot: string; userDataPath: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstrike-desktop-env-'));
+  temporaryDirectories.push(root);
+  const appRoot = path.join(root, 'app');
+  const userDataPath = path.join(root, 'user-data');
+  fs.mkdirSync(appRoot, { recursive: true });
+  fs.mkdirSync(userDataPath, { recursive: true });
+  return { appRoot, userDataPath };
+}
+
+function load(
+  layout: { appRoot: string; userDataPath: string },
+  overrides: Partial<LoadDesktopEnvironmentOptions> = {}
+) {
+  return loadDesktopEnvironment({
+    ...layout,
+    argv: [],
+    env: {},
+    isPackaged: false,
+    ...overrides,
+  });
+}
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    fs.rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+describe('loadDesktopEnvironment', () => {
+  it('applies existing env > .env.local > .env precedence in development', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env.local'),
+      ['CASCADE=dev-local', 'LOCAL_ONLY=local'].join('\n')
+    );
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['CASCADE=dev', 'BASE_OVER_USER=dev', 'DEV_ONLY=base'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {
+      CASCADE: 'inherited',
+      EMPTY_IS_STILL_EXISTING: '',
+    };
+    fs.appendFileSync(
+      path.join(layout.appRoot, '.env.local'),
+      '\nEMPTY_IS_STILL_EXISTING=replacement'
+    );
+
+    const result = load(layout, { env });
+
+    expect(result).toEqual({
+      appliedVariableCount: 3,
+      failures: [],
+      loadedFiles: ['dev-local', 'dev'],
+      skipped: false,
+    });
+    expect(env).toMatchObject({
+      BASE_OVER_USER: 'dev',
+      CASCADE: 'inherited',
+      DEV_ONLY: 'base',
+      EMPTY_IS_STILL_EXISTING: '',
+      LOCAL_ONLY: 'local',
+    });
+  });
+
+  it('loads only userData/.env in a packaged launch', () => {
+    const layout = createEnvironmentLayout();
+    fs.mkdirSync(path.join(layout.appRoot, '.env.local'));
+    fs.mkdirSync(path.join(layout.appRoot, '.env'));
+    fs.writeFileSync(path.join(layout.userDataPath, '.env'), 'PACKAGED_ONLY=user');
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env, isPackaged: true });
+
+    expect(result).toEqual({
+      appliedVariableCount: 1,
+      failures: [],
+      loadedFiles: ['user-data'],
+      skipped: false,
+    });
+    expect(env).toEqual({ PACKAGED_ONLY: 'user' });
+  });
+
+  it('supports comments, export declarations, quoted values, and CRLF', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      [
+        '\uFEFF# provider credentials',
+        'export OPENAI_API_KEY = "line-one\\nline-two"',
+        "ANTHROPIC_API_KEY='literal # value'",
+        'OPENROUTER_API_KEY=value # trailing comment',
+        'GOOGLE_API_KEY=with=equals',
+        'BACKTICK_VALUE=`literal # backtick`',
+      ].join('\r\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env, isPackaged: false });
+
+    expect(result.failures).toEqual([]);
+    expect(result.loadedFiles).toEqual(['dev']);
+    expect(env).toEqual({
+      ANTHROPIC_API_KEY: 'literal # value',
+      BACKTICK_VALUE: 'literal # backtick',
+      GOOGLE_API_KEY: 'with=equals',
+      OPENAI_API_KEY: 'line-one\nline-two',
+      OPENROUTER_API_KEY: 'value',
+    });
+  });
+
+  it('does not inspect the user-data file for an unpackaged launch', () => {
+    const layout = createEnvironmentLayout();
+    fs.mkdirSync(path.join(layout.userDataPath, '.env'));
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env, isPackaged: false });
+
+    expect(result).toEqual({
+      appliedVariableCount: 0,
+      failures: [],
+      loadedFiles: [],
+      skipped: false,
+    });
+    expect(env).toEqual({});
+  });
+
+  it('treats missing candidate files as a successful empty load', () => {
+    const layout = createEnvironmentLayout();
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result).toEqual({
+      appliedVariableCount: 0,
+      failures: [],
+      loadedFiles: [],
+      skipped: false,
+    });
+    expect(env).toEqual({});
+  });
+
+  it('rejects all candidate files atomically when one file is malformed', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(path.join(layout.appRoot, '.env.local'), 'LOCAL_ONLY=local-secret');
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['VALID_BEFORE_FAILURE=base-secret', 'MALFORMED_LINE'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result.appliedVariableCount).toBe(0);
+    expect(result.loadedFiles).toEqual([]);
+    expect(result.skipped).toBe(false);
+    expect(result.failures).toEqual([
+      {
+        code: 'env_file_invalid',
+        file: 'dev',
+        message: 'Desktop environment file "dev" is invalid at line 2: expected "=".',
+      },
+    ]);
+    expect(env).toEqual({});
+    expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('rejects unterminated quotes without exposing the value', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(path.join(layout.appRoot, '.env.local'), 'OPENAI_API_KEY="super-secret-value');
+
+    const result = load(layout);
+
+    expect(result.failures).toEqual([
+      {
+        code: 'env_file_invalid',
+        file: 'dev-local',
+        message: 'Desktop environment file "dev-local" is invalid at line 1: unterminated quote.',
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('super-secret-value');
+  });
+
+  it('surfaces unreadable candidates without exposing their paths', () => {
+    const layout = createEnvironmentLayout();
+    const unreadablePath = path.join(layout.appRoot, '.env.local');
+    fs.mkdirSync(unreadablePath);
+
+    const result = load(layout);
+
+    expect(result.failures).toEqual([
+      {
+        code: 'env_file_unreadable',
+        file: 'dev-local',
+        message: 'Desktop environment file "dev-local" could not be read.',
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(unreadablePath);
+  });
+
+  it.each([
+    {
+      label: 'NODE_ENV=test',
+      options: { argv: [], env: { NODE_ENV: 'test' } },
+    },
+    {
+      label: 'ELECTRON_IS_E2E_TEST=true',
+      options: { argv: [], env: { ELECTRON_IS_E2E_TEST: 'true' } },
+    },
+    {
+      label: '--test-mode',
+      options: { argv: ['electron', '.', '--test-mode'], env: {} },
+    },
+  ])('performs no file reads or mutations in $label mode', ({ options }) => {
+    const layout = createEnvironmentLayout();
+    fs.mkdirSync(path.join(layout.appRoot, '.env.local'));
+    const env: NodeJS.ProcessEnv = { ...options.env };
+
+    const result = load(layout, { argv: options.argv, env });
+
+    expect(result).toEqual({
+      appliedVariableCount: 0,
+      failures: [],
+      loadedFiles: [],
+      skipped: true,
+    });
+    expect(env).toEqual(options.env);
+  });
+});

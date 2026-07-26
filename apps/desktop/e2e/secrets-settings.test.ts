@@ -1,7 +1,10 @@
 import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Secrets Settings', { tag: '@smoke' }, () => {
-  test('save and retrieve provider key via settings UI + IPC', async ({ window, homePage }) => {
+  test('shows the injected OpenAI environment key and enables its composer models', async ({
+    window,
+    homePage,
+  }) => {
     await homePage.openSettings();
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
     await expect(window.getByRole('heading', { exact: true, name: 'Settings' })).toBeVisible();
@@ -22,21 +25,68 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
       .or(window.getByRole('option', { name: /OpenAI/i }));
     await option.click();
 
-    await window.getByTestId('llm-api-key').fill('sk-test-123');
-    await window.getByTestId('save-llm-key').click();
+    await expect(window.getByTestId('provider-key-status')).toContainText(
+      'Environment key (BRAINSTRIKE_OPENAI_API_KEY)'
+    );
+    await window.getByTestId('llm-api-key').fill('sk-inert');
+    await expect(window.getByTestId('save-llm-key')).toBeDisabled();
+    await expect(window.getByTestId('provider-env-key-warning')).toContainText(
+      'BRAINSTRIKE_OPENAI_API_KEY'
+    );
 
-    await expect(window.getByTestId('saved-llm-providers')).toContainText('openai');
+    await window.keyboard.press('Escape');
+    await expect(window.getByRole('navigation', { name: 'Settings categories' })).not.toBeVisible();
+
+    const modelPicker = window.getByTestId('composer-model-menu-trigger');
+    await expect(modelPicker).toBeEnabled();
+    await modelPicker.click();
+    const moreModels = window.getByTestId('composer-more-models-trigger');
+    await expect(moreModels).toBeEnabled();
+    await moreModels.focus();
+    await window.keyboard.press('ArrowRight');
+
+    const openAiProvider = window.getByRole('menuitem', { name: /OpenAI/ }).last();
+    await expect(openAiProvider).toBeVisible();
+    await openAiProvider.focus();
+    await window.keyboard.press('ArrowRight');
+
+    const openAiModel = window.getByRole('menuitemradio').filter({ hasText: /GPT/i }).first();
+    await expect(openAiModel).toBeVisible();
+    await expect(openAiModel).toBeEnabled();
+    await openAiModel.click();
+    await expect(modelPicker).toHaveAccessibleName(/Selected model:.*GPT/i);
+  });
+
+  test('saves, retrieves, and deletes an Anthropic key through settings and IPC', async ({
+    window,
+    homePage,
+  }) => {
+    await homePage.openSettings();
+    await window
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: /API Keys/i })
+      .click();
+    await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
+
+    const providerSelect = window.getByTestId('llm-provider');
+    await providerSelect.click();
+    await window.getByRole('option', { name: 'Anthropic' }).click();
+
+    await expect(window.getByTestId('provider-key-status')).toContainText('Not configured');
+    await window.getByTestId('llm-api-key').fill('sk-ant-test-123');
+    await window.getByTestId('save-llm-key').click();
+    await expect(window.getByTestId('provider-key-status')).toContainText('Saved in keychain');
 
     const fetched = await window.evaluate(async () => {
       const globals = window as unknown as {
         secrets?: { getKey?: (provider: string) => Promise<string | null> };
       };
-      const key = await globals.secrets?.getKey?.('openai');
+      const key = await globals.secrets?.getKey?.('anthropic');
       return key || null;
     });
-    expect(fetched).toBe('sk-test-123');
+    expect(fetched).toBe('sk-ant-test-123');
 
     await window.getByTestId('delete-llm-key').click();
-    await expect(window.getByTestId('saved-llm-providers')).not.toContainText('openai');
+    await expect(window.getByTestId('provider-key-status')).toContainText('Not configured');
   });
 });

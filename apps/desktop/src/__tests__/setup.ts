@@ -1,4 +1,6 @@
 import '@testing-library/jest-dom';
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
 
 // Mock Electron module for tests that transitively import window-state.ts
@@ -128,7 +130,7 @@ const mockSecrets = {
   clearAll: vi.fn().mockResolvedValue({ success: true } as const),
   deleteKey: vi.fn().mockResolvedValue(true),
   getKey: vi.fn().mockResolvedValue(null as string | null),
-  list: vi.fn().mockResolvedValue([] as string[]),
+  list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),
   listStored: vi.fn().mockResolvedValue([] as string[]),
   saveKey: vi.fn().mockResolvedValue(true as const),
 };

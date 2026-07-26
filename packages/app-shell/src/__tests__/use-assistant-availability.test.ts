@@ -264,6 +264,264 @@ describe('fetchAssistantStatusState', () => {
     });
   });
 
+  it('preserves strict desktop provider and key-source metadata', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerKeySources: [
+          {
+            envVar: 'BRAINSTRIKE_OPENAI_API_KEY',
+            provider: 'openai',
+            source: 'env',
+          },
+          { provider: 'anthropic', source: 'stored' },
+        ],
+        providers: ['openai', 'anthropic', 'local'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      providerKeySources: [
+        {
+          envVar: 'BRAINSTRIKE_OPENAI_API_KEY',
+          provider: 'openai',
+          source: 'env',
+        },
+        { provider: 'anthropic', source: 'stored' },
+      ],
+      providers: ['openai', 'anthropic', 'local'],
+      state: 'enabled',
+    });
+  });
+
+  it.each([
+    ['a non-array source list', { providerKeySources: {} }],
+    [
+      'a duplicate provider',
+      {
+        providerKeySources: [
+          { provider: 'openai', source: 'stored' },
+          { provider: 'openai', source: 'stored' },
+        ],
+      },
+    ],
+    [
+      'an env source without an env variable',
+      { providerKeySources: [{ provider: 'openai', source: 'env' }] },
+    ],
+    [
+      'an env variable for the wrong provider',
+      {
+        providerKeySources: [{ envVar: 'ANTHROPIC_API_KEY', provider: 'openai', source: 'env' }],
+      },
+    ],
+    [
+      'an env variable on a stored source',
+      {
+        providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'stored' }],
+      },
+    ],
+    [
+      'an extra source field',
+      {
+        providerKeySources: [{ provider: 'openai', source: 'stored', unexpected: true }],
+      },
+    ],
+  ])('rejects %s', async (_label, extraPayload) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providers: ['openai', 'local'],
+        ...extraPayload,
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError(/Invalid assistant provider key source/);
+  });
+
+  it('rejects duplicate available providers', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerKeySources: [],
+        providers: ['openai', 'openai'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Invalid assistant provider list');
+  });
+
+  it('rejects an enabled status with an empty provider list', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, providerKeySources: [], providers: [] }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Enabled assistant status must include an available provider');
+  });
+
+  it('rejects a hosted provider without matching key-source metadata', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerKeySources: [],
+        providers: ['openai', 'local'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Assistant hosted provider is missing its key source');
+  });
+
+  it('rejects a key source omitted from the available provider list', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerKeySources: [{ provider: 'openai', source: 'stored' }],
+        providers: ['local'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Assistant provider key source is missing from providers');
+  });
+
+  it('rejects a provider advertised as both available and unreadable', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerErrors: [
+          {
+            code: 'decrypt_failed',
+            error: 'api_key_unreadable',
+            message: 'Stored key is unreadable.',
+            provider: 'openai',
+          },
+        ],
+        providerKeySources: [],
+        providers: ['openai', 'local'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Assistant provider cannot be both available and unreadable');
+  });
+
+  it('rejects unknown root status fields', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: true, providers: ['local'], unexpected: true }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Invalid assistant status payload');
+  });
+
+  it('preserves a strict desktop environment configuration failure', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: false,
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file dev-local is invalid at line 2.',
+          },
+        ],
+        error: 'assistant_configuration_invalid',
+        message: 'Desktop environment configuration is invalid.',
+        providers: [],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).resolves.toEqual({
+      envFileFailures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev-local',
+          message: 'Desktop environment file dev-local is invalid at line 2.',
+        },
+      ],
+      message: 'Desktop environment configuration is invalid.',
+      state: 'error',
+    });
+  });
+
+  it('rejects malformed desktop environment configuration failures', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: false,
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file dev-local is invalid.',
+            secretValue: 'must-not-cross',
+          },
+        ],
+        error: 'assistant_configuration_invalid',
+        message: 'Desktop environment configuration is invalid.',
+        providers: [],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError('Invalid assistant environment file failure');
+  });
+
   it('preserves validated provider read errors from an enabled desktop status', async () => {
     const providerError = {
       code: 'decrypt_failed',

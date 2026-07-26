@@ -222,6 +222,7 @@ export default defineConfig({
         '**/dist/**',
         '**/node_modules/**',
         '**/e2e/**',
+        'src/main-bootstrap.ts',
         'src/main.ts',
         'src/preload.ts',
       ],
