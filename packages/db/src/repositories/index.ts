@@ -6,6 +6,12 @@ export type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
+export {
+  type AssistantRunErrorDatabase,
+  AssistantRunErrorRepository,
+  AssistantRunErrorStorageError,
+  type AssistantRunErrorStorageOperation,
+} from './assistant-run-error-repository.js';
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
 export {

@@ -2,7 +2,7 @@
 
 exports[`formatThreadDebugBundle > renders a fully-populated bundle in the pinned golden format 1`] = `
 "# BrainStrike Debug Bundle
-bundle_format: 1
+bundle_format: 2
 generated_at: 2026-07-23T12:05:00.000Z
 thread_id: thread-1
 run_id: run-1
@@ -17,6 +17,26 @@ app: 1.2.3 · darwin · session session-fixed-1
 - started_at: 2026-07-23T12:00:00.000Z
 - completed_at: 2026-07-23T12:00:31.000Z
 - error: Provider stream closed unexpectedly
+- code: mastra_agent_stream_provider_error
+- http_status: 429
+- provider_request_id: req-safe-123
+- provider_error_at: 2026-07-23T12:00:30.000Z
+
+\`\`\`json
+{
+  "causeChain": [
+    {
+      "code": "rate_limit_exceeded",
+      "message": "Rate limited"
+    }
+  ],
+  "message": "Provider stream closed unexpectedly",
+  "responseHeaders": {
+    "retry-after": "3",
+    "x-request-id": "req-safe-123"
+  }
+}
+\`\`\`
 
 ## 2. Run configuration
 
@@ -65,7 +85,7 @@ null
 
 ## 4. Resilience history
 
-_Resilience history (retry attempts, backoff, watchdog decisions) is not captured by bundle format 1 — no \`run_errors\` attempts table is wired in yet._
+_Retry-attempt history is intentionally absent: the current Mastra error-processor seam has no honest producer for terminal-attempt counts or actual provider-directed wait time._
 
 ## 5. Correlated diagnostic events
 
@@ -153,7 +173,7 @@ _Resilience history (retry attempts, backoff, watchdog decisions) is not capture
 }
 \`\`\`
 
-_Extended OS/architecture, DB-diagnostics, and crash-recovery snapshots are not collected by bundle format 1._
+_Extended OS/architecture, DB-diagnostics, and crash-recovery snapshots are not collected by bundle format 2._
 
 ## 9. Prior related failures
 

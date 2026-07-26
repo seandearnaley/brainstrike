@@ -1,4 +1,8 @@
-import { type DiagnosticEventsDatabase, DiagnosticEventsRepository } from '@brainstrike/db';
+import {
+  AssistantRunErrorRepository,
+  type DiagnosticEventsDatabase,
+  DiagnosticEventsRepository,
+} from '@brainstrike/db';
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { redactSensitiveLogValue } from '@brainstrike/utils/logger';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
@@ -17,7 +21,7 @@ import { scrubLikelySecretValues } from './secret-scrub';
  * collect-then-format convenience wrapper Task 9's Copy button calls.
  */
 
-export const DEBUG_BUNDLE_FORMAT_VERSION = 1;
+export const DEBUG_BUNDLE_FORMAT_VERSION = 2;
 export const DEBUG_BUNDLE_DEFAULT_MAX_BYTES = 200_000;
 
 const CORRELATION_WINDOW_MS = 5 * 60 * 1000;
@@ -60,6 +64,15 @@ export interface ThreadDebugBundleData {
     readonly runtimeKind: string | null;
     readonly startedAt: string | null;
     readonly status: string;
+  } | null;
+  readonly runError: {
+    readonly causeChain: unknown;
+    readonly code: string;
+    readonly httpStatus: number | null;
+    readonly message: string | null;
+    readonly occurredAt: string;
+    readonly providerRequestId: string | null;
+    readonly responseHeaders: unknown;
   } | null;
   readonly runEvents: readonly {
     readonly detail: string | null;
@@ -223,7 +236,8 @@ export async function collectThreadDebugBundleData(
   );
   const run = mapRun(runResult.rows[0]);
 
-  const [eventsResult, usageResult] = run
+  const runErrorRepository = new AssistantRunErrorRepository(db);
+  const [eventsResult, usageResult, runErrorRecord] = run
     ? await Promise.all([
         db.query<RunEventRow>(
           `SELECT sequence, kind, status, label, detail, duration_ms, metadata, occurred_at
@@ -235,8 +249,9 @@ export async function collectThreadDebugBundleData(
            FROM brainstrike_assistant_run_usage WHERE run_id = $1 ORDER BY created_at ASC`,
           [run.id]
         ),
+        runErrorRepository.getByRunId(run.id),
       ])
-    : [{ rows: [] as RunEventRow[] }, { rows: [] as RunUsageRow[] }];
+    : [{ rows: [] as RunEventRow[] }, { rows: [] as RunUsageRow[] }, null];
 
   const runEvents: BundleRunEvent[] = eventsResult.rows.map((row) => ({
     detail: row.detail,
@@ -256,6 +271,17 @@ export async function collectThreadDebugBundleData(
     outputTokens: row.output_tokens,
     provider: row.provider,
   }));
+  const runError: ThreadDebugBundleData['runError'] = runErrorRecord
+    ? {
+        causeChain: runErrorRecord.causeChain,
+        code: runErrorRecord.code,
+        httpStatus: runErrorRecord.httpStatus,
+        message: runErrorRecord.message,
+        occurredAt: runErrorRecord.occurredAt.toISOString(),
+        providerRequestId: runErrorRecord.providerRequestId,
+        responseHeaders: runErrorRecord.responseHeaders,
+      }
+    : null;
 
   const transcriptResult = await db.query<MessageRow>(
     `SELECT id, role, content, "createdAt" FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" DESC LIMIT 40`,
@@ -311,6 +337,7 @@ export async function collectThreadDebugBundleData(
     messages,
     priorFailures,
     run,
+    runError,
     runEvents,
     threadId,
     usage,
@@ -573,11 +600,14 @@ function renderHeader(data: ThreadDebugBundleData): string {
   ].join('\n');
 }
 
-function renderFailureSummary(run: ThreadDebugBundleData['run']): string {
+function renderFailureSummary(
+  run: ThreadDebugBundleData['run'],
+  runError: ThreadDebugBundleData['runError']
+): string {
   if (!run) {
     return ['## 1. Failure summary', '', '_No failed run found for this thread._'].join('\n');
   }
-  return [
+  const lines = [
     '## 1. Failure summary',
     '',
     `- status: ${run.status}`,
@@ -587,7 +617,29 @@ function renderFailureSummary(run: ThreadDebugBundleData['run']): string {
     `- started_at: ${run.startedAt ?? '(unknown)'}`,
     `- completed_at: ${run.completedAt ?? '(unknown)'}`,
     `- error: ${run.error ?? '(none)'}`,
-  ].join('\n');
+  ];
+  if (!runError) {
+    return lines.join('\n');
+  }
+  lines.push(
+    `- code: ${runError.code}`,
+    `- http_status: ${runError.httpStatus ?? '(none)'}`,
+    `- provider_request_id: ${runError.providerRequestId ?? '(none)'}`,
+    `- provider_error_at: ${runError.occurredAt}`,
+    '',
+    '```json',
+    JSON.stringify(
+      {
+        causeChain: runError.causeChain,
+        message: runError.message,
+        responseHeaders: runError.responseHeaders,
+      },
+      null,
+      2
+    ),
+    '```'
+  );
+  return lines.join('\n');
 }
 
 function renderRunConfiguration(run: ThreadDebugBundleData['run']): string {
@@ -635,7 +687,7 @@ function renderResilienceHistory(): string {
   return [
     '## 4. Resilience history',
     '',
-    '_Resilience history (retry attempts, backoff, watchdog decisions) is not captured by bundle format 1 — no `run_errors` attempts table is wired in yet._',
+    '_Retry-attempt history is intentionally absent: the current Mastra error-processor seam has no honest producer for terminal-attempt counts or actual provider-directed wait time._',
   ].join('\n');
 }
 
@@ -705,7 +757,7 @@ function renderEnvironment(environment: ThreadDebugBundleData['environment']): s
     JSON.stringify(environment, null, 2),
     '```',
     '',
-    '_Extended OS/architecture, DB-diagnostics, and crash-recovery snapshots are not collected by bundle format 1._',
+    `_Extended OS/architecture, DB-diagnostics, and crash-recovery snapshots are not collected by bundle format ${DEBUG_BUNDLE_FORMAT_VERSION}._`,
   ].join('\n');
 }
 
@@ -728,7 +780,7 @@ function renderPriorFailures(priorFailures: ThreadDebugBundleData['priorFailures
 
 function renderDocument(data: ThreadDebugBundleData, state: ElisionState): string {
   const sections = [
-    renderFailureSummary(data.run),
+    renderFailureSummary(data.run, data.runError),
     renderRunConfiguration(data.run),
     renderRunTimeline(data.runEvents, state.elidedRunEventSequences),
     renderResilienceHistory(),

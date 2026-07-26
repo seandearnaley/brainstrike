@@ -730,6 +730,16 @@ describe('agent-runtime edge cases', () => {
 
         const finish = chunks.find((chunk) => chunk.type === 'message-finish');
         expect(finish).toMatchObject({ finishReason: 'error' });
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.metadata).toMatchObject({
+          runError: {
+            code: 'mastra_agent_stream_provider_error',
+            message: 'Test error message',
+          },
+        });
       } finally {
         Agent.prototype.stream = originalStream;
       }
@@ -797,11 +807,11 @@ describe('agent-runtime edge cases', () => {
             chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
         );
         expect(failure?.event.metadata).toMatchObject({
-          errorType,
-          httpStatus: 400,
-          model: 'google/gemini-2.5-flash',
-          provider: 'openrouter',
-          providerCode: 'upstream_limit',
+          runError: {
+            code: errorType,
+            httpStatus: 400,
+            message: 'The selected model rejected the request token budget.',
+          },
         });
       } finally {
         Agent.prototype.stream = originalStream;
@@ -859,10 +869,11 @@ describe('agent-runtime edge cases', () => {
             chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
         );
         expect(failure?.event.metadata).toMatchObject({
-          errorType: 'context_length_exceeded',
-          httpStatus: 400,
-          model: 'openai/gpt-5.4-mini',
-          provider: 'openrouter',
+          runError: {
+            code: 'context_length_exceeded',
+            httpStatus: 400,
+            message: 'The request is larger than the selected context window.',
+          },
         });
       } finally {
         Agent.prototype.stream = originalStream;
@@ -916,6 +927,12 @@ describe('agent-runtime edge cases', () => {
           )
           .map((chunk) => chunk.event.kind);
         expect(runEventKinds).toContain('run.failed');
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.metadata?.['runError']).toBeUndefined();
 
         const finish = chunks.find((chunk) => chunk.type === 'message-finish');
         expect(finish).toMatchObject({ finishReason: 'error' });

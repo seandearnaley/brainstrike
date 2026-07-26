@@ -2205,6 +2205,63 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('bootstraps the migration-076 run-errors shape without retry fiction', async () => {
+    const dataDir = createPgliteTestDataDir('assistant-run-errors-bootstrap-shape');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThread('workspace-a');
+
+      const columns = await db.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = 'brainstrike_assistant_run_errors'
+         ORDER BY ordinal_position`
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([
+        'run_id',
+        'thread_id',
+        'resource_id',
+        'code',
+        'message',
+        'cause_chain',
+        'http_status',
+        'provider_request_id',
+        'response_headers',
+        'occurred_at',
+        'created_at',
+      ]);
+
+      const constraints = await db.query<{ conname: string }>(
+        `SELECT conname
+         FROM pg_constraint
+         WHERE conrelid = 'brainstrike_assistant_run_errors'::regclass`
+      );
+      expect(constraints.rows.map((row) => row.conname)).toEqual(
+        expect.arrayContaining([
+          'brainstrike_assistant_run_errors_pkey',
+          'bst_assistant_run_errors_cause_chain_check',
+          'bst_assistant_run_errors_http_status_check',
+          'bst_assistant_run_errors_response_headers_check',
+        ])
+      );
+
+      const indexes = await db.query<{ indexname: string }>(
+        `SELECT indexname
+         FROM pg_indexes
+         WHERE tablename = 'brainstrike_assistant_run_errors'`
+      );
+      expect(indexes.rows.map((row) => row.indexname)).toEqual(
+        expect.arrayContaining([
+          'bst_assistant_run_errors_resource_idx',
+          'bst_assistant_run_errors_thread_idx',
+        ])
+      );
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
+  });
+
   it('persists provider-reported billed cost with run usage', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3038,6 +3095,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       status: 'completed',
       timestamp: '2026-04-24T12:00:02.000Z',
     } satisfies AssistantRunEvent);
+    await db.query(
+      `INSERT INTO brainstrike_assistant_run_errors
+        (run_id, thread_id, resource_id, code, occurred_at)
+       VALUES ('run-delete', $1, 'workspace-a', 'provider_error', NOW())`,
+      [thread.id]
+    );
 
     await repository.deleteThread(thread.id);
 
@@ -3051,6 +3114,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_run_events', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
@@ -3097,6 +3163,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, 'workspace-a', null, $2, $3)`,
         [thread.id, `group-${thread.id}`, `flat-${thread.id}`]
       );
+      await db.query(
+        `INSERT INTO brainstrike_assistant_run_errors
+          (run_id, thread_id, resource_id, code, occurred_at)
+         VALUES ($1, $2, 'workspace-a', 'provider_error', NOW())`,
+        [`run-error-${thread.id}`, thread.id]
+      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -3120,6 +3192,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', first.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', survivor.id)
     ).resolves.toBe(1);
   });
 

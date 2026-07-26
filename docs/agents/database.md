@@ -63,6 +63,23 @@ every change in both migration runners and keep the migration/repository/reset
 tests paired with the persistence contract in
 `docs/agents/assistant-persistence.md`.
 
+Migration 076 owns terminal provider-forensics storage
+(`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index
+`bst_diagnostic_events_run_idx`. Register it in the numbered runner and the
+append-only Drizzle `customMigrations` ledger. The run-errors table is also
+mirrored byte-for-byte in renderer lazy assistant bootstrap because the main
+writer is reached only with a renderer-minted durable run id. It has no FK:
+numbered migrations run without the lazy `brainstrike_assistant_thread_runs`
+parent. The canonical repository must derive thread/resource ownership from
+that parent, throw when it is absent, and preserve the first terminal row with
+`ON CONFLICT (run_id) DO NOTHING`. `cause_chain` is array-shaped JSON,
+`response_headers` is object-shaped JSON, and there is deliberately no
+`attempts` column until an honest complete retry producer exists. Pair every
+shape change with both migration and bootstrap parity tests, explicit
+thread-deletion cleanup, and all three table-enumerating reset paths. Full
+contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
+FORENSICS.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

@@ -3536,6 +3536,127 @@ describe('assistant-server', () => {
       );
     });
 
+    it('persists structured provider forensics from a failed run event', async () => {
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO brainstrike_assistant_run_errors')
+        ) {
+          return Promise.resolve({
+            rows: [
+              {
+                cause_chain: ['APICallError: Rate limited'],
+                code: 'mastra_agent_stream_provider_error',
+                http_status: 429,
+                message: 'Rate limited',
+                occurred_at: '2026-07-26T19:00:00.000Z',
+                provider_request_id: 'req-safe-123',
+                resource_id: 'workspace-a',
+                response_headers: {
+                  'retry-after': '3',
+                  'x-request-id': 'req-safe-123',
+                },
+                run_id: 'run-provider-failure',
+                thread_id: 'thread-1',
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            event: {
+              detail: 'The provider rejected the request.',
+              id: 'event-provider-failure',
+              kind: 'run.failed',
+              label: 'Assistant run failed',
+              metadata: {
+                runError: {
+                  causeChain: ['APICallError: Rate limited'],
+                  code: 'mastra_agent_stream_provider_error',
+                  httpStatus: 429,
+                  message: 'Rate limited',
+                  providerRequestId: 'req-safe-123',
+                  responseHeaders: {
+                    'retry-after': '3',
+                    'x-request-id': 'req-safe-123',
+                  },
+                },
+              },
+              status: 'failed',
+              timestamp: '2026-07-26T19:00:00.000Z',
+            },
+            type: 'run-event',
+          };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              body: null,
+              headers: new Headers(),
+              status: 200,
+            })),
+            getTerminalOutcome: vi.fn(() => ({
+              error: 'The provider rejected the request.',
+              status: 'failed',
+            })),
+            whenClosed: vi.fn(() => Promise.resolve()),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream to trigger run-event and run-error persistence
+        }
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: {
+              resourceId: 'workspace-a',
+              runId: 'run-provider-failure',
+              threadId: 'thread-1',
+            },
+            provider: 'openai',
+          },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_errors'),
+        expect.arrayContaining([
+          'run-provider-failure',
+          'mastra_agent_stream_provider_error',
+          'Rate limited',
+          429,
+          'req-safe-123',
+        ])
+      );
+    });
+
     it('streams run-event chunks before desktop persistence settles', async () => {
       const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
         await import('@brainstrike/agent');

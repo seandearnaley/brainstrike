@@ -614,6 +614,7 @@ const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
+const ASSISTANT_RUN_ERRORS_TABLE = 'brainstrike_assistant_run_errors';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
  * Built ON DEMAND, deliberately NOT as a module-scope constant.
@@ -712,6 +713,46 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
   ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
+
+-- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and
+-- created by migration 076; keep the table/index shape byte-identical to that
+-- migration. There is intentionally no FK because the numbered runner has no
+-- thread_runs parent. The canonical DB repository derives thread/resource from
+-- the durable parent and throws if it is missing. One row per run is immutable
+-- first-terminal-wins; no dishonest partial retry-attempt history is stored.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_ERRORS_TABLE} (
+  run_id              TEXT PRIMARY KEY,
+  thread_id           TEXT NOT NULL,
+  resource_id         TEXT NOT NULL,
+  code                TEXT NOT NULL,
+  message             TEXT,
+  cause_chain         JSONB,
+  http_status         INTEGER,
+  provider_request_id TEXT,
+  response_headers    JSONB,
+  occurred_at         TIMESTAMPTZ NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT bst_assistant_run_errors_run_check
+    CHECK (length(run_id) > 0),
+  CONSTRAINT bst_assistant_run_errors_thread_check
+    CHECK (length(thread_id) > 0),
+  CONSTRAINT bst_assistant_run_errors_resource_check
+    CHECK (length(resource_id) > 0),
+  CONSTRAINT bst_assistant_run_errors_code_check
+    CHECK (length(code) > 0),
+  CONSTRAINT bst_assistant_run_errors_cause_chain_check
+    CHECK (cause_chain IS NULL OR jsonb_typeof(cause_chain) = 'array'),
+  CONSTRAINT bst_assistant_run_errors_http_status_check
+    CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+  CONSTRAINT bst_assistant_run_errors_response_headers_check
+    CHECK (response_headers IS NULL OR jsonb_typeof(response_headers) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_thread_idx
+  ON ${ASSISTANT_RUN_ERRORS_TABLE} (thread_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_resource_idx
+  ON ${ASSISTANT_RUN_ERRORS_TABLE} (resource_id, occurred_at DESC);
 
 -- Durable per-thread token usage (Phase 5.1). model/provider are PER ROW so
 -- cost is attributable per model when a thread switches models mid-run.
@@ -2671,6 +2712,11 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
+          deleted_run_errors AS (
+            DELETE FROM ${ASSISTANT_RUN_ERRORS_TABLE}
+            WHERE thread_id = $1
+            RETURNING run_id
+          ),
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
@@ -2681,6 +2727,7 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
           (SELECT count(*) FROM deleted_message_parents) AS deleted_message_parent_count,
           (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
+          (SELECT count(*) FROM deleted_run_errors) AS deleted_run_error_count,
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
       );
@@ -2718,6 +2765,12 @@ export function createPgliteAssistantThreadRepository(
               AND thread_id IN (SELECT id FROM requested)
             RETURNING id
           ),
+          deleted_run_errors AS (
+            DELETE FROM ${ASSISTANT_RUN_ERRORS_TABLE}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING run_id
+          ),
           deleted_thread_placements AS (
             DELETE FROM brainstrike_assistant_thread_placements
             WHERE (SELECT all_found FROM validation)
@@ -2735,6 +2788,7 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
+          (SELECT count(*) FROM deleted_run_errors) AS "deletedRunErrorCount",
           (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
           (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
         [...threadIds]

@@ -110,12 +110,42 @@ below are LIVE.
    provider (the hidden llm-host owns its own engine-fault recovery; no
    hosted-provider wire quirks apply).
 
-OpenRouter provider errors that reach the stream mapper preserve the provider's
-documented canonical token-limit vocabulary across both the mid-stream raw error
-shape and the AI SDK pre-stream `APICallError.data` envelope. The mapper keeps
-the existing bounded visible message and terminal `run.failed` behavior, adds
-the canonical type visibly, and persists only explicitly whitelisted diagnostic
-fields. Other provider errors retain the generic bounded path.
+Every provider/model error that reaches the stream mapper is classified at that
+single choke point; no provider-specific fetch wrapper or retry-attempt
+instrumentation participates. The terminal `run.failed` event carries one
+namespaced `metadata.runError` object with exactly `code`, optional `message`,
+`causeChain`, `httpStatus`, `providerRequestId`, and `responseHeaders`. The
+extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes, uses
+`mastra_agent_stream_provider_error` unless the code belongs to the explicit
+stable allowlist, and emits at most four bounded cause strings. Every truncated
+string ends with `… [truncated]`; truncation is never silent.
+
+The adjacent diagnostic breadcrumb uses the provider code plus validated HTTP
+status in its diagnostic code so unrelated provider failures do not collapse
+into one fingerprint. Content-policy tripwires terminate visibly through their
+own `mastra_agent_stream_tripwire` diagnostic and never carry the provider
+`metadata.runError` envelope.
+
+Response headers are a literal, case-normalized allowlist limited to
+rate-limit, `Retry-After`, and provider request-id variants. Request/response
+bodies, arbitrary `data` or provider metadata, request headers, URLs,
+credentials, and retry-attempt payloads never enter the event. OpenRouter's
+documented canonical token-limit vocabulary is still recognized across both
+mid-stream raw errors and the AI SDK pre-stream `APICallError.data` envelope,
+and remains visible in the bounded user-facing failure. Other providers use the
+same generic extractor and stable fallback code. `readProviderRunError` /
+`isProviderRunError`, exported by `@brainstrike/agent`, are the strict consumer
+boundary; downstream integrations must not hand-parse arbitrary event metadata.
+
+The provider-error termination log is also the durable diagnostic correlation
+choke point. It copies `runId`, `threadId`, and `resourceId` from
+`runtimeData.memory` plus `rootId` from the server-validated
+`runtimeData.boundWorkspaceRootId` into the structured logger context argument.
+The run id remains the renderer-minted durable run created before dispatch;
+there is no second producer. These values MUST NOT use logger bindings, ambient
+async context, `mainRootId`, or another inferred-root fallback: the diagnostic
+converter promotes only explicit context keys, and an absent identity stays
+absent rather than being guessed.
 
 Hosted agent loops default to 100 model steps when the user has not configured
 an explicit lower limit. The Output & Limits UI must describe that finite

@@ -84,6 +84,18 @@ function makeGoldenFixture(): ThreadDebugBundleData {
       startedAt: '2026-07-23T12:00:00.000Z',
       status: 'failed',
     },
+    runError: {
+      causeChain: [{ code: 'rate_limit_exceeded', message: 'Rate limited' }],
+      code: 'mastra_agent_stream_provider_error',
+      httpStatus: 429,
+      message: 'Provider stream closed unexpectedly',
+      occurredAt: '2026-07-23T12:00:30.000Z',
+      providerRequestId: 'req-safe-123',
+      responseHeaders: {
+        'retry-after': '3',
+        'x-request-id': 'req-safe-123',
+      },
+    },
     runEvents: [
       {
         detail: 'Resolved 3 native tools',
@@ -125,8 +137,15 @@ describe('formatThreadDebugBundle', () => {
     expect(output).toMatchSnapshot();
   });
 
+  it('renders structured provider forensics in the failure summary', () => {
+    const output = formatThreadDebugBundle(makeGoldenFixture());
+    expect(output).toContain('- code: mastra_agent_stream_provider_error');
+    expect(output).toContain('- http_status: 429');
+    expect(output).toContain('- provider_request_id: req-safe-123');
+  });
+
   it('exposes the pinned format constants', () => {
-    expect(DEBUG_BUNDLE_FORMAT_VERSION).toBe(1);
+    expect(DEBUG_BUNDLE_FORMAT_VERSION).toBe(2);
     expect(DEBUG_BUNDLE_DEFAULT_MAX_BYTES).toBe(200_000);
   });
 
@@ -156,6 +175,7 @@ describe('formatThreadDebugBundle', () => {
       messages,
       priorFailures: null,
       run: null,
+      runError: null,
       runEvents: [],
       threadId: 'thread-bounds',
       usage: [],
@@ -216,6 +236,7 @@ describe('formatThreadDebugBundle', () => {
       ],
       priorFailures: null,
       run: null,
+      runError: null,
       runEvents: [],
       threadId: 'thread-stage2',
       usage: [],
@@ -287,6 +308,7 @@ describe('formatThreadDebugBundle', () => {
       ],
       priorFailures: null,
       run: null,
+      runError: null,
       runEvents: [],
       threadId: 'thread-stage2-v2',
       usage: [],
@@ -365,6 +387,7 @@ describe('formatThreadDebugBundle', () => {
       ],
       priorFailures: null,
       run: null,
+      runError: null,
       runEvents: [],
       threadId: 'thread-stage2-tool-invocation',
       usage: [],
@@ -426,6 +449,7 @@ describe('formatThreadDebugBundle', () => {
       ],
       priorFailures: null,
       run: null,
+      runError: null,
       runEvents: [],
       threadId: 'thread-secret-scrub',
       usage: [],
@@ -560,6 +584,27 @@ describe('collectThreadDebugBundleData', () => {
         if (sql.includes('FROM brainstrike_assistant_run_usage')) {
           return { rows: usageRows as unknown as T[] };
         }
+        if (sql.includes('FROM brainstrike_assistant_run_errors')) {
+          return {
+            rows: [
+              {
+                cause_chain: [{ code: 'rate_limit_exceeded', message: 'Rate limited' }],
+                code: 'mastra_agent_stream_provider_error',
+                http_status: 429,
+                message: 'Rate limited',
+                occurred_at: '2026-07-23T12:00:30.000Z',
+                provider_request_id: 'req-safe-123',
+                resource_id: 'resource-1',
+                response_headers: {
+                  'retry-after': '3',
+                  'x-request-id': 'req-safe-123',
+                },
+                run_id: 'run-failed',
+                thread_id: 'thread-1',
+              },
+            ] as unknown as T[],
+          };
+        }
         if (sql.includes('FROM mastra_messages')) {
           return { rows: messageRows as unknown as T[] };
         }
@@ -598,6 +643,7 @@ describe('collectThreadDebugBundleData', () => {
 
     expect(data.run?.id).toBe('run-failed');
     expect(data.run?.status).toBe('failed');
+    expect(data.runError?.providerRequestId).toBe('req-safe-123');
     const runQuery = calls.find((call) =>
       call.sql.includes('FROM brainstrike_assistant_thread_runs')
     );

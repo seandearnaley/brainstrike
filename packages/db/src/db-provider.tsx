@@ -70,6 +70,7 @@ function logDatabaseError(message: string, error: unknown): void {
  */
 type ClearableRelation =
   | typeof MASTRA_WORKFLOW_TABLE
+  | 'brainstrike_assistant_run_errors'
   | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_thread_groups'
   | 'brainstrike_assistant_thread_placements'
@@ -882,6 +883,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Revisions cascade from prompt_items. The system embedding profile is
       // configuration seeded by migration 051 and intentionally survives.
       await clearRelationIfPresent(tx, 'prompt_items');
+      // FK-less terminal provider forensics can contain response metadata and
+      // error text. Clear them before the lazy parent run/thread stores.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
       // Task Ledger outcome labels (migration 062): writable on web via the
       // renderer repository (user verdicts), no FK cascades them — clear
       // explicitly per the FACTORY RESET CONTRACT (review #1693).
@@ -954,6 +958,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // turn any single failure into a pile of `25P02`s.
     await clearRelationIfPresent(tx, 'prompt_items');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
