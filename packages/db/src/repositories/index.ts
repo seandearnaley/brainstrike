@@ -62,6 +62,13 @@ export {
   FileChunkRepository,
 } from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
+export {
+  type FileSymbolInsert,
+  type FileSymbolKind,
+  type FileSymbolRefInsert,
+  type FileSymbolRefKind,
+  FileSymbolRepository,
+} from './file-symbol-repository.js';
 export type {
   IDatabase,
   IEmbeddingSetsRepository,

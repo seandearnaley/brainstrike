@@ -21,6 +21,7 @@ import {
   type EnhancedImportProgress,
   type FileImportChunkRepository,
   type FileImportFileRecordRepository,
+  type FileImportSymbolRepository,
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
@@ -743,6 +744,8 @@ export async function runRootFolderCacheImport(args: {
   chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
   };
+  /** Symbol-graph sink (BST-919); optional, absent = no graph. */
+  symbolRepository?: FileImportSymbolRepository | null;
   chunkingWorkerPort: ChunkingWorkerPort;
   collection: EmbeddingSet;
   db: DbHandle;
@@ -759,6 +762,7 @@ export async function runRootFolderCacheImport(args: {
     abortSignal,
     changes,
     chunkRepository,
+    symbolRepository,
     chunkingWorkerPort,
     collection,
     db,
@@ -1006,6 +1010,7 @@ export async function runRootFolderCacheImport(args: {
           deps: {
             chunkRepository,
             repository: fileRecordRepository,
+            symbolRepository: symbolRepository ?? null,
           },
           enabled: true,
         },

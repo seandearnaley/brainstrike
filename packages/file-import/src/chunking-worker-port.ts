@@ -15,9 +15,11 @@ import type {
   ChunkRequest,
   ChunkResult,
   PortableChunk,
+  PortableSymbol,
+  PortableSymbolRef,
   WorkerResponse,
 } from '@brainstrike/chunking-worker';
-import type { FileChunkInsert } from '@brainstrike/db';
+import type { FileChunkInsert, FileSymbolInsert, FileSymbolRefInsert } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestTracker, createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 
@@ -161,6 +163,61 @@ export function toFileChunkInserts(
     }
     return insert;
   });
+}
+
+/**
+ * Convert extracted symbols/refs to database inserts (BST-919).
+ *
+ * Ids are assigned HERE — `${fileRecordId}_sym_${n}` / `_ref_${n}` — so the
+ * extractor stays persistence-free, and a ref's `enclosingSymbolIndex` becomes
+ * the enclosing symbol's freshly minted id. Indexes out of range are a
+ * contract violation from the worker and throw rather than inserting an edge
+ * attributed to the wrong definition.
+ */
+export function toFileSymbolInserts(
+  fileRecordId: string,
+  symbols: readonly PortableSymbol[],
+  refs: readonly PortableSymbolRef[],
+  embeddingSetId?: string
+): { refs: FileSymbolRefInsert[]; symbols: FileSymbolInsert[] } {
+  const symbolInserts: FileSymbolInsert[] = symbols.map((symbol, index) => ({
+    endLine: symbol.endLine,
+    endOffset: symbol.endOffset,
+    exported: symbol.exported,
+    fileRecordId,
+    id: `${fileRecordId}_sym_${index}`,
+    kind: symbol.kind,
+    name: symbol.name,
+    startLine: symbol.startLine,
+    startOffset: symbol.startOffset,
+    ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
+  }));
+
+  const refInserts: FileSymbolRefInsert[] = refs.map((ref, index) => {
+    let fromSymbolId: string | undefined;
+    if (ref.enclosingSymbolIndex !== undefined) {
+      const enclosing = symbolInserts[ref.enclosingSymbolIndex];
+      if (!enclosing) {
+        throw new Error(
+          `Symbol ref ${index} references enclosing symbol index ${ref.enclosingSymbolIndex}, ` +
+            `but only ${symbolInserts.length} symbols were extracted.`
+        );
+      }
+      fromSymbolId = enclosing.id;
+    }
+    return {
+      fileRecordId,
+      id: `${fileRecordId}_ref_${index}`,
+      kind: ref.kind,
+      line: ref.line,
+      name: ref.name,
+      ...(fromSymbolId === undefined ? {} : { fromSymbolId }),
+      ...(ref.module === undefined ? {} : { module: ref.module }),
+      ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
+    };
+  });
+
+  return { refs: refInserts, symbols: symbolInserts };
 }
 
 interface ChunkingWorkerInitMessage {

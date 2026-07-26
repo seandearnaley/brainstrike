@@ -7,6 +7,7 @@ import type {
   ResolvedChunkingStrategy,
   ChunkingStrategy as SharedChunkingStrategy,
 } from '@brainstrike/text-splitter';
+import type { PortableSymbol, PortableSymbolRef } from './extract-symbols';
 
 /**
  * Chunking strategy determines how content is split into chunks.
@@ -131,6 +132,11 @@ export interface ChunkResult {
   sourceRangeSkippedChunks?: number;
   /** Strategy that was actually used after file-type heuristics */
   strategyUsed: ResolvedChunkingStrategy;
+  /** Name-based symbol references from the same parse (BST-919); absent when
+   * the file was not AST-chunked or extraction degraded. */
+  symbolRefs?: PortableSymbolRef[];
+  /** Symbol definitions from the same parse (BST-919). */
+  symbols?: PortableSymbol[];
   /** Total tokens across all chunks */
   totalTokens: number;
   type: 'result';

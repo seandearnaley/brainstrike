@@ -1,3 +1,4 @@
+import type { PortableSymbol, PortableSymbolRef } from '@brainstrike/chunking-worker';
 import type {
   ChunkingStrategy,
   FileChunk,
@@ -20,6 +21,13 @@ const logger = createLogger('FileImport:Chunking');
 interface ChunkingDeps {
   chunkRepository: FileImportChunkRepository | null;
   repository: FileImportFileRecordRepository | null;
+}
+
+export interface FileImportSymbolRepository {
+  insertMany(
+    symbols: import('@brainstrike/db').FileSymbolInsert[],
+    refs: import('@brainstrike/db').FileSymbolRefInsert[]
+  ): Promise<void>;
 }
 
 interface ChunkingOptions {
@@ -52,6 +60,9 @@ interface ChunkingOptions {
   // Post-review: support transactional enqueue with chunk insert
   runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
   streamBatchSize?: number;
+  /** Symbol-graph sink (BST-919). Optional: callers without it index chunks
+   * exactly as before and the graph is simply absent. */
+  symbolRepository?: FileImportSymbolRepository | null;
   // Target embedding set ID to associate chunks with a specific collection
   targetEmbeddingSetId?: string;
   tokenLimit?: number;
@@ -235,6 +246,52 @@ async function persistChunksAndMaybeEnqueueJobs(
   if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
     throwIfAborted(options.abortSignal);
     await options.enqueueJobsForChunks(chunks, fileRecordId);
+  }
+}
+
+/**
+ * Persists the symbols extracted alongside this file's chunks (BST-919).
+ *
+ * Loud degrade, never fail the file: chunk indexing is the core capability and
+ * has already succeeded by the time this runs; losing one file's symbols is an
+ * absent retrieval edge, while failing the import would regress indexing for a
+ * bug in an auxiliary table. The warn is the visible signal — same contract as
+ * extraction itself in portable-chunking.ts.
+ *
+ * Stale-row hygiene needs no work here: symbols for a REPLACEd file are
+ * deleted by applyManagedCacheReplacements before re-chunking, and file
+ * deletion cascades via FK.
+ */
+async function persistExtractedSymbols(
+  workerResult: { symbolRefs?: PortableSymbolRef[]; symbols?: PortableSymbol[] },
+  fileRecordId: string,
+  options: ChunkingOptions
+): Promise<void> {
+  const { symbols, symbolRefs } = workerResult;
+  const symbolRepository = options.symbolRepository;
+  if (!(symbolRepository && symbols && symbolRefs)) {
+    return;
+  }
+  if (symbols.length === 0 && symbolRefs.length === 0) {
+    return;
+  }
+  try {
+    const { toFileSymbolInserts } = await import('./chunking-worker-port');
+    const inserts = toFileSymbolInserts(
+      fileRecordId,
+      symbols,
+      symbolRefs,
+      options.targetEmbeddingSetId
+    );
+    await symbolRepository.insertMany(inserts.symbols, inserts.refs);
+  } catch (error) {
+    // biome-ignore lint/suspicious/noConsole: visible signal that the symbol graph lost this file
+    console.warn('[chunking] symbol persistence failed; chunks remain indexed', {
+      error: error instanceof Error ? error.message : String(error),
+      fileRecordId,
+      refCount: symbolRefs.length,
+      symbolCount: symbols.length,
+    });
   }
 }
 
@@ -579,6 +636,7 @@ async function processFileChunkingHostProxyPath(
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
   throwIfAborted(options.abortSignal);
   await persistChunksAndMaybeEnqueueJobs(chunks, result.id, preparation.chunkRepository, options);
+  await persistExtractedSymbols(workerResult, result.id, options);
 
   await updateFileRecordWithChunkInfo(
     preparation.repository,
@@ -666,6 +724,7 @@ async function processFileChunkingWorkerPath(
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
   throwIfAborted(options.abortSignal);
   await persistChunksAndMaybeEnqueueJobs(chunks, result.id, chunkRepository, options);
+  await persistExtractedSymbols(workerResult, result.id, options);
 
   await updateFileRecordWithChunkInfo(
     repository,

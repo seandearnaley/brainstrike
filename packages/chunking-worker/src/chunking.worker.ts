@@ -348,6 +348,10 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
     if (result.sourceRangeSkippedChunks !== undefined) {
       chunkResult.sourceRangeSkippedChunks = result.sourceRangeSkippedChunks;
     }
+    if (result.symbols !== undefined && result.symbolRefs !== undefined) {
+      chunkResult.symbols = result.symbols;
+      chunkResult.symbolRefs = result.symbolRefs;
+    }
     return chunkResult;
   } catch (error) {
     const formatted = formatError(error);

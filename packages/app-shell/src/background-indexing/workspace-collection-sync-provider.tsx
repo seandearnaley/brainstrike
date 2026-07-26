@@ -7,6 +7,7 @@ import {
   ElectronEmbeddingSetsRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  FileSymbolRepository,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
@@ -1351,6 +1352,9 @@ export function WorkspaceCollectionSyncProvider({
       chunkRepository: new ElectronFileChunkRepository(repositoryDb),
       embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
       fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
+      // Symbol graph (BST-919): needs only `query` — single-statement CTE
+      // inserts keep it atomic on this transactionless background handle.
+      symbolRepository: new FileSymbolRepository(repositoryDb),
     };
   }, [backgroundDb]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
@@ -1702,6 +1706,7 @@ export function WorkspaceCollectionSyncProvider({
       setImporting: NOOP_SET_IMPORTING,
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
+      symbolRepository: backgroundRepositories.symbolRepository,
       validateHostedProviderAccess,
       waitForBackgroundPermit,
     });

@@ -24,8 +24,8 @@
  * module persistence-free.
  */
 
+import { buildLineStartOffsets, findLineForOffset } from './line-offsets';
 import type { AstNode } from './parsers/types';
-import { buildLineStartOffsets, findLineForOffset } from './portable-chunking';
 
 export type PortableSymbolKind =
   | 'class'
