@@ -287,12 +287,22 @@ closed won't-do).** Two reasons, both load-bearing:
    `up` at module init to hash and store the SQL. The `Migration.up` type
    accepting `string | MigrationCallback` is a property of the test runner, not
    a licence to use a callback here.
-2. **The hazard is already retired.** The invariant is "acyclic chunk graph AND
-   acyclic source-module graph ⇒ safe", and BOTH conjuncts are now enforced and
-   clean (`verify-no-cross-chunk-cycles.mjs` on build,
+2. **The hazard is retired in the renderer.** The invariant is "acyclic chunk
+   graph AND acyclic source-module graph ⇒ safe", and both conjuncts are
+   enforced and clean there (`verify-no-cross-chunk-cycles.mjs` on build,
    `verify-no-source-cycles.mjs` on lint). A module-scope read is only dangerous
-   when a cycle exists, so if one ever appears, lint or build fails before
-   runtime does. BST-860 predates both guards.
+   when a cycle exists, so if one ever appears in the renderer, lint or build
+   fails before runtime does. BST-860 predates both guards.
+
+   Be precise about scope, because migration 066 also ships in ELECTRON MAIN:
+   `src/main.ts` → `ipc-domains/db-ipc.ts` → `@brainstrike/db`. Conjunct 1 is
+   not merely unenforced there, it is inapplicable — `build-main-config.mjs`
+   esbuilds one file per entry, so main has no chunk graph. Conjunct 2 walks the
+   two RENDERER entrypoints only, so main's source graph is unverified; what
+   protects it is the ordinary bundler guarantee that an acyclic graph is
+   concatenated in dependency order. Extending the source-cycle guard to the
+   main entrypoints would close that, and is the cheap follow-up if this class
+   ever recurs in main.
 
 Residual risk of leaving it: negligible. Intra-package, and it fails LOUDLY —
 an undefined binding yields `IF actual_version IS DISTINCT FROM 'undefined'`, so
