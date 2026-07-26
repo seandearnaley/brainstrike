@@ -1121,7 +1121,7 @@ describe('ThreadsPanel groups', () => {
     const nestedThreadRow = screen.getByText('Second thread').closest('tr');
     expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
     expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({
-      width: '28px',
+      width: '24px',
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');

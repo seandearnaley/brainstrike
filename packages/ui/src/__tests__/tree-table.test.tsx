@@ -910,7 +910,7 @@ describe('TreeTable', () => {
       expect(collapseButton).toBeInTheDocument();
     });
 
-    it('exposes aria-expanded and icon-xs sizing on row expand buttons', () => {
+    it('exposes aria-expanded and a contained 24px hit target on row expand buttons', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('1', 'Folder', null, true),
         createTestNode('2', 'File 2', null, false),
@@ -954,6 +954,33 @@ describe('TreeTable', () => {
         'aria-expanded',
         'true'
       );
+    });
+
+    it('applies the same contained 24px hit target to group header expanders', () => {
+      const groupNode = {
+        data: { groupLabel: 'Group A', itemCount: 2 },
+        depth: 0,
+        hasChildren: true,
+        id: 'g1',
+        parentId: null,
+        type: 'group',
+      } as unknown as TreeNode<TestData>;
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[groupNode]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const groupExpander = screen.getByRole('button', { name: 'Expand group' });
+      // Same geometry contract as TreeExpandControl (BST-899): both expander
+      // sites must stay pinned to the contained 24px box together.
+      expect(groupExpander).toHaveClass('size-6');
+      expect(groupExpander).toHaveClass('my-0.5');
+      expect(groupExpander).not.toHaveClass('size-7');
     });
 
     it('does not inset root expand buttons by default', () => {
