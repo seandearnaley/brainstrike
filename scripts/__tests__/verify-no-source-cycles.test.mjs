@@ -124,6 +124,42 @@ test('a plain static import is NOT a deferred root — it is an edge', () => {
   assert.deepEqual(deferredImportSpecifiers("import { a } from './a';"), []);
 });
 
+test('collects `new Worker(new URL(...))` targets as roots', () => {
+  // packages/db/src/wasm-loader.ts spawns both PGlite workers this way. Before
+  // this, neither worker graph was walked at all, so a cycle inside a
+  // separately bundled worker would fire at runtime while lint reported clean.
+  assert.deepEqual(
+    deferredImportSpecifiers(
+      "const w = new Worker(new URL('./pglite-worker-entry.ts', import.meta.url), { type: 'module' });"
+    ),
+    ['./pglite-worker-entry.ts']
+  );
+});
+
+test('collects a `new URL(...)` bound to a variable, not just inline in `new Worker`', () => {
+  // Matched on `new URL` rather than `new Worker` so SharedWorker and the
+  // `const url = new URL(…)` indirection are covered by the same rule.
+  assert.deepEqual(
+    deferredImportSpecifiers(
+      "const url = new URL('./bootstrap-worker-entry.ts', import.meta.url);"
+    ),
+    ['./bootstrap-worker-entry.ts']
+  );
+});
+
+test('the real wasm-loader has BOTH PGlite worker entries collected', () => {
+  // Pins the concrete case the review named, so a refactor of that file cannot
+  // quietly drop the workers back out of the graph.
+  const wasmLoader = readFileSync(path.join(REPO_ROOT, 'packages/db/src/wasm-loader.ts'), 'utf8');
+  const roots = deferredImportSpecifiers(wasmLoader, 'wasm-loader.ts');
+
+  assert.ok(roots.includes('./pglite-worker-entry.ts'), 'PGlite worker entry must be a root.');
+  assert.ok(
+    roots.includes('./browser-first-run-bootstrap-worker-entry.ts'),
+    'First-run bootstrap worker entry must be a root.'
+  );
+});
+
 test('parses .tsx generics without tripping on JSX ambiguity', () => {
   assert.deepEqual(
     staticImportSpecifiers("import { C } from './c';\nconst x = <T,>(v: T) => v;\n", 'f.tsx'),
@@ -198,7 +234,7 @@ test('VERDICT: the renderer source graph has no cycles', async () => {
   );
   assert.ok(
     moduleCount > 1000,
-    `Only ${moduleCount} modules reached; resolution has probably broken (was 1256 when written).`
+    `Only ${moduleCount} modules reached; resolution has probably broken (was 1261 when written).`
   );
 });
 

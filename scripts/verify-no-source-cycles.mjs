@@ -33,7 +33,7 @@
 //   139  tsconfig resolution — cross-package source invisible
 //   768  + the workspace src-alias registry
 //   813  + curated agent browser-safe subpaths and @brainstrike/workers
-//  1256  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
+//  1261  + per-app vite overrides, dynamic/worker imports as ROOTS, and the ESM
 //         `.js`-names-a-`.ts`-file rewrite
 // `EXPECTED_UNRESOLVED` is consequently EMPTY: every in-scope specifier resolves.
 //
@@ -90,6 +90,13 @@ const RENDERER_APPS = Object.freeze([
     overrides: [
       ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
       ['@brainstrike/workers', 'packages/workers'],
+      // App-local aliases. Unused by any import today, but modelled anyway: an
+      // unmodelled alias makes its imports look third-party, and third-party is
+      // silently out of scope — so a future `@/foo` would vanish from the graph
+      // with nothing to catch it.
+      ['@web', 'apps/web/src'],
+      ['@', 'apps/web/src'],
+      ['src', 'apps/web/src'],
     ],
   },
   {
@@ -98,13 +105,14 @@ const RENDERER_APPS = Object.freeze([
     overrides: [
       ['@brainstrike/file-tree-worker', 'packages/file-tree-worker/src/vite.ts'],
       ['@brainstrike/workers', 'packages/workers'],
+      ['@', 'apps/desktop/src'],
     ],
   },
 ]);
 
 /**
  * Anti-vacuous floor (BST-836: an instrument that cannot fail is not evidence).
- * Measured at 1256 modules for the larger of the two renderer graphs. If a
+ * Measured at 1261 modules for the larger of the two renderer graphs. If a
  * resolution change or a bad entry path collapses the graph, that must fail
  * loudly rather than report "no cycles" forever. Keep the headroom modest: an
  * earlier 400 against ~813 was loose enough that losing half the graph would
@@ -115,11 +123,12 @@ const MIN_MODULES = 1000;
 /**
  * In-scope specifiers excused from resolving.
  *
- * DELIBERATELY EMPTY. Stylesheets and third-party packages are filtered by
- * `isOutOfScopeSpecifier` rather than excused here, so every remaining
- * specifier — relative, workspace, or app-aliased — currently resolves to a real
- * source file. Adding an entry means accepting a dropped edge, and a dropped
- * edge can hide a cycle; do it only with a written reason.
+ * DELIBERATELY EMPTY. Stylesheets, non-module assets and third-party packages
+ * are classified out of scope by `classifySpecifier` rather than excused here,
+ * so every remaining specifier — relative, workspace, or app-aliased —
+ * currently resolves to a real source file. Adding an entry means accepting a
+ * dropped edge, and a dropped edge can hide a cycle; do it only with a written
+ * reason.
  *
  * This is what caught the ESM `.js`-extension class: `packages/assistant-contract`
  * and `packages/utils` import TypeScript source as `./thing.js`, and before
@@ -313,6 +322,23 @@ export function deferredImportSpecifiers(sourceText, fileName = 'fixture.ts') {
     ) {
       specifiers.push(node.arguments[0].text);
     }
+    // `new URL('./entry.ts', import.meta.url)` — the standard Worker/asset
+    // idiom, and the form `packages/db/src/wasm-loader.ts` uses for both PGlite
+    // workers. Without this the whole worker graph is unwalked, so a cycle
+    // inside a separately bundled worker fires at runtime while lint reports
+    // clean (Magnify review, P1). Matched on `new URL` rather than on
+    // `new Worker` so the same rule covers SharedWorker and the
+    // `const url = new URL(…)` indirection both apps also use.
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'URL' &&
+      node.arguments &&
+      node.arguments.length > 0 &&
+      ts.isStringLiteral(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
@@ -404,43 +430,52 @@ export function findCycles(graph) {
  * a stylesheet (not a module), a bare third-party package (out of scope), or a
  * genuine resolution FAILURE — which is a dropped edge that could hide a cycle.
  */
-function resolveSpecifier({ specifier, fromFile, aliases }) {
+/**
+ * Classify one specifier. Three outcomes, and keeping them in ONE function is
+ * the point: an earlier version split "can it resolve" from "is it in scope"
+ * across two predicates that had to agree about aliases, and they drifted —
+ * `apps/web` really does define a bare `src` alias, but the scope predicate
+ * classified `src/foo` as third-party, so an import through it would have
+ * vanished from the graph with nothing to catch it (Magnify review, P2).
+ *
+ *   { file }        resolved to a source module — a real node
+ *   { outOfScope }  legitimately not a module here: a stylesheet, a non-source
+ *                   asset named by `new URL`, or a third-party package (no
+ *                   alias matched and it is not relative)
+ *   { unresolved }  an IN-SCOPE specifier that failed to resolve — a dropped
+ *                   edge, which can hide a cycle. Always reported, never
+ *                   tolerated.
+ */
+function classifySpecifier({ aliases, fromFile, isAssetReference = false, specifier }) {
   // Stylesheets are not modules in the init-order sense, and a relative one
   // WOULD otherwise resolve — `resolveSourceFile` returns any existing file —
   // padding the graph with non-modules. `apps/web/src/main.tsx` imports
   // `./app/globals.css` at the entry, so this is live, not theoretical, and the
   // padding lands in exactly the count MIN_MODULES is supposed to guard.
   if (isStyleSheetSpecifier(specifier)) {
-    return null;
+    return { outOfScope: true };
   }
-  const bare = specifier.replace(VITE_QUERY_SUFFIX, '');
-  if (bare.startsWith('.')) {
-    return resolveSourceFile(path.resolve(path.dirname(fromFile), bare));
-  }
-  if (bare.startsWith('@brainstrike/')) {
-    const aliased = resolveThroughAliases(bare, aliases);
-    return aliased === null ? null : resolveSourceFile(aliased);
-  }
-  if (bare.startsWith('@/') || bare.startsWith('@web/')) {
-    // Both apps alias `@`/`@web` to their own `src`. Unused today, but if such
-    // an import ever lands it must resolve or be reported — never vanish.
-    return null;
-  }
-  return null;
-}
 
-/** A specifier this guard is not expected to resolve: third-party, or a stylesheet. */
-function isOutOfScopeSpecifier(specifier) {
-  if (isStyleSheetSpecifier(specifier)) {
-    return true;
-  }
   const bare = specifier.replace(VITE_QUERY_SUFFIX, '');
-  return !(
-    bare.startsWith('.') ||
-    bare.startsWith('@brainstrike/') ||
-    bare.startsWith('@/') ||
-    bare.startsWith('@web/')
-  );
+  const isRelative = bare.startsWith('.');
+  const aliased = isRelative ? null : resolveThroughAliases(bare, aliases);
+
+  if (!(isRelative || aliased)) {
+    // Not relative and no alias matched: a third-party package. Scope is decided
+    // by the SAME alias list used to resolve, so the two can no longer disagree.
+    return { outOfScope: true };
+  }
+
+  const candidate = isRelative ? path.resolve(path.dirname(fromFile), bare) : aliased;
+  const file = resolveSourceFile(candidate);
+  if (file !== null) {
+    return { file };
+  }
+
+  // `new URL('./x', import.meta.url)` legitimately names non-module assets
+  // (.wasm, images, fonts). An `import` must resolve to a module; an asset
+  // reference need not, so only the former counts as a dropped edge.
+  return isAssetReference ? { outOfScope: true } : { unresolved: true };
 }
 
 /**
@@ -472,32 +507,39 @@ function walkAppGraph({ aliases, entryFile, root }) {
     const sourceText = readFileSync(file, 'utf8');
     const dependencies = new Set();
 
+    const record = (specifier) => unresolved.add(`${specifier}  (in ${path.relative(root, file)})`);
+
     for (const specifier of staticImportSpecifiers(sourceText, file)) {
-      const target = resolveSpecifier({ aliases, fromFile: file, specifier });
-      if (target === null) {
-        if (!isOutOfScopeSpecifier(specifier)) {
-          unresolved.add(`${specifier}  (in ${path.relative(root, file)})`);
-        }
+      const outcome = classifySpecifier({ aliases, fromFile: file, specifier });
+      if (outcome.unresolved) {
+        record(specifier);
         continue;
       }
-      if (target === file) {
+      if (!outcome.file || outcome.file === file) {
         continue;
       }
-      dependencies.add(target);
-      enqueue(target);
+      dependencies.add(outcome.file);
+      enqueue(outcome.file);
     }
 
     for (const specifier of deferredImportSpecifiers(sourceText, file)) {
-      const target = resolveSpecifier({ aliases, fromFile: file, specifier });
-      if (target === null) {
-        if (!isOutOfScopeSpecifier(specifier)) {
-          unresolved.add(`${specifier}  (in ${path.relative(root, file)})`);
-        }
+      const outcome = classifySpecifier({
+        aliases,
+        fromFile: file,
+        // A `new URL(...)` target may legitimately be a non-module asset.
+        isAssetReference: true,
+        specifier,
+      });
+      if (outcome.unresolved) {
+        record(specifier);
+        continue;
+      }
+      if (!outcome.file) {
         continue;
       }
       // Root, not edge: reached at a later tick, so it cannot participate in
       // this module's initialization order.
-      enqueue(target);
+      enqueue(outcome.file);
     }
 
     graph.set(file, dependencies);
