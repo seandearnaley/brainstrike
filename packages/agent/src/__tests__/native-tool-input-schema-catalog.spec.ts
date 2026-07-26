@@ -16,6 +16,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.manageTaskList',
   'brainstrike.manageCommandSession',
   'brainstrike.queryEmbeddingSpace',
+  'brainstrike.querySelf',
   'brainstrike.readToolOutputArtifact',
   'brainstrike.readWorkspaceContext',
   'brainstrike.readWorkspaceDirectory',

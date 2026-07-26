@@ -19,6 +19,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.manageTaskList',
   'brainstrike.manageCommandSession',
   'brainstrike.queryEmbeddingSpace',
+  'brainstrike.querySelf',
   'brainstrike.readToolOutputArtifact',
   'brainstrike.readWorkspaceContext',
   'brainstrike.readWorkspaceDirectory',
@@ -74,7 +75,7 @@ describe('native tool catalog', () => {
       sorted([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS, ...EXPECTED_SKILL_NATIVE_TOOL_IDS])
     );
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
-    expect(desktopIds).toHaveLength(27);
+    expect(desktopIds).toHaveLength(28);
     expect(skillIds).toHaveLength(3);
     expect(nonDurableOutputIds).toEqual([
       'brainstrike.inspectCommandSessions',
@@ -85,6 +86,7 @@ describe('native tool catalog', () => {
         (id) =>
           id !== 'brainstrike.inspectCommandSessions' &&
           id !== 'brainstrike.manageCommandSession' &&
+          id !== 'brainstrike.querySelf' &&
           id !== 'brainstrike.runSkillScript'
       )
     );

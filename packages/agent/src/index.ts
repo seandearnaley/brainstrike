@@ -585,6 +585,8 @@ export {
   NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
+  type QuerySelfInput,
+  QuerySelfInputSchema,
   type ReadWorkspaceContextInput,
   ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,

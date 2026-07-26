@@ -21,6 +21,7 @@ const DESKTOP_NATIVE_TOOL_ID = {
   manageCommandSession: 'brainstrike.manageCommandSession',
   manageTaskList: 'brainstrike.manageTaskList',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
+  querySelf: 'brainstrike.querySelf',
   readToolOutputArtifact: 'brainstrike.readToolOutputArtifact',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
   readWorkspaceDirectory: 'brainstrike.readWorkspaceDirectory',
@@ -55,6 +56,7 @@ export type WebNativeToolId = Exclude<
   DesktopNativeToolId,
   | typeof NATIVE_TOOL_ID.inspectCommandSessions
   | typeof NATIVE_TOOL_ID.manageCommandSession
+  | typeof NATIVE_TOOL_ID.querySelf
   | typeof NATIVE_TOOL_ID.runSkillScript
 >;
 export type LocalDesktopNativeToolId = Extract<
@@ -90,6 +92,7 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
     (id): id is WebNativeToolId =>
       id !== NATIVE_TOOL_ID.inspectCommandSessions &&
       id !== NATIVE_TOOL_ID.manageCommandSession &&
+      id !== NATIVE_TOOL_ID.querySelf &&
       id !== NATIVE_TOOL_ID.runSkillScript
   )
 );

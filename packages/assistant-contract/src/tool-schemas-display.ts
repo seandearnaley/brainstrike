@@ -720,6 +720,47 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     toolId: 'brainstrike.queryEmbeddingSpace',
   },
 
+  'brainstrike.querySelf': {
+    description:
+      "Run one read-only SQL SELECT against Brainstrike's own local PostgreSQL database — assistant run history, edit checkpoints, usage and cost, queue metrics, and the workspace code index — inside a sandbox that permits nothing but reads.",
+    parameters: [
+      {
+        description:
+          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql. Fields the chosen mode does not use are ignored",
+        enumValues: ['query', 'listTables', 'describeTable'],
+        name: 'mode',
+        required: true,
+        type: 'enum',
+      },
+      {
+        description: 'A single SQL SELECT. Required for mode=query',
+        maxLength: 4000,
+        name: 'sql',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Table name. Required for mode=describeTable',
+        maxLength: 128,
+        name: 'table',
+        required: false,
+        type: 'string',
+      },
+      {
+        default: 50,
+        description: 'Maximum rows for mode=query; the result flags truncation when more exist',
+        max: 200,
+        min: 1,
+        name: 'maxRows',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema modes return table or column listings',
+    toolId: 'brainstrike.querySelf',
+  },
+
   'brainstrike.readWorkspaceContext': {
     description:
       'Read selected or explicit workspace files under bounded file, per-file, and token limits. Use after semantic retrieval when exact source is needed.',

@@ -12,6 +12,7 @@ import type {
   DbHostRequest,
   DbHostRequestEnvelope,
   DbHostResponseEnvelope,
+  DbHostRowMode,
   DbHostSerializedError,
   DbHostToMainMessage,
   DbHostTransactionStartResult,
@@ -52,7 +53,8 @@ interface QueryableDatabase {
   };
   readonly query: <TRecord = unknown>(
     sql: string,
-    params?: readonly unknown[]
+    params?: readonly unknown[],
+    options?: { readonly rowMode?: DbHostRowMode }
   ) => Promise<DbHostQueryResult<TRecord>>;
 }
 
@@ -347,6 +349,27 @@ async function execSql(
   return params === undefined ? await db.query(sql) : await db.query(sql, params);
 }
 
+/**
+ * Runs a host query, forwarding `rowMode` to PGlite only when the caller asked
+ * for it.
+ *
+ * PGlite returns `fields` alongside array-mode rows; that metadata is the ONLY
+ * way a caller can recover output column names when PostgreSQL emits duplicates
+ * (`SELECT a.id, b.id`), which object-keyed rows collapse. Passing the option
+ * through unchanged keeps the default object shape for every existing caller.
+ */
+async function runHostQuery(
+  db: QueryableDatabase,
+  sql: string,
+  params: readonly unknown[] | undefined,
+  rowMode: DbHostRowMode | undefined
+): Promise<DbHostQueryResult<unknown>> {
+  if (rowMode === undefined) {
+    return params === undefined ? await db.query(sql) : await db.query(sql, params);
+  }
+  return await db.query(sql, params ?? [], { rowMode });
+}
+
 function throwUnknownRequestKind(request: never): never {
   const kind =
     request && typeof request === 'object' && 'kind' in request
@@ -403,9 +426,7 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
     case 'query': {
       const db = await getQueryableDatabase();
       const params = requireParamsArray(request.params, 'query');
-      return params === undefined
-        ? await db.query(request.sql)
-        : await db.query(request.sql, params);
+      return await runHostQuery(db, request.sql, params, request.rowMode);
     }
     case 'exec': {
       const db = await getQueryableDatabase();
@@ -429,9 +450,7 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       assertActiveTransaction(request);
       const db = await getQueryableDatabase();
       const params = requireParamsArray(request.params, 'transaction query');
-      return params === undefined
-        ? await db.query(request.sql)
-        : await db.query(request.sql, params);
+      return await runHostQuery(db, request.sql, params, request.rowMode);
     }
     case 'transaction:exec': {
       assertActiveTransaction(request);
