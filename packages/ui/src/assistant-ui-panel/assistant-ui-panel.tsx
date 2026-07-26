@@ -1555,7 +1555,11 @@ export const AssistantUiPanel = ({
 
 // ===== Message Components =====
 
-const UserMessage = () => {
+// Exported (rather than kept module-private) so tests can mount it directly
+// against a real assistant-ui local runtime -- see
+// __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
+// geometry) alongside __tests__/user-action-bar-copy.test.tsx.
+export const UserMessage = () => {
   // Approval action messages ("Approved <tool>.") are transport bookkeeping —
   // kept in thread state (outcome locking + resume runConfig ride on them,
   // and they are excluded from every outbound payload at the transport seam)
@@ -1574,7 +1578,7 @@ const UserMessage = () => {
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
       <ExpandableMessageContent
@@ -1594,6 +1598,22 @@ const UserMessage = () => {
     </MessagePrimitive.Root>
   );
 };
+
+// BST-898: floats on hover instead of mounting in flow. UserActionBar's
+// BranchPicker lives in a SEPARATE grid row (row-start-3, see UserMessage
+// above) from the bar itself (row-start-2), so -- unlike AssistantActionBar,
+// whose BranchPicker shares its row and already reserves >= the bar's height
+// once branchCount > 1 -- there is no branch count for which mounting this
+// bar in flow is "free". `autohideFloat="always"` (below) is required, not
+// "single-branch". `relative` on the UserMessage root (above) makes it the
+// containing block for this bar's grid AREA (col 1 / row 2) once floating,
+// so no extra top/right offsets are needed: an absolutely-positioned grid
+// item with a definite grid-column/grid-row and no inset properties resolves
+// to that same grid area by default (CSS Grid Level 1 §10.1), i.e. the exact
+// spot it already occupies today -- it just stops contributing to row 2's
+// auto-sized height.
+export const USER_ACTION_BAR_CLASSNAME =
+  'col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute';
 
 // Exported (rather than kept module-private like AssistantActionBar) so
 // tests can mount it directly against a real assistant-ui local runtime --
@@ -1634,7 +1654,9 @@ export const UserActionBar = () => {
   return (
     <ActionBarPrimitive.Root
       autohide="not-last"
-      className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
+      autohideFloat="always"
+      className={USER_ACTION_BAR_CLASSNAME}
+      data-testid="user-action-bar"
       hideWhenRunning
     >
       <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>
