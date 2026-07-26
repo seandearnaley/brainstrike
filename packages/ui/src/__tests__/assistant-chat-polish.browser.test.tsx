@@ -8,7 +8,7 @@ import {
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { AssistantActivityGroup } from '../assistant-ui-panel/assistant-activity-group';
 import { UserMessage } from '../assistant-ui-panel/assistant-ui-panel';
 import type { ToolActivitySummary } from '../assistant-ui-panel/tool-activity';
@@ -421,22 +421,28 @@ describe('AssistantActivityGroup (real browser)', () => {
 const USER_MESSAGE_LAYOUT_SHIM = `
   .aui-user-message-root {
     display: grid;
-    position: relative;
     width: 100%;
     grid-auto-rows: auto;
     grid-template-columns: minmax(48px, 1fr) auto;
     row-gap: 0.5rem;
     padding-block: 0.5rem;
   }
+  /* Translated the same way as every other utility below (not hardcoded on
+     .aui-user-message-root) so dropping \`relative\` from MessagePrimitive.Root
+     actually fails this test -- it is half of the containing-block fix. */
+  [class~="relative"] { position: relative; }
   [class~="col-start-1"] { grid-column-start: 1; }
   [class~="col-start-2"] { grid-column-start: 2; }
+  [class~="col-end-2"] { grid-column-end: 2; }
   [class~="row-start-2"] { grid-row-start: 2; }
+  [class~="row-end-3"] { grid-row-end: 3; }
   [class~="flex"] { display: flex; }
   [class~="flex-col"] { flex-direction: column; }
   [class~="items-end"] { align-items: flex-end; }
   [class~="mt-2"] { margin-top: 0.5rem; }
   [class~="mr-3"] { margin-right: 0.75rem; }
   [class~="data-[floating]:absolute"][data-floating] { position: absolute; }
+  [class~="data-[floating]:inset-x-0"][data-floating] { left: 0px; right: 0px; }
   /* Button/icon Tailwind classes (size-6, size-4, ...) aren't compiled here
      either, and this test isn't about Button's own chrome -- only the grid/
      float geometry -- so fix a deterministic 24x24 footprint by aria-label
@@ -455,6 +461,10 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     style.id = 'bst-898-user-message-layout-shim';
     style.textContent = USER_MESSAGE_LAYOUT_SHIM;
     document.head.append(style);
+  });
+
+  afterAll(() => {
+    document.getElementById('bst-898-user-message-layout-shim')?.remove();
   });
 
   const twoUserMessageModel: ChatModelAdapter = {
@@ -488,7 +498,7 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     );
   }
 
-  test('hovering the NON-LAST user message floats its action bar without growing the row', async () => {
+  test('hovering the NON-LAST user message floats its action bar at the same spot the in-flow bar occupies on the last message, without growing the row', async () => {
     render(<TwoUserMessagesHarness />);
 
     // initialMessages hydrate asynchronously (see user-action-bar-copy.test.tsx);
@@ -498,10 +508,22 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
 
     const roots = document.querySelectorAll<HTMLElement>('.aui-user-message-root');
     expect(roots).toHaveLength(2);
-    const nonLastRoot = roots[0];
-    if (!nonLastRoot) {
-      throw new Error('expected the first (non-last) user message root');
+    const [nonLastRoot, lastRoot] = roots;
+    if (!(nonLastRoot && lastRoot)) {
+      throw new Error('expected both user message roots');
     }
+
+    // Reference geometry: the LAST message's bar is always mounted IN FLOW
+    // (Normal status -- autohide="not-last" never hides it, so it never
+    // floats either) -- this is the exact, unambiguous "beside the bubble"
+    // spot with no absolute positioning involved at all.
+    const lastBar = lastRoot.querySelector<HTMLElement>('[data-testid="user-action-bar"]');
+    if (!lastBar) {
+      throw new Error('expected the last message bar to be mounted in flow');
+    }
+    expect(lastBar).not.toHaveAttribute('data-floating');
+    const inFlowRect = lastBar.getBoundingClientRect();
+    const inFlowTopOffset = inFlowRect.top - lastRoot.getBoundingClientRect().top;
 
     // Not hovering yet: autohide="not-last" + not hovering => unmounted.
     expect(nonLastRoot.querySelector('[data-testid="user-action-bar"]')).toBeNull();
@@ -509,8 +531,8 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
 
     fireEvent.mouseEnter(nonLastRoot);
 
-    const actionBar = await waitFor(() => {
-      const bar = nonLastRoot.querySelector('[data-testid="user-action-bar"]');
+    const floatingBar = await waitFor(() => {
+      const bar = nonLastRoot.querySelector<HTMLElement>('[data-testid="user-action-bar"]');
       if (!bar) {
         throw new Error('action bar not mounted yet');
       }
@@ -519,8 +541,24 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
 
     // The fix: it floats (data-floating) instead of mounting in flow, so it
     // never contributes to row 2's auto-sized height.
-    expect(actionBar).toHaveAttribute('data-floating', 'true');
+    expect(floatingBar).toHaveAttribute('data-floating', 'true');
     const heightAfterHover = nonLastRoot.getBoundingClientRect().height;
     expect(heightAfterHover).toBe(heightBeforeHover);
+
+    // Both message roots share identical column geometry (same grid
+    // template, same-width thread), so the floating bar's rect must match
+    // the in-flow reference bar's rect -- same visual spot, it just no
+    // longer contributes to row 2's height. Pins BOTH axes: an abspos grid
+    // item with only its START lines definite resolves its END lines (and
+    // therefore its containing block) to the grid container's padding
+    // edge, not to the col-1/row-2 grid area (CSS Grid Level 1 SS10.1) --
+    // that would move this bar horizontally (and, depending on
+    // justify-self/stretch, vertically) without necessarily changing
+    // nonLastRoot's height, so the height assertion alone cannot catch it.
+    const floatingRect = floatingBar.getBoundingClientRect();
+    const floatingTopOffset = floatingRect.top - nonLastRoot.getBoundingClientRect().top;
+    expect(floatingRect.left).toBe(inFlowRect.left);
+    expect(floatingRect.right).toBe(inFlowRect.right);
+    expect(floatingTopOffset).toBe(inFlowTopOffset);
   });
 });

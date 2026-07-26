@@ -1599,21 +1599,27 @@ export const UserMessage = () => {
   );
 };
 
-// BST-898: floats on hover instead of mounting in flow. UserActionBar's
-// BranchPicker lives in a SEPARATE grid row (row-start-3, see UserMessage
-// above) from the bar itself (row-start-2), so -- unlike AssistantActionBar,
-// whose BranchPicker shares its row and already reserves >= the bar's height
-// once branchCount > 1 -- there is no branch count for which mounting this
-// bar in flow is "free". `autohideFloat="always"` (below) is required, not
-// "single-branch". `relative` on the UserMessage root (above) makes it the
-// containing block for this bar's grid AREA (col 1 / row 2) once floating,
-// so no extra top/right offsets are needed: an absolutely-positioned grid
-// item with a definite grid-column/grid-row and no inset properties resolves
-// to that same grid area by default (CSS Grid Level 1 §10.1), i.e. the exact
-// spot it already occupies today -- it just stops contributing to row 2's
-// auto-sized height.
+// BST-898: floats on hover instead of mounting in flow (BranchPicker is a
+// SEPARATE row -- row-start-3 -- so unlike AssistantActionBar there's no
+// branch count where in-flow mounting is "free"; `autohideFloat="always"`,
+// not "single-branch"). `relative` on the UserMessage root makes it the
+// containing block once floating.
+//
+// Geometry, empirically verified in assistant-chat-polish.browser.test.tsx
+// (measured rects, not spec-assumed -- see that test for the readings):
+// col-end-2/row-end-3 are required, not decorative -- for an abspos item an
+// `auto` END line resolves to the grid CONTAINER's padding edge, not "span
+// 1" (CSS Grid Level 1 SS10.1), so without them the containing block
+// balloons past col 1/row 2 into the bubble and BranchPicker's row.
+// `justify-self-end`/`-stretch` were both tried and rejected: abspos
+// `justify-self: normal` computes to `start` (not `stretch`, unlike in-flow
+// grid items), and explicit `stretch` still measured shrink-to-fit width on
+// an abspos flex item in Chromium. `inset-x-0` (classic left:0/right:0
+// abspos sizing, engine-agnostic) is what actually reproduces the in-flow
+// box's width. No vertical override needed: block-axis `start` already
+// matches the in-flow `mt-2` top offset.
 export const USER_ACTION_BAR_CLASSNAME =
-  'col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute';
+  'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
 
 // Exported (rather than kept module-private like AssistantActionBar) so
 // tests can mount it directly against a real assistant-ui local runtime --
