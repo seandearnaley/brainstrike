@@ -96,21 +96,38 @@ shared PGlite connection stuck as the restricted role after the sandbox
 returned, so the application's own writes failed with `permission denied`
 permanently — from a tool marked `requiresApproval: false`, `riskCategory: 'read'`.
 
-**RESIDUAL RISK — not currently blocked.** A recursive CTE with no termination
-condition plans at trivial cost (measured: 3.35) and runs until memory is
-exhausted:
+**A third escape in this class — the unbounded recursive CTE — is now closed
+too, and NOT with a text denylist.** The planner names the construct, so the
+guard reads the plan, keeping every admission decision engine-derived.
 
-```sql
-WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) SELECT count(*) FROM t
+The distinction is measured, not assumed:
+
+| Statement shape | Plan | Result |
+| --- | --- | --- |
+| `LIMIT` over a pipelined recursion | `Limit → CTE Scan → Recursive Union` | 51 rows in **869 ms** — the row cap bounds it |
+| `count(*)` over the same recursion | `Limit → Aggregate → Recursive Union` | **still running after 10 s** (killed) |
+
+So recursion is NOT banned — banning it would break the symbol-graph traversal
+in BST-919, a headline use case. A `Recursive Union` is refused only when BOTH
+hold:
+
+1. it sits beneath a **draining** parent (`Aggregate`, `Sort`, `Hash`, …) that
+   must consume the whole input before emitting a row, so the row cap cannot
+   help; **and**
+2. its recursive term (`WorkTable Scan`) carries **no `Filter`** at all — the
+   planner records any termination predicate there:
+
+```
+bounded    WorkTable Scan  Filter="(n < 20)"
+unbounded  WorkTable Scan                      ← nothing stops it
 ```
 
-The planner uses a fixed row-estimate multiplier for the recursive term, so cost
-stays low, and the `LIMIT` wrapper cannot help because `count(*)` must drain the
-CTE. There is no clean engine-enforced block for this: recursive CTEs are a
-language construct, not a revocable function. Anyone extending this sandbox
-should know that the cost gate is a bound on *planned* work only, and that a
-genuinely terminable execution boundary is what would close this class properly.
-Tracked as a follow-up rather than silently omitted.
+**Honest limit, stated because it matters:** a `Filter` is not a *proof* of
+termination — `WHERE n > 0` on an incrementing counter still runs forever. This
+catches the accidental and the obvious case, which is the realistic failure
+mode. It is a heuristic layered on the row cap, not a decidability result, and
+`DRAINING_PLAN_NODE_TYPES` is deliberately conservative so an unrecognised
+blocking node fails CLOSED.
 
 ### Verified NOT a concern
 
@@ -315,14 +332,29 @@ is exactly the kind of silent wrongness this codebase forbids. **Always call
 works under the restricted role inside the read-only transaction (it is a stats
 flush, not a data write).
 
+### Query plans: `mode: 'explain'`
+
+Statistics tell you WHAT is slow; plans tell you WHY. `EXPLAIN` is invalid
+inside a FROM subquery, which is why plans were unreachable until `explain` mode
+bypassed the row-cap wrapper.
+
+Two modes with genuinely different risk:
+
+- **Plain `explain`** only PLANS. It cannot execute, so neither the cost ceiling
+  nor the recursion guard applies — deliberately: explaining an expensive query
+  is exactly when its plan is most valuable, so refusing it on cost would defeat
+  the purpose.
+- **`analyze: true`** EXECUTES the statement, so it passes through the SAME cost
+  ceiling and recursion guard as an ordinary query. Writes stay blocked by the
+  read-only transaction (verified: `EXPLAIN ANALYZE INSERT …` fails with
+  `cannot execute INSERT in a read-only transaction`), so it cannot smuggle a
+  mutation through.
+
+Output is PostgreSQL's own indented plan text — the densest form, and the one
+the model has seen most of.
+
 ### Not available
 
-- **`EXPLAIN` is not reachable by the model.** The `LIMIT` wrapper makes the
-  statement a FROM-subquery, and `EXPLAIN` is not valid there — it fails with a
-  syntax error. The service uses `EXPLAIN` internally for the cost gate, so the
-  capability exists but is not exposed. Without it the model can see statistics
-  but never a query plan, which is the single biggest gap for tuning work.
-  Tracked as BST-923.
 - **`pg_stat_statements` is not installed** (not in the PGlite extension set), so
   there is no per-query workload profile to rank by total time.
 

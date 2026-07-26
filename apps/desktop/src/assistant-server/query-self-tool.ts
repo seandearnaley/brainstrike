@@ -31,7 +31,7 @@ const logger = createLogger('AssistantQuerySelfTool');
 export const QUERY_SELF_TOOL_ID = NATIVE_TOOL_ID.querySelf;
 
 export const QUERY_SELF_ERROR_MESSAGES = {
-  missingSql: 'mode="query" requires a sql statement.',
+  missingSql: 'mode="query" and mode="explain" require a sql statement.',
   missingTable: 'mode="describeTable" requires a table name. Use mode="listTables" to see them.',
   queryFailed: 'Self-query failed. Please try again.',
 } as const;
@@ -65,7 +65,19 @@ export interface QuerySelfColumnsResult {
   table: string;
 }
 
-export type QuerySelfResult = QuerySelfQueryResult | QuerySelfTablesResult | QuerySelfColumnsResult;
+export interface QuerySelfPlanResult {
+  /** True when the statement was executed to collect real timings. */
+  analyzed: boolean;
+  kind: 'plan';
+  /** PostgreSQL's own indented plan text, one entry per output row. */
+  plan: string[];
+}
+
+export type QuerySelfResult =
+  | QuerySelfQueryResult
+  | QuerySelfTablesResult
+  | QuerySelfColumnsResult
+  | QuerySelfPlanResult;
 
 /**
  * Renders one value for the model.
@@ -162,6 +174,13 @@ export async function runQuerySelf(
     const sql = input.sql?.trim();
     if (!sql) {
       throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingSql);
+    }
+
+    if (input.mode === 'explain') {
+      const explained = await service.explain(sql, {
+        ...(input.analyze === undefined ? {} : { analyze: input.analyze }),
+      });
+      return { analyzed: explained.analyzed, kind: 'plan', plan: explained.plan };
     }
 
     const result = await service.query(sql, {

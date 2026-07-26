@@ -270,7 +270,8 @@ describe('runQuerySelf', () => {
     it('tells the model what is missing instead of failing opaquely', async () => {
       getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
 
-      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/requires a sql/i);
+      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/require a sql/i);
+      await expect(runQuerySelf({ mode: 'explain' }, undefined)).rejects.toThrow(/require a sql/i);
       await expect(runQuerySelf({ mode: 'describeTable' }, undefined)).rejects.toThrow(
         /requires a table name/i
       );

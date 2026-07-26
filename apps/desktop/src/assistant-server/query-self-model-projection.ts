@@ -144,6 +144,19 @@ function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): 
   );
 }
 
+/**
+ * Plan output is already PostgreSQL's own indented text, which is both the most
+ * information-dense form and the one the model has seen most of in training —
+ * so it is passed through structurally, only budget-fitted.
+ */
+function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string[] {
+  return fitLines(
+    `plan | analyzed=${result.analyzed}`,
+    result.plan.map(escapeCell),
+    (dropped) => `…${dropped} more plan line(s) omitted to fit the output budget`
+  );
+}
+
 function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string[] {
   const header = (kept: number, dropped: number): string =>
     `rows | returned=${kept}${dropped > 0 ? ` | omitted=${dropped}` : ''} | truncated=${
@@ -191,7 +204,9 @@ export function projectQuerySelfModelOutput(output: unknown): WorkspaceTextModel
       ? projectTables(result)
       : result.kind === 'columns'
         ? projectColumns(result)
-        : projectRows(result);
+        : result.kind === 'plan'
+          ? projectPlan(result)
+          : projectRows(result);
 
   assertProjectionFits(lines);
   return makeTextModelOutput(lines);
