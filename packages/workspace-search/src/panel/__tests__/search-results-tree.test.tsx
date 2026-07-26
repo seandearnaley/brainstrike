@@ -447,11 +447,11 @@ describe('SearchResultsTree', () => {
       Number(fileRow?.getAttribute('data-depth'))
     );
 
-    // The leaf chunk row RESERVES the expand-toggle column (the h-7 w-7 spacer)
+    // The leaf chunk row RESERVES the expand-toggle column (the h-6 w-6 spacer)
     // so its checkbox lines up under the file's checkbox instead of the reported
     // regression where it landed left of it. Removing reserveToggleSpace:false
     // is what restores this spacer.
-    expect(chunkRow?.querySelector('span.h-7.w-7')).not.toBeNull();
+    expect(chunkRow?.querySelector('[data-testid="tree-toggle-spacer"]')).not.toBeNull();
   });
 
   it('passes the search windowing context to the tree', () => {

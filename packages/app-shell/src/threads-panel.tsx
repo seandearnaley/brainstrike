@@ -2188,7 +2188,7 @@ function ThreadPanelTree({
         ),
         className: 'p-0',
         id: 'thread',
-        indentWidth: 28,
+        indentWidth: 24,
         reserveCheckboxSpace: true,
         reserveToggleSpace: false,
         treeControlsPosition: 'top',

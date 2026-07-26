@@ -910,8 +910,11 @@ describe('TreeTable', () => {
       expect(collapseButton).toBeInTheDocument();
     });
 
-    it('exposes aria-expanded and icon-xs sizing on row expand buttons', () => {
-      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+    it('exposes aria-expanded and a contained 24px hit target on row expand buttons', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'Folder', null, true),
+        createTestNode('2', 'File 2', null, false),
+      ];
       const { rerender } = render(
         <TreeTable
           columns={testColumns}
@@ -924,6 +927,19 @@ describe('TreeTable', () => {
       const collapsedButton = screen.getByRole('button', { name: /expand/i });
       expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
       expect(collapsedButton).toHaveAttribute('data-size', 'icon-xs');
+      // Geometry contract: the merged class list must resolve the icon-xs/size-6
+      // conflict to a 24px hit target so the hover square stays within the
+      // ~28.5px row line instead of spilling onto adjacent rows (BST-899).
+      expect(collapsedButton).toHaveClass('size-6');
+      // Rows are content-height: the expander is the tallest row child, so it
+      // needs its own vertical breathing room to keep the hover square inside
+      // the row separators.
+      expect(collapsedButton).toHaveClass('my-0.5');
+      expect(collapsedButton).not.toHaveClass('size-7');
+
+      const toggleSpacer = screen.getByTestId('tree-toggle-spacer');
+      expect(toggleSpacer).toHaveClass('my-0.5', 'h-6', 'w-6');
+      expect(toggleSpacer).not.toHaveClass('h-7', 'w-7');
 
       rerender(
         <TreeTable
@@ -938,6 +954,33 @@ describe('TreeTable', () => {
         'aria-expanded',
         'true'
       );
+    });
+
+    it('applies the same contained 24px hit target to group header expanders', () => {
+      const groupNode = {
+        data: { groupLabel: 'Group A', itemCount: 2 },
+        depth: 0,
+        hasChildren: true,
+        id: 'g1',
+        parentId: null,
+        type: 'group',
+      } as unknown as TreeNode<TestData>;
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[groupNode]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const groupExpander = screen.getByRole('button', { name: 'Expand group' });
+      // Same geometry contract as TreeExpandControl (BST-899): both expander
+      // sites must stay pinned to the contained 24px box together.
+      expect(groupExpander).toHaveClass('size-6');
+      expect(groupExpander).toHaveClass('my-0.5');
+      expect(groupExpander).not.toHaveClass('size-7');
     });
 
     it('does not inset root expand buttons by default', () => {
