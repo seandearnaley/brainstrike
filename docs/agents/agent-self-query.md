@@ -341,8 +341,13 @@ entire reason those errors are not sanitised.
 - **A REQUIRED `mode` discriminator, and NO cross-field refinement.** The
   refinement this line used to describe was removed: it failed 100% of real
   calls under strict function calling (see the section above). A precedence rule
-  would make a malformed call look like it worked, so the model must state its
-  mode and unused fields are ignored by contract.
+  would make a malformed call look like it worked, so the model states its mode
+  and the fields that mode does not use — `sql`, `table`, `maxRows` — are
+  ignored by contract. `analyze` is the ONE deliberate exception:
+  `analyze: true` outside `mode: 'explain'` throws a visible
+  `AgentSqlInputError` (`query-self-tool.ts`, pinned by test), because
+  executing a statement the caller asked to merely time would be a silent
+  semantic downgrade.
 
 ---
 
