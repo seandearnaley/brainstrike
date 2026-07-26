@@ -4,7 +4,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { deriveCharter, extractAssayComments } from './collect-assay-evidence.mjs';
+import {
+  deriveCharter,
+  extractAssayComments,
+  isGradeCacheLabel,
+} from './collect-assay-evidence.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const liveCharter = readFileSync(path.join(repoRoot, '.night-shift/charters/assay.md'), 'utf8');
@@ -60,4 +64,36 @@ test('a brief without a Labels: line asserts nothing (cache can never validate)'
   const { matching } = extractAssayComments([brief], charter, workKey);
   assert.equal(matching.length, 1);
   assert.equal(matching[0].assertedLabels, null);
+});
+
+// Beat 3b's thread-state labels change when a reviewer comments, which does not
+// move the head. If they entered the head-keyed grade cache, labelsMatch would
+// go false on every PR the moment thread state moved — permanently disabling
+// the skip path and re-grading every open PR on every 2h wake.
+test('thread-state labels are excluded from the grade cache comparison', () => {
+  assert.equal(isGradeCacheLabel('review/risk-1-low'), true);
+  assert.equal(isGradeCacheLabel('review/touches-schema'), true);
+  for (const label of [
+    'review/threads-clear',
+    'review/threads-open',
+    'review/threads-unanswered',
+  ]) {
+    assert.equal(isGradeCacheLabel(label), false, `${label} must stay out of the grade cache`);
+  }
+  assert.equal(isGradeCacheLabel('coverage'), false, 'non-review labels are never cache inputs');
+});
+
+test('the live charter declares the thread-state labels it applies', () => {
+  const charter = deriveCharter(liveCharter);
+  for (const label of [
+    'review/threads-clear',
+    'review/threads-open',
+    'review/threads-unanswered',
+  ]) {
+    assert.ok(charter.allowedLabels.includes(label), `Beat 0 must declare ${label}`);
+  }
+  assert.ok(
+    charter.allowedLabels.filter((label) => !isGradeCacheLabel(label)).length === 3,
+    'exactly the three thread-state labels sit outside the grade cache'
+  );
 });

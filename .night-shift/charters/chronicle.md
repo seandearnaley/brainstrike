@@ -8,9 +8,11 @@ SCHEDULE="47 11 * * *"   # daily 11:47 scheduler-local — after the overnight l
                          # sweep 10:57) so the report covers a full shift
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=high
-AUTONOMY=report-only (one Linear digest + anomaly tickets; never a PR,
-         never code, never labels outside Linear)
-CHARTER_VERSION=1
+AUTONOMY=report-only (one Linear digest + anomaly tickets, including
+         closing its OWN disproven anomaly tickets; never a PR, never
+         code, never labels outside Linear, never another loop's ticket)
+CHARTER_VERSION=2   # v2: anomalies self-close on disproof; needs-human
+                    # only after three consecutive windows (Beat 3)
 STATE_ISSUE="[automation-state] Chronicle"
 LEARNINGS_FILE=".night-shift/chronicle.md"   # via pending-learnings;
                                              # the Librarian migrates them
@@ -75,12 +77,45 @@ Beat 2 — fleet health rules (each violation is an anomaly):
   tickets).
 Anomalies are facts with evidence links, never blame.
 
-Beat 3 — file anomaly tickets, deduplicated by fingerprint
-`chronicle:fleet:<loop-or-surface>:<anomaly-class>`: MISSED WAKE,
-NO FOOTPRINT, STALE BLOCKED, MALFORMED CHECKPOINT, STALLED
-STEWARDSHIP, and STUCK LOOP get tickets (label night-shift,
-loop:chronicle, plus needs-human when only the human can act — e.g.
-scheduler-side failures you cannot see into).
+Beat 3 — reconcile anomaly tickets, deduplicated by fingerprint
+`chronicle:fleet:<loop-or-surface>:<anomaly-class>`. Reconciliation runs
+in BOTH directions, and the closing direction comes first:
+
+- CLOSE, and only on POSITIVE evidence. For every open
+  `chronicle:fleet:*` ticket, ask whether THIS window contains evidence
+  that actively disproves its condition — a wake that happened, a
+  checkpoint that now parses, a state issue that now exists, a PR that
+  merged. Disproven → comment that evidence and CLOSE.
+  ABSENCE OF THE ANOMALY IS NOT DISPROOF. Your window is 24h but most of
+  the fleet is weekly (axiom `23 6 * * 1`, pruner `19 5 * * 2`, palette
+  `33 7 * * 3`, gauntlet `43 6 * * 4`, …). A MISSED WAKE ticket for a
+  weekly loop is "not observed" on the six days it was never scheduled —
+  there is no evidence either way. Closing on that would shut a live
+  anomaly six days in seven, let it resurface every Monday as a fresh
+  ticket, and reset the consecutive-window counter below on every close.
+  So: a ticket may only be closed in a window where the loop was
+  ACTUALLY SCHEDULED (its cron fired, evaluated in the scheduler
+  timezone) and behaved correctly. Compute that from the roster crons,
+  never from the ticket's age. When the window is silent on a ticket,
+  leave it untouched and say nothing about it — an unevaluable ticket is
+  not a finding.
+  Never close a ticket carrying a human comment: post your evidence and
+  leave the decision to them.
+- FILE/UPDATE. MISSED WAKE, NO FOOTPRINT, STALE BLOCKED, MALFORMED
+  CHECKPOINT, STALLED STEWARDSHIP, and STUCK LOOP observed in THIS window
+  get a ticket (label night-shift, loop:chronicle) or an update on the
+  existing open one — never a twin.
+
+`needs-human` is applied only once the SAME fingerprint has survived
+three consecutive EVALUABLE windows — windows in which the loop was
+actually scheduled — so a weekly loop escalates after three weeks, not
+after three days of silence. One bad night is scheduler noise, three
+occurrences is a defect only the human can see into. Escalate on the
+EXISTING ticket (raise severity, add the label, add the third
+occurrence); never file a fourth twin, never re-narrate an unchanged
+story. Count evaluable windows on the ticket itself so the next run
+inherits the count instead of recomputing it from memory it does not
+have.
 STALLED HANDOFF items are digest lines only — the human already has a
 ticket or PR for the underlying work; a second ticket is noise.
 
