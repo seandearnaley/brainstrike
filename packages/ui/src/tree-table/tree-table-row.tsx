@@ -61,7 +61,7 @@ function GroupHeaderCell<T>({
         <Button
           aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
-          className="flex-shrink-0"
+          className="my-0.5 size-6 flex-shrink-0 rounded-md"
           disabled={node.isLoading}
           onClick={onExpandClick}
           size="icon-xs"
@@ -316,7 +316,7 @@ function TreeExpandControl({
     <Button
       aria-expanded={isExpanded}
       aria-label={isExpanded ? 'Collapse' : 'Expand'}
-      className={cn('flex-shrink-0', pinnedToTop && 'mt-1.5')}
+      className={cn('my-0.5 size-6 flex-shrink-0 rounded-md', pinnedToTop && 'mt-2')}
       disabled={isLoading}
       onClick={onExpandClick}
       size="icon-xs"
@@ -424,7 +424,7 @@ function TreeTableCellComponent<T>({
               pinnedToTop={controlsPinnedToTop}
             />
           ) : shouldReserveToggleSpace ? (
-            <span className="h-7 w-7 flex-shrink-0" />
+            <span className="my-0.5 h-6 w-6 flex-shrink-0" data-testid="tree-toggle-spacer" />
           ) : null}
 
           <TreeCheckboxControl
