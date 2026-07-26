@@ -245,11 +245,32 @@ The authoritative gate is unchanged: `nightly-coverage.yml` →
 coverage with ratcheted per-package thresholds, which opens an issue on failure.
 
 `scripts/verify-codecov-status-contract.mjs` (run by `pnpm test:scripts` in the
-Static job) fails if any Codecov status is enabled without `informational: true`,
-and fails loudly rather than vacuously if the `coverage.status` block or the file
-disappears. **Re-gating is a two-part change**: PR uploads must become complete
-AND the context must be added to the ruleset. Doing one without the other
-re-creates the contradiction.
+Static job) enforces this. Two properties it must hold, and the first review of
+it found six violations of the first:
+
+- **Never pass vacuously.** Codecov reads `coverage.status.<type>` as a MAP OF
+  CONTEXTS, so every child of an enabled status must itself be disabled or
+  explicitly `informational: true`. That single rule covers the shapes that
+  previously slipped through: an empty or array status block, settings written
+  flat without a `default:` wrapper, a scalar context (`default: true`), an
+  empty mapping, and a status-level `informational:` shorthand that is not
+  documented and would have waved through a still-gating `default`.
+- **Never fail a valid config.** `pnpm test:scripts` runs in the REQUIRED Static
+  check, so a false positive blocks every merge — worse than the red X this
+  removed. Hence `off` is matched case-insensitively (`yaml` v2 uses the YAML
+  1.2 core schema, where bare `off` is the STRING `'off'`, not a boolean), and
+  unknown keys under `coverage.status` are REPORTED, not fatal: Codecov
+  publishes exactly `codecov/project`, `codecov/patch` and `codecov/changes`, so
+  nothing else there can gate.
+
+It also searches every location Codecov reads config from — root, `dev/`,
+`.github/`, as `codecov.yml` or `.codecov.yml` — and fails if two exist, since
+which one wins is undocumented and a second file could silently change the
+effective config.
+
+**Re-gating is a two-part change**: PR uploads must become complete AND the
+context must be added to the ruleset. Doing one without the other re-creates the
+contradiction.
 
 Nightly package coverage uses six static GitHub Actions matrix shards plus a
 separate DB job. Five package shards isolate the measured heavyweight lanes;
