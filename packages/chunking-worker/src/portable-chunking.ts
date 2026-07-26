@@ -391,7 +391,7 @@ function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
 }
 
-function buildLineStartOffsets(content: string): number[] {
+export function buildLineStartOffsets(content: string): number[] {
   const lineStarts = [0];
   for (let index = 0; index < content.length; index += 1) {
     if (content.charCodeAt(index) === 10) {
@@ -401,7 +401,7 @@ function buildLineStartOffsets(content: string): number[] {
   return lineStarts;
 }
 
-function findLineForOffset(lineStarts: readonly number[], offset: number): number {
+export function findLineForOffset(lineStarts: readonly number[], offset: number): number {
   let low = 0;
   let high = lineStarts.length - 1;
   let best = 0;

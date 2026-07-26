@@ -44,9 +44,28 @@ export type TreeSitterLanguage = 'python';
  */
 const QUERIES: Record<TreeSitterLanguage, string> = {
   python: [
-    '(module (function_definition) @chunk)',
-    '(module (class_definition) @chunk)',
-    '(module (decorated_definition) @chunk)',
+    '(module (function_definition name: (identifier) @name) @chunk)',
+    '(module (class_definition name: (identifier) @name) @chunk)',
+    '(module (decorated_definition (function_definition name: (identifier) @name)) @chunk)',
+    '(module (decorated_definition (class_definition name: (identifier) @name)) @chunk)',
+  ].join('\n'),
+};
+
+/**
+ * Symbol-reference queries (BST-919), run as a SECOND pass so their captures
+ * can never leak into the chunk-children contract. Calls and imports match at
+ * any depth; results ride the root's `symbolRefs` field — names only, no
+ * subtrees, honoring the bounded-payload rationale above.
+ *
+ * `aliased_import` (`from x import a as b`) is deliberately unmatched in v1;
+ * a miss is an absent retrieval edge, not an error.
+ */
+const SYMBOL_QUERIES: Record<TreeSitterLanguage, string> = {
+  python: [
+    '(call function: (identifier) @call)',
+    '(call function: (attribute attribute: (identifier) @call))',
+    '(import_statement name: (dotted_name) @import_plain)',
+    '(import_from_statement module_name: (dotted_name) @from_module name: (dotted_name) @from_name)',
   ].join('\n'),
 };
 
@@ -68,15 +87,21 @@ const ROOT_TYPES: Record<TreeSitterLanguage, string> = {
  * Language, its compiled Query is also collected — no stale-reference
  * leak across test runs.
  */
-const queryCache = new WeakMap<Language, Query>();
+const queryCache = new WeakMap<Language, { chunks: Query; symbols: Query }>();
 
-function getOrCompileQuery(language: TreeSitterLanguage, lang: Language): Query {
-  let query = queryCache.get(lang);
-  if (!query) {
-    query = new Query(lang, QUERIES[language]);
-    queryCache.set(lang, query);
+function getOrCompileQueries(
+  language: TreeSitterLanguage,
+  lang: Language
+): { chunks: Query; symbols: Query } {
+  let queries = queryCache.get(lang);
+  if (!queries) {
+    queries = {
+      chunks: new Query(lang, QUERIES[language]),
+      symbols: new Query(lang, SYMBOL_QUERIES[language]),
+    };
+    queryCache.set(lang, queries);
   }
-  return query;
+  return queries;
 }
 
 /**
@@ -91,6 +116,36 @@ function toAstNode(node: TsNode): AstNode {
     start: node.startIndex,
     type: node.type,
   };
+}
+
+/** One raw ref per symbol-query match: calls carry the callee name; both
+ * import statement forms normalize to {name, module}. */
+function collectSymbolRefs(query: Query, root: TsNode): Record<string, unknown>[] {
+  const refs: Record<string, unknown>[] = [];
+  for (const match of query.matches(root)) {
+    const byName = new Map(match.captures.map((capture) => [capture.name, capture.node]));
+    const call = byName.get('call');
+    if (call) {
+      refs.push({ kind: 'call', name: call.text, start: call.startIndex });
+      continue;
+    }
+    const plain = byName.get('import_plain');
+    if (plain) {
+      refs.push({ kind: 'import', module: plain.text, name: plain.text, start: plain.startIndex });
+      continue;
+    }
+    const fromModule = byName.get('from_module');
+    const fromName = byName.get('from_name');
+    if (fromModule && fromName) {
+      refs.push({
+        kind: 'import',
+        module: fromModule.text,
+        name: fromName.text,
+        start: fromName.startIndex,
+      });
+    }
+  }
+  return refs;
 }
 
 /**
@@ -124,24 +179,40 @@ export function treeSitterAdapter(language: TreeSitterLanguage): ParserAdapter {
       }
 
       try {
-        const query = getOrCompileQuery(language, lang);
-        const matches = query.matches(tree.rootNode);
+        const { chunks, symbols } = getOrCompileQueries(language, lang);
+        const matches = chunks.matches(tree.rootNode);
 
-        // Each capture in matches is a top-level chunk. The query patterns
-        // all bind the same capture name (`@chunk`); matches arrive in
-        // source order because the grammar walk is in-order. We map each
-        // capture to an AstNode child.
+        // One child per MATCH, not per capture: since the chunk patterns
+        // gained `@name` captures (BST-919), pushing every capture would turn
+        // each definition's identifier into a phantom chunk boundary. The
+        // `@chunk` capture is the child; `@name` annotates it. The identifier's
+        // PARENT distinguishes decorated functions from decorated classes,
+        // which the decorated_definition chunk type alone cannot.
         const children: AstNode[] = [];
         for (const match of matches) {
-          for (const capture of match.captures) {
-            children.push(toAstNode(capture.node));
+          const chunkNode = match.captures.find((capture) => capture.name === 'chunk')?.node;
+          if (!chunkNode) {
+            continue;
           }
+          const child = toAstNode(chunkNode);
+          const nameNode = match.captures.find((capture) => capture.name === 'name')?.node;
+          if (nameNode) {
+            child['name'] = nameNode.text;
+            child['definitionType'] = nameNode.parent?.type;
+          }
+          children.push(child);
         }
+
+        // Second pass: name-only call/import references for the symbol graph.
+        // Deliberately NOT children — splitCodeByFunctions consumes children
+        // as chunk ranges (pinned by extract-symbols.test.ts).
+        const symbolRefs = collectSymbolRefs(symbols, tree.rootNode);
 
         return {
           children,
           end: content.length,
           start: 0,
+          symbolRefs,
           type: ROOT_TYPES[language],
         };
       } finally {
