@@ -226,6 +226,29 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
       expect((error as Error).message).toMatch(/termination condition/i);
     });
 
+    it('refuses a recursion whose rows a filter suppresses, through the real tool', {
+      timeout: 120_000,
+    }, async () => {
+      // The guard's unit tests proved the SERVICE rejects this shape. This
+      // proves the rejection survives the seam: it must reach the model as an
+      // actionable ToolInputError, not the generic `tool_failed` that an
+      // earlier version of the recursion guard produced because the new error
+      // class was never added to `handleQuerySelfError`'s actionable branch.
+      //
+      // Asserted as a rejection on purpose — if the guard regresses, this hangs
+      // the desktop integration lane rather than failing quietly.
+      const error = await runQuerySelf(
+        {
+          mode: 'query',
+          sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r WHERE n < 0',
+        },
+        undefined
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ToolInputError);
+      expect((error as Error).message).toMatch(/termination condition/i);
+    });
+
     it('still ALLOWS a real bounded traversal', { timeout: 120_000 }, async () => {
       const result = await runQuerySelf(
         {
