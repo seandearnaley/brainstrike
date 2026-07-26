@@ -116,6 +116,23 @@ describe('loadDesktopEnvironment', () => {
     });
   });
 
+  it('treats a lone carriage return as a line terminator, never value content', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      'OPENAI_API_KEY=first\rANTHROPIC_API_KEY=second'
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result.failures).toEqual([]);
+    expect(env).toEqual({
+      ANTHROPIC_API_KEY: 'second',
+      OPENAI_API_KEY: 'first',
+    });
+  });
+
   it('does not inspect the user-data file for an unpackaged launch', () => {
     const layout = createEnvironmentLayout();
     fs.mkdirSync(path.join(layout.userDataPath, '.env'));

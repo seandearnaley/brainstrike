@@ -230,7 +230,11 @@ function parseDesktopEnvSource(source: string): ReadonlyMap<string, string> {
 
   const normalized = source.startsWith('\uFEFF') ? source.slice(1) : source;
   const entries = new Map<string, string>();
-  const lines = normalized.split(/\r?\n/u);
+  // CR, LF and CRLF all terminate a line. Splitting on /\r?\n/ alone leaves a
+  // lone CR (classic-Mac line endings, or a mangled paste) inside the value,
+  // so `A=1\rB=2` would silently become ONE assignment whose secret carries a
+  // control character and a second variable's text.
+  const lines = normalized.split(/\r\n|\n|\r/u);
 
   for (const [index, line] of lines.entries()) {
     parseDesktopEnvLine(line, index + 1, entries);
