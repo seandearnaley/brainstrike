@@ -100,8 +100,19 @@ export function parseArgs(argv) {
     }
     if (argument === '--window-start') {
       windowStart = argv[index + 1];
-      if (!windowStart || Number.isNaN(Date.parse(windowStart))) {
-        throw new Error('--window-start requires an ISO-8601 UTC timestamp');
+      // Match collect-chronicle-evidence.mjs's parseUtcIso: require the Z.
+      // Date.parse treats an offsetless date-time as LOCAL time and a bare
+      // date as UTC, so both would pass a parseability-only check and shift
+      // the window by the host's offset — silently, since the collector then
+      // reports it back as a confident `...Z`. Values like `0` and
+      // `07/26/2026` also parse. Enforce the shape, not just parseability.
+      if (
+        !(windowStart && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(windowStart)) ||
+        Number.isNaN(Date.parse(windowStart))
+      ) {
+        throw new Error(
+          '--window-start requires an ISO-8601 UTC timestamp ending in Z (e.g. 2026-07-26T00:00:00Z)'
+        );
       }
       index += 1;
       continue;
@@ -238,7 +249,7 @@ export function deriveCharter(charter) {
   const fingerprintMatch = charter.match(
     /fingerprint\s*=\s*\n?\s*watch:<workflow>:<test-title-slug>:<error-class>/i
   );
-  if (!/fix\s+your\s+run\s+window\s+to\s*\[previous checkpoint,\s+wake time\]/i.test(charter)) {
+  if (!/fix\s+your\s+run\s+window\s+to\s*\[previous\s+checkpoint,\s+wake\s+time\]/i.test(charter)) {
     throw new Error('Could not derive the checkpoint-anchored run window from Watch charter');
   }
   if (!fingerprintMatch) {
@@ -486,14 +497,25 @@ function normalizeRun(run, workflow) {
   };
 }
 
-function collectRunSnapshot(repo, repository, workflows, since) {
-  const created = encodeURIComponent(`>=${since}`);
+function collectRunSnapshot(repo, repository, workflows, since, until) {
+  const created = encodeURIComponent(`${since}..${until}`);
   const endpoint = `/repos/${repository}/actions/runs?per_page=100&created=${created}`;
   const workflowById = new Map(workflows.map((workflow) => [workflow.id, workflow]));
+  const sinceMs = Date.parse(since);
+  const untilMs = Date.parse(until);
   const runs = flattenObjectPages(apiPages(repo, endpoint), 'workflow_runs', endpoint)
     .filter((runItem) => workflowById.has(runItem.workflow_id))
     .map((runItem) => normalizeRun(runItem, workflowById.get(runItem.workflow_id)))
-    .filter((runItem) => Date.parse(runItem.createdAt) >= Date.parse(since));
+    // BOTH endpoints. The charter's window is [previous checkpoint, wake time]
+    // and PROTOCOL.md freezes it at wake: a run that starts after `until` —
+    // including one that appears between the two snapshot reads — belongs to
+    // the NEXT run's window. Filtering only the lower bound lets tomorrow's
+    // evidence into today's watermark, and it does so identically in both
+    // snapshots, so the stability check cannot catch it.
+    .filter((runItem) => {
+      const createdMs = Date.parse(runItem.createdAt);
+      return createdMs >= sinceMs && createdMs <= untilMs;
+    });
   return runs.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 }
 
@@ -1115,9 +1137,16 @@ async function main() {
     repo,
     identity.nameWithOwner,
     workflows,
-    since.toISOString()
+    since.toISOString(),
+    until.toISOString()
   );
-  const runs = collectRunSnapshot(repo, identity.nameWithOwner, workflows, since.toISOString());
+  const runs = collectRunSnapshot(
+    repo,
+    identity.nameWithOwner,
+    workflows,
+    since.toISOString(),
+    until.toISOString()
+  );
   assertStableRunSnapshots(firstRunSnapshot, runs);
   const watermark = compareWatermark({
     previousKeys: args.watermark,

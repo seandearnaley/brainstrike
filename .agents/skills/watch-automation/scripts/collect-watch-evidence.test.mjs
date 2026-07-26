@@ -132,9 +132,25 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
 
 test('parseArgs requires an explicit run-window start and never infers one', () => {
   assert.throws(() => parseArgs(['--repo', '/x']), /--window-start is required/);
-  assert.throws(
-    () => parseArgs(['--repo', '/x', '--window-start', 'yesterday']),
-    /ISO-8601 UTC timestamp/
+  for (const rejected of [
+    'yesterday',
+    // Offsetless date-time: ES parses as LOCAL time, shifting the window by
+    // the host offset. Bare date and epoch-ish values parse too.
+    '2026-07-26T00:00:00',
+    '2026-07-26',
+    '0',
+    '07/26/2026',
+    '2026-07-26T00:00:00+00:00',
+  ]) {
+    assert.throws(
+      () => parseArgs(['--repo', '/x', '--window-start', rejected]),
+      /ending in Z/,
+      `expected --window-start to reject ${rejected}`
+    );
+  }
+  assert.equal(
+    parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00.500Z']).windowStart,
+    '2026-07-26T00:00:00.500Z'
   );
   assert.equal(
     parseArgs(['--repo', '/x', '--window-start', '2026-07-26T00:00:00Z']).windowStart,
