@@ -22,7 +22,12 @@
 
 import { fitItemsToCharBudget, type QuerySelfInput, type RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
-import { AgentSqlCostRejectedError, AgentSqlInputError, AgentSqlService } from '@brainstrike/db';
+import {
+  AgentSqlCostRejectedError,
+  AgentSqlInputError,
+  AgentSqlService,
+  AgentSqlUnboundedRecursionError,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
 
@@ -129,7 +134,16 @@ function redactErrorForLog(error: unknown): {
  * did not already have and is the only way it can self-correct.
  */
 function handleQuerySelfError(error: unknown): never {
-  if (error instanceof AgentSqlCostRejectedError || error instanceof AgentSqlInputError) {
+  // Every admission rejection belongs here, not just the two original ones. A
+  // guard that fires correctly but reports "the tool did not complete
+  // successfully" is indistinguishable from a crash: observed live, the model
+  // could not tell that its recursive CTE was the problem. If you add a new
+  // rejection type to AgentSqlService, add it to this list.
+  if (
+    error instanceof AgentSqlCostRejectedError ||
+    error instanceof AgentSqlInputError ||
+    error instanceof AgentSqlUnboundedRecursionError
+  ) {
     throw new ToolInputError(error.message);
   }
 

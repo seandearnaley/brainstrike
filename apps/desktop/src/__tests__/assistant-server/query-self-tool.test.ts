@@ -189,6 +189,55 @@ describe('runQuerySelf', () => {
     expect((error as Error).message).toBe('Self-query failed. Please try again.');
   });
 
+  it('surfaces the recursion guard as an actionable message, not tool_failed', async () => {
+    // Regression from a live run: the guard fired correctly but reached the
+    // model as "The tool did not complete successfully", which is
+    // indistinguishable from a crash — it could not tell that its recursive CTE
+    // was the problem. Every AgentSqlService rejection must be model-readable.
+    const { AgentSqlUnboundedRecursionError } = await import('@brainstrike/db');
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase(() => {
+        throw new AgentSqlUnboundedRecursionError();
+      })
+    );
+
+    const error = await runQuerySelf(
+      {
+        mode: 'query',
+        sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
+      },
+      undefined
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ToolInputError);
+    expect((error as Error).message).toMatch(/termination|drain/i);
+  });
+
+  it('returns a query plan for explain mode', async () => {
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) =>
+        sql.startsWith('EXPLAIN')
+          ? {
+              rows: [
+                { 'QUERY PLAN': 'Seq Scan on file_chunks  (cost=0.00..11.80 rows=1 width=412)' },
+              ],
+            }
+          : { rows: [] }
+      )
+    );
+
+    const result = await runQuerySelf(
+      { mode: 'explain', sql: 'SELECT * FROM file_chunks' },
+      undefined
+    );
+
+    expect(result).toEqual({
+      analyzed: false,
+      kind: 'plan',
+      plan: ['Seq Scan on file_chunks  (cost=0.00..11.80 rows=1 width=412)'],
+    });
+  });
+
   it('describes tables', async () => {
     getDatabaseMock.mockResolvedValue(
       fakeDatabase((sql) =>
