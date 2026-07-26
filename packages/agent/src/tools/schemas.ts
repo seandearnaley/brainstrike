@@ -79,6 +79,10 @@ export type HybridSearchInput = z.infer<typeof HybridSearchInputSchema>;
  */
 export const QuerySelfInputSchema = z
   .object({
+    analyze: z
+      .boolean()
+      .optional()
+      .describe('mode=explain only: run the statement to get real timings (default false)'),
     maxRows: z
       .number()
       .int()
@@ -87,9 +91,9 @@ export const QuerySelfInputSchema = z
       .optional()
       .describe('Max rows for mode=query (default 50); truncation is flagged'),
     mode: z
-      .enum(['query', 'listTables', 'describeTable'])
+      .enum(['query', 'listTables', 'describeTable', 'explain'])
       .describe(
-        "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql"
+        "What to do: 'listTables' lists tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan"
       ),
     sql: z.string().max(4000).optional().describe('The read-only SELECT. Required for mode=query'),
     table: z.string().max(128).optional().describe('Table name. Required for mode=describeTable'),
