@@ -10,7 +10,12 @@ import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { installConsoleGuard } from '@brainstrike/utils/console-guard';
 import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
-import { addLogListener, createLogger, LogLevel } from '@brainstrike/utils/logger';
+import {
+  addLogListener,
+  createLogger,
+  LogLevel,
+  redactSensitiveLogValue,
+} from '@brainstrike/utils/logger';
 import { initializeLogging } from '@brainstrike/utils/logging-initializer';
 import {
   applyLoggingPreferences,
@@ -181,7 +186,10 @@ void syncLoggingPreferencesFromMain();
 
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
-function sanitizeLogValue(value: unknown): unknown {
+function sanitizeLogValue(
+  value: unknown,
+  seen: WeakMap<object, unknown> = new WeakMap<object, unknown>()
+): unknown {
   if (
     value === null ||
     value === undefined ||
@@ -192,22 +200,43 @@ function sanitizeLogValue(value: unknown): unknown {
     return value;
   }
   if (value instanceof Error) {
-    return {
-      message: value.message,
-      name: value.name,
-      stack: value.stack,
-    };
+    const existing = seen.get(value);
+    if (existing !== undefined) {
+      return existing;
+    }
+    // Log listeners normally receive already-redacted plain records. Keep the
+    // same privacy boundary if a raw Error reaches this transport seam instead
+    // of duplicating the logger's non-enumerable cause and sensitive-key rules.
+    // The redactor returns a detached plain graph and closes its own cycles, so
+    // recursion cannot revisit this raw Error before it is safe to memoize.
+    const result = sanitizeLogValue(redactSensitiveLogValue(value), seen);
+    seen.set(value, result);
+    return result;
   }
   if (value instanceof URL) {
     return value.toString();
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeLogValue(entry));
+    const existing = seen.get(value);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const result: unknown[] = [];
+    seen.set(value, result);
+    for (const entry of value) {
+      result.push(sanitizeLogValue(entry, seen));
+    }
+    return result;
   }
   if (typeof value === 'object') {
+    const existing = seen.get(value);
+    if (existing !== undefined) {
+      return existing;
+    }
     const result: Record<string, unknown> = {};
+    seen.set(value, result);
     for (const [key, entry] of Object.entries(value)) {
-      result[key] = sanitizeLogValue(entry);
+      result[key] = sanitizeLogValue(entry, seen);
     }
     return result;
   }

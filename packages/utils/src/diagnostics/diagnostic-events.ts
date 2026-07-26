@@ -53,6 +53,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const HEX_RE = /\b[0-9a-f]{8,}\b/gi;
 const PATH_RE = /(?:[A-Za-z]:)?(?:[\\/][\w.@-]+){2,}/g;
 const DIGIT_RE = /\d+/g;
+const CIRCULAR_REFERENCE_MARKER = '[Circular]';
 
 /** FNV-1a 64-bit over the normalized identity (sync, dependency-free — md5 in
  * the design doc was illustrative; the property that matters is stability). */
@@ -78,6 +79,27 @@ export function computeDiagnosticFingerprint(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function markCircularReferences(
+  value: unknown,
+  ancestors: WeakSet<object> = new WeakSet<object>()
+): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  if (ancestors.has(value)) {
+    return CIRCULAR_REFERENCE_MARKER;
+  }
+
+  ancestors.add(value);
+  const result = Array.isArray(value)
+    ? value.map((entry) => markCircularReferences(entry, ancestors))
+    : Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, markCircularReferences(entry, ancestors)])
+      );
+  ancestors.delete(value);
+  return result;
 }
 
 function readString(source: Record<string, unknown>, key: string): string | null {
@@ -121,17 +143,23 @@ function causeEntryFrom(current: Error | ErrorShapedRecord): DiagnosticCauseEntr
  * legitimately mix both shapes since redaction is applied top-down. */
 function walkCauseChain(cause: unknown): DiagnosticCauseEntry[] {
   const chain: DiagnosticCauseEntry[] = [];
+  const visited = new WeakSet<object>();
   let current: unknown = cause;
   while (chain.length < MAX_CAUSE_DEPTH) {
-    if (current instanceof Error) {
-      chain.push(causeEntryFrom(current));
-      current = current.cause;
-    } else if (isErrorShapedRecord(current)) {
-      chain.push(causeEntryFrom(current));
-      current = current['cause'];
-    } else {
+    if (!(current instanceof Error || isErrorShapedRecord(current))) {
       break;
     }
+    if (visited.has(current)) {
+      chain.push({
+        message: CIRCULAR_REFERENCE_MARKER,
+        name: CIRCULAR_REFERENCE_MARKER,
+      });
+      break;
+    }
+
+    visited.add(current);
+    chain.push(causeEntryFrom(current));
+    current = current instanceof Error ? current.cause : current['cause'];
   }
   return chain;
 }
@@ -234,11 +262,21 @@ export function logRecordToDiagnosticEvent(
   );
 
   const redacted = redactSensitiveLogValue(context) as Record<string, unknown>;
-  const serialized = JSON.stringify(redacted);
+  let jsonSafeContext = redacted;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(redacted);
+  } catch {
+    // Cyclic graphs are valid logger metadata, so replace their back-edges
+    // visibly. Unsupported non-cyclic JSON values still throw on this second
+    // serialization attempt instead of degrading silently.
+    jsonSafeContext = markCircularReferences(redacted) as Record<string, unknown>;
+    serialized = JSON.stringify(jsonSafeContext);
+  }
   const boundedContext =
     serialized.length > DIAGNOSTIC_CONTEXT_MAX_CHARS
       ? { truncatedContext: boundWithMarker(serialized, DIAGNOSTIC_CONTEXT_MAX_CHARS) }
-      : redacted;
+      : jsonSafeContext;
 
   return {
     appVersion: env.appVersion,
