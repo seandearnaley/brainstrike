@@ -312,6 +312,7 @@ When this skill is invoked by a Night Shift loop (any `night-shift/*` branch, or
 - EVERY review comment gets a reply — bots included, "covered" ones included. The reply is the fixing commit SHA, a concise reasoned decline, or a link to the follow-up Linear ticket. The "resolve silently when covered" shortcut in Step 3 does not apply.
 - Deferrals go to a fingerprinted Linear ticket per the protocol's ticket rules, linked in the thread reply before resolving.
 - The protocol's cap of six fix/push cycles per run applies; on hitting it, checkpoint `status=INCOMPLETE` with the exact next action instead of continuing.
+- The PR must carry the fleet's join key (PROTOCOL.md "Hard rules"): branch `night-shift/<name>/bst-<id>-<slug>` and a `Closes BST-<id>` line in the body when the run has an owning Linear ticket, or an explicit `No ticket: <reason>` line when it does not. Linear links PRs to issues through the branch name or a closing keyword only — omit both and the ticket never closes and the work never appears in any scoreboard.
 
 Non-blocking check policy:
 

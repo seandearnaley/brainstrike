@@ -29,16 +29,19 @@ Create a temporary output directory and run:
 watch_logs="$(mktemp -d)"
 node .agents/skills/watch-automation/scripts/collect-watch-evidence.mjs \
   --repo /absolute/path/to/brainstrike \
+  --window-start "$previous_checkpoint_utc" \
   --watermark "$completed_run_keys" \
   --checkpoint-watermark "$checkpoint_watermark" \
   --pretty > "$watch_logs/evidence.json"
 ```
 
+`--window-start` is REQUIRED and is the UTC timestamp of your previous checkpoint — the charter fixes the run window to `[previous checkpoint, wake time]` (PROTOCOL.md "Run boundaries"). The collector will not infer it; window guessing is intentionally disabled, exactly like watermark guessing.
+
 Omit both watermark arguments only for a proven first run or the documented one-time migration. When prior memory records an explicitly empty set, pass `--watermark none` with its matching `--checkpoint-watermark` instead of omitting either flag; empty prior state and first run are distinct.
 
 The collector performs no repository or external writes. It:
 
-- validates the live Watch safety boundary and derives the lookback from the charter;
+- validates the live Watch safety boundary and the charter's checkpoint-anchored run window, then bounds collection by the `--window-start` you supplied;
 - derives scheduled E2E and nightly workflows from local workflow definitions, then requires an exact path-and-name match with GitHub; every scheduled workflow is emitted in `scheduledWorkflows` with an `included` marker and exclusion reason so watch coverage can be vetted each run;
 - verifies the prior completed-run keys reproduce the supplied checkpoint hash, then fetches every run of the watched workflows in the live window regardless of trigger event (scheduled and manually dispatched runs alike) with complete pagination and compares attempt-aware `<runId>@<attempt>` keys with that verified prior state;
 - stops before job/log collection only when the completed-run key set is unchanged and no run in the window is still pending; any pending run is listed in `watermark.pendingRuns` and forces collection;

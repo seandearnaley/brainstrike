@@ -4,7 +4,7 @@
 NAME=Sweep
 ROLE=nightly-noise janitor
 SCHEDULE="57 10 * * *"   # daily 10:57 scheduler-local, after both nightlies settle
-MODEL=gpt-5.6-sol
+MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=auto-close (tickets only; no PRs, no code, ever)
 CHARTER_VERSION=1
