@@ -83,6 +83,7 @@ export const QuerySelfInputSchema = z
       .boolean()
       .optional()
       .describe('mode=explain only: run the statement to get real timings (default false)'),
+    lens: z.string().max(64).optional().describe('Lens id. Required for mode=lens'),
     maxRows: z
       .number()
       .int()
@@ -91,9 +92,9 @@ export const QuerySelfInputSchema = z
       .optional()
       .describe('Max rows for mode=query (default 50); truncation is flagged'),
     mode: z
-      .enum(['query', 'listTables', 'describeTable', 'explain'])
+      .enum(['query', 'listTables', 'describeTable', 'explain', 'listLenses', 'lens'])
       .describe(
-        "What to do: 'listTables' lists tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan"
+        "What to do: 'listTables' lists tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan, 'listLenses' lists saved lenses, 'lens' runs one by id"
       ),
     sql: z
       .string()
@@ -103,6 +104,11 @@ export const QuerySelfInputSchema = z
       // the scarce prompt budget buys the mode list instead.
       .describe('Required for mode=query and mode=explain'),
     table: z.string().max(128).optional().describe('Table name. Required for mode=describeTable'),
+    values: z
+      .array(z.string().max(500))
+      .max(8)
+      .optional()
+      .describe('mode=lens: one string per declared param, in order'),
   })
   .strict();
 

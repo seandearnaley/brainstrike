@@ -464,12 +464,53 @@ description carries the first two:
   top-N, not with the size of the reachable set.
 
 The canonical statement (traversal → `reachable` file set → both arms scoped
-to it → RRF fusion `sum(1.0 / (60 + position))`) is pinned executable in
+to it → RRF fusion `sum(1.0 / (60 + position))`) now SHIPS as the
+`callers-hybrid` lens (`.brainstrike/lenses/callers-hybrid.sql` — see the
+lens section below); the raw-SQL admission path stays pinned in
 `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, including the
 scoping proof (a bait chunk with content and embedding identical to the seed
 chunk, in an unreachable file, must not appear), the mixed-dimension abort
 without set scoping, thousand-chunk admission, and the BM25 index-name
 tripwire against `BM25_CONTENT_INDEX_NAME`.
+
+---
+
+## Lenses (BST-921): retrieval strategy as a reviewable artifact
+
+A **lens** is a named, parameterized SQL file under `.brainstrike/lenses/`
+(per mounted root, then `~/.brainstrike/lenses/` — the persona two-tier,
+flat-scan, first-id-wins convention; loader:
+`apps/desktop/src/assistant-server/lens-loader.ts`, grammar:
+`packages/assistant-contract/src/lenses.ts`). Header grammar:
+
+```sql
+-- description: <required, one line>
+-- param: <name> <text|integer|number|boolean> <optional description>
+<SQL body; $1..$N in param declaration order>
+```
+
+Invocation rides `brainstrike.querySelf`: `mode: 'listLenses'` (invalid
+files are listed WITH their parse errors — fail closed, never silent) and
+`mode: 'lens'` + `lens` + `values` (positional strings, coerced by the
+declared types).
+
+Invariants (do not silently reverse):
+
+- **Same sandbox, no elevation.** A lens executes through the identical
+  four-layer preamble + admission as `mode: 'query'`. A lens file is
+  untrusted repo content, exactly like a persona file.
+- **Values only ever travel as bind parameters** — `AgentSqlService.query`'s
+  `params` rides the extended protocol into BOTH the admission `EXPLAIN`
+  (PGlite plans parameterized statements; planning with real values keeps
+  the cost estimate honest) and execution. Never interpolate a value into
+  lens SQL.
+- **Placeholder discipline is a PARSE-time error**: the SQL's highest `$n`
+  must equal the declared param count and every `$1..$n` must appear —
+  an authoring mistake surfaces in `listLenses`, not as a runtime surprise.
+- **Every lens ships with a golden test.** `callers-hybrid` (the BST-935
+  canonical statement, parameterized on symbol + terms) is proven by
+  `packages/db/__tests__/search-lens-callers-hybrid.test.ts`, which reads
+  the ACTUAL checked-in file — the artifact is the single source of truth.
 
 ---
 
@@ -544,6 +585,11 @@ the model has seen most of.
   attributes, idempotency, grant coverage tripwire
 - `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts` — the hybrid
   one-statement query admitted end-to-end, arm scoping via the traversal
+- `packages/db/__tests__/search-lens-callers-hybrid.test.ts` — the shipped
+  lens artifact: parse → coerce → sandbox execution with binds
+- `packages/assistant-contract/src/__tests__/lenses.test.ts` — lens grammar,
+  fail-closed; `apps/desktop/src/__tests__/assistant-server/lens-loader.test.ts`
+  — two-tier scan; `query-self-lens-modes.test.ts` — dispatch + bind proof
 - `packages/assistant-contract/src/__tests__/user-personas.test.ts` — persona
   exclusion
 - `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts` and

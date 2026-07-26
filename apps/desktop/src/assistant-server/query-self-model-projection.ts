@@ -144,6 +144,36 @@ function projectTables(result: Extract<QuerySelfResult, { kind: 'tables' }>): st
   );
 }
 
+function projectLenses(result: Extract<QuerySelfResult, { kind: 'lenses' }>): string[] {
+  const body = result.lenses.map((lens) => {
+    const params = lens.params
+      .map((param) =>
+        param.description.length > 0
+          ? `${param.name} ${param.type} — ${param.description}`
+          : `${param.name} ${param.type}`
+      )
+      .join('; ');
+    return `${escapeCell(lens.id)}${CELL_SEPARATOR}${escapeCell(lens.description)}${
+      params.length > 0 ? `${CELL_SEPARATOR}params: ${escapeCell(params)}` : ''
+    }`;
+  });
+  // Broken files are part of the answer: a lens author asking "why is my lens
+  // not listed" must see the parse error here, not silence.
+  for (const invalid of result.invalid) {
+    body.push(
+      `INVALID${CELL_SEPARATOR}${escapeCell(invalid.fileName)}${CELL_SEPARATOR}${escapeCell(invalid.error)}`
+    );
+  }
+  body.push(
+    'next: call querySelf with mode="lens" lens="<id>" values=["…"] (one string per declared param, in order)'
+  );
+  return fitLines(
+    `lenses | count=${result.lenses.length} invalid=${result.invalid.length}`,
+    body,
+    (dropped) => `…${dropped} more lenses omitted to fit the output budget`
+  );
+}
+
 function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): string[] {
   if (result.columns.length === 0) {
     return [
@@ -267,7 +297,9 @@ export function projectQuerySelfModelOutput(output: unknown): WorkspaceTextModel
         ? projectColumns(result)
         : result.kind === 'plan'
           ? projectPlan(result)
-          : projectRows(result);
+          : result.kind === 'lenses'
+            ? projectLenses(result)
+            : projectRows(result);
 
   assertProjectionFits(lines);
   return makeTextModelOutput(lines);

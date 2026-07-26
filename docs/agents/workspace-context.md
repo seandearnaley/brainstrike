@@ -183,6 +183,17 @@ When changing this flow, update this section and the paired tests
 
 ---
 
+## `.brainstrike/` SCAN CONVENTIONS — the family
+
+Three features scan per-root + `~/.brainstrike/` config directories, and any
+fourth MUST reuse one of these two shapes rather than inventing a third:
+
+| Feature | Dir | Loader | Shape |
+| --- | --- | --- | --- |
+| /commands | `commands/` (+ `.claude/` compat tiers) | `user-slash-commands-loader.ts` | recursive, `:`-namespaced, invalid dropped w/ log |
+| personas | `agents/` | `user-personas-loader.ts` | flat, `entries` + visible invalid, first-id-wins |
+| lenses (BST-921) | `lenses/` | `lens-loader.ts` | mirrors personas exactly; grammar in `assistant-contract/src/lenses.ts`; surfaced via `querySelf` `listLenses`/`lens` (see `docs/agents/agent-self-query.md` § Lenses) |
+
 ## USER-DEFINED SLASH COMMANDS
 
 Prompt-template `/commands` authored as `*.md` files, projected into the SAME

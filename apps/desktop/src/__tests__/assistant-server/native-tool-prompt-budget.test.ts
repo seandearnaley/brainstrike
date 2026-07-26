@@ -57,7 +57,15 @@ vi.mock('../../db-main', () => ({
 // below: the remaining querySelf prose is the set that survived two prior trim
 // passes, each item behavior-changing, so the raise is the honest price.
 //
-// HEADROOM IS ~8 TOKENS (the surface measures 8342 against this 8350 ceiling).
+// Raised 8350 → 8460 for lenses (BST-921). The 105 added tokens (8342 → 8447
+// authored; +105 eager) are two new querySelf modes (listLenses, lens) plus
+// the `lens` and `values` fields — a NEW capability (named parameterized
+// retrieval artifacts under .brainstrike/lenses/*.sql, executed with real
+// binds in the same sandbox), not prose growth on an existing one. Trimmed
+// first per the rule below: the values-field describe and the description
+// sentence were both cut to the bone (−16) before raising.
+//
+// HEADROOM IS ~13 TOKENS (the surface measures 8447 against this 8460 ceiling).
 // That is deliberate but very tight, and the forcing function has already fired
 // twice as intended: adding `explain` to the description prose pushed the
 // surface to 8302 and the fix was to trim wording; the BST-935 raise above went
@@ -65,7 +73,7 @@ vi.mock('../../db-main', () => ({
 // failed CI, that is the forcing function working, not a flake. Trim something
 // first; raise the ceiling only as a considered decision, and record what you
 // traded away.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8350;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8460;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -399,7 +407,9 @@ describe('desktop native tool provider prompt budget', () => {
       // +44 for the hybrid-arm idioms (BST-935): the BM25 operator and index
       // name are NOT discoverable via describeTable, so without this line the
       // model cannot write the BM25 arm at all.
-      eagerDefinitionTokens: 7657,
+      // +105 for the lens modes (BST-921): two enum values, the lens/values
+      // fields, and the discovery sentence.
+      eagerDefinitionTokens: 7762,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,

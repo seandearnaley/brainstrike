@@ -657,4 +657,58 @@ describe('AgentSqlService sandbox', () => {
       expect(columns).toEqual([]);
     });
   });
+
+  /**
+   * Bind parameters (BST-921). Lenses take user-supplied arguments; the ONLY
+   * safe transport is real extended-protocol binds, so `query()` accepts them
+   * and threads the SAME array to admission's EXPLAIN (verified: PGlite plans
+   * parameterized statements over the extended protocol) and to execution.
+   * The row-cap wrapper never renumbers placeholders — its LIMIT is a
+   * literal — so caller positions pass through unchanged.
+   */
+  describe('bind parameters', () => {
+    it('binds positional parameters end-to-end', { timeout: 120_000 }, async () => {
+      const result = await service.query('SELECT $1::text AS a, $2::int + 1 AS b', {
+        params: ['hello', 41],
+      });
+      expect(result.columns).toEqual(['a', 'b']);
+      expect(result.rows).toEqual([['hello', 42]]);
+    });
+
+    it('an injection-shaped value stays a literal', { timeout: 120_000 }, async () => {
+      // The whole point of binds: this string must come back as DATA, and the
+      // table it names must still exist afterwards.
+      const hostile = `'; DROP TABLE file_records; --`;
+      const result = await service.query('SELECT $1::text AS v', { params: [hostile] });
+      expect(result.rows).toEqual([[hostile]]);
+
+      const stillThere = await service.query(
+        `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'file_records'`
+      );
+      expect(stillThere.rows).toEqual([[1]]);
+    });
+
+    it('a placeholder/params mismatch surfaces the PostgreSQL error verbatim', {
+      timeout: 120_000,
+    }, async () => {
+      // Error posture: the message names the mismatch so the model (or a
+      // lens author) can fix the call. We deliberately add no second
+      // hand-rolled placeholder counter here — the lens parser owns
+      // authoring-time validation; the engine owns call-time truth.
+      await expect(
+        service.query('SELECT $1::text AS a, $2::text AS b', { params: ['only-one'] })
+      ).rejects.toThrow(/parameter/i);
+    });
+
+    it('params reach the admission EXPLAIN too', { timeout: 120_000 }, async () => {
+      // If admit() dropped the params, planning `$1` would fail before
+      // execution ever started. A cost estimate proves the plan was built
+      // WITH the binds.
+      const result = await service.query('SELECT name FROM file_records WHERE name = $1', {
+        params: ['no-such-file'],
+      });
+      expect(result.rows).toEqual([]);
+      expect(result.estimatedCost).toBeGreaterThan(0);
+    });
+  });
 });
