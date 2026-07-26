@@ -272,15 +272,44 @@ module-scope read of an imported binding" returns 431 hits in `app-shell` +
 `db` alone, nearly all benign. The CHUNK, not the file or the package, is the
 unit of risk for the cross-chunk form.
 
-Known remaining instance of the same class, deliberately NOT changed here
-(**BST-860**): `packages/db/src/migrations/066-restore-pg-textsearch.ts`
-interpolates the imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope
-`up` string. It is out of the guard's scope (a different constant family),
-intra-package, and fails LOUDLY (the DO block raises) rather than silently.
-Fixing it means moving `up` to the `MigrationCallback` form the `Migration` type
-already allows, which touches a dual-registered, fail-closed migration guarding
-against real BM25 data corruption — that needs explicit sign-off, not a
-drive-by.
+`packages/db/src/migrations/066-restore-pg-textsearch.ts` interpolates the
+imported `QUALIFIED_PG_TEXTSEARCH_VERSION` into its module-scope `up` string.
+**Leave it alone — do not "fix" this (BST-860, investigated 2026-07-26 and
+closed won't-do).** Two reasons, both load-bearing:
+
+1. **The obvious fix breaks production startup.** Moving `up` to the
+   `MigrationCallback` form is valid for the NUMBERED runner only. Production
+   runs drizzle `runMigrations`, whose ledger is SQL-string-only:
+   `customMigration()` throws `must be a SQL string` for any non-string `up`
+   (`packages/db/src/drizzle/migrate.ts:148-155`), and `customMigrations` is
+   built at MODULE SCOPE (`:168`) — so a callback `up` throws at import time and
+   every launch fails. A lazy getter does not help either: the ledger reads
+   `up` at module init to hash and store the SQL. The `Migration.up` type
+   accepting `string | MigrationCallback` is a property of the test runner, not
+   a licence to use a callback here.
+2. **The hazard is retired in the renderer.** The invariant is "acyclic chunk
+   graph AND acyclic source-module graph ⇒ safe", and both conjuncts are
+   enforced and clean there (`verify-no-cross-chunk-cycles.mjs` on build,
+   `verify-no-source-cycles.mjs` on lint). A module-scope read is only dangerous
+   when a cycle exists, so if one ever appears in the renderer, lint or build
+   fails before runtime does. BST-860 predates both guards.
+
+   Be precise about scope, because migration 066 also ships in ELECTRON MAIN:
+   `src/main.ts` → `ipc-domains/db-ipc.ts` → `@brainstrike/db`. Conjunct 1 is
+   not merely unenforced there, it is inapplicable — `build-main-config.mjs`
+   esbuilds one file per entry, so main has no chunk graph. Conjunct 2 walks the
+   two RENDERER entrypoints only, so main's source graph is unverified; what
+   protects it is the ordinary bundler guarantee that an acyclic graph is
+   concatenated in dependency order. Extending the source-cycle guard to the
+   main entrypoints would close that, and is the cheap follow-up if this class
+   ever recurs in main.
+
+Residual risk of leaving it: negligible. Intra-package, and it fails LOUDLY —
+an undefined binding yields `IF actual_version IS DISTINCT FROM 'undefined'`, so
+the DO block RAISEs, unlike the silent `to_regclass('undefined')` skip that
+motivated the original concern. Do not hardcode the version literal either:
+that reintroduces the hand-copied-constant pattern removed in #1988 to defend
+against something two guards already make unreachable.
 
 **No catch anywhere in a purge tolerates a missing relation — the probe does.**
 A bare `catch (err) { logger.warn(...) }` could never be a tolerance inside a
