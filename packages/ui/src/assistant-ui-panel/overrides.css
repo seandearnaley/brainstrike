@@ -244,6 +244,11 @@
  * images resolving, tool cards or chain-of-thought folds collapsing, edit
  * composers swapping in). Disabling it unconditionally would make the text jump
  * under the reader, so it stays ON in that state.
+ *
+ * This is the STATIC tier's rule. The virtualized tier opts out unconditionally
+ * (see `[data-thread-render-tier="virtual"]` further down) because there the
+ * virtualizer writes scrollTop in every state, pinned or not. The two rules are
+ * independent selectors setting the same value, so they never disagree.
  */
 .bs-thread-scroll-region[data-pinned="true"] .aui-thread-viewport {
   overflow-anchor: none;
@@ -544,11 +549,13 @@
 /**
  * WIDE-PANEL REAL ESTATE: when the assistant panel itself is wide (drag the
  * split past ~56rem), cap message ROOTS at 48rem and center them so prose does
- * not stretch edge-to-edge. This intentionally targets the roots IN PLACE
- * (never wrapper divs), so they stay direct children of .aui-thread-viewport.
+ * not stretch edge-to-edge. This targets the roots themselves (never wrapper
+ * divs) as a DESCENDANT match rather than a direct child: on the virtualized
+ * tier (BST-897) each root sits inside a `.bs-virtual-message` position wrapper,
+ * and messages must look identical in both tiers.
  */
 @container bs-thread (min-width: 56rem) {
-  .aui-thread-viewport > :where(.aui-user-message-root, .aui-assistant-message-root) {
+  .aui-thread-viewport :where(.aui-user-message-root, .aui-assistant-message-root) {
     max-width: 48rem;
     margin-inline: auto;
   }
@@ -754,8 +761,13 @@
   padding-bottom: 0.625rem; /* Visual spacing between messages (compact rhythm) */
 }
 
-/* Last message: 0.75rem instead of library's 24rem (96px) */
-.aui-assistant-message-root:last-child {
+/* Last message: 0.75rem instead of library's 24rem (96px).
+   Scoped to a DIRECT child of the scroller so it stays a "last message in the
+   thread" rule. On the virtualized tier every root is the only child of its
+   position wrapper, so an unscoped :last-child would fire on every row; that
+   tier gets its trailing gap from `.bs-virtual-message[data-last-message]`
+   below, inside the measured box. */
+.aui-thread-viewport > .aui-assistant-message-root:last-child {
   margin-bottom: 0.75rem; /* Small margin, not 96px */
 }
 
@@ -769,8 +781,78 @@
   margin-bottom: 0.25rem; /* Tighter spacing for user messages */
 }
 
-.aui-user-message-root:last-child {
+/* Same direct-child scoping rationale as the assistant rule above. */
+.aui-thread-viewport > .aui-user-message-root:last-child {
   margin-bottom: 0.75rem; /* Consistent with assistant last-message spacing */
+}
+
+/**
+ * TWO-TIER THREAD RENDERER (BST-897)
+ *
+ * TIER 1 ("static"): let the browser skip rendering work for off-screen
+ * messages. `content-visibility: auto` keeps the rows in the DOM — find-in-page,
+ * text selection, screen readers and anchor links all still work — while
+ * `contain-intrinsic-size: auto <estimate>` supplies a placeholder size until a
+ * row has been laid out once (the `auto` keyword then remembers the real size,
+ * so the scroll range does not thrash).
+ *
+ * NEVER the last row: the actively streaming message grows token by token, and
+ * containment there makes its intrinsic size lag its real content, fighting the
+ * stick-to-bottom follow logic. The streaming message is always the last row
+ * (assistant-ui appends), and the library's message root carries no "running"
+ * attribute to key off, so `:not(:last-child)` IS the streaming exclusion.
+ *
+ * The tier attribute scopes this to tier 1 only: on the virtualized tier the
+ * virtualizer measures every mounted row, and a contained row would report the
+ * placeholder size instead of its real height.
+ */
+.aui-thread-viewport[data-thread-render-tier="static"]
+  > :where(.aui-user-message-root, .aui-assistant-message-root):not(:last-child) {
+  content-visibility: auto;
+  /* Matches THREAD_MESSAGE_ESTIMATED_HEIGHT_PX in assistant-thread-messages.tsx. */
+  contain-intrinsic-size: auto 120px;
+}
+
+/**
+ * TIER 2 ("virtual"): the TanStack virtualizer is the sole scroll owner and
+ * writes scrollTop in EVERY state — measurement corrections fire while the user
+ * is scrolled up, not just while pinned — so native scroll anchoring must stay
+ * off unconditionally here, independent of whichever pinned-state scoping the
+ * static tier uses for the same property.
+ */
+.aui-thread-viewport[data-thread-render-tier="virtual"] {
+  overflow-anchor: none;
+}
+
+/* The virtualizer's sizing container: rows are absolutely positioned inside it
+   (no column-reverse), so it must not shrink under the viewport's flex column. */
+.bs-virtual-thread {
+  flex-shrink: 0;
+  width: 100%;
+}
+
+/**
+ * Row position wrappers. `measureElement` measures the BORDER BOX, which
+ * excludes margins — a margin left on the root inside would not be part of the
+ * measured row size and consecutive rows would overlap by exactly that much.
+ * The spacing therefore moves onto the wrapper (padding, which IS measured),
+ * reproducing tier 1's inter-message rhythm exactly.
+ */
+.bs-virtual-message > .aui-user-message-root {
+  margin-bottom: 0;
+}
+
+.bs-virtual-message:has(> .aui-user-message-root) {
+  padding-bottom: 0.25rem;
+}
+
+/* Trailing gap below the newest message — tier 1's `:last-child` margin, moved
+   onto the measured row. Deliberately NOT the virtualizer's `paddingEnd`: space
+   held outside the measured rows only lands in the DOM on the next React
+   commit, so a scroll correction fired while the last message is still growing
+   is clamped by exactly that gap and the thread rests just above the bottom. */
+.bs-virtual-message[data-last-message] {
+  padding-bottom: 0.75rem;
 }
 
 /* Branch picker styling */

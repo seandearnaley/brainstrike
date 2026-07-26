@@ -19,19 +19,27 @@ import { describe, expect, it } from 'vitest';
  * This guard is source-level on purpose: the crash is dev-server-specific and
  * cannot be reproduced under vitest, so we lock the import convention instead.
  */
-const panelSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'assistant-ui-panel.tsx'),
-  'utf8'
-);
+const readPanelModule = (fileName: string): string =>
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', fileName), 'utf8');
+
+const panelSource = readPanelModule('assistant-ui-panel.tsx');
+const threadMessagesSource = readPanelModule('assistant-thread-messages.tsx');
 
 describe('Fast Refresh hook aliasing (assistant-ui-panel)', () => {
-  it('never calls an unstable_use* hook by its non-use-prefixed name', () => {
+  it.each([
+    ['assistant-ui-panel.tsx', panelSource],
+    ['assistant-thread-messages.tsx', threadMessagesSource],
+  ])('never calls an unstable_use* hook by its non-use-prefixed name (%s)', (_name, source) => {
     // A call site like `unstable_useFoo(` breaks Fast Refresh hook tracking.
-    const bareUnstableHookCalls = panelSource.match(/(?<![.\w])unstable_use[A-Za-z]+\s*\(/g) ?? [];
+    const bareUnstableHookCalls = source.match(/(?<![.\w])unstable_use[A-Za-z]+\s*\(/g) ?? [];
     expect(bareUnstableHookCalls).toEqual([]);
   });
 
   it('imports unstable_useSlashCommandAdapter aliased to a use-prefixed name', () => {
     expect(panelSource).toMatch(/unstable_useSlashCommandAdapter\s+as\s+use[A-Za-z]+/);
+  });
+
+  it('imports unstable_useThreadMessageIds aliased to a use-prefixed name (BST-897)', () => {
+    expect(threadMessagesSource).toMatch(/unstable_useThreadMessageIds\s+as\s+use[A-Za-z]+/);
   });
 });

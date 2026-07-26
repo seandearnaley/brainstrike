@@ -580,7 +580,13 @@ the bottom follows streaming growth; the moment the user scrolls up,
 `isAtBottom` flips false and the library stops writing `scrollTop` — streaming
 can never steal the reading position back. Re-engaging is an explicit user act.
 
-- **Jump-to-latest** (`ThreadScrollToBottom`, assistant-ui-panel.tsx) wraps
+The viewport, the message list and the button are one owned module —
+`packages/ui/src/assistant-ui-panel/assistant-thread-messages.tsx`
+(`ThreadMessagesRegion`, `ThreadScrollRegion`, `ThreadScrollToBottom`, all
+re-exported from assistant-ui-panel.tsx). The panel only composes it and hands
+it the message components.
+
+- **Jump-to-latest** (`ThreadScrollToBottom`) wraps
   `ThreadPrimitive.ScrollToBottom`: the primitive is the behavior (DISABLED
   while at bottom, scroll + re-engage when clicked), we only style it
   (`.bs-scroll-to-bottom`, hidden via `:disabled { opacity: 0 }` — no layout
@@ -606,13 +612,99 @@ can never steal the reading position back. Re-engaging is an explicit user act.
   that is the reload-hydration stance in assistant-persistence.md: reopening a
   thread restores its position instead of jumping to the newest message.
 - There is deliberately NO collapsed-history affordance (removed in BST-896):
-  every message renders. Virtualization is a separate, later slice.
+  every message renders. Which messages MOUNT is the render tier's business —
+  see below.
 
 Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
 ABOVE the reading position, anchor scoping) and the BST-896 case in
 `assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
 absent `behavior`, and the scoped CSS rule.
+
+### Render tiers (BST-897)
+
+`ThreadMessagesRegion` picks one of two renderers by message count and
+publishes the choice as `data-thread-render-tier` on the viewport — tier
+selection is observable, never silent.
+
+**Tier 1 — `static`** (below `THREAD_VIRTUALIZATION_THRESHOLD`, currently 400).
+Every message is a real DOM row from `ThreadPrimitive.Messages`; off-screen
+rows are cheap via `content-visibility: auto` + `contain-intrinsic-size` in
+overrides.css, which keeps find-in-page, selection, screen readers and anchor
+links working — that is why it is the DEFAULT tier. Containment is NEVER
+applied to the last row: the streaming message grows token by token and a
+lagging intrinsic size fights the follow logic. The streaming message is always
+the last row and the library's message root carries no "running" attribute, so
+`:not(:last-child)` IS the streaming exclusion. Scrolling is exactly as
+described above.
+
+**Tier 2 — `virtual`** (at or above the threshold). The list becomes an
+end-anchored TanStack virtualizer (`anchorTo: 'end'`, `followOnAppend`,
+`getItemKey` = message id, `measureElement`) driven by the library's documented
+escape hatch, `unstable_useThreadMessageIds` +
+`ThreadPrimitive.Unstable_MessageById`. Mounted rows are bounded by the
+viewport, not by thread length.
+
+- **One scroll owner per tier.** On tier 2 the virtualizer writes `scrollTop`,
+  so every library-driven scroll is off: `autoScroll={false}` and
+  `scrollToBottomOnThreadSwitch={false}`. Never run the library's
+  stick-to-bottom hook and the virtualizer on one container.
+- **`overflow-anchor: none` is UNCONDITIONAL on tier 2**, via
+  `[data-thread-render-tier="virtual"]`, independent of `data-pinned`. The
+  pinned-only scoping above is the static tier's rule: it holds because the
+  library writes `scrollTop` only while pinned. The virtualizer corrects
+  `scrollTop` in every state — item re-measurement fires while the reader is
+  scrolled up too — so native anchoring would double-adjust there as well. Two
+  independent selectors setting the same value; they never disagree.
+- **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
+  stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
+  virtual tier anchors to the newest message with `behavior: 'instant'` (never
+  animated), but only when the reader was not already scrolled up — a thread
+  crossing the threshold mid-session must not yank the viewport away. The
+  anchor re-arms when `threadKey` changes or when the thread drops back to the
+  static tier.
+- **Pinnedness at the switch is RECORDED, never measured.** The anchor effect
+  runs after the commit that already swapped the renderer, so the viewport is
+  sized by the virtualizer's ESTIMATES by then, not the static list's real row
+  heights; measuring `scrollHeight` there compares a stale `scrollTop` against a
+  size that just changed, and the verdict flips depending on whether the
+  estimate happens to run above or below the real height. The static tier's own
+  `isAtBottom` is recorded while it is still the truth and read back on the
+  swap.
+- **`aria-live` forks per tier.** Every insertion into a live region is an
+  announcement. Tier 1's only insertions are new messages, so the viewport stays
+  `aria-live="polite"`. Tier 2 mounts and unmounts rows as the user SCROLLS, so
+  the same setting would read out every row entering the overscan window; it is
+  `off` there until a dedicated new-message live region exists.
+- **Reduced motion, tier 2.** The no-explicit-`behavior` rule above is a tier-1
+  rule. The virtualizer's behavior argument is not merely forwarded to
+  `scrollTo`; it drives the instance's scroll state machine (a `'smooth'`
+  scroll suppresses measurement corrections so re-measuring items cannot push
+  the target away mid-animation). It therefore must be explicit, and the
+  jump button checks `prefers-reduced-motion` itself.
+- **One control, one chrome.** Class, icon, label and test id are declared once
+  and shared; only the behaviour differs — `ThreadPrimitive.ScrollToBottom` on
+  tier 1, `isAtEnd()` / `scrollToEnd()` on tier 2. The button takes plain
+  `{ atEnd, jumpToEnd }` values, never the virtualizer: its identity never
+  changes, so a child memoized on it would freeze.
+- **Message markup never forks.** Both tiers render the SAME components map
+  through library primitives; the tier decides which messages mount, never how
+  they render. CSS that keyed off "direct child of the viewport" must account
+  for tier 2's `.bs-virtual-message` position wrapper.
+- **Row spacing must live inside the measured box.** `measureElement` measures
+  the border box, so margins on a row — and the virtualizer's `paddingEnd` —
+  are invisible to it: margins make consecutive rows overlap, and trailing
+  padding outside the measured rows only reaches the DOM on the next React
+  commit, so a correction fired while the last message is still growing is
+  clamped by exactly that gap and the thread rests just above the true bottom.
+  Tier 2 puts inter-message spacing and the trailing gap on the row wrapper as
+  padding.
+
+Paired tests: `packages/ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
+(real Chromium: tier attribute either side of the threshold, bounded DOM rows at
+N=1000 with all messages still reachable, opening at the newest message, append
+while scrolled up, streaming growth staying pinned, tier-1 containment computed
+styles) and the BST-897 case in `assistant-ui-panel-architecture.test.ts`.
 
 ---
 

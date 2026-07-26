@@ -183,8 +183,12 @@ contracts keep reloaded threads identical to live ones:
    so reopening a thread restores where the reader was instead of jumping to
    the newest message. Live auto-follow, the jump-to-latest affordance, and the
    pinned-only `overflow-anchor` opt-out are the viewport store's business —
-   see assistant-runtime.md § THREAD SCROLLING. The stance is pinned by the
-   BST-896 case in `packages/ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
+   see assistant-runtime.md § THREAD SCROLLING. Above the virtualization
+   threshold those two props no longer describe the opening position on their
+   own: the virtualized tier has no library initialize step and anchors to the
+   newest message itself, without animation, and only when the reader was not
+   already scrolled up — same section. The stance is pinned by the BST-896 and
+   BST-897 cases in `packages/ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
 
 Approval/suspend ACTION messages are deliberately NEVER a Mastra row: the
 "Approved <tool>." / "Approved the plan." user message the notices append is
