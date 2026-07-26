@@ -189,6 +189,83 @@ describe('runQuerySelf', () => {
     expect((error as Error).message).toBe('Self-query failed. Please try again.');
   });
 
+  it('surfaces the recursion guard as an actionable message, not tool_failed', async () => {
+    // Regression from a live run: the guard fired correctly but reached the
+    // model as "The tool did not complete successfully", which is
+    // indistinguishable from a crash — it could not tell that its recursive CTE
+    // was the problem. Every AgentSqlService rejection must be model-readable.
+    const { AgentSqlUnboundedRecursionError } = await import('@brainstrike/db');
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase(() => {
+        throw new AgentSqlUnboundedRecursionError();
+      })
+    );
+
+    const error = await runQuerySelf(
+      {
+        mode: 'query',
+        sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
+      },
+      undefined
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ToolInputError);
+    expect((error as Error).message).toMatch(/termination|drain/i);
+  });
+
+  it('refuses analyze outside explain instead of silently dropping it', async () => {
+    // NO SILENT FALLBACKS: analyze means "execute it for real timings". Ignoring
+    // it while reporting success would discard the model's stated intent.
+    getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
+
+    const error = await runQuerySelf(
+      { analyze: true, mode: 'query', sql: 'SELECT 1' },
+      undefined
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ToolInputError);
+    expect((error as Error).message).toMatch(/only meaningful with mode="explain"/i);
+  });
+
+  it('tolerates analyze:false outside explain, which strict mode emits by default', async () => {
+    // Providers force every declared property to be emitted, so `analyze: false`
+    // arrives on ordinary queries. Rejecting THAT would repeat the outage.
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) =>
+        sql.startsWith('EXPLAIN') ? explainRows(1) : { fields: [{ name: 'n' }], rows: [[1]] }
+      )
+    );
+
+    await expect(
+      runQuerySelf({ analyze: false, mode: 'query', sql: 'SELECT 1 AS n' }, undefined)
+    ).resolves.toMatchObject({ kind: 'rows' });
+  });
+
+  it('returns a query plan for explain mode', async () => {
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) =>
+        sql.startsWith('EXPLAIN')
+          ? {
+              rows: [
+                { 'QUERY PLAN': 'Seq Scan on file_chunks  (cost=0.00..11.80 rows=1 width=412)' },
+              ],
+            }
+          : { rows: [] }
+      )
+    );
+
+    const result = await runQuerySelf(
+      { mode: 'explain', sql: 'SELECT * FROM file_chunks' },
+      undefined
+    );
+
+    expect(result).toEqual({
+      analyzed: false,
+      kind: 'plan',
+      plan: ['Seq Scan on file_chunks  (cost=0.00..11.80 rows=1 width=412)'],
+    });
+  });
+
   it('describes tables', async () => {
     getDatabaseMock.mockResolvedValue(
       fakeDatabase((sql) =>
@@ -270,7 +347,8 @@ describe('runQuerySelf', () => {
     it('tells the model what is missing instead of failing opaquely', async () => {
       getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
 
-      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/requires a sql/i);
+      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/require a sql/i);
+      await expect(runQuerySelf({ mode: 'explain' }, undefined)).rejects.toThrow(/require a sql/i);
       await expect(runQuerySelf({ mode: 'describeTable' }, undefined)).rejects.toThrow(
         /requires a table name/i
       );

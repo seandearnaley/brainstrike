@@ -11,6 +11,7 @@ import {
   AgentSqlCostRejectedError,
   AgentSqlInputError,
   AgentSqlService,
+  AgentSqlUnboundedRecursionError,
 } from '../src/search/agent-sql-service.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
@@ -189,6 +190,26 @@ describe('AgentSqlService sandbox', () => {
     it('rejects empty sql', { timeout: 120_000 }, async () => {
       await expect(service.query('   ')).rejects.toBeInstanceOf(AgentSqlInputError);
     });
+
+    /**
+     * `explain()` does NOT use the subquery wrapper (EXPLAIN is invalid inside a
+     * FROM clause), so it loses the parse-level barrier that stops multi-statement
+     * text on the `query()` path. Nothing pinned that the extended protocol still
+     * refuses it on its own — this does, on both explain modes.
+     */
+    it('rejects multi-statement input through explain, which has no wrapper', {
+      timeout: 120_000,
+    }, async () => {
+      await expect(service.explain('SELECT 1; DROP TABLE file_records;')).rejects.toThrow();
+      await expect(
+        service.explain('SELECT 1; DROP TABLE file_records;', { analyze: true })
+      ).rejects.toThrow();
+
+      const still = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'file_records'`
+      );
+      expect(still.rows[0]?.n).toBe(1);
+    });
   });
 
   /**
@@ -354,6 +375,222 @@ describe('AgentSqlService sandbox', () => {
    * possible. These pin that surface so a future narrowing of the role is a
    * conscious decision rather than an accident.
    */
+  /**
+   * The cost gate bounds PLANNED work. An unbounded recursive CTE plans at ~3
+   * and runs until memory is exhausted, so it needs a different guard — and a
+   * text denylist is not it. The PLANNER names the construct (`Recursive
+   * Union`), so the guard reads the plan, exactly like the cost gate does.
+   *
+   * The distinction is measured, not guessed:
+   *   LIMIT over a pipelined recursion  -> completed in 869ms with 51 rows
+   *   count(*) over the same recursion  -> still running after 10s (killed)
+   *
+   * So recursion is NOT banned — BST-919's symbol-graph traversal needs it.
+   * Only recursion under a DRAINING parent, where the row cap cannot help, is
+   * refused.
+   */
+  describe('unbounded recursion guard', () => {
+    const UNBOUNDED = 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r)';
+
+    it('refuses recursion drained by an aggregate', { timeout: 120_000 }, async () => {
+      await expect(
+        service.query(`${UNBOUNDED} SELECT count(*) AS c FROM r`)
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('refuses recursion drained by a sort', { timeout: 120_000 }, async () => {
+      await expect(
+        service.query(`${UNBOUNDED} SELECT n FROM r ORDER BY n DESC`)
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('explains how to fix it rather than just refusing', { timeout: 120_000 }, async () => {
+      const error = await service
+        .query(`${UNBOUNDED} SELECT count(*) AS c FROM r`)
+        .catch((caught: unknown) => caught);
+      expect((error as Error).message).toMatch(/termination|WHERE|bound/i);
+    });
+
+    it('ALLOWS a pipelined recursion the row cap can bound', { timeout: 120_000 }, async () => {
+      // Guards the other direction: banning recursion outright would break
+      // graph traversal, a headline use case for this tool.
+      const result = await service.query(`${UNBOUNDED} SELECT n FROM r`, { maxRows: 5 });
+      expect(result.rows).toHaveLength(5);
+      expect(result.truncated).toBe(true);
+    });
+
+    it('ALLOWS a traversal terminated by a JOIN rather than a WHERE', {
+      timeout: 120_000,
+    }, async () => {
+      // The canonical graph traversal — and the BST-919 shape this guard
+      // exists to preserve. It terminates by running out of edges, so its
+      // bound is a `Hash Cond` on the join ABOVE the work table, not a
+      // `Filter` on it. Treating absence-of-Filter as unbounded rejected
+      // exactly the case the design claims to protect.
+      const result = await service.query(
+        `WITH RECURSIVE reach(id) AS (
+             SELECT id FROM roots WHERE id = 'nope'
+             UNION ALL
+             SELECT r2.id FROM roots r2 JOIN reach r ON r2.id = r.id
+           ) SELECT count(*)::int AS c FROM reach`
+      );
+      expect(Number(result.rows[0]?.[0])).toBe(0);
+    });
+
+    it('ALLOWS a UNION-dedup terminated traversal', { timeout: 120_000 }, async () => {
+      const result = await service.query(
+        `WITH RECURSIVE reach(id) AS (
+             SELECT id FROM roots WHERE id = 'nope'
+             UNION
+             SELECT r2.id FROM roots r2 JOIN reach r ON r2.id = r.id
+           ) SELECT count(*)::int AS c FROM reach`
+      );
+      expect(Number(result.rows[0]?.[0])).toBe(0);
+    });
+
+    it('ALLOWS a terminating recursion under an aggregate', { timeout: 120_000 }, async () => {
+      const result = await service.query(
+        'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 20) SELECT count(*)::int AS c FROM r'
+      );
+      expect(Number(result.rows[0]?.[0])).toBe(20);
+    });
+
+    /**
+     * The row cap bounds EMITTED rows, not PRODUCED ones.
+     *
+     * A draining parent is not the only way to defeat `LIMIT n+1`. A predicate
+     * that never matches suppresses every row, so the cap is never satisfied and
+     * the recursion runs forever underneath a parent that pipelines perfectly:
+     *
+     *   Limit
+     *     CTE Scan  Filter="(n < 0)"   <- emits nothing, so LIMIT never fills
+     *       Recursive Union            <- runs forever
+     *
+     * Measured on PGlite 0.5.3 before the fix: still running after 10s (killed).
+     *
+     * This is why the admission rule is an ALLOWLIST of pass-through parents
+     * rather than a denylist of draining ones — a denylist is fail-open, and
+     * this shape walked straight through two previous versions of the guard.
+     *
+     * Asserted as a rejection on purpose: a regression hangs the db lane instead
+     * of failing, which is itself the signal.
+     */
+    it('refuses recursion whose rows a filter suppresses', { timeout: 120_000 }, async () => {
+      await expect(
+        service.query(`${UNBOUNDED} SELECT n FROM r WHERE n < 0`)
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    /**
+     * Two `Recursive Union` nodes appear as SIBLINGS under one `CTE Scan`
+     * (verified on PGlite 0.5.3), and the plan tree does not say which parent
+     * drains which. A traversal that stopped at the first `Recursive Union` —
+     * bounded, therefore "safe" — never examined the second, which is unbounded
+     * and drained by an `Aggregate`. That is fail-open, so a plan carrying an
+     * unbounded recursion alongside any other recursion is refused outright.
+     */
+    it('refuses an unbounded recursion hidden beside a bounded one', {
+      timeout: 120_000,
+    }, async () => {
+      await expect(
+        service.query(
+          `WITH RECURSIVE a(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM a WHERE n < 3),
+                          b(m) AS (SELECT 1 UNION ALL SELECT m + 1 FROM b)
+             SELECT a.n, (SELECT count(*) FROM b) AS c FROM a`
+        )
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('ALLOWS an OFFSET above a pipelined recursion', { timeout: 120_000 }, async () => {
+      // The allowlist must not over-reject: `OFFSET` plans as a second `Limit`
+      // node, which still propagates the outer cap's row demand downward.
+      const result = await service.query(`${UNBOUNDED} SELECT n FROM r OFFSET 5`, { maxRows: 3 });
+      expect(result.rows).toHaveLength(3);
+      expect(Number(result.rows[0]?.[0])).toBe(6);
+    });
+  });
+
+  describe('explain mode', () => {
+    it('returns a readable plan without executing', { timeout: 120_000 }, async () => {
+      const plan = await service.explain('SELECT * FROM file_records');
+      expect(plan.plan.join('\n')).toMatch(/Scan/i);
+      expect(plan.analyzed).toBe(false);
+    });
+
+    it('does not apply the cost ceiling to a plan-only explain', { timeout: 120_000 }, async () => {
+      // Explaining an expensive query is exactly when the plan is MOST useful;
+      // refusing on cost would defeat the point. Planning does not execute.
+      const plan = await service.explain(
+        'SELECT count(*) FROM generate_series(1,6000) a, generate_series(1,6000) b'
+      );
+      expect(plan.plan.length).toBeGreaterThan(0);
+    });
+
+    it('reports actual rows and timing when analyzing', { timeout: 120_000 }, async () => {
+      const plan = await service.explain('SELECT count(*) FROM file_records', { analyze: true });
+      expect(plan.analyzed).toBe(true);
+      expect(plan.plan.join('\n')).toMatch(/actual time|rows=/i);
+    });
+
+    it('applies the cost ceiling when analyzing, since that EXECUTES', {
+      timeout: 120_000,
+    }, async () => {
+      await expect(
+        service.explain(
+          'SELECT count(*) FROM generate_series(1,6000) a, generate_series(1,6000) b',
+          { analyze: true }
+        )
+      ).rejects.toBeInstanceOf(AgentSqlCostRejectedError);
+    });
+
+    it('refuses a PIPELINED unbounded recursion under analyze, which query() allows', {
+      timeout: 120_000,
+    }, async () => {
+      // THE regression this guard exists for. explain() has no LIMIT wrapper,
+      // so the "pipelined recursion is bounded by the row cap" reasoning that
+      // query() relies on does not hold — ANALYZE runs it to completion.
+      // Measured before the fix: still running after 10s.
+      //
+      // Asserted as a REJECTION on purpose: if this guard regresses, this test
+      // hangs the db lane rather than failing, which is itself the signal.
+      await expect(
+        service.explain(
+          'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r',
+          {
+            analyze: true,
+          }
+        )
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('still ALLOWS the same pipelined shape through query(), which has the row cap', {
+      timeout: 120_000,
+    }, async () => {
+      const result = await service.query(
+        'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r',
+        { maxRows: 3 }
+      );
+      expect(result.rows).toHaveLength(3);
+    });
+
+    it('applies the recursion guard when analyzing', { timeout: 120_000 }, async () => {
+      await expect(
+        service.explain(
+          'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT count(*) FROM r',
+          { analyze: true }
+        )
+      ).rejects.toBeInstanceOf(AgentSqlUnboundedRecursionError);
+    });
+
+    it('still refuses to write when analyzing', { timeout: 120_000 }, async () => {
+      await expect(
+        service.explain(`INSERT INTO roots (id, kind, display_name) VALUES ('x','path','x')`, {
+          analyze: true,
+        })
+      ).rejects.toThrow(/read-only transaction|permission denied/i);
+    });
+  });
+
   describe('database tuning surface', () => {
     it.each([
       ['index usage', 'SELECT relname, seq_scan, idx_scan FROM pg_stat_user_tables'],

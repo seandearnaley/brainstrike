@@ -206,6 +206,92 @@ describe('querySelf model projection', () => {
     expect(projection.value).toContain('more columns omitted');
   });
 
+  it('passes a query plan through as PostgreSQL renders it', () => {
+    const projection = projectQuerySelfModelOutput({
+      analyzed: true,
+      kind: 'plan',
+      plan: [
+        'Aggregate  (cost=0.15..0.16 rows=1 width=8) (actual time=0.02..0.02 rows=1 loops=1)',
+        '  ->  Seq Scan on file_records  (cost=0.00..0.12 rows=12 width=0)',
+        'Execution Time: 0.061 ms',
+      ],
+    });
+
+    expect(projection.value).toContain('plan | analyzed=true');
+    expect(projection.value).toContain('Seq Scan on file_records');
+    expect(projection.value).toContain('Execution Time');
+  });
+
+  it('fits a very deep plan instead of throwing', () => {
+    const plan = Array.from(
+      { length: 400 },
+      (_unused, index) =>
+        `  ->  Nested Loop ${index}  (cost=0.00..${index}.00 rows=${index} width=8)`
+    );
+
+    const projection = projectQuerySelfModelOutput({ analyzed: false, kind: 'plan', plan });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toContain('more plan line(s) omitted');
+  });
+
+  it('keeps the plan head AND the trailing timings when truncating', () => {
+    // Plans are not uniform items: the costliest nodes are deepest (bottom) and
+    // EXPLAIN ANALYZE ends with Planning/Execution Time — the numbers the model
+    // asked for. Tail-dropping would remove exactly those.
+    const body = Array.from(
+      { length: 400 },
+      (_unused, index) =>
+        `  ->  Nested Loop ${index}  (cost=0.00..${index}.00 rows=${index} width=8)`
+    );
+    const plan = [
+      'Aggregate  (cost=1.00..2.00 rows=1 width=8)',
+      ...body,
+      'Planning Time: 0.412 ms',
+      'Execution Time: 1843.9 ms',
+    ];
+
+    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projection.value).toContain('Aggregate');
+    expect(projection.value).toContain('Planning Time: 0.412 ms');
+    expect(projection.value).toContain('Execution Time: 1843.9 ms');
+    expect(projection.value).toContain('more plan line(s) omitted');
+  });
+
+  it('fits a plan whose INDIVIDUAL lines are enormous', () => {
+    // Dropping lines cannot help when one surviving line is itself over budget:
+    // the head/tail loop preserves the last PLAN_TAIL_LINES unconditionally, so
+    // a single huge line reached `assertProjectionFits` and threw a RangeError —
+    // from inside `toModelOutput`, OUTSIDE `runQuerySelf`'s catch, so the model
+    // saw an opaque failure rather than a usable plan.
+    //
+    // Not hypothetical: a `Filter` on a long IN-list or a wide row-type
+    // expression renders as one very long line of EXPLAIN text.
+    const plan = [
+      `Seq Scan on wide  (cost=0.00..1.00 rows=1 width=8)  Filter: (${'x'.repeat(9000)})`,
+      `  ->  Nested Loop  Join Filter: (${'y'.repeat(9000)})`,
+      'Planning Time: 0.412 ms',
+      `Execution Time: 1843.9 ms  (${'z'.repeat(9000)})`,
+    ];
+
+    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+
+    expect(serializedChars(projection)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    // The clip is stated, and the informative prefix of each line survives.
+    expect(projection.value).toContain('Seq Scan on wide');
+    expect(projection.value).toContain('Planning Time: 0.412 ms');
+    expect(projection.value).toContain('Execution Time: 1843.9 ms');
+    expect(projection.value).toMatch(/more characters clipped/);
+  });
+
   it('rejects a malformed result rather than projecting nonsense', () => {
     expect(() => projectQuerySelfModelOutput({ nope: true })).toThrow(TypeError);
   });

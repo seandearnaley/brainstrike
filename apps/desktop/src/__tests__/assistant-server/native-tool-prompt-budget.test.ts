@@ -45,10 +45,13 @@ vi.mock('../../db-main', () => ({
 // shortening the parameter prose. The remainder is the genuine cost of a new
 // capability.
 //
-// The 46-token headroom is deliberate: enough that a wording fix does not fail
-// CI, far too little for another whole tool (200-500 tokens) to slip in
-// unnoticed. If you are here because you added a tool, trim it first and only
-// then raise this — and say in the comment what you traded away.
+// HEADROOM IS ~1 TOKEN (the surface measures 8299 against this 8300 ceiling).
+// That is deliberate but very tight, and it has already fired once as intended:
+// adding `explain` to the description prose pushed the surface to 8302, and the
+// fix was to trim wording rather than raise the number again. If you are reading
+// this because a one-word change failed CI, that is the forcing function
+// working, not a flake. Trim something first; raise the ceiling only as a
+// considered decision, and record what you traded away.
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8300;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
@@ -380,7 +383,7 @@ describe('desktop native tool provider prompt budget', () => {
       // carries a stats-flush warning because PGlite's pg_stat_* counters read
       // ZERO until flushed — without it the model reports "no index is ever
       // used", and a confidently wrong tuning answer is worse than a missing one.
-      eagerDefinitionTokens: 7573,
+      eagerDefinitionTokens: 7614,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
