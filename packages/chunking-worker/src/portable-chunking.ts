@@ -16,6 +16,11 @@ import {
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
+import { type ExtractedSymbols, extractSymbols } from './extract-symbols';
+import {
+  buildLineStartOffsets as buildLineStarts,
+  findLineForOffset as lineForOffset,
+} from './line-offsets';
 import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
@@ -69,6 +74,11 @@ export interface PortableChunkingResult {
   skipReason?: string;
   sourceRangeSkippedChunks?: number;
   strategyUsed: ResolvedChunkingStrategy;
+  /** Name-based references extracted from the same parse (BST-919). Absent
+   * when the file was not AST-chunked or extraction degraded. */
+  symbolRefs?: import('./extract-symbols').PortableSymbolRef[];
+  /** Symbol definitions extracted from the same parse (BST-919). */
+  symbols?: import('./extract-symbols').PortableSymbol[];
   totalTokens: number;
 }
 
@@ -391,34 +401,7 @@ function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
 }
 
-function buildLineStartOffsets(content: string): number[] {
-  const lineStarts = [0];
-  for (let index = 0; index < content.length; index += 1) {
-    if (content.charCodeAt(index) === 10) {
-      lineStarts.push(index + 1);
-    }
-  }
-  return lineStarts;
-}
-
-function findLineForOffset(lineStarts: readonly number[], offset: number): number {
-  let low = 0;
-  let high = lineStarts.length - 1;
-  let best = 0;
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const lineStart = lineStarts[mid] ?? 0;
-    if (lineStart <= offset) {
-      best = mid;
-      low = mid + 1;
-      continue;
-    }
-    high = mid - 1;
-  }
-
-  return best + 1;
-}
+export { buildLineStartOffsets, findLineForOffset } from './line-offsets';
 
 function findNextNonWhitespaceOffset(content: string, startOffset: number): number {
   let offset = startOffset;
@@ -728,7 +711,7 @@ function resolveSourceRanges(
   chunks: readonly { content: string }[],
   overlapChars: number
 ): SourceRangeResolution {
-  const lineStarts = buildLineStartOffsets(content);
+  const lineStarts = buildLineStarts(content);
   let searchStart = 0;
   let previousStartOffset = -1;
   let fuzzyMatchedChunks = 0;
@@ -749,9 +732,9 @@ function resolveSourceRanges(
     searchStart = Math.max(0, endOffset - overlapChars - 1);
 
     return {
-      endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
+      endLine: lineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
       endOffset,
-      startLine: findLineForOffset(lineStarts, startOffset),
+      startLine: lineForOffset(lineStarts, startOffset),
       startOffset,
     };
   });
@@ -941,7 +924,7 @@ async function splitCodeByFunctions(
      */
     fileName?: string;
   }
-): Promise<string[] | null> {
+): Promise<{ pieces: string[]; symbols: ExtractedSymbols | null } | null> {
   let ast: AstNode | null = null;
   const adapter = selectAdapter(fileName);
   if (adapter === null) {
@@ -991,11 +974,36 @@ async function splitCodeByFunctions(
     return null;
   }
 
+  // Symbol extraction rides the SAME parse (BST-919): the AST is in hand and
+  // both index paths converge here, so there is no separate walker. An
+  // extractor error degrades LOUDLY to chunks-without-symbols — extraction
+  // must never fail chunking.
+  let symbols: ExtractedSymbols | null = null;
+  try {
+    symbols = extractSymbols({ adapterId: adapter.id, ast, content });
+  } catch (err) {
+    // biome-ignore lint/suspicious/noConsole: visible signal that the symbol graph lost this file
+    console.warn(
+      '[portable-chunking] symbol extraction failed; chunking continues without symbols',
+      {
+        error: err instanceof Error ? err.message : String(err),
+        fileName,
+      }
+    );
+  }
+
   const ranges: Array<{ start: number; end: number }> = [];
   collectTopLevelFunctionRanges(ast, [], ranges);
 
   if (!ranges.length) {
-    return null;
+    // No function-shaped ranges does NOT mean no symbols: an interfaces-only
+    // types.ts, a constants module, or a barrel index.ts parses fine and
+    // extracts fine — only the CHUNKING strategy has nothing to split on.
+    // Returning the symbols with empty pieces lets the caller fall back to
+    // separator chunking without discarding the graph rows (review finding on
+    // #2032: the import refs lost here are exactly the files whose whole job
+    // is importing).
+    return { pieces: [], symbols };
   }
 
   ranges.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -1047,7 +1055,7 @@ async function splitCodeByFunctions(
     await appendRange(cursor, content.length);
   }
 
-  return pieces;
+  return { pieces, symbols };
 }
 
 /**
@@ -1129,6 +1137,11 @@ export async function chunkContent(
     return groups;
   };
 
+  // Populated by the AST branch inside chunkCode; attached to the successful
+  // result so symbols ride the same worker response as the chunks they came
+  // from (BST-919).
+  const symbolHolder: { current: ExtractedSymbols | null } = { current: null };
+
   const chunkCode = async (): Promise<ChunkGroup[]> => {
     // AST chunking is supported for:
     //  - JS/TS (always — via Babel in browser or oxc in chunking-host)
@@ -1154,7 +1167,7 @@ export async function chunkContent(
 
     if (supportsAst) {
       const resolvedFileName = options.fileName ?? options.filePath;
-      const pieces = await splitCodeByFunctions(content, {
+      const astSplit = await splitCodeByFunctions(content, {
         language: codeLanguage,
         maxChars,
         overlapChars,
@@ -1167,8 +1180,13 @@ export async function chunkContent(
         ...(resolvedFileName ? { fileName: resolvedFileName } : {}),
       });
 
-      if (pieces && pieces.length > 0) {
-        return [{ pieces, type: 'recursive' }];
+      if (astSplit) {
+        // Symbols decouple from chunking strategy: keep them even when the
+        // splitter found no function ranges and we fall back to separators.
+        symbolHolder.current = astSplit.symbols;
+        if (astSplit.pieces.length > 0) {
+          return [{ pieces: astSplit.pieces, type: 'recursive' }];
+        }
       }
 
       return chunkWithCodeSeparators();
@@ -1355,5 +1373,8 @@ export async function chunkContent(
     strategyUsed: effectiveStrategy,
     totalTokens,
     ...(sourceRangeSkippedChunks > 0 ? { sourceRangeSkippedChunks } : {}),
+    ...(symbolHolder.current
+      ? { symbolRefs: symbolHolder.current.refs, symbols: symbolHolder.current.symbols }
+      : {}),
   };
 }

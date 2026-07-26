@@ -21,12 +21,23 @@
 ;   `module → function_definition → block → function_definition`, not
 ;   `module → function_definition`).
 ;
-; Why we don't extract names here:
-;   Phase 3 ships chunk *ranges* (start/end), which is what
-;   `collectTopLevelFunctionRanges` consumes. Names are useful for telemetry
-;   and could be added by extending the query with `name: (identifier) @name`
-;   captures — Phase N decision.
+; Name extraction (BST-919, the "Phase N decision" this file predicted):
+;   Each chunk pattern also captures the definition's identifier as @name.
+;   The adapter emits ONE child per match (the @chunk node, annotated with
+;   the @name text) — never the identifier itself, which would become a
+;   phantom chunk boundary. Symbol REFERENCES (calls/imports) live in a
+;   separate query below and ride the root's `symbolRefs` field.
 
-(module (function_definition) @chunk)
-(module (class_definition) @chunk)
-(module (decorated_definition) @chunk)
+(module (function_definition name: (identifier) @name) @chunk)
+(module (class_definition name: (identifier) @name) @chunk)
+(module (decorated_definition (function_definition name: (identifier) @name)) @chunk)
+(module (decorated_definition (class_definition name: (identifier) @name)) @chunk)
+
+; --- Symbol-reference query (compiled separately as SYMBOL_QUERIES) ---
+; Calls and imports at any depth; names only. `aliased_import` is
+; deliberately unmatched in v1 — a miss is an absent retrieval edge.
+;
+; (call function: (identifier) @call)
+; (call function: (attribute attribute: (identifier) @call))
+; (import_statement name: (dotted_name) @import_plain)
+; (import_from_statement module_name: (dotted_name) @from_module name: (dotted_name) @from_name)

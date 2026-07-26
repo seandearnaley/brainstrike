@@ -177,6 +177,8 @@ export type BaseImportRunner<TFileNode = unknown> = (
 interface ChunkingDependencies {
   chunkRepository: FileImportChunkRepository | null;
   repository: FileImportFileRecordRepository | null;
+  /** Symbol-graph sink (BST-919); optional, absent = no graph. */
+  symbolRepository?: import('./chunking').FileImportSymbolRepository | null;
 }
 
 interface ChunkingConfiguration {
@@ -815,6 +817,7 @@ function buildChunkingOptions(
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
     ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
+    ...(chunking.deps.symbolRepository ? { symbolRepository: chunking.deps.symbolRepository } : {}),
   };
 
   logger.debug('Chunking options target set resolved', {

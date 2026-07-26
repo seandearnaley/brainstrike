@@ -1,4 +1,5 @@
 import { incrementOutcomeMetricsCte } from '../queue/job-queue.js';
+import { deleteFileSymbolsForFileRecords } from '../repositories/file-symbol-repository.js';
 import type { IDatabase } from '../repositories/interfaces.js';
 import {
   markCollectionIndexingStatsDirty,
@@ -424,6 +425,10 @@ async function applyManagedCacheReplacements(
   await tx.query('DELETE FROM file_chunks WHERE file_record_id::text = ANY($1::text[])', [
     replacementIds,
   ]);
+  // Symbol-graph rows share the chunk lifecycle but CANNOT ride the FK
+  // cascade here: a replace UPDATEs the file_records row rather than deleting
+  // it. Single shared implementation — see deleteFileSymbolsForFileRecords.
+  await deleteFileSymbolsForFileRecords(tx, replacementIds);
 
   const placeholders = buildValuePlaceholders(replacements.length, REPLACE_VALUE_COLUMNS.length);
   const values = replacements.flatMap((record) => [

@@ -64,6 +64,7 @@ import { migration071OpenRouterJulyCodingModels } from '../migrations/071-openro
 import { migration072OpenRouterLing3Flash } from '../migrations/072-openrouter-ling-3-flash.js';
 import { migration073DiagnosticEvents } from '../migrations/073-diagnostic-events.js';
 import { migration074AgentReadonlyRole } from '../migrations/074-agent-readonly-role.js';
+import { migration075FileSymbols } from '../migrations/075-file-symbols.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -239,6 +240,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-072-openrouter-ling-3-flash', migration072OpenRouterLing3Flash),
   customMigration('custom-073-diagnostic-events', migration073DiagnosticEvents),
   customMigration('custom-074-agent-readonly-role', migration074AgentReadonlyRole),
+  customMigration('custom-075-file-symbols', migration075FileSymbols),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

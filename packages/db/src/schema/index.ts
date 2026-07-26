@@ -15,6 +15,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -221,6 +222,61 @@ export const fileChunks = pgTable(
     index('idx_file_chunks_content_hash').on(table.contentHash),
     // Note: GIN index on content_tsvector is created via migration, not Drizzle
     // because Drizzle doesn't support GIN index type directly
+  ]
+);
+
+// ============================================================================
+// SYMBOL GRAPH TABLES (migration 075, BST-919)
+// ============================================================================
+
+// DDL is owned by numbered migration 075 (+ its customMigrations entry) like
+// every other table here; these definitions exist for typed reads. Refs store
+// NAMES, not resolved symbol ids — cross-file edges are name-joined at query
+// time because symbol rows churn on every file edit. Composite (file_record_id,
+// seq) keys are a MEASURED decision (v1 text ids cost ~98% of source bytes on
+// this monorepo); embedding-set scoping joins through file_records, the same
+// precedent as root scoping for file_chunks. See 075-file-symbols.ts.
+export const fileSymbols = pgTable(
+  'file_symbols',
+  {
+    endLine: integer('end_line').notNull(),
+    endOffset: integer('end_offset').notNull(),
+    exported: boolean('exported').notNull().default(false),
+    fileRecordId: text('file_record_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    kind: text('kind')
+      .$type<'function' | 'class' | 'method' | 'variable' | 'interface' | 'type' | 'enum'>()
+      .notNull(),
+    name: text('name').notNull(),
+    seq: integer('seq').notNull(),
+    startLine: integer('start_line').notNull(),
+    startOffset: integer('start_offset').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.fileRecordId, table.seq] }),
+    index('idx_file_symbols_name').on(table.name),
+  ]
+);
+
+export const fileSymbolRefs = pgTable(
+  'file_symbol_refs',
+  {
+    fileRecordId: text('file_record_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    fromSymbolSeq: integer('from_symbol_seq'),
+    kind: text('kind').$type<'call' | 'import' | 'extends' | 'implements'>().notNull(),
+    line: integer('line').notNull(),
+    module: text('module'),
+    name: text('name').notNull(),
+    seq: integer('seq').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.fileRecordId, table.seq] }),
+    index('idx_file_symbol_refs_name_kind').on(table.name, table.kind),
+    // Composite FK to file_symbols(file_record_id, seq) is owned by the
+    // migration DDL; drizzle-orm has no composite-FK builder in this version.
   ]
 );
 

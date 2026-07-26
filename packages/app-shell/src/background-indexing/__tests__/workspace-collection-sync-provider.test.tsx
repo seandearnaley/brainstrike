@@ -331,6 +331,12 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
+  FileSymbolRepository: vi.fn(function MockFileSymbolRepository() {
+    return {
+      deleteForFileRecords: vi.fn(async () => undefined),
+      insertMany: vi.fn(async () => undefined),
+    };
+  }),
   getDatabasePressureWaitingReason: vi.fn(() => null),
   getDatabaseWorkScheduler: vi.fn(() => ({
     getSnapshot: vi.fn(() => idleSchedulerSnapshot),

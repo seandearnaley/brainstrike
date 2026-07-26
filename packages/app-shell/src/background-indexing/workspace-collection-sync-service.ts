@@ -13,6 +13,7 @@ import type {
   EnhancedImportProgress,
   FileImportChunkRepository,
   FileImportFileRecordRepository,
+  FileImportSymbolRepository,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import {
@@ -183,6 +184,8 @@ export interface WorkspaceCollectionSyncServiceDependencies {
       total: number;
     }) => void
   ) => () => void;
+  /** Symbol-graph sink (BST-919); optional, absent = no graph. */
+  symbolRepository?: FileImportSymbolRepository | null;
   validateHostedProviderAccess: (embeddingSetId: string) => Promise<void>;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }
@@ -879,6 +882,12 @@ export class WorkspaceCollectionSyncService {
     await this.deps.cancelBackfill(args.previousTrackedBackfill.embeddingSetId);
   }
 
+  /** Optional-dep normalization kept OUT of runSyncPass: that method sits at
+   * the cognitive-complexity ceiling and a `??` inside it tips the lint. */
+  private symbolSink(): FileImportSymbolRepository | null {
+    return this.deps.symbolRepository ?? null;
+  }
+
   private async runSyncPass(args: {
     abortSignal: AbortSignal;
     context: ResolvedSyncContext;
@@ -1022,6 +1031,7 @@ export class WorkspaceCollectionSyncService {
         chunkRepository: this.deps.chunkRepository,
         collection: args.context.collection,
         db: this.deps.db,
+        symbolRepository: this.symbolSink(),
         ...(this.deps.fileContentProcessor
           ? { fileContentProcessor: this.deps.fileContentProcessor }
           : {}),
