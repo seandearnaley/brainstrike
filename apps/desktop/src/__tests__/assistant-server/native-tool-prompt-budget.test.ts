@@ -45,14 +45,27 @@ vi.mock('../../db-main', () => ({
 // shortening the parameter prose. The remainder is the genuine cost of a new
 // capability.
 //
-// HEADROOM IS ~1 TOKEN (the surface measures 8299 against this 8300 ceiling).
-// That is deliberate but very tight, and it has already fired once as intended:
-// adding `explain` to the description prose pushed the surface to 8302, and the
-// fix was to trim wording rather than raise the number again. If you are reading
-// this because a one-word change failed CI, that is the forcing function
-// working, not a flake. Trim something first; raise the ceiling only as a
-// considered decision, and record what you traded away.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8300;
+// Raised 8300 → 8350 for the hybrid one-statement idioms (BST-935). The 43
+// added tokens (8299 → 8342 authored; +44 on the eager surface, which is a
+// different concatenation and legitimately differs by one) are the two
+// search-arm operator forms — content <@>
+// to_bm25query('terms','idx_file_chunks_content_bm25') and embedding <=> a
+// stored embedding — which are NOT discoverable through describeTable (an
+// operator and an index name appear in no column listing), so a model asked to
+// compose traversal+search cannot derive them and the capability is silently
+// unreachable without this line. Trimming was considered first, per the rule
+// below: the remaining querySelf prose is the set that survived two prior trim
+// passes, each item behavior-changing, so the raise is the honest price.
+//
+// HEADROOM IS ~8 TOKENS (the surface measures 8342 against this 8350 ceiling).
+// That is deliberate but very tight, and the forcing function has already fired
+// twice as intended: adding `explain` to the description prose pushed the
+// surface to 8302 and the fix was to trim wording; the BST-935 raise above went
+// through the same gate. If you are reading this because a one-word change
+// failed CI, that is the forcing function working, not a flake. Trim something
+// first; raise the ceiling only as a considered decision, and record what you
+// traded away.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8350;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -383,7 +396,10 @@ describe('desktop native tool provider prompt budget', () => {
       // carries a stats-flush warning because PGlite's pg_stat_* counters read
       // ZERO until flushed — without it the model reports "no index is ever
       // used", and a confidently wrong tuning answer is worse than a missing one.
-      eagerDefinitionTokens: 7613,
+      // +44 for the hybrid-arm idioms (BST-935): the BM25 operator and index
+      // name are NOT discoverable via describeTable, so without this line the
+      // model cannot write the BM25 arm at all.
+      eagerDefinitionTokens: 7657,
       eagerToolCount: 31,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
